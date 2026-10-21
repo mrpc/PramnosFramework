@@ -261,17 +261,10 @@ class Groups extends Controller
             return;
         }
 
-        $exists = $this->db()->queryBuilder()->table('#PREFIX#userstogroups')
-            ->where('groupid', $id)->where('userid', $userId)->first();
-        if ($exists && $exists->numRows > 0) {
+        // One path with the bulk action and rules: the cache, the permissions and `group.joined`.
+        if (\Pramnos\Audience\Groups::add($id, $userId, $this->operator()) === 0) {
             $this->addMessage('Already a member.');
         } else {
-            $this->db()->queryBuilder()->table('#PREFIX#userstogroups')
-                ->insert(['userid' => $userId, 'groupid' => $id]);
-            $this->db()->cacheflush(self::CACHE_CATEGORY);
-            if ($this->holdsRoles($id)) {
-                $this->permissionsChangedFor([$userId], ['operation' => 'group_joined', 'groupid' => $id]);
-            }
             $this->addMessage('Member added.');
         }
 
@@ -291,12 +284,7 @@ class Groups extends Controller
             return;
         }
 
-        $this->db()->queryBuilder()->table('#PREFIX#userstogroups')
-            ->where('groupid', $id)->where('userid', $userId)->delete();
-        $this->db()->cacheflush(self::CACHE_CATEGORY);
-        if ($userId > 1 && $this->holdsRoles($id)) {
-            $this->permissionsChangedFor([$userId], ['operation' => 'group_left', 'groupid' => $id]);
-        }
+        \Pramnos\Audience\Groups::remove($id, $userId, $this->operator());
 
         $this->addMessage('Member removed.');
         $this->redirect(adminUrl('Groups/view/') . $id);
@@ -434,6 +422,14 @@ class Groups extends Controller
     }
 
     // ── Lookups ──────────────────────────────────────────────────────────────
+
+    /** The signed-in account's id, recorded as who changed a membership. */
+    protected function operator(): ?int
+    {
+        $user = \Pramnos\User\User::current();
+
+        return $user ? (int) $user->userid : null;
+    }
 
     /**
      * Whether this request stops here: below the screen's floor, or the feature is off.

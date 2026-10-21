@@ -6,6 +6,7 @@ use_cases:
   - Explaining why one person is or is not in an audience
   - Leaving staff or deleted accounts out of every audience
   - Keeping a named audience up to date and reacting when somebody enters or leaves it
+  - Putting everybody a filter matches in a group, or taking them out
 ---
 
 # Audience Guide
@@ -203,4 +204,29 @@ Segments::isMember($id, $userid);
 - **In use is not deleted.** `Segments::delete()` refuses while another segment's filter names it,
   or while something an application reports through `Segments::usage('rules', fn (int $id) =>
   [...names...])` does; the refusal lists what. Deleting takes the history with it.
+
+## Groups
+
+Groups are the framework's `usergroups` / `userstogroups` — the same ones permissions and the
+Groups screen use. To a filter they are the `groups` attribute (`any_of`, `all_of`, `none_of`).
+Membership changes go through one path, whoever makes them:
+
+```php
+use Pramnos\Audience\Groups;
+
+Groups::add($groupId, [$userid, $other], by: $adminId);     // how many were added
+Groups::remove($groupId, $userid, source: 'rule');
+Groups::addMatching($groupId, $filter, by: $adminId);       // the bulk action, paged
+Groups::removeMatching($groupId, $filter);
+Groups::of($userid);                                        // [['id' => 4, 'name' => 'Press'], …]
+```
+
+Only real changes count: a person already in is not added again, and one not in is not removed.
+Each real change flushes the cache `User::getGroups()` reads, tells the applications the person
+uses when the group holds a role, and dispatches `group.joined` (`GroupJoined`) or `group.left`
+(`GroupLeft`) with `groupId`, `personId`, `by` and `source` (`admin`, `bulk`, `rule`, or the
+application's own word). The Groups screen adds and removes members through it too.
+
+An application with its own `addGroup()` / `removeGroup()` on its user class can keep them and
+have them call these, so a membership changed anywhere is announced the same way.
 

@@ -91,7 +91,9 @@ trait AudienceProbe
         $this->prefixed = $prefix !== '';
         $this->db = $this->openProbe($this->admin, self::$probe, $make, [
             CreateUsersTable::class,
+            \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverRolesTable::class,
             UserGroups\CreateUsergroupsTables::class,
+            UserGroups\CreateAuthserverGroupRolesTable::class,
             CreateSegmentsTables::class,
         ]);
         $schema = $this->db->schema();
