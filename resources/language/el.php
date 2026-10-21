@@ -843,4 +843,6 @@ return [
     'Text' => 'Κείμενο',
     'Block' => 'Τμήμα',
     'Paragraph' => 'Παράγραφος',
+    // The account a message in the mail log was for.
+    'User' => 'Χρήστης',
 ];

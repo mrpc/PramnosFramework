@@ -279,12 +279,14 @@ class UsersController extends Controller
             // address this account used before it was changed does not appear. Which is why
             // the panel names the address it matched on rather than saying "this address":
             // a zero nobody can check is the shape of every "the screen is broken" report.
-            'emails' => $email === '' ? [] : $rows(fn ($qb) => $qb->table('#PREFIX#mails')
-                ->whereRaw('LOWER(tomail) = ?', [strtolower($email)])
+            //
+            // Where the log records the account a message was for (`mails.userid`), the account's
+            // mail is its own — whatever address it went to — with what went to its address too.
+            'emails' => $email === '' && !\Pramnos\Email\MailLog::recordsUser() ? [] : $rows(fn ($qb) => \Pramnos\Email\MailLog::ofUser($qb->table('#PREFIX#mails'), $userId, $email)
                 ->orderBy('date', 'desc')->limit(10)->get()),
-            'emailCount' => $email === '' ? 0 : $count(fn ($qb) => $qb->table('#PREFIX#mails')
-                ->whereRaw('LOWER(tomail) = ?', [strtolower($email)])->count()),
+            'emailCount' => $email === '' && !\Pramnos\Email\MailLog::recordsUser() ? 0 : $count(fn ($qb) => \Pramnos\Email\MailLog::ofUser($qb->table('#PREFIX#mails'), $userId, $email)->count()),
             'emailAddress' => $email,
+            'emailsByUser' => \Pramnos\Email\MailLog::recordsUser(),
 
             /*
              * What was done with this account's tokens.

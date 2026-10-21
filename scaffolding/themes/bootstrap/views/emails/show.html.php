@@ -20,7 +20,7 @@ $sentAt    = is_numeric($rawDate) && (int) $rawDate > 0
 ?>
 <div class="container py-4" style="max-width:860px">
     <div class="d-flex align-items-center gap-3 mb-3">
-        <a href="<?php echo adminUrl('Emails'); ?>" class="btn btn-sm btn-outline-secondary">&larr; <?php echo htmlspecialchars(t('Back'), ENT_QUOTES, 'UTF-8'); ?></a>
+        <a href="<?php echo htmlspecialchars((string) ($this->backUrl ?? adminUrl('Emails')), ENT_QUOTES, 'UTF-8'); ?>" class="btn btn-sm btn-outline-secondary">&larr; <?php echo htmlspecialchars(t('Back'), ENT_QUOTES, 'UTF-8'); ?></a>
         <h2 class="mb-0"><?php echo htmlspecialchars(t('Email #%d', (int) ($mail['id'] ?? 0)), ENT_QUOTES, 'UTF-8'); ?></h2>
     </div>
     <div class="card mb-3">

@@ -493,6 +493,63 @@ class EmailListScreenTest extends BaseTestCase
 
     // ── Fixture ───────────────────────────────────────────────────────────────
 
+    /**
+     * Where the log records the account a message was for, an account's mail is its own: a message
+     * queued `forUser()` carries its `userid`, `?user=` lists that account's mail whatever address
+     * it went to — before and after an address change — and nobody else's, and the list names the
+     * account. "← Back" on a message returns to the page it was opened from.
+     *
+     * The column is added here and taken away after, as an installation that runs the migration
+     * gets it: the shared `mails` table keeps the shape every other test here expects.
+     */
+    public function testAnAccountsMailIsItsOwnWhateverAddressItWentTo(): void
+    {
+        // Arrange — the column, and three messages: the account's at its old and new address,
+        // and somebody else's
+        require_once ROOT . '/database/migrations/framework/messaging/2026_10_21_000002_add_userid_to_mails.php';
+        $app = $this->getMockBuilder(Application::class)->disableOriginalConstructor()->getMock();
+        $app->database = $this->db;
+        $migration = new \Pramnos\Framework\Migrations\Messaging\AddUseridToMails($app);
+        $migration->up();
+        \Pramnos\Email\MailLog::reset();
+
+        try {
+            $email = new \Pramnos\Email\Email();
+            $email->setTo('before-change@example.test');
+            $email->setSubject('Old address');
+            $email->setBody('<p>Hi</p>');
+            $email->module = self::MODULE;
+            $queued = $email->forUser(990777)->queue();
+            $this->seedMail('after-change@example.test', 'New address');
+            $this->seedMail('somebody-else@example.test', 'Not theirs');
+            $this->db->queryBuilder()->table('#PREFIX#mails')->where('tomail', 'after-change@example.test')->update(['userid' => 990777]);
+            $this->db->queryBuilder()->table('#PREFIX#mails')->where('tomail', 'somebody-else@example.test')->update(['userid' => 990778]);
+
+            // Act
+            $_GET = ['user' => '990777'];
+            Request::resetInstance();
+            $decoded = json_decode((string) $this->controller()->data()->getBody(), true);
+            $rows    = (array) ($decoded['data'] ?? $decoded['aaData'] ?? []);
+            $mine    = array_values(array_filter($rows, static fn (array $row): bool => str_contains(implode(' ', array_map('strval', $row)), self::MODULE)));
+            $_SERVER['HTTP_REFERER'] = rtrim((string) sURL, '/') . '/admin/users/view/990777';
+            $back = (new \ReflectionMethod(EmailsController::class, 'backUrl'))->invoke($this->controller());
+
+            // Assert
+            $this->assertTrue($queued, 'the message was not queued');
+            $this->assertSame(990777, (int) $this->stored('before-change@example.test')[0]['userid'], 'forUser() was not recorded');
+            $recipients = array_map(static fn (array $row): string => (string) $row[1], $mine);
+            sort($recipients);
+            $this->assertSame(['after-change@example.test', 'before-change@example.test'], $recipients,
+                'the account\'s mail is not its own: an address change hid some, or another\'s showed');
+            $this->assertStringContainsString('users/view/990777', (string) $mine[0][2], 'the list does not name the account');
+            $this->assertSame(rtrim((string) sURL, '/') . '/admin/users/view/990777', $back, 'Back did not return to the account');
+        } finally {
+            unset($_SERVER['HTTP_REFERER']);
+            $migration->down();
+            \Pramnos\Email\MailLog::reset();
+        }
+    }
+
     /** The controller with the usertype floor under the test's control, and its redirect kept. */
     private function controller(bool $refused = false): object
     {

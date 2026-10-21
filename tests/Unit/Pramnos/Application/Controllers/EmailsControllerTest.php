@@ -53,6 +53,8 @@ class TestableEmailsController extends EmailsController
             public mixed $bounce;
             /** The message's status, as the same badge the list draws. */
             public mixed $statusBadge;
+            /** Where "← Back" goes. */
+            public mixed $backUrl;
 
             public function display($view = '') {
                 return 'mock html view for ' . $view;

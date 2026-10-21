@@ -1732,6 +1732,24 @@ including `Email::sendMail()`:
 or for one message with `$email->recordToMails = false`. With recording off, `queue()` has no
 outbox row to write and sends at once.
 
+### The account a message was for
+
+```php
+(new Email())->setTo($user->email)->forUser($user->userid)->setSubject($s)->setBody($b)->send();
+```
+
+`forUser()` records the account in the row's `userid`, and a notification's mail records its
+notifiable's account on its own. An account's mail is then its own whatever address it went to:
+the account's page counts and lists it, its "See all" opens the history with `?user=`, and the
+history names the account in a column — messages logged before the column, or to an address with
+no account, are found by the address as before (`Pramnos\Email\MailLog::ofUser()`). A message's
+"← Back" returns to the page it was opened from.
+
+The column comes with a migration, `add_userid_to_mails`, which also builds an index
+`(userid, date)` over the whole log. A log of tens of millions of rows can leave it for a
+maintenance window — `'migrations' => ['exclude' => ['add_userid_to_mails']]` — and until it runs
+everything matches by address.
+
 ### Where a sent message's body is kept
 
 A sent message's body is not kept in its `mails` row but in the **body store**

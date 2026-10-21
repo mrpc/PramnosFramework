@@ -46,6 +46,32 @@ class MailChannelTest extends TestCase
     }
 
     /**
+     * The message is recorded as the notifiable account's — its id as the `database` channel
+     * routes it — so the mail log lists it under the account, whatever address it went to; a
+     * notifiable with no id records none.
+     */
+    public function testTheMailIsRecordedAsTheNotifiablesAccount(): void
+    {
+        // Arrange
+        $spy    = new SpyEmail();
+        $nobody = new SpyEmail();
+        $user   = new class ('carol@example.com') extends MailNotifiable {
+            public function routeNotificationFor(string $channel): mixed
+            {
+                return $channel === 'database' ? 42 : parent::routeNotificationFor($channel);
+            }
+        };
+
+        // Act
+        (new MailChannel($spy))->send($user, new SimpleMailNotification(['subject' => 'S', 'body' => 'B']));
+        (new MailChannel($nobody))->send(new MailNotifiable('dan@example.com'), new SimpleMailNotification(['subject' => 'S', 'body' => 'B']));
+
+        // Assert
+        $this->assertSame(42, (new \ReflectionProperty(Email::class, 'userId'))->getValue($spy));
+        $this->assertNull((new \ReflectionProperty(Email::class, 'userId'))->getValue($nobody));
+    }
+
+    /**
      * The subject and body from toMail() must be applied to the Email object
      * before send() is called.
      */
@@ -482,7 +508,7 @@ class NoMailNotification implements NotificationInterface
     public function via(mixed $notifiable): array { return ['mail']; }
 }
 
-/** Notifiable with a configurable email address. */
+/** Notifiable with a configurable email address, and no account. */
 class MailNotifiable implements NotifiableInterface
 {
     use NotifiableTrait;

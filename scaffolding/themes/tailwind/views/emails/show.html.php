@@ -39,7 +39,7 @@ $sentAt  = is_numeric($rawDate) && (int) $rawDate > 0
     $this->insert('../partials/admin_breadcrumb');
     ?>
     <div class="flex items-center gap-3 mb-4">
-        <a href="<?php echo adminUrl('Emails'); ?>" class="btn btn-outline btn-xs">&larr; <?php echo htmlspecialchars(t('Back'), ENT_QUOTES, 'UTF-8'); ?></a>
+        <a href="<?php echo htmlspecialchars((string) ($this->backUrl ?? adminUrl('Emails')), ENT_QUOTES, 'UTF-8'); ?>" class="btn btn-outline btn-xs">&larr; <?php echo htmlspecialchars(t('Back'), ENT_QUOTES, 'UTF-8'); ?></a>
         <h2 ><?php echo htmlspecialchars(t('Email #%d', (int) ($mail['id'] ?? 0)), ENT_QUOTES, 'UTF-8'); ?></h2>
     </div>
     <div class="card bg-base-100 border border-base-300 shadow-xs mb-4">

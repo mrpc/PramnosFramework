@@ -76,10 +76,13 @@ class EmailsController extends Controller
         // a filter that disappears on the first sort or page change — and the operator is
         // then looking at everybody's mail believing it is one person's.
         $address = $this->scopedAddress();
+        $user    = $this->scopedUser();
+        $query   = array_filter(['tomail' => $address, 'user' => $user > 0 ? (string) $user : ''], static fn ($v): bool => $v !== '');
+        $recordsUser = \Pramnos\Email\MailLog::recordsUser();
 
         $dt = new \Pramnos\Html\Datatable('dt-emails');
         $dt->source           = adminUrl('emails/data')
-            . ($address === '' ? '' : '?tomail=' . urlencode($address));
+            . ($query === [] ? '' : '?' . http_build_query($query));
         $dt->bootstrap        = false;
         $dt->footerTextSearch = true;
 
@@ -94,7 +97,12 @@ class EmailsController extends Controller
         $statusFilter->addOptions($options);
 
         $dt->addColumn(t('ID'),        true, true, true, 'num-html', '', true, 'left', true)
-           ->addColumn(t('Recipient'), true, true, true, '',         '', true, 'left', true)
+           ->addColumn(t('Recipient'), true, true, true, '',         '', true, 'left', true);
+        // The account it was for, where the log records it.
+        if ($recordsUser) {
+            $dt->addColumn(t('User'), true, true, false, 'html', '', true, 'left', false);
+        }
+        $dt
            ->addColumn(t('Subject'),   true, true, true, 'html',     '', true, 'left', true)
            ->addColumn(t('Module'),    true, true, true, '',         '', true, 'left', true)
            ->addColumn(t('Date'),      true, true, true, '',         '', true, 'left', false)
@@ -127,7 +135,7 @@ class EmailsController extends Controller
         $view->datatable = $dt;
         // So the screen can say it is showing one account's mail rather than all of it. A
         // short list with no explanation reads as an empty log.
-        $view->scopedTo   = $address;
+        $view->scopedTo   = $address !== '' ? $address : ($user > 0 ? $this->userLabel($user) : '');
         $view->clearUrl   = adminUrl('emails');
 
         return $view->display();
@@ -146,6 +154,45 @@ class EmailsController extends Controller
     }
 
     /**
+     * The account this screen was opened for (`?user=`), or 0 — the account's own mail,
+     * whatever address it went to, where the log records accounts ({@see \Pramnos\Email\MailLog}).
+     */
+    protected function scopedUser(): int
+    {
+        return max(0, (int) \Pramnos\Http\Request::staticGet('user', 0, 'get'));
+    }
+
+    /** An account as the screen names it: its username, or its number. */
+    protected function userLabel(int $userId): string
+    {
+        $names = $this->usernames([$userId]);
+
+        return $names[$userId] ?? ('#' . $userId);
+    }
+
+    /**
+     * Usernames by id, in one query.
+     *
+     * @param list<int> $ids
+     * @return array<int, string>
+     */
+    protected function usernames(array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+        if ($ids === []) {
+            return [];
+        }
+        try {
+            $rows = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#users')
+                ->select(['userid', 'username'])->whereIn('userid', $ids)->getAll();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        return array_column($rows, 'username', 'userid');
+    }
+
+    /**
      * That address as a `WHERE` fragment, quoted by the driver.
      *
      * `Datasource::getList()` takes SQL rather than bindings, so the value is quoted with
@@ -159,15 +206,25 @@ class EmailsController extends Controller
     protected function addressCondition(): string
     {
         $address = $this->scopedAddress();
+        // An account's own mail, where the log records accounts — with what went to the address
+        // too, for messages logged before it did.
+        $user = \Pramnos\Email\MailLog::recordsUser() ? $this->scopedUser() : 0;
 
-        if ($address === '') {
+        if ($address === '' && $user === 0) {
             return '';
         }
 
-        return \Pramnos\Framework\Factory::getDatabase()->prepareQuery(
+        // Not the query builder: Datasource::getList() takes its condition as SQL. The values
+        // are an integer and a quoted string.
+        $byAddress = $address === '' ? '' : \Pramnos\Framework\Factory::getDatabase()->prepareQuery(
             'LOWER(tomail) = LOWER(%s)',
             $address
         );
+        if ($user === 0) {
+            return $byAddress;
+        }
+
+        return $byAddress === '' ? 'userid = ' . $user : '(userid = ' . $user . ' OR ' . $byAddress . ')';
     }
 
     /**
@@ -187,8 +244,10 @@ class EmailsController extends Controller
         \Pramnos\Framework\Factory::getDocument('json');
 
         $extra  = $this->applicationColumns();
-        // `extrainfo` last and never shown: the error a failed badge carries in its title.
-        $fields = array_merge(['id', 'tomail', 'subject', 'module', 'date', 'status'], array_values($extra), ['extrainfo']);
+        $recordsUser = \Pramnos\Email\MailLog::recordsUser();
+        // `extrainfo` (the error a failed badge carries in its title) and `userid` last, read but
+        // not shown as they are.
+        $fields = array_merge(['id', 'tomail', 'subject', 'module', 'date', 'status'], array_values($extra), ['extrainfo'], $recordsUser ? ['userid'] : []);
         $result = \Pramnos\Html\Datatable\Datasource::getList(
             'mails',
             $fields,
@@ -197,6 +256,12 @@ class EmailsController extends Controller
         );
 
         $dataKey = array_key_exists('data', $result) ? 'data' : 'aaData';
+        // The accounts the page's rows were for, named in one query.
+        $names = [];
+        if ($recordsUser) {
+            $at    = array_search('userid', $fields, true);
+            $names = $this->usernames(array_map(static fn (array $row): int => (int) (array_values($row)[$at] ?? 0), $result[$dataKey]));
+        }
         foreach ($result[$dataKey] as &$row) {
             unset($row['DT_RowId']);
             $mail    = array_combine($fields, array_slice(array_values($row), 0, count($fields)));
@@ -207,13 +272,21 @@ class EmailsController extends Controller
             $cells = [
                 '<a href="' . $showUrl . '">' . $id . '</a>',
                 self::e($mail['tomail']),
+            ];
+            if ($recordsUser) {
+                $uid     = (int) ($mail['userid'] ?? 0);
+                $cells[] = $uid > 0
+                    ? '<a href="' . self::e(adminUrl('users/view/') . $uid) . '">' . self::e($names[$uid] ?? ('#' . $uid)) . '</a>'
+                    : '';
+            }
+            $cells = array_merge($cells, [
                 '<a href="' . $showUrl . '">' . self::e($mail['subject']) . '</a>',
                 self::e($mail['module']),
                 // The column is a Unix integer. Printed raw it is a number nobody reads, which
                 // is what this screen was doing.
                 (int) $mail['date'] > 0 ? date('Y-m-d H:i', (int) $mail['date']) : '',
                 $this->statusBadge($status, $mail),
-            ];
+            ]);
             foreach ($extra as $column) {
                 $cells[] = self::e($mail[$column] ?? '');
             }
@@ -459,6 +532,9 @@ class EmailsController extends Controller
         $view->mail      = $mail;
         // The same words as the list: a failed message reads as failed, with its error.
         $view->statusBadge = $this->statusBadge((int) ($mail['status'] ?? 0), $mail);
+        // "← Back" goes where the reader came from — an account's page, a filtered list — when
+        // that was a page of this site and not this one; the list otherwise.
+        $view->backUrl = $this->backUrl();
 
         /*
          * Everything else that is knowable about this message.
@@ -480,6 +556,21 @@ class EmailsController extends Controller
         ] : null;
 
         return $view->display('show');
+    }
+
+    /** The page a message was opened from, when it is one of this site's; the list otherwise. */
+    protected function backUrl(): string
+    {
+        $referrer = (string) ($_SERVER['HTTP_REFERER'] ?? '');
+        $base     = defined('sURL') ? rtrim((string) sURL, '/') : '';
+        if ($referrer !== '' && $base !== ''
+            && \Pramnos\DevPanel\DevPanelController::isReturnable($referrer, $base)
+            && !str_contains(strtolower((string) parse_url($referrer, PHP_URL_PATH)), '/emails/show/')
+        ) {
+            return $referrer;
+        }
+
+        return adminUrl('emails');
     }
 
     /**

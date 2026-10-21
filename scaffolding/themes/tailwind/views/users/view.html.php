@@ -540,6 +540,8 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                     'Emails received',
                     (int) $r('emailCount', 0),
                     adminUrl('emails') . '?tomail=' . urlencode((string) $r('emailAddress', ''))
+                        // The account's own mail too, whatever address it went to, where the log records accounts.
+                        . ($r('emailsByUser', false) ? '&user=' . $uid : '')
                         . '&from=user&uid=' . $uid
                 );
                 ?>

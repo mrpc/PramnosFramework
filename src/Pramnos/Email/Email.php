@@ -475,6 +475,23 @@ class Email extends \Pramnos\Framework\Base
     }
 
     /**
+     * The account this message is for, recorded with it in the mail log (`mails.userid`), so the
+     * account's mail is its own whatever address it went to. Null for none — a message to an
+     * address no account has. Written where the log has the column ({@see MailLog}).
+     *
+     * @param int|null $userId
+     * @return $this
+     */
+    public function forUser(?int $userId)
+    {
+        $this->userId = $userId !== null && $userId > 0 ? $userId : null;
+        return $this;
+    }
+
+    /** @var int|null The account this message is for, {@see forUser()} */
+    protected ?int $userId = null;
+
+    /**
      * Set the recipient(s)
      * @param mixed $to Email address or array of addresses
      * @return $this
@@ -1411,7 +1428,8 @@ class Email extends \Pramnos\Framework\Base
                     },
                     'path'       => $kept['path'],
                     'hash'       => $kept['hash'],
-                ] + ($kept['bodyvars'] !== null ? ['bodyvars' => $kept['bodyvars']] : []));
+                ] + ($kept['bodyvars'] !== null ? ['bodyvars' => $kept['bodyvars']] : [])
+                  + ($this->userId !== null && MailLog::recordsUser() ? ['userid' => $this->userId] : []));
             $mailId = (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId();
             if ($kept['path'] === BodyStore::IN_DATABASE) {
                 $this->keepInDatabase($mailId, $date, $kept['kept']);

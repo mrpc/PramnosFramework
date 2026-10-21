@@ -106,6 +106,11 @@ class MailChannel implements ChannelInterface
 
         $email = $this->createEmailSender();
         $email->setTo($address);
+        // The account it is for, in the mail log: the notifiable is the account.
+        if (method_exists($email, 'forUser')) {
+            $id = $notifiable instanceof NotifiableInterface ? $notifiable->routeNotificationFor('database') : ($notifiable->userid ?? $notifiable->id ?? null);
+            $email->forUser(is_numeric($id) ? (int) $id : null);
+        }
         $email->setSubject($data['subject'] ?? '');
         $email->setBody($data['body'] ?? '');
 
