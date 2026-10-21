@@ -159,6 +159,8 @@ class Application extends \Symfony\Component\Console\Application
         // Scheduled tasks (Phase 4)
         $this->add(new \Pramnos\Console\Commands\ScheduleRun());
         $this->add(new \Pramnos\Console\Commands\ScheduleList());
+        // Where a runInBackground() task runs: started by the scheduler, never typed
+        $this->add(new \Pramnos\Console\Commands\ScheduleBackground());
         // The cron-less alternative: one long-running process that runs the
         // same schedule, for containers and anywhere else without a crontab
         $this->add(new \Pramnos\Console\Commands\Work());

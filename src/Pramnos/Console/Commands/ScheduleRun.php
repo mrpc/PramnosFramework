@@ -54,7 +54,8 @@ class ScheduleRun extends Command
         \Pramnos\Scheduling\ScheduledTask::useConsole($this->getApplication());
         $now  = new \DateTime();
         $due  = Scheduler::getDue($now);
-        $errors = 0;
+        // What an operator asked for from the scheduler screen, before the clock's own work.
+        $errors = $input->getOption('pretend') ? 0 : \Pramnos\Scheduling\RunLog::runRequested(Scheduler::all());
 
         if (empty($due)) {
             $output->writeln('<info>No tasks due at ' . $now->format('Y-m-d H:i') . '.</info>');

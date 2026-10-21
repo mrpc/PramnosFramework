@@ -113,6 +113,112 @@ class CronExpression
         return true;
     }
 
+    /**
+     * The first minute after `$after` the expression is due, or null when none falls within
+     * five years (an expression such as `0 0 31 2 *`, which never matches).
+     *
+     * Day by day, then the hours and minutes the expression allows on a matching day — not
+     * minute by minute, which for a yearly task is half a million checks.
+     */
+    public function nextRunAfter(\DateTimeInterface $after): ?\DateTimeImmutable
+    {
+        return $this->scan($after, 1);
+    }
+
+    /**
+     * The last minute before `$before` the expression was due, or null when none falls within
+     * five years — when a run was last expected, for telling a task that is late.
+     */
+    public function previousRunBefore(\DateTimeInterface $before): ?\DateTimeImmutable
+    {
+        return $this->scan($before, -1);
+    }
+
+    /**
+     * The expression in words, for a screen: "Every 5 minutes", "Daily at 02:30",
+     * "At :05, :20, :35, :50 every hour". The expression itself for a shape with no wording.
+     * Through `t()` where it exists.
+     */
+    public function describe(): string
+    {
+        [$minute, $hour, $dom, $month, $dow] = $this->fields;
+        $t    = static fn (string $words): string => function_exists('t') ? (string) t($words) : $words;
+        $time = static fn (string $h, string $m): string => sprintf('%02d:%02d', (int) $h, (int) $m);
+        $days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        $num  = '/^\d+$/';
+
+        if ($month !== '*') {
+            return $this->expression;
+        }
+        if ($minute === '*' && $hour === '*' && $dom === '*' && $dow === '*') {
+            return $t('Every minute');
+        }
+        if (preg_match('/^\*\/(\d+)$/', $minute, $m) && $hour === '*' && $dom === '*' && $dow === '*') {
+            return sprintf($t('Every %d minutes'), (int) $m[1]);
+        }
+        if (preg_match('/^\d+(,\d+)*$/', $minute) && $hour === '*' && $dom === '*' && $dow === '*') {
+            $at = implode(', ', array_map(static fn (string $v): string => sprintf(':%02d', (int) $v), explode(',', $minute)));
+
+            return sprintf($t('At %s every hour'), $at);
+        }
+        if (preg_match($num, $minute) && preg_match('/^\*\/(\d+)$/', $hour, $m) && $dom === '*' && $dow === '*') {
+            return sprintf($t('Every %d hours at :%02d'), (int) $m[1], (int) $minute);
+        }
+        if (!preg_match($num, $minute) || !preg_match($num, $hour)) {
+            return $this->expression;
+        }
+        if ($dom === '*' && $dow === '*') {
+            return sprintf($t('Daily at %s'), $time($hour, $minute));
+        }
+        if ($dom === '*' && preg_match('/^[0-6]$/', $dow)) {
+            return sprintf($t('Every %s at %s'), $t($days[(int) $dow]), $time($hour, $minute));
+        }
+        if ($dow === '*' && preg_match($num, $dom)) {
+            return sprintf($t('Monthly on day %d at %s'), (int) $dom, $time($hour, $minute));
+        }
+
+        return $this->expression;
+    }
+
+    /**
+     * The nearest due minute strictly after (`$direction` 1) or before (-1) `$from`.
+     */
+    private function scan(\DateTimeInterface $from, int $direction): ?\DateTimeImmutable
+    {
+        $allowed = [];
+        foreach ($this->fields as $index => $field) {
+            [$min, $max]     = self::FIELD_RANGES[$index];
+            $allowed[$index] = array_values(array_filter(
+                range($min, $max),
+                fn (int $value): bool => $this->fieldMatches($field, $value, $min, $max)
+            ));
+        }
+        $hours   = $direction > 0 ? $allowed[1] : array_reverse($allowed[1]);
+        $minutes = $direction > 0 ? $allowed[0] : array_reverse($allowed[0]);
+        $start   = \DateTimeImmutable::createFromInterface($from);
+        $start   = $start->setTime((int) $start->format('G'), (int) $start->format('i'));
+        $midnight = $start->setTime(0, 0);
+
+        for ($day = 0; $day <= 366 * 5; $day++) {
+            $date = $midnight->modify(($direction * $day) . ' days');
+            if (!in_array((int) $date->format('j'), $allowed[2], true)
+                || !in_array((int) $date->format('n'), $allowed[3], true)
+                || !in_array((int) $date->format('w'), $allowed[4], true)) {
+                continue;
+            }
+            foreach ($hours as $hour) {
+                foreach ($minutes as $minute) {
+                    $at = $date->setTime($hour, $minute);
+                    if ($direction > 0 ? $at > $start : $at < $start) {
+                        return $at;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
     // -------------------------------------------------------------------------
     // Internal parsing
     // -------------------------------------------------------------------------

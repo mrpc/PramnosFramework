@@ -410,6 +410,52 @@ stays, memory it keeps is kept, and a fatal error or an `exit()` in it ends the 
 it. Fine for a short, well-behaved command; not for one that loads half the application. Where
 no console is known, outside `work` and `schedule:run`, the task starts a process as before.
 
+### Running a command task in the background
+
+```php
+Scheduler::command('mail:bounces')->cron('* 1,4,8 * * *')->withoutOverlapping()->runInBackground();
+```
+
+A pass runs its tasks one after another, so a slow command holds every task behind it — and
+one due every minute of an hour that takes four minutes a run holds the worker for the whole
+hour, while the catch-up gives up on what it missed after fifteen minutes. A crontab ran each
+line in its own process, which is why moving a crontab onto the scheduler shows it.
+
+`runInBackground()` starts the command detached (in its own session, through `setsid` where it
+exists) and the pass goes on at once. The detached process is `schedule:background`, which runs
+the command as the scheduler would have and does what the scheduler could not without waiting:
+
+- **It holds the overlap lock until the command exits**, so `withoutOverlapping()` still means
+  one at a time. The scheduler skips a start while the lock is held, and records it `skipped`.
+  Without `withoutOverlapping()` runs may overlap, as two crontab lines' would.
+- **It finishes the run's row in the history** — result, duration, exit status, the end of the
+  output — when the command ends.
+- With `onOneServer()` the server lock decides which machine starts the command, and is let go
+  once it has started.
+
+Command tasks only: `runInBackground()` on a callable throws, since a closure belongs to the
+process that defined it.
+
+### The run history
+
+Every run is a row in `scheduleruns`, whoever started it — `work`, `schedule:run`, a
+background process, a run asked for from the screen: the task, when it started, how long it
+took, `ok` / `failed` / `skipped`, a command's exit status and the last 4 KB of what it
+printed or the error it threw. A run in progress is `running`; one a killed worker left
+behind is marked `interrupted` by the task's next run, where the task holds an overlap lock
+that proves nothing else of it is alive.
+
+`Pramnos\Scheduling\RunLog` reads and writes it: `latestByTask()`, `pendingRequests()`,
+`since()` (where the history begins), and `request($task, $who)` — a run an operator asks for,
+which the next pass of `work` or `schedule:run` takes, once, even with two of them on two
+servers. Runs older than `schedule.history_days` in `app.php` (14) are removed from that pass,
+at most hourly. Nothing is written until the migration has created the table, and a database
+error never stops a task: the history is an account of the schedule, not a condition of it.
+
+`CronExpression::nextRunAfter()` and `previousRunBefore()` give a task's next run and the last
+one its expression asked for — a run missing since then is a late task — and `describe()` the
+expression in words ("At :05, :20, :35, :50 every hour").
+
 ---
 
 ## 1d. The write spool — rows written out of the request path

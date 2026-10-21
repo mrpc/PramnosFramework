@@ -48,6 +48,15 @@ class ScheduledTask
      */
     private ?string $lastOutput = null;
 
+    /** @var int|null A command's last exit status, for the run history */
+    private ?int $lastStatus = null;
+
+    /** @var bool Started in a process of its own, not waited for: {@see runInBackground()} */
+    private bool $background = false;
+
+    /** @var int|null The operator's request this run answers, while it runs */
+    private ?int $requestId = null;
+
     /** When true, a `command` task runs inside the scheduler's process. {@see inProcess()} */
     private bool $inProcess = false;
 
@@ -222,6 +231,38 @@ class ScheduledTask
     }
 
     /**
+     * Start this command in a process of its own and do not wait for it.
+     *
+     * ```php
+     * Scheduler::command('mail:bounces')->cron('* 1,4,8 * * *')->withoutOverlapping()->runInBackground();
+     * ```
+     *
+     * `work` runs a pass's tasks one after another, so a command that takes four minutes holds
+     * every task behind it for four minutes — and one due every minute of an hour holds the
+     * worker for the hour, while the catch-up gives up on what it missed after fifteen. A
+     * crontab ran each line in its own process, which is why moving one onto the scheduler
+     * shows it. In the background the pass goes on at once.
+     *
+     * The command runs detached (`setsid` where there is one) through `schedule:background`,
+     * which takes the overlap lock itself and holds it until the command exits — so
+     * `withoutOverlapping()` still means one at a time, and a start while one runs is
+     * `skipped`. Its end, duration, exit status and output reach the run history when it
+     * finishes. With `onOneServer()` the server lock decides which machine starts it, and is
+     * released once it has.
+     *
+     * For command tasks: a callable belongs to the process that defined it.
+     */
+    public function runInBackground(): static
+    {
+        if ($this->type !== 'command') {
+            throw new \LogicException('runInBackground() is for command tasks; a ' . $this->type . ' task runs in the scheduler\'s process.');
+        }
+        $this->background = true;
+
+        return $this;
+    }
+
+    /**
      * Run this task on **one server**, not on each of them.
      *
      * `withoutOverlapping()` locks a file in `sys_get_temp_dir()`, which is per machine.
@@ -363,21 +404,39 @@ class ScheduledTask
         if ($this->oneServer) {
             $serverLock = $this->serverLock();
             if (!$serverLock->acquire()) {
+                RunLog::skipped($this, $this->requestId);
+
                 return false;
             }
+        }
+
+        if ($this->background) {
+            return $this->startInBackground($serverLock);
         }
 
         if ($this->noOverlap) {
             $lock = $this->lock();
             if (!$lock->acquire()) {
                 $serverLock?->release();
+                RunLog::skipped($this, $this->requestId);
 
                 return false;
             }
         }
 
+        // The history: every run, whoever started it — `work`, `schedule:run`, a "run now".
+        $this->lastOutput = null;
+        $this->lastStatus = null;
+        $runId   = RunLog::start($this, $this->requestId, $lock !== null);
+        $started = hrtime(true);
+
         try {
             $this->execute();
+            RunLog::finish($runId, 'ok', (int) ((hrtime(true) - $started) / 1e6), $this->lastStatus, $this->lastOutput);
+        } catch (\Throwable $e) {
+            RunLog::finish($runId, 'failed', (int) ((hrtime(true) - $started) / 1e6), $this->lastStatus ?? 1, $e->getMessage());
+
+            throw $e;
         } finally {
             $serverLock?->release();
 
@@ -398,9 +457,82 @@ class ScheduledTask
     }
 
     /**
+     * The background half of {@see run()}: skip a start while the last run holds the lock,
+     * record the run as started, and hand the command to `schedule:background`.
+     */
+    private function startInBackground(?\Pramnos\Database\SharedLock $serverLock): bool
+    {
+        if ($this->noOverlap && $this->lock()->isHeldByAnother()) {
+            $serverLock?->release();
+            RunLog::skipped($this, $this->requestId);
+
+            return false;
+        }
+
+        $runId = RunLog::start($this, $this->requestId);
+        $line  = $this->consoleBinary() . ' schedule:background ' . escapeshellarg((string) $this->handler)
+            . ($runId !== null ? ' --run=' . $runId : '')
+            . ($this->noOverlap ? ' --lock-dir=' . escapeshellarg($this->lockDir) . ' --stale=' . $this->lockStaleAfter : '');
+        $this->spawnDetached($line);
+        $serverLock?->release();
+
+        return true;
+    }
+
+    /**
+     * Start a command line detached from this process — its own session where `setsid`
+     * exists, output discarded, not waited for. A seam, so a test can see the line.
+     */
+    protected function spawnDetached(string $line): void
+    {
+        $setsid = is_executable('/usr/bin/setsid') ? '/usr/bin/setsid ' : (is_executable('/bin/setsid') ? '/bin/setsid ' : '');
+        exec($setsid . $line . ' > /dev/null 2>&1 &');
+    }
+
+    /**
+     * Run once for an operator's request — the `requested` row `$requestId` in the history,
+     * which this run then becomes. {@see RunLog::runRequested()} calls it.
+     *
+     * @return bool As {@see run()}
+     */
+    public function runRequested(int $requestId): bool
+    {
+        $this->requestId = $requestId;
+        try {
+            return $this->run();
+        } finally {
+            $this->requestId = null;
+        }
+    }
+
+    /**
+     * This task's name in the history: stable while its definition is — the handler, the
+     * expression and the description — so the runs of one task stay together across deploys.
+     */
+    public function key(): string
+    {
+        return substr(sha1($this->type . '|' . $this->describeHandler() . '|' . $this->cron->getExpression() . '|' . $this->description), 0, 16);
+    }
+
+    /** What a screen calls it: its description, or its handler and expression. */
+    public function label(): string
+    {
+        return $this->description !== '' ? $this->description : $this->describeHandler() . ' (' . $this->cron->getExpression() . ')';
+    }
+
+    /**
+     * Whether a previous run still holds the overlap lock — the task is running now, on this
+     * machine. False for a task without `withoutOverlapping()`, which keeps no lock to ask.
+     */
+    public function isRunning(): bool
+    {
+        return $this->noOverlap && $this->lock()->isHeldByAnother();
+    }
+
+    /**
      * Returns summary information for `schedule:list`.
      *
-     * @return array{type: string, handler: string, expression: string, description: string, no_overlap: bool, one_server: bool}
+     * @return array{type: string, handler: string, expression: string, description: string, no_overlap: bool, one_server: bool, in_process: bool, background: bool}
      */
     public function getSummary(): array
     {
@@ -411,6 +543,8 @@ class ScheduledTask
             'description' => $this->description,
             'no_overlap'  => $this->noOverlap,
             'one_server'  => $this->oneServer,
+            'in_process'  => $this->inProcess,
+            'background'  => $this->background,
         ];
     }
 
@@ -464,6 +598,7 @@ class ScheduledTask
             $inProcess = $this->inProcess && self::$console !== null;
             $command   = $inProcess ? (string) $this->handler . ' (in process)' : $this->consoleBinary() . ' ' . escapeshellcmd((string) $this->handler);
             $status    = $inProcess ? $this->runInConsole((string) $this->handler) : $this->runShellCommand($command);
+            $this->lastStatus = $status;
 
             // A command that could not run is a task that did not happen, and
             // the callers already know how to report a throw — `schedule:run`

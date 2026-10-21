@@ -216,12 +216,12 @@ class Work extends CommandBase
         $due = $this->dueSinceLastPass();
         // The console a task marked inProcess() runs through: this one.
         \Pramnos\Scheduling\ScheduledTask::useConsole($this->getApplication());
+        // What an operator asked for from the scheduler screen, before the clock's own work.
+        $failed = \Pramnos\Scheduling\RunLog::runRequested(Scheduler::all());
 
         if ($due === []) {
-            return 0;
+            return $failed;
         }
-
-        $failed = 0;
 
         foreach ($due as $task) {
             $summary = $task->getSummary();
