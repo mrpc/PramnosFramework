@@ -79,6 +79,10 @@ echo \Pramnos\Html\Icon::postControl(adminUrl('users/lock/') . $id, 'Lock accoun
 Both carry the session's token and work without JavaScript; `data-confirm` still asks first where
 `pf-utils.js` is loaded.
 
+`data-confirm` asks at the click on a link or a button. On a `<form>` it asks once, when the form
+is sent — a click on a field, a box or a label inside the form asks nothing — and not at all when
+the button that sent it carries its own, which has asked already.
+
 An action that shows a page on `GET` and changes something on `POST` — a confirmation screen that
 posts to itself — is not declared, because the declaration would refuse the page too. Guard its
 `POST` branch instead:

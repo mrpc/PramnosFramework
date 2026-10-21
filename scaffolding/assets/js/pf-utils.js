@@ -8,7 +8,8 @@
  * behaviours here rather than inline in views.
  *
  * Attributes handled:
- *   data-confirm="message"      — show confirm() before following a link or submitting a button
+ *   data-confirm="message"      — show confirm() before following a link or submitting a button;
+ *                                 on a <form>, once when it is sent, not at clicks inside it
  *   data-pf-fill-setting        — copy this row's setting name/value into the edit form
  *                                 below it (with data-pf-fill-value)
  *   data-copy-prev              — copy the value of the immediately preceding <input> to clipboard
@@ -247,7 +248,10 @@
 
     document.addEventListener('click', function (e) {
         // ── data-confirm ──────────────────────────────────────────────────────
+        // On what was clicked — a link, a button. A form's own data-confirm asks when it is
+        // sent (below), not at every click on a field, a box or a label inside it.
         var confirmEl = e.target.closest('[data-confirm]');
+        if (confirmEl && confirmEl.tagName === 'FORM') { confirmEl = null; }
         if (confirmEl && !confirm(confirmEl.dataset.confirm)) {
             e.preventDefault();
             e.stopPropagation();
@@ -336,6 +340,18 @@
             return;
         }
     });
+
+    // ── data-confirm on a <form>: asked once, when the form is sent ─────────
+    // Not when the button that sent it carries its own, which its click has asked already.
+    document.addEventListener('submit', function (e) {
+        var form = e.target;
+        if (!form || !form.getAttribute || form.getAttribute('data-confirm') === null) { return; }
+        if (e.submitter && e.submitter.getAttribute && e.submitter.getAttribute('data-confirm') !== null) { return; }
+        if (!confirm(form.getAttribute('data-confirm'))) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+        }
+    }, true);
 
     // Close the stats modal with the Escape key for keyboard accessibility.
     document.addEventListener('keydown', function (e) {
