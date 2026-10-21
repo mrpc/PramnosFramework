@@ -32,7 +32,7 @@ $tones = ['draft' => 'pf-tone-muted', 'running' => 'pf-tone-ok', 'stopped' => 'p
         <?php else: ?>
             <table class="pf-table">
                 <thead>
-                    <tr><th><?php echo $e(t('Name')); ?></th><th><?php echo $e(t('Status')); ?></th><th><?php echo $e(t('Variants')); ?></th><th class="pf-num"><?php echo $e(t('People')); ?></th><th><?php echo $e(t('Ahead')); ?></th></tr>
+                    <tr><th><?php echo $e(t('Name')); ?></th><th><?php echo $e(t('Test status')); ?></th><th><?php echo $e(t('Test variants')); ?></th><th class="pf-num"><?php echo $e(t('People in the test')); ?></th><th><?php echo $e(t('Ahead now')); ?></th></tr>
                 </thead>
                 <tbody>
                 <?php foreach ($this->tests as $test): ?>

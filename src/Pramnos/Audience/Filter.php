@@ -127,16 +127,40 @@ final class Filter
             $parts = [];
             foreach ($attributes as $i => $attribute) {
                 $value = $row['pf_line' . $i] ?? null;
+                if ($attribute->type() === Attribute::DATE) {
+                    $parts[] = self::when($value, $attribute->dateFormat());
+                    continue;
+                }
                 if ($value === null || $value === '') {
                     continue;
                 }
                 $labels  = $attribute->valueLabels();
-                $parts[] = (string) ($labels[$value] ?? ($attribute->type() === Attribute::DATE ? substr((string) $value, 0, 10) : $value));
+                $parts[] = (string) ($labels[$value] ?? $value);
             }
             $lines[(int) $row['pf_id']] = implode(' · ', $parts);
         }
 
         return $lines;
+    }
+
+    /**
+     * A date as a sample's line says it: today, yesterday, so many days ago within a month, else
+     * the day; nothing — no value, 0, or no time — is "never".
+     */
+    private static function when(mixed $value, string $format): string
+    {
+        $at = $format === 'unix' || (is_numeric($value) && $format !== 'date') ? (int) $value : (int) strtotime((string) $value);
+        if ($value === null || $value === '' || $at <= 0) {
+            return t('never');
+        }
+        $days = (int) floor((strtotime('today') - strtotime(date('Y-m-d', $at))) / 86400);
+
+        return match (true) {
+            $days <= 0  => t('today'),
+            $days === 1 => t('yesterday'),
+            $days < 31  => t('%s days ago', (string) $days),
+            default     => date('Y-m-d', $at),
+        };
     }
 
     /**

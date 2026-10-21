@@ -68,7 +68,7 @@ $delta  = static function (?array $movement) use ($e): string {
         <?php else: ?>
             <table class="pf-table" id="pf-segments-table">
                 <thead>
-                    <tr><th><?php echo $e(t('Name')); ?></th><th><?php echo $e(t('Kind')); ?></th><th class="pf-num"><?php echo $e(t('Now')); ?></th><th class="pf-num"><?php echo $e(t('7 days')); ?></th><th><?php echo $e(t('Used by')); ?></th></tr>
+                    <tr><th><?php echo $e(t('Name')); ?></th><th><?php echo $e(t('Segment or group')); ?></th><th class="pf-num"><?php echo $e(t('In it now')); ?></th><th class="pf-num"><?php echo $e(t('7 days')); ?></th><th><?php echo $e(t('Used by')); ?></th></tr>
                 </thead>
                 <tbody>
                 <?php foreach ($this->rows as $row): ?>
@@ -77,7 +77,7 @@ $delta  = static function (?array $movement) use ($e): string {
                             <a class="pf-row-link" href="<?php echo $e($row['url']); ?>"><?php echo $e($row['name']); ?></a>
                             <?php if (($row['description'] ?? '') !== ''): ?><span class="pf-row-desc"><?php echo $e($row['description']); ?></span><?php endif; ?>
                         </td>
-                        <td><span class="pf-badge <?php echo $row['kind'] === 'segment' ? 'pf-tone-accent' : 'pf-tone-info'; ?>"><?php echo $e($row['kind'] === 'segment' ? t('segment') : t('group')); ?></span></td>
+                        <td><span class="pf-badge <?php echo $row['kind'] === 'segment' ? 'pf-tone-accent' : 'pf-tone-neutral'; ?>"><?php echo $e($row['kind'] === 'segment' ? t('segment') : t('group')); ?></span></td>
                         <td class="pf-num"><?php echo $row['computed'] ? $e(number_format((int) $row['members'])) : '<span class="pf-muted">' . $e(t('not yet worked out')) . '</span>'; ?></td>
                         <td class="pf-num"><?php echo $delta($row['movement']); ?></td>
                         <td>

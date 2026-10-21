@@ -131,9 +131,9 @@ class RulesScreenTest extends TestCase
         $this->assertStringContainsString('data-step="tag"', $canvas);
         $this->assertStringContainsString('2 passed', $canvas, 'both went through the first step');
         $this->assertStringContainsString('pf-rule-branches', $canvas);
-        $this->assertStringContainsString('go to card', $canvas, 'the second variant leads where the first already drew');
+        $this->assertStringContainsString('go to 4. Show a message on the site', $canvas, 'the second variant leads where the first already drew, named by its place, never its id');
         $this->assertStringContainsString('goal: payment.made within 10 days', $canvas);
-        $this->assertStringContainsString('up to 1 days', $canvas);
+        $this->assertStringContainsString('up to 1 day', $canvas);
         $this->assertTrue($vars['why']['enters'], 'version 2 takes everybody in');
         $this->assertSame(7, $vars['simulated']['days']);
         $this->assertSame(['before' => 2, 'after' => 3, 'in' => 1, 'out' => 0, 'from' => 1, 'to' => 2], $vars['diff']);
@@ -307,7 +307,8 @@ class RulesScreenTest extends TestCase
         $this->assertStringContainsString('leaves the segment Dormant', $left);
         $this->assertStringContainsString('2 hours', $left);
         $this->assertStringContainsString('5 minutes', $left);
-        $this->assertStringContainsString('the message of m was opened', $left);
+        $this->assertStringContainsString('the message of 1. Notify on the site was opened', $left, 'a step named as the administrator reads it');
+        $this->assertSame('1 hour', RuleCanvas::duration(3600), 'one in the singular');
         $this->assertStringContainsString('Wait', $left);
         $this->assertSame('enters the segment #424242', $gone);
         $this->assertStringStartsWith('on schedule: ', $schedule);

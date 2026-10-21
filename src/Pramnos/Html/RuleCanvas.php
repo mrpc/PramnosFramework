@@ -55,7 +55,7 @@ final class RuleCanvas
         $html  = '<div class="pf-rule-canvas">'
             . self::box('pf-rule-when pf-rule-tone-when', 'rule', t('When'), self::trigger($definition['trigger']))
             . ($definition['who']['conditions'] === [] ? '' : '<div class="pf-rule-down"></div>'
-                . self::box('pf-rule-tone-who', 'members', t('Who'), t('%s conditions', (string) count($definition['who']['conditions']))))
+                . self::box('pf-rule-tone-who', 'members', t('Who'), self::plural(count($definition['who']['conditions']), '%s condition', '%s conditions')))
             . '<div class="pf-rule-down"></div>'
             . self::chain($definition['steps'], $definition['start'], $counts, $drawn);
         if ($definition['exit']['conditions'] !== [] || $definition['goal'] !== null) {
@@ -82,7 +82,7 @@ final class RuleCanvas
             return '<div class="pf-rule-end">' . $e(t('End')) . '</div>';
         }
         if (isset($drawn[$id])) {
-            return '<div class="pf-rule-goto">→ ' . $e(t('go to %s', $id)) . '</div>';
+            return '<div class="pf-rule-goto">→ ' . $e(t('go to %s', self::stepLabels($steps)[$id] ?? $id)) . '</div>';
         }
         $drawn[$id] = true;
         $step  = $steps[$id];
@@ -90,9 +90,9 @@ final class RuleCanvas
         $kind  = self::kind($step);
         $box   = '<div class="pf-rule-box pf-rule-' . $e($step['type']) . ' pf-rule-step-' . $kind . '" data-step="' . $e($id) . '">'
             . '<div class="pf-rule-step-head"><span class="pf-rule-icon">' . Icon::svg(self::ICONS[$kind], '') . '</span>'
-            . '<span class="pf-rule-step-title">' . $e(self::title($step)) . '</span><span class="pf-rule-step-id">' . $e($id) . '</span>'
+            . '<span class="pf-rule-num">' . (array_search($id, array_keys($steps), true) + 1) . '</span><span class="pf-rule-step-title">' . $e(self::title($step)) . '</span>'
             . '<span class="pf-badge pf-tone-accent pf-rule-count">' . $e(t('%s passed', number_format($count['reached']))) . '</span></div>'
-            . (self::detail($step) === '' ? '' : '<span class="pf-muted">' . $e(self::detail($step)) . '</span>')
+            . (self::detail($step, $steps) === '' ? '' : '<span class="pf-muted">' . $e(self::detail($step, $steps)) . '</span>')
             . ($count['outcomes'] === [] ? '' : '<span class="pf-rule-outcomes">' . $e(implode(' · ', array_map(static fn ($k, $n): string => t((string) $k) . ' ' . number_format($n),
                 array_keys($count['outcomes']), $count['outcomes']))) . '</span>')
             . '</div>';
@@ -163,15 +163,18 @@ final class RuleCanvas
         };
     }
 
-    /** @param array<string, mixed> $step */
-    private static function detail(array $step): string
+    /**
+     * @param array<string, mixed>                $step
+     * @param array<string, array<string, mixed>> $steps
+     */
+    private static function detail(array $step, array $steps = []): string
     {
         return match ($step['type']) {
             'action'     => implode(' · ', array_filter(array_map(static fn ($v): string => is_scalar($v) ? mb_strimwidth((string) $v, 0, 60, '…') : '', $step['params']))),
             'wait'       => self::duration($step['seconds']),
             'wait_event' => t('up to %s', self::duration($step['seconds'])),
-            'branch'     => isset($step['message']) ? t('the message of %s was %s', $step['message']['step'], $step['message']['status'])
-                : t('%s conditions', (string) count($step['filter']['conditions'])),
+            'branch'     => isset($step['message']) ? t('the message of %s was %s', self::stepLabels($steps)[$step['message']['step']] ?? (string) $step['message']['step'], (string) $step['message']['status'])
+                : self::plural(count($step['filter']['conditions']), '%s condition', '%s conditions'),
             default      => '',
         };
     }
@@ -180,10 +183,33 @@ final class RuleCanvas
     public static function duration(int $seconds): string
     {
         return match (true) {
-            $seconds % 86400 === 0 => t('%s days', (string) intdiv($seconds, 86400)),
-            $seconds % 3600 === 0  => t('%s hours', (string) intdiv($seconds, 3600)),
-            default                => t('%s minutes', (string) intdiv($seconds, 60)),
+            $seconds % 86400 === 0 => self::plural(intdiv($seconds, 86400), '%s day', '%s days'),
+            $seconds % 3600 === 0  => self::plural(intdiv($seconds, 3600), '%s hour', '%s hours'),
+            default                => self::plural(intdiv($seconds, 60), '%s minute', '%s minutes'),
         };
+    }
+
+    /**
+     * Each step named as an administrator reads it — its place and what it does, "2. Send an
+     * email" — never its id.
+     *
+     * @param  array<string, array<string, mixed>> $steps
+     * @return array<string, string> By step id
+     */
+    public static function stepLabels(array $steps): array
+    {
+        $labels = [];
+        foreach (array_keys($steps) as $i => $id) {
+            $labels[$id] = ($i + 1) . '. ' . self::title($steps[$id]);
+        }
+
+        return $labels;
+    }
+
+    /** A count with its noun, one or many. */
+    private static function plural(int $n, string $one, string $many): string
+    {
+        return t($n === 1 ? $one : $many, number_format($n));
     }
 
     private static function segment(int $id): string

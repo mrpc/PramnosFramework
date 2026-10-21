@@ -124,7 +124,8 @@ class AudienceScreenTest extends TestCase
         // Arrange
         $this->boot($type, $host, $port, $user);
         Attributes::define(Attribute::column('pillarname', 'pillar', Attribute::LIST)->from('audtest_profiles')->values([1 => 'Childcare', 3 => 'Tutoring']));
-        Attributes::sampleLine(['pillarname', 'city', 'joined', 'interests', 'nothing']);
+        Attributes::define(Attribute::column('seen', 'lastlogin', Attribute::DATE));
+        Attributes::sampleLine(['pillarname', 'city', 'joined', 'interests', 'nothing', 'seen']);
         $filter = Filter::fromArray(['conditions' => []]);
 
         // Act
@@ -132,9 +133,9 @@ class AudienceScreenTest extends TestCase
         $none  = $filter->lines([]);
 
         // Assert
-        $this->assertSame('Tutoring · Athens · 2026-02-01', $lines[$this->ids['bob']]);
-        $this->assertSame('Childcare · Thessaloniki · 2026-03-02', $lines[$this->ids['cara']]);
-        $this->assertSame('', $lines[$this->ids['anna']], 'no profile: nothing to say');
+        $this->assertSame('Tutoring · Athens · 2026-02-01 · 5 days ago', $lines[$this->ids['bob']], 'a date far back as its day, a near one as how long ago');
+        $this->assertSame('Childcare · Thessaloniki · 2026-03-02 · never', $lines[$this->ids['cara']], 'a time of 0 is never');
+        $this->assertSame('never · ' . date('Y-m-d', time() - 40 * 86400), $lines[$this->ids['anna']], 'no profile: the empty ones left out, a missing date is never');
         $this->assertSame([], $none);
     }
 

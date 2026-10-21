@@ -427,3 +427,18 @@ test('a form field becomes the searchable choice with data-pf-combobox, and post
     assert.equal(holder.querySelector('.pf-combo-button').textContent, 'Paid');
 });
 
+test('an empty filter says it is everybody, and the panel breaks down by the first list at once', async () => {
+    // Arrange
+    const { root, live, sent } = page({ answer: { count: 9, sample: [], breakdown: [{ value: 1, label: 'Parent', count: 9 }] } });
+
+    // Act
+    await settle();
+
+    // Assert
+    assert.ok(root.querySelector('[data-pf-audience-empty]'), 'everybody, until a condition narrows it');
+    assert.equal(live.querySelector('[data-pf-audience-by]').value, 'usertype');
+    assert.equal(sent()[0].get('breakdown'), 'usertype');
+    root.querySelector('[data-pf-audience-add]').click();
+    assert.equal(root.querySelector('[data-pf-audience-empty]'), null);
+});
+

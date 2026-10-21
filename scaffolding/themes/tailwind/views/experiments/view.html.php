@@ -47,7 +47,7 @@ $best    = max(array_map(static fn (array $v): float => (float) ($v['rate'] ?? 0
     <div class="pf-card pf-card-flush">
         <table class="pf-table">
             <thead>
-                <tr><th><?php echo $e(t('Variant')); ?></th><th class="pf-num"><?php echo $e(t('People')); ?></th><th class="pf-num"><?php echo $e(t('Reached the goal')); ?></th><th><?php echo $e(t('Rate')); ?></th><th class="pf-num"><?php echo $e(t('How sure')); ?></th><th class="pf-num"><?php echo $e(t('Still needed')); ?></th><th></th></tr>
+                <tr><th><?php echo $e(t('Test variant')); ?></th><th class="pf-num"><?php echo $e(t('People in the test')); ?></th><th class="pf-num"><?php echo $e(t('Reached the goal')); ?></th><th><?php echo $e(t('Goal rate')); ?></th><th class="pf-num"><?php echo $e(t('How sure')); ?></th><th class="pf-num"><?php echo $e(t('Still needed')); ?></th><th></th></tr>
             </thead>
             <tbody>
             <?php foreach ($this->results['variants'] as $i => $v): ?>

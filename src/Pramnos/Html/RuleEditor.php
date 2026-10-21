@@ -58,7 +58,7 @@ final class RuleEditor
             . ' data-classes="' . $e((string) json_encode(AudienceBuilder::classes(), JSON_UNESCAPED_UNICODE)) . '">'
             . '<input type="hidden" name="definition" value="' . $e((string) json_encode($rest, JSON_UNESCAPED_UNICODE)) . '" data-pf-rule-state>'
             . $card(1, 'when', 'rule', t('When'), '<div class="pf-rule-rows" data-pf-rule-when></div>')
-            . $card(2, 'who', 'members', t('Who'), AudienceBuilder::filter('who', $who))
+            . $card(2, 'who', 'members', t('Who'), AudienceBuilder::filter('who', $who, ['sample' => 3]))
             . $card(3, 'what', 'action', t('What'), '<div data-pf-rule-steps></div>')
             . $card(4, 'until', 'goal', t('Until'), '<p class="pf-label">' . $e(t('Leaves the rule when it matches:')) . '</p>'
                 . AudienceBuilder::filter('exit', $exit, ['live' => false]) . '<div class="pf-rule-rows" data-pf-rule-until></div>')
@@ -128,11 +128,11 @@ final class RuleEditor
         'yes' => 'Yes', 'no' => 'No', 'happened' => 'It happened', 'timeout' => 'Time ran out',
         'minutes' => 'minutes', 'hours' => 'hours', 'days' => 'days', 'onFilter' => 'on conditions', 'onMessage' => 'on a message',
         'opened' => 'was opened', 'clicked' => 'was clicked', 'delivered' => 'was delivered',
-        'variant' => 'Variant', 'share' => 'Share %', 'addVariant' => 'Variant', 'goal' => 'Goal', 'within' => 'within',
+        'variant' => 'Variant of the split', 'share' => 'Share %', 'addVariant' => 'Add a variant', 'goal' => 'Goal of the rule', 'within' => 'within',
         'consent' => 'Consent list', 'none' => '—', 'sendHours' => 'Sending hours', 'from' => 'from', 'to' => 'to',
-        'limit' => 'Limit', 'caps' => 'At most', 'per' => 'per', 'addCap' => 'Limit', 'channel' => 'Channel', 'choose' => 'Choose…',
+        'limit' => 'Frequency limit', 'caps' => 'At most', 'per' => 'per', 'addCap' => 'Add a frequency limit', 'channel' => 'Channel', 'choose' => 'Choose…',
         'whenEvent' => 'When: %s', 'noEvent' => 'No event chosen yet', 'everybody' => 'Everybody', 'conditionsCount' => '%s conditions',
-        'noSteps' => 'No steps yet', 'stepsCount' => '%s steps', 'goalSummary' => 'Goal: %s within %s days', 'limitsCount' => '%s limits',
+        'noSteps' => 'No steps yet', 'stepsCount' => '%s steps', 'oneStep' => '%s step', 'oneCondition' => '%s condition', 'oneLimit' => '%s limit', 'goalSummary' => 'Goal: %s within %s days', 'limitsCount' => '%s limits',
         'noLimits' => 'No goal, no limits',
     ];
 }

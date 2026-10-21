@@ -41,11 +41,11 @@ foreach ($this->events as $key => $event) {
             </label>
         </div></div>
         <div class="pf-card"><div class="pf-card-body">
-            <h2 class="pf-section-title"><?php echo $e(t('Variants')); ?></h2>
+            <h2 class="pf-section-title"><?php echo $e(t('Test variants')); ?></h2>
             <div class="pf-stack">
                 <?php for ($i = 0; $i < \Pramnos\Application\Controllers\Experiments::FORM_VARIANTS; $i++): $v = $variants[$i] ?? ['key' => '', 'share' => '', 'label' => '']; ?>
                     <div class="pf-rule-sentence">
-                        <input type="text" name="variants[<?php echo $i; ?>][key]" maxlength="32" class="pf-input pf-input-short" value="<?php echo $e($v['key']); ?>" placeholder="<?php echo $e(t('Key')); ?>" aria-label="<?php echo $e(t('Key')); ?>">
+                        <input type="text" name="variants[<?php echo $i; ?>][key]" maxlength="32" class="pf-input pf-input-short" value="<?php echo $e($v['key']); ?>" placeholder="<?php echo $e(t('Variant key')); ?>" aria-label="<?php echo $e(t('Variant key')); ?>">
                         <input type="text" name="variants[<?php echo $i; ?>][label]" class="pf-input pf-input-grow" value="<?php echo $e($v['label']); ?>" placeholder="<?php echo $e(t('What it is')); ?>" aria-label="<?php echo $e(t('What it is')); ?>">
                         <input type="number" name="variants[<?php echo $i; ?>][share]" min="0" max="100" class="pf-input pf-input-short" value="<?php echo $e($v['share']); ?>" aria-label="<?php echo $e(t('Share %')); ?>">
                         <span class="pf-rule-word">%</span>
@@ -65,10 +65,10 @@ foreach ($this->events as $key => $event) {
                 </select>
             </label>
             <div class="pf-field">
-                <span class="pf-label"><?php echo $e(t('Goal')); ?></span>
+                <span class="pf-label"><?php echo $e(t('Goal of the test')); ?></span>
                 <div class="pf-rule-sentence">
                     <div class="pf-combo-field" data-pf-combobox data-groups="<?php echo $e((string) json_encode(array_values($groups), JSON_UNESCAPED_UNICODE)); ?>"
-                         data-placeholder="<?php echo $e(t('Choose an event…')); ?>" data-label="<?php echo $e(t('Goal')); ?>" data-search="<?php echo $e(t('Search…')); ?>" data-empty="<?php echo $e(t('Nothing found')); ?>">
+                         data-placeholder="<?php echo $e(t('Choose an event…')); ?>" data-label="<?php echo $e(t('Goal of the test')); ?>" data-search="<?php echo $e(t('Search…')); ?>" data-empty="<?php echo $e(t('Nothing found')); ?>">
                         <input type="hidden" name="goalevent" value="<?php echo $e($test['goalEvent'] ?? ''); ?>">
                     </div>
                     <span class="pf-rule-word"><?php echo $e(t('within')); ?></span>

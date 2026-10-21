@@ -244,6 +244,9 @@
         var w = ctx.words;
         var box = el('div', { 'class': 'pf-audience-group', 'data-depth': depth });
         box.appendChild(el('div', { 'class': 'pf-audience-heading' }, [w.matchBefore || '', matchControl(ctx, group, onChange), w.matchAfter || '']));
+        if (depth === 0 && !group.conditions.length) {
+            box.appendChild(el('p', { 'class': 'pf-hint pf-audience-empty', 'data-pf-audience-empty': true }, [w.everybodyHint || 'Everybody — add a condition to narrow it.']));
+        }
 
         group.conditions.forEach(function (condition, index) {
             var remove = el('button', { type: 'button', 'class': 'pf-audience-remove ' + ctx.classes.icon, 'aria-label': w.remove || 'Remove', title: w.remove || 'Remove', 'data-pf-audience-remove': true }, [icon('x')]);
@@ -266,11 +269,11 @@
             }
         });
 
-        var add = el('button', { type: 'button', 'class': 'pf-audience-add ' + ctx.classes.button, 'data-pf-audience-add': true }, [icon('plus'), w.addCondition || 'Condition']);
+        var add = el('button', { type: 'button', 'class': 'pf-audience-add ' + ctx.classes.button, 'data-pf-audience-add': true }, [icon('plus'), w.addCondition || 'Add a condition']);
         add.addEventListener('click', function () { group.conditions.push({ attribute: '', op: '' }); onChange(true); });
         var actions = el('div', { 'class': 'pf-audience-actions' }, [add]);
         if (depth < 2) {
-            var addGroup = el('button', { type: 'button', 'class': 'pf-audience-add ' + ctx.classes.button, 'data-pf-audience-add-group': true }, [icon('plus'), w.addGroup || 'Group']);
+            var addGroup = el('button', { type: 'button', 'class': 'pf-audience-add ' + ctx.classes.button, 'data-pf-audience-add-group': true }, [icon('plus'), w.addGroup || 'Group of conditions']);
             addGroup.addEventListener('click', function () {
                 group.conditions.push({ match: group.match === 'any' ? 'all' : 'any', conditions: [{ attribute: '', op: '' }] });
                 onChange(true);
@@ -589,6 +592,9 @@
                         return a.breakdown;
                     }).map(function (a) { return el('option', { value: a.key }, [a.label]); })));
                 by.addEventListener('change', function () { breakdownKey = by.value; ask(); });
+                // Broken down at once by the first list attribute, so the panel is not half empty.
+                var first = catalog.attributes.filter(function (a) { return a.breakdown && a.type === 'list'; })[0];
+                if (first) { breakdownKey = first.key; by.value = first.key; }
                 live.appendChild(el('div', { 'data-pf-audience-answer': true }));
             }
         } else {

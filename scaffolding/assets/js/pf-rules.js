@@ -148,12 +148,16 @@
             root.dispatchEvent(new window.CustomEvent('pf:rule-change', { detail: state, bubbles: true }));
         };
         var ids = function () { return Object.keys(state.steps); };
-        var title = function (id) {
+        // A step is named by its place and what it does: an administrator never sees its id.
+        var label = function (id) {
             var step = state.steps[id];
             if (!step) { return id; }
             var kind = kindOf(step);
-            return id + ' · ' + (kind === 'message' || kind === 'action' ? ((actions[step.action] || {}).label || step.action) : (w[step.type] || step.type));
+            return kind === 'message' || kind === 'action' ? ((actions[step.action] || {}).label || step.action)
+                : ((KINDS.filter(function (k) { return k.kind === kind; })[0] || {}).label || step.type);
         };
+        var title = function (id) { return (ids().indexOf(id) + 1) + '. ' + label(id); };
+        var plural = function (n, one, many) { return say(n === 1 ? one : many, n); };
         var target = function (current, onChange, attrs) {
             return select([['', w.end || 'End']].concat(ids().map(function (id) { return [id, title(id)]; })), current || '', function (v) {
                 onChange(v === '' ? null : v);
@@ -170,14 +174,14 @@
             var when = t.type === 'event' ? (t.event ? say(w.whenEvent || 'When: %s', eventLabel(t.event)) : (w.noEvent || 'No event chosen yet'))
                 : (w[t.type] || t.type) + (t.segment ? ' · #' + t.segment : '') + (t.cron ? ' · ' + t.cron : '');
             summary('when', when + ' · ' + (state.entry === 'every' ? (w.every || 'every time') : (w.first || 'the first time only')));
-            summary('who', whoCount === null ? '' : (whoCount === 0 ? (w.everybody || 'Everybody') : say(w.conditionsCount || '%s conditions', whoCount)));
+            summary('who', whoCount === null ? '' : (whoCount === 0 ? (w.everybody || 'Everybody') : plural(whoCount, w.oneCondition || '%s condition', w.conditionsCount || '%s conditions')));
             var n = ids().length;
-            summary('what', n === 0 ? (w.noSteps || 'No steps yet') : say(w.stepsCount || '%s steps', n) + ' · ' + ids().map(title).slice(0, 3).join(' → ') + (n > 3 ? ' …' : ''));
+            summary('what', n === 0 ? (w.noSteps || 'No steps yet') : plural(n, w.oneStep || '%s step', w.stepsCount || '%s steps') + ' · ' + ids().map(label).slice(0, 3).join(' → ') + (n > 3 ? ' …' : ''));
             var parts = [];
             if (state.goal && state.goal.event) { parts.push(say(w.goalSummary || 'Goal: %s within %s days', eventLabel(state.goal.event), state.goal.days)); }
             if (state.hours) { parts.push(state.hours.from + '–' + state.hours.to); }
             var caps = state.caps && !Array.isArray(state.caps) ? Object.keys(state.caps) : [];
-            if (caps.length) { parts.push(say(w.limitsCount || '%s limits', caps.length)); }
+            if (caps.length) { parts.push(plural(caps.length, w.oneLimit || '%s limit', w.limitsCount || '%s limits')); }
             summary('until', parts.join(' · ') || (w.noLimits || 'No goal, no limits'));
         };
         var whoBox = root.querySelector('[data-pf-rule-card="who"]');
@@ -307,8 +311,8 @@
             });
             box.appendChild(el('div', { 'class': 'pf-rule-step-head', 'data-pf-rule-type': step.type }, [
                 el('span', { 'class': 'pf-rule-icon' }, [icon(meta.icon)]),
+                el('span', { 'class': 'pf-rule-num', title: title(id) }, [String(ids().indexOf(id) + 1)]),
                 el('span', { 'class': 'pf-rule-step-title' }, [meta.label]),
-                el('span', { 'class': 'pf-rule-step-id' }, [id]),
                 remove,
             ]));
             box.appendChild(drawBody(id, step, kind));
@@ -425,7 +429,7 @@
             untilBox.appendChild(sentence([el('span', { 'class': 'pf-label' }, [w.sendHours || 'Sending hours']), w.from || 'from',
                 clock(hours.from, function (v) { if (v !== null) { hours.from = v; setHours(); } }, { 'data-pf-rule-from': true, 'aria-label': w.from || 'from' }),
                 w.to || 'to',
-                clock(hours.to, function (v) { if (v !== null) { hours.to = v; setHours(); } }, { 'data-pf-rule-to': true, 'aria-label': w.to || 'to' })]));
+                clock(hours.to, function (v) { if (v !== null) { hours.to = v; setHours(); } }, { 'data-pf-rule-to': true, 'aria-label': w.to || 'to', placeholder: '21:00' })]));
 
             var caps = state.caps && !Array.isArray(state.caps) ? state.caps : {};
             state.caps = caps;

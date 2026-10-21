@@ -41,7 +41,7 @@ $tones = ['draft' => 'pf-tone-muted', 'shadow' => 'pf-tone-info', 'active' => 'p
         <?php else: ?>
             <table class="pf-table" id="pf-rules-table">
                 <thead>
-                    <tr><th><?php echo $e(t('Name')); ?></th><th><?php echo $e(t('Status')); ?></th><th><?php echo $e(t('When')); ?></th><th class="pf-num"><?php echo $e(t('Entered, 7 days')); ?></th><th class="pf-num"><?php echo $e(t('Under way')); ?></th><th class="pf-num"><?php echo $e(t('Goal reached')); ?></th></tr>
+                    <tr><th><?php echo $e(t('Name')); ?></th><th><?php echo $e(t('Rule status')); ?></th><th><?php echo $e(t('When')); ?></th><th class="pf-num"><?php echo $e(t('Entered, 7 days')); ?></th><th class="pf-num"><?php echo $e(t('Under way')); ?></th><th class="pf-num"><?php echo $e(t('Goal reached')); ?></th></tr>
                 </thead>
                 <tbody>
                 <?php foreach ($this->rules as $rule): ?>

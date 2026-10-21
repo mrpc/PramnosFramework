@@ -20,6 +20,7 @@ use Pramnos\Html\Icon;
 $e      = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $rule   = $this->rule;
 $id     = (int) $rule['id'];
+$labels = \Pramnos\Html\RuleCanvas::stepLabels($rule['definition']['steps'] ?? []);
 $tones  = ['draft' => 'pf-tone-muted', 'shadow' => 'pf-tone-info', 'active' => 'pf-tone-ok', 'paused' => 'pf-tone-warn'];
 $state  = static fn (string $to, string $label, string $icon) => '<form method="post" action="' . $e(adminUrl('Rules/status/') . $id) . '">' . \Pramnos\Http\Session::getInstance()->getTokenField()
     . '<input type="hidden" name="status" value="' . $e($to) . '"><button type="submit" aria-pressed="' . ($rule['status'] === $to ? 'true' : 'false') . '"'
@@ -42,7 +43,7 @@ $outcomeTones = ['entered' => 'pf-tone-accent', 'sent' => 'pf-tone-ok', 'done' =
                 <form method="post" action="<?php echo $e(adminUrl('Rules/delete/') . $id); ?>" class="pf-inline-form" data-confirm="<?php echo $e(t('Delete this rule, its versions and its log?')); ?>"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                     <button type="submit" class="pf-btn pf-btn-ghost pf-btn-danger"><?php echo $e(t('Delete')); ?></button></form>
             <?php endif; ?>
-            <span class="pf-segmented" role="group" aria-label="<?php echo $e(t('Status')); ?>">
+            <span class="pf-segmented" role="group" aria-label="<?php echo $e(t('Rule status')); ?>">
                 <?php echo $state('shadow', t('Run in shadow'), 'shadow'); ?>
                 <?php echo $state('active', t('Switch on'), 'play'); ?>
                 <?php echo $state('paused', t('Pause'), 'pause'); ?>
@@ -88,7 +89,7 @@ $outcomeTones = ['entered' => 'pf-tone-accent', 'sent' => 'pf-tone-ok', 'done' =
             <div class="pf-card"><div class="pf-card-body">
                 <h2 class="pf-section-title"><?php echo $e(t('Send a test to me')); ?></h2>
                 <form method="post" action="<?php echo $e(adminUrl('Rules/testsend/') . $id); ?>" class="pf-rule-sentence"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
-                    <select name="step" class="pf-select" aria-label="<?php echo $e(t('Step')); ?>"><?php foreach ($this->actionSteps as $step): ?><option value="<?php echo $e($step); ?>"><?php echo $e($step); ?></option><?php endforeach; ?></select>
+                    <select name="step" class="pf-select" aria-label="<?php echo $e(t('Step')); ?>"><?php foreach ($this->actionSteps as $step): ?><option value="<?php echo $e($step); ?>"><?php echo $e($labels[$step] ?? $step); ?></option><?php endforeach; ?></select>
                     <input type="number" min="1" name="person" required class="pf-input pf-input-id" placeholder="<?php echo $e(t('with the details of')); ?>" aria-label="<?php echo $e(t('Account id')); ?>">
                     <button type="submit" class="pf-btn"><?php echo Icon::svg('send', ''); ?><?php echo $e(t('Send')); ?></button>
                 </form>
@@ -123,7 +124,7 @@ $outcomeTones = ['entered' => 'pf-tone-accent', 'sent' => 'pf-tone-ok', 'done' =
                     <tr>
                         <td class="pf-muted"><?php echo $e(date('Y-m-d H:i', (int) $row['at'])); ?></td>
                         <td><a href="<?php echo $e(\Pramnos\Html\AudienceBuilder::personUrl((int) $row['personid'])); ?>">#<?php echo (int) $row['personid']; ?></a></td>
-                        <td><?php echo $e((string) ($row['step'] ?? '')); ?></td>
+                        <td><?php echo $e($labels[(string) ($row['step'] ?? '')] ?? (string) ($row['step'] ?? '')); ?></td>
                         <td><span class="pf-badge <?php echo $outcomeTones[(string) $row['outcome']] ?? 'pf-tone-muted'; ?>"><?php echo $e(t((string) $row['outcome'])); ?></span></td>
                         <td class="pf-muted"><?php echo $e(mb_strimwidth((string) ($row['detail'] ?? ''), 0, 140, '…')); ?></td>
                     </tr>

@@ -167,7 +167,9 @@ test('steps are added from the menu, joined after the last one, and given their 
         s1: { type: 'action', action: 'email', params: { template: 'welcome' }, next: 's2' },
         s2: { type: 'action', action: 'site_message', params: { kind: 'card', body: 'Hi {firstname}' }, next: null },
     });
-    assert.match(root.querySelector('[data-pf-rule-summary="what"]').textContent, /^2 steps · s1 · Send an email → s2 · Show on the site$/);
+    assert.equal(root.querySelector('[data-pf-rule-summary="what"]').textContent, '2 steps · Send an email → Show on the site', 'named by what they do, never by id');
+    assert.deepEqual(root.querySelector('[data-pf-rule-step="s1"] [data-pf-rule-next="next"]').querySelectorAll('option').map((o) => o.textContent),
+        ['End', '1. Send an email', '2. Show on the site'], 'a step is chosen by its place and what it does');
 });
 
 test('the menu offers a message, an action, waits, a branch and a split, each with its fields', () => {
@@ -277,3 +279,18 @@ test('the controls wear the theme\'s classes', () => {
     assert.ok(more.classList.contains('button-x'));
     assert.ok(root.querySelector('.pf-rule-sentence .pf-rule-word'), 'words between the fields, in sentences');
 });
+
+test('one of a thing is said in the singular', () => {
+    // Arrange
+    const { root } = page({ trigger: { type: 'once' }, steps: {} });
+
+    // Act
+    add(root, 'wait');
+    root.querySelector('[data-pf-rule-add-cap]').click();
+
+    // Assert
+    assert.equal(root.querySelector('[data-pf-rule-summary="what"]').textContent, '1 step · Wait');
+    assert.match(root.querySelector('[data-pf-rule-summary="until"]').textContent, /^1 limit$/);
+    assert.equal(root.querySelector('[data-pf-rule-to]').getAttribute('placeholder'), '21:00', 'the end of the window reads as an end');
+});
+

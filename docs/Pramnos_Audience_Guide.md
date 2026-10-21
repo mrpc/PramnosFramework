@@ -345,8 +345,9 @@ The mass-message compose form carries the picker: a message whose audience was p
 - **A sample** links each person to their card: the framework's Users screen, or
   `'audience' => ['person_url' => '/admin/People/{id}']` in app.php. Under each name is a line:
   the email, or the attributes the application names —
-  `Attributes::sampleLine(['usertype', 'city', 'lastlogin'])` reads "Professional · Athens ·
-  2026-10-20" (labelled values, a date as its day; a many-valued attribute is left out).
+  `Attributes::sampleLine(['usertype', 'city', 'lastlogin'])` reads "Professional · Athens · 2
+  days ago" (labelled values; a date as today, yesterday, so many days ago within a month, else
+  its day, and none as "never"; a many-valued attribute is left out).
 - **The conditions** sit on one line each: what (a searchable list under the attributes'
   headings, what people did under theirs, and *Segment*), how, the value, and a remove button.
   The word between two rows is a switch between *all* and *any*.
