@@ -102,10 +102,10 @@ final class Actions
             ], 'run' => self::email(...)],
             'bell' => ['label' => t('Notify on the site'), 'channel' => 'site', 'params' => [
                 'subject' => $text(t('Title')), 'body' => $text(t('Message'), 'textarea'), 'link' => $text(t('Link')),
-            ], 'run' => static fn (int $person, array $params, Context $context): array => self::notify($person, $params, 'database')],
+            ], 'run' => static fn (int $person, array $params, Context $context): array => self::notify($person, $params, 'database', $context)],
             'push' => ['label' => t('Send a push notification'), 'channel' => 'push', 'params' => [
                 'subject' => $text(t('Title')), 'body' => $text(t('Message'), 'textarea'), 'link' => $text(t('Link')),
-            ], 'run' => static fn (int $person, array $params, Context $context): array => self::notify($person, $params, 'push')],
+            ], 'run' => static fn (int $person, array $params, Context $context): array => self::notify($person, $params, 'push', $context)],
             'group_add' => ['label' => t('Put in a group'), 'channel' => null, 'params' => ['group' => $text(t('Group'), 'group')],
                 'run' => static fn (int $person, array $params, Context $context): array => [
                     'status' => 'done', 'detail' => ['added' => \Pramnos\Audience\Groups::add((int) ($params['group'] ?? 0), $person, null, 'rule')]]],
@@ -132,18 +132,22 @@ final class Actions
      */
     private static function email(int $person, array $params, Context $context): array
     {
-        $user = self::user($person);
-        if ($user === null || trim((string) $user->email) === '') {
+        $data = self::user($person);
+        $user = $context->isTest() ? self::user($context->to()) : $data;
+        if ($data === null || $user === null || trim((string) $user->email) === '') {
             return ['status' => 'skipped', 'detail' => ['reason' => 'no address']];
         }
-        $template = \Pramnos\Messaging\MailTemplate::lookup((string) ($params['template'] ?? ''), (string) ($user->language ?? ''));
+        $template = \Pramnos\Messaging\MailTemplate::lookup((string) ($params['template'] ?? ''), (string) ($data->language ?? ''));
         if ($template === null) {
             return ['status' => 'error', 'detail' => ['reason' => 'no template ' . ($params['template'] ?? '')]];
         }
-        $filled = \Pramnos\Messaging\MailTemplate::fill($template, TemplateValues::forUser($user));
+        $filled = \Pramnos\Messaging\MailTemplate::fill($template, TemplateValues::forUser($data));
+        if ($context->isTest()) {
+            $filled['subject'] = '[' . t('Test') . '] ' . $filled['subject'];
+        }
         $email  = new \Pramnos\Email\Email();
         $email->setSubject($filled['subject'])->setBody($filled['body'])->setTo((string) $user->email);
-        $email->forUser($person);
+        $email->forUser($context->to());
         $email->module     = 'rule';
         $email->moduleinfo = $context->origin();
         if ($template['emailtemplate'] !== '') {
@@ -185,9 +189,9 @@ final class Actions
      * @param array<string, mixed> $params
      * @return array{status: string, detail: array<string, mixed>}
      */
-    private static function notify(int $person, array $params, string $channel): array
+    private static function notify(int $person, array $params, string $channel, ?Context $context = null): array
     {
-        $user = self::user($person);
+        $user = self::user($context !== null && $context->isTest() ? $context->to() : $person);
         if ($user === null) {
             return ['status' => 'skipped', 'detail' => ['reason' => 'no account']];
         }

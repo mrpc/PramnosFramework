@@ -15,6 +15,7 @@ use_cases:
   - Taking framework updates while holding the audience migrations back
   - Sending a message, waiting, branching and following up automatically when people do something
   - Adding an application's own action — an SMS, a call list — to the rules
+  - Trying a rule before switching it on: why a person would or would not get it, a test send
 ---
 
 # Audience Guide
@@ -548,4 +549,30 @@ the event it waited for, does nothing — and every decision is a row in `rule_l
 action's outcome and reason, each branch with its conditions and values, waits, exit, goal. The log
 keeps `audience.rule_log_days` (90; 0 keeps it), pruned with the person events. A segment or consent
 list a rule reads cannot be deleted; a running rule cannot be either.
+
+### Trying a rule before it runs
+
+```php
+use Pramnos\Audience\Rules\Tester;
+
+Tester::why($rule, $userid);          // ['enters' => false, 'reasons' => ['who does not match'], 'who' => explain, 'exit' => …, 'steps' => …]
+Tester::simulate($rule, days: 7);     // ['entered' => 486, 'messages' => ['email' => 486, 'sms' => 486], 'basis' => 'the event log']
+Tester::testSend($rule, 'mail', $userid, $me);   // the step's action, to me, filled with their details
+Tester::diff($rule, 3, 4);            // ['before' => 812, 'after' => 790, 'in' => 12, 'out' => 34]
+```
+
+- **why** — entered before (first time) or already on its way (every time), who with every
+  condition and value, the exit, and for each step: the channel and consent an action would meet,
+  the conditions a branch would read.
+- **simulate** — the last days had the rule been on: the people the trigger's events brought
+  (the event log, or entries into or departures from the segment) who match *now*, and at most as
+  many messages per channel as there are message steps; a once or schedule rule counts who matches
+  now. An estimate, and it says what it was counted from.
+- **testSend** — a step's action for a real person's details, sent to the account that asked —
+  `[Test]` in an email's subject, `Context::isTest()` for an application's action — and part of no
+  run.
+- **diff** — what changing who does, before saving it as the version to run.
+
+Shadow mode is the live trial: the rule runs for real people on real events and writes in its log
+what it would have sent.
 

@@ -24,7 +24,23 @@ final class Context
         public readonly ?string $variant = null,
         public readonly bool $shadow = false,
         public readonly ?int $consentList = null,
+        public readonly ?int $recipient = null,
     ) {
+    }
+
+    /**
+     * Who receives a message: the person — or, for a test send, the account that asked for it,
+     * with the person's details filled in.
+     */
+    public function to(): int
+    {
+        return $this->recipient ?? $this->person;
+    }
+
+    /** Whether this is a test send to somebody other than the person. */
+    public function isTest(): bool
+    {
+        return $this->recipient !== null && $this->recipient !== $this->person;
     }
 
     /**
@@ -53,6 +69,7 @@ final class Context
             'consent' => $this->consentList,
             'trigger' => $this->trigger,
             'origin'  => $this->origin(),
+            'test'    => $this->isTest(),
         ];
     }
 }

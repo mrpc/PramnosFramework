@@ -1117,4 +1117,5 @@ return [
     'Pause the rule before deleting it.' => 'Βάλτε τον κανόνα σε παύση πριν τον διαγράψετε.',
     'rule %s' => 'κανόνας %s',
     'A rule needs a name.' => 'Ο κανόνας χρειάζεται όνομα.',
+    'Test' => 'Δοκιμή',
 ];
