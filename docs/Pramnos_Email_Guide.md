@@ -577,7 +577,7 @@ It works with whichever editor the body is in — builtin, rich, TinyMCE or none
   apart from the mail templates, which are the application's notifications. Placeholders stay as
   written.
 - **Fields.** `data-pf-editor-fields` — `[{"token": "{firstname}", "label": "First name"}]` —
-  becomes one "Fields ▾" dropdown; a choice goes in at the cursor of whichever of the subject and
+  becomes one "Recipient details ▾" dropdown (Greek «Στοιχεία ▾»; the key is specific so an application's own "Fields" translation does not rename it); a choice goes in at the cursor of whichever of the subject and
   the body had the focus last. An entry with a `value` inserts the value instead of the token: a
   message to one person reads "Cathy", not a placeholder. `MessageComposer::fieldsJson($fields,
   $values)` builds the list — `fieldsJson(null, MessageComposer::valuesFor($user))` gives the

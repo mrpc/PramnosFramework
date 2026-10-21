@@ -189,11 +189,11 @@ final class MessageComposer
         }
         // The fields, drawn by pf-utils.js from data-pf-editor-fields: one dropdown, or a row.
         if (($options['fields'] ?? 'menu') === 'buttons') {
-            $parts[] = '<span class="pf-composer-fields" data-pf-composer-fields aria-label="' . $e(self::t('Fields')) . '"></span>';
+            $parts[] = '<span class="pf-composer-fields" data-pf-composer-fields aria-label="' . $e(self::t('Recipient details')) . '"></span>';
         } else {
             // <details>: opens and closes with no script, and Escape and the keyboard work.
             $parts[] = '<details class="pf-composer-menu">'
-                . '<summary class="pf-composer-button ' . $c['button'] . '">' . $e(self::t('Fields')) . ' ▾</summary>'
+                . '<summary class="pf-composer-button ' . $c['button'] . '">' . $e(self::t('Recipient details')) . ' ▾</summary>'
                 . '<span class="pf-composer-fields pf-composer-menu-list" data-pf-composer-fields role="menu"></span>'
                 . '</details>';
         }

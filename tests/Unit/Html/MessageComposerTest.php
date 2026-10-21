@@ -95,7 +95,7 @@ final class MessageComposerTest extends TestCase
             $this->assertStringContainsString($part, $all, $part . ' is not drawn');
         }
         $this->assertStringContainsString('<details class="pf-composer-menu">', $all, 'the fields are not one dropdown');
-        $this->assertStringContainsString('Fields ▾', $all);
+        $this->assertStringContainsString('Recipient details ▾', $all);
         $this->assertStringContainsString('data-pf-composer-saved hidden', $all, 'the list shows before anything is saved');
         $this->assertStringNotContainsString('pf-composer-menu', $row, 'the row of buttons was asked for');
         $this->assertStringContainsString('data-pf-composer-fields', $row);

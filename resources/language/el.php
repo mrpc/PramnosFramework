@@ -877,7 +877,7 @@ return [
     // The unsubscribe line added to an application's own text part.
     'Unsubscribe' => 'Απεγγραφή',
     // The message composer's dropdown and panels.
-    'Fields' => 'Στοιχεία',
+    'Recipient details' => 'Στοιχεία',
     'For everybody' => 'Για όλους',
     'What should it say?' => 'Τι να λέει;',
     'Leave it empty to improve what is written.' => 'Αφήστε το κενό για να βελτιωθεί ό,τι έχει γραφτεί.',
