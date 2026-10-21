@@ -13,6 +13,8 @@
  *
  *   window.PfEditor.enhance(textarea)      // for a textarea added after the page loaded
  *   window.PfEditor.plain(textarea, true)  // the bare textarea, for a channel that is text only
+ *   window.PfEditor.getHTML(textarea) / setHTML(textarea, html) / insert(textarea, text)
+ *                                          // for another script — the message composer
  */
 (function () {
     'use strict';
@@ -35,6 +37,7 @@
     }
 
     var editors = new WeakMap();
+    var areas = new WeakMap();
 
     /** A label's own words, without the field it may hold. */
     function labelWords(label) {
@@ -198,6 +201,19 @@
 
         // Text only — push has no markup — shows the bare field and hides the toolbar; back
         // again, the area takes up whatever the field now holds.
+        areas.set(textarea, {
+            get: function () { sync(); return textarea.value; },
+            set: function (html) {
+                if (source) { textarea.value = html; } else { area.innerHTML = html; sync(); }
+            },
+            insert: function (text) {
+                if (source) { insertInField(textarea, text); return; }
+                area.focus();
+                exec('insertText', text);
+                sync();
+            }
+        });
+
         editors.set(textarea, function (on) {
             if (on === source && bar.hidden === on) {
                 return;
@@ -231,7 +247,30 @@
         Array.prototype.forEach.call(document.querySelectorAll('textarea[data-pf-editor="builtin"]'), enhance);
     }
 
-    window.PfEditor = { enhance: enhance, plain: plain };
+    /** Text into a plain field at its cursor, replacing a selection. */
+    function insertInField(field, text) {
+        var start = field.selectionStart == null ? field.value.length : field.selectionStart;
+        var end = field.selectionEnd == null ? start : field.selectionEnd;
+        field.value = field.value.slice(0, start) + text + field.value.slice(end);
+        field.selectionStart = field.selectionEnd = start + text.length;
+    }
+
+    // What another script — the message composer — reads, writes and inserts through: the
+    // area where the field became one, the field itself where it did not.
+    function getHTML(textarea) {
+        var a = areas.get(textarea);
+        return a ? a.get() : textarea.value;
+    }
+    function setHTML(textarea, html) {
+        var a = areas.get(textarea);
+        if (a) { a.set(html); } else { textarea.value = html; }
+    }
+    function insert(textarea, text) {
+        var a = areas.get(textarea);
+        if (a) { a.insert(text); } else { insertInField(textarea, text); }
+    }
+
+    window.PfEditor = { enhance: enhance, plain: plain, getHTML: getHTML, setHTML: setHTML, insert: insert };
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);

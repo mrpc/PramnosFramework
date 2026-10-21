@@ -48,7 +48,7 @@ $labels = [
             <span class="font-medium"><?php echo $e($name !== '' ? $name : ($u['username'] ?? '')); ?></span>
             <span class="pf-muted">&lt;<?php echo $e($u['email'] ?? ''); ?>&gt;</span>
         </div>
-        <form method="post" action="<?php echo adminUrl('users/sendnotification/' . $uid); ?>" class="p-5">
+        <form method="post" action="<?php echo adminUrl('users/sendnotification/' . $uid); ?>" data-pf-composer data-pf-composer-url="<?php echo $e(adminUrl('Composer')); ?>" data-pf-composer-scope="user-message" data-pf-editor-fields='<?php echo \Pramnos\Html\MessageComposer::fieldsJson(); ?>' class="p-5">
             <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
 
             <fieldset class="mb-5">
@@ -75,16 +75,17 @@ $labels = [
                 </div>
             </fieldset>
 
+            <?php echo \Pramnos\Html\MessageComposer::toolbar(); ?>
             <div class="mb-4">
                 <label class="block text-sm font-medium mb-1" for="pf-message-subject">Subject</label>
-                <input type="text" id="pf-message-subject" name="subject" class="input input-sm w-full" required
+                <input type="text" id="pf-message-subject" name="subject" data-pf-composer-subject class="input input-sm w-full" required
                        maxlength="200">
                 <p class="text-xs text-base-content/60 mt-1">The mail subject, and the push notification's title.</p>
             </div>
 
             <div class="mb-4">
                 <label class="block text-sm font-medium mb-1" for="pf-message-body">Message</label>
-                <textarea id="pf-message-body" data-pf-editor="builtin" name="message" class="textarea w-full" rows="8" required></textarea>
+                <textarea id="pf-message-body" data-pf-editor="builtin" name="message" data-pf-composer-body class="textarea w-full" rows="8" required></textarea>
                 <p class="text-xs text-base-content/60 mt-1">
                     Formatting, links and images are kept; anything else in the markup is removed. A push
                     notification gets the text of it. What was sent, on which

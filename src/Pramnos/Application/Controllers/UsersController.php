@@ -1108,6 +1108,11 @@ class UsersController extends Controller
             return;
         }
 
+        // The composer's placeholders, for this account; others are left as written.
+        $values  = \Pramnos\Html\MessageComposer::valuesFor($user);
+        $subject = \Pramnos\Html\MessageComposer::fill($subject, $values);
+        $message = \Pramnos\Html\MessageComposer::fill($message, $values, true);
+
         $available = $this->sendChannels($user);
         $posted    = \Pramnos\Http\Request::staticGet('channels', null, 'post');
 

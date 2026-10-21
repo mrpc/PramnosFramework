@@ -551,6 +551,47 @@ markup is. On the mass-message form the editor gives way to the bare field when 
 **push** — a notification carries text — and comes back for email and an internal message, which
 both keep markup; `window.PfEditor.plain(textarea, bool)` does the same for any form.
 
+### Composing a message: saved messages, placeholders, AI, the signature
+
+Above the message forms — "Message one user" and the mass-message composer — sits a toolbar,
+`Html\MessageComposer`, for any form with a message body:
+
+```php
+<form method="post" action="…" data-pf-composer data-pf-composer-url="<?= adminUrl('Composer') ?>"
+      data-pf-composer-scope="user-message"
+      data-pf-editor-fields='<?= \Pramnos\Html\MessageComposer::fieldsJson() ?>'>
+    <?= \Pramnos\Html\MessageComposer::toolbar() ?>
+    <input name="subject" data-pf-composer-subject>
+    <textarea name="message" data-pf-editor="<?= \Pramnos\Html\MessageEditor::mode() ?>" data-pf-composer-body></textarea>
+</form>
+```
+
+It works with whichever editor the body is in — builtin, rich, TinyMCE or none — through
+`pf-utils.js`.
+
+- **Saved messages.** A list fills the subject and the body; "Save this message" keeps them under a
+  name, for the account or — with the `messages.share` ability where the application defines it,
+  with the administration floor where it does not — for everybody. The same name in the same
+  scope is replaced. They live in `savedmessages` (migration `create_savedmessages_table`), apart
+  from the mail templates, which are the application's notifications. Placeholders stay as
+  written.
+- **Placeholders.** `data-pf-editor-fields` — `[{"token": "{firstname}", "label": "First name"}]` —
+  draws a button each; one goes in at the cursor of whichever of the subject and the body had the
+  focus last. They are never filled in the page. The framework's forms fill `{firstname}`,
+  `{lastname}`, `{full_name}`, `{username}` and `{email}` when they send, for each recipient
+  (`MessageComposer::fill()` with `valuesFor($user)`); an application with its own fills its own.
+- **Write with AI**, where a language model is configured: an instruction — or nothing, to improve
+  what is written — and the model answers a subject and a body, keeping every placeholder,
+  in `data-pf-composer-language` when the form gives one. The call is logged and costed as every
+  call is (`purpose` `compose`); the body comes back cleaned to what a message may carry.
+- **The signature** is the account's own (`usersettings` `mail.signature`), edited at
+  `Composer/signature` in the application's message editor. "With my signature" adds it under the
+  body when the form is sent, once.
+
+`toolbar(['saved' => false, 'ai' => false, 'signature' => false])` leaves a part out. The
+endpoints are the `Composer` controller's: `saved?scope=`, and the POSTs `save`, `forget` and
+`write`, each with the session's token.
+
 Without JavaScript the textarea is simply there. `pf-editor.js` ships with the other `pf-*.js`
 files: `init` writes it and `project:resync --js` brings it to a project made before it existed.
 `window.PfEditor.enhance(textarea)` enhances a field added after the page loaded.

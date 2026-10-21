@@ -38,6 +38,8 @@
  *   data-pf-notifications       — the notification bell (see Html\NotificationBell): the
  *                                 count, the list, read and read-all, polled while the tab
  *                                 is visible and refreshed on `pf:notifications:refresh`
+ *   data-pf-composer            — the tools above a message form (Html\MessageComposer): saved
+ *                                 messages, placeholders, writing with AI, the signature
  *   data-pf-tool="name"         — on a <form>: a tool an AI agent in the browser can call (WebMCP),
  *                                 listed in window.pfTools and the debug bar's Tools tab
  *   meta[name=pf-realtime]      — the page's live connection (window.pfRealtime): the Pusher
@@ -926,6 +928,204 @@
             },
             close: function () { if (connection) { connection.close(); } },
         };
+    })();
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // data-pf-composer — the tools above a message form (\Pramnos\Html\MessageComposer)
+    //
+    // On a container — usually the form — with `data-pf-composer-url` (the Composer controller),
+    // `data-pf-composer-scope`, `data-pf-editor-fields` ([{token, label}]) and, optionally,
+    // `data-pf-composer-language`; inside it the subject `[data-pf-composer-subject]` and the
+    // body `[data-pf-composer-body]`, in whichever editor it has — rich, TinyMCE, builtin or
+    // none, all reached through one adapter. Saved messages fill the subject and the body; a
+    // placeholder goes in at the cursor of whichever of the two had the focus last, never filled
+    // here; "Write with AI" asks the server; "With my signature" adds the signature to the body
+    // when the form is sent, once.
+    // ══════════════════════════════════════════════════════════════════════════
+    (function () {
+        /** The body, whatever editor it is in: get, set, insert at the cursor. */
+        function bodyOf(field) {
+            function rich() { return window.pfRichEditor && window.pfRichEditor.for ? window.pfRichEditor.for(field) : null; }
+            function tiny() { return window.tinymce && field.id ? window.tinymce.get(field.id) : null; }
+            function insertInField(text) {
+                var start = field.selectionStart == null ? field.value.length : field.selectionStart;
+                var end = field.selectionEnd == null ? start : field.selectionEnd;
+                field.value = field.value.slice(0, start) + text + field.value.slice(end);
+                field.selectionStart = field.selectionEnd = start + text.length;
+            }
+            return {
+                get: function () {
+                    var r = rich(); if (r) { return r.getHTML(); }
+                    var t = tiny(); if (t) { return t.getContent(); }
+                    return window.PfEditor && window.PfEditor.getHTML ? window.PfEditor.getHTML(field) : field.value;
+                },
+                set: function (html) {
+                    var r = rich(); if (r) { r.editor.commands.setContent(html || '', { emitUpdate: true }); field.value = r.getHTML(); return; }
+                    var t = tiny(); if (t) { t.setContent(html || ''); t.save(); return; }
+                    if (window.PfEditor && window.PfEditor.setHTML) { window.PfEditor.setHTML(field, html || ''); } else { field.value = html || ''; }
+                },
+                insert: function (text) {
+                    var r = rich(); if (r) { r.editor.chain().focus().insertContent(text).run(); return; }
+                    var t = tiny(); if (t) { t.insertContent(text); return; }
+                    if (window.PfEditor && window.PfEditor.insert) { window.PfEditor.insert(field, text); } else { insertInField(text); }
+                },
+            };
+        }
+
+        /** A POST to the composer's controller, with the page's token; the JSON answer. */
+        function post(url, data) {
+            var body = Object.keys(data).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(data[k]); }).join('&');
+            return window.fetch(url, {
+                method: 'POST', credentials: 'same-origin', body: body,
+                headers: pfApiHeaders({ 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }),
+            }).then(function (r) { return r.json().catch(function () { return { error: 'HTTP ' + r.status }; }); });
+        }
+
+        function wire(box) {
+            var url = (box.getAttribute('data-pf-composer-url') || '').replace(/\/+$/, '');
+            var scope = box.getAttribute('data-pf-composer-scope') || '';
+            var subject = box.querySelector('[data-pf-composer-subject]');
+            var field = box.querySelector('[data-pf-composer-body]');
+            if (!field) { return; }
+            var body = bodyOf(field);
+            var bar = box.querySelector('[data-pf-composer-words]');
+            var words = {};
+            try { words = JSON.parse(bar ? bar.getAttribute('data-pf-composer-words') : '{}') || {}; } catch (e) { words = {}; }
+            var fields = [];
+            try { fields = JSON.parse(box.getAttribute('data-pf-editor-fields') || '[]') || []; } catch (e) { fields = []; }
+            var lastFocus = 'body';
+            box.addEventListener('focusin', function (e) {
+                if (subject && e.target === subject) { lastFocus = 'subject'; } else if (e.target !== subject && !(e.target.closest && e.target.closest('.pf-composer-toolbar'))) { lastFocus = 'body'; }
+            });
+
+            // ── Placeholders: a button each; pressing one keeps the cursor where it was ──
+            var holder = box.querySelector('[data-pf-composer-fields]');
+            if (holder) {
+                fields.forEach(function (f) {
+                    var b = document.createElement('button');
+                    b.type = 'button';
+                    b.className = 'pf-composer-button pf-composer-field';
+                    b.textContent = f.label || f.token;
+                    b.title = f.token;
+                    b.setAttribute('data-token', f.token);
+                    b.addEventListener('mousedown', function (e) { e.preventDefault(); });
+                    b.addEventListener('click', function () {
+                        if (lastFocus === 'subject' && subject) {
+                            var start = subject.selectionStart == null ? subject.value.length : subject.selectionStart;
+                            var end = subject.selectionEnd == null ? start : subject.selectionEnd;
+                            subject.value = subject.value.slice(0, start) + f.token + subject.value.slice(end);
+                            subject.selectionStart = subject.selectionEnd = start + f.token.length;
+                        } else {
+                            body.insert(f.token);
+                        }
+                    });
+                    holder.appendChild(b);
+                });
+            }
+
+            // ── Saved messages ──
+            var picker = box.querySelector('[data-pf-composer-saved]');
+            var forgetButton = box.querySelector('[data-pf-composer-forget]');
+            var saved = [];
+            var canShare = false;
+            function load() {
+                if (!picker || !url) { return Promise.resolve(); }
+                return window.fetch(url + '/saved?scope=' + encodeURIComponent(scope), { credentials: 'same-origin', headers: pfApiHeaders({ Accept: 'application/json' }) })
+                    .then(function (r) { return r.ok ? r.json() : { messages: [] }; })
+                    .then(function (d) {
+                        saved = (d && d.messages) || [];
+                        canShare = !!(d && d.canShare);
+                        while (picker.options.length > 1) { picker.remove(1); }
+                        saved.forEach(function (m) {
+                            var o = document.createElement('option');
+                            o.value = String(m.id);
+                            o.textContent = m.name + (m.shared ? ' — ' + (words.shared || 'Shared') : '');
+                            picker.appendChild(o);
+                        });
+                    }).catch(function () { /* the form works without them */ });
+            }
+            function chosen() {
+                return saved.filter(function (m) { return String(m.id) === picker.value; })[0] || null;
+            }
+            if (picker) {
+                picker.addEventListener('change', function () {
+                    var m = chosen();
+                    if (forgetButton) { forgetButton.hidden = !(m && m.canForget); }
+                    if (!m) { return; }
+                    if (subject) { subject.value = m.subject; }
+                    body.set(m.body);
+                });
+            }
+            var saveButton = box.querySelector('[data-pf-composer-save]');
+            if (saveButton) {
+                saveButton.addEventListener('click', function () {
+                    var current = chosen();
+                    var name = window.prompt(words.name || 'Name', current ? current.name : (subject ? subject.value : ''));
+                    if (!name) { return; }
+                    var shared = canShare && window.confirm(words.share || 'Share it with everybody?');
+                    post(url + '/save', { name: name, subject: subject ? subject.value : '', body: body.get(), scope: scope, shared: shared ? '1' : '0' })
+                        .then(function (d) {
+                            if (d && d.error) { window.alert(d.error); return; }
+                            return load().then(function () { picker.value = String(d.saved); });
+                        });
+                });
+            }
+            if (forgetButton) {
+                forgetButton.addEventListener('click', function () {
+                    var m = chosen();
+                    if (!m || !window.confirm(words.forget || 'Forget this saved message?')) { return; }
+                    post(url + '/forget', { id: String(m.id) }).then(function (d) {
+                        if (d && d.error) { window.alert(d.error); return; }
+                        forgetButton.hidden = true;
+                        return load();
+                    });
+                });
+            }
+            load();
+
+            // ── Write with AI: from an instruction, or the text improved ──
+            var writeButton = box.querySelector('[data-pf-composer-write]');
+            if (writeButton) {
+                writeButton.addEventListener('click', function () {
+                    var instruction = window.prompt(words.instruction || 'What should the message say?', '');
+                    if (instruction === null) { return; }
+                    var label = writeButton.textContent;
+                    writeButton.disabled = true;
+                    writeButton.textContent = words.writing || '…';
+                    post(url + '/write', {
+                        instruction: instruction, subject: subject ? subject.value : '', body: body.get(),
+                        language: box.getAttribute('data-pf-composer-language') || '',
+                        fields: JSON.stringify(fields.map(function (f) { return f.token; })),
+                    }).then(function (d) {
+                        if (!d || d.error) { window.alert((d && d.error) || words.failed || 'That did not work.'); return; }
+                        if (subject && d.subject) { subject.value = d.subject; }
+                        if (d.body) { body.set(d.body); }
+                    }).catch(function () { window.alert(words.failed || 'That did not work.'); })
+                        .then(function () { writeButton.disabled = false; writeButton.textContent = label; });
+                });
+            }
+
+            // ── The signature, added when the form is sent; once ──
+            var signature = box.querySelector('[data-pf-composer-signature]');
+            var form = box.tagName === 'FORM' ? box : box.closest('form');
+            if (signature && form) {
+                form.addEventListener('submit', function () {
+                    var sig = signature.getAttribute('data-signature') || '';
+                    if (!signature.checked || sig === '') { return; }
+                    var html = body.get();
+                    if (html.indexOf(sig) === -1) { body.set(html + sig); }
+                }, true);
+            }
+        }
+
+        Array.prototype.forEach.call(document.querySelectorAll('[data-pf-composer]'), function (box) {
+            // After the editors: they enhance on DOMContentLoaded too, and the adapter asks them.
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', function () { wire(box); });
+            } else {
+                wire(box);
+            }
+        });
     })();
 
     // ══════════════════════════════════════════════════════════════════════════

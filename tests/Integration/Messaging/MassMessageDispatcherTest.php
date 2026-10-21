@@ -431,6 +431,33 @@ class MassMessageDispatcherTest extends BaseTestCase
     }
 
     /**
+     * The composer's placeholders are filled for each recipient: the account's username and
+     * address in its own copy, escaped in the HTML body; an unknown one is left as written.
+     */
+    public function testThePlaceholdersAreFilledForEachRecipient(): void
+    {
+        // Arrange
+        $this->db->queryBuilder()->table('#PREFIX#massmessages')->where('messageid', $this->messageId)
+            ->update(['subject' => 'For {username}', 'message' => '<p>{email} {unknown}</p>']);
+        $dispatcher = new MassMessageDispatcher($this->db);
+        $dispatcher->queue($this->messageId, [$this->users[0], $this->users[1]]);
+
+        // Act
+        $dispatcher->dispatch(10);
+        $rows = [];
+        foreach ([0, 1] as $i) {
+            $result   = $this->db->queryBuilder()->table('#PREFIX#messages')->where('touserid', $this->users[$i])->limit(1)->get();
+            $rows[$i] = (array) ($result?->fetch() ?? []);
+        }
+        $first = new User($this->users[0]);
+
+        // Assert
+        $this->assertSame('For ' . $first->username, (string) $rows[0]['subject']);
+        $this->assertSame('<p>' . $first->email . ' {unknown}</p>', (string) $rows[0]['text']);
+        $this->assertStringContainsString((string) (new User($this->users[1]))->username, (string) $rows[1]['subject'], 'every recipient got the first one\'s copy');
+    }
+
+    /**
      * A message scheduled for later is not delivered yet.
      */
     public function testAScheduledMessageWaits(): void

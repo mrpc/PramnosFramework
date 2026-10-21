@@ -185,9 +185,11 @@ class MassMessageDispatcher
             foreach ($batch as $recipient) {
                 $stats['attempted']++;
 
-                $delivered = trim((string) ($recipient['email'] ?? '')) !== ''
-                    ? $this->deliverToAddress($message, $recipient)
-                    : $this->deliver($message, (int) $recipient['userid']);
+                $byAddress = trim((string) ($recipient['email'] ?? '')) !== '';
+                $personal  = $this->personalised($message, $byAddress ? null : (int) $recipient['userid'], (string) ($recipient['email'] ?? ''));
+                $delivered = $byAddress
+                    ? $this->deliverToAddress($personal, $recipient)
+                    : $this->deliver($personal, (int) $recipient['userid']);
 
                 if ($delivered) {
                     $this->markRecipient(
@@ -257,6 +259,31 @@ class MassMessageDispatcher
         }
 
         return $counts;
+    }
+
+    /**
+     * The message with the composer's placeholders filled for one recipient — an account's
+     * names and address, or a subscriber's address and the rest empty. Untouched when it has
+     * none, so a campaign without placeholders loads no account here.
+     *
+     * @param array<string, mixed> $message
+     * @return array<string, mixed>
+     */
+    protected function personalised(array $message, ?int $userId, string $address): array
+    {
+        $subject = (string) ($message['subject'] ?? '');
+        $body    = (string) ($message['message'] ?? '');
+        if (!str_contains($subject . $body, '{')) {
+            return $message;
+        }
+        $values = $userId !== null
+            ? \Pramnos\Html\MessageComposer::valuesFor(new \Pramnos\User\User($userId))
+            : \Pramnos\Html\MessageComposer::valuesForAddress($address);
+        $message['subject'] = \Pramnos\Html\MessageComposer::fill($subject, $values);
+        // Push is text, the others HTML.
+        $message['message'] = \Pramnos\Html\MessageComposer::fill($body, $values, (int) ($message['type'] ?? MassMessage::TYPE_EMAIL) !== MassMessage::TYPE_PUSH);
+
+        return $message;
     }
 
     // ── Delivery ─────────────────────────────────────────────────────────────

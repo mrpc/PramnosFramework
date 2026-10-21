@@ -58,14 +58,15 @@ $checked  = static fn ($value): string => ($value ?? true) !== false ? ' checked
 
     <h2 class="text-lg font-semibold mb-4"><?php echo $id > 0 ? 'Edit mass message' : 'New mass message'; ?></h2>
 
-    <form method="post" action="<?php echo adminUrl('MassMessages/save'); ?>" class="space-y-4 max-w-3xl">
+    <form method="post" action="<?php echo adminUrl('MassMessages/save'); ?>" data-pf-composer data-pf-composer-url="<?php echo $e(adminUrl('Composer')); ?>" data-pf-composer-scope="mass-message" data-pf-editor-fields='<?php echo \Pramnos\Html\MessageComposer::fieldsJson(); ?>' class="space-y-4 max-w-3xl">
         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
         <input type="hidden" name="messageid" value="<?php echo $id; ?>">
 
         <div class="card" style="border:1px solid #ddd;border-radius:4px;padding:16px;margin-bottom:16px">
+            <?php echo \Pramnos\Html\MessageComposer::toolbar(); ?>
             <div>
                 <label class="block text-sm font-medium mb-1" for="subject">Subject</label>
-                <input type="text" name="subject" id="subject" style="width:100%;padding:6px 8px"
+                <input type="text" name="subject" id="subject" data-pf-composer-subject style="width:100%;padding:6px 8px"
                        value="<?php echo $e($message['subject'] ?? ''); ?>" required>
             </div>
 
@@ -91,7 +92,7 @@ $checked  = static fn ($value): string => ($value ?? true) !== false ? ' checked
 
             <div>
                 <label class="block text-sm font-medium mb-1" for="message">Body</label>
-                <textarea name="message" id="message" data-pf-editor="<?php echo $e(\Pramnos\Html\MessageEditor::mode()); ?>" rows="12" style="width:100%;padding:8px;font-family:monospace;font-size:12px"><?php echo $e($message['message'] ?? ''); ?></textarea>
+                <textarea name="message" id="message" data-pf-composer-body data-pf-editor="<?php echo $e(\Pramnos\Html\MessageEditor::mode()); ?>" rows="12" style="width:100%;padding:8px;font-family:monospace;font-size:12px"><?php echo $e($message['message'] ?? ''); ?></textarea>
                 <p class="text-xs pf-muted mt-1">
                     Markup, kept as written — it is the body of a message. It is escaped
                     wherever this screen displays it. For push the field is plain: a notification

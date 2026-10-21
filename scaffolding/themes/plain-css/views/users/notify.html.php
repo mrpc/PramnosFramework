@@ -52,7 +52,7 @@ $label = 'display:block;font-size:0.85em;margin-bottom:4px';
             <span><?php echo $e($name !== '' ? $name : ($u['username'] ?? '')); ?></span>
             <span style="color:#666;font-size:0.85em">&lt;<?php echo $e($u['email'] ?? ''); ?>&gt;</span>
         </div>
-        <form method="post" action="<?php echo adminUrl('users/sendnotification/' . $uid); ?>" style="padding:16px">
+        <form method="post" action="<?php echo adminUrl('users/sendnotification/' . $uid); ?>" data-pf-composer data-pf-composer-url="<?php echo $e(adminUrl('Composer')); ?>" data-pf-composer-scope="user-message" data-pf-editor-fields='<?php echo \Pramnos\Html\MessageComposer::fieldsJson(); ?>' style="padding:16px">
             <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
 
             <fieldset style="border:0;padding:0;margin:0 0 18px">
@@ -75,16 +75,17 @@ $label = 'display:block;font-size:0.85em;margin-bottom:4px';
                 <?php endforeach; ?>
             </fieldset>
 
+            <?php echo \Pramnos\Html\MessageComposer::toolbar(); ?>
             <div style="margin-bottom:14px">
                 <label style="<?php echo $label; ?>" for="pf-message-subject">Subject</label>
-                <input type="text" id="pf-message-subject" name="subject" style="<?php echo $field; ?>" required
+                <input type="text" id="pf-message-subject" name="subject" data-pf-composer-subject style="<?php echo $field; ?>" required
                        maxlength="200">
                 <span style="<?php echo $hint; ?>">The mail subject, and the push notification's title.</span>
             </div>
 
             <div style="margin-bottom:14px">
                 <label style="<?php echo $label; ?>" for="pf-message-body">Message</label>
-                <textarea id="pf-message-body" data-pf-editor="builtin" name="message" style="<?php echo $field; ?>" rows="8" required></textarea>
+                <textarea id="pf-message-body" data-pf-editor="builtin" name="message" data-pf-composer-body style="<?php echo $field; ?>" rows="8" required></textarea>
                 <span style="<?php echo $hint; ?>">
                     Formatting, links and images are kept; anything else in the markup is removed. A push
                     notification gets the text of it. What was sent, on which

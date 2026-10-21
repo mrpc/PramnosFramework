@@ -48,7 +48,7 @@ $labels = [
             <span class="fw-medium"><?php echo $e($name !== '' ? $name : ($u['username'] ?? '')); ?></span>
             <span class="text-muted small">&lt;<?php echo $e($u['email'] ?? ''); ?>&gt;</span>
         </div>
-        <form method="post" action="<?php echo adminUrl('users/sendnotification/' . $uid); ?>" class="p-4">
+        <form method="post" action="<?php echo adminUrl('users/sendnotification/' . $uid); ?>" data-pf-composer data-pf-composer-url="<?php echo $e(adminUrl('Composer')); ?>" data-pf-composer-scope="user-message" data-pf-editor-fields='<?php echo \Pramnos\Html\MessageComposer::fieldsJson(); ?>' class="p-4">
             <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
 
             <fieldset class="mb-4">
@@ -76,16 +76,17 @@ $labels = [
                 </div>
             </fieldset>
 
+            <?php echo \Pramnos\Html\MessageComposer::toolbar(); ?>
             <div class="mb-3">
                 <label class="form-label" for="pf-message-subject">Subject</label>
-                <input type="text" id="pf-message-subject" name="subject" class="form-control form-control-sm" required
+                <input type="text" id="pf-message-subject" name="subject" data-pf-composer-subject class="form-control form-control-sm" required
                        maxlength="200">
                 <p class="form-text">The mail subject, and the push notification's title.</p>
             </div>
 
             <div class="mb-3">
                 <label class="form-label" for="pf-message-body">Message</label>
-                <textarea id="pf-message-body" data-pf-editor="builtin" name="message" class="form-control" rows="8" required></textarea>
+                <textarea id="pf-message-body" data-pf-editor="builtin" name="message" data-pf-composer-body class="form-control" rows="8" required></textarea>
                 <p class="form-text">
                     Formatting, links and images are kept; anything else in the markup is removed. A push
                     notification gets the text of it. What was sent, on which
