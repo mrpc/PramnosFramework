@@ -17,8 +17,7 @@
 $e      = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $rule   = $this->rule;
 $id     = (int) $rule['id'];
-$token  = \Pramnos\Http\Session::getInstance()->getTokenField();
-$status = static fn (string $to, string $label, string $class) => '<form method="post" action="' . $e(adminUrl('Rules/status/') . $id) . '">' . $token
+$status = static fn (string $to, string $label, string $class) => '<form method="post" action="' . $e(adminUrl('Rules/status/') . $id) . '">' . \Pramnos\Http\Session::getInstance()->getTokenField()
     . '<input type="hidden" name="status" value="' . $e($to) . '"><button type="submit" class="btn btn-sm ' . $class . '">' . $e($label) . '</button></form>';
 ?>
 <div class="px-4 py-6">
@@ -31,7 +30,7 @@ $status = static fn (string $to, string $label, string $class) => '<form method=
             <?php if ($rule['status'] !== 'active'): echo $status('active', t('Switch on'), 'btn-success'); endif; ?>
             <?php if ($rule['status'] === 'active' || $rule['status'] === 'shadow'): echo $status('paused', t('Pause'), 'btn-warning btn-outline'); endif; ?>
             <?php if ($rule['status'] === 'draft' || $rule['status'] === 'paused'): ?>
-                <form method="post" action="<?php echo $e(adminUrl('Rules/delete/') . $id); ?>" data-confirm="<?php echo $e(t('Delete this rule, its versions and its log?')); ?>"><?php echo $token; ?>
+                <form method="post" action="<?php echo $e(adminUrl('Rules/delete/') . $id); ?>" data-confirm="<?php echo $e(t('Delete this rule, its versions and its log?')); ?>"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                     <button type="submit" class="btn btn-sm btn-error btn-outline"><?php echo $e(t('Delete')); ?></button></form>
             <?php endif; ?>
         </div>
@@ -73,7 +72,7 @@ $status = static fn (string $to, string $label, string $class) => '<form method=
             <?php if ($this->actionSteps !== []): ?>
             <div class="card bg-base-100 border border-base-300 shadow-xs"><div class="p-5">
                 <h3 class="font-semibold mb-2"><?php echo $e(t('Send a test to me')); ?></h3>
-                <form method="post" action="<?php echo $e(adminUrl('Rules/testsend/') . $id); ?>" class="flex flex-wrap gap-2"><?php echo $token; ?>
+                <form method="post" action="<?php echo $e(adminUrl('Rules/testsend/') . $id); ?>" class="flex flex-wrap gap-2"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                     <select name="step" class="select select-sm select-bordered" aria-label="<?php echo $e(t('Step')); ?>"><?php foreach ($this->actionSteps as $step): ?><option value="<?php echo $e($step); ?>"><?php echo $e($step); ?></option><?php endforeach; ?></select>
                     <input type="number" min="1" name="person" required class="input input-sm input-bordered w-32" placeholder="<?php echo $e(t('with the details of')); ?>" aria-label="<?php echo $e(t('Account id')); ?>">
                     <button type="submit" class="btn btn-sm"><?php echo $e(t('Send')); ?></button>
