@@ -39,6 +39,7 @@ const CATALOG = {
     segments: [{ id: 4, name: 'Dormant', members: 40 }],
     groups: [{ id: 7, name: 'Press' }],
     consent: [{ id: 3, name: 'Newsletter', channel: 'email' }],
+    events: [{ key: 'payment.made', label: 'Paid', group: 'Payments' }],
 };
 
 /** A page with one builder of this mode and state, and the API stubbed. */
@@ -282,4 +283,52 @@ test('a chip is taken out with its button', async () => {
     // Assert
     assert.deepEqual(JSON.parse(hidden.value).include, [{ group: 7 }]);
     assert.equal(root.querySelector('[data-pf-audience-consent]').value, '3');
+});
+
+test('an event is a condition of its own: ever needs nothing, a count takes an optional window, a date a day', async () => {
+    // Arrange
+    const { root, hidden, window } = page();
+    await settle();
+
+    // Act
+    root.querySelector('[data-pf-audience-add]').click();
+    choose(root.querySelector('[data-pf-audience-attribute]'), '__event:payment.made');
+    const ever = JSON.parse(hidden.value).conditions;
+    choose(root.querySelector('[data-pf-audience-op]'), 'at_least');
+    const half = JSON.parse(hidden.value).conditions;
+    const count = root.querySelector('[data-pf-audience-value="value"]');
+    count.value = '3';
+    count.dispatchEvent(new window.Event('input'));
+    const allTime = JSON.parse(hidden.value).conditions;
+    const days = root.querySelector('[data-pf-audience-value="days"]');
+    days.value = '30';
+    days.dispatchEvent(new window.Event('change'));
+    const windowed = JSON.parse(hidden.value).conditions;
+    choose(root.querySelector('[data-pf-audience-op]'), 'last_before');
+    const date = root.querySelector('[data-pf-audience-value="value"]');
+    const dateType = date.getAttribute('type');
+    date.value = '2026-01-01';
+    date.dispatchEvent(new window.Event('input'));
+
+    // Assert
+    assert.deepEqual(ever, [{ event: 'payment.made', op: 'ever' }]);
+    assert.deepEqual(half, [], 'a count with no number is not sent');
+    assert.deepEqual(allTime, [{ event: 'payment.made', op: 'at_least', value: 3 }], 'no window: all time');
+    assert.deepEqual(windowed, [{ event: 'payment.made', op: 'at_least', value: 3, days: 30 }]);
+    assert.equal(dateType, 'date');
+    assert.deepEqual(JSON.parse(hidden.value).conditions, [{ event: 'payment.made', op: 'last_before', value: '2026-01-01' }], 'the count and window did not carry over');
+});
+
+test('a stored event condition draws with its operator and values', async () => {
+    // Arrange
+    const state = { match: 'all', conditions: [{ event: 'payment.made', op: 'not_within_days', value: 14 }] };
+
+    // Act
+    const { root } = page({ state });
+    await settle();
+
+    // Assert
+    assert.equal(root.querySelector('[data-pf-audience-attribute]').value, '__event:payment.made');
+    assert.equal(root.querySelector('[data-pf-audience-op]').value, 'not_within_days');
+    assert.equal(root.querySelector('[data-pf-audience-value="value"]').value, '14');
 });

@@ -248,6 +248,13 @@ class FrameworkSchedule
                 'description' => 'Work segments out again: who entered and who left',
             ],
 
+            // The detail of what people did, past the retention an application chose; the
+            // summary filters read most is kept. Nothing to do where nobody recorded anything.
+            'audience:prune-events' => [
+                'cadence'     => [['daily'], ['at', '04:05']],
+                'description' => 'Delete person-event log rows older than the retention',
+            ],
+
             'queue:cleanup' => [
                 'cadence'     => [['daily'], ['at', '03:10']],
                 'description' => 'Remove completed and expired queue items',

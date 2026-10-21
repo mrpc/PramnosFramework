@@ -346,6 +346,11 @@ place that says what the event is and how it travels.
 queue methods; `create:listener NotifyNearby --event=JobPostCreated --queued` writes the listener
 (see the Console guide).
 
+
+An event class that also implements `Pramnos\Audience\PersonEvent` is recorded for its person on
+every dispatch — counted, first and last, and logged — so filters, segments and rules can ask
+about it ([Audience guide](Pramnos_Audience_Guide.md#what-people-did-person-events)).
+
 ## The delayed-queue capability
 
 A delayed queue is a driver behind a capability — an application depends on

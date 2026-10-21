@@ -3367,6 +3367,8 @@ class Application extends Base
         $this->ensureCspNonce();
         $this->sendCspHeader();
         $doc = \Pramnos\Framework\Factory::getDocument();
+        // A named page a signed-in person opened is something they did: PersonEvents::page().
+        \Pramnos\Audience\PersonEvents::visitedNow();
 
         // The debug toolbar goes in here, on the response the framework itself
         // built, rather than through a process-wide output buffer. That buffer was

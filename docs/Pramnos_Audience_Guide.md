@@ -10,6 +10,8 @@ use_cases:
   - Making a send or a rule respect what people agreed to receive, by channel
   - Putting a filter builder with a live count on an admin form, or an audience picker on a send
   - Finding out why one person is or is not in a segment, from the admin
+  - Recording what people do — payments, posts, page visits — and filtering by it
+  - Filling the history of an event from the application's existing tables
 ---
 
 # Audience Guide
@@ -341,4 +343,93 @@ Each change to a segment or a list is in the audit log with the before and after
 **On a person's card**, `\Pramnos\Html\AudiencePanel::person($userid)` lists the segments they
 are in, since when — each linked to the segment's "why" for them — and their groups. The
 framework's Users screen shows it; an application's own card puts it where it likes.
+
+## What people did: person events
+
+Attributes are what is true of a person now; **events** are what they did, and when. A filter can
+ask about both.
+
+```php
+use Pramnos\Audience\PersonEvents;
+
+PersonEvents::define('payment.made', t('Paid'), ['amount' => t('Amount'), 'package' => t('Package')], t('Payments'));
+```
+
+**Recording needs no call of its own.** An event class that implements
+`Pramnos\Audience\PersonEvent` — `personId()`, `properties()` — is recorded for that person
+whenever it is dispatched, in the queue:
+
+```php
+final class PaymentMade implements QueueableEvent, PersonEvent
+{
+    public const EVENT = 'payment.made';
+    public function personId(): ?int { return (int) $this->invoice->userid; }
+    public function properties(): array { return ['amount' => $this->invoice->total]; }
+    // …
+}
+
+Event::dispatch(new PaymentMade($invoice));     // its listeners, and the person's record
+PersonEvents::recordLater($userid, 'login');    // or directly, for something with no class
+```
+
+Where nothing could be queued it is recorded at once rather than lost, and after recording the
+person's segments are worked out again (folded per person). The framework records two itself:
+`email.opened` and `email.clicked`, for a message the mail log ties to an account.
+
+**Named pages** are events too — a signed-in person opening a path that matches:
+
+```php
+PersonEvents::page('premium.viewed', t('Saw the Premium page'), '/el/premium*');
+```
+
+matched on the path alone, ignoring case, on every page the application renders. Only the pages
+named are recorded, never every URL.
+
+### Two tables, and how far back they reach
+
+| | Keeps | Answers |
+| --- | --- | --- |
+| `person_events` | per person and event: how many, the first, the last — for good | ever, never, at least / at most N of all time, first or last before / after a day, last within N days |
+| `person_event_log` | each occurrence, with its properties — for `audience.event_log_days` (365; 0 keeps it) | at least / at most N **in the last M days** |
+
+`audience:prune-events`, scheduled daily, deletes log rows past the retention; the summary is
+kept, so "ever paid" still answers after the detail is gone, and a window reaches back only as
+far as the log does.
+
+### Conditions
+
+```json
+{"event": "payment.made", "op": "ever"}
+{"event": "payment.made", "op": "at_least", "value": 3, "days": 30}
+{"event": "login",        "op": "not_within_days", "value": 30}
+{"event": "post.created", "op": "first_after", "value": "2026-01-01"}
+```
+
+| Operator | Value |
+| --- | --- |
+| `ever`, `never` | — |
+| `at_least`, `at_most` | a count; with `days`, in that window (from the log), else all time |
+| `last_within_days`, `not_within_days`, `first_within_days` | days |
+| `first_before`, `first_after`, `last_before`, `last_after` | a day, `YYYY-MM-DD` |
+
+`at_most` and `never` include people who never did it. `explain()` gives the person's count,
+first and last, and the count in the window when there is one. The builder lists the declared
+events under *What they did*.
+
+### The past
+
+The history an application already has — invoices, requests, logins — goes in once:
+
+```php
+PersonEvents::backfillFrom('payment.made',
+    $db->queryBuilder()->table('invoices')->where('status', 1),
+    'userid', 'paid_at', 'datetime',
+    fn (array $row) => ['amount' => (float) $row['total']]);
+
+PersonEvents::backfill('login', $occurrences);   // [[userid, unix time, properties?], …]
+PersonEvents::forget('payment.made');            // to run a backfill again without counting twice
+```
+
+Run a backfill before live recording of that event starts, or `forget()` it first: a second run
+counts every occurrence again. `PersonEvents::of($userid)` lists what one person did, newest first.
 

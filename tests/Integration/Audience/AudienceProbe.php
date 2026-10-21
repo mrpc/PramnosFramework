@@ -61,6 +61,8 @@ trait AudienceProbe
     {
         require_once ROOT . '/database/migrations/framework/core/2026_10_21_000009_create_segments_tables.php';
         require_once ROOT . '/database/migrations/framework/core/2026_10_21_000010_create_consent_lists_table.php';
+        require_once ROOT . '/database/migrations/framework/core/2026_10_21_000011_create_person_events_tables.php';
+        require_once ROOT . '/database/migrations/framework/messaging/2026_10_21_000002_add_userid_to_mails.php';
         if (!defined('LOG_PATH')) {
             define('LOG_PATH', ROOT . \DS . 'var');
         }
@@ -99,6 +101,10 @@ trait AudienceProbe
             CreateSegmentsTables::class,
             \Pramnos\Framework\Migrations\Core\CreateConsentListsTable::class,
             \Pramnos\Framework\Migrations\Messaging\CreateEmailoptoutsTable::class,
+            \Pramnos\Framework\Migrations\Core\CreatePersonEventsTables::class,
+            \Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class,
+            \Pramnos\Framework\Migrations\Messaging\AddUseridToMails::class,
+            \Pramnos\Framework\Migrations\Messaging\CreateEmailTrackingTables::class,
         ]);
         $schema = $this->db->schema();
         if (!$schema->hasColumn('users', 'smsoffers')) {
@@ -136,6 +142,8 @@ trait AudienceProbe
         Attributes::reset();
         Segments::reset();
         \Pramnos\Audience\ConsentLists::reset();
+        \Pramnos\Audience\PersonEvents::reset();
+        \Pramnos\Email\MailLog::reset();
         \Pramnos\Event\Event::forget();
         \Pramnos\Auth\AuditLog::resetTableCache();
         if ($this->previous !== null) {

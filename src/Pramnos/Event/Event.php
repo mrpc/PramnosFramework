@@ -151,15 +151,21 @@ class Event
      * A listener in the request receives **this instance** — the caller's models, not copies — so
      * what it changes on them is what the caller saves next. A {@see QueuedListener} receives it
      * built again in the worker, which the event allows by being a {@see QueueableEvent}. A class
-     * without `EVENT` is fired under its class name.
+     * without `EVENT` is fired under its class name. An event that is also a
+     * {@see \Pramnos\Audience\PersonEvent} is recorded for its person as well.
      *
      * @return list<mixed> As {@see fire()}
      */
     public static function dispatch(object $event): array
     {
-        $name = defined($event::class . '::EVENT') ? (string) constant($event::class . '::EVENT') : $event::class;
+        $name    = defined($event::class . '::EVENT') ? (string) constant($event::class . '::EVENT') : $event::class;
+        $results = static::fire($name, $event);
+        // Something a person did is also recorded for them, in the queue, with no call of its own.
+        if ($event instanceof \Pramnos\Audience\PersonEvent) {
+            \Pramnos\Audience\PersonEvents::dispatched($name, $event);
+        }
 
-        return static::fire($name, $event);
+        return $results;
     }
 
     /**

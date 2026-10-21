@@ -1734,6 +1734,14 @@ The pixel always answers with the image, whatever happened behind it — an unkn
 that is away, a message that was never tracked. A broken image in the middle of a message is a
 worse outcome than a lost measurement.
 
+### An open or a click is something the person did
+
+When the mail log ties a tracked message to an account (`mails.userid`), a counted open and a
+click are also recorded as that person's events — `email.opened` and `email.clicked`, with the
+message, its list and the link — so a filter or a rule can ask "opened a newsletter in the last
+30 days" ([Audience guide](Pramnos_Audience_Guide.md#what-people-did-person-events)). A proxy
+fetch is not an open there either. Best-effort, like the rest of tracking.
+
 ### One campaign's opens and clicks
 
 A mass message's page shows its tracked total, how many **people** opened it, how many were

@@ -126,8 +126,14 @@ class Audience extends Controller
             ConsentLists::all()
         ));
 
+        $events = array_values(array_map(
+            static fn (string $key, array $e): array => ['key' => $key, 'label' => $e['label'], 'group' => $e['group']],
+            array_keys($all = \Pramnos\Audience\PersonEvents::all()),
+            $all
+        ));
+
         return ['attributes' => $attributes, 'operators' => self::operatorWords(), 'segments' => $segments,
-            'groups' => $groups, 'consent' => $consent];
+            'groups' => $groups, 'consent' => $consent, 'events' => $events];
     }
 
     /**
@@ -161,6 +167,17 @@ class Audience extends Controller
             'none_of'            => t('has none of'),
             'in'                 => t('is in segment'),
             'not_in'             => t('is not in segment'),
+            'ever'               => t('did it'),
+            'never'              => t('never did it'),
+            'at_least'           => t('at least … times'),
+            'at_most'            => t('at most … times'),
+            'last_within_days'   => t('last time within … days'),
+            'not_within_days'    => t('not in the last … days'),
+            'first_within_days'  => t('first time within … days'),
+            'first_before'       => t('first time before'),
+            'first_after'        => t('first time after'),
+            'last_before'        => t('last time before'),
+            'last_after'         => t('last time after'),
         ];
     }
 

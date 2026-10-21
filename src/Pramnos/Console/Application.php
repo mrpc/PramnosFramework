@@ -235,6 +235,7 @@ class Application extends \Symfony\Component\Console\Application
         // The audit trail's retention, which deletes nothing until one is configured.
         $this->add(new \Pramnos\Console\Commands\AuditPrune());
         $this->add(new \Pramnos\Console\Commands\SegmentsRecompute());
+        $this->add(new \Pramnos\Console\Commands\AudiencePruneEvents());
         // How the tables differ from the framework's, against a reference its migrations build.
         $this->add(new \Pramnos\Console\Commands\SchemaDiffCommand());
         // Moving an application's data from MySQL into the PostgreSQL its migrations built.

@@ -259,6 +259,8 @@ final class Filter
                     $this->applyGroup($nested, $condition, $each);
                 } elseif (isset($condition['segment'])) {
                     $nested->whereExists(self::inSegment((int) $condition['segment']), $each, $condition['op'] === 'not_in');
+                } elseif (isset($condition['event'])) {
+                    $this->applyEvent($nested, $condition, $each);
                 } else {
                     $this->applyCondition($nested, $condition, $each);
                 }
@@ -332,6 +334,64 @@ final class Filter
         }, null, null, $boolean);
     }
 
+    /** The operators an event condition takes. */
+    public const EVENT_OPERATORS = ['ever', 'never', 'at_least', 'at_most', 'last_within_days', 'not_within_days',
+        'first_within_days', 'first_before', 'first_after', 'last_before', 'last_after'];
+
+    /**
+     * An event condition. Ever, never, counts of all time and first or last read the summary;
+     * a count in the last days reads the log, as far back as it is kept.
+     *
+     * @param array{event: string, op: string, value?: mixed, days?: int} $condition
+     */
+    private function applyEvent(QueryBuilder $query, array $condition, string $boolean): void
+    {
+        $event = $condition['event'];
+        $value = $condition['value'] ?? null;
+        $days  = (int) ($condition['days'] ?? 0);
+        $op    = $condition['op'];
+        $summary = static fn (?callable $more = null): \Closure => static function (QueryBuilder $sub) use ($event, $more): void {
+            $sub->table('#PREFIX#person_events AS person_events')->select([new Expression('1')])
+                ->whereRaw('person_events.personid = users.userid')->where('person_events.event', $event);
+            if ($more !== null) {
+                $more($sub);
+            }
+        };
+        if (($op === 'at_least' || $op === 'at_most') && $days > 0) {
+            // How many in the window: a person with more than N rows there, or at least N.
+            $since  = time() - $days * 86400;
+            $window = static function (QueryBuilder $sub) use ($event, $since, $op, $value): void {
+                $sub->table('#PREFIX#person_event_log AS person_event_log')->select([new Expression('1')])
+                    ->whereRaw('person_event_log.personid = users.userid')->where('person_event_log.event', $event)
+                    ->where('person_event_log.at', '>=', $since)->groupBy(['person_event_log.personid'])
+                    ->havingRaw('COUNT(*) ' . ($op === 'at_least' ? '>=' : '>') . ' ?', [(int) $value]);
+            };
+            if ($op === 'at_least' && (int) $value <= 0) {
+                $query->whereRaw('1 = 1', [], $boolean);   // at least none is everybody
+            } else {
+                $query->whereExists($window, $boolean, $op === 'at_most');
+            }
+
+            return;
+        }
+        $since = time() - (int) $value * 86400;
+        match ($op) {
+            'ever'              => $query->whereExists($summary(), $boolean),
+            'never'             => $query->whereExists($summary(), $boolean, true),
+            'at_least'          => (int) $value <= 0
+                ? $query->whereRaw('1 = 1', [], $boolean)
+                : $query->whereExists($summary(static fn ($q) => $q->where('person_events.occurrences', '>=', (int) $value)), $boolean),
+            'at_most'           => $query->whereExists($summary(static fn ($q) => $q->where('person_events.occurrences', '>', (int) $value)), $boolean, true),
+            'last_within_days'  => $query->whereExists($summary(static fn ($q) => $q->where('person_events.last_at', '>=', $since)), $boolean),
+            'not_within_days'   => $query->whereExists($summary(static fn ($q) => $q->where('person_events.last_at', '>=', $since)), $boolean, true),
+            'first_within_days' => $query->whereExists($summary(static fn ($q) => $q->where('person_events.first_at', '>=', $since)), $boolean),
+            'first_before'      => $query->whereExists($summary(static fn ($q) => $q->where('person_events.first_at', '<', self::dayStart((string) $value))), $boolean),
+            'first_after'       => $query->whereExists($summary(static fn ($q) => $q->where('person_events.first_at', '>=', self::dayStart((string) $value) + 86400)), $boolean),
+            'last_before'       => $query->whereExists($summary(static fn ($q) => $q->where('person_events.last_at', '<', self::dayStart((string) $value))), $boolean),
+            'last_after'        => $query->whereExists($summary(static fn ($q) => $q->where('person_events.last_at', '>=', self::dayStart((string) $value) + 86400)), $boolean),
+        };
+    }
+
     /** The sub-query "this person is in the segment now". */
     private static function inSegment(int $segment): \Closure
     {
@@ -385,6 +445,7 @@ final class Filter
             $items[] = match (true) {
                 isset($condition['conditions']) => $this->explainGroup($condition, $personId),
                 isset($condition['segment'])    => $this->explainSegment($condition, $personId),
+                isset($condition['event'])      => $this->explainEvent($condition, $personId),
                 default                         => $this->explainCondition($condition, $personId),
             };
         }
@@ -431,6 +492,34 @@ final class Filter
         ];
     }
 
+    /**
+     * An event condition for one person: ✓/✗, and what they did — how many times, the first and
+     * the last, or how many in the window asked about.
+     *
+     * @param  array{event: string, op: string, value?: mixed, days?: int} $condition
+     * @return array<string, mixed>
+     */
+    private function explainEvent(array $condition, int $personId): array
+    {
+        $query = $this->database->queryBuilder()->table(Attributes::FROM)->where('users.userid', $personId);
+        $this->applyEvent($query, $condition, 'and');
+        $row = $this->database->queryBuilder()->table('#PREFIX#person_events')->where('personid', $personId)
+            ->where('event', $condition['event'])->limit(1)->getAllOrFail()[0] ?? null;
+        $actual = ['count' => (int) ($row['occurrences'] ?? 0), 'first' => $row === null ? null : (int) $row['first_at'],
+            'last' => $row === null ? null : (int) $row['last_at']];
+        if (!empty($condition['days'])) {
+            $actual['inWindow'] = (int) ($this->database->queryBuilder()->table('#PREFIX#person_event_log')
+                ->select([new Expression('COUNT(*) AS n')])->where('personid', $personId)->where('event', $condition['event'])
+                ->where('at', '>=', time() - (int) $condition['days'] * 86400)->getAllOrFail()[0]['n'] ?? 0);
+        }
+
+        return $condition + [
+            'label'  => PersonEvents::label($condition['event']),
+            'actual' => $actual,
+            'ok'     => $query->select(['users.userid'])->limit(1)->getAllOrFail() !== [],
+        ];
+    }
+
     /** The value a person has: a scalar, or the list of a one-to-many. */
     private function valueOf(Attribute $attribute, int $personId): mixed
     {
@@ -474,6 +563,7 @@ final class Filter
             $conditions[] = match (true) {
                 isset($condition['conditions']) => self::group($condition, "{$path}.{$i}", $depth + 1),
                 isset($condition['segment'])    => self::segmentCondition($condition, "{$path}.{$i}"),
+                isset($condition['event'])      => self::eventCondition($condition, "{$path}.{$i}"),
                 default                         => self::condition($condition, "{$path}.{$i}"),
             };
         }
@@ -544,6 +634,43 @@ final class Filter
         }
 
         return ['segment' => (int) $segment, 'op' => $op];
+    }
+
+    /**
+     * "Did X": an event by name, an operator, and its value — a count with an optional window of
+     * days, a number of days, or a day.
+     *
+     * @param  array<string, mixed> $condition
+     * @return array{event: string, op: string, value?: int|string, days?: int}
+     */
+    private static function eventCondition(array $condition, string $path): array
+    {
+        $event = trim((string) $condition['event']);
+        $op    = (string) ($condition['op'] ?? '');
+        if ($event === '' || mb_strlen($event) > 100) {
+            throw new \InvalidArgumentException("{$path}: an event is named, in at most 100 characters.");
+        }
+        if (!in_array($op, self::EVENT_OPERATORS, true)) {
+            throw new \InvalidArgumentException("{$path}: an event has no operator {$op}.");
+        }
+        $checked = ['event' => $event, 'op' => $op];
+        if ($op === 'ever' || $op === 'never') {
+            return $checked;
+        }
+        $value = $condition['value'] ?? null;
+        if (in_array($op, ['first_before', 'first_after', 'last_before', 'last_after'], true)) {
+            return $checked + ['value' => self::day($value, $path)];
+        }
+        $counted = $op === 'at_least' || $op === 'at_most';
+        if ($counted && (!is_numeric($value) || (int) $value != $value || (int) $value < 0)) {
+            throw new \InvalidArgumentException("{$path}: a count is a whole number, zero or more.");
+        }
+        $checked['value'] = $counted ? (int) $value : self::days($value, $path);
+        if ($counted && !empty($condition['days'])) {
+            $checked['days'] = self::days($condition['days'], $path);
+        }
+
+        return $checked;
     }
 
     /** The attribute under a key, or a refusal naming where it was asked for. */

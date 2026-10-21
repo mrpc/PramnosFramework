@@ -52,6 +52,13 @@ class FilterValidationTest extends TestCase
             'segment not an id'      => [['segment' => 'vip', 'op' => 'in'], 'filter.0: a segment is named by its id.'],
             'segment zero'           => [['segment' => 0, 'op' => 'in'], 'filter.0: a segment is named by its id.'],
             'segment operator'       => [['segment' => 3, 'op' => 'is'], 'filter.0: a segment condition is in or not_in.'],
+            'event unnamed'          => [['event' => ' ', 'op' => 'ever'], 'filter.0: an event is named, in at most 100 characters.'],
+            'event operator'         => [['event' => 'paid', 'op' => 'is'], 'filter.0: an event has no operator is.'],
+            'event count negative'   => [['event' => 'paid', 'op' => 'at_least', 'value' => -1], 'filter.0: a count is a whole number, zero or more.'],
+            'event count missing'    => [['event' => 'paid', 'op' => 'at_most'], 'filter.0: a count is a whole number, zero or more.'],
+            'event window'           => [['event' => 'paid', 'op' => 'at_least', 'value' => 2, 'days' => 'week'], 'filter.0: days are a whole number, zero or more.'],
+            'event day'              => [['event' => 'paid', 'op' => 'first_before', 'value' => 'yesterday'], 'filter.0: a day is written YYYY-MM-DD.'],
+            'event days'             => [['event' => 'paid', 'op' => 'last_within_days', 'value' => 1.5], 'filter.0: days are a whole number, zero or more.'],
         ];
     }
 
@@ -111,6 +118,34 @@ class FilterValidationTest extends TestCase
         $filter->breakdown('email_optouts');
 
         // Assert — the expectation above.
+    }
+
+    /**
+     * An event condition keeps only what its operator reads, cast: a count and an optional
+     * window as whole numbers, a day as written, nothing for ever and never.
+     */
+    public function testEventConditionsAreNormalised(): void
+    {
+        // Arrange
+        $conditions = [
+            ['event' => ' paid ', 'op' => 'ever', 'value' => 9],
+            ['event' => 'paid', 'op' => 'at_least', 'value' => '2', 'days' => '30'],
+            ['event' => 'paid', 'op' => 'at_most', 'value' => 1, 'days' => 0],
+            ['event' => 'paid', 'op' => 'not_within_days', 'value' => '7', 'days' => 3],
+            ['event' => 'paid', 'op' => 'last_after', 'value' => '2026-01-31'],
+        ];
+
+        // Act
+        $checked = Filter::fromArray(['conditions' => $conditions], new Database())->toArray()['conditions'];
+
+        // Assert
+        $this->assertSame([
+            ['event' => 'paid', 'op' => 'ever'],
+            ['event' => 'paid', 'op' => 'at_least', 'value' => 2, 'days' => 30],
+            ['event' => 'paid', 'op' => 'at_most', 'value' => 1],
+            ['event' => 'paid', 'op' => 'not_within_days', 'value' => 7],
+            ['event' => 'paid', 'op' => 'last_after', 'value' => '2026-01-31'],
+        ], $checked);
     }
 
     /** A group's match is all or any; anything else is refused at the group's path. */

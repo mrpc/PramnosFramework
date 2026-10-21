@@ -298,8 +298,36 @@ class Tracking
 
             return false;
         }
+        self::personEvent($trackingId, 'email.opened');
 
         return true;
+    }
+
+    /**
+     * An open or a click as something the person did ({@see \Pramnos\Audience\PersonEvents}), when
+     * the message is in the mail log with the account it was for. Best-effort, as the rest of the
+     * tracking: the reader's click is what matters.
+     *
+     * @param array<string, scalar> $properties
+     */
+    private static function personEvent(string $trackingId, string $event, array $properties = []): void
+    {
+        try {
+            $db   = \Pramnos\Framework\Factory::getDatabase();
+            $row  = $db->queryBuilder()->table('pramnos.emailtracking')->select(['mailid', 'list'])
+                ->where('tracking_id', $trackingId)->limit(1)->getAllOrFail()[0] ?? null;
+            $mail = (int) ($row['mailid'] ?? 0);
+            if ($mail < 1 || !MailLog::recordsUser()) {
+                return;
+            }
+            $person = (int) ($db->queryBuilder()->table('#PREFIX#mails')->select(['userid'])->where('id', $mail)
+                ->limit(1)->getAllOrFail()[0]['userid'] ?? 0);
+            if ($person > 0) {
+                \Pramnos\Audience\PersonEvents::recordLater($person, $event, ['mail' => $mail, 'category' => (string) $row['list']] + $properties);
+            }
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log('Could not record ' . $event . ' for its person: ' . $exception->getMessage(), 'email');
+        }
     }
 
     /**
@@ -342,6 +370,7 @@ class Tracking
                 'url'         => substr($destination, 0, 500),
                 'clicked_at'  => $now,
             ]);
+            self::personEvent($trackingId, 'email.clicked', ['url' => substr($destination, 0, 500)]);
         } catch (\Throwable $exception) {
             /*
              * Recorded or not, the reader is going where they meant to go. A tracker that can

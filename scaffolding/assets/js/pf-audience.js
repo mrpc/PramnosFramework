@@ -16,7 +16,9 @@
 (function () {
     'use strict';
 
-    var NO_VALUE = ['empty', 'not_empty', 'true', 'false'];
+    var NO_VALUE = ['empty', 'not_empty', 'true', 'false', 'ever', 'never'];
+    var EVENT_OPS = ['ever', 'never', 'at_least', 'at_most', 'last_within_days', 'not_within_days', 'first_within_days',
+        'first_before', 'first_after', 'last_before', 'last_after'];
     var MANY_VALUES = ['one_of', 'not_one_of', 'any_of', 'all_of', 'none_of'];
 
     /** An element with attributes and children. */
@@ -85,6 +87,10 @@
     function complete(condition, attribute) {
         if (condition.conditions) { return true; }
         if (condition.segment !== undefined) { return Number(condition.segment) > 0; }
+        if (condition.event !== undefined) {
+            if (!condition.event || EVENT_OPS.indexOf(condition.op) === -1) { return false; }
+            return NO_VALUE.indexOf(condition.op) !== -1 || (condition.value !== undefined && condition.value !== null && String(condition.value) !== '');
+        }
         if (!attribute || !condition.op) { return false; }
         if (NO_VALUE.indexOf(condition.op) !== -1) { return true; }
         var v = condition.value;
@@ -104,6 +110,7 @@
                 var out = {};
                 Object.keys(c).forEach(function (k) { out[k] = c[k]; });
                 if (NO_VALUE.indexOf(c.op) !== -1) { delete out.value; }
+                if (out.days === '' || out.days === null || out.days === 0) { delete out.days; }
                 conditions.push(out);
             }
         });
@@ -162,6 +169,7 @@
         var w = ctx.words;
         var row = el('div', { 'class': 'pf-audience-condition', 'data-pf-audience-condition': true });
         var isSegment = condition.segment !== undefined;
+        var isEvent = condition.event !== undefined;
 
         // What: the attributes under their headings, and "segment" when there are segments.
         var what = el('select', { 'class': 'pf-audience-attribute ' + ctx.classes.select, 'aria-label': w.attribute || 'attribute', 'data-pf-audience-attribute': true },
@@ -173,17 +181,25 @@
                 headings[heading] = heading ? el('optgroup', { label: heading }) : what;
                 if (heading) { what.appendChild(headings[heading]); }
             }
-            headings[heading].appendChild(el('option', { value: a.key, selected: !isSegment && condition.attribute === a.key }, [a.label]));
+            headings[heading].appendChild(el('option', { value: a.key, selected: !isSegment && !isEvent && condition.attribute === a.key }, [a.label]));
         });
+        if (ctx.catalog.events.length) {
+            what.appendChild(el('optgroup', { label: w.events || 'What they did' }, ctx.catalog.events.map(function (e) {
+                return el('option', { value: '__event:' + e.key, selected: isEvent && condition.event === e.key }, [e.label]);
+            })));
+        }
         if (ctx.catalog.segments.length) {
             what.appendChild(el('option', { value: '__segment', selected: isSegment }, [w.segment || 'Segment']));
         }
-        what.value = isSegment ? '__segment' : (condition.attribute || '');
+        what.value = isSegment ? '__segment' : (isEvent ? '__event:' + condition.event : (condition.attribute || ''));
         what.addEventListener('change', function () {
             Object.keys(condition).forEach(function (k) { delete condition[k]; });
             if (what.value === '__segment') {
                 condition.segment = 0;
                 condition.op = 'in';
+            } else if (what.value.indexOf('__event:') === 0) {
+                condition.event = what.value.slice(8);
+                condition.op = 'ever';
             } else {
                 var a = ctx.byKey[what.value];
                 condition.attribute = what.value;
@@ -193,19 +209,22 @@
         });
         row.appendChild(what);
 
-        var attribute = isSegment ? null : ctx.byKey[condition.attribute];
-        if (!isSegment && !attribute) { return row; }
+        var attribute = isSegment || isEvent ? null : ctx.byKey[condition.attribute];
+        if (!isSegment && !isEvent && !attribute) { return row; }
 
         // How: the operators the type has.
-        var ops = isSegment ? ['in', 'not_in'] : attribute.operators;
+        var ops = isSegment ? ['in', 'not_in'] : (isEvent ? EVENT_OPS : attribute.operators);
         var how = el('select', { 'class': 'pf-audience-op ' + ctx.classes.select, 'aria-label': w.operator || 'operator', 'data-pf-audience-op': true },
             ops.map(function (op) { return el('option', { value: op, selected: condition.op === op }, [ctx.catalog.operators[op] || op]); }));
         how.value = condition.op;
         how.addEventListener('change', function () {
             var many = MANY_VALUES.indexOf(how.value) !== -1;
             var wasMany = MANY_VALUES.indexOf(condition.op) !== -1;
-            // A value of another shape — one, a list, a pair — does not carry over.
-            if (many !== wasMany || how.value === 'between' || condition.op === 'between') {
+            // A value of another shape — one, a list, a pair, a count or a day — does not carry over.
+            if (isEvent) {
+                delete condition.value;
+                delete condition.days;
+            } else if (many !== wasMany || how.value === 'between' || condition.op === 'between') {
                 delete condition.value;
             }
             condition.op = how.value;
@@ -224,8 +243,32 @@
             return row;
         }
         if (NO_VALUE.indexOf(condition.op) !== -1) { return row; }
-        row.appendChild(drawValue(ctx, condition, attribute, onChange));
+        row.appendChild(isEvent ? drawEventValue(ctx, condition, onChange) : drawValue(ctx, condition, attribute, onChange));
         return row;
+    }
+
+    /** An event's value: a count with an optional window, a number of days, or a day. */
+    function drawEventValue(ctx, condition, onChange) {
+        var w = ctx.words;
+        var field = function (key, kind, label) {
+            var input = el('input', { type: kind, min: kind === 'number' ? '0' : null, 'class': 'pf-audience-input ' + ctx.classes.input,
+                'data-pf-audience-value': key, 'aria-label': label, value: condition[key] === undefined ? '' : condition[key] });
+            input.value = condition[key] === undefined ? '' : String(condition[key]);
+            var set = function () { condition[key] = kind === 'number' ? (input.value === '' ? '' : Number(input.value)) : input.value; onChange(false); };
+            input.addEventListener('input', set);
+            input.addEventListener('change', set);
+            return input;
+        };
+        if (condition.op === 'at_least' || condition.op === 'at_most') {
+            return el('span', { 'class': 'pf-audience-days' }, [
+                field('value', 'number', w.times || 'times'), ' ', w.times || 'times', ' ', w.inLast || 'in the last', ' ',
+                field('days', 'number', w.days || 'days'), ' ', w.daysOrEver || 'days (empty: ever)',
+            ]);
+        }
+        if (/_days$/.test(condition.op)) {
+            return el('span', { 'class': 'pf-audience-days' }, [field('value', 'number', w.days || 'days'), ' ', w.days || 'days']);
+        }
+        return field('value', 'date', w.day || 'day');
     }
 
     /** The value: one field, two, a number of days, or a choice of the attribute's values. */
@@ -345,6 +388,7 @@
         catalog.groups = catalog.groups || [];
         catalog.consent = catalog.consent || [];
         catalog.operators = catalog.operators || {};
+        catalog.events = catalog.events || [];
         var ctx = {
             catalog: catalog,
             words: json(root.getAttribute('data-words'), {}),

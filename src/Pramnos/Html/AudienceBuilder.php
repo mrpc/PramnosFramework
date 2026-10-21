@@ -132,6 +132,11 @@ final class AudienceBuilder
             'picked'         => '%s picked',
             'excluded'       => '−%s excepted',
             'withoutConsent' => '−%s without consent',
+            'events'         => 'What they did',
+            'times'          => 'times',
+            'inLast'         => 'in the last',
+            'daysOrEver'     => 'days (empty: ever)',
+            'day'            => 'Day',
         ] as $key => $english) {
             $words[$key] = t($english);
         }
