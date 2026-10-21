@@ -174,12 +174,12 @@ class MigrateFromMysqlPhasesTest extends TestCase
         // Act — the copy while the application runs, no transaction held open on MySQL
         $copied   = $tester->execute($moving + ['--phase' => 'operational', '--no-snapshot' => true, '--batch-size' => '1']);
         $copyText = $tester->getDisplay();
-        // …the application keeps writing to MySQL…
-        sleep(1);
+        // …the application keeps writing to MySQL. The changed row is stamped a minute ahead
+        // rather than after a sleep: the machine's clock can step back between two readings.
         foreach ([
             "INSERT INTO users (username) VALUES ('eleni')",
             "UPDATE users SET username = 'NIKOS' WHERE userid = 2",
-            "UPDATE items SET label = 'TWO', updated_at = NOW() WHERE id = 2",
+            "UPDATE items SET label = 'TWO', updated_at = NOW() + INTERVAL 1 MINUTE WHERE id = 2",
             'DELETE FROM items WHERE id = 3',
             "UPDATE pairs SET v = 20 WHERE a = 1 AND b = 'y'",
             "INSERT INTO pairs VALUES (3, 'z', 4)",
@@ -293,9 +293,13 @@ class MigrateFromMysqlPhasesTest extends TestCase
         $dry = $tester->getDisplay();
         $tester->execute($zone + ['--phase' => 'operational', '--transport' => $transport]);
         $moved = $this->rows('SELECT extract(epoch FROM wall)::bigint AS w, extract(epoch FROM at)::bigint AS a, seen::text AS s FROM stamps')[0] ?? [];
-        sleep(1);
-        // …the application changes the row, stamping it with New York's clock…
-        $this->source->query("UPDATE stamps SET label = 'ONE', updated_at = '" . (new \DateTimeImmutable('now', new \DateTimeZone('America/New_York')))->format('Y-m-d H:i:s') . "' WHERE id = 1");
+        // …the application changes the row a minute after the snapshot, stamping it with New
+        // York's clock. Counted from the moment the tool recorded, not from this clock: the
+        // machine's clock can step back between two readings (it did, under WSL), and a minute
+        // is still four hours short of the UTC reading a wrong zone would compare it with.
+        $moment  = (int) ($this->rows("SELECT chunk_end FROM " . \Pramnos\Database\FromMysql\ProgressTracker::TABLE . " WHERE phase = 'operational'")[0]['chunk_end'] ?? 0);
+        $changed = (new \DateTimeImmutable('@' . ($moment + 60)))->setTimezone(new \DateTimeZone('America/New_York'));
+        $this->source->query("UPDATE stamps SET label = 'ONE', updated_at = '" . $changed->format('Y-m-d H:i:s') . "' WHERE id = 1");
         $cut   = $tester->execute($zone + ['--phase' => 'cutover']);
         $label = $this->rows('SELECT label FROM stamps')[0]['label'] ?? null;
         $badZone = $tester->execute(['--source' => $this->dsn(), '--source-timezone' => 'Mars/Olympus', '--dry-run' => true]);
