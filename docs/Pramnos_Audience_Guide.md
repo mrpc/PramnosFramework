@@ -676,6 +676,15 @@ button a form to `/SiteMessages/dismiss/{id}` with the session's token, back to 
 script. The first showing is recorded (`seenat`), and the closing (`dismissedat`). Nothing for a
 visitor, and nothing before the table is installed.
 
+## Asking about audiences
+
+The administrators' Ask has five tools here, offered where the tables are and behind each screen's
+ability: `audience_segments`, `audience_rules` and `audience_experiments` read the libraries and
+their figures; `audience_why` explains one account against a segment or a rule; `audience_draft`
+writes drafts only — a segment as a link to `/admin/Segments/edit?draft=…`, which opens the
+builder filled in for an administrator to save, and a rule saved as a draft. See the
+[LLM guide](Pramnos_LLM_Guide.md).
+
 ## A/B tests
 
 A test gives each person — or visitor — one of two or more variants by share, the same one every

@@ -5,10 +5,12 @@
  *
  * Variables:
  *   $this->segment — Segments::get(), or null when creating
+ *   $this->draft   — a new one's name, description and filter from Ask's draft, or null
  */
 $e       = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $segment = $this->segment ?? null;
 $isNew   = $segment === null;
+$values  = $segment ?? ($this->draft ?? null) ?? [];
 ?>
 <div class="pf-ui">
     <?php $this->activeNav = 'segments_edit'; $this->insert('../partials/admin_breadcrumb'); ?>
@@ -26,18 +28,18 @@ $isNew   = $segment === null;
             <div class="pf-grid-2">
                 <label class="pf-field">
                     <span class="pf-label"><?php echo $e(t('Name')); ?></span>
-                    <input type="text" name="name" maxlength="150" required class="pf-input" value="<?php echo $e($segment['name'] ?? ''); ?>" placeholder="<?php echo $e(t('Professionals without a photo')); ?>">
+                    <input type="text" name="name" maxlength="150" required class="pf-input" value="<?php echo $e($values['name'] ?? ''); ?>" placeholder="<?php echo $e(t('Professionals without a photo')); ?>">
                 </label>
                 <label class="pf-field">
                     <span class="pf-label"><?php echo $e(t('What it is for')); ?></span>
-                    <input type="text" name="description" class="pf-input" value="<?php echo $e($segment['description'] ?? ''); ?>">
+                    <input type="text" name="description" class="pf-input" value="<?php echo $e($values['description'] ?? ''); ?>">
                     <span class="pf-hint"><?php echo $e(t('Shown under the name in the list.')); ?></span>
                 </label>
             </div>
         </div></div>
         <div class="pf-card"><div class="pf-card-body">
             <h2 class="pf-section-title"><?php echo $e(t('Who is in it')); ?></h2>
-            <?php echo \Pramnos\Html\AudienceBuilder::filter('filter', $segment['filter'] ?? null); ?>
+            <?php echo \Pramnos\Html\AudienceBuilder::filter('filter', $values['filter'] ?? null); ?>
         </div></div>
         <div class="pf-form-footer">
             <p class="pf-hint"><?php echo $e($isNew ? t('Saving works it out at once, without announcing the people already in it.') : t('Saving works it out again.')); ?></p>

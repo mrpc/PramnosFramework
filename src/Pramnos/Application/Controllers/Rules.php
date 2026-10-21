@@ -49,17 +49,9 @@ class Rules extends Controller
             return null;
         }
         \Pramnos\Framework\Factory::getDocument()->title = t('Rules');
-        $db    = \Pramnos\Framework\Factory::getDatabase();
-        $since = time() - 7 * 86400;
-        $rows  = [];
+        $rows = [];
         foreach (Store::all() as $rule) {
-            $count = static fn (\Pramnos\Database\QueryBuilder $q): int => (int) ($q->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->getAllOrFail()[0]['n'] ?? 0);
-            $rows[] = $rule + [
-                'trigger' => \Pramnos\Html\RuleCanvas::trigger($rule['definition']['trigger']),
-                'entered' => $count($db->queryBuilder()->table('#PREFIX#rule_log')->where('ruleid', $rule['id'])->where('outcome', 'entered')->where('at', '>=', $since)),
-                'running' => $count($db->queryBuilder()->table('#PREFIX#rule_runs')->where('ruleid', $rule['id'])->whereIn('status', ['running', 'waiting'])),
-                'goals'   => $count($db->queryBuilder()->table('#PREFIX#rule_runs')->where('ruleid', $rule['id'])->where('status', 'goal')),
-            ];
+            $rows[] = $rule + ['trigger' => \Pramnos\Html\RuleCanvas::trigger($rule['definition']['trigger'])] + Store::figures($rule['id']);
         }
         $view        = $this->getView('rules');
         $view->rules = $rows;

@@ -20,6 +20,7 @@ use Pramnos\Audience\Segments as SegmentStore;
  *
  * Actions:
  *   - display()       — segments and groups, `?kind=segments|groups`, `?mine=1`
+ *   - edit($id)       — a segment's form; a new one may be filled in from `?draft=` (Ask)
  *   - view($id)       — one segment: members, movement, use, a sample, and `?person=` explained
  *   - edit($id)       — create (no id) or edit, with the filter builder
  *   - save()          — POST: create or update, then work it out
@@ -120,8 +121,30 @@ class Segments extends Controller
 
         $view          = $this->getView('segments');
         $view->segment = $segment;
+        $view->draft   = $segment === null ? $this->draft() : null;
 
         return $view->display('edit');
+    }
+
+    /**
+     * A new segment's form filled in from `?draft=` — what Ask's `audience_draft` links to: a
+     * name, a description and a filter, the filter checked; anything else is no draft.
+     *
+     * @return array{name: string, description: string, filter: array<string, mixed>}|null
+     */
+    protected function draft(): ?array
+    {
+        $draft = json_decode((string) \Pramnos\Http\Request::staticGet('draft', '', 'get'), true);
+        if (!is_array($draft)) {
+            return null;
+        }
+        try {
+            $filter = Filter::fromArray((array) ($draft['filter'] ?? []))->toArray();
+        } catch (\InvalidArgumentException) {
+            return null;
+        }
+
+        return ['name' => mb_substr(trim((string) ($draft['name'] ?? '')), 0, 150), 'description' => trim((string) ($draft['description'] ?? '')), 'filter' => $filter];
     }
 
     /**

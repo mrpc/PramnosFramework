@@ -142,7 +142,8 @@ final class Analyst
     }
 
     /**
-     * The framework's tools and the application's `admin_tools` — and, where the application
+     * The framework's tools — with the audience tools where their tables are, behind the screens'
+     * abilities — and the application's `admin_tools`; and, where the application
      * turned them on, `schema` and `sql` (`'sql' => true`) and `export_csv` (`'export' => true`,
      * for the administrator asking).
      *
@@ -164,6 +165,19 @@ final class Analyst
             new \Pramnos\Mcp\Tools\LogErrorsTool(),
             new \Pramnos\Mcp\Tools\StatusTool(\Pramnos\Application\Application::getInstance()),
         ];
+
+        // Audiences, where their tables are: read everything, write drafts only.
+        foreach ([
+            \Pramnos\Llm\Analyst\Tools\AudienceSegmentsTool::class    => ['segments', 'segment_members'],
+            \Pramnos\Llm\Analyst\Tools\AudienceWhyTool::class         => ['segments'],
+            \Pramnos\Llm\Analyst\Tools\AudienceDraftTool::class       => ['segments'],
+            \Pramnos\Llm\Analyst\Tools\AudienceRulesTool::class       => ['rules', 'rule_runs', 'rule_log'],
+            \Pramnos\Llm\Analyst\Tools\AudienceExperimentsTool::class => ['experiments', 'experiment_assignments'],
+        ] as $class => $tables) {
+            if (\Pramnos\Audience\Installed::has(...$tables)) {
+                $tools[] = new $class($adminId);
+            }
+        }
 
         // The installation's help pages, with the `help` feature.
         if (\Pramnos\Assist\Help::enabled()) {
@@ -213,7 +227,7 @@ final class Analyst
         }
 
         // A statement of the model's own can read anybody's row.
-        foreach (['user', 'sql', 'export_csv'] as $name) {
+        foreach (['user', 'sql', 'export_csv', 'audience_why'] as $name) {
             Tools::tag($tools, $name, 'personal');
         }
 

@@ -937,6 +937,9 @@ prompt names it, and each answer's window says which it used.
 | `llm_spend` | calls, tokens and cost by provider, model and purpose; scheduled tasks' runs apart, by task (`llm_calls.routine_id`); failures; spend per organisation (id and name) |
 | `log-analytics`, `log-errors`, `status` | the MCP tools of the same names |
 | `user` | one account the administrator names: type, state, dates — its email only with `include_email` |
+| `audience_segments`, `audience_rules`, `audience_experiments` | segments with members and movement; rules with status, trigger and how they are doing, one with how many went through each step; A/B tests with their results — offered where their tables are, each behind its screen's ability (`admin.segments`, `admin.rules`, `admin.experiments`) |
+| `audience_why` | why one account is or is not in a segment, or would or would not come into a rule — tagged `personal` |
+| `audience_draft` | the one tool that writes, and only drafts: a segment comes back as its count and a link that opens the builder filled in, nothing saved; a rule is saved as a draft, which does nothing until an administrator switches it on |
 
 ### Personal data
 

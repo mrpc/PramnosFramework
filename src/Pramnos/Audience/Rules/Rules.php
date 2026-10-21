@@ -184,6 +184,24 @@ final class Rules
     }
 
     /**
+     * How a rule is doing: how many came in over the last seven days, how many are on their way
+     * now, and how many reached its goal.
+     *
+     * @return array{entered: int, running: int, goals: int}
+     */
+    public static function figures(int $id): array
+    {
+        $count = static fn (\Pramnos\Database\QueryBuilder $q): int => (int) ($q->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->getAllOrFail()[0]['n'] ?? 0);
+        $db    = self::db();
+
+        return [
+            'entered' => $count($db->queryBuilder()->table('#PREFIX#rule_log')->where('ruleid', $id)->where('outcome', 'entered')->where('at', '>=', time() - 7 * 86400)),
+            'running' => $count($db->queryBuilder()->table('#PREFIX#rule_runs')->where('ruleid', $id)->whereIn('status', ['running', 'waiting'])),
+            'goals'   => $count($db->queryBuilder()->table('#PREFIX#rule_runs')->where('ruleid', $id)->where('status', 'goal')),
+        ];
+    }
+
+    /**
      * The rules that read a segment, each with the link to its page.
      *
      * @return list<array{name: string, url: string}>
