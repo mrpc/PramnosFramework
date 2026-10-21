@@ -166,6 +166,7 @@ final class MessageEditor
         $english = [
             'formatting' => 'Formatting', 'bold' => 'Bold', 'italic' => 'Italic', 'heading' => 'Heading',
             'subheading' => 'Subheading', 'bulletList' => 'Bulleted list', 'orderedList' => 'Numbered list',
+            'bulletListShort' => 'List', 'pictureUrlShort' => 'Picture URL',
             'quote' => 'Quote', 'link' => 'Link', 'picture' => 'Picture', 'pictureFile' => 'Upload a picture',
             'pictureUrl' => 'Picture by address', 'pictureAddress' => 'Picture address',
             'moveUp' => 'Move the block up (Alt+↑)', 'moveDown' => 'Move the block down (Alt+↓)',

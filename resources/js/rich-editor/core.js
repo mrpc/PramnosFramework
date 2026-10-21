@@ -40,6 +40,9 @@ export const LABELS = {
     heading: 'Heading',
     subheading: 'Subheading',
     bulletList: 'Bulleted list',
+    // A button's visible words, apart from its title: each is translated whole, never cut from it.
+    bulletListShort: 'List',
+    pictureUrlShort: 'Picture URL',
     orderedList: 'Numbered list',
     quote: 'Quote',
     link: 'Link',
@@ -72,7 +75,7 @@ function builtinButtons(l, ui) {
         toggle('italic', 'I', l.italic, 'toggleItalic', (e) => e.isActive('italic')),
         { name: 'h2', label: 'H2', title: l.heading, run: (e) => e.chain().focus().toggleHeading({ level: 2 }).run(), active: (e) => e.isActive('heading', { level: 2 }) },
         { name: 'h3', label: 'H3', title: l.subheading, run: (e) => e.chain().focus().toggleHeading({ level: 3 }).run(), active: (e) => e.isActive('heading', { level: 3 }) },
-        toggle('bulletList', '• ' + l.bulletList.split(' ').pop(), l.bulletList, 'toggleBulletList', (e) => e.isActive('bulletList')),
+        toggle('bulletList', '• ' + l.bulletListShort, l.bulletList, 'toggleBulletList', (e) => e.isActive('bulletList')),
         toggle('orderedList', '1.', l.orderedList, 'toggleOrderedList', (e) => e.isActive('orderedList')),
         toggle('blockquote', '“ ”', l.quote, 'toggleBlockquote', (e) => e.isActive('blockquote')),
         { name: 'link', label: l.link, title: l.link, run: () => ui.openLinkPanel(), active: (e) => e.isActive('link') },
@@ -81,7 +84,7 @@ function builtinButtons(l, ui) {
         buttons.push({ name: 'pictureFile', label: l.picture, title: l.pictureFile, run: () => ui.pickFile() });
     }
     buttons.push(
-        { name: 'pictureUrl', label: l.picture + ' URL', title: l.pictureUrl, run: (e) => {
+        { name: 'pictureUrl', label: l.pictureUrlShort, title: l.pictureUrl, run: (e) => {
             const src = window.prompt(l.pictureAddress, 'https://');
             if (src) { e.chain().focus().insertContent({ type: 'picture', attrs: { src } }).run(); }
         } },

@@ -845,4 +845,7 @@ return [
     'Paragraph' => 'Παράγραφος',
     // The account a message in the mail log was for.
     'User' => 'Χρήστης',
+    // The rich editor's buttons' visible words.
+    'List' => 'Λίστα',
+    'Picture URL' => 'Εικόνα από URL',
 ];

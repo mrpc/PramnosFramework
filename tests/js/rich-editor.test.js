@@ -254,6 +254,18 @@ test('a header goes into the text\'s column, under the toolbar, and back out wit
     assert.equal(title.parentNode, ui.window.document.body, 'destroy() took the page\'s title with it');
 });
 
+test('a button\'s visible words are a label of their own, apart from its title', () => {
+    // Arrange — Greek, as MessageEditor prints it
+    const ui = page({ attrs: 'data-pf-rich-labels=\'{"bulletList":"Λίστα με κουκκίδες","bulletListShort":"Λίστα"}\'' });
+
+    // Act
+    const button = ui.bar.querySelector('[data-button="bulletList"]');
+
+    // Assert — not the last word of the title ("• κουκκίδες")
+    assert.equal(button.textContent, '• Λίστα');
+    assert.equal(button.getAttribute('aria-label'), 'Λίστα με κουκκίδες');
+});
+
 test('the shipped file is built from the sources as they are', async () => {
     // Arrange
     const { sourceStamp } = await import('../../resources/js/rich-editor/build.mjs');
