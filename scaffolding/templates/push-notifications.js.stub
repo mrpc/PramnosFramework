@@ -69,6 +69,24 @@
     }
 
     /*
+     * The site's own worker — the one at the web root, whose scope is the whole site.
+     *
+     * Not `serviceWorker.ready` alone: a page with a worker of its own (the conversations, which
+     * keep themselves for when the server is down) gets that one from `ready`, and subscriptions
+     * are per registration — this page would say notifications are off while the site's worker
+     * is subscribed, and a subscribe would hand the server an endpoint whose worker shows nothing.
+     */
+    function registration() {
+        if (typeof navigator.serviceWorker.getRegistration !== 'function') {
+            return navigator.serviceWorker.ready;
+        }
+
+        return navigator.serviceWorker.getRegistration(base).then(function (found) {
+            return found || navigator.serviceWorker.ready;
+        });
+    }
+
+    /*
      * The page's words: `data-push-words` on the script tag, a JSON object from each English
      * sentence below to the page's language — the themes fill it with
      * `\Pramnos\Push\BrowserScript::words()`. A sentence it does not have is said in English.
@@ -288,7 +306,7 @@
                     return null;
                 }
 
-                return Promise.all([navigator.serviceWorker.ready, key()]);
+                return Promise.all([registration(), key()]);
             })
             .then(function (both) {
                 if (!both) {
@@ -379,9 +397,9 @@
      * been cleared, or the subscription may have been revoked from the account. The
      * registration is the only thing that knows.
      */
-    navigator.serviceWorker.ready
-        .then(function (registration) {
-            return registration.pushManager.getSubscription();
+    registration()
+        .then(function (found) {
+            return found.pushManager.getSubscription();
         })
         .then(function (subscription) {
             if (subscription) {

@@ -1,0 +1,27 @@
+<?php
+/**
+ * The conversations' beacon — `/beacon/*` — answered without the application: no session, no
+ * database, so it answers when they do not. On the primary it is the health the outside watcher
+ * reads; on the beacon, everything a browser needs while the primary is down.
+ *
+ * Route `/beacon/` here before the application's own front controller, and let the Authorization
+ * header through, e.g. in .htaccess:
+ *
+ *     RewriteRule ^beacon/ beacon.php [L,QSA,E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+ *
+ * Settings: app/beacon.php (see Pramnos\Conversations\Beacon\Config). What the application's own
+ * autoloaded files need before they load — its constants — goes in app/beacon.bootstrap.php.
+ */
+define('ROOT', dirname(__DIR__));
+if (!defined('DS')) {
+    define('DS', DIRECTORY_SEPARATOR);
+}
+if (!defined('LOG_PATH')) {
+    define('LOG_PATH', ROOT . '/var/logs');
+}
+if (is_file(ROOT . '/app/beacon.bootstrap.php')) {
+    require ROOT . '/app/beacon.bootstrap.php';
+}
+require ROOT . '/vendor/autoload.php';
+
+(new \Pramnos\Conversations\Beacon\Endpoint())->serve();

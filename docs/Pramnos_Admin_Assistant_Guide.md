@@ -126,7 +126,10 @@ A list can be written on one line, `[a, b]`, or as `- a` lines.
   one.
 
 The renderer is `Chat\Markdown`: headings, lists, tables, emphasis, code, links and pictures. It
-escapes everything first, and has no HTML and no nested lists.
+escapes everything first, and has no HTML and no nested lists. A page's headings are the levels it
+writes — `#` is `<h1>`, the page's title, `##` a section — because `Help::html()` passes
+`'headingShift' => 0`. A model's reply, drawn under its conversation's own title, keeps the default
+of two levels lower.
 
 ### What's new
 

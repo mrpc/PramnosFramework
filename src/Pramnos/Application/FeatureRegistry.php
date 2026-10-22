@@ -288,6 +288,14 @@ class FeatureRegistry
                 dirname(__DIR__, 3) . '/database/migrations/framework/queue',
             ],
         ]);
+        // Conversations: channels, direct messages and threads — a team's chat, support, the site's.
+        static::register('conversations', [
+            'description' => 'Conversations — channels, direct messages, threads, files and search',
+            'provider'    => \Pramnos\Conversations\ConversationsServiceProvider::class,
+            'migrations'  => [
+                dirname(__DIR__, 3) . '/database/migrations/framework/conversations',
+            ],
+        ]);
         static::register('changelog', [
             'description' => 'Model change log — an audit trail written from the change feed',
             'provider'    => \Pramnos\Changelog\ChangelogServiceProvider::class,

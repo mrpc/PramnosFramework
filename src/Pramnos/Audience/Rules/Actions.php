@@ -27,7 +27,8 @@ use Pramnos\Email\TemplateValues;
  *
  * The framework's: `email` (a mail template), `bell` and `push` (a notification), `site_message`
  * (a banner, popup or card on the site), `group_add` and `group_remove`, `attribute` (set a column
- * of a declared attribute), `notify_admin`, `webhook`.
+ * of a declared attribute), `notify_admin`, `webhook`; and with the conversations,
+ * `conversation_post` (tell the team in a channel, or one administrator).
  */
 final class Actions
 {
@@ -204,7 +205,43 @@ final class Actions
             ], 'run' => self::notifyAdmin(...)],
             'webhook' => ['label' => t('Call a webhook'), 'channel' => null, 'params' => ['url' => $text(t('Address'))],
                 'run' => self::webhook(...)],
-        ];
+        ] + (self::hasConversations() ? [
+            'conversation_post' => ['label' => t('Tell the team in a conversation'), 'channel' => null, 'params' => [
+                'to' => $text(t('Channel (#name) or account id')), 'text' => $text(t('Message'), 'textarea'),
+            ], 'run' => self::conversationPost(...)],
+        ] : []);
+    }
+
+    /** Whether the application has the conversations, for their action. */
+    private static function hasConversations(): bool
+    {
+        $app = \Pramnos\Application\Application::currentInstance();
+
+        return is_object($app) && in_array('conversations', (array) ($app->applicationInfo['features'] ?? []), true);
+    }
+
+    /**
+     * Tell the team: the text, filled for the person, in a channel or to an administrator, with the
+     * person as a card linked to their page. Once per run — a run retried writes nothing new. A test
+     * send goes to whoever asked for it.
+     *
+     * @param array<string, mixed> $params
+     * @return array{status: string, detail: array<string, mixed>}
+     */
+    private static function conversationPost(int $person, array $params, Context $context): array
+    {
+        $to = trim((string) ($params['to'] ?? ''));
+        if ($context->isTest()) {
+            $to = (string) $context->to();
+        }
+        $data = self::user($person);
+        $name = $data === null ? '#' . $person : trim((string) ($data->firstname ?? '') . ' ' . (string) ($data->lastname ?? ''));
+        $id   = $to === '' ? null : \Pramnos\Conversations\SystemPost::post(ctype_digit($to) ? (int) $to : $to, self::fill((string) ($params['text'] ?? ''), $person),
+            [['title' => $name !== '' ? $name : (string) ($data->username ?? '#' . $person), 'title_link' => \Pramnos\Html\AudienceBuilder::personUrl($person),
+                'color' => 'info']], ['username' => $context->ruleName, 'source' => 'rule', 'externalid' => $context->origin() . ':' . $person . ':' . $to]);
+
+        return $id === null ? ['status' => 'error', 'detail' => ['reason' => 'nobody to post to: ' . $to]]
+            : ['status' => 'done', 'detail' => ['message' => $id]];
     }
 
     /**

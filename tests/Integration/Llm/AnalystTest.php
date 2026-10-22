@@ -40,6 +40,7 @@ use Pramnos\Tests\Unit\Llm\LlmTestCase;
 #[CoversClass(\Pramnos\Llm\Analyst\Desk::class)]
 #[CoversClass(\Pramnos\Application\Controllers\AiController::class)]
 #[CoversClass(\Pramnos\Llm\Chat\AskTask::class)]
+#[CoversClass(\Pramnos\Llm\Analyst\Review::class)]
 class AnalystTest extends LlmTestCase
 {
     use ReusesProbeDatabase;
@@ -112,6 +113,7 @@ class AnalystTest extends LlmTestCase
             \Pramnos\Framework\Migrations\Messaging\CreateEmailTrackingTables::class,
             \Pramnos\Framework\Migrations\Notifications\CreatePushLogTable::class,
             \Pramnos\Framework\Migrations\Queue\CreateQueueitemsTable::class,
+            \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverAuditLogTable::class,
             ...$llm,
         ]);
         $admin->close();
@@ -459,6 +461,218 @@ class AnalystTest extends LlmTestCase
     }
 
     /**
+     * Root reads the other administrators' Ask conversations, read only: the list with owner, message
+     * count and cost, filtered by person and title — root's own neither listed nor offered in the
+     * filter, and opened here it goes to Ask, where it is not read only; one opened as its owner sees
+     * it — tools and the model calls made for each answer — under a banner, with no question box and
+     * no delete; each view in the audit log; nothing else written.
+     */
+    #[DataProvider('databases')]
+    public function testRootReadsEverybodysAskConversations(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->seed();
+        $stamp = static fn (int $ago): string => gmdate('Y-m-d H:i:s', time() - $ago);
+        $this->insert('chat_conversations', ['organization_id' => null, 'userid' => 8, 'title' => 'Why did NAN-6250 fail', 'space' => Scope::ADMIN, 'created_at' => $stamp(600), 'updated_at' => $stamp(500)]);
+        $this->insert('chat_conversations', ['organization_id' => null, 'userid' => 7, 'title' => 'Own spend', 'space' => Scope::ADMIN, 'created_at' => $stamp(900), 'updated_at' => $stamp(900)]);
+        $this->insert('chat_conversations', ['organization_id' => 1, 'userid' => 8, 'title' => 'A private Ask AI', 'space' => Scope::CHAT, 'created_at' => $stamp(300), 'updated_at' => $stamp(300)]);
+        $ids    = array_column($this->db->queryBuilder()->table('chat_conversations')->orderBy('conversation_id')->getAllOrFail(), 'conversation_id');
+        [$theirs, $mine] = [(int) $ids[0], (int) $ids[1]];
+        $this->insert('chat_messages', ['conversation_id' => $theirs, 'organization_id' => null, 'role' => 'user', 'content' => 'Why did it fail?', 'created_at' => $stamp(600), 'updated_at' => $stamp(600)]);
+        $this->insert('chat_messages', ['conversation_id' => $theirs, 'organization_id' => null, 'role' => 'assistant', 'content' => "The queue refused it.\n```chart\n{\"type\":\"bar\",\"title\":\"Refusals\",\"labels\":[\"Mon\"],\"series\":[{\"data\":[3]}]}\n```",
+            'tools' => json_encode([['name' => 'queue_failures', 'arguments' => ['days' => 1]]]), 'cost' => 0.0125, 'created_at' => $stamp(600), 'updated_at' => $stamp(600)]);
+        $this->insert('llm_calls', ['organization_id' => null, 'userid' => 8, 'purpose' => 'analyst', 'provider' => 'openai', 'model' => 'gpt-x', 'created_at' => $stamp(550)]);
+        $call   = (int) $this->db->queryBuilder()->table('llm_calls')->where('purpose', 'analyst')->first()->fields['call_id'];
+        // A second question, later: the first answer's calls stop where it begins.
+        $this->insert('chat_messages', ['conversation_id' => $theirs, 'organization_id' => null, 'role' => 'user', 'content' => 'And now?', 'created_at' => $stamp(100), 'updated_at' => $stamp(100)]);
+        $this->insert('chat_messages', ['conversation_id' => $theirs, 'organization_id' => null, 'role' => 'assistant', 'content' => 'Fine now.', 'created_at' => $stamp(100), 'updated_at' => $stamp(100)]);
+        $this->insert('llm_calls', ['organization_id' => null, 'userid' => 8, 'purpose' => 'analyst', 'provider' => 'openai', 'model' => 'gpt-x', 'created_at' => $stamp(50)]);
+        $later  = (int) $this->db->queryBuilder()->table('llm_calls')->where('purpose', 'analyst')->orderBy('call_id', 'desc')->first()->fields['call_id'];
+        $this->insert('chat_conversations', ['organization_id' => 1, 'userid' => 8, 'title' => 'Asked inside an organisation', 'space' => Scope::ADMIN, 'created_at' => $stamp(300), 'updated_at' => $stamp(300)]);
+        $inOrg  = (int) $this->db->queryBuilder()->table('chat_conversations')->orderBy('conversation_id', 'desc')->first()->fields['conversation_id'];
+        $before = [$this->rowsIn('chat_messages'), $this->rowsIn('chat_memory'), $this->rowsIn('chat_conversations')];
+
+        // Act
+        $_GET = [];
+        \Pramnos\Http\Request::resetInstance();
+        $list = (string) (new AnalystScreen())->all();
+        $_GET = ['person' => '8', 'q' => 'NAN'];
+        \Pramnos\Http\Request::resetInstance();
+        $filtered = \Pramnos\Llm\Analyst\Review::list(['person' => 8, 'q' => 'NAN']);
+        $none     = \Pramnos\Llm\Analyst\Review::list(['q' => 'nothing like this']);
+        $opened   = \Pramnos\Llm\Analyst\Review::open($theirs);
+        $pages = [];
+        foreach (['plain-css', 'tailwind', 'bootstrap'] as $theme) {
+            $_GET = ['c' => (string) $theirs];
+            \Pramnos\Http\Request::resetInstance();
+            $pages[$theme] = (string) (new AnalystScreen($theme))->all();
+        }
+        $_GET = ['c' => (string) $mine];
+        \Pramnos\Http\Request::resetInstance();
+        $own = new AnalystScreen();
+        $ownPage = $own->all();
+        $audit = $this->db->queryBuilder()->table('authserver.audit_log')->where('event_type', 'ai.conversation_viewed')->getAllOrFail();
+
+        // Assert
+        $this->assertStringContainsString('Why did NAN-6250 fail', $list);
+        $this->assertStringNotContainsString('Own spend', $list, 'root\'s own are in Ask itself');
+        $this->assertStringNotContainsString('<option value="7"', $list, 'and root is not one of whose to pick');
+        $this->assertStringContainsString('<option value="8"', $list);
+        $this->assertNull($ownPage);
+        $this->assertSame([adminUrl('Ai') . '?c=' . $mine], $own->redirectedTo, 'one\'s own opens in Ask');
+        $this->assertStringNotContainsString('A private Ask AI', $list, 'Ask, not somebody\'s own Ask AI');
+        $this->assertSame([], $none);
+        $this->assertSame([[$call], [$later]], array_values(array_map(static fn (array $m): array => $m['calls'],
+            array_filter($opened['conversation']['messages'], static fn (array $m): bool => $m['role'] === 'assistant'))), 'each answer, its own calls');
+        $this->assertNull(\Pramnos\Llm\Analyst\Review::open($inOrg), 'not the analyst\'s, which is outside every organisation');
+        $this->assertSame([[$theirs, 'Nikos Papadakis', 4, 0.0125]], array_map(static fn (array $r): array => [$r['conversation_id'], $r['owner_name'], $r['messages'], round($r['cost'], 4)], $filtered));
+        foreach ($pages as $theme => $page) {
+            $this->assertStringContainsString('Nikos Papadakis&#039;s conversation — read only', $page, $theme);
+            $this->assertStringContainsString('queue_failures', $page, $theme . ': the tool and its input');
+            $this->assertStringContainsString('Ai/call/' . $call, $page, $theme . ': the model call, with what the tool returned');
+            $this->assertStringNotContainsString('<textarea', $page, $theme . ': nothing to ask');
+            $this->assertStringNotContainsString('Ai/delete', $page, $theme . ': nothing to delete');
+            $this->assertDoesNotMatchRegularExpression('/<details[^>]*\sopen[\s>]/', $page, $theme . ': steps and tools folded, as on Ask\'s page');
+            $this->assertStringContainsString('data-pf-chart="', $page, $theme . ': the chart, for pf-chat.js to draw');
+            $this->assertMatchesRegularExpression('/<div[^>]*data-pf-chat>/', $page, $theme . ': which runs over the page');
+            $this->assertStringContainsString('assets/js/pf-chat.js', $page, $theme);
+        }
+        $this->assertCount(3, $audit, 'each view of theirs, in each theme; not root\'s own');
+        $this->assertSame(['7', '8', (string) $theirs], [(string) $audit[0]['actor_userid'], (string) $audit[0]['target_id'], (string) $audit[0]['object_id']]);
+        $this->assertSame($before, [$this->rowsIn('chat_messages'), $this->rowsIn('chat_memory'), $this->rowsIn('chat_conversations')], 'nothing else written');
+        $this->assertNull(\Pramnos\Llm\Analyst\Review::open(999999));
+        $this->assertNull(\Pramnos\Llm\Analyst\Review::open((int) $ids[2]), 'a private Ask AI conversation is not opened here');
+    }
+
+    /**
+     * Anybody who does not read them all — a superuser, 98 — gets a 404, and the Ask page offers
+     * them no link; a conversation that does not exist is a 404 to root too.
+     */
+    #[DataProvider('databases')]
+    public function testEverybodysAskConversationsAreA404ToEverybodyElse(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->seed();
+        $super = new AnalystScreen();
+        $super->reading = (object) ['userid' => 8, 'usertype' => 98, 'active' => 1];
+        $_GET = ['c' => '999999'];
+        \Pramnos\Http\Request::resetInstance();
+        $status = static function (AnalystScreen $screen): int {
+            try {
+                $screen->all();
+            } catch (\Pramnos\Application\ApplicationClosedException $e) {
+                return $e->getStatusCode();
+            }
+
+            return 200;
+        };
+
+        // Act
+        $refused = $status($super);
+        $missing = $status(new AnalystScreen());
+
+        // Assert
+        $this->assertSame(404, $refused);
+        $this->assertSame(404, $missing);
+        $this->assertFalse(\Pramnos\Llm\Analyst\Review::readsAll((object) ['userid' => 8, 'usertype' => 98, 'active' => 1]));
+        $this->assertFalse(\Pramnos\Llm\Analyst\Review::readsAll((object) ['userid' => 7, 'usertype' => 99, 'active' => 0]), 'deactivated');
+        $this->assertFalse(\Pramnos\Llm\Analyst\Review::readsAll(null));
+        $this->assertSame(0, $this->rowsIn('authserver.audit_log'), 'a refusal reads nothing, records no view');
+    }
+
+    /**
+     * Everybody's conversations are not one of the page's main actions: they sit behind the ⚙
+     * under the title with the settings, each shown to whoever has it, and a reader with neither
+     * sees no gear at all — in every theme.
+     */
+    #[DataProvider('databases')]
+    public function testEverybodysConversationsSitBehindTheGear(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->seed();
+        $this->setting('llm_provider', 'deepseek');
+        $this->setting('llm_deepseek_api_key', 'sk-d');
+        $super = static function (string $theme, bool $hideSettings): AnalystScreen {
+            $screen = new AnalystScreen($theme, false, $hideSettings);
+            $screen->reading = (object) ['userid' => 8, 'usertype' => 98, 'active' => 1];
+
+            return $screen;
+        };
+        $_GET = [];
+        \Pramnos\Http\Request::resetInstance();
+
+        foreach (['plain-css', 'tailwind', 'bootstrap'] as $theme) {
+            // Act
+            $root     = (string) (new AnalystScreen($theme))->display();
+            $onlyAll  = (string) (new AnalystScreen($theme, false, true))->display();
+            $settings = (string) $super($theme, false)->display();
+            $neither  = (string) $super($theme, true)->display();
+            $nav      = substr($root, strpos($root, '<nav'), strpos($root, '</nav>') - strpos($root, '<nav'));
+            $gear     = substr($root, strpos($root, 'pf-ask-gear'), strpos($root, '</details>', strpos($root, 'pf-ask-gear')) - strpos($root, 'pf-ask-gear'));
+
+            // Assert
+            $this->assertStringNotContainsString('Ai/all', $nav, $theme . ': not beside New conversation');
+            $this->assertStringContainsString('aria-label="Ask page tools"', $gear, $theme . ': the gear is named for a screen reader');
+            $this->assertStringContainsString('Ai/all', $gear, $theme);
+            $this->assertStringContainsString('Ai/settings', $gear, $theme);
+            $this->assertStringContainsString('Ai/all', $onlyAll, $theme . ': the gear holds the one it has');
+            $this->assertStringNotContainsString('Ai/settings', $onlyAll, $theme);
+            $this->assertStringContainsString('pf-ask-gear', $settings, $theme);
+            $this->assertStringNotContainsString('Ai/all', $settings, $theme . ': 98 does not read them all');
+            $this->assertStringNotContainsString('pf-ask-gear', $neither, $theme . ': nothing behind it, no gear');
+        }
+    }
+
+    /**
+     * The analyst's tools follow whose rights an answer is given with, not who asked: an
+     * application that cuts a tool for some people cuts it for the least privileged reader of a
+     * conversation; an answer others read makes no file for the asker; and the model is told which
+     * of the asker's tools it may not use there, to say so and suggest a direct message.
+     */
+    #[DataProvider('databases')]
+    public function testAnAnswerOthersReadHasItsReadersRights(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->seed();
+        $this->configure(['analyst' => ['export' => true]]);
+        // As an application does: what usertype 98 — person 8 — may not read is cut for them.
+        $assistant = new class () extends \Pramnos\Llm\Analyst\AnalystAssistant {
+            public function tools(\Pramnos\Llm\Chat\Turn $turn): array
+            {
+                return $turn->rightsOf() === 8 ? array_diff_key(parent::tools($turn), ['llm_spend' => true]) : parent::tools($turn);
+            }
+        };
+        $chat  = \Pramnos\Llm\Analyst\Analyst::conversations(7);
+        $turn  = static fn (array $extra): \Pramnos\Llm\Chat\Turn => new \Pramnos\Llm\Chat\Turn(\Pramnos\Llm\Analyst\Analyst::scope(7), null, false, [], [], $extra, $chat);
+
+        // Act
+        $alone   = $assistant->tools($turn([]));
+        $shared  = $assistant->tools($turn(['rights_of' => 8]));
+        $prompt  = $assistant->systemPrompt($turn(['rights_of' => 8]));
+        $own     = $assistant->systemPrompt($turn([]));
+
+        // Assert
+        $this->assertArrayHasKey('llm_spend', $alone);
+        $this->assertArrayHasKey('export_csv', $alone);
+        $this->assertArrayNotHasKey('llm_spend', $shared, 'cut for the least privileged reader');
+        $this->assertArrayNotHasKey('export_csv', $shared, 'no file made for the asker where others read');
+        $this->assertStringContainsString('least privileged reader', $prompt);
+        $this->assertMatchesRegularExpression('/may not use here: (export_csv, llm_spend|llm_spend, export_csv)\./', $prompt);
+        $this->assertStringContainsString('direct message', $prompt);
+        $this->assertStringNotContainsString('least privileged', $own, 'the asker alone hears nothing of it');
+    }
+
+    /** Rows in a table. */
+    private function rowsIn(string $table): int
+    {
+        return count($this->db->queryBuilder()->table($table)->getAllOrFail());
+    }
+
+    /**
      * The real screen's analyst is the signed-in administrator's — nobody, here — and its JSON
      * carries the answer's status as the HTTP status.
      */
@@ -471,9 +685,13 @@ class AnalystTest extends LlmTestCase
         // Act
         $desk = $call('analystDesk');
         $json = $call('analystJson', ['status' => 404, 'error' => 'Δεν υπάρχει.']);
+        $who  = $call('reader');
+        $all  = $call('readsAll', null);
 
         // Assert
         $this->assertNull($desk->asked(1), 'nobody signed in follows nothing');
+        $this->assertNull($who, 'nobody signed in reads nothing');
+        $this->assertFalse($all);
         $this->assertSame('{"status":404,"error":"Δεν υπάρχει."}', $json);
         $this->assertSame(404, http_response_code());
         http_response_code(200);
@@ -700,6 +918,9 @@ final class AnalystScreen extends \Pramnos\Application\Controllers\AiController
 
     public RecordingQueue $queue;
 
+    /** Who reads, for `all()`: root (7) unless a test says otherwise. */
+    public ?object $reading = null;
+
     public function __construct(private string $theme = 'plain-css', private bool $refused = false, private bool $hideSettings = false)
     {
         // Not parent::__construct(): it registers actions against an application this test does not have.
@@ -709,6 +930,11 @@ final class AnalystScreen extends \Pramnos\Application\Controllers\AiController
     protected function requireMinUserType($type): bool
     {
         return $this->refused;
+    }
+
+    protected function reader(): ?object
+    {
+        return $this->reading ?? (object) ['userid' => 7, 'usertype' => 99, 'active' => 1];
     }
 
     /** The settings link, or none — as an application with its own settings menu answers. */

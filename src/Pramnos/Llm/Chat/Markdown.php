@@ -30,15 +30,18 @@ final class Markdown
 
     private const TD = '<td style="padding:.25rem .75rem;border-bottom:1px solid rgba(128,128,128,.35)">';
 
-    /** @var array{link?: \Closure(string): ?string, image?: \Closure(string): ?string} What the text being drawn resolves with */
+    /** @var array{link?: \Closure(string): ?string, image?: \Closure(string): ?string, headingShift?: int} What the text being drawn resolves with */
     private static array $resolve = [];
 
     /**
-     * @param array{link?: \Closure(string): ?string, image?: \Closure(string): ?string} $options
+     * @param array{link?: \Closure(string): ?string, image?: \Closure(string): ?string, headingShift?: int} $options
      *        `link` answers the address of a target that is not `http(s)` — `help:users` — or null
      *        to leave its words as they are; such a link opens in the same tab. `image` answers
      *        the address of `![alt](source)`, or null for the alt text alone. Without them a
      *        picture is its alt text and only `http(s)` links, which is all a model's reply gets.
+     *        `headingShift` is how many levels lower a `#` is drawn: 2 by default, as a reply's
+     *        headings are sections under the conversation's own `<h1>`; 0 for a whole page whose
+     *        `#`, `##` and `###` are the levels they say.
      */
     public static function toHtml(string $text, array $options = []): string
     {
@@ -92,7 +95,8 @@ final class Markdown
 
             if (preg_match('/^(#{1,6})\s+(.+?)\s*#*\s*$/', $line, $m) === 1) {
                 $flush();
-                $level  = min(6, strlen($m[1]) + 2);   // a reply's "#" is a section, not the page's title
+                // A reply's "#" is a section, not the page's title; a whole page's is its title.
+                $level  = min(6, max(1, strlen($m[1]) + (int) (self::$resolve['headingShift'] ?? 2)));
                 $html[] = '<h' . $level . '>' . self::inline($m[2]) . '</h' . $level . '>';
                 continue;
             }

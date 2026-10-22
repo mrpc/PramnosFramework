@@ -552,8 +552,10 @@ some days of entering, which ends the run as reached.
 The framework's: `email` (a mail template, in the person's language, into the outbox; with a
 `list`, the unsubscribe link, open/click tracking, and nobody who left the list), `bell` and
 `push` (a notification), `site_message` (a banner, popup or card on the site, below), `group_add` / `group_remove`, `attribute` (a column of a declared
-attribute), `notify_admin`, `webhook` (POSTs the person and the origin). An application adds its
-own:
+attribute), `notify_admin`, `webhook` (POSTs the person and the origin), and — with the
+`conversations` feature — `conversation_post` (tells the team in a channel, or one administrator;
+see the [Conversations Guide](Pramnos_Conversations_Guide.md#references-and-commands-what-the-application-adds)).
+An application adds its own:
 
 ```php
 use Pramnos\Audience\Rules\Actions;

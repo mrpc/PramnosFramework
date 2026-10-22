@@ -188,4 +188,29 @@ export default [
             'no-unused-vars': ['error', { args: 'none', caughtErrors: 'none', varsIgnorePattern: '^_' }],
         },
     },
+
+    {
+        // The conversations client: ES modules for the browser beside its Svelte components (which
+        // the Svelte compiler checks as it builds), bundled by `npm run build:conversations`.
+        files: ['resources/js/conversations/**/*.js', 'resources/js/conversations/**/*.mjs'],
+        languageOptions: {
+            ecmaVersion: 2022,
+            sourceType: 'module',
+            globals: {
+                window: 'readonly',
+                document: 'readonly',
+                FormData: 'readonly',
+                Response: 'readonly',
+                process: 'readonly',
+                console: 'readonly',
+            },
+        },
+        rules: {
+            'no-redeclare': 'error',
+            'no-undef': 'error',
+            'no-dupe-keys': 'error',
+            'no-unreachable': 'error',
+            'no-unused-vars': ['error', { args: 'none', caughtErrors: 'none', varsIgnorePattern: '^_' }],
+        },
+    },
 ];

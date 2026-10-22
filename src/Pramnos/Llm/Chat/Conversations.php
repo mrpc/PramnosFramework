@@ -269,12 +269,14 @@ class Conversations
 
         $memory   = new Memory($this->scope);
         $routines = new Routines($this);
-        $tools    = $this->assistant->tools($turn) + $memory->tools($this, $conversationId)
+        // An answer others read too carries nothing of the asker's own: not what was remembered
+        // about them, not their tasks.
+        $tools    = $this->assistant->tools($turn) + ($turn->shared() ? [] : $memory->tools($this, $conversationId)
             // Not from a scheduled run: a task that schedules tasks has no end.
-            + ($this->scheduled ? [] : $routines->toolsFor($this->scope, $this->assistant->timezone($this->scope), $conversationId));
+            + ($this->scheduled ? [] : $routines->toolsFor($this->scope, $this->assistant->timezone($this->scope), $conversationId)));
 
         $answer = $client->askWithTools(
-            $this->assistant->systemPrompt($turn) . "\n\n" . $this->context($turn, $memory),
+            $this->assistant->systemPrompt($turn) . "\n\n" . ($turn->shared() ? trim($this->assistant->context($turn)) : $this->context($turn, $memory)),
             $messages,
             $tools,
             $this->assistant->rounds(),

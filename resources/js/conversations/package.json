@@ -1,0 +1,5 @@
+{
+  "type": "module",
+  "private": true,
+  "description": "The conversations client, as ES modules; built into scaffolding/assets/js/pf-conversations.js by build.mjs."
+}

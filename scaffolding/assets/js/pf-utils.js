@@ -829,6 +829,9 @@
     // one `pf:notifications:refresh` — "you may have missed something", not "something arrived".
     //
     //   window.pfRealtime.channel('private-users.5').listen('notification.created', fn)
+    //   window.pfRealtime.channel('private-conversation.7').whisper('typing', { id: 5 })   // heard as client-typing
+    //   window.pfRealtime.channel('presence-chat').listen('pusher:subscription_succeeded', fn)   // { members }
+    //       .listen('pusher:member_added', fn).listen('pusher:member_removed', fn)            // { id, info, members }
     // ══════════════════════════════════════════════════════════════════════════
     (function () {
         // A socket of the page's own, or a shared worker that holds one: with neither, nothing.
@@ -946,6 +949,7 @@
             });
             connection = {
                 subscribe: function (name) { if (port) { port.postMessage({ type: 'subscribe', channel: name }); } },
+                whisper: function (name, event, data) { if (port) { port.postMessage({ type: 'whisper', channel: name, event: event, data: data }); } },
                 close: function () { if (port) { port.postMessage({ type: 'bye' }); } },
             };
         } else if (!ownConnection(null)) {
@@ -972,6 +976,19 @@
                 return {
                     listen: function (event, fn) {
                         (listeners[event] = listeners[event] || []).push(fn);
+                        return this;
+                    },
+                    /** Stop hearing an event with this listener. */
+                    stopListening: function (event, fn) {
+                        listeners[event] = (listeners[event] || []).filter(function (one) { return one !== fn; });
+                        return this;
+                    },
+                    /**
+                     * A `client-` event to the channel's other subscribers: `whisper('typing', {…})`
+                     * is heard as `client-typing`. Needs the server's client events turned on.
+                     */
+                    whisper: function (event, data) {
+                        if (connection && typeof connection.whisper === 'function') { connection.whisper(name, event, data); }
                         return this;
                     },
                 };
@@ -2518,6 +2535,7 @@
         var idleTimer = null;
         var pongTimer = null;
         var confirmed = {};
+        var presence = {};   // presence channel -> { id: info }, the members as the server last said
         var lastError = null;
 
         /** Tell whoever holds this connection what it is doing. */
@@ -2609,6 +2627,21 @@
                 if (frame.event === 'pusher_internal:subscription_succeeded') {
                     confirmed[frame.channel] = true;
                     report('open');
+                    // A presence channel says who is in it: its listeners hear the members.
+                    if (frame.channel.indexOf('presence-') === 0 && names[frame.channel]) {
+                        presence[frame.channel] = Object.assign({}, (data && data.presence && data.presence.hash) || {});
+                        hooks.onEvent(frame.channel, 'pusher:subscription_succeeded', { members: presence[frame.channel] });
+                    }
+                    return;
+                }
+                if ((frame.event === 'pusher_internal:member_added' || frame.event === 'pusher_internal:member_removed') && presence[frame.channel]) {
+                    var who = String((data && data.user_id) || '');
+                    if (frame.event === 'pusher_internal:member_added') {
+                        presence[frame.channel][who] = (data && data.user_info) || {};
+                    } else {
+                        delete presence[frame.channel][who];
+                    }
+                    hooks.onEvent(frame.channel, frame.event.replace('pusher_internal:', 'pusher:'), { id: who, info: (data && data.user_info) || {}, members: presence[frame.channel] });
                     return;
                 }
                 if (frame.event === 'pusher:error' || frame.event === 'pusher:subscription_error') {
@@ -2622,6 +2655,7 @@
             socket.onclose = function () {
                 quiet();
                 confirmed = {};
+                presence = {};
                 report('closed');
                 // Only a connection that was established can have missed anything.
                 if (established) { missed = true; }
@@ -2644,7 +2678,21 @@
                 if (!names[name]) { return; }
                 delete names[name];
                 delete confirmed[name];
+                delete presence[name];
                 if (established) { send('pusher:unsubscribe', { channel: name }); }
+            },
+            /**
+             * A `client-` event to the channel's other subscribers — typing, say. Only on a
+             * private or presence channel the server confirmed, and only where the server allows
+             * client events; otherwise nothing, which is right for a cue nobody must rely on.
+             */
+            whisper: function (name, event, data) {
+                if (!established || !confirmed[name] || name.indexOf('public') === 0 || (name.indexOf('private-') !== 0 && name.indexOf('presence-') !== 0)) { return; }
+                try { socket.send(JSON.stringify({ event: 'client-' + event, channel: name, data: data })); } catch (e) { /* the close handler deals with it */ }
+            },
+            /** A presence channel's members as last told, or null before the server said. */
+            members: function (name) {
+                return presence[name] ? Object.assign({}, presence[name]) : null;
             },
             close: function () {
                 closed = true;
@@ -2733,6 +2781,14 @@
                 } else if (m.type === 'subscribe' && connection) {
                     listening[m.channel] = without(listening[m.channel] || [], port).concat([port]);
                     connection.subscribe(m.channel);
+                    // A tab joining a presence channel the connection already holds: it was not
+                    // there when the server said who is in it, so it is told now.
+                    var members = connection.members(m.channel);
+                    if (members) {
+                        port.postMessage({ type: 'event', channel: m.channel, event: 'pusher:subscription_succeeded', data: { members: members }, lead: false });
+                    }
+                } else if (m.type === 'whisper' && connection) {
+                    connection.whisper(m.channel, m.event, m.data);
                 } else if (m.type === 'signed' && signing[m.channel] && signing[m.channel].port === port) {
                     var pending = signing[m.channel];
                     delete signing[m.channel];

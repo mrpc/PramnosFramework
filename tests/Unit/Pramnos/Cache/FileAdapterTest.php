@@ -545,7 +545,7 @@ class FileAdapterTest extends TestCase
         // Act
         $items = $adapter->getAllItems();
 
-        // Assert — a couple of seconds of slack for a slow filesystem
+        // Assert — a couple of seconds of leeway for a slow filesystem
         $this->assertNotEmpty($items);
         $this->assertGreaterThan(3590, $items[0]['ttl']);
         $this->assertLessThanOrEqual(3600, $items[0]['ttl']);

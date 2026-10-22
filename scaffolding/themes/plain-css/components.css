@@ -722,7 +722,7 @@ a.pf-stat-tile:hover { border-color: var(--primary-color, #2563eb); }
    sets its own type scale (titles 20/600, sections 16/600, labels 13/500, body 14), spacing
    (8/12/16/24) and 36px controls. The tokens are set on each of its roots, so a dark theme's
    colours reach them by inheritance. */
-.pf-ui, .pf-audience, .pf-rule-editor, .pf-rule-canvas, .pf-site-message, .pf-audience-panel-title, .pf-audience-panel-list, .pf-combo, .pf-menu {
+.pf-ui, .pf-audience, .pf-rule-editor, .pf-rule-canvas, .pf-site-message, .pf-audience-panel-title, .pf-audience-panel-list, .pf-combo, .pf-menu, .pf-conv-dock, .pf-conv-basic {
     --pf-fg: var(--color-base-content, var(--bs-body-color, var(--text-main, #1f2937)));
     --pf-surface: var(--color-base-100, var(--bs-body-bg, var(--surface, #ffffff)));
     --pf-subtle: var(--color-base-200, var(--bs-tertiary-bg, #f5f6f8));
@@ -757,7 +757,9 @@ a.pf-stat-tile:hover { border-color: var(--primary-color, #2563eb); }
 
 /* Cards, sections, labels, hints. */
 .pf-card { background: var(--pf-surface); border: 1px solid var(--pf-line); border-radius: var(--pf-radius-lg); box-shadow: var(--pf-shadow); }
-.pf-card + .pf-card { margin-top: 1rem; }
+.pf-card + .pf-card, .pf-grid-2 + .pf-card, .pf-grid-3 + .pf-card { margin-top: 1rem; }
+/* Cards side by side in a grid: the grid's gap is their spacing. */
+.pf-grid-2 > .pf-card + .pf-card, .pf-grid-3 > .pf-card + .pf-card { margin-top: 0; }
 .pf-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--pf-line); }
 .pf-card-body { padding: 1.25rem; }
 .pf-card-flush { overflow-x: auto; }
@@ -1123,3 +1125,863 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-input-grow { flex: 1 1 14rem; }
 .pf-cell-bar { min-width: 9rem; }
 .pf-ui.pf-embedded { padding: 0; margin-bottom: 1rem; }
+
+/* ─────────────────────────────────────────────────────────────────────────────────────────────
+   The team's conversations — the dock over every page, drawn by pf-conversations.js: the faces,
+   the list, a conversation in a small window and its thread; and the basic page
+   (pf-conversations-basic.js). Everything from the pf tokens above, so each theme dresses it in
+   its own colours, light or dark.
+   ───────────────────────────────────────────────────────────────────────────────────────────── */
+.pf-conv-dock, .pf-conv-basic {
+    --pf-conv-side: color-mix(in oklab, var(--pf-subtle) 70%, var(--pf-surface));
+    --pf-conv-hover: color-mix(in oklab, var(--pf-fg) 4%, transparent);
+    --pf-conv-ring: color-mix(in oklab, var(--pf-accent) 28%, transparent);
+    --pf-conv-gutter: 1.25rem;
+    --pf-conv-hue: 220;      /* each face sets its own, from the person's id */
+    color: var(--pf-fg);
+}
+
+/* Shared controls */
+.pf-conv-input {
+    width: 100%;
+    min-height: var(--pf-control);
+    padding: 0.45rem 0.7rem;
+    font: inherit;
+    color: var(--pf-fg);
+    background: var(--pf-surface);
+    border: 1px solid var(--pf-line);
+    border-radius: var(--pf-radius);
+    outline: none;
+}
+.pf-conv-input:focus { border-color: var(--pf-accent); box-shadow: 0 0 0 3px var(--pf-conv-ring); }
+
+.pf-conv-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    height: 2rem;
+    padding: 0 0.8rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    white-space: nowrap;
+    background: var(--pf-surface);
+    border: 1px solid var(--pf-line);
+    border-radius: var(--pf-radius);
+}
+.pf-conv-btn:hover { background: var(--pf-subtle); }
+.pf-conv-btn:disabled { opacity: 0.5; cursor: default; }
+.pf-conv-btn-primary { color: var(--pf-accent-fg) !important; background: var(--pf-accent); border-color: var(--pf-accent); }
+.pf-conv-btn-primary:hover { background: color-mix(in oklab, var(--pf-accent) 88%, black); }
+
+.pf-conv-icon-btn {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    font-size: 1rem;
+    line-height: 1;
+    color: var(--pf-muted);
+    background: transparent;
+    border: 0;
+    border-radius: var(--pf-radius);
+}
+.pf-conv-icon-btn:hover { color: var(--pf-fg); background: var(--pf-conv-hover); }
+.pf-conv-hint { margin: 0.3rem 0 0; font-size: 0.72rem; color: var(--pf-muted); }
+.pf-conv-muted-text { color: var(--pf-muted); font-size: 0.85em; }
+
+/* Faces */
+.pf-conv-avatar {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 2.25rem;
+    height: 2.25rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #fff;
+    background: hsl(var(--pf-conv-hue, 220) 52% 46%);
+    border-radius: 0.55rem;
+    user-select: none;
+}
+.pf-conv-avatar-sm { width: 1.375rem; height: 1.375rem; font-size: 0.6rem; border-radius: 0.375rem; }
+.pf-conv-avatar-system { color: var(--pf-muted); background: var(--pf-subtle); border: 1px solid var(--pf-line); font-size: 1rem; }
+
+.pf-conv-avatar-former { color: var(--pf-muted); background: var(--pf-subtle); border: 1px dashed var(--pf-line); }
+.pf-conv-msg-former { color: var(--pf-muted); }
+.pf-conv-avatar-group { color: var(--pf-fg); background: var(--pf-line); }
+.pf-conv-presence {
+    position: absolute;
+    right: -3px;
+    bottom: -3px;
+    width: 0.7rem;
+    height: 0.7rem;
+    background: var(--pf-surface);
+    border: 2px solid var(--pf-surface);
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1.5px var(--pf-muted);
+}
+.pf-conv-avatar-sm .pf-conv-presence { width: 0.55rem; height: 0.55rem; right: -2px; bottom: -2px; }
+.pf-conv-presence.pf-conv-online { background: var(--pf-ok); box-shadow: none; }
+
+/* Sidebar */
+.pf-conv-side {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--pf-conv-side);
+    border-right: 1px solid var(--pf-line);
+}
+
+.pf-conv-list { margin: 0; padding: 0; list-style: none; }
+.pf-conv-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 1.95rem;
+    padding: 0.2rem 0.5rem;
+    color: color-mix(in oklab, var(--pf-fg) 78%, transparent);
+    text-decoration: none !important;
+    border-radius: var(--pf-radius);
+}
+.pf-conv-item:hover { background: var(--pf-conv-hover); color: var(--pf-fg); }
+
+.pf-conv-item-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pf-conv-item.pf-conv-unread { color: var(--pf-fg); font-weight: 700; }
+
+.pf-conv-item.pf-conv-active { color: var(--pf-accent-fg); background: var(--pf-accent); font-weight: 600; }
+
+.pf-conv-item.pf-conv-active .pf-conv-presence { border-color: var(--pf-accent); }
+
+.pf-conv-badge {
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.35rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1.25rem;
+    text-align: center;
+    color: #fff;
+    background: var(--pf-bad);
+    border-radius: 999px;
+}
+.pf-conv-side-link {
+    display: block;
+    width: 100%;
+    margin-top: 0.15rem;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.8125rem;
+    text-align: left;
+    color: var(--pf-muted);
+    background: none;
+    border: 0;
+    border-radius: var(--pf-radius);
+}
+.pf-conv-side-link:hover { color: var(--pf-fg); background: var(--pf-conv-hover); }
+.pf-conv-side-empty { padding: 0.35rem 0.5rem; font-size: 0.8125rem; color: var(--pf-muted); list-style: none; }
+
+/* The conversation, and its thread beside it */
+.pf-conv-main {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    min-width: 0;
+    min-height: 0;
+}
+.pf-conv-main:has(> .pf-conv-thread) { grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem); }
+
+.pf-conv-body { display: flex; flex-direction: column; min-height: 0; grid-column: 1; }
+.pf-conv-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0.5rem 0 0.75rem; }
+.pf-conv-start, .pf-conv-empty { padding: 2rem var(--pf-conv-gutter) 1rem; }
+.pf-conv-start { padding: 1rem var(--pf-conv-gutter) 0.25rem; }
+.pf-conv-start .pf-conv-start-title { font-size: 1rem; }
+.pf-conv-start-topic { margin: 0 0 0.15rem; font-size: 0.875rem; }
+.pf-conv-start .pf-conv-muted-text { margin: 0; font-size: 0.8rem; }
+.pf-conv-empty { margin: auto; text-align: center; }
+
+.pf-conv-start-title { margin: 0 0 0.25rem; font-size: 1.15rem; font-weight: 800; }
+.pf-conv-body { position: relative; }
+.pf-conv-jump {
+    position: absolute;
+    left: 50%;
+    bottom: 6.5rem;
+    z-index: 5;
+    padding: 0.35rem 0.9rem;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--pf-accent-fg);
+    background: var(--pf-accent);
+    border: 0;
+    border-radius: 999px;
+    box-shadow: var(--pf-pop-shadow);
+    transform: translateX(-50%);
+    cursor: pointer;
+}
+.pf-conv-typing { min-height: 1.25rem; margin: 0; padding: 0 var(--pf-conv-gutter); font-size: 0.75rem; font-style: italic; color: var(--pf-muted); }
+.pf-conv-join {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 0 var(--pf-conv-gutter) 1rem;
+    padding: 0.75rem 1rem;
+    background: var(--pf-subtle);
+    border: 1px solid var(--pf-line);
+    border-radius: var(--pf-radius-lg);
+}
+.pf-conv-join p { margin: 0; }
+
+/* Lines across: a day, and where the unread start */
+.pf-conv-day, .pf-conv-new {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    margin: 1rem 0 0.35rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+.pf-conv-day::before, .pf-conv-new::before { content: ''; position: absolute; inset: 50% 0 auto; border-top: 1px solid var(--pf-line); }
+.pf-conv-day span {
+    position: relative;
+    padding: 0.15rem 0.75rem;
+    background: var(--pf-surface);
+    border: 1px solid var(--pf-line);
+    border-radius: 999px;
+}
+.pf-conv-new { justify-content: flex-end; margin: 0.35rem 0; padding-right: var(--pf-conv-gutter); color: var(--pf-bad); }
+.pf-conv-new::before { border-color: var(--pf-bad); }
+.pf-conv-new span { position: relative; padding-left: 0.5rem; background: var(--pf-surface); text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.68rem; }
+
+/* A message */
+.pf-conv-msg {
+    position: relative;
+    display: grid;
+    grid-template-columns: 2.25rem minmax(0, 1fr);
+    gap: 0 0.65rem;
+    padding: 0.4rem var(--pf-conv-gutter) 0.3rem;
+}
+.pf-conv-msg:hover, .pf-conv-msg:focus-within { background: var(--pf-conv-hover); }
+.pf-conv-msg-continued { padding-top: 0.05rem; }
+.pf-conv-msg-pinned { background: color-mix(in oklab, var(--pf-warn) 7%, transparent); }
+.pf-conv-msg-gutter { padding-top: 0.15rem; }
+.pf-conv-msg-hover-time { display: none; padding-top: 0.15rem; font-size: 0.66rem; color: var(--pf-muted); white-space: nowrap; }
+.pf-conv-msg:hover .pf-conv-msg-hover-time { display: block; }
+.pf-conv-msg-head { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+.pf-conv-msg-author { font-weight: 800; }
+.pf-conv-msg-time { font-size: 0.72rem; color: var(--pf-muted); }
+.pf-conv-msg-badge { font-size: 0.7rem; color: var(--pf-warn); font-weight: 600; }
+.pf-conv-msg-body { overflow-wrap: anywhere; }
+.pf-conv-msg-body p { margin: 0; }
+.pf-conv-msg-body p + p, .pf-conv-msg-body p + ul, .pf-conv-msg-body ul + p, .pf-conv-msg-body pre { margin-top: 0.35rem; }
+.pf-conv-msg-body ul, .pf-conv-msg-body ol { margin: 0.2rem 0; padding-left: 1.4rem; }
+.pf-conv-msg-body ul { list-style: disc; }
+.pf-conv-msg-body ol { list-style: decimal; }
+.pf-conv-msg-body li { display: list-item; }
+.pf-conv-msg-body a { color: var(--pf-accent); text-decoration: underline; text-underline-offset: 2px; }
+.pf-conv-msg-body blockquote { margin: 0.25rem 0; padding: 0.1rem 0 0.1rem 0.75rem; color: var(--pf-muted); border-left: 3px solid var(--pf-line); }
+.pf-conv-msg-body code {
+    padding: 0.05rem 0.3rem;
+    font-size: 0.85em;
+    color: var(--pf-bad);
+    background: var(--pf-subtle);
+    border: 1px solid var(--pf-line);
+    border-radius: 0.3rem;
+}
+.pf-conv-code {
+    margin: 0;
+    padding: 0.6rem 0.8rem;
+    overflow-x: auto;
+    font-size: 0.8125rem;
+    background: var(--pf-subtle);
+    border: 1px solid var(--pf-line);
+    border-radius: var(--pf-radius);
+}
+.pf-conv-code code { padding: 0; color: inherit; background: none; border: 0; }
+/* Ask's chart in a message: as wide as a card, not the whole column. */
+.pf-conv-msg-body .pf-chart { max-width: 30rem; }
+/* A table in a message, as on Ask's page: it scrolls sideways when wider than the message. */
+.pf-conv-table { overflow-x: auto; margin: .5rem 0; }
+.pf-conv-table table { border-collapse: collapse; width: auto; }
+.pf-conv-table th { text-align: left; padding: .25rem .75rem; border-bottom: 1px solid currentColor; }
+.pf-conv-table td { padding: .25rem .75rem; border-bottom: 1px solid rgba(128, 128, 128, .35); }
+.pf-conv-mention {
+    padding: 0 0.2rem;
+    font-weight: 600;
+    color: var(--pf-accent);
+    background: color-mix(in oklab, var(--pf-accent) 12%, transparent);
+    border-radius: 0.3rem;
+}
+.pf-conv-mention-all, .pf-conv-mention-online { color: var(--pf-warn); background: color-mix(in oklab, var(--pf-warn) 14%, transparent); }
+.pf-conv-ref { font-weight: 600; color: var(--pf-info); }
+.pf-conv-mention-ask { color: var(--pf-info); background: color-mix(in oklab, var(--pf-info) 14%, transparent); }
+.pf-conv-msg-edited { margin-left: 0.3rem; font-size: 0.72rem; color: var(--pf-muted); }
+.pf-conv-msg-deleted { margin: 0; font-style: italic; color: var(--pf-muted); }
+
+/* The actions over a message, on hover */
+.pf-conv-msg-actions {
+    position: absolute;
+    top: -0.55rem;
+    right: var(--pf-conv-gutter);
+    z-index: 2;
+    display: none;
+    padding: 0.15rem;
+    background: var(--pf-surface);
+    border: 1px solid var(--pf-line);
+    border-radius: var(--pf-radius);
+    box-shadow: var(--pf-shadow);
+}
+.pf-conv-msg:hover .pf-conv-msg-actions, .pf-conv-msg:focus-within .pf-conv-msg-actions { display: flex; }
+.pf-conv-msg-actions button {
+    width: 1.9rem;
+    height: 1.75rem;
+    padding: 0;
+    font-size: 0.9rem;
+    background: none;
+    border: 0;
+    border-radius: 0.35rem;
+}
+.pf-conv-msg-actions button:hover { background: var(--pf-subtle); }
+.pf-conv-msg-actions .pf-conv-danger:hover { color: var(--pf-bad); background: color-mix(in oklab, var(--pf-bad) 10%, transparent); }
+
+/* A system card: Jira, a payment, an alert */
+.pf-conv-card {
+    max-width: 38rem;
+    margin-top: 0.3rem;
+    padding: 0.6rem 0.85rem;
+    background: var(--pf-surface);
+    border: 1px solid var(--pf-line);
+    border-left: 4px solid var(--pf-tone, var(--pf-muted));
+    border-radius: var(--pf-radius);
+}
+.pf-conv-card-info { --pf-tone: var(--pf-info); }
+.pf-conv-card-warning { --pf-tone: var(--pf-warn); }
+.pf-conv-card-success { --pf-tone: var(--pf-ok); }
+.pf-conv-card-error { --pf-tone: var(--pf-bad); }
+.pf-conv-card-neutral { --pf-tone: var(--pf-line); }
+.pf-conv-card-title { margin: 0; font-weight: 700; }
+.pf-conv-card-title a { color: var(--pf-accent); text-decoration: none; }
+.pf-conv-card-title a:hover { text-decoration: underline; }
+.pf-conv-card-text { margin: 0.15rem 0 0; font-size: 0.875rem; }
+.pf-conv-card-text { white-space: pre-line; }
+.pf-conv-card-image { display: block; max-width: 100%; max-height: 16rem; margin-top: 0.5rem; border-radius: var(--pf-radius); }
+.pf-conv-card-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 0.4rem 1rem; margin: 0.5rem 0 0; }
+.pf-conv-card-fields dt { font-size: 0.7rem; font-weight: 700; color: var(--pf-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.pf-conv-card-fields dd { margin: 0; font-size: 0.875rem; }
+
+/* Files */
+.pf-conv-files { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.35rem; }
+.pf-conv-thumb img {
+    display: block;
+    max-width: min(22rem, 100%);
+    max-height: 15rem;
+    border: 1px solid var(--pf-line);
+    border-radius: var(--pf-radius);
+}
+.pf-conv-file {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    max-width: 22rem;
+    padding: 0.45rem 0.7rem;
+    color: var(--pf-fg) !important;
+    text-decoration: none !important;
+    background: var(--pf-surface);
+    border: 1px solid var(--pf-line);
+    border-radius: var(--pf-radius);
+}
+.pf-conv-file:hover { border-color: var(--pf-accent); }
+.pf-conv-file-icon { font-size: 1.25rem; }
+.pf-conv-file-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; font-size: 0.875rem; }
+.pf-conv-file-size { flex: none; font-size: 0.75rem; color: var(--pf-muted); }
+.pf-conv-file-removed { color: var(--pf-muted) !important; font-style: italic; font-size: 0.8125rem; }
+
+/* Reactions and the thread under a message */
+.pf-conv-reactions { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
+.pf-conv-reaction {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    height: 1.6rem;
+    padding: 0 0.5rem;
+    font-size: 0.8rem;
+    background: var(--pf-subtle);
+    border: 1px solid transparent;
+    border-radius: 999px;
+}
+.pf-conv-reaction:hover { border-color: var(--pf-line); background: var(--pf-surface); }
+.pf-conv-reaction-mine { background: color-mix(in oklab, var(--pf-accent) 12%, transparent); border-color: color-mix(in oklab, var(--pf-accent) 45%, transparent); }
+.pf-conv-reaction-count { font-weight: 700; font-size: 0.75rem; }
+.pf-conv-reaction-add { color: var(--pf-muted); opacity: 0; }
+.pf-conv-msg:hover .pf-conv-reaction-add { opacity: 1; }
+.pf-conv-replies {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-top: 0.25rem;
+    padding: 0.15rem 0.45rem 0.15rem 0;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--pf-accent) !important;
+    background: none;
+    border: 0;
+    border-radius: var(--pf-radius);
+}
+.pf-conv-replies-last { font-weight: 400; color: var(--pf-muted); }
+
+/* Writing */
+.pf-conv-composer {
+    position: relative;
+    margin: 0 var(--pf-conv-gutter) 0.85rem;
+}
+.pf-conv-composer-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.25rem;
+    padding: 0.35rem 0.35rem 0.35rem 0.25rem;
+    background: var(--pf-surface);
+    border: 1px solid color-mix(in oklab, var(--pf-fg) 22%, transparent);
+    border-radius: var(--pf-radius-lg);
+}
+.pf-conv-composer-row:focus-within { border-color: var(--pf-accent); box-shadow: 0 0 0 3px var(--pf-conv-ring); }
+.pf-conv-dragging .pf-conv-composer-row { border-style: dashed; border-color: var(--pf-accent); background: color-mix(in oklab, var(--pf-accent) 6%, var(--pf-surface)); }
+.pf-conv-composer .pf-conv-input {
+    min-height: 2.1rem;
+    max-height: 15rem;
+    padding: 0.4rem 0.5rem;
+    resize: none;
+    background: transparent;
+    border: 0;
+    box-shadow: none !important;
+}
+.pf-conv-composer-tools { display: flex; align-items: center; gap: 0.1rem; }
+.pf-conv-send {
+    display: grid;
+    place-items: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    margin-left: 0.15rem;
+    padding: 0;
+    color: var(--pf-accent-fg);
+    background: var(--pf-accent);
+    border: 0;
+    border-radius: var(--pf-radius);
+}
+.pf-conv-send:disabled { color: var(--pf-muted); background: var(--pf-subtle); cursor: default; }
+.pf-conv-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.35rem 0; }
+.pf-conv-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.25rem 0.2rem 0.6rem;
+    font-size: 0.8125rem;
+    background: var(--pf-subtle);
+    border: 1px solid var(--pf-line);
+    border-radius: 999px;
+}
+.pf-conv-chip button { width: 1.25rem; height: 1.25rem; padding: 0; line-height: 1; background: none; border: 0; border-radius: 50%; color: var(--pf-muted); }
+.pf-conv-chip button:hover { color: var(--pf-bad); }
+.pf-conv-busy { opacity: 0.7; }
+.pf-conv-edit { margin-top: 0.15rem; }
+.pf-conv-edit-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.4rem; margin-top: 0.35rem; }
+.pf-conv-edit-actions .pf-conv-hint { flex: 1; margin: 0; }
+
+/* Things that open over the page */
+.pf-conv-pop {
+    position: absolute;
+    z-index: 20;
+    padding: 0.5rem;
+    background: var(--pf-surface);
+    border: 1px solid var(--pf-line);
+    border-radius: var(--pf-radius-lg);
+    box-shadow: var(--pf-pop-shadow);
+}
+.pf-conv-pop-label { margin: 0.25rem 0.25rem 0.35rem; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--pf-muted); }
+.pf-conv-pop-anchor { position: absolute; z-index: 20; top: 1.25rem; right: var(--pf-conv-gutter); }
+.pf-conv-pop-anchor .pf-conv-pop { position: static; }
+.pf-conv-pop-up { top: auto; bottom: calc(100% + 0.35rem); right: 0; }
+.pf-conv-emoji { width: 22rem; max-width: calc(100vw - 2rem); }
+.pf-conv-emoji-row { display: grid; grid-template-columns: repeat(10, 1fr); gap: 0.1rem; }
+.pf-conv-emoji-btn { height: 2.1rem; padding: 0; font-size: 1.2rem; background: none; border: 0; border-radius: var(--pf-radius); }
+.pf-conv-emoji-btn:hover, .pf-conv-emoji-btn:focus { background: var(--pf-subtle); outline: none; }
+.pf-conv-suggest { bottom: calc(100% + 0.35rem); left: 0; width: min(20rem, 100%); margin: 0; list-style: none; padding: 0.3rem; }
+.pf-conv-suggest button {
+    display: block;
+    width: 100%;
+    padding: 0.35rem 0.6rem;
+    text-align: left;
+    background: none;
+    border: 0;
+    border-radius: var(--pf-radius);
+}
+.pf-conv-suggest button.pf-conv-active { color: var(--pf-accent-fg); background: var(--pf-accent); }
+.pf-conv-pick { margin: 0.5rem 0 0; padding: 0; list-style: none; max-height: 18rem; overflow-y: auto; }
+.pf-conv-pick button {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 0.4rem 0.5rem;
+    text-align: left;
+    background: none;
+    border: 0;
+    border-radius: var(--pf-radius);
+}
+.pf-conv-pick button:hover { background: var(--pf-subtle); }
+.pf-conv-pick button.pf-conv-active { background: color-mix(in oklab, var(--pf-accent) 14%, transparent); font-weight: 600; }
+
+.pf-conv-browse-list { margin: 0.25rem 0 0; padding: 0; list-style: none; max-height: 22rem; overflow-y: auto; }
+.pf-conv-browse { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.55rem 0.25rem; border-bottom: 1px solid var(--pf-line); }
+.pf-conv-dialog {
+    width: min(34rem, 94vw);
+    padding: 0;
+    color: var(--pf-fg);
+    background: var(--pf-surface);
+    border: 1px solid var(--pf-line);
+    border-radius: var(--pf-radius-lg);
+    box-shadow: var(--pf-pop-shadow);
+}
+.pf-conv-dialog::backdrop { background: rgb(15 23 42 / 0.45); }
+.pf-conv-dialog-body { display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem 1.25rem 1.25rem; }
+.pf-conv-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.pf-conv-dialog-foot { display: flex; justify-content: flex-end; }
+.pf-conv-tabs { display: inline-flex; padding: 0.2rem; gap: 0.15rem; background: var(--pf-subtle); border-radius: var(--pf-radius); }
+.pf-conv-tabs button { padding: 0.3rem 0.7rem; font-size: 0.8125rem; font-weight: 600; color: var(--pf-muted); background: none; border: 0; border-radius: calc(var(--pf-radius) - 2px); }
+.pf-conv-tabs button.pf-conv-active { color: var(--pf-fg); background: var(--pf-surface); box-shadow: var(--pf-shadow); }
+.pf-conv-field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8125rem; font-weight: 600; }
+.pf-conv-check { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
+.pf-conv-toast {
+    position: absolute;
+    left: 50%;
+    bottom: 1.25rem;
+    z-index: 30;
+    max-width: min(32rem, 90%);
+    padding: 0.6rem 1rem;
+    font-size: 0.875rem;
+    color: #fff;
+    background: var(--pf-bad);
+    border-radius: var(--pf-radius);
+    box-shadow: var(--pf-pop-shadow);
+    transform: translateX(-50%);
+}
+
+/* A command's answer, for its writer alone */
+.pf-conv-note {
+    margin: 0.5rem var(--pf-conv-gutter);
+    padding: 0.5rem 0.75rem 0.65rem;
+    background: color-mix(in oklab, var(--pf-info) 7%, var(--pf-surface));
+    border: 1px dashed color-mix(in oklab, var(--pf-info) 45%, transparent);
+    border-radius: var(--pf-radius);
+}
+.pf-conv-note-head { display: flex; align-items: center; justify-content: space-between; font-size: 0.72rem; font-weight: 600; color: var(--pf-muted); }
+.pf-conv-note-head .pf-conv-icon-btn { width: 1.5rem; height: 1.5rem; }
+.pf-conv-note-text { margin: 0.15rem 0 0; white-space: pre-line; }
+.pf-conv-suggest-command { font-weight: 700; font-family: ui-monospace, monospace; }
+
+/* On the beacon, when the server does not answer */
+
+/* The thread */
+.pf-conv-thread {
+    display: flex;
+    flex-direction: column;
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    min-height: 0;
+    background: var(--pf-surface);
+    border-left: 1px solid var(--pf-line);
+    --pf-conv-gutter: 1rem;
+}
+.pf-conv-thread-head { display: flex; align-items: center; justify-content: space-between; min-height: 3.5rem; padding: 0 0.75rem 0 1rem; border-bottom: 1px solid var(--pf-line); }
+.pf-conv-thread-head h2 { margin: 0; font-size: 1rem; font-weight: 800; }
+
+/* Search results */
+
+.pf-conv-dialog { position: fixed; inset: 0; margin: auto; height: fit-content; max-height: 90vh; overflow-y: auto; }
+.pf-conv-files { align-items: flex-start; }
+.pf-conv-replies-count { white-space: nowrap; }
+.pf-conv-replies:hover { text-decoration: none; }
+.pf-conv-replies:hover .pf-conv-replies-count { text-decoration: underline; }
+.pf-conv-replies-last { white-space: nowrap; }
+.pf-conv-replies-last::before { content: '· '; }
+.pf-conv-suggest button { display: flex; align-items: center; gap: 0.5rem; }
+.pf-conv-suggest-hint { margin-left: auto; font-size: 0.75rem; opacity: 0.7; }
+.pf-conv-faces { gap: 0; padding-inline: 0.4rem; }
+.pf-conv-faces .pf-conv-avatar { margin-left: -0.3rem; box-shadow: 0 0 0 2px var(--pf-surface); }
+.pf-conv-faces .pf-conv-avatar:first-child { margin-left: 0; }
+.pf-conv-faces span:last-child { margin-left: 0.4rem; }
+
+/* The dock: the conversations over every page of the administration (Conversations\Dock) — the
+   faces of recent conversations above the launcher, the list over it, and windows at the foot. */
+.pf-conv-dock { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 1040; }
+.pf-conv-dock-heads { display: flex; flex-direction: column; align-items: center; gap: 0.6rem; }
+.pf-conv-dock-head {
+    position: relative;
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform 0.12s ease;
+}
+.pf-conv-dock-head:hover { transform: scale(1.06); }
+.pf-conv-dock-head .pf-conv-avatar {
+    width: 2.75rem;
+    height: 2.75rem;
+    font-size: 0.85rem;
+    border-radius: 50%;
+    box-shadow: 0 3px 10px rgb(0 0 0 / 0.2);
+}
+.pf-conv-dock-head .pf-conv-presence { right: 0; bottom: 0; }
+.pf-conv-dock-button {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 3.25rem;
+    height: 3.25rem;
+    padding: 0;
+    font-size: 1.4rem;
+    color: var(--pf-accent-fg);
+    background: var(--pf-accent);
+    border: 0;
+    border-radius: 50%;
+    box-shadow: var(--pf-pop-shadow);
+    cursor: pointer;
+}
+.pf-conv-dock-button:hover { background: color-mix(in oklab, var(--pf-accent) 88%, black); }
+.pf-conv-dock-count {
+    position: absolute;
+    top: -0.2rem;
+    right: -0.2rem;
+    min-width: 1.35rem;
+    height: 1.35rem;
+    padding: 0 0.35rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1.25rem;
+    color: var(--pf-fg);
+    background: var(--pf-surface);
+    border: 1px solid var(--pf-line);
+    border-radius: 999px;
+}
+.pf-conv-dock-count.pf-conv-dock-mention { color: #fff; background: var(--pf-bad); border: 2px solid var(--pf-surface); }
+.pf-conv-dock-panel {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 0.75rem);
+    width: min(26rem, calc(100vw - 1.5rem));
+    height: min(36rem, calc(100vh - 12rem));
+}
+
+.pf-conv-dock-windows {
+    position: fixed;
+    right: 5.5rem;
+    bottom: 0;
+    display: flex;
+    flex-direction: row-reverse;
+    align-items: flex-end;
+    gap: 0.75rem;
+}
+.pf-conv-window {
+    display: flex;
+    flex-direction: column;
+    width: 20rem;
+    height: min(28rem, calc(100vh - 6rem));
+    background: var(--pf-surface);
+    border: 1px solid var(--pf-line);
+    border-bottom: 0;
+    border-radius: var(--pf-radius-lg) var(--pf-radius-lg) 0 0;
+    box-shadow: 0 -6px 24px rgb(0 0 0 / 0.14);
+    overflow: hidden;
+}
+.pf-conv-window-min { height: auto; }
+.pf-conv-window-head {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+    min-height: 2.6rem;
+    padding: 0 0.35rem 0 0.25rem;
+    color: var(--pf-accent-fg);
+    background: var(--pf-accent);
+}
+.pf-conv-window-min .pf-conv-window-head { color: var(--pf-fg); background: var(--pf-subtle); }
+.pf-conv-window-title {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    padding: 0.3rem 0.4rem;
+    font: inherit;
+    font-weight: 700;
+    color: inherit;
+    text-align: left;
+    background: none;
+    border: 0;
+    cursor: pointer;
+}
+.pf-conv-window-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 0.875rem; }
+.pf-conv-window-title .pf-conv-presence { border-color: var(--pf-accent); }
+.pf-conv-window-btn {
+    display: grid;
+    place-items: center;
+    width: 1.8rem;
+    height: 1.8rem;
+    padding: 0;
+    font: inherit;
+    font-size: 0.9rem;
+    color: inherit !important;
+    text-decoration: none !important;
+    background: none;
+    border: 0;
+    border-radius: var(--pf-radius);
+    opacity: 0.85;
+    cursor: pointer;
+}
+.pf-conv-window-btn:hover { opacity: 1; background: rgb(255 255 255 / 0.18); }
+.pf-conv-window-body { position: relative; flex: 1; min-height: 0; display: flex; font-size: 0.875rem; --pf-conv-gutter: 0.75rem; }
+.pf-conv-window-body .pf-conv-main { flex: 1; grid-template-rows: minmax(0, 1fr); }
+.pf-conv-compact .pf-conv-msg { grid-template-columns: 1.75rem minmax(0, 1fr); gap: 0 0.5rem; }
+.pf-conv-compact .pf-conv-msg-gutter .pf-conv-avatar { width: 1.75rem; height: 1.75rem; font-size: 0.65rem; border-radius: 0.4rem; }
+.pf-conv-compact .pf-conv-composer .pf-conv-hint { display: none; }
+.pf-conv-compact .pf-conv-composer { margin-bottom: 0.6rem; }
+.pf-conv-compact .pf-conv-thread { position: absolute; inset: 0; z-index: 10; grid-column: 1; }
+.pf-conv-compact:has(> .pf-conv-thread) { grid-template-columns: minmax(0, 1fr); }
+.pf-conv-compact .pf-conv-start { padding-top: 0.75rem; }
+.pf-conv-compact .pf-conv-thumb img { max-width: 100%; max-height: 10rem; }
+.pf-conv-dock-toast { position: fixed; bottom: 6rem; }
+
+@media (max-width: 760px) {
+    .pf-conv-dock { right: 0.75rem; bottom: 0.75rem; }
+    .pf-conv-dock-panel { position: fixed; inset: 0; width: auto; height: auto; z-index: 2; }
+    
+    .pf-conv-dock-windows { inset: 0; right: 0; z-index: 3; }
+    .pf-conv-dock-windows .pf-conv-window { width: 100vw; height: 100dvh; border-radius: 0; }
+    .pf-conv-dock-windows .pf-conv-window-min { position: fixed; left: 0.75rem; right: 5rem; bottom: 0.75rem; width: auto; height: auto; border-radius: var(--pf-radius-lg); }
+    .pf-conv-dock-windows:not(:has(.pf-conv-window:not(.pf-conv-window-min))) { inset: auto 0 0 0; }
+}
+
+/* The steps of a longer job: done, now, to come */
+.pf-steps { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 1rem; padding: 0; list-style: none; }
+.pf-steps li {
+    flex: 1 1 8rem;
+    padding-top: 0.4rem;
+    font-size: 0.8125rem;
+    color: var(--pf-muted);
+    border-top: 4px solid var(--pf-line);
+}
+.pf-steps li { display: flex; align-items: center; gap: 0.4rem; }
+.pf-step-mark {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border: 1px solid var(--pf-line);
+}
+.pf-steps .pf-step-done { color: var(--pf-fg); border-color: var(--pf-ok); }
+.pf-steps .pf-step-done .pf-step-mark { color: #fff; background: var(--pf-ok); border-color: var(--pf-ok); }
+.pf-steps .pf-step-now { color: var(--pf-fg); font-weight: 600; border-color: var(--pf-accent); }
+.pf-steps .pf-step-now .pf-step-mark { color: #fff; background: var(--pf-accent); border-color: var(--pf-accent); }
+.pf-inline-fields { display: flex; gap: 0.5rem; align-items: center; }
+.pf-inline-fields > * { flex: 1 1 0; min-width: 0; }
+.pf-inline-fields > .pf-btn, .pf-inline-fields > button { flex: none; }
+.pf-steps .pf-step-now { font-weight: 700; color: var(--pf-accent); border-color: var(--pf-accent); }
+
+/* Narrow screens: the list, or the conversation */
+@media (max-width: 760px) {
+    
+    
+    
+    
+    .pf-conv-main:has(> .pf-conv-thread) { grid-template-columns: minmax(0, 1fr); }
+    .pf-conv-thread { position: absolute; inset: 0; z-index: 10; grid-column: 1; }
+    .pf-conv-composer .pf-conv-hint { display: none; }
+    
+    .pf-conv-faces .pf-conv-avatar { display: none; }
+    .pf-conv-msg-actions { top: -1.2rem; }
+}
+
+/* The sidebar's sections, each folded or open and sorted as the reader left it; a conversation's own menu. */
+
+/* A face in the dock, and the × that puts it away: on hover, or after a long press. */
+.pf-conv-dock-face { position: relative; display: inline-flex; }
+.pf-conv-dock-face-close {
+    position: absolute;
+    top: -0.3rem;
+    left: -0.3rem;
+    display: grid;
+    place-items: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    padding: 0;
+    font-size: 0.8rem;
+    line-height: 1;
+    color: var(--pf-fg);
+    background: var(--pf-surface);
+    border: 1px solid var(--pf-line);
+    border-radius: 50%;
+    box-shadow: 0 1px 4px rgb(0 0 0 / 0.2);
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+}
+.pf-conv-dock-face:hover .pf-conv-dock-face-close, .pf-conv-dock-face:focus-within .pf-conv-dock-face-close,
+.pf-conv-dock-face-armed .pf-conv-dock-face-close { opacity: 1; pointer-events: auto; }
+
+/* The conversations alone in a window of their own — popped out, installed, or opened cold. */
+
+/* The views above the conversations: threads, activity, drafts and sent, saved, every unread message. */
+
+/* Somebody inactive — not signed in for a long time: greyed where they already are; a note above a direct conversation's composer. */
+.pf-conv-inactive { opacity: 0.55; filter: grayscale(1); }
+.pf-conv-inactive-note {
+    margin: 0 var(--pf-conv-gutter) 0.35rem;
+    padding: 0.35rem 0.6rem;
+    font-size: 0.8125rem;
+    color: var(--pf-muted);
+    background: var(--pf-subtle);
+    border-radius: var(--pf-radius);
+}
+
+/* The dock's list: the reader's conversations, a filter, a new one, the application's links */
+.pf-conv-dock-list {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    height: 100%;
+    padding: 0.75rem;
+    background: var(--pf-surface);
+    border: 1px solid var(--pf-line);
+    border-radius: var(--pf-radius-lg);
+    box-shadow: var(--pf-pop-shadow);
+}
+.pf-conv-dock-list-head { display: flex; align-items: center; justify-content: space-between; }
+.pf-conv-dock-list-head h2 { margin: 0; font-size: 1rem; font-weight: 800; }
+.pf-conv-dock-items { flex: 1; min-height: 0; overflow-y: auto; }
+.pf-conv-dock-items .pf-conv-item { width: 100%; background: none; border: 0; text-align: left; }
+.pf-conv-dock-list-foot { border-top: 1px solid var(--pf-line); padding-top: 0.35rem; }
+
+/* The basic page: the list beside one conversation, with the theme's own cards and buttons */
+.pf-conv-basic * { box-sizing: border-box; }
+.pf-conv-basic { display: grid; grid-template-columns: 16rem minmax(0, 1fr); gap: 1rem; align-items: start; }
+.pf-conv-basic-list { margin: 0; padding: 0.25rem; list-style: none; }
+.pf-conv-basic-item { display: flex; justify-content: space-between; width: 100%; text-align: left; }
+.pf-conv-basic-current { font-weight: 700; }
+.pf-conv-basic-main { display: flex; flex-direction: column; min-height: 28rem; }
+.pf-conv-basic-messages { flex: 1; max-height: 60vh; overflow-y: auto; padding: 0.5rem 1rem; }
+.pf-conv-basic-msg { padding: 0.35rem 0; }
+.pf-conv-basic-msg time { font-size: 0.75rem; color: var(--pf-muted); }
+.pf-conv-basic-earlier { margin: 0; padding: 0 1rem; }
+.pf-conv-basic-error { margin: 0 1rem; color: var(--pf-bad); }
+.pf-conv-basic-composer { display: flex; gap: 0.5rem; align-items: flex-end; padding: 0.75rem 1rem; border-top: 1px solid var(--pf-line); }
+.pf-conv-basic-composer textarea { flex: 1; }
+@media (max-width: 760px) {
+    .pf-conv-basic { grid-template-columns: minmax(0, 1fr); }
+}

@@ -34,4 +34,20 @@ final class Turn
         public readonly Conversations $conversations,
     ) {
     }
+
+    /**
+     * Whose rights the answer is given with: the asker's, unless others read it too — `@Ask` in a
+     * channel — when the caller names its least privileged reader in `extra['rights_of']`. Tools
+     * that cut what a person sees ask this, not `scope->userId`, who asked and pays.
+     */
+    public function rightsOf(): int
+    {
+        return (int) ($this->extra['rights_of'] ?? $this->scope->userId);
+    }
+
+    /** Whether others read the answer besides its asker: then nothing of the asker's own goes into it. */
+    public function shared(): bool
+    {
+        return isset($this->extra['rights_of']);
+    }
 }

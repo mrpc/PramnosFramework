@@ -58,14 +58,39 @@ class AnalystAssistant extends BaseAssistant
             . (($charts = trim($this->charts())) !== '' ? "\n\n" . $charts : '')
             . ($about !== '' ? "\n\nAbout this application: " . $about : '')
             . (($page = \Pramnos\Assist\Page::prompt(is_array($turn->extra['page'] ?? null) ? $turn->extra['page'] : null)) !== '' ? "\n\n" . $page : '')
+            . $this->sharedRule($turn)
             . "\n\nAnswer in the language the question was asked in, and write anything you say while you call tools in that language too.";
     }
 
+    /**
+     * With the rights of whoever reads the answer — {@see Turn::rightsOf()}: the asker, or the least
+     * privileged reader of a conversation others read too, where no file is made for the asker.
+     */
     public function tools(Turn $turn): array
     {
         // Links to files and help under the area as the question's request saw it: the worker
         // answering it knows neither its host nor, often, its prefix.
-        return Analyst::tools((int) $turn->scope->userId, is_string($turn->extra['area'] ?? null) ? $turn->extra['area'] : '');
+        $tools = Analyst::tools($turn->rightsOf(), is_string($turn->extra['area'] ?? null) ? $turn->extra['area'] : '');
+
+        return $turn->shared() ? array_diff_key($tools, ['export_csv' => true]) : $tools;
+    }
+
+    /**
+     * For an answer others read too: what it may not show, and where the asker gets the rest — the
+     * tools the asker has that this answer has not.
+     */
+    private function sharedRule(Turn $turn): string
+    {
+        if (!$turn->shared()) {
+            return '';
+        }
+        $alone    = new Turn($turn->scope, $turn->conversationId, $turn->scheduled, $turn->messages, $turn->documents,
+            array_diff_key($turn->extra, ['rights_of' => true]), $turn->conversations);
+        $withheld = array_keys(array_diff_key($this->tools($alone), $this->tools($turn)));
+
+        return "\n\nEverybody in this conversation reads your answer, so you answer only with what its least privileged reader may see."
+            . ($withheld === [] ? '' : ' The person asking has these tools, which you may not use here: ' . implode(', ', $withheld)
+                . '. If the question needs one of them, say that you cannot show that here and suggest asking you in a direct message.');
     }
 
     /**

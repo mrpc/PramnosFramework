@@ -193,7 +193,8 @@ final class Help
 
     /**
      * A page's Markdown as HTML that is safe to print: `help:` links to `$pageUrl`, and pictures
-     * beside the page to `$imageUrl` — each given the path and answering the address.
+     * beside the page to `$imageUrl` — each given the path and answering the address. A page's
+     * headings are the levels it writes: its `#` is its title, `##` a section.
      *
      * @param \Closure(string): string|null $pageUrl
      * @param \Closure(string): string|null $imageUrl
@@ -203,6 +204,7 @@ final class Help
         $base = str_contains($from, '/') ? substr($from, 0, (int) strrpos($from, '/') + 1) : '';
 
         return \Pramnos\Llm\Chat\Markdown::toHtml($markdown, [
+            'headingShift' => 0,
             'link'  => static function (string $target) use ($pageUrl): ?string {
                 return $pageUrl !== null && str_starts_with($target, 'help:') && ($slug = self::slug(substr($target, 5))) !== ''
                     ? $pageUrl($slug)

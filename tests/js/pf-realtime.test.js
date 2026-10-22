@@ -200,3 +200,52 @@ test('a Pusher transport connects to its host, and a page with its own connectio
     assert.equal(ui.sockets[0].url, 'wss://ws-eu.pusher.com:443/app/pk?protocol=7&client=pf-utils&version=1.0');
     assert.equal(own.window.pfRealtime, mine);
 });
+
+test('a presence channel tells its listeners who is in it, who came and who went', async () => {
+    // Arrange
+    const ui = page();
+    const heard = [];
+    ui.window.pfRealtime.channel('presence-chat')
+        .listen('pusher:subscription_succeeded', (d) => heard.push(['here', Object.keys(d.members)]))
+        .listen('pusher:member_added', (d) => heard.push(['added', d.id, d.info.name, Object.keys(d.members)]))
+        .listen('pusher:member_removed', (d) => heard.push(['removed', d.id, Object.keys(d.members)]));
+    handshake(ui.sockets[0]);
+    await settle();
+
+    // Act
+    ui.sockets[0].receive('pusher_internal:subscription_succeeded', { presence: { hash: { 5: { name: 'Ελένη' }, 7: { name: 'Μαρία' } } } }, 'presence-chat');
+    ui.sockets[0].receive('pusher_internal:member_added', { user_id: '9', user_info: { name: 'Νίκος' } }, 'presence-chat');
+    ui.sockets[0].receive('pusher_internal:member_removed', { user_id: '7' }, 'presence-chat');
+
+    // Assert
+    assert.deepEqual(heard, [
+        ['here', ['5', '7']],
+        ['added', '9', 'Νίκος', ['5', '7', '9']],
+        ['removed', '7', ['5', '9']],
+    ], 'the members kept as the server tells them');
+});
+
+test('a whisper is a client- event on a confirmed private channel, and nothing before it is confirmed', async () => {
+    // Arrange
+    const ui = page();
+    const channel = ui.window.pfRealtime.channel('private-conversation.7');
+    handshake(ui.sockets[0]);
+    await settle();
+
+    // Act
+    channel.whisper('typing', { id: 5 });
+    const before = ui.sockets[0].sent.length;
+    ui.sockets[0].receive('pusher_internal:subscription_succeeded', {}, 'private-conversation.7');
+    channel.whisper('typing', { id: 5 });
+    const heard = [];
+    const fn = (d) => heard.push(d.id);
+    channel.listen('client-typing', fn);
+    ui.sockets[0].receive('client-typing', { id: 9 }, 'private-conversation.7');
+    channel.stopListening('client-typing', fn);
+    ui.sockets[0].receive('client-typing', { id: 11 }, 'private-conversation.7');
+
+    // Assert
+    assert.equal(before, 1, 'only the subscription went before the server confirmed');
+    assert.deepEqual(ui.sockets[0].sent[1], { event: 'client-typing', channel: 'private-conversation.7', data: { id: 5 } });
+    assert.deepEqual(heard, [9], 'a whisper from another is heard; after stopListening, not');
+});

@@ -104,6 +104,16 @@ $table->integer('score')->check('score >= 0');      // CHECK constraint
 `first()`, `autoIncrement()`, `primary()`, `storedAs()`, `virtualAs()`, `charset()` and
 `collation()` are also available on a column.
 
+`charset()` and `collation()` are written on MySQL and MariaDB (`CHARACTER SET … COLLATE …`
+after the type) and ignored on PostgreSQL. A column that holds emoji under a unique key takes
+`utf8mb4_bin`: the tables' default, `utf8mb4_unicode_ci`, compares every character outside the
+Basic Multilingual Plane as equal, so 😍 and 💝 are the same value to it and the second insert
+is refused or ignored.
+
+```php
+$table->string('emoji', 64)->collation('utf8mb4_bin');
+```
+
 ## Indexes
 
 ```php

@@ -267,6 +267,17 @@ class FrameworkSchedule
                 'description' => 'Delete event-stream entries every group has read, past the retention',
             ],
 
+            // The conversations' beacon: the team told to it, and what was written there taken
+            // back. Nothing to do where this installation is not a beacon's primary.
+            'conversations:beacon sync' => [
+                'cadence'     => [['everyMinute']],
+                'description' => 'Tell the beacon who may come when the application is down',
+            ],
+            'conversations:beacon import' => [
+                'cadence'     => [['everyMinute']],
+                'description' => 'Take back what was written at the beacon during an outage',
+            ],
+
             'queue:cleanup' => [
                 'cadence'     => [['daily'], ['at', '03:10']],
                 'description' => 'Remove completed and expired queue items',

@@ -2448,6 +2448,29 @@ class SchemaGrammarTest extends TestCase
     }
 
     /**
+     * MySQL writes a column's charset and collation after its type — `utf8mb4_bin` is how an emoji
+     * column under a unique key tells 😍 from 💝 — with anything but a name stripped out, and a
+     * column that sets neither keeps the table's. PostgreSQL has no such clause, so it writes none.
+     */
+    public function testACollationReachesTheColumn(): void
+    {
+        // Arrange
+        $emoji = (new ColumnDefinition('emoji', 'string', ['length' => 64]))->charset('utf8mb4')->collation('utf8mb4_bin');
+        $odd   = (new ColumnDefinition('x', 'string'))->collation("utf8mb4_bin'; DROP");
+        $plain = new ColumnDefinition('name', 'string');
+
+        // Act
+        $mysql = [$this->mysqlGrammar()->compileColumn($emoji), $this->mysqlGrammar()->compileColumn($odd), $this->mysqlGrammar()->compileColumn($plain)];
+        $pg    = $this->pgGrammar()->compileColumn($emoji);
+
+        // Assert
+        $this->assertSame('`emoji` VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL', $mysql[0]);
+        $this->assertSame('`x` VARCHAR(255) COLLATE utf8mb4_binDROP NOT NULL', $mysql[1], 'a name only');
+        $this->assertSame('`name` VARCHAR(255) NOT NULL', $mysql[2]);
+        $this->assertStringNotContainsString('COLLATE', $pg);
+    }
+
+    /**
      * ColumnDefinition::get() returns the supplied default when the attribute is absent.
      *
      * Covers ColumnDefinition.php line 181.  Grammars rely on this to avoid

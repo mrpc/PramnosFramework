@@ -360,7 +360,10 @@ An answer with tools can take a minute. `Chat\Asks::start($scope, $conversationI
 $attachment, $extra)` writes a waiting row and queues a `chat_ask` task, which the queue worker
 answers without being registered — as its author, through `acting()` — and marks answered or
 failed. The screen follows it with `find($scope, $askId)`. `Asks::onAnswered(callable)` is told
-each answer with the job, `extra` included — where else the answer should go.
+each answer with the job, `extra` included — where else the answer should go. A listener is
+registered in the process that answers, so one a provider registers is missing from a worker that
+boots no providers. An ask with `extra['conversations']` needs none: `run()` posts it back to its
+conversation itself, once per ask.
 
 ### Scheduled tasks: questions, reminders, reports
 
@@ -476,7 +479,7 @@ method has a default, so an application overrides only what it has:
 | `resourceLabel($task)` | `''`. What a task is about as people read it ("GeekDom", not "property 42"), for the notification's title and the report's question |
 | `resourceExists($task)` | `true`. False pauses a report and tells its maker, without counting a failure |
 | `link($task, $run)` | A report's run: `chat/report/{run}`. Otherwise the conversation |
-| `onRan($task, $run)` | Nothing. For a Discord or Slack message, or for charging; what it throws is logged |
+| `onRan($task, $run)` | Nothing. For a message in another chat, or for charging; what it throws is logged |
 | `maxFailures()` | 3 |
 
 #### Shared reports
@@ -918,6 +921,27 @@ call goes to the router with `organization_id` **null**, purpose `analyst`. The 
 administrator's own (a consent row with no organisation), asked on the page. The analyst runs no
 scheduled reports.
 
+### Other people's conversations, read only
+
+`/admin/Ai/all` lists the other administrators' Ask conversations — owner, title, last change, how
+many messages and what they cost, filtered by owner or a word in the title — for whoever has
+`admin.ai.all`: root alone in usertype mode, as `admin.chat.all` is (`Analyst\Review::readsAll()`;
+`AiController::readsAll()` is the seam to override). The Ask page links to it from the ⚙ under
+its title, beside the settings — a reader with neither link sees no gear. One opens
+as its owner sees it, under a banner saying whose it is: the questions, the answers, the tools each
+answer used with their input, and the model calls made while it was answered — the call log's
+rows, `/admin/Ai/call/{id}`, where what each tool returned is in the messages sent. The calls are
+matched by time: those of the owner's analyst between one question and the next. The steps and
+tools are folded, as on Ask's page, and `pf-chat.js` draws the answers' charts.
+
+Nothing there writes: no question box, no delete, no memory, no agreement. Each view of somebody
+else's conversation is recorded in the audit log as `ai.conversation_viewed`, the owner as its
+target and the conversation as its object. Anybody else gets a 404.
+
+The reader's own conversations are left out of the list and the owner filter
+(`Review::list(['except' => $id])`, `Review::owners($id)`): they are in the Ask column already, where
+they are not read only, and `/admin/Ai/all?c=` with one of them redirects there.
+
 ### What it reads
 
 Every tool only reads, and answers figures over a window — `days` (30 by default, at most 366)
@@ -1024,6 +1048,22 @@ is served to MCP clients holding its scope as well (see the
 [MCP guide](Pramnos_MCP_Guide.md#a-tool)). They should only read; the framework
 cannot check that. An `Analyst\AnalystAssistant` subclass tells the model about the business
 through `about()`, or changes the tools through `tools()`.
+
+A `tools()` that cuts what some people may read decides by `$turn->rightsOf()`, not by
+`$turn->scope->userId`. The two differ when others read the answer too — `@Ask` in a conversation
+(see the [Conversations guide](Pramnos_Conversations_Guide.md)) — where `rightsOf()` is the
+conversation's least privileged reader and `scope->userId` is who asked and pays.
+`$turn->shared()` says the answer is read by others. There the framework leaves out the asker's
+memory and `export_csv`, and tells the model which of the asker's tools it may not use:
+
+```php
+public function tools(\Pramnos\Llm\Chat\Turn $turn): array
+{
+    $reader = ToolAccess::user($turn->rightsOf());
+
+    return array_filter(parent::tools($turn), static fn ($tool, $name): bool => ToolAccess::allows($reader, (string) $name), ARRAY_FILTER_USE_BOTH);
+}
+```
 
 Whether it looks people up is `peoplePolicy()`. The framework's rule keeps to figures and opens
 one account only when the administrator names it. Where finding and counting people by name is

@@ -239,6 +239,7 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\EventsStatus());
         $this->add(new \Pramnos\Console\Commands\EventsConsume());
         $this->add(new \Pramnos\Console\Commands\EventsPrune());
+        $this->add(new \Pramnos\Console\Commands\ConversationsBeacon());
         $this->add(new \Pramnos\Console\Commands\RulesRun());
         // How the tables differ from the framework's, against a reference its migrations build.
         $this->add(new \Pramnos\Console\Commands\SchemaDiffCommand());

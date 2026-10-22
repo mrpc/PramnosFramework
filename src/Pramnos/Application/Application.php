@@ -1722,6 +1722,17 @@ class Application extends Base
             ));
         }
 
+        // Conversations — the team's channels and direct messages. Their own ability and floor
+        // (`'conversations' => ['usertype' => …]`), not the administration's: a team talks with
+        // people who administer nothing, and a floor of 99 keeps them to root while being tried.
+        if (in_array('conversations', $features, true)) {
+            NavRegistry::register(new NavItem(
+                \Pramnos\Conversations\Access::ABILITY, 'Conversations', $admin('Conversations'),
+                NavSection::Admin, 5, requireAuth: true, minUserType: \Pramnos\Conversations\Access::floor(),
+                feature: 'conversations', icon: 'chat', group: 'People',
+            ));
+        }
+
         // User groups — usergroups feature
         if (in_array('usergroups', $features, true)) {
             NavRegistry::register(new NavItem(

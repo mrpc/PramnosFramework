@@ -393,7 +393,7 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
 
     public function compileColumn(ColumnDefinition $col): string
     {
-        $sql = $this->quoteColumn($col->name) . ' ' . $this->compileColumnType($col);
+        $sql = $this->quoteColumn($col->name) . ' ' . $this->compileColumnType($col) . $this->compileColumnCollation($col);
 
         // Computed columns short-circuit normal modifiers
         if ($stored = $col->get('storedAs')) {
@@ -422,6 +422,12 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
         }
 
         return $sql;
+    }
+
+    /** A column's own `charset()` and `collation()`, for dialects that take them inline (MySQL). */
+    protected function compileColumnCollation(ColumnDefinition $col): string
+    {
+        return '';
     }
 
     /** Returns inline COMMENT clause for dialects that support it (MySQL). */

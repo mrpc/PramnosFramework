@@ -303,6 +303,16 @@ class PersonalDataRegistry
             // Events in a stream: their arguments are whatever the application fired them with.
             'event_log',
             'event_deliveries',
+            // What people wrote to each other, and the files they sent.
+            'conversations',
+            'conversation_members',
+            'conversation_messages',
+            'conversation_message_edits',
+            'conversation_reactions',
+            'conversation_mentions',
+            'conversation_pins',
+            'conversation_files',
+            'conversation_saved',
         );
     }
 

@@ -27,7 +27,9 @@ use Pramnos\Llm\Providers;
  * `/admin/Ai` asks the installation's own figures — accounts, email, the queue, logs, model
  * spend — through `Pramnos\Llm\Analyst`, behind the same usertype as the settings. An
  * administrator's analyst conversations are their own and never in their Ask AI. The same, as
- * JSON in the conversation API's shape, is under `/admin/Ai/api/…`.
+ * JSON in the conversation API's shape, is under `/admin/Ai/api/…`. `/admin/Ai/all` reads every
+ * administrator's, read only, for whoever has `admin.ai.all` (root, in usertype mode) — each view
+ * of somebody else's recorded in the audit log as `ai.conversation_viewed`.
  *
  * ### Keys are never printed back
  *
@@ -52,7 +54,7 @@ class AiController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'settings', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'delete', 'forget', 'consent', 'api', 'export',
+        $this->addAuthAction(['display', 'all', 'settings', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'delete', 'forget', 'consent', 'api', 'export',
             'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'report']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
         // `api` checks its own token, from the X-CSRF-Token header, since it also answers GET and DELETE.
@@ -108,12 +110,76 @@ class AiController extends Controller
             'forget'  => adminUrl('Ai/forget/'),
             // The analyst's scheduled tasks, where the application lets it schedule.
             'scheduled' => $this->analystSchedules() ? adminUrl('Ai/scheduled') : '',
+            // Everybody's conversations, read only, for whoever reads them all.
+            'all'       => $this->readsAll($this->reader()) ? adminUrl('Ai/all') : '',
         ];
         foreach ($page as $name => $value) {
             $view->{$name} = $value;
         }
 
         return $view->display('ask');
+    }
+
+    /**
+     * Every administrator's Ask conversations, read only: the list — by owner, by a word in the
+     * title — and one opened as its owner sees it, under a banner saying whose it is. Nothing is
+     * written but the audit log's line for a view of somebody else's. A 404 to whoever does not
+     * read them all.
+     */
+    public function all(): mixed
+    {
+        $me = $this->reader();
+        if (!$this->readsAll($me)) {
+            ($this->application ?? \Pramnos\Application\Application::currentInstance())?->notFound();
+
+            return null;
+        }
+        $request = new \Pramnos\Http\Request();
+        $filters = ['person' => (int) $request->get('person', 0, 'get', 'int'), 'q' => (string) $request->get('q', '', 'get')];
+        $openId  = (int) $request->get('c', 0, 'get', 'int');
+        $open    = $openId > 0 ? \Pramnos\Llm\Analyst\Review::open($openId) : null;
+        if ($openId > 0 && $open === null) {
+            ($this->application ?? \Pramnos\Application\Application::currentInstance())?->notFound();
+
+            return null;
+        }
+        if ($open !== null && $open['owner'] === (int) $me->userid) {
+            // One's own opens in Ask, where it is not read only.
+            $this->redirect(adminUrl('Ai') . '?c=' . $openId);
+
+            return null;
+        }
+        if ($open !== null) {
+            \Pramnos\Auth\AuditLog::record('ai.conversation_viewed', (int) $me->userid, $open['owner'], ['title' => $open['conversation']['title']],
+                'chat_conversation', $openId);
+        }
+
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = t('Other people\'s Ask conversations');
+
+        $view          = $this->getView('ai');
+        $view->list    = \Pramnos\Llm\Analyst\Review::list($filters + ['except' => (int) $me->userid]);
+        $view->owners  = \Pramnos\Llm\Analyst\Review::owners((int) $me->userid);
+        $view->filters = $filters;
+        $view->open    = $open;
+        $view->me      = (int) $me->userid;
+        $view->urls    = ['all' => adminUrl('Ai/all'), 'call' => adminUrl('Ai/call/'), 'ask' => adminUrl('Ai')];
+
+        return $view->display('review');
+    }
+
+    /** Who is signed in, or null. A seam for tests. */
+    protected function reader(): ?object
+    {
+        $user = \Pramnos\User\User::getCurrentUser();
+
+        return is_object($user) ? $user : null;
+    }
+
+    /** Whether an account reads every administrator's Ask conversations — `admin.ai.all`, root's in usertype mode. */
+    protected function readsAll(?object $user): bool
+    {
+        return \Pramnos\Llm\Analyst\Review::readsAll($user);
     }
 
     /**

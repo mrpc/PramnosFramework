@@ -619,6 +619,15 @@ folders above itself (`assets/js/push.js`), or what its tag says with
 `<script src="…" data-push-base="/myapp/">`. The worker resolves its addresses against its own
 scope. Neither uses the host's root, which in a folder install is another site.
 
+### A page with a worker of its own
+
+Subscriptions belong to a registration, and `navigator.serviceWorker.ready` is the worker that
+controls *this page* — on a page with a narrower worker of its own, such as the conversations,
+that is not the site's. So the browser script checks and subscribes the registration at the
+site's address (`getRegistration(<site>)`), and only falls back to `ready` when there is none.
+Code of your own that reads the subscription should do the same, or it will report notifications
+as off on such a page and subscribe a worker that has no `push` handler.
+
 ### `showNotification()` rejects
 
 Permission can be revoked *after* a browser subscribes. The subscription stays perfectly valid

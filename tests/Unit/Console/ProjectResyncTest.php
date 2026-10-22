@@ -405,6 +405,43 @@ class ProjectResyncTest extends TestCase
     }
 
     /**
+     * A script an enabled feature's pages load is added where it is missing, without --all:
+     * an application that turns on `conversations` and resyncs gets `pf-conversations.js`, and
+     * nothing the feature does not need.
+     */
+    public function testAnEnabledFeaturesScriptIsAddedWithoutAll(): void
+    {
+        // Arrange
+        file_put_contents($this->scaffoldDir . '/assets/js/pf-conversations.js', 'CONV_V2');
+        file_put_contents($this->projectDir . '/app/app.php', "<?php\nreturn ['name' => 'App', 'features' => ['conversations']];\n");
+
+        // Act
+        $tester = $this->tester();
+        $exit = $tester->execute(['--js' => true]);
+
+        // Assert
+        $this->assertSame(Command::SUCCESS, $exit, $tester->getDisplay());
+        $this->assertSame('CONV_V2', $this->read('www/assets/js/pf-conversations.js'), 'the feature needs it: created');
+        $this->assertFileDoesNotExist($this->projectDir . '/www/assets/js/pf-auth.js', 'nothing else without --all');
+    }
+
+    /**
+     * Without the feature, its script is one more framework file: skipped unless --all.
+     */
+    public function testAFeaturesScriptIsSkippedWithoutTheFeature(): void
+    {
+        // Arrange
+        file_put_contents($this->scaffoldDir . '/assets/js/pf-conversations.js', 'CONV_V2');
+
+        // Act
+        $tester = $this->tester();
+        $tester->execute(['--js' => true]);
+
+        // Assert
+        $this->assertFileDoesNotExist($this->projectDir . '/www/assets/js/pf-conversations.js');
+    }
+
+    /**
      * --all copies framework files that are not present yet (creating dirs),
      * including doc.sh which is rendered from the stub and marked executable.
      */

@@ -136,7 +136,7 @@ class ProjectResync extends Command
         // can undo.
         $doPwa       = $onlyPwa || $allGroups;
 
-        $files = $this->collectFiles($scaffoldingDir, $doJs, $doScripts);
+        $files = $this->collectFiles($scaffoldingDir, $doJs, $doScripts, (array) ($this->appConfig($base)['features'] ?? []));
         if ($doPanel) {
             $files = array_merge($files, $this->collectPanelFiles($scaffoldingDir, $base));
         }
@@ -1039,25 +1039,41 @@ class ProjectResync extends Command
     }
 
     /**
+     * The scripts each feature's screens load, which a resync adds where they are missing:
+     * an application that turns a feature on and resyncs gets what its pages ask for.
+     */
+    private const FEATURE_SCRIPTS = [
+        'conversations' => ['pf-conversations.js', 'pf-conversations-basic.js'],
+    ];
+
+    /**
      * Build the list of framework-owned files to sync.
      *
      * Each entry is: ['content' => string, 'dest' => relative path, 'exec' => bool].
      * Content is read eagerly so the same list can drive both the dry-run preview
      * and the actual write.
      *
-     * @return list<array{content: string, dest: string, exec: bool}>
+     * @param list<string> $features The application's features: the scripts they need are added where missing
+     * @return list<array{content: string, dest: string, exec: bool, create: bool}>
      */
-    private function collectFiles(string $scaffoldingDir, bool $doJs, bool $doScripts): array
+    private function collectFiles(string $scaffoldingDir, bool $doJs, bool $doScripts, array $features = []): array
     {
         $files = [];
 
         if ($doJs) {
+            // The scripts an enabled feature cannot work without are added where they are
+            // missing; the rest only with --all, as before.
+            $needed = [];
+            foreach (array_intersect_key(self::FEATURE_SCRIPTS, array_flip(array_map('strval', $features))) as $names) {
+                $needed += array_flip($names);
+            }
             // All pf-*.js UI hooks (glob so newly-added ones are picked up too).
             foreach (glob($scaffoldingDir . '/assets/js/*.js') ?: [] as $src) {
                 $files[] = [
                     'content' => (string) file_get_contents($src),
                     'dest'    => 'www/assets/js/' . basename($src),
                     'exec'    => false,
+                    'create'  => isset($needed[basename($src)]),
                 ];
             }
         }

@@ -296,3 +296,31 @@ test('the worker names one tab to act for the browser: the visible one', async (
     // Assert
     assert.deepEqual(leads, { a: [false, true], b: [true, false] }, 'more or fewer than one tab acted, or the wrong one');
 });
+
+test('a whisper goes through the worker; a tab joining a presence channel later is told who is in it', async () => {
+    // Arrange
+    const shared = worker();
+    const a = tab(shared, 'tokA');
+    const heard = [];
+    a.window.pfRealtime.channel('presence-chat');
+    a.window.pfRealtime.channel('private-conversation.7');
+    await settle();
+    handshake(shared.sockets[0]);
+    await settle();
+    shared.sockets[0].receive('pusher_internal:subscription_succeeded', { presence: { hash: { 5: { name: 'Ελένη' } } } }, 'presence-chat');
+    shared.sockets[0].receive('pusher_internal:subscription_succeeded', {}, 'private-conversation.7');
+    await settle();
+
+    // Act
+    a.window.pfRealtime.channel('private-conversation.7').whisper('typing', { id: 5 });
+    const b = tab(shared, 'tokB');
+    b.window.pfRealtime.channel('presence-chat').listen('pusher:subscription_succeeded', (d) => heard.push(Object.keys(d.members)));
+    await settle();
+
+    // Assert
+    assert.deepEqual(shared.sockets[0].sent.filter((f) => f.event === 'client-typing'),
+        [{ event: 'client-typing', channel: 'private-conversation.7', data: { id: 5 } }], 'sent once, on the shared socket');
+    assert.deepEqual(heard, [['5']], 'the second tab was not there when the server said; it is told by the worker');
+    a.leave();
+    b.leave();
+});

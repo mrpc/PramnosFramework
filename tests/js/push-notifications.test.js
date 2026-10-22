@@ -193,3 +193,40 @@ test('a page that replaced URL with a string of its own still subscribes and fol
     assert.deepEqual(fetched, ['https://site.test/app/push/key', 'https://site.test/app/push/subscribe']);
     assert.equal(window.navigatedTo, 'https://site.test/app/messages/4', 'and not to another origin after it');
 });
+
+test('a page with a worker of its own asks the site\'s worker, which is already subscribed', async () => {
+    // Arrange — `ready` is the page's own worker (the conversations'), not subscribed and with no
+    // push handler; the site's, at its root, is subscribed
+    const asked = [];
+    const subscribed = [];
+    const site = { pushManager: { getSubscription: () => Promise.resolve({ endpoint: 'https://push.test/site' }), subscribe: () => subscribed.push('site') } };
+    const own = (window) => {
+        window.navigator.serviceWorker.ready = Promise.resolve({
+            pushManager: { getSubscription: () => Promise.resolve(null), subscribe: () => subscribed.push('page') },
+        });
+        window.navigator.serviceWorker.getRegistration = (scope) => { asked.push(scope); return Promise.resolve(site); };
+    };
+    const { state, fetched } = page('https://site.test/app/assets/js/push.js', null, {}, own);
+
+    // Act
+    await settle();
+
+    // Assert — on, from the site's registration, asked for at the site's address; nothing subscribed
+    assert.equal(state.textContent, 'Notifications are on for this browser.');
+    assert.deepEqual(asked, ['https://site.test/app/']);
+    assert.deepEqual(subscribed, []);
+    assert.deepEqual(fetched, []);
+});
+
+test('without a worker at the site\'s address, the page\'s ready one is used', async () => {
+    // Arrange — getRegistration finds nothing, so `ready` is the fallback
+    const none = (window) => { window.navigator.serviceWorker.getRegistration = () => Promise.resolve(undefined); };
+    const { button, fetched } = page('https://site.test/app/assets/js/push.js', null, {}, none);
+
+    // Act
+    button._fire({ type: 'click', preventDefault() {} });
+    await settle();
+
+    // Assert — the subscription from `ready` reached the server
+    assert.deepEqual(fetched, ['https://site.test/app/push/key', 'https://site.test/app/push/subscribe']);
+});

@@ -9,7 +9,7 @@
  *   $this->memories      — what it remembers: memory_id, kind, content
  *   $this->limits        — provider, model, turns, rounds, memory
  *   $this->consent       — provider, label, place, required, given
- *   $this->urls          — optional: page, ask, asked, consent, delete, forget, scheduled (the analyst's)
+ *   $this->urls          — optional: page, ask, asked, consent, delete, forget, scheduled, all (the analyst's)
  *   $this->heading       — optional: the title when no conversation is open
  *   $this->suggestions   — optional: example questions, shown while no conversation is open
  *   $this->assistantName — optional: the name over an answer, "Assistant" by default
@@ -59,6 +59,8 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
     // The scheduled tasks, for the conversations page itself; a page that names its own addresses
     // (the analyst's) names this one too, or has none.
     'scheduled' => is_array($this->urls ?? null) ? '' : $url('chat/scheduled'),
+    // Other people's Ask conversations, read only — the analyst's, for whoever reads them all.
+    'all' => '',
 ];
 ?>
 <?php if ($waiting): ?><noscript><meta http-equiv="refresh" content="4"></noscript><?php endif; ?>
@@ -85,7 +87,16 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
 
         <main style="flex:1 1 420px;min-width:0">
             <h1><?php echo $e($open['title'] ?? ($this->heading ?? t('Ask AI'))); ?></h1>
-            <?php if (!empty($this->settingsUrl)): ?><p><a href="<?php echo $e($this->settingsUrl); ?>">⚙ <?php echo $e(t('Settings')); ?></a></p><?php endif; ?>
+            <?php // The page's own tools, out of the way: a gear with whichever of them the reader has. ?>
+            <?php if (!empty($this->settingsUrl) || $u['all'] !== ''): ?>
+                <details class="pf-ask-gear" style="display:inline-block;position:relative;margin-bottom:12px">
+                    <summary aria-label="<?php echo $e(t('Ask page tools')); ?>" title="<?php echo $e(t('Ask page tools')); ?>" style="list-style:none;cursor:pointer">⚙</summary>
+                    <ul class="<?php echo $c['card']; ?>" style="position:absolute;z-index:10;list-style:none;margin:4px 0 0;padding:8px 12px;white-space:nowrap">
+                        <?php if (!empty($this->settingsUrl)): ?><li><a href="<?php echo $e($this->settingsUrl); ?>"><?php echo $e(t('Settings')); ?></a></li><?php endif; ?>
+                        <?php if ($u['all'] !== ''): ?><li><a href="<?php echo $e($u['all']); ?>"><?php echo $e(t('Other people\'s Ask conversations')); ?></a></li><?php endif; ?>
+                    </ul>
+                </details>
+            <?php endif; ?>
 
             <?php if (!empty($consent['required']) && empty($consent['given'])): ?>
                 <section class="<?php echo $c['card']; ?>" style="padding:12px;margin-bottom:12px">

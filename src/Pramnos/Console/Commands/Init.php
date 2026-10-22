@@ -4728,6 +4728,8 @@ HTML,
             // Core Web Vitals from real visitors: prints nothing until app.php sets vitals.sample.
             . "    <?php echo \\Pramnos\\Logs\\ClientVitals::tag(); ?>\n"
             . "    <script src=\"<?php echo assetUrl('assets/js/pf-utils.js'); ?>\"></script>\n"
+            // The team's conversations over the administration's pages (Conversations\Dock).
+            . "    <?php echo \\Pramnos\\Conversations\\Dock::render(); ?>\n"
             . $this->serviceWorkerRegistration()
             . "    <?php \$this->document->renderJs(); ?>\n";
     }

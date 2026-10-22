@@ -306,8 +306,8 @@ class TaskPolicy
     }
 
     /**
-     * After every run, recorded and told: for a channel of the application's own — a Discord or
-     * Slack message — or charging. Nothing by default. What it throws is logged, not the run's.
+     * After every run, recorded and told: for a channel of the application's own — a message in
+     * another chat — or charging. Nothing by default. What it throws is logged, not the run's.
      *
      * @param array<string, mixed> $task
      * @param array<string, mixed> $run

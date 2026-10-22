@@ -523,6 +523,47 @@ test('a chart that is not one stays as its code; the application\'s own library 
     assert.equal(all(theirs, 'svg').length, 0, 'and not drawn twice');
 });
 
+/**
+ * A category's name under a bar is cut to the room its bar has, so long names side by side do not
+ * run into each other, and the whole name is in its tooltip; a short one is left whole.
+ */
+test('long category names under bars are cut to their room, whole in a tooltip', () => {
+    // Arrange
+    const names = ['Φύλαξη παιδιών', 'Φροντίδα ηλικιωμένων και ατόμων με αναπηρία', 'Κατοικίδια', 'Καθαριότητα σπιτιού', 'Ιδιαίτερα μαθήματα', 'Ψυχική υγεία', 'Άλλο', 'Και άλλο'];
+    const bars = chartOf({ type: 'bar', labels: names, series: [{ name: 'x', data: names.map((n, i) => i + 1) }] });
+
+    // Act
+    run({ answers: [], before: [bars] });
+    const shown = all(bars, 'text').map((t) => t.textContent).filter((t) => names.some((n) => n === t || (t.endsWith('…') && n.startsWith(t.slice(0, -1)))));
+    const cut = all(bars, 'g').map((g) => g.children.find((c) => c.tagName === 'TITLE')?.textContent);
+
+    // Assert
+    assert.equal(shown.length, 8, 'every name under its bar');
+    assert.ok(shown.every((t) => t.length <= 11), 'eight bars in 640 units: each name within its share — ' + shown.join(' / '));
+    assert.ok(shown.includes('Φροντίδα η…'), 'a long one cut, marked');
+    assert.ok(cut.includes('Φροντίδα ηλικιωμένων και ατόμων με αναπηρία'), 'whole in its tooltip');
+    assert.ok(shown.includes('Άλλο'), 'a short one whole');
+});
+
+/**
+ * A page that places answers itself — the conversations — has their charts drawn on demand:
+ * each once, however often it asks, and what is not a chart left as code.
+ */
+test('drawCharts draws the charts under an element, each once', () => {
+    // Arrange
+    const ui = run({ answers: [] });
+    const message = element('div');
+    const bars = message.appendChild(chartOf({ type: 'bar', labels: ['a', 'b'], series: [{ name: 'x', data: [1, 2] }] }));
+    const broken = message.appendChild(chartOf('{not json'));
+
+    // Act
+    vm.runInNewContext('window.PfChat.drawCharts(message); window.PfChat.drawCharts(message)', { window: ui.window, message });
+
+    // Assert
+    assert.equal(all(bars, 'svg').length, 1, 'drawn, and not twice');
+    assert.equal(all(broken, 'pre').length, 1, 'not a chart: its code stays');
+});
+
 test('the examples go the moment a question is sent, and come back with a refused one', async () => {
     // Arrange
     const sent = run({ answers: [{ status: 202, data: { ask_id: 1 } }], examples: ['One?', 'Two?'] });

@@ -1179,10 +1179,11 @@ class CommandBaseTest extends TestCase
         $this->cmd->publicStartJob();
         $lockFile = $this->tmpDir . '/var/test_job';
         $this->assertFileExists($lockFile);
-        $before = filemtime($lockFile);
-
-        // Ensure at least 1 second passes so mtime can differ
-        sleep(1);
+        // An hour back rather than a sleep: the host's clock can step backwards by seconds (WSL
+        // corrects its time in jumps), so "a second later" is not something a test can count on.
+        $before = time() - 3600;
+        touch($lockFile, $before);
+        clearstatcache(true, $lockFile);
 
         // Expose heartbeat via reflection (protected method)
         $ref = new \ReflectionMethod($this->cmd, 'heartbeat');
@@ -1193,7 +1194,7 @@ class CommandBaseTest extends TestCase
         // Assert — mtime was updated
         clearstatcache(true, $lockFile);
         $after = filemtime($lockFile);
-        $this->assertGreaterThanOrEqual($before, $after,
+        $this->assertGreaterThan($before, $after,
             'heartbeat() must touch the lock file to update its mtime');
     }
 

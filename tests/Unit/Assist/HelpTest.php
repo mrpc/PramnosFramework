@@ -177,6 +177,24 @@ class HelpTest extends TestCase
         $this->assertNull(Help::image('images/none.png'));
     }
 
+    /**
+     * A help page is a whole page: its `#` is its title and `##`, `###` its sections, drawn as
+     * the levels it writes — not two lower, as a chat reply's are under its conversation's title.
+     */
+    public function testAPagesHeadingsAreTheLevelsItWrites(): void
+    {
+        // Arrange
+        $markdown = "# Refunds\n\n## Who may\n\n### Partly\n\n#### By card";
+
+        // Act
+        $page  = Help::html($markdown);
+        $reply = \Pramnos\Llm\Chat\Markdown::toHtml($markdown);
+
+        // Assert
+        $this->assertSame('<h1>Refunds</h1><h2>Who may</h2><h3>Partly</h3><h4>By card</h4>', str_replace("\n", '', $page));
+        $this->assertSame('<h3>Refunds</h3><h4>Who may</h4><h5>Partly</h5><h6>By card</h6>', str_replace("\n", '', $reply), 'a reply still two levels lower');
+    }
+
     /** One page fits one tool result; the tool finds pages by a question or by name. */
     public function testTheAnalystsHelpTool(): void
     {

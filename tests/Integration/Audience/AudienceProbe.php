@@ -148,6 +148,11 @@ trait AudienceProbe
         $singleton      = &Factory::getDatabase();
         $singleton      = $this->db;
 
+        // Accounts are cached — by id for the process, and their rows for ten seconds in the SQL
+        // cache, namespaced by this probe's database — so the last test's account with the same
+        // id would answer for this one's: its address, its name.
+        \Pramnos\User\User::clearUserCache();
+        $this->db->cacheflush('userlist');
         $this->seed();
     }
 

@@ -122,6 +122,7 @@ nav:
     - Notifications: Pramnos_Notifications_Guide.md
     - Email: Pramnos_Email_Guide.md
     - Audiences (attributes and filters): Pramnos_Audience_Guide.md
+    - Conversations (team chat, support, messages): Pramnos_Conversations_Guide.md
     - Web Push: Pramnos_Push_Guide.md
     - Media: Pramnos_Media_Guide.md
     - Logging: Pramnos_Logging_Guide.md

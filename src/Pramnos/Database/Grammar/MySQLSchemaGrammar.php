@@ -133,6 +133,24 @@ class MySQLSchemaGrammar extends SchemaGrammar
     // Column comment (MySQL supports inline COMMENT)
     // =========================================================================
 
+    /**
+     * `CHARACTER SET … COLLATE …` after the type. `utf8mb4_bin` is the one to want on a column that
+     * holds emoji under a unique key: `utf8mb4_unicode_ci` compares every character outside the
+     * Basic Multilingual Plane as equal, so 😍 and 💝 are the same value to it.
+     */
+    protected function compileColumnCollation(ColumnDefinition $col): string
+    {
+        $sql = '';
+        if (($charset = (string) $col->get('charset', '')) !== '') {
+            $sql .= ' CHARACTER SET ' . preg_replace('/[^A-Za-z0-9_]/', '', $charset);
+        }
+        if (($collation = (string) $col->get('collation', '')) !== '') {
+            $sql .= ' COLLATE ' . preg_replace('/[^A-Za-z0-9_]/', '', $collation);
+        }
+
+        return $sql;
+    }
+
     protected function compileColumnComment(string $comment): string
     {
         return " COMMENT '" . addslashes($comment) . "'";

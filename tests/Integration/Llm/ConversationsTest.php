@@ -98,6 +98,39 @@ class ConversationsTest extends LlmTestCase
     }
 
     /**
+     * An answer others read too — `rights_of` names its least privileged reader — carries nothing
+     * of the asker's own: no memory in the prompt, no memory or schedule tools; the turn says
+     * whose rights it is given with, and that it is shared. The asker still owns the conversation.
+     */
+    #[DataProvider('databases')]
+    public function testAnAnswerOthersReadCarriesNothingOfTheAskers(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->answer([[200, self::says('Answer')]]);
+        Llm::use('rules', [new AcceptsEverything()]);
+        $assistant = new RecordingAssistant();
+        $scope     = new Scope(7, 3);
+        (new Memory($scope))->remember('fact', 'secret of the asker');
+
+        // Act
+        $answer = $this->chat($scope, $assistant)->ask(null, 'How many?', null, ['rights_of' => 30]);
+
+        // Assert
+        $this->assertTrue($answer['ok'], $answer['says']);
+        $turn = $assistant->turns[0];
+        $this->assertSame([30, true], [$turn->rightsOf(), $turn->shared()]);
+        $system = $this->sent[0]['body']['messages'][0]['content'];
+        $this->assertStringNotContainsString('secret of the asker', $system, 'what is remembered about the asker stays out');
+        $this->assertStringNotContainsString('You remember', $system);
+        $names = array_column(array_column($this->sent[0]['body']['tools'], 'function'), 'name');
+        $this->assertSame(['lookup'], $names, 'the assistant\'s tools only: no memory, no schedule');
+        $this->assertSame(7, (int) $this->rows('chat_conversations')[0]['userid'], 'the asker\'s conversation, and cost');
+        $alone = new Turn($scope, null, false, [], [], [], $this->chat($scope));
+        $this->assertSame([7, false], [$alone->rightsOf(), $alone->shared()], 'by default, the asker\'s own');
+    }
+
+    /**
      * What question() keeps in the turn's bag reaches the tools and answered(), and the schedule
      * tool is told the assistant's clock.
      */

@@ -56,11 +56,15 @@ class MailOutboxMySQLTest extends TestCase
     /** @var array<string, mixed>|null The application instances, before a test set its own */
     private ?array $savedInstances = null;
 
+    /** The application last used, before a test made its own the current one. */
+    private ?string $savedLastUsed = null;
+
     protected function tearDown(): void
     {
         $this->db->schema()->dropTableIfExists('mails');
         if ($this->savedInstances !== null) {
             (new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances'))->setValue(null, $this->savedInstances);
+            (new \ReflectionProperty(\Pramnos\Application\Application::class, 'lastUsedApplication'))->setValue(null, $this->savedLastUsed);
             $this->savedInstances = null;
         }
 
@@ -359,8 +363,15 @@ class MailOutboxMySQLTest extends TestCase
         };
         $stub->applicationInfo = ['mail' => ['outbox' => $outbox]];
         $property = new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances');
+        $last     = new \ReflectionProperty(\Pramnos\Application\Application::class, 'lastUsedApplication');
+        if ($this->savedInstances === null) {
+            $this->savedLastUsed = $last->getValue();
+        }
         $this->savedInstances ??= $property->getValue() ?? [];
         $property->setValue(null, ['default' => $stub] + $this->savedInstances);
+        // The current application is the one last used: an earlier test's, under another name, would
+        // be read instead of this one — and its configuration has no outbox.
+        $last->setValue(null, 'default');
     }
 
     /** Queue one, then date it `$ago` seconds back. */

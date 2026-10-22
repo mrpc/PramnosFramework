@@ -92,7 +92,10 @@ class Asks
         $scope->apply($this->table())->where('ask_id', (int) ($job['ask_id'] ?? 0))
             ->update($outcome + ['updated_at' => CallLog::instant(time())]);
 
-        foreach (self::$listeners as $listener) {
+        // An ask from the conversations is posted back from here, not by a listener a provider
+        // registers: the worker answering it may be an application that boots no providers.
+        $listeners = isset($job['extra']['conversations']) ? [[\Pramnos\Conversations\Ask::class, 'answered'], ...self::$listeners] : self::$listeners;
+        foreach ($listeners as $listener) {
             try {
                 $listener($job, $answer);
             } catch (\Throwable $why) {

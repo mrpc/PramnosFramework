@@ -277,7 +277,11 @@ class ModelChangeEventsTest extends TestCase
         $this->assertNull($row['details'], 'an event with no details claims to have some');
     }
 
-    /** Details that were given survive as a structure, not a string. */
+    /**
+     * Details that were given survive as a structure: spooled as the JSON text the column takes —
+     * encoded when appended, so a drain without the changelog's provider writes them — and that text
+     * decodes back to every key and list, not to `Array` or a lossy string.
+     */
     public function testDetailsThatWereGivenSurviveAsAStructure(): void
     {
         // Arrange
@@ -289,9 +293,10 @@ class ModelChangeEventsTest extends TestCase
         $row = $this->onlyRow();
 
         // Assert
-        $this->assertIsArray($row['details'] ?? null, 'the details were flattened to a string');
-        $this->assertSame(3, $row['details']['from'] ?? null);
-        $this->assertSame(['a', 'b'], $row['details']['fields'] ?? null);
+        $this->assertIsString($row['details'] ?? null, 'spooled as the column\'s JSON text');
+        $details = json_decode((string) $row['details'], true);
+        // Decoding back to the same structure is what proves nothing was flattened.
+        $this->assertSame(['from' => 3, 'into' => 4, 'fields' => ['a', 'b']], $details);
     }
 
     /**

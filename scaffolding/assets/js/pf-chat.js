@@ -129,16 +129,24 @@
                 : { x: left - 6, y: tick + 4, 'text-anchor': 'end' }), svg).textContent = figure(low + (high - low) * k / 4);
         }
 
-        // The categories: at most twelve of their names, shortened.
+        // The categories: at most twelve of their names, each cut to the room it has — under a bar,
+        // its share of the width; beside one, the margin — whole in its tooltip.
+        var room = horizontal ? 18 : Math.max(3, Math.floor(band * step / 6.5));
         labels.forEach(function (label, at) {
             if (at % step !== 0) {
                 return;
             }
             var middle = (horizontal ? top : left) + band * (at + 0.5);
-            var text = String(label).length > 18 ? String(label).slice(0, 17) + '…' : String(label);
+            var whole = String(label);
+            var text = whole.length > room ? whole.slice(0, room - 1) + '…' : whole;
+            // A cut name sits in a group that carries the whole one, as its tooltip.
+            var holder = text === whole ? svg : node('g', {}, svg);
+            if (holder !== svg) {
+                tip(holder, whole);
+            }
             node('text', small(horizontal
                 ? { x: left - 6, y: middle + 4, 'text-anchor': 'end' }
-                : { x: lines ? along(at) : middle, y: top + height + 16, 'text-anchor': 'middle' }), svg).textContent = text;
+                : { x: lines ? along(at) : middle, y: top + height + 16, 'text-anchor': 'middle' }), holder).textContent = text;
         });
         if (spec.y) {
             node('text', small({ x: 4, y: 12, opacity: 0.7 }), svg).textContent = String(spec.y);
@@ -702,6 +710,15 @@
 
     window.PfChat = window.PfChat || {};
     window.PfChat.init = init;
+    /** Draw the charts under `root` not drawn yet — for a page that places answers itself (the conversations). */
+    window.PfChat.drawCharts = function (root) {
+        Array.prototype.forEach.call(root.querySelectorAll('[data-pf-chart]'), function (holder) {
+            if (holder.getAttribute('data-pf-chart-drawn') === null) {
+                holder.setAttribute('data-pf-chart-drawn', '');
+                chart(holder);
+            }
+        });
+    };
 
     if (page) {
         init(page);

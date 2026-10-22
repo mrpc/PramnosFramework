@@ -256,7 +256,9 @@ class RulesScreenTest extends TestCase
         // Arrange
         $this->boot($type, $host, $port, $user);
         $id = Rules::create('Mail', ['trigger' => ['type' => 'once'], 'steps' => ['m' => ['type' => 'action', 'action' => 'email', 'params' => ['template' => 'none'], 'next' => null]]], 2);
-        $this->signIn();
+        // Somebody with an address, as the test send goes to whoever asked: account 2 is not one
+        // when the database's ids have moved on.
+        $this->signIn(98, $this->ids['anna']);
         $screen = $this->screen(Screen::class);
         $this->request('POST', $id, [], ['step' => 'm', 'person' => (string) $this->ids['cara']]);
 

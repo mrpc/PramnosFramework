@@ -68,6 +68,15 @@ class TrackingRecordingTest extends BaseTestCase
 
     protected function tearDown(): void
     {
+        // Its rows go with it: a later test's `mails` row may take a seeded one's id, and its
+        // tracking would then be read as that test's own (`Tracking::idForMail()`).
+        if (isset($this->db) && $this->db->connected && $this->db->type !== 'postgresql') {
+            $this->db->queryBuilder()->table('pramnos.emailtracking')->truncate();
+            $this->db->queryBuilder()->table('pramnos.emailtrackingclicks')->truncate();
+            if ($this->db->schema()->hasTable('mails')) {
+                $this->db->queryBuilder()->table('#PREFIX#mails')->where('module', 'massmessage')->whereLike('subject', 'Campaign %')->delete();
+            }
+        }
         if ($this->savedInstances !== null) {
             (new \ReflectionProperty(Application::class, 'appInstances'))
                 ->setValue(null, $this->savedInstances);

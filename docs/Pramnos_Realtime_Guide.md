@@ -773,6 +773,22 @@ window.pfRealtime.close();
 - **After a drop of an established connection**, the first new handshake dispatches
   `pf:notifications:refresh` on the document, once. Pub/sub keeps nothing for a subscriber that
   was away, so a page that relies on events re-reads what it shows from that event.
+- **Presence channels** tell their listeners who is in them: `pusher:subscription_succeeded`
+  with `{ members }` (id → the `user_info` the channel rule returned), then `pusher:member_added`
+  and `pusher:member_removed` with `{ id, info, members }`.
+- **Whispers.** `channel(name).whisper('typing', data)` sends a `client-typing` event to the
+  channel's other subscribers — a private or presence channel the server has confirmed, and only
+  where the server allows client events (`'websocket' => ['client_events' => true]` for
+  `broadcast:serve`). Before the channel is confirmed a whisper is dropped: it is a cue, not a
+  message. `stopListening(event, fn)` removes a listener.
+
+```js
+const room = window.pfRealtime.channel('presence-chat')
+    .listen('pusher:subscription_succeeded', ({ members }) => draw(members))
+    .listen('pusher:member_added', ({ members }) => draw(members))
+    .listen('pusher:member_removed', ({ members }) => draw(members));
+window.pfRealtime.channel('private-conversation.7').whisper('typing', { id: 5 });
+```
 
 **One connection for all of a site's tabs.** Where the browser has `SharedWorker`, the connection
 is held by `pf-utils.js` itself, run as the shared worker `pf-realtime` and started from the
@@ -784,6 +800,9 @@ script's own address, so ten tabs make one socket and a page change opens none.
   worker has none of its own. If that tab goes before it answers, the next tab on the channel
   signs it.
 - After a reconnect each tab gets its one `pf:notifications:refresh`.
+- A whisper goes through the worker on the one socket. A tab that subscribes to a presence
+  channel the worker already holds is told its members at once — it was not there when the server
+  said.
 - `window.pfRealtime.shared` says which way the page is connected. Without `SharedWorker` (some
   mobile browsers) each page keeps a connection of its own, as described above — and so does a
   page whose worker fails to load or does not answer within five seconds.
