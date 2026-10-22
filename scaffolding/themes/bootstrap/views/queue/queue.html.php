@@ -86,7 +86,12 @@ $clearable = ['failed', 'completed', 'stopped', 'deleted'];
         <?php // The event stream: each consumer group's position, what waits for it, and what died. ?>
         <section class="pf-ui pf-embedded" data-field="streams">
             <div class="pf-card pf-card-flush">
-                <div class="pf-card-head"><h3 class="pf-section-title"><?php echo $e(t('Event streams')); ?></h3></div>
+                <div class="pf-card-head"><h3 class="pf-section-title"><?php echo $e(t('Event streams')); ?></h3>
+                    <?php // A lease taken in the last minute means a consumer is reading; none, and a stuck stream would look healthy. ?>
+                    <?php if (max(array_column($this->streams, 'leasedUntil')) < time() - 60): ?>
+                        <span class="pf-badge pf-tone-warn" data-field="no-daemon"><?php echo $e(t('No events:consume daemon is reading the stream')); ?></span>
+                    <?php endif; ?>
+                </div>
                 <table class="pf-table">
                     <thead><tr>
                         <th><?php echo $e(t('Consumer group')); ?></th>
@@ -100,7 +105,9 @@ $clearable = ['failed', 'completed', 'stopped', 'deleted'];
                     <tbody>
                     <?php foreach ($this->streams as $stream): ?>
                         <tr data-group="<?php echo $e($stream['group']); ?>">
-                            <td><code><?php echo $e($stream['group']); ?></code><span class="pf-row-desc"><?php echo $e(t('position %s', number_format($stream['position']))); ?></span></td>
+                            <?php $short = substr((string) strrchr('\\' . $stream['group'], '\\'), 1); ?>
+                            <td><strong title="<?php echo $e($stream['group']); ?>"><?php echo $e($short); ?></strong>
+                                <span class="pf-row-desc"><?php echo $e(substr($stream['group'], 0, -strlen($short)) . ' · ' . t('position %s', number_format($stream['position']))); ?></span></td>
                             <td class="pf-num"><?php echo $stream['lag'] > 0 ? '<span class="pf-badge pf-tone-warn">' . $e(number_format($stream['lag']) . ($stream['lagCapped'] ? '+' : '')) . '</span>' : '<span class="pf-zero">0</span>'; ?></td>
                             <td class="pf-num"><?php echo $stream['pending'] > 0 ? '<span class="pf-badge pf-tone-warn">' . $e(number_format($stream['pending'])) . '</span>' : '<span class="pf-zero">0</span>'; ?></td>
                             <td class="pf-num"><?php echo $stream['dead'] > 0 ? '<span class="pf-badge pf-tone-bad">' . $e(number_format($stream['dead'])) . '</span>' : '<span class="pf-zero">0</span>'; ?></td>

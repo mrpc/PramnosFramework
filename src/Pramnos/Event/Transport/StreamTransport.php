@@ -48,7 +48,8 @@ final class StreamTransport implements EventTransport
             $key = $db->type . '|' . $db->server . '|' . $db->database . '|' . $db->prefix;
             if (!isset(self::$available[$key])) {
                 $schema                = $db->schema();
-                self::$available[$key] = $schema->hasTable(self::LOG_TABLE) && $schema->hasTable(self::CONSUMERS_TABLE) && $schema->hasTable(self::DELIVERIES_TABLE);
+                self::$available[$key] = $schema->hasTable(self::LOG_TABLE) && $schema->hasTable(self::CONSUMERS_TABLE) && $schema->hasTable(self::DELIVERIES_TABLE)
+                    && self::redisCanCarry();
             }
 
             return self::$available[$key];
@@ -82,6 +83,14 @@ final class StreamTransport implements EventTransport
             }
         }
         self::$written = [$envelope->id(), $entry];
+        // On Redis, what is committed goes on at once; inside a transaction, after it, by the relay.
+        if ($entry !== null && RedisStream::enabled() && !self::db()->inTransaction()) {
+            try {
+                RedisStream::relay();
+            } catch (\Throwable) {
+                // The relay of events:consume appends it on its next pass.
+            }
+        }
 
         return $entry;
     }
@@ -102,6 +111,27 @@ final class StreamTransport implements EventTransport
         }
 
         return array_values(array_unique($groups));
+    }
+
+    /**
+     * Whether the stream's Redis, where it is on Redis, is reachable and keeps what it is given.
+     * One that is not is said in the `events` log, and the stream is passed over for the queue.
+     */
+    private static function redisCanCarry(): bool
+    {
+        if (!RedisStream::enabled()) {
+            return true;
+        }
+        try {
+            $refusal = RedisStream::refusal();
+        } catch (\Throwable $e) {
+            $refusal = 'Redis cannot be reached: ' . $e->getMessage();
+        }
+        if ($refusal !== null) {
+            \Pramnos\Logs\Logger::log('The event stream is not used: ' . $refusal, Transports::LOG);
+        }
+
+        return $refusal === null;
     }
 
     /** Forget what this process knows — for tests, and after a migration in the same process. */

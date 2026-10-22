@@ -1412,4 +1412,5 @@ return [
     'Delete the dead' => 'Διαγραφή των νεκρών',
     '%s dead entries deleted.' => 'Διαγράφηκαν %s νεκρά.',
     '%s dead entries will be tried again.' => '%s νεκρά θα δοκιμαστούν ξανά.',
+    'No events:consume daemon is reading the stream' => 'Κανένας daemon events:consume δεν διαβάζει τη ροή',
 ];

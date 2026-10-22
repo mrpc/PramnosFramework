@@ -31,8 +31,11 @@ final class StreamConsumer
     /** The longest wait before a failed entry is tried again, in seconds. */
     public const MAX_BACKOFF = 3600;
 
-    /** @param string $owner This consumer's name: host and process by default */
-    public function __construct(private string $owner = '')
+    /**
+     * @param string $owner This consumer's name: host and process by default
+     * @param int    $block On Redis, how long a read waits for something new, in milliseconds
+     */
+    public function __construct(private string $owner = '', private int $block = 0)
     {
         $this->owner = $owner !== '' ? $owner : gethostname() . ':' . getmypid();
     }
@@ -90,6 +93,17 @@ final class StreamConsumer
             ]);
         }
 
+        // On Redis, what is new and what failed are the stream's own.
+        if (RedisStream::enabled()) {
+            RedisStream::relay();
+            $redis = RedisStream::consume($group, $this->owner, $limit, $this->block, fn (array $entry): ?string => $this->run($group, $entry));
+            foreach (['ran', 'failed', 'retried', 'dead'] as $k) {
+                $tally[$k] += $redis[$k];
+            }
+
+            return $tally;
+        }
+
         // What came after the position.
         $position = (int) ($db->queryBuilder()->table('#PREFIX#' . StreamTransport::CONSUMERS_TABLE)->where('groupname', $group)
             ->limit(1)->getAllOrFail()[0]['position'] ?? 0);
@@ -133,8 +147,11 @@ final class StreamConsumer
     public static function prune(int $days): int
     {
         $db    = StreamTransport::db();
-        $floor = $db->queryBuilder()->table('#PREFIX#' . StreamTransport::CONSUMERS_TABLE)
-            ->select([new \Pramnos\Database\Expression('MIN(position) AS p')])->getAllOrFail()[0]['p'] ?? null;
+        // On Redis the groups read Redis: what the relay has appended is all the log still owes.
+        $floor = RedisStream::enabled()
+            ? ($db->queryBuilder()->table('#PREFIX#' . StreamTransport::CONSUMERS_TABLE)->where('groupname', RedisStream::RELAY)->limit(1)->getAllOrFail()[0]['position'] ?? 0)
+            : ($db->queryBuilder()->table('#PREFIX#' . StreamTransport::CONSUMERS_TABLE)
+                ->select([new \Pramnos\Database\Expression('MIN(position) AS p')])->getAllOrFail()[0]['p'] ?? null);
         $old   = $db->queryBuilder()->table('#PREFIX#' . StreamTransport::LOG_TABLE)->where('createdat', '<', time() - max(1, $days) * 86400);
         if ($floor !== null) {
             $old->where('entryid', '<=', (int) $floor);
@@ -167,7 +184,8 @@ final class StreamConsumer
     {
         $db   = StreamTransport::db();
         $rows = [];
-        foreach ($db->queryBuilder()->table('#PREFIX#' . StreamTransport::CONSUMERS_TABLE)->orderBy('groupname')->getAllOrFail() as $consumer) {
+        foreach ($db->queryBuilder()->table('#PREFIX#' . StreamTransport::CONSUMERS_TABLE)->where('groupname', '!=', RedisStream::RELAY)
+            ->orderBy('groupname')->getAllOrFail() as $consumer) {
             $group = (string) $consumer['groupname'];
             // ponytail: the lag is counted here over at most LAG_SCAN entries' group lists; a JSON
             // index per driver would count it in SQL if a stream ever runs that far behind.
@@ -179,8 +197,10 @@ final class StreamConsumer
                 ->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->where('groupname', $group)->where('status', $status)->getAllOrFail()[0]['n'] ?? 0);
             $oldest = $db->queryBuilder()->table('#PREFIX#' . StreamTransport::DELIVERIES_TABLE)
                 ->select([new \Pramnos\Database\Expression('MIN(createdat) AS t')])->where('groupname', $group)->where('status', 'pending')->getAllOrFail()[0]['t'] ?? null;
-            $rows[] = ['group' => $group, 'position' => (int) $consumer['position'], 'lag' => $lag, 'lagCapped' => count($after) > self::LAG_SCAN,
-                'pending' => $count('pending'), 'dead' => $count('dead'), 'oldestPending' => $oldest === null ? null : (int) $oldest,
+            $onRedis = RedisStream::enabled() ? RedisStream::groupStatus($group) : null;
+            $rows[] = ['group' => $group, 'position' => (int) $consumer['position'], 'lag' => $onRedis['lag'] ?? $lag,
+                'lagCapped' => $onRedis === null && count($after) > self::LAG_SCAN,
+                'pending' => $count('pending') + ($onRedis['pending'] ?? 0), 'dead' => $count('dead'), 'oldestPending' => $oldest === null ? null : (int) $oldest,
                 'owner' => $consumer['owner'] === null ? null : (string) $consumer['owner'], 'leasedUntil' => (int) $consumer['leaseduntil'],
                 'updatedAt' => (int) $consumer['updatedat']];
         }
@@ -206,10 +226,13 @@ final class StreamConsumer
         return $count;
     }
 
+    /** The first wait after a failure, in seconds: a test sets it to 0 to try again at once. */
+    public static int $backoffBase = 30;
+
     /** How long a failed entry waits before its next attempt. */
     public static function backoff(int $attempts): int
     {
-        return (int) min(self::MAX_BACKOFF, 30 * 2 ** max(0, $attempts - 1));
+        return (int) min(self::MAX_BACKOFF, self::$backoffBase * 2 ** max(0, $attempts - 1));
     }
 
     /**

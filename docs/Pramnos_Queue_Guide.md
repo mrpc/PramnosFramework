@@ -306,6 +306,28 @@ bin/pramnos events:consume --once                # one pass: a cron, a test
   `'events' => ['log_days' => 30]` that every group has read and nothing waits to retry; a group
   that is behind keeps its own.
 
+**On Redis Streams.** The groups can read Redis instead of the database — for a realtime
+application, or many events a second:
+
+```php
+'events' => [
+    'transport'  => 'stream',
+    'stream'     => 'redis',
+    'redis'      => ['host' => 'events-redis', 'port' => 6379, 'database' => 0],  // its own instance
+    'max_length' => 100000,                                                        // XADD MAXLEN ~
+],
+```
+
+The database still writes each event to `event_log` in the caller's transaction — that row is
+the outbox — and a relay appends what is committed to one Redis stream, in order: at once when
+the event was fired outside a transaction, and on every pass of `events:consume`, so a process
+that dies between the commit and Redis loses nothing. Each listener is a Redis consumer group;
+an entry read and never acknowledged (its consumer died) is claimed again once it has waited, a
+failure past its attempts is acknowledged and kept in `event_deliveries` as dead, where the Queue
+screen shows it. **A Redis that evicts keys (`maxmemory-policy allkeys-*`) is refused** — the
+stream is passed over for the queue and the `events` log says why — so give the events an
+instance of their own with `noeviction`, not the page cache's.
+
 **Watching it.** The Queue screen shows each group under *Event streams*: how many entries wait
 for it to read (counted over at most 10,000 after its position), how many wait to be tried
 again, how many are dead, the oldest waiting, and which consumer holds it now — with *Try the dead

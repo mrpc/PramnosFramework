@@ -449,6 +449,8 @@ class EventStreamMySQLTest extends TestCase
             $this->assertStringContainsString('Event streams', $html, $theme);
             $this->assertStringContainsString('Try the dead again', $html, $theme);
             $this->assertStringContainsString('Queue/streamdrop', $html, $theme);
+            $this->assertStringContainsString('title="' . StreamListenerA::class . '">StreamListenerA</strong>', $html, $theme . ': the short name, the full one in its title');
+            $this->assertStringNotContainsString('data-field="no-daemon"', $html, $theme . ': a consumer holds a group');
         }
         $this->assertCount(2, $retried, 'tried again at once');
         $this->assertSame([0, 0], array_map('intval', array_column($retried, 'attempts')), 'with their attempts back to none');

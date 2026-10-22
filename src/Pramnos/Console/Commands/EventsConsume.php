@@ -53,7 +53,8 @@ class EventsConsume extends Command
             pcntl_signal(SIGTERM, fn () => $this->stop = true);
             pcntl_signal(SIGINT, fn () => $this->stop = true);
         }
-        $consumer = new StreamConsumer();
+        // On Redis a pass waits a second for something new rather than sleeping between reads.
+        $consumer = new StreamConsumer('', $input->getOption('once') ? 0 : 1000);
         $until    = time() + max(1, (int) $input->getOption('max-time'));
         do {
             $busy = false;
