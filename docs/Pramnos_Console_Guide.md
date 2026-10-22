@@ -959,6 +959,8 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 | `push:setup` / `push:vapid-generate` | Set up web push (migration, keys, service worker, browser script, library) / generate the VAPID key pair | `--apply`, `--no-install` / `--force` |
 | `audit:prune` | Delete audit-log rows past the retention (`audit.retention_days` in app.php: days, or days per event such as `['admin.page' => 180, '*' => 730]`); deletes nothing until one is set | `--days` |
 | `segments:recompute` | Work segments out again — who entered, who left — each after the segments its filter names; scheduled hourly by the framework | `--segment=<id>` |
+| `events:consume` | Read the event stream for its consumer groups — every queued listener set to `stream`, or the ones named — as a daemon until stopped or `--max-time` ([guide](Pramnos_Queue_Guide.md#the-stream-one-entry-per-event)) | `--group` (repeatable), `--once`, `--limit`, `--max-time`, `--sleep` |
+| `events:prune` | Delete event-stream entries older than `events.log_days` (30) that every group has read and nothing waits to retry. Scheduled daily | `--days` |
 | `events:status` | Which transport each queued listener is set to use, and the one it would use here — a dry run ([guide](Pramnos_Queue_Guide.md#which-transport-carries-a-listeners-events)) | `--json` |
 | `audience:prune-events` | Delete rule run-log rows older than `audience.rule_log_days` (90; 0 keeps them) and segment stays that ended more than `audience.segment_history_days` ago (365). Each person event is the change log's to keep. Scheduled daily | `--days` (the rule log's) |
 | `rules:run` | Start the rules whose schedule is due this minute: each takes everybody who matches, in the queue. Scheduled every minute | — |

@@ -261,6 +261,12 @@ class FrameworkSchedule
                 'description' => 'Delete rule run-log rows and ended segment stays older than their retention',
             ],
 
+            // The event stream's entries every group has read, past events.log_days.
+            'events:prune' => [
+                'cadence'     => [['daily'], ['at', '04:15']],
+                'description' => 'Delete event-stream entries every group has read, past the retention',
+            ],
+
             'queue:cleanup' => [
                 'cadence'     => [['daily'], ['at', '03:10']],
                 'description' => 'Remove completed and expired queue items',

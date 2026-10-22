@@ -227,7 +227,8 @@ final class EventTransportsTest extends TestCase
             ['event' => 'job.created', 'listener' => QuietQueuedListener::class, 'configured' => 'queue', 'effective' => 'queue'],
             ['event' => 'job.created', 'listener' => OtherQueuedListener::class, 'configured' => 'keeping', 'effective' => 'queue'],
         ], $json['listeners'], 'a plain closure is not queued and not listed');
-        $this->assertSame(['queue' => true, 'keeping' => false], $json['transports']);
+        $this->assertSame(['queue', 'stream', 'keeping'], array_keys($json['transports']), 'the queue and the stream always, then the application\'s');
+        $this->assertSame([true, false], [$json['transports']['queue'], $json['transports']['keeping']]);
         $this->assertSame([], $this->written, 'nothing was fired');
     }
 }

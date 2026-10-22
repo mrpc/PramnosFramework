@@ -126,18 +126,8 @@ final class QueuedEvents
         $class    = is_string($listener) ? $listener : $listener::class;
         $instance = is_string($listener) ? new $listener() : $listener;
 
-        if ((int) $meta['depth'] > self::MAX_DEPTH) {
-            \Pramnos\Logs\Logger::log(
-                'Event ' . $event . ' not queued for ' . $class . ': the chain from ' . $meta['rootId']
-                . ' is ' . $meta['depth'] . ' events deep (most ' . self::MAX_DEPTH . ') — a loop?',
-                self::LOG
-            );
-
-            return null;
-        }
-
-        $plain = self::plain($args, $class, $event);
-        if ($plain === null) {
+        $payload = self::payload($class, $event, $args, $meta);
+        if ($payload === null) {
             return null;
         }
 
@@ -152,13 +142,7 @@ final class QueuedEvents
             self::warnOnce('columns', 'Queued listeners are not folded by key: queueitems has no dedupekey — run migrate (add_event_columns_to_queueitems).');
         }
 
-        $payload = ['listener' => $class, 'event' => $event, 'args' => $plain, 'meta' => $meta];
-        // Which arguments the worker builds again, and as what.
-        foreach ($args as $index => $arg) {
-            if ($arg instanceof QueueableEvent) {
-                $payload['events'][$index] = $arg::class;
-            }
-        }
+        $payload = ['listener' => $class] + $payload;
         if ($key !== null && $key !== '') {
             $payload['idempotency'] = ['key' => $key, 'ttl' => $instance->idempotencyTtl()];
         }
@@ -174,6 +158,44 @@ final class QueuedEvents
             $instance->priority(),
             $instance->maxAttempts()
         );
+    }
+
+    /**
+     * What travels for one firing, whichever transport carries it: the event, its arguments as
+     * JSON-ready values, which of them the worker builds again as event objects, and its meta. Null
+     * where nothing may travel: the chain went too deep — a loop — or (in production) an argument
+     * cannot travel as JSON; both are logged.
+     *
+     * @param list<mixed>          $args
+     * @param array<string, mixed> $meta
+     * @return array{event: string, args: list<mixed>, meta: array<string, mixed>, events?: array<int, string>}|null
+     */
+    public static function payload(string $class, string $event, array $args, array $meta): ?array
+    {
+        if ((int) $meta['depth'] > self::MAX_DEPTH) {
+            \Pramnos\Logs\Logger::log(
+                'Event ' . $event . ' not queued for ' . $class . ': the chain from ' . $meta['rootId']
+                . ' is ' . $meta['depth'] . ' events deep (most ' . self::MAX_DEPTH . ') — a loop?',
+                self::LOG
+            );
+
+            return null;
+        }
+
+        $plain = self::plain($args, $class, $event);
+        if ($plain === null) {
+            return null;
+        }
+
+        $payload = ['event' => $event, 'args' => $plain, 'meta' => $meta];
+        // Which arguments the worker builds again, and as what.
+        foreach ($args as $index => $arg) {
+            if ($arg instanceof QueueableEvent) {
+                $payload['events'][$index] = $arg::class;
+            }
+        }
+
+        return $payload;
     }
 
     /**
@@ -218,7 +240,7 @@ final class QueuedEvents
      * @param array<string, mixed> $job
      * @return list<mixed>
      */
-    private static function arguments(array $job): array
+    public static function arguments(array $job): array
     {
         $args = array_values((array) ($job['args'] ?? []));
         foreach ((array) ($job['events'] ?? []) as $index => $event) {

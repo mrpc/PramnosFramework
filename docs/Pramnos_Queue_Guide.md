@@ -276,6 +276,40 @@ one it would use here — a dry run, nothing is fired — so a change to `events
 before it is deployed (`--json` for a script). An application adds a transport of its own with
 `Transports::register()` (`Pramnos\Event\Transport\EventTransport`).
 
+### The stream: one entry per event
+
+With `'transport' => 'stream'` (for the installation, or for a listener), an event is written
+**once** to `event_log` — in the caller's transaction, as a task is — for every listener set to
+the stream, and each of those listeners is a **consumer group** that reads the log from its own
+position. One row per event however many listeners there are; a listener added later needs no
+change where the event is fired. The tables come from the `queue` feature's
+`create_event_log_tables` migration; until it has run, the stream is passed over for the queue.
+
+The groups are read by a daemon, as tasks are by `queue:work`:
+
+```bash
+bin/pramnos events:consume                       # every group on the stream, until stopped
+bin/pramnos events:consume --group='App\Listeners\SyncCrm' --max-time=3600
+bin/pramnos events:consume --once                # one pass: a cron, a test
+```
+
+- **One consumer per group at a time.** A group is leased (60 s, renewed as it reads); a second
+  daemon for the same groups waits its turn — a standby, not a double run.
+- **A failure never holds up the rest.** The position moves on; the entry waits in
+  `event_deliveries` to be tried again after 30 s, then 1, 2, 4 … minutes (at most an hour), and
+  past the listener's `maxAttempts()` it is kept there as **dead**, with its error.
+- **At least once.** A consumer that dies after running an entry and before moving past it runs
+  it again: what must happen once says so with `idempotencyKey()`, which works as on the queue.
+- **A listener that folds keeps its fold**: the consumer hands it to the queue, whose window and
+  ceiling fold it exactly as before. Meta, the chain of events and `MAX_DEPTH` travel in the entry.
+- **Retention**: `events:prune`, scheduled daily, deletes entries older than
+  `'events' => ['log_days' => 30]` that every group has read and nothing waits to retry; a group
+  that is behind keeps its own.
+
+`event_log` holds what an event was fired with and nothing else, and is declared personal data
+(`PersonalDataRegistry`): a diagnostic tool returns none of its rows. Fire an event with ids,
+not with a person's details, as for the queue.
+
 ### Domain events as classes
 
 An application's own events — a job post created, an account deactivated — are classes in

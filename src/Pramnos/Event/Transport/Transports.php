@@ -39,13 +39,14 @@ final class Transports
     }
 
     /**
-     * The transports known here, by name: the queue always.
+     * The transports known here, by name: the queue and the stream always.
      *
      * @return array<string, EventTransport>
      */
     public static function all(): array
     {
-        return [QueueTransport::NAME => self::$known[QueueTransport::NAME] ?? new QueueTransport()] + self::$known;
+        return [QueueTransport::NAME => self::$known[QueueTransport::NAME] ?? new QueueTransport(),
+            StreamTransport::NAME => self::$known[StreamTransport::NAME] ?? new StreamTransport()] + self::$known;
     }
 
     /**
