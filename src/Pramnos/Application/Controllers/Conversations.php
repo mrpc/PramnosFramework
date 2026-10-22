@@ -22,7 +22,7 @@ use Pramnos\Http\Response;
  * | action | method | in | out |
  * |---|---|---|---|
  * | `display` | GET | `#/c/{id}` | the basic page: the list, one conversation, a box to write in |
- * | `conversations` | GET | — | `{me, conversations, browse, people}`: one's own with unread and mentions and a title, the open ones to join, the names of the people in direct and group ones |
+ * | `conversations` | GET | — | `{me, conversations, browse, people, avatars}`: one's own with unread and mentions and a title, the open ones to join, the names of the people in direct and group ones and their faces (`conversations.avatars`) |
  * | `messages/{id}` | GET | `before`, `after`, `thread`, `limit` | `{conversation, members, messages, pinned, saved}` |
  * | `threads` | GET | — | `{threads}`: the threads one takes part in, newest reply first, with replies new since one's own |
  * | `activity` | GET | — | `{activity}`: mentions of one, reactions to what one wrote, replies in one's threads |
@@ -110,7 +110,8 @@ class Conversations extends Controller
             }
             unset($conversation);
 
-            return ['me' => (int) $me->userid, 'conversations' => $mine, 'browse' => Store::browse((int) $me->userid), 'people' => $people];
+            return ['me' => (int) $me->userid, 'conversations' => $mine, 'browse' => Store::browse((int) $me->userid), 'people' => $people,
+                'avatars' => (object) \Pramnos\Conversations\People::avatars(array_merge($ids, [(int) $me->userid]), $me)];
         });
     }
 
@@ -183,12 +184,13 @@ class Conversations extends Controller
             $members = Store::members($id);
             $names   = \Pramnos\Conversations\People::names($members);
             $asleep  = \Pramnos\Conversations\People::inactive($members);
+            $faces   = \Pramnos\Conversations\People::avatars($members, $me);
 
             $messages = Messages::list($id, array_map('intval', $options));
 
             return ['conversation' => Store::get($id) + ['member' => Store::member($id, (int) $me->userid)],
                 'members' => array_map(static fn (int $person): array => ['id' => $person, 'name' => $names[$person] ?? '#' . $person,
-                    'inactive' => $asleep[$person] ?? null], $members),
+                    'inactive' => $asleep[$person] ?? null, 'avatar' => $faces[$person] ?? null], $members),
                 'messages' => $messages, 'pinned' => array_column(Messages::pinned($id), 'id'),
                 'saved' => Inbox::savedIds((int) $me->userid, array_column($messages, 'id'))];
         });

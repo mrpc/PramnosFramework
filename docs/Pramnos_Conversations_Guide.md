@@ -431,6 +431,17 @@ conversation and month, the largest and the oldest; the largest file allowed (th
 all — with a report of how many went and the space freed, or one file at a time. A removed file's
 message says it was removed, and when.
 
+**Faces** are initials on a colour of the person's own, unless the application has pictures:
+`conversations.avatars`, a callable given the ids and the reader, answers an image's address for
+each it has one for (http(s) or a path of the site; anything else is dropped). The JSON carries
+them — `avatars` in `conversations`, `avatar` on each of a conversation's members and in a
+profile — and the dock draws them, falling back to the initials where a picture is missing or does
+not load. `People::avatars($ids, $reader)` asks the hook once for many.
+
+```php
+'conversations' => ['avatars' => fn (array $ids, object $reader): array => Photos::urls($ids, 96)],
+```
+
 **The application's own links** sit at the foot of the dock's list: `conversations.links`, each a
 `label` already in the reader's language, a `url` and an `icon`. One is shown to whoever passes its
 `ability` (at `usertype`, or the conversations' floor, in usertype mode), or its own `visible`
@@ -477,7 +488,7 @@ conversation or message the person does not read 404.
 
 | action | method | in | out |
 |---|---|---|---|
-| `conversations` | GET | — | `{me, conversations, browse, people}`: one's own with unread, mentions and a `title`, the open ones to join, the names of the people in direct and group ones |
+| `conversations` | GET | — | `{me, conversations, browse, people, avatars}`: one's own with unread, mentions and a `title`, the open ones to join, the names of the people in direct and group ones |
 | `messages/{id}` | GET | `before`, `after`, `thread`, `limit` | `{conversation, members, messages, pinned, saved}` — `saved`, which of these messages the reader kept |
 | `threads` | GET | — | `{threads}`: the threads one takes part in, newest reply first — `{root, latest, replies, newReplies}` |
 | `activity` | GET | — | `{activity}`: mentions of one, reactions to what one wrote, replies in one's threads — `{kind, at, message, by, byName, emoji}` |

@@ -172,7 +172,8 @@ class ConversationsControllerTest extends TestCase
     }
 
     /**
-     * A name's card and profile through the controller: the person, and with `show` what they wrote,
+     * A name's card and profile through the controller — and the faces the list, a conversation's
+     * members and a card carry: the person, and with `show` what they wrote,
      * what mentions them and what they sent; somebody who may not use the conversations is 404 unless
      * they are in a conversation the reader reads, and then not somebody to write to.
      */
@@ -187,7 +188,11 @@ class ConversationsControllerTest extends TestCase
         $general = Conversations::create('channel', 'general', [$maria], $eleni);
         $hers    = \Pramnos\Conversations\Messages::post($general, $maria, 'Καλημέρα <@' . $eleni . '>');
 
+        Application::getInstance()->applicationInfo['conversations']['avatars'] = fn (array $ids): array => array_fill_keys($ids, '/face.png');
+
         // Act
+        $side     = $this->ask('maria', 'conversations');
+        $inside   = $this->ask('maria', 'messages', $general);
         $card     = $this->ask('maria', 'person', $eleni);
         $messages = $this->ask('eleni', 'person', $maria, ['show' => 'messages']);
         $mentions = $this->ask('maria', 'person', $eleni, ['show' => 'mentions']);
@@ -203,6 +208,9 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame([$hers], array_column($mentions['body']['messages'], 'id'));
         $this->assertSame([], $files['body']['files']);
         $this->assertSame(404, $nobody['status'], 'a stranger who may not use the conversations');
+        $this->assertSame('/face.png', $side['body']['avatars'][$maria], 'the faces of the sidebar\'s people, the reader\'s own among them');
+        $this->assertSame(['/face.png', '/face.png'], array_column($inside['body']['members'], 'avatar'), 'each member\'s face');
+        $this->assertSame('/face.png', $card['body']['person']['avatar']);
         $this->assertSame([200, false], [$member['status'], $member['body']['person']['canMessage']], 'in a channel the reader reads: shown, not to be written to');
     }
 

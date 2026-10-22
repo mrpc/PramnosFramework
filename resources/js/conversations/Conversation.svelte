@@ -36,6 +36,7 @@
     let inner = $state(null);
 
     const names = $derived(Object.fromEntries(members.map((m) => [m.id, m.name])));
+    const avatars = $derived(Object.fromEntries(members.filter((m) => m.avatar).map((m) => [m.id, m.avatar])));
     const member = $derived(conversation?.member ?? null);
     const items = $derived(timeline(messages, openedAt, me));
     const typers = $derived(Object.values(typingNow(typing, now)).filter((w) => w.thread === null && !w.thinking).map((w) => w.name));
@@ -334,7 +335,7 @@
                 {:else if item.type === 'new'}
                     <div class="pf-conv-new" role="separator"><span>{t('New messages')}</span></div>
                 {:else}
-                    <MessageItem message={item.message} continued={item.continued} {me} {names} {api} {emoji} {online} {moderator}
+                    <MessageItem {avatars} message={item.message} continued={item.continued} {me} {names} {api} {emoji} {online} {moderator}
                         onreply={openThread} {onerror} saved={saved.includes(item.message.id)} onsave={save} />
                 {/if}
             {/each}
@@ -379,11 +380,11 @@
                 <button type="button" class="pf-conv-icon-btn" aria-label={t('Close')} onclick={() => (thread = null)}>×</button>
             </header>
             <div class="pf-conv-scroll">
-                <MessageItem message={thread.root} {me} {names} {api} {emoji} {online} {moderator} inThread {onerror}
+                <MessageItem {avatars} message={thread.root} {me} {names} {api} {emoji} {online} {moderator} inThread {onerror}
                     saved={saved.includes(thread.root.id)} onsave={save} />
                 <div class="pf-conv-day" role="separator"><span>{tn(replies.length, '%s reply', '%s replies')}</span></div>
                 {#each replies as reply, i (reply.id)}
-                    <MessageItem message={reply} continued={i > 0 && replies[i - 1].authorId === reply.authorId && reply.at - replies[i - 1].at < 300}
+                    <MessageItem {avatars} message={reply} continued={i > 0 && replies[i - 1].authorId === reply.authorId && reply.at - replies[i - 1].at < 300}
                         {me} {names} {api} {emoji} {online} {moderator} inThread {onerror} saved={saved.includes(reply.id)} onsave={save} />
                 {/each}
             </div>

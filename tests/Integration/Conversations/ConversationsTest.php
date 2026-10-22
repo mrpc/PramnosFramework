@@ -336,6 +336,39 @@ class ConversationsTest extends TestCase
     }
 
     /**
+     * People's faces are the application's: `conversations.avatars` is asked once for the ids, with
+     * the reader, and what it answers is kept only for ids asked about and for an address of the site
+     * or http(s) — a script is no picture. Without the hook nobody has one; a profile carries its own.
+     */
+    #[DataProvider('databases')]
+    public function testFacesAreTheApplicationsPictures(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->team();
+        [$eleni, $maria, $nikos] = [$this->ids['eleni'], $this->ids['maria'], $this->ids['nikos']];
+        $none  = People::avatars([$eleni, $maria], $this->user('eleni'));
+        $asked = [];
+        Application::getInstance()->applicationInfo['conversations']['avatars'] = function (array $ids, object $reader) use (&$asked, $maria, $nikos): array {
+            $asked[] = [$ids, (int) $reader->userid];
+
+            return [$maria => '/photos/' . $maria . '.jpg', $nikos => 'javascript:alert(1)', 4242 => '/photos/stranger.jpg'];
+        };
+
+        // Act
+        $faces   = People::avatars([$eleni, $maria, $nikos, $maria, 0], $this->user('eleni'));
+        $profile = People::profile($maria, $this->user('eleni'));
+        $empty   = People::avatars([], $this->user('eleni'));
+
+        // Assert
+        $this->assertSame([], $none, 'no hook: the initials');
+        $this->assertSame([$maria => '/photos/' . $maria . '.jpg'], $faces, 'not a script, not somebody not asked about');
+        $this->assertSame([[$eleni, $maria, $nikos], $eleni], $asked[0], 'each id once, with the reader');
+        $this->assertSame('/photos/' . $maria . '.jpg', $profile['avatar']);
+        $this->assertSame([], $empty);
+    }
+
+    /**
      * Two different emoji from one person on one message are two reactions, and the same emoji
      * twice is one. MySQL's `utf8mb4_unicode_ci` compares every emoji equal (😍 = 💝), so under
      * the unique key the second was dropped; the migration makes the column binary and keeps

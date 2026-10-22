@@ -134,7 +134,7 @@ final class People
      * or the reader reads them all — with `canMessage` false and no direct conversation. Null for
      * nobody, and for a stranger.
      *
-     * @return array{id: int, name: string, lastSignIn: int, inactive: ?int, utcOffset: ?int, canMessage: bool, dm: ?int, muted: bool,
+     * @return array{id: int, name: string, lastSignIn: int, inactive: ?int, utcOffset: ?int, avatar: ?string, canMessage: bool, dm: ?int, muted: bool,
      *     shared: list<array{id: int, title: string}>, fields: array<string, string>, links: list<array{label: string, url: string, icon: string}>}|null
      */
     public static function profile(int $person, object $reader, ?int $now = null): ?array
@@ -167,11 +167,43 @@ final class People
             'lastSignIn' => (int) $row['lastlogin'],
             'inactive'   => self::inactive([$person], $now)[$person] ?? null,
             'utcOffset'  => $offset,
+            'avatar'     => self::avatars([$person], $reader)[$person] ?? null,
             'canMessage' => $usable && $person !== $me,
             'dm'         => $dm,
             'muted'      => $dm !== null && (bool) (Conversations::member($dm, $me)['muted'] ?? false),
             'shared'     => $person === $me ? [] : Conversations::shared($me, $person),
         ] + $extra;
+    }
+
+    /**
+     * The faces of people, by id, as the application keeps them — `conversations.avatars`, a callable
+     * given the ids and the reader, answering an image's address for each it has one for. An address
+     * that is not http(s) or a path of the site is dropped, and so is an id not asked for; without the
+     * hook, nobody has one, and the initials are their face.
+     *
+     * ```php
+     * 'conversations' => ['avatars' => fn (array $ids, object $reader): array => Photos::urls($ids, 96)],
+     * ```
+     *
+     * @param list<int> $ids
+     * @return array<int, string>
+     */
+    public static function avatars(array $ids, object $reader): array
+    {
+        $hook = \Pramnos\Application\Application::currentInstance()?->applicationInfo['conversations']['avatars'] ?? null;
+        $ids  = array_values(array_unique(array_filter(array_map('intval', $ids), static fn (int $id): bool => $id > 0)));
+        if (!is_callable($hook) || $ids === []) {
+            return [];
+        }
+        $out = [];
+        foreach ((array) $hook($ids, $reader) as $id => $url) {
+            $url = trim((string) $url);
+            if (in_array((int) $id, $ids, true) && preg_match('#^(https?://|/(?!/))#i', $url)) {
+                $out[(int) $id] = $url;
+            }
+        }
+
+        return $out;
     }
 
     /** Whether a reader sees somebody anyway: they are in a conversation the reader reads, or the reader reads them all. */

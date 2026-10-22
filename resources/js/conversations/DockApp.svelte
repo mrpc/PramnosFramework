@@ -21,6 +21,7 @@
     const KEY = 'pf-conv-dock:' + me;
     let conversations = $state([]);
     let browse = $state([]);
+    let avatars = $state({});                  // id → the face the application gives
     let windows = $state(restore());           // [{ id, min }]
     let listOpen = $state(false);
     let online = $state({});
@@ -86,6 +87,7 @@
             const answer = await api.get('conversations');
             conversations = answer.conversations;
             browse = answer.browse || [];
+            avatars = answer.avatars || {};
             // A person writing opens a window; a bot's notices wait in the list.
             const arrived = known === null ? [] : answer.conversations
                 .filter((c) => c.members !== null && c.kind !== 'bot' && !c.muted && c.unread > (known[c.id] ?? 0));
@@ -176,7 +178,7 @@
 <div class="pf-conv-dock-windows">
     {#each layout.windows as w (w.id)}
         {#if byId[w.id]}
-            <DockWindow {api} conversation={byId[w.id]} {me} {props} {online} minimised={w.min}
+            <DockWindow {api} conversation={byId[w.id]} {me} {props} {online} {avatars} minimised={w.min}
                 onminimise={() => minimise(w.id)} onclose={() => close(w.id)} onread={read} onerror={fail} />
         {/if}
     {/each}
@@ -189,7 +191,7 @@
         <button type="button" class="pf-conv-dock-head" title={c.title} aria-label={c.title + (c.unread ? ' (' + c.unread + ')' : '')} onclick={() => open(c.id)}
             oncontextmenu={(e) => { e.preventDefault(); armed = armed === c.id ? null : c.id; }}>
             {#if c.kind === 'dm'}
-                <Avatar id={other} name={c.title} online={!!online[other]} />
+                <Avatar id={other} name={c.title} online={!!online[other]} src={avatars[other]} />
             {:else if c.kind === 'bot'}
                 <span class="pf-conv-avatar pf-conv-avatar-system" aria-hidden="true">⚙</span>
             {:else}
@@ -209,7 +211,7 @@
 
 {#if listOpen}
     <div class="pf-conv-dock-panel" role="dialog" aria-label={t('Conversations')}>
-        <DockList {api} {me} {conversations} {browse} {online} links={props.links || []} page={props.page || ''} filesUrl={props.files} {noFaces}
+        <DockList {api} {me} {conversations} {browse} {online} {avatars} links={props.links || []} page={props.page || ''} filesUrl={props.files} {noFaces}
             onopen={(id) => open(id)} onfaces={setFaces} oncreated={async (id) => { await refresh(); open(id); }} onerror={fail} />
     </div>
 {/if}

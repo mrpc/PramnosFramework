@@ -233,7 +233,7 @@ class ConversationsPageTest extends TestCase
         // Assert
         $this->assertEqualsCanonicalizing(['#general', 'Μαρία Κ.', 'Μαρία Κ., Νίκος Π.'], array_column($sidebar['body']['conversations'], 'title'));
         $this->assertSame('Νίκος Π.', $sidebar['body']['people'][$nikos]);
-        $this->assertSame([['id' => $eleni, 'name' => 'Ελένη Σ.', 'inactive' => null], ['id' => $maria, 'name' => 'Μαρία Κ.', 'inactive' => null]],
+        $this->assertSame([['id' => $eleni, 'name' => 'Ελένη Σ.', 'inactive' => null, 'avatar' => null], ['id' => $maria, 'name' => 'Μαρία Κ.', 'inactive' => null, 'avatar' => null]],
             $members['body']['members'], 'nobody inactive: the setting is off');
         $this->assertSame(['Ελένη Σ.', 'Νίκος Π.'], array_column($people['body']['people'], 'name'), 'by a letter in the name');
         $this->assertNotContains('Τάσος', array_column($all, 'name'), 'a translator may not use them');

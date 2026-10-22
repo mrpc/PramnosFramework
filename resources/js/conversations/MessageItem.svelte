@@ -12,7 +12,7 @@
     import { size, tokensToText, mentionsToTokens, initials } from './logic.js';
 
     let {
-        message, continued = false, me, names = {}, api, emoji = {}, moderator = false, inThread = false,
+        message, continued = false, me, names = {}, avatars = {}, api, emoji = {}, moderator = false, inThread = false,
         online = {}, onreply = null, onerror = () => {}, saved = false, onsave = null,
     } = $props();
 
@@ -124,7 +124,7 @@
         {#if continued}
             <time class="pf-conv-msg-hover-time">{clock(message.at)}</time>
         {:else if message.authorType === 'user'}
-            <Avatar id={message.authorId} name={writer} online={online[message.authorId] ?? null} />
+            <Avatar id={message.authorId} name={writer} online={online[message.authorId] ?? null} src={avatars[message.authorId]} />
         {:else if message.card?.former}
             <span class="pf-conv-avatar pf-conv-avatar-former" title={t('Former member')} aria-hidden="true">{initials(writer)}</span>
         {:else}

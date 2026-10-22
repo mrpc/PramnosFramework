@@ -8,7 +8,7 @@
     import Conversation from './Conversation.svelte';
     import { t } from './t.js';
 
-    let { api, conversation, me, props, online = {}, minimised = false, onminimise, onclose, onread, onerror } = $props();
+    let { api, conversation, me, props, online = {}, avatars = {}, minimised = false, onminimise, onclose, onread, onerror } = $props();
 
     const other = $derived((conversation.members || []).find((id) => id !== me) ?? null);
     const title = $derived(conversation.title || (conversation.slug ? '#' + conversation.slug : ''));
@@ -18,7 +18,7 @@
     <header class="pf-conv-window-head">
         <button type="button" class="pf-conv-window-title" onclick={onminimise} aria-expanded={!minimised}>
             {#if conversation.kind === 'dm' && other !== null}
-                <Avatar id={other} name={title} online={!!online[other]} small />
+                <Avatar id={other} name={title} online={!!online[other]} src={avatars[other]} small />
             {:else if conversation.kind === 'bot'}
                 <span class="pf-conv-avatar pf-conv-avatar-sm pf-conv-avatar-system" aria-hidden="true">⚙</span>
             {:else}
