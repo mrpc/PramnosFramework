@@ -313,6 +313,10 @@ class PersonalDataRegistry
             'conversation_pins',
             'conversation_files',
             'conversation_saved',
+            // Who was moderated — accounts, visitors, addresses, nicknames — and what they wrote.
+            'moderation_restrictions',
+            'moderation_log',
+            'moderation_reports',
         );
     }
 

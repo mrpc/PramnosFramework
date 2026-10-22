@@ -296,6 +296,14 @@ class FeatureRegistry
                 dirname(__DIR__, 3) . '/database/migrations/framework/conversations',
             ],
         ]);
+        // Moderation: bans, mutes, kicks, warnings, slow mode, rates, the filter, reports and blocks —
+        // for conversations with visitors, comments, anything people write.
+        static::register('moderation', [
+            'description' => 'Moderation — bans, mutes, warnings, slow mode, rate limits, a content filter, reports and blocks',
+            'migrations'  => [
+                dirname(__DIR__, 3) . '/database/migrations/framework/moderation',
+            ],
+        ]);
         static::register('changelog', [
             'description' => 'Model change log — an audit trail written from the change feed',
             'provider'    => \Pramnos\Changelog\ChangelogServiceProvider::class,

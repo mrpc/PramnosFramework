@@ -365,6 +365,13 @@ they will probably not see it. Nothing is removed — no membership, no message 
 makes them active again at once. `People::inactive($ids)` answers who, with the last sign-in
 (0 for never); `People::search($term, $limit, $inactive)` leaves them out unless asked.
 
+## Moderation
+
+With the `moderation` feature too, every message and edit goes through it in the scope
+`conversation:{id}` — bans and mutes, the slow mode, the rate, the filter — and the moderators of a
+conversation have `/mute`, `/unmute`, `/ban`, `/unban`, `/kick` and `/slow`. See the
+[Moderation Guide](Pramnos_Moderation_Guide.md).
+
 ## The dock and the basic page
 
 The framework draws two things on the JSON API: **the dock**, over every page of the administration,

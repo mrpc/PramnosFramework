@@ -78,6 +78,9 @@ final class Messages
                 throw new \InvalidArgumentException(t('A reply answers a message of the same conversation.'));
             }
         }
+        if ($author !== null && empty($options['quiet'])) {
+            $body = self::moderated($conversation, $author, $body, true);
+        }
         $at   = (int) ($options['at'] ?? time());
         $refs = self::refs($body);
         $db->queryBuilder()->table('#PREFIX#conversation_messages')->insert([
@@ -133,6 +136,7 @@ final class Messages
         if ($body === '' || mb_strlen($body) > self::MAX_LENGTH) {
             throw new \InvalidArgumentException(t('A message needs something in it.'));
         }
+        $body = self::moderated(Conversations::get($message['conversationId']) ?? [], $by, $body, false);
         $db = Conversations::db();
         $db->queryBuilder()->table('#PREFIX#conversation_message_edits')->insert(['messageid' => $id, 'body' => $message['body'], 'editedby' => $by, 'editedat' => time()]);
         $refs = self::refs($body);
@@ -142,6 +146,45 @@ final class Messages
         $db->queryBuilder()->table('#PREFIX#conversation_mentions')->where('messageid', $id)->delete();
         self::mention($id, $message['conversationId'], $by, $body, time());
         Realtime::changed($id, 'message.edited');
+    }
+
+    /**
+     * What somebody writes, as moderation lets it through, where the application has the
+     * `moderation` feature: not by somebody banned or muted in the conversation (`conversation:{id}`)
+     * or everywhere; a new message also within the slow mode and the rate; and what the filter keeps.
+     * Anywhere else, as it was written.
+     *
+     * @param array<string, mixed> $conversation
+     * @throws \InvalidArgumentException With the reason, for the writer
+     */
+    private static function moderated(array $conversation, int $author, string $body, bool $new): string
+    {
+        if (!in_array('moderation', (array) (\Pramnos\Application\Application::currentInstance()?->applicationInfo['features'] ?? []), true) || $conversation === []) {
+            return $body;
+        }
+        $scope = 'conversation:' . $conversation['id'];
+        $who   = [\Pramnos\Moderation\Subject::account($author)];
+        // A request's address: banned there, they are banned whoever they sign in as.
+        if (isset($_SERVER['REMOTE_ADDR'])) {
+            $who[] = \Pramnos\Moderation\Subject::ip(\Pramnos\Http\ClientIpResolver::fromApplication()->resolve($_SERVER));
+        }
+        if ($new) {
+            $verdict = \Pramnos\Moderation\Gate::check($who, $scope, $body);
+            if (!$verdict['allowed']) {
+                throw new \InvalidArgumentException($verdict['message']);
+            }
+
+            return $verdict['text'];
+        }
+        if (\Pramnos\Moderation\Moderation::restriction($who, $scope) !== null) {
+            throw new \InvalidArgumentException(t('You may not write here.'));
+        }
+        $filtered = \Pramnos\Moderation\Filter::apply($body);
+        if (!$filtered['allowed']) {
+            throw new \InvalidArgumentException(t('That message cannot be sent.'));
+        }
+
+        return $filtered['text'];
     }
 
     /** Delete a message — its writer, an owner of the conversation, or whoever reads them all. */

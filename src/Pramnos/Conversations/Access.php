@@ -14,7 +14,8 @@ namespace Pramnos\Conversations;
  * closed and direct ones too — the top role's by default. A deactivated account has neither, at
  * once: it is asked every time. In usertype mode `admin.chat.all` is root's alone — reading other
  * people's direct conversations is more than a superuser's work. `admin.chat.files` — the files'
- * use of space, and removing them — is a superuser's by default.
+ * use of space, and removing them — and `admin.chat.moderate` — muting, banning and the rest in any
+ * conversation — are a superuser's by default.
  */
 final class Access
 {
@@ -26,6 +27,9 @@ final class Access
 
     /** The ability that sees the files' use of space and removes files to free it. */
     public const FILES = 'admin.chat.files';
+
+    /** The ability that moderates every conversation: mutes, bans, kicks, slow mode. */
+    public const MODERATE = 'admin.chat.moderate';
 
     /** The usertype that opens them, in usertype mode. */
     public static function floor(): int
@@ -53,6 +57,16 @@ final class Access
     public static function managesFiles(?object $user): bool
     {
         return self::active($user) && \Pramnos\Auth\AdminAccess::allows($user, self::FILES, \Pramnos\Auth\AdminAccess::superuserUsertype());
+    }
+
+    /**
+     * Whether an account moderates a conversation: its owner, or whoever has `admin.chat.moderate` —
+     * a superuser's by default.
+     */
+    public static function moderates(?object $user, int $conversationId): bool
+    {
+        return self::canUse($user) && ((Conversations::member($conversationId, (int) $user->userid)['role'] ?? null) === 'owner'
+            || \Pramnos\Auth\AdminAccess::allows($user, self::MODERATE, \Pramnos\Auth\AdminAccess::superuserUsertype()));
     }
 
     /** An account that is there and active. */
