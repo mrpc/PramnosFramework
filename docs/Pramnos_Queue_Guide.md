@@ -306,6 +306,13 @@ bin/pramnos events:consume --once                # one pass: a cron, a test
   `'events' => ['log_days' => 30]` that every group has read and nothing waits to retry; a group
   that is behind keeps its own.
 
+**Watching it.** The Queue screen shows each group under *Event streams*: how many entries wait
+for it to read (counted over at most 10,000 after its position), how many wait to be tried
+again, how many are dead, the oldest waiting, and which consumer holds it now — with *Try the dead
+again* (at once, their attempts back to none) and *Delete the dead* per group. The analyst's
+`queue` tool answers the same figures; `StreamConsumer::status()` and
+`StreamConsumer::redrive($group, $drop)` are the calls behind them.
+
 `event_log` holds what an event was fired with and nothing else, and is declared personal data
 (`PersonalDataRegistry`): a diagnostic tool returns none of its rows. Fire an event with ids,
 not with a person's details, as for the queue.

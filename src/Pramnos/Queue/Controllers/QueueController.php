@@ -48,9 +48,9 @@ class QueueController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'data', 'show', 'history', 'retry', 'retryall', 'delete', 'clear', 'stats', 'stop', 'duplicate']);
+        $this->addAuthAction(['display', 'data', 'show', 'history', 'retry', 'retryall', 'delete', 'clear', 'stats', 'stop', 'duplicate', 'streamretry', 'streamdrop']);
         // POST with the session's token, or refused before the action runs: see Controller::exec().
-        $this->addWriteAction(['retry', 'retryall', 'delete', 'clear', 'stop', 'duplicate']);
+        $this->addWriteAction(['retry', 'retryall', 'delete', 'clear', 'stop', 'duplicate', 'streamretry', 'streamdrop']);
         parent::__construct($application);
     }
 
@@ -147,6 +147,7 @@ class QueueController extends Controller
         $view->counts     = $this->statusCounts();
         $view->byType     = $this->ratesByType();
         $view->rateWindow = static::RATE_WINDOW;
+        $view->streams    = $this->streams();
 
         return $view->display();
     }
@@ -605,6 +606,45 @@ class QueueController extends Controller
             ]);
 
         $this->addMessage(t('Queued again.'));
+        $this->redirect(sURL . 'queue');
+    }
+
+    /**
+     * The event stream's groups, as {@see \Pramnos\Event\Transport\StreamConsumer::status()} says,
+     * or none where there is no stream.
+     *
+     * @return list<array<string, mixed>>
+     */
+    protected function streams(): array
+    {
+        try {
+            return (new \Pramnos\Event\Transport\StreamTransport())->available() ? \Pramnos\Event\Transport\StreamConsumer::status() : [];
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /** A stream group's dead entries, tried again at once (POST `group`). */
+    public function streamretry(): void
+    {
+        $this->streamDead(false);
+    }
+
+    /** A stream group's dead entries, deleted (POST `group`). */
+    public function streamdrop(): void
+    {
+        $this->streamDead(true);
+    }
+
+    /** Try a group's dead entries again, or drop them, and say how many. */
+    private function streamDead(bool $drop): void
+    {
+        if ($this->requireMinUserType($this->adminFloor())) {
+            return;
+        }
+        $group = (string) ($_POST['group'] ?? '');
+        $count = $group === '' ? 0 : \Pramnos\Event\Transport\StreamConsumer::redrive($group, $drop);
+        $this->addMessage($drop ? t('%s dead entries deleted.', (string) $count) : t('%s dead entries will be tried again.', (string) $count));
         $this->redirect(sURL . 'queue');
     }
 

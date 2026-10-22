@@ -8,6 +8,7 @@
  *   $this->counts     — [status => tasks], and `total`, counted on this request
  *   $this->byType     — per task type: running, pending, per_minute, net_per_minute, clears_in, health
  *   $this->rateWindow — the window those rates are measured over, in seconds
+ *   $this->streams    — the event stream's consumer groups (StreamConsumer::status()), or none
  *
  * The state first — how many tasks are in each status, and per type whether it is keeping up —
  * then the tasks. Clear takes the status to clear here, since the list's filter lives in the
@@ -79,6 +80,46 @@ $clearable = ['failed', 'completed', 'stopped', 'deleted'];
             </table>
             <p style="font-size:.8em;color:#666;padding:0 12px 8px"><?php echo $e(sprintf(t('Over the last %d minutes. Keeping up means arrivals match completions and the backlog is under a minute of the type\'s own output. Growing is the one worth reading: work is waiting that the type is not clearing.'), intdiv((int) ($this->rateWindow ?? 600), 60))); ?></p>
         </div>
+    <?php endif; ?>
+
+    <?php if (!empty($this->streams)): ?>
+        <?php // The event stream: each consumer group's position, what waits for it, and what died. ?>
+        <section class="pf-ui pf-embedded" data-field="streams">
+            <div class="pf-card pf-card-flush">
+                <div class="pf-card-head"><h3 class="pf-section-title"><?php echo $e(t('Event streams')); ?></h3></div>
+                <table class="pf-table">
+                    <thead><tr>
+                        <th><?php echo $e(t('Consumer group')); ?></th>
+                        <th class="pf-num"><?php echo $e(t('Waiting to be read')); ?></th>
+                        <th class="pf-num"><?php echo $e(t('To be tried again')); ?></th>
+                        <th class="pf-num"><?php echo $e(t('Dead')); ?></th>
+                        <th><?php echo $e(t('Oldest waiting')); ?></th>
+                        <th><?php echo $e(t('Read by')); ?></th>
+                        <th></th>
+                    </tr></thead>
+                    <tbody>
+                    <?php foreach ($this->streams as $stream): ?>
+                        <tr data-group="<?php echo $e($stream['group']); ?>">
+                            <td><code><?php echo $e($stream['group']); ?></code><span class="pf-row-desc"><?php echo $e(t('position %s', number_format($stream['position']))); ?></span></td>
+                            <td class="pf-num"><?php echo $stream['lag'] > 0 ? '<span class="pf-badge pf-tone-warn">' . $e(number_format($stream['lag']) . ($stream['lagCapped'] ? '+' : '')) . '</span>' : '<span class="pf-zero">0</span>'; ?></td>
+                            <td class="pf-num"><?php echo $stream['pending'] > 0 ? '<span class="pf-badge pf-tone-warn">' . $e(number_format($stream['pending'])) . '</span>' : '<span class="pf-zero">0</span>'; ?></td>
+                            <td class="pf-num"><?php echo $stream['dead'] > 0 ? '<span class="pf-badge pf-tone-bad">' . $e(number_format($stream['dead'])) . '</span>' : '<span class="pf-zero">0</span>'; ?></td>
+                            <td class="pf-muted"><?php echo $stream['oldestPending'] === null ? '—' : $e(date('Y-m-d H:i', $stream['oldestPending'])); ?></td>
+                            <td class="pf-muted"><?php echo $stream['owner'] !== null && $stream['leasedUntil'] >= time() ? $e($stream['owner']) : $e(t('nobody now')); ?></td>
+                            <td class="pf-num">
+                                <?php if ($stream['dead'] > 0): ?>
+                                    <form method="post" action="<?php echo $e(adminUrl('Queue/streamretry')); ?>" class="pf-inline-form"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                                        <input type="hidden" name="group" value="<?php echo $e($stream['group']); ?>"><button type="submit" class="pf-btn pf-btn-sm"><?php echo $e(t('Try the dead again')); ?></button></form>
+                                    <form method="post" action="<?php echo $e(adminUrl('Queue/streamdrop')); ?>" class="pf-inline-form" data-confirm="<?php echo $e(t('Delete this group\'s dead entries?')); ?>"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                                        <input type="hidden" name="group" value="<?php echo $e($stream['group']); ?>"><button type="submit" class="pf-btn pf-btn-sm pf-btn-ghost pf-btn-danger"><?php echo $e(t('Delete the dead')); ?></button></form>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </section>
     <?php endif; ?>
 
     <?php echo $this->datatable->render(); ?>

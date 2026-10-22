@@ -153,6 +153,59 @@ final class StreamConsumer
         return $count;
     }
 
+    /** How many entries after a group's position are counted for its lag, at most. */
+    public const LAG_SCAN = 10000;
+
+    /**
+     * How each group is doing: its position, how many entries for it wait to be read (`lag`; at
+     * most {@see LAG_SCAN}, said as `lagCapped`), how many wait to be tried again and how many are
+     * dead, the oldest of those waiting, and who holds it.
+     *
+     * @return list<array{group: string, position: int, lag: int, lagCapped: bool, pending: int, dead: int, oldestPending: ?int, owner: ?string, leasedUntil: int, updatedAt: int}>
+     */
+    public static function status(): array
+    {
+        $db   = StreamTransport::db();
+        $rows = [];
+        foreach ($db->queryBuilder()->table('#PREFIX#' . StreamTransport::CONSUMERS_TABLE)->orderBy('groupname')->getAllOrFail() as $consumer) {
+            $group = (string) $consumer['groupname'];
+            // ponytail: the lag is counted here over at most LAG_SCAN entries' group lists; a JSON
+            // index per driver would count it in SQL if a stream ever runs that far behind.
+            $after = $db->queryBuilder()->table('#PREFIX#' . StreamTransport::LOG_TABLE)->select(['groups'])
+                ->where('entryid', '>', (int) $consumer['position'])->orderBy('entryid')->limit(self::LAG_SCAN + 1)->getAllOrFail();
+            $lag   = count(array_filter(array_slice($after, 0, self::LAG_SCAN),
+                static fn (array $e): bool => in_array($group, (array) json_decode((string) $e['groups'], true), true)));
+            $count = static fn (string $status): int => (int) ($db->queryBuilder()->table('#PREFIX#' . StreamTransport::DELIVERIES_TABLE)
+                ->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->where('groupname', $group)->where('status', $status)->getAllOrFail()[0]['n'] ?? 0);
+            $oldest = $db->queryBuilder()->table('#PREFIX#' . StreamTransport::DELIVERIES_TABLE)
+                ->select([new \Pramnos\Database\Expression('MIN(createdat) AS t')])->where('groupname', $group)->where('status', 'pending')->getAllOrFail()[0]['t'] ?? null;
+            $rows[] = ['group' => $group, 'position' => (int) $consumer['position'], 'lag' => $lag, 'lagCapped' => count($after) > self::LAG_SCAN,
+                'pending' => $count('pending'), 'dead' => $count('dead'), 'oldestPending' => $oldest === null ? null : (int) $oldest,
+                'owner' => $consumer['owner'] === null ? null : (string) $consumer['owner'], 'leasedUntil' => (int) $consumer['leaseduntil'],
+                'updatedAt' => (int) $consumer['updatedat']];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * A group's dead entries, tried again at once with their attempts back to none — or, with
+     * `$drop`, deleted.
+     *
+     * @return int How many
+     */
+    public static function redrive(string $group, bool $drop = false): int
+    {
+        $dead  = StreamTransport::db()->queryBuilder()->table('#PREFIX#' . StreamTransport::DELIVERIES_TABLE)
+            ->where('groupname', $group)->where('status', 'dead');
+        $count = (int) ((clone $dead)->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->getAllOrFail()[0]['n'] ?? 0);
+        if ($count > 0) {
+            $drop ? $dead->delete() : $dead->update(['status' => 'pending', 'attempts' => 0, 'nextat' => 0]);
+        }
+
+        return $count;
+    }
+
     /** How long a failed entry waits before its next attempt. */
     public static function backoff(int $attempts): int
     {

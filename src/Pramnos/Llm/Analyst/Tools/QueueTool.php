@@ -18,7 +18,8 @@ final class QueueTool extends AdminTool
     public function description(): string
     {
         return 'The background queue: tasks by state now, what is waiting by kind, failures in a '
-            . 'window by kind with their commonest error, and how long finished tasks took.';
+            . 'window by kind with their commonest error, how long finished tasks took, and the event '
+            . 'stream\'s consumer groups: entries waiting, to be tried again, dead.';
     }
 
     protected function answer(array $input, Window $window): array
@@ -46,6 +47,25 @@ final class QueueTool extends AdminTool
             'failed'       => array_slice($failures, 0, self::TOP, true),
             'completed'    => $window->apply($items()->where('status', 'completed'), 'completedat', false)->count(),
             'seconds'      => ['average' => round((float) $done->avg('execution_time'), 3), 'longest' => round((float) $window->apply($this->table('#PREFIX#queueitems')->where('status', 'completed'), 'completedat', false)->max('execution_time'), 3)],
+            'streams'      => self::streams(),
         ];
+    }
+
+    /**
+     * The event stream's consumer groups — how many entries wait for each, how many to be tried
+     * again, how many are dead — or none where there is no stream.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function streams(): array
+    {
+        try {
+            return (new \Pramnos\Event\Transport\StreamTransport())->available()
+                ? array_map(static fn (array $s): array => array_intersect_key($s, array_flip(['group', 'lag', 'lagCapped', 'pending', 'dead', 'oldestPending'])),
+                    \Pramnos\Event\Transport\StreamConsumer::status())
+                : [];
+        } catch (\Throwable) {
+            return [];
+        }
     }
 }

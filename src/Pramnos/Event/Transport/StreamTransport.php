@@ -30,8 +30,8 @@ final class StreamTransport implements EventTransport
     /** What failed, to be tried again or dead. */
     public const DELIVERIES_TABLE = 'event_deliveries';
 
-    /** @var bool|null Whether the tables are here, asked once per process */
-    private static ?bool $available = null;
+    /** @var array<string, bool> Whether the tables are here, asked once per process and database */
+    private static array $available = [];
 
     /** @var array{0: string, 1: int|null}|null The last firing written, and its entry */
     private static ?array $written = null;
@@ -43,16 +43,18 @@ final class StreamTransport implements EventTransport
 
     public function available(): bool
     {
-        if (self::$available === null) {
-            try {
-                $schema          = self::db()->schema();
-                self::$available = $schema->hasTable(self::LOG_TABLE) && $schema->hasTable(self::CONSUMERS_TABLE) && $schema->hasTable(self::DELIVERIES_TABLE);
-            } catch (\Throwable) {
-                return false;
+        try {
+            $db  = self::db();
+            $key = $db->type . '|' . $db->server . '|' . $db->database . '|' . $db->prefix;
+            if (!isset(self::$available[$key])) {
+                $schema                = $db->schema();
+                self::$available[$key] = $schema->hasTable(self::LOG_TABLE) && $schema->hasTable(self::CONSUMERS_TABLE) && $schema->hasTable(self::DELIVERIES_TABLE);
             }
-        }
 
-        return self::$available;
+            return self::$available[$key];
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     public function deliver(Envelope $envelope, QueuedListener|string $listener): int|string|null
@@ -105,7 +107,7 @@ final class StreamTransport implements EventTransport
     /** Forget what this process knows — for tests, and after a migration in the same process. */
     public static function reset(): void
     {
-        self::$available = null;
+        self::$available = [];
         self::$written   = null;
     }
 

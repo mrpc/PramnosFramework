@@ -1127,3 +1127,4 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-table .pf-bar { grid-column: auto; }
 .pf-input-grow { flex: 1 1 14rem; }
 .pf-cell-bar { min-width: 9rem; }
+.pf-ui.pf-embedded { padding: 0; margin-bottom: 1rem; }

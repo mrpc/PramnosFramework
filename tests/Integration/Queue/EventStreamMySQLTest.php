@@ -361,4 +361,98 @@ class EventStreamMySQLTest extends TestCase
         $this->expectExceptionMessage('Not a queued listener: stdClass');
         (new StreamConsumer())->consume(\stdClass::class);
     }
+
+    /**
+     * The queue screen and the analyst see each group: entries waiting for it, to be tried again
+     * and dead; the dead are tried again at once, or deleted, from the screen, and each theme draws
+     * the groups with their buttons.
+     */
+    public function testTheQueueScreenShowsTheGroupsAndRedrivesTheDead(): void
+    {
+        // Arrange
+        foreach ([1, 2, 3] as $account) {
+            Event::fire('account.changed', $account, 'plain');
+        }
+        StreamListenerA::$fail = true;
+        (new StreamConsumer('one'))->consume(StreamListenerA::class, 2);
+        $this->db->queryBuilder()->table('event_deliveries')->where('id', '>', 0)->update(['status' => 'dead']);
+        $screen = new class () extends \Pramnos\Queue\Controllers\QueueController {
+            /** @var list<string> What was flashed */
+            public array $said = [];
+
+            /** Signed in, for the test. */
+            protected function requireMinUserType(int $minType): bool
+            {
+                return false;
+            }
+
+            /** No redirect in a test. */
+            public function redirect($url = null, $quit = true, $code = '302'): void
+            {
+            }
+
+            /** Keep the flash. */
+            public function addMessage($message, $type = 'info'): void
+            {
+                $this->said[] = (string) $message;
+            }
+
+            /** The groups, as display() gives them to the view. */
+            public function groups(): array
+            {
+                return $this->streams();
+            }
+        };
+
+        // Act
+        $status = StreamConsumer::status();
+        $tool   = (new \Pramnos\Llm\Analyst\Tools\QueueTool())->execute([]);
+        $pages  = [];
+        foreach (['tailwind', 'bootstrap', 'plain-css'] as $theme) {
+            $view = new class () extends \stdClass {
+                /** No partials in a test. */
+                public function insert(string $name): void
+                {
+                }
+            };
+            $view->datatable = new class () {
+                /** No table in a test. */
+                public function render(): string
+                {
+                    return '';
+                }
+            };
+            $view->statuses = [];
+            $view->counts   = [];
+            $view->byType   = [];
+            $view->streams  = $screen->groups();
+            $pages[$theme]  = (function (string $path): string {
+                ob_start();
+                include $path;
+
+                return (string) ob_get_clean();
+            })->call($view, ROOT . '/scaffolding/themes/' . $theme . '/views/queue/queue.html.php');
+        }
+        $_POST = ['group' => StreamListenerA::class];
+        $screen->streamretry();
+        $retried = $this->db->queryBuilder()->table('event_deliveries')->where('status', 'pending')->getAll();
+        $this->db->queryBuilder()->table('event_deliveries')->where('id', '>', 0)->update(['status' => 'dead']);
+        $screen->streamdrop();
+        $_POST = [];
+
+        // Assert
+        $byGroup = array_column($status, null, 'group');
+        $this->assertSame([1, 0, 2], [$byGroup[StreamListenerA::class]['lag'], $byGroup[StreamListenerA::class]['pending'], $byGroup[StreamListenerA::class]['dead']]);
+        $this->assertSame(3, $byGroup[StreamListenerB::class]['lag'], 'the other group has read nothing');
+        $this->assertSame(2, array_column($tool['streams'], null, 'group')[StreamListenerA::class]['dead']);
+        foreach ($pages as $theme => $html) {
+            $this->assertStringContainsString('Event streams', $html, $theme);
+            $this->assertStringContainsString('Try the dead again', $html, $theme);
+            $this->assertStringContainsString('Queue/streamdrop', $html, $theme);
+        }
+        $this->assertCount(2, $retried, 'tried again at once');
+        $this->assertSame([0, 0], array_map('intval', array_column($retried, 'attempts')), 'with their attempts back to none');
+        $this->assertSame([], $this->db->queryBuilder()->table('event_deliveries')->getAll(), 'deleted');
+        $this->assertSame(['2 dead entries will be tried again.', '2 dead entries deleted.'], $screen->said);
+    }
 }
