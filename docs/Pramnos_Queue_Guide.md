@@ -10,6 +10,7 @@ use_cases:
   - Moving an event's side effects (emails, syncs) out of the request into the queue
   - Syncing a record once after many changes, or sending a welcome email only once
   - Writing an application's events as classes that listeners in the request and in the queue both take
+  - Choosing which transport carries queued listeners' events, and checking it before a deploy
 ---
 
 # Pramnos Queue Guide
@@ -251,6 +252,29 @@ listeners still queue, unfolded and without keys, and the `events` log says so o
 
 `QueueManager::addKeyed($type, $data, $key, $delaySeconds, $ceilingSeconds)` is the folding on its
 own, for a task that is not an event's.
+
+### Which transport carries a listener's events
+
+A queued listener hears of an event through a transport. The **queue** — a task per listener per
+event, written in the caller's transaction, as above — is every installation's and the default.
+An installation chooses another for all its listeners, and a listener may keep its own:
+
+```php
+// app.php
+'events' => [
+    'transport' => 'queue',                                   // the installation's
+    'listeners' => [App\Listeners\SyncCrm::class => 'queue'], // one listener's own choice
+],
+```
+
+A transport that is not known here, or cannot carry events where it runs (its tables are not
+migrated), is passed over for the queue, with one line in the `events` log: an event is never
+lost to a setting. A listener's code is the same whichever carries it.
+
+`bin/pramnos events:status` shows, for every queued listener, the transport it is set to and the
+one it would use here — a dry run, nothing is fired — so a change to `events` can be checked
+before it is deployed (`--json` for a script). An application adds a transport of its own with
+`Transports::register()` (`Pramnos\Event\Transport\EventTransport`).
 
 ### Domain events as classes
 

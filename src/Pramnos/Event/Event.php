@@ -16,8 +16,8 @@ namespace Pramnos\Event;
  *
  * A listener returning false stops propagation to subsequent listeners.
  *
- * A {@see QueuedListener} is not called by `fire()`: a task is written for it and a worker runs
- * it ({@see QueuedEvents}).
+ * A {@see QueuedListener} is not called by `fire()`: its transport carries the event to it —
+ * the queue by default, a task a worker runs ({@see QueuedEvents}, {@see Transport\Transports}).
  *
  * An event can also be an object — {@see dispatch()}: `Event::dispatch(new JobPostCreated($post))`
  * fires `JobPostCreated::EVENT` with the object as its one argument.
@@ -114,17 +114,18 @@ class Event
         $priorities = self::$listeners[$event];
         ksort($priorities);
 
-        $results = [];
-        $meta    = null;
+        $results  = [];
+        $envelope = null;
 
         foreach ($priorities as $bucket) {
             foreach ($bucket as $listener) {
                 if ($listener instanceof QueuedListener
                     || (is_string($listener) && is_a($listener, QueuedListener::class, true))
                 ) {
-                    // One firing, one id, whichever of its listeners are queued.
-                    $meta    ??= QueuedEvents::meta($event, self::$actor);
-                    $results[] = QueuedEvents::enqueue($listener, $event, $args, $meta);
+                    // One firing, one id, whichever of its listeners are queued — and by whichever
+                    // transport each is set to use.
+                    $envelope ??= new Transport\Envelope($event, $args, QueuedEvents::meta($event, self::$actor));
+                    $results[]  = Transport\Transports::for($listener)->deliver($envelope, $listener);
                     continue;
                 }
 
@@ -202,6 +203,16 @@ class Event
         } else {
             unset(self::$listeners[$event]);
         }
+    }
+
+    /**
+     * The events something listens for, by name.
+     *
+     * @return list<string>
+     */
+    public static function events(): array
+    {
+        return array_keys(array_filter(self::$listeners));
     }
 
     /**
