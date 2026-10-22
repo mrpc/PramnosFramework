@@ -328,6 +328,21 @@ screen shows it. **A Redis that evicts keys (`maxmemory-policy allkeys-*`) is re
 stream is passed over for the queue and the `events` log says why — so give the events an
 instance of their own with `noeviction`, not the page cache's.
 
+**A transport of the application's own** — Kafka, a cloud queue — implements
+`Pramnos\Event\Transport\EventTransport` (`name()`, `available()`, `deliver($envelope,
+$listener)`) and is registered in the application's `init()`:
+
+```php
+Transports::register(new App\Events\KafkaTransport($producer));   // then 'transport' => 'kafka'
+```
+
+`deliver()` receives the firing as an `Envelope` — the event's name, its arguments and its meta,
+with the id every listener of that firing shares — and `QueuedEvents::payload()` gives what to
+send, encoded and checked as the queue and the stream check it. To keep the stream's guarantee
+that nothing is lost between the commit and the broker, write the event in the caller's
+transaction first (`StreamTransport` does, to `event_log`) and publish what is committed, as
+`RedisStream::relay()` does; `available()` false sends the listeners to the queue.
+
 **Watching it.** The Queue screen shows each group under *Event streams*: how many entries wait
 for it to read (counted over at most 10,000 after its position), how many wait to be tried
 again, how many are dead, the oldest waiting, and which consumer holds it now — with *Try the dead
