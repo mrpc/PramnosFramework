@@ -20,6 +20,7 @@ use Pramnos\Event\Event;
 #[CoversClass(Groups::class)]
 #[CoversClass(GroupJoined::class)]
 #[CoversClass(GroupLeft::class)]
+#[CoversClass(\Pramnos\Framework\Migrations\UserGroups\AddMembershipHistoryToUsergroups::class)]
 class GroupsTest extends TestCase
 {
     use AudienceProbe;
@@ -125,7 +126,9 @@ class GroupsTest extends TestCase
 
         // Assert
         $this->assertSame(1, $added);
-        $this->assertSame([['id' => $this->groups['Press'], 'name' => 'Press'], ['id' => $this->groups['Volunteers'], 'name' => 'Volunteers']], $card);
+        $older = ['addedAt' => null, 'addedBy' => null, 'source' => null];
+        $this->assertSame([['id' => $this->groups['Press'], 'name' => 'Press'] + $older, ['id' => $this->groups['Volunteers'], 'name' => 'Volunteers'] + $older], $card,
+            'memberships older than their record say nothing of when');
         $this->assertSame([], Groups::of($this->ids['dan']));
     }
 
@@ -146,5 +149,75 @@ class GroupsTest extends TestCase
             $this->assertNull($empty->by);
             $this->assertSame('admin', $empty->source);
         }
+    }
+
+    /**
+     * A membership keeps when it began, by whom and how; joining and leaving are logged, which is
+     * what counts who entered and who left a group over a week — only real changes, and a
+     * membership older than its record is not counted as entering. A deleted group's log goes
+     * with it.
+     */
+    #[DataProvider('databases')]
+    public function testMembershipsKeepTheirHistory(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $press = $this->groups['Press'];
+        $volunteers = $this->groups['Volunteers'];
+
+        // Act
+        $before = time();
+        Groups::add($press, [$this->ids['anna'], $this->ids['bob']], 7, 'coupon');
+        Groups::remove($press, [$this->ids['anna'], $this->ids['dan']], null, 'rule');
+        Groups::add($volunteers, $this->ids['cara'], null, str_repeat('x', 30));
+        $this->db->queryBuilder()->table('usergroup_log')->insert(['groupid' => $volunteers, 'userid' => $this->ids['dan'], 'action' => 'in', 'createdat' => time() - 9 * 86400, 'actor' => null, 'source' => 'admin']);
+        $moves = Groups::movements();
+        $card  = array_column(Groups::of($this->ids['cara']), null, 'name');
+        $bob   = array_column(Groups::of($this->ids['bob']), null, 'name');
+        Groups::forget($volunteers);
+
+        // Assert
+        $this->assertSame(['entered' => 1, 'left' => 1], $moves[$press], 'anna in and out; bob was in already; dan never was');
+        $this->assertSame(['entered' => 1, 'left' => 0], $moves[$volunteers], 'nine days ago is not this week');
+        $this->assertGreaterThanOrEqual($before, $card['Volunteers']['addedAt']);
+        $this->assertSame([null, str_repeat('x', 20)], [$card['Volunteers']['addedBy'], $card['Volunteers']['source']], 'how, cut to its column');
+        $this->assertNull($bob['Press']['addedAt'], 'bob was in before the record: adding him again changes nothing');
+        $this->assertSame(0, (int) $this->db->queryBuilder()->table('usergroup_log')->where('groupid', $volunteers)->count(), 'forgotten with the group');
+        $this->assertSame(2, (int) $this->db->queryBuilder()->table('usergroup_log')->where('groupid', $press)->count(), 'anna in, anna out');
+    }
+
+    /**
+     * The migration only adds: three nullable columns on the memberships — the ones already there
+     * keep their rows, with nothing said of when — and the log. Without it groups work as before,
+     * with no history and no movement; it runs twice without harm, and comes off again.
+     */
+    #[DataProvider('databases')]
+    public function testTheHistoryMigrationAddsAndComesOff(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $application = (new \ReflectionClass(\Pramnos\Application\Application::class))->newInstanceWithoutConstructor();
+        $application->database = $this->db;
+        $migration = new \Pramnos\Framework\Migrations\UserGroups\AddMembershipHistoryToUsergroups($application);
+        $schema    = $this->db->schema();
+
+        // Act
+        $migration->down();
+        Groups::reset();
+        $without = [$schema->hasTable('usergroup_log'), $schema->hasColumn('userstogroups', 'addedat'), Groups::keepsHistory()];
+        $added   = Groups::add($this->groups['Press'], $this->ids['cara'], 2);
+        $plain   = [Groups::movements(), array_column(Groups::of($this->ids['cara']), 'addedAt')];
+        Groups::forget($this->groups['Press']);
+        $migration->up();
+        $migration->up();
+        Groups::reset();
+        $with = [$schema->hasTable('usergroup_log'), $schema->hasColumn('userstogroups', 'addedsource'), Groups::keepsHistory()];
+
+        // Assert
+        $this->assertSame([false, false, false], $without);
+        $this->assertSame(1, $added, 'groups work without it');
+        $this->assertSame([[], [null]], $plain, 'with no history and no movement');
+        $this->assertSame([true, true, true], $with);
+        $this->assertSame(4, (int) $this->db->queryBuilder()->table('userstogroups')->whereNull('addedat')->count(), 'the three rows of the probe and cara\'s, kept, with nothing said of when');
     }
 }

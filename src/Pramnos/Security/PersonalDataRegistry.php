@@ -300,6 +300,7 @@ class PersonalDataRegistry
             'mailing_list_subscribers',
             // Who is in which group: the usergroups feature.
             'userstogroups',
+            'usergroup_log',
             // Events in a stream: their arguments are whatever the application fired them with.
             'event_log',
             'event_deliveries',

@@ -34,6 +34,9 @@ final class Groups
     /** @var array<string, callable(int): list<string|array{name: string, url?: ?string}>> What the application said uses groups */
     private static array $usage = [];
 
+    /** Whether memberships keep their history here, once asked; see {@see keepsHistory()}. */
+    private static ?bool $history = null;
+
     /**
      * Put people in a group; those already in are left as they are.
      *
@@ -46,13 +49,18 @@ final class Groups
         if ($people === []) {
             return 0;
         }
-        $in    = self::membersAmong($group, $people);
-        $added = array_values(array_diff($people, $in));
+        $in      = self::membersAmong($group, $people);
+        $added   = array_values(array_diff($people, $in));
+        $now     = time();
+        $history = self::keepsHistory();
         foreach (array_chunk($added, 500) as $chunk) {
-            self::db()->queryBuilder()->table('#PREFIX#userstogroups')->insertMany(
-                array_map(static fn (int $userid): array => ['userid' => $userid, 'groupid' => $group], $chunk)
-            );
+            self::db()->queryBuilder()->table('#PREFIX#userstogroups')->insertMany(array_map(
+                static fn (int $userid): array => ['userid' => $userid, 'groupid' => $group]
+                    + ($history ? ['addedat' => $now, 'addedby' => $by, 'addedsource' => mb_substr($source, 0, 20)] : []),
+                $chunk
+            ));
         }
+        self::log($group, $added, 'in', $by, $source, $now);
         self::changed($group, $added, 'group_joined', static fn (int $userid) => new GroupJoined($group, $userid, $by, $source));
 
         return count($added);
@@ -72,6 +80,7 @@ final class Groups
             self::db()->queryBuilder()->table('#PREFIX#userstogroups')
                 ->where('groupid', $group)->whereIn('userid', $chunk)->delete();
         }
+        self::log($group, $removed, 'out', $by, $source, time());
         self::changed($group, $removed, 'group_left', static fn (int $userid) => new GroupLeft($group, $userid, $by, $source));
 
         return count($removed);
@@ -100,18 +109,52 @@ final class Groups
     }
 
     /**
-     * The groups a person is in, by name — the person card's panel.
+     * The groups a person is in, by name — the person card's panel — with when they joined, by
+     * whom and how, where that is known (null for a membership older than its record).
      *
-     * @return list<array{id: int, name: string}>
+     * @return list<array{id: int, name: string, addedAt: ?int, addedBy: ?int, source: ?string}>
      */
     public static function of(int $userid): array
     {
-        $rows = self::db()->queryBuilder()->table('#PREFIX#userstogroups AS userstogroups')
+        $history = self::keepsHistory();
+        $rows    = self::db()->queryBuilder()->table('#PREFIX#userstogroups AS userstogroups')
             ->join('#PREFIX#usergroups AS usergroups', 'usergroups.groupid', '=', 'userstogroups.groupid')
-            ->select(['usergroups.groupid', 'usergroups.name'])
+            ->select(array_merge(['usergroups.groupid', 'usergroups.name'], $history ? ['userstogroups.addedat', 'userstogroups.addedby', 'userstogroups.addedsource'] : []))
             ->where('userstogroups.userid', $userid)->orderBy('usergroups.name')->getAllOrFail();
+        $int     = static fn (mixed $v): ?int => $v === null ? null : (int) $v;
 
-        return array_map(static fn (array $row): array => ['id' => (int) $row['groupid'], 'name' => (string) $row['name']], $rows);
+        return array_map(static fn (array $row): array => ['id' => (int) $row['groupid'], 'name' => (string) $row['name'],
+            'addedAt' => $int($row['addedat'] ?? null), 'addedBy' => $int($row['addedby'] ?? null), 'source' => $row['addedsource'] ?? null], $rows);
+    }
+
+    /**
+     * Who joined and who left every group over the last days, from `usergroup_log`, in one
+     * query: what the library sorts by. Empty where the log is not there.
+     *
+     * @return array<int, array{entered: int, left: int}> By group id; a group nobody moved in is absent
+     */
+    public static function movements(int $days = 7): array
+    {
+        if (!self::keepsHistory()) {
+            return [];
+        }
+        $out = [];
+        foreach (self::db()->queryBuilder()->table('#PREFIX#usergroup_log')
+            ->select(['groupid', 'action', new \Pramnos\Database\Expression('COUNT(*) AS n')])
+            ->where('createdat', '>=', time() - $days * 86400)->groupBy(['groupid', 'action'])->getAllOrFail() as $row) {
+            $out[(int) $row['groupid']] ??= ['entered' => 0, 'left' => 0];
+            $out[(int) $row['groupid']][$row['action'] === 'in' ? 'entered' : 'left'] += (int) $row['n'];
+        }
+
+        return $out;
+    }
+
+    /** Forget a deleted group's history with it. */
+    public static function forget(int $group): void
+    {
+        if (self::keepsHistory()) {
+            self::db()->queryBuilder()->table('#PREFIX#usergroup_log')->where('groupid', $group)->delete();
+        }
     }
 
     /**
@@ -160,7 +203,35 @@ final class Groups
     /** Forget what {@see usage()} was told: tests. */
     public static function reset(): void
     {
-        self::$usage = [];
+        self::$usage   = [];
+        self::$history = null;
+    }
+
+    /**
+     * Whether memberships keep their history here: `add_membership_history_to_usergroups` has
+     * run. Asked once a request.
+     */
+    public static function keepsHistory(): bool
+    {
+        return self::$history ??= self::db()->schema()->hasTable('usergroup_log');
+    }
+
+    /**
+     * People joining or leaving a group, in the log.
+     *
+     * @param list<int> $people
+     */
+    private static function log(int $group, array $people, string $action, ?int $by, string $source, int $at): void
+    {
+        if ($people === [] || !self::keepsHistory()) {
+            return;
+        }
+        foreach (array_chunk($people, 500) as $chunk) {
+            self::db()->queryBuilder()->table('#PREFIX#usergroup_log')->insertMany(array_map(
+                static fn (int $userid): array => ['groupid' => $group, 'userid' => $userid, 'action' => $action, 'createdat' => $at, 'actor' => $by, 'source' => mb_substr($source, 0, 20)],
+                $chunk
+            ));
+        }
     }
 
     /**

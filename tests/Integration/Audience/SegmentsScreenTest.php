@@ -111,10 +111,10 @@ class SegmentsScreenTest extends TestCase
         $this->assertSame('segments', $fallback, 'a tab that is no longer there is the default one');
         $this->assertSame(['all' => 3, 'groups' => 2, 'segments' => 1, 'mine' => 1], $groups['counts'], 'each tab says how many it holds');
         $this->assertSame(['all', 'groups', 'segments', 'mine'], $groups['tabs']);
-        $this->assertSame(['#', 'Name', 'Members in it', 'Order in the list', 'Used by', 'Row actions'], $labels($groups), 'groups carry their actions unless told otherwise');
+        $this->assertSame(['#', 'Name', 'Members in it', 'Entered, 7 days', 'Left, 7 days', 'Order in the list', 'Used by', 'Row actions'], $labels($groups), 'groups carry their actions unless told otherwise');
         $this->assertSame(['Name', 'Members in it', 'Entered, 7 days', 'Left, 7 days', 'Used by', 'Owned by', 'Last worked out'], $labels($segments));
         $this->assertSame(['Name', 'Members in it', 'Entered, 7 days', 'Left, 7 days', 'Used by', 'Last worked out'], $labels($mine), 'no owner among one\'s own');
-        $this->assertSame(['pf-groups-table', [['name' => 'tab', 'value' => 'groups']], 3, 'asc', 'User groups'],
+        $this->assertSame(['pf-groups-table', [['name' => 'tab', 'value' => 'groups']], 5, 'asc', 'User groups'],
             [$groups['datatable']->name, $groups['datatable']->aoData, $groups['datatable']->sortColumn, $groups['datatable']->sortOrder, $groups['datatable']->exportName], 'groups by their order');
         $this->assertSame(['pf-segments-table', 1, 'desc', 'Audience segments'],
             [$segments['datatable']->name, $segments['datatable']->sortColumn, $segments['datatable']->sortOrder, $segments['datatable']->exportName], 'segments by most members');
@@ -163,7 +163,7 @@ class SegmentsScreenTest extends TestCase
         $order  = static fn (string $tab, int $column, string $dir): array => ['tab' => $tab, 'order' => [['column' => $column, 'dir' => $dir]]];
 
         // Act
-        $groups     = $this->page($screen, $order('groups', 3, 'asc'));
+        $groups     = $this->page($screen, $order('groups', 5, 'asc'));
         $groupsDesc = $this->page($screen, $order('groups', 2, 'desc'));
         $byNumber   = $this->page($screen, ['tab' => 'groups', 'search' => ['value' => '#' . $press]]);
         $segments   = $this->page($screen, $order('segments', 1, 'desc'));
@@ -179,12 +179,12 @@ class SegmentsScreenTest extends TestCase
         $this->assertSame(3, $groups['draw'], 'the draw counter comes back');
         $this->assertSame(['Volunteers', 'Press'], self::names($groups, 1), 'by the order; none comes after');
         $rows = array_combine(self::names($groups, 1), $groups['data']);
-        $this->assertSame([(string) $press, '<span class="pf-nowrap">1</span>', '<span class="pf-zero">—</span>'], [$rows['Press'][0], $rows['Press'][2], $rows['Press'][3]]);
-        $this->assertSame('3', $rows['Volunteers'][3]);
+        $this->assertSame([(string) $press, '<span class="pf-nowrap">1</span>', '<span class="pf-zero">—</span>'], [$rows['Press'][0], $rows['Press'][2], $rows['Press'][5]]);
+        $this->assertSame('3', $rows['Volunteers'][5]);
         foreach (['href="' . adminUrl('Segments/view/') . $built . '"', 'href="' . adminUrl('Rules/view/') . $rule . '"', 'href="/c/4"', '<span class="pf-chip">package Gold</span>'] as $use) {
-            $this->assertStringContainsString($use, $rows['Press'][4], 'a group is used by ' . $use);
+            $this->assertStringContainsString($use, $rows['Press'][6], 'a group is used by ' . $use);
         }
-        $this->assertSame('<span class="pf-zero">—</span>', $rows['Volunteers'][4]);
+        $this->assertSame('<span class="pf-zero">—</span>', $rows['Volunteers'][6]);
         $this->assertSame(['Volunteers', 'Press'], self::names($groupsDesc, 1), 'two members, then one');
         $this->assertSame(['Press'], self::names($byNumber, 1), 'found by its number');
         $this->assertSame([2, 2], [$segments['recordsTotal'], $segments['recordsFiltered']], 'segments alone');
@@ -265,7 +265,7 @@ class SegmentsScreenTest extends TestCase
         }
         $this->assertSame(['groups', ['groups', 'segments']], $chosen, 'kept in the library\'s order; the default gives way');
         $this->assertSame(['Volunteers', 'Press'], self::names($refused, 1), 'a tab not shown is answered as the first shown');
-        $this->assertCount(5, $actions['data'][0], 'groups without actions here');
+        $this->assertCount(7, $actions['data'][0], 'groups without actions here');
         $rows = array_combine(self::names($mixed), $mixed['data']);
         $this->assertSame('', $rows['Press'][4], 'each row its own kind\'s actions');
         $this->assertStringContainsString(adminUrl('Segments/edit/') . $greek, $rows['Greek speakers'][4]);
@@ -308,13 +308,13 @@ class SegmentsScreenTest extends TestCase
 
         // Assert
         $rows = array_combine(self::names($groups, 1), $groups['data']);
-        $this->assertStringContainsString('disabled="disabled"', $rows['Press'][5], 'in use: not deleted from here');
-        $this->assertStringContainsString('title="Used by: segment Press people"', $rows['Press'][5], 'and it says why');
-        $this->assertStringNotContainsString('disabled', $rows['Volunteers'][5]);
-        $this->assertStringContainsString('action="' . adminUrl('Groups/delete/') . $volunteers . '"', $rows['Volunteers'][5]);
-        $this->assertStringContainsString('data-confirm="Delete this group? Its members keep their accounts."', $rows['Volunteers'][5]);
-        $this->assertStringContainsString('href="' . adminUrl('Groups/view/') . $volunteers . '"', $rows['Volunteers'][5]);
-        $this->assertStringContainsString('href="' . adminUrl('Groups/edit/') . $volunteers . '"', $rows['Volunteers'][5]);
+        $this->assertStringContainsString('disabled="disabled"', $rows['Press'][7], 'in use: not deleted from here');
+        $this->assertStringContainsString('title="Used by: segment Press people"', $rows['Press'][7], 'and it says why');
+        $this->assertStringNotContainsString('disabled', $rows['Volunteers'][7]);
+        $this->assertStringContainsString('action="' . adminUrl('Groups/delete/') . $volunteers . '"', $rows['Volunteers'][7]);
+        $this->assertStringContainsString('data-confirm="Delete this group? Its members keep their accounts."', $rows['Volunteers'][7]);
+        $this->assertStringContainsString('href="' . adminUrl('Groups/view/') . $volunteers . '"', $rows['Volunteers'][7]);
+        $this->assertStringContainsString('href="' . adminUrl('Groups/edit/') . $volunteers . '"', $rows['Volunteers'][7]);
         $this->assertStringContainsString('href="' . adminUrl('Groups/view/') . $volunteers . '"', $rows['Volunteers'][1], 'the name leads to the page by default');
         $this->assertCount(7, $segments['data'][0], 'segments carry none unless told');
         $this->assertCount(8, $both['data'][0]);
@@ -325,7 +325,7 @@ class SegmentsScreenTest extends TestCase
         $this->assertStringContainsString('href="/admin/users/display/groupid/' . $volunteers . '"', array_combine(self::names($linked, 1), $linked['data'])['Volunteers'][1], 'the members\' list');
         $this->assertStringContainsString('href="/admin/users/display/groupid/' . $press . '"', $card, 'the person card follows it');
         $this->assertStringContainsString('href="' . adminUrl('Groups/view/') . $volunteers . '"', $none['data'][1][1] . $none['data'][0][1], 'no members\' list: the page');
-        $this->assertCount(5, $none['data'][0], 'no actions where none are named');
+        $this->assertCount(7, $none['data'][0], 'no actions where none are named');
     }
 
     /**

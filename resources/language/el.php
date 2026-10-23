@@ -1681,4 +1681,6 @@ return [
     'Delete the segment' => 'Διαγραφή του segment',
     'Row actions' => 'Ενέργειες',
     'Kind of audience' => 'Είδος',
+    'Joined the group' => 'Μπήκε',
+    'Added by' => 'Από',
 ];

@@ -252,7 +252,8 @@ Groups::add($groupId, [$userid, $other], by: $adminId);     // how many were add
 Groups::remove($groupId, $userid, source: 'rule');
 Groups::addMatching($groupId, $filter, by: $adminId);       // the bulk action, paged
 Groups::removeMatching($groupId, $filter);
-Groups::of($userid);                                        // [['id' => 4, 'name' => 'Press'], …]
+Groups::of($userid);        // [['id' => 4, 'name' => 'Press', 'addedAt' => 1761…, 'addedBy' => 7, 'source' => 'admin'], …]
+Groups::movements();        // [4 => ['entered' => 12, 'left' => 3], …] over seven days
 ```
 
 Only real changes count: a person already in is not added again, and one not in is not removed.
@@ -263,6 +264,16 @@ application's own word). The Groups screen adds and removes members through it t
 
 An application with its own `addGroup()` / `removeGroup()` on its user class can keep them and
 have them call these, so a membership changed anywhere is announced the same way.
+
+**History.** With the migration `add_membership_history_to_usergroups`, a membership keeps when it
+began, the account that made it and how (`userstogroups.addedat`, `addedby`, `addedsource`), and
+every real change is logged in `usergroup_log` — who joined or left, when, by whom, how. The log
+is what counts who entered and who left a group over a week, as `segment_members` does for a
+segment, so only changes made through `Groups::add()` / `remove()` count: memberships older than
+the migration have no date and are not counted as entering, and an application that knows when
+they began from a log of its own fills `addedat` itself. A deleted group's log goes with it
+(`Groups::forget()`). Without the migration groups work as before, with no history and no
+movement (`Groups::keepsHistory()`).
 
 **What uses a group** is what the library's *used by* shows and what keeps a group from being
 deleted: a segment whose filter names it, a rule that reads it or puts people in it or takes them
@@ -389,7 +400,7 @@ server-side datatable, with its own columns, column picker and export name; its 
 | tab | columns | first order |
 |---|---|---|
 | All | name and description, kind, members, used by | kind: groups first, each in its own order |
-| Groups | #, name and description, members, order, used by | the order; a group with none after |
+| Groups | #, name and description, members, entered and left in seven days, order, used by | the order; a group with none after |
 | Segments | name and description, members, entered and left in seven days, used by, owner, last worked out | most members |
 | Mine | as Segments, without the owner | most members |
 

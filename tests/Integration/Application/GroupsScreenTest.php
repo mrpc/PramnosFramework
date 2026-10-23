@@ -16,6 +16,8 @@ use Pramnos\Framework\Migrations\Auth\CreateUsersTable;
 use Pramnos\Framework\Migrations\UserGroups\CreateUsergroupsTables;
 use Pramnos\Framework\Testing\Schema;
 
+require_once dirname(__DIR__, 3) . '/database/migrations/framework/usergroups/2026_10_23_000001_add_membership_history_to_usergroups.php';
+
 /** The screen, with the admin floor lifted and its output captured. */
 class ProbeGroups extends Groups
 {
@@ -139,6 +141,7 @@ class GroupsScreenTest extends TestCase
                 \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverRolesTable::class,
                 CreateUsergroupsTables::class,
                 \Pramnos\Framework\Migrations\UserGroups\CreateAuthserverGroupRolesTable::class,
+                \Pramnos\Framework\Migrations\UserGroups\AddMembershipHistoryToUsergroups::class,
             ]
         );
 
@@ -349,8 +352,11 @@ class GroupsScreenTest extends TestCase
         $ids     = [];
         foreach (['alice', 'bob', 'carol'] as $name) {
             $ids[$name] = $this->user($name);
-            $this->db->queryBuilder()->table('userstogroups')->insert(['groupid' => $groupId, 'userid' => $ids[$name]]);
         }
+        // bob from before memberships had a record; alice by a coupon; carol by alice.
+        $this->db->queryBuilder()->table('userstogroups')->insert(['groupid' => $groupId, 'userid' => $ids['bob']]);
+        \Pramnos\Audience\Groups::add($groupId, $ids['alice'], null, 'coupon');
+        \Pramnos\Audience\Groups::add($groupId, $ids['carol'], $ids['alice'], 'admin');
         $this->db->queryBuilder()->table('users')->where('userid', $ids['bob'])->update(['firstname' => 'Robert', 'lastname' => 'Smith']);
         $this->db->queryBuilder()->table('userstogroups')->insert(['groupid' => $other, 'userid' => $this->user('dave')]);
         \Pramnos\Audience\Groups::usage('coupons', static fn (int $id): array => $id === $groupId ? [['name' => 'coupon SUMMER', 'url' => '/admin/Coupons/edit/4'], 'package Gold'] : []);
@@ -378,7 +384,11 @@ class GroupsScreenTest extends TestCase
         $this->assertSame([['name' => 'coupon SUMMER', 'url' => '/admin/Coupons/edit/4'], ['name' => 'package Gold', 'url' => null]], $page->lastView->uses);
         $this->assertSame(['carol', 'bob', 'alice'], $users($all), 'only this group, by username descending');
         $this->assertSame([3, 3], [$all['recordsTotal'], $all['recordsFiltered']]);
-        $this->assertStringContainsString('name="userid" value="' . $ids['carol'] . '"', $all['data'][0][4], 'each row removes its member');
+        $this->assertStringContainsString('name="userid" value="' . $ids['carol'] . '"', $all['data'][0][6], 'each row removes its member');
+        $this->assertSame([date('d/m/Y'), 'alice'], [substr(strip_tags($all['data'][0][4]), 0, 10), $all['data'][0][5]], 'carol: when, and by whom');
+        $this->assertSame('<span class="pf-muted">coupon</span>', $all['data'][2][5], 'alice: by no account, so how');
+        $this->assertSame(['<span class="pf-zero">—</span>', '<span class="pf-zero">—</span>'], [$all['data'][1][4], $all['data'][1][5]], 'bob: from before the record');
+        $this->assertSame(['Joined the group', 'Added by'], [$page->lastView->members->aoColumns['Joined the group']->label, $page->lastView->members->aoColumns['Added by']->label]);
         $this->assertSame(['bob'], $users($byName), 'by surname, ignoring case');
         $this->assertSame('Robert Smith', strip_tags($byName['data'][0][2]));
         $this->assertSame(['carol'], $users($byEmail));

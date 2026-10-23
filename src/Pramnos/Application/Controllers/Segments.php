@@ -144,12 +144,13 @@ class Segments extends Controller
         if ($tab === 'groups') {
             return \Pramnos\Http\Response::json(\Pramnos\Html\Datatable\ArraySource::answer(
                 $library['groups'],
-                [0 => 'id', 1 => 'name', 2 => 'members', 3 => 'orderKey'],
+                [0 => 'id', 1 => 'name', 2 => 'members', 3 => 'entered', 4 => 'left', 5 => 'orderKey'],
                 static fn (array $row): string => '#' . $row['id'] . ' ' . $row['name'] . ' ' . $row['description'],
-                static function (array $page) use ($name, $members, $none, $e, $uses, $actions, $withActions): array {
-                    return array_map(static function (array $row) use ($name, $members, $none, $e, $uses, $actions, $withActions): array {
+                static function (array $page) use ($name, $members, $none, $e, $uses, $actions, $withActions, $number): array {
+                    return array_map(static function (array $row) use ($name, $members, $none, $e, $uses, $actions, $withActions, $number): array {
                         $found = \Pramnos\Audience\Groups::uses($row['id']);
-                        $cells = [(string) $row['id'], $name($row), $members($row), $row['order'] === null ? $none : $e((string) $row['order']), $uses($found)];
+                        $cells = [(string) $row['id'], $name($row), $members($row), $number($row['entered'], 'pf-up'), $number($row['left'], 'pf-down'),
+                            $row['order'] === null ? $none : $e((string) $row['order']), $uses($found)];
                         if ($withActions) {
                             $cells[] = $actions('Groups', $row['id'], $found);
                         }
@@ -236,7 +237,7 @@ class Segments extends Controller
         };
         $columns = match ($tab) {
             'all'    => [t('Name'), t('Kind of audience'), t('Members in it'), t('Used by')],
-            'groups' => ['#', t('Name'), t('Members in it'), t('Order in the list'), t('Used by')],
+            'groups' => ['#', t('Name'), t('Members in it'), t('Entered, 7 days'), t('Left, 7 days'), t('Order in the list'), t('Used by')],
             'mine'   => [t('Name'), t('Members in it'), t('Entered, 7 days'), t('Left, 7 days'), t('Used by'), t('Last worked out')],
             default  => [t('Name'), t('Members in it'), t('Entered, 7 days'), t('Left, 7 days'), t('Used by'), t('Owned by'), t('Last worked out')],
         };
@@ -250,7 +251,7 @@ class Segments extends Controller
         // All: by kind, groups first, each in its own order; groups by their order; segments by most members.
         [$table->sortColumn, $table->sortOrder] = match ($tab) {
             'all'    => [1, 'asc'],
-            'groups' => [3, 'asc'],
+            'groups' => [5, 'asc'],
             default  => [1, 'desc'],
         };
 
@@ -287,7 +288,9 @@ class Segments extends Controller
             'entered' => $moved[$segment['id']]['entered'] ?? 0, 'left' => $moved[$segment['id']]['left'] ?? 0,
             'ownerName' => $owners[(int) $segment['owner']] ?? '', 'recomputedAt' => (int) $segment['recomputedAt'],
             'url' => adminUrl('Segments/view/') . $segment['id'], 'mine' => $segment['owner'] === $me], $all);
-        $groups = array_map(static fn (array $group): array => $group + ['url' => Groups::linkFor($group['id'])], $this->groups());
+        $groupMoves = \Pramnos\Audience\Groups::movements();
+        $groups     = array_map(static fn (array $group): array => $group + ['url' => Groups::linkFor($group['id']),
+            'entered' => $groupMoves[$group['id']]['entered'] ?? 0, 'left' => $groupMoves[$group['id']]['left'] ?? 0], $this->groups());
         $mine   = array_values(array_filter($segments, static fn (array $row): bool => $row['mine']));
 
         return ['groups' => $groups, 'segments' => $segments, 'mine' => $mine,

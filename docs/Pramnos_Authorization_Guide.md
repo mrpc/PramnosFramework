@@ -468,7 +468,8 @@ There you:
   in the lists; a group in use (`Audience\Groups::uses()`: a segment, a rule, what the
   application reports) is not deleted, and the refusal says what uses it;
 - open a group to see its members, a page at a time from `Groups/members/{id}`, searched by
-  username, name, email or number, so a group of tens of thousands reads one page; the page also
+  username, name, email or number, so a group of tens of thousands reads one page — with when each
+  joined and who added them, or how, where that is recorded; the page also
   says how many there are, its order and what uses the group, and its delete button is disabled
   while something does;
 - give the group roles, which every member then holds. The section shows where there are roles

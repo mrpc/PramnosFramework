@@ -153,8 +153,8 @@ class Groups extends Controller
         $members->sortColumn = 1;
         $members->sortOrder  = 'asc';
         $members->exportName = t('Members of %s', (string) $group['name']);
-        foreach (['#', t('Username'), t('Full name'), t('Email address'), ''] as $i => $label) {
-            $members->addColumn(htmlspecialchars($label, ENT_QUOTES, 'UTF-8'), true, $i < 4, false);
+        foreach (['#', t('Username'), t('Full name'), t('Email address'), t('Joined the group'), t('Added by'), ''] as $i => $label) {
+            $members->addColumn(htmlspecialchars($label, ENT_QUOTES, 'UTF-8'), true, $i < 6, false);
         }
 
         $view = $this->getView('groups');
@@ -207,6 +207,7 @@ class Groups extends Controller
         $query   = $this->db()->queryBuilder()->table('#PREFIX#userstogroups AS userstogroups')
             ->join('#PREFIX#users AS users', 'users.userid', '=', 'userstogroups.userid')
             ->where('userstogroups.groupid', $id);
+        $history = \Pramnos\Audience\Groups::keepsHistory();
         $total   = (clone $query)->count();
         $search  = trim((string) (is_array($_POST['search'] ?? null) ? ($_POST['search']['value'] ?? '') : ($_POST['search'] ?? '')));
         if ($search !== '') {
@@ -221,7 +222,11 @@ class Groups extends Controller
             });
         }
         $filtered = $search === '' ? $total : (clone $query)->count();
-        $columns  = [0 => 'users.userid', 1 => 'users.username', 2 => 'users.lastname', 3 => 'users.email'];
+        $columns  = [0 => 'users.userid', 1 => 'users.username', 2 => 'users.lastname', 3 => 'users.email']
+            + ($history ? [4 => 'userstogroups.addedat', 5 => 'adder.username'] : []);
+        if ($history) {
+            $query->leftJoin('#PREFIX#users AS adder', 'adder.userid', '=', 'userstogroups.addedby');
+        }
         foreach ((array) ($_POST['order'] ?? []) as $o) {
             if (isset($columns[(int) ($o['column'] ?? -1)])) {
                 $query->orderBy($columns[(int) $o['column']], ($o['dir'] ?? 'asc') === 'desc' ? 'desc' : 'asc');
@@ -238,10 +243,14 @@ class Groups extends Controller
             '<a href="' . $e(\Pramnos\Html\AudienceBuilder::personUrl((int) $m['userid'])) . '">' . $e((string) $m['username']) . '</a>',
             '<span class="pf-nowrap">' . $e(trim($m['firstname'] . ' ' . $m['lastname'])) . '</span>',
             $e((string) $m['email']),
+            ($m['addedat'] ?? null) !== null ? '<span class="pf-nowrap">' . $e(date('d/m/Y H:i', (int) $m['addedat'])) . '</span>' : '<span class="pf-zero">—</span>',
+            ($m['addername'] ?? null) !== null ? $e((string) $m['addername'])
+                : (($m['addedsource'] ?? '') !== '' && ($m['addedsource'] ?? null) !== null ? '<span class="pf-muted">' . $e((string) $m['addedsource']) . '</span>' : '<span class="pf-zero">—</span>'),
             '<form method="post" action="' . $e(adminUrl('Groups/removemember/') . $id) . '" style="display:inline;margin:0">' . $token
                 . '<input type="hidden" name="userid" value="' . (int) $m['userid'] . '">'
                 . '<button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="' . $e(t('Remove this member from the group?')) . '">' . $e(t('Remove from the group')) . '</button></form>',
-        ], $query->select(['users.userid', 'users.username', 'users.email', 'users.firstname', 'users.lastname'])->getAllOrFail());
+        ], $query->select(array_merge(['users.userid', 'users.username', 'users.email', 'users.firstname', 'users.lastname'],
+            $history ? ['userstogroups.addedat', 'userstogroups.addedsource', 'adder.username AS addername'] : []))->getAllOrFail());
 
         return \Pramnos\Http\Response::json(['draw' => (int) ($_POST['draw'] ?? 1), 'recordsTotal' => $total, 'recordsFiltered' => $filtered, 'data' => $rows]);
     }
@@ -379,6 +388,7 @@ class Groups extends Controller
         }
         $this->db()->queryBuilder()->table('#PREFIX#userstogroups')->where('groupid', $id)->delete();
         $this->db()->queryBuilder()->table('#PREFIX#usergroups')->where('groupid', $id)->delete();
+        \Pramnos\Audience\Groups::forget($id);
         $this->db()->cacheflush(self::CACHE_CATEGORY);
 
         $this->addMessage('Group deleted.');
