@@ -44,6 +44,10 @@ class ImpersonationTest extends TestCase
         $app->database = $this->db;
         require_once ROOT . '/database/migrations/framework/auth/2026_10_16_000003_create_impersonations_table.php';
         (new \Pramnos\Framework\Migrations\Auth\CreateImpersonationsTable($app))->up();
+        // Where what happened goes: the audit log, asked afresh on each backend.
+        require_once ROOT . '/database/migrations/framework/authserver/2020_01_01_000024_create_authserver_audit_log_table.php';
+        (new \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverAuditLogTable($app))->up();
+        \Pramnos\Auth\AuditLog::resetTableCache();
 
         $ids = [];
         foreach (['admin' => 99, 'manager' => 90, 'customer' => 1] as $role => $type) {
@@ -86,7 +90,8 @@ class ImpersonationTest extends TestCase
     /**
      * There and back: the administrator's token ends on the way in; the session is the customer's
      * and says who is behind it; back, the customer's token ends, the administrator has a fresh
-     * one, and the way back is spent.
+     * one, and the way back is spent — its row gone, the audit log saying it began and how it
+     * ended.
      */
     #[DataProvider('databases')]
     public function testThereAndBack(string $type, string $host, int $port): void
@@ -101,12 +106,14 @@ class ImpersonationTest extends TestCase
         $theirs   = (string) $_SESSION['auth'];
         $current  = Impersonation::current();
         $banner   = Impersonation::banner('/Impersonation');
+        $open     = $this->db->queryBuilder()->table('#PREFIX#impersonations')->where('actor_userid', $people['admin'])->first()->fields;
         // …and back
         $back     = (new Auth())->endImpersonation();
         $asAdmin  = (int) $_SESSION['uid'];
         $fresh    = (string) $_SESSION['auth'];
         $again    = Impersonation::end();
-        $row      = $this->db->queryBuilder()->table('#PREFIX#impersonations')->where('actor_userid', $people['admin'])->first()->fields;
+        $left     = $this->db->queryBuilder()->table('#PREFIX#impersonations')->where('actor_userid', $people['admin'])->count();
+        $audit    = \Pramnos\Auth\AuditLog::query(['actor' => $people['admin'], 'event' => 'user.impersonation_*']);
 
         // Assert
         $this->assertNull($started);
@@ -120,13 +127,20 @@ class ImpersonationTest extends TestCase
         $this->assertNull(RememberTokens::userFor($theirs), 'the impersonated sign-in ended');
         $this->assertSame($people['admin'], RememberTokens::userFor($fresh));
         $this->assertFalse($again, 'the way back is spent');
-        $this->assertSame([$people['customer'], 'return'], [(int) $row['target_userid'], $row['ended_by']]);
-        $this->assertNotSame(hash('sha256', ''), $row['return_hash'], 'only a hash of the key is kept');
+        $this->assertSame($people['customer'], (int) $open['target_userid']);
+        $this->assertNotSame(hash('sha256', ''), $open['return_hash'], 'only a hash of the key is kept');
+        $this->assertSame(0, (int) $left, 'a way back that was used is not kept');
+        $this->assertSame(['user.impersonation_ended', 'user.impersonation_started'], array_column($audit, 'event_type'), 'what happened is the audit log\'s');
+        $this->assertSame((string) $people['customer'], (string) $audit[0]['target_id']);
+        $this->assertSame('return', $audit[0]['metadata']['how'] ?? null);
         $this->assertNull(Impersonation::current());
         $this->assertSame('', Impersonation::banner('/Impersonation'), 'nobody else now');
     }
 
-    /** An expired way back does not open, and is closed as expired; signing out closes it too. */
+    /**
+     * An expired way back does not open, and is closed as expired; signing out closes it too; the
+     * next one to begin clears any left past its expiry. None of them is kept.
+     */
     #[DataProvider('databases')]
     public function testExpiredAndSignedOut(string $type, string $host, int $port): void
     {
@@ -138,21 +152,21 @@ class ImpersonationTest extends TestCase
 
         // Act
         $expired = Impersonation::end();
-        $first   = $this->db->queryBuilder()->table('#PREFIX#impersonations')->where('actor_userid', $people['admin'])->first()->fields['ended_by'];
         $this->signIn($people['admin']);
         Impersonation::start($people['customer']);
         (new Auth())->logout();
-        $endings = [];
-        $result  = $this->db->queryBuilder()->table('#PREFIX#impersonations')->where('actor_userid', $people['admin'])->orderBy('id')->get();
-        while (($row = $result->fetch()) !== null) {
-            $endings[] = $row['ended_by'];
-        }
+        $this->db->queryBuilder()->table('#PREFIX#impersonations')->insert(['actor_userid' => $people['admin'], 'target_userid' => $people['customer'],
+            'return_hash' => str_repeat('0', 64), 'remember' => false, 'created_at' => time() - 7200, 'expires_at' => time() - 3600]);
+        $this->signIn($people['admin']);
+        Impersonation::start($people['customer']);
+        $kept    = (int) $this->db->queryBuilder()->table('#PREFIX#impersonations')->where('actor_userid', $people['admin'])->count();
+        $endings = array_map(static fn (array $row): ?string => $row['metadata']['how'] ?? null,
+            \Pramnos\Auth\AuditLog::query(['actor' => $people['admin'], 'event' => 'user.impersonation_ended']));
 
         // Assert
         $this->assertFalse($expired);
-        $this->assertSame('expired', $first);
-        $this->assertSame(['expired', 'logout'], $endings);
-        $this->assertNull(Impersonation::current());
+        $this->assertSame(['logout', 'expired'], $endings, 'newest first: how each ended');
+        $this->assertSame(1, $kept, 'only the one open now: the one left past its expiry was cleared when this began');
     }
 
     /**
@@ -243,8 +257,8 @@ class ImpersonationTest extends TestCase
     }
 
     /**
-     * An account that cannot sign in — deactivated — is refused, and the attempt closed, not left
-     * open; before `migrate` has made the table, it is refused saying so, and nothing changes.
+     * An account that cannot sign in — deactivated — is refused, and the attempt not left open but
+     * audited as refused; before `migrate` has made the table, it is refused saying so, and nothing changes.
      */
     #[DataProvider('databases')]
     public function testWhenItCannotBeDone(string $type, string $host, int $port): void
@@ -256,7 +270,8 @@ class ImpersonationTest extends TestCase
 
         // Act
         $inactive = Impersonation::start($people['customer']);
-        $closed   = $this->db->queryBuilder()->table('#PREFIX#impersonations')->where('actor_userid', $people['admin'])->first()->fields['ended_by'];
+        $closed   = (int) $this->db->queryBuilder()->table('#PREFIX#impersonations')->where('actor_userid', $people['admin'])->count();
+        $refused  = \Pramnos\Auth\AuditLog::query(['actor' => $people['admin'], 'event' => 'user.impersonation_ended']);
         $this->db->schema()->dropTableIfExists('impersonations');
         $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $people['customer'])->update(['active' => 1]);
         $noTable  = Impersonation::start($people['customer']);
@@ -269,7 +284,8 @@ class ImpersonationTest extends TestCase
 
         // Assert
         $this->assertSame('That account cannot sign in.', $inactive);
-        $this->assertSame('refused', $closed);
+        $this->assertSame(0, $closed, 'the attempt is not left open');
+        $this->assertSame('refused', $refused[0]['metadata']['how'] ?? null);
         $this->assertSame('Signing in as somebody else is not set up here (run migrate).', $noTable);
         $this->assertFalse($noWayBack);
         $this->assertSame($people['admin'], (int) $_SESSION['uid'], 'still the administrator');

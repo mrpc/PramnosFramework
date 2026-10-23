@@ -138,6 +138,10 @@ final class AuditLog
                 $query->where('auditid', '<', (int) $filters['before']);
             }
             $result = $query->orderBy('auditid', 'desc')->limit(max(1, min(self::MAX_ROWS, $limit)))->get();
+            // A backend can answer a failed query with false rather than throw.
+            if ($result === false) {
+                return [];
+            }
         } catch (\Throwable $e) {
             \Pramnos\Logs\Logger::log('AuditLog::query failed: ' . $e->getMessage(), 'auth');
 

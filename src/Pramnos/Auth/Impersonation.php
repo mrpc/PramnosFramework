@@ -20,7 +20,12 @@ namespace Pramnos\Auth;
  * held only in the impersonated session, whose hash is kept in `impersonations` with an expiry —
  * eight hours, or `'auth' => ['impersonation' => ['hours' => …]]`. Coming back ends the
  * impersonated sign-in's token and gives the administrator a fresh one, without a password.
- * Signing out while impersonating ends both. Both events go to the activity log.
+ * Signing out while impersonating ends both.
+ *
+ * `impersonations` holds only the ways back still open: one is deleted when it is used, closed or
+ * refused, and those past their expiry when the next begins. What happened is the audit log's —
+ * `user.impersonation_started` and `user.impersonation_ended` with how — and each person's
+ * activity log.
  *
  * Who may: from the `super` role up (`'auth' => ['impersonation' => ['min_role' => …]]`), and only
  * as an account of a lower usertype — never one's own, never an equal or a higher one.
@@ -59,8 +64,14 @@ final class Impersonation
         }
 
         $key      = bin2hex(random_bytes(32));
-        $remember = \Pramnos\Http\Request::getInstance()->cookieget('auth') !== null;
         $now      = time();
+        try {
+            // Only open ways back are kept: those past their expiry go now.
+            self::table()->where('expires_at', '<', $now)->delete();
+        } catch (\Throwable) {
+            // No table: the insert below says so.
+        }
+        $remember = \Pramnos\Http\Request::getInstance()->cookieget('auth') !== null;
         try {
             // Its answer, not only an exception: PostgreSQL reports a missing table as false.
             $stored = self::table()->insert([
@@ -84,7 +95,7 @@ final class Impersonation
         // The sign-in as the other account ends the administrator's token on its way in.
         $auth ??= Auth::getInstance();
         if (!$auth->loginById($targetUserId, false)) {
-            self::table()->where('id', $id)->update(['ended_at' => time(), 'ended_by' => 'refused']);
+            self::close($id, 'refused');
 
             return 'That account cannot sign in.';
         }
@@ -94,6 +105,7 @@ final class Impersonation
 
         ActivityLog::record($actorId, 'impersonate', ['target' => $targetUserId]);
         ActivityLog::record($targetUserId, 'impersonated', ['by' => $actorId]);
+        AuditLog::record('user.impersonation_started', $actorId, $targetUserId, ['hours' => self::hours()]);
 
         return null;
     }
@@ -107,7 +119,7 @@ final class Impersonation
     {
         $way = self::current();
         $row = $way === null ? null : self::row((int) $way['id']);
-        if ($row === null || $row['ended_at'] !== null || !hash_equals((string) $row['return_hash'], hash('sha256', (string) $way['key']))) {
+        if ($row === null || !hash_equals((string) $row['return_hash'], hash('sha256', (string) $way['key']))) {
             return false;
         }
         if ((int) $row['expires_at'] < time()) {
@@ -188,9 +200,18 @@ final class Impersonation
         return $result && (int) $result->numRows > 0 ? $result->fields : null;
     }
 
+    /**
+     * A way back closed — used, signed out of, expired or refused: it is deleted, and the audit
+     * log says how it ended.
+     */
     private static function close(int $id, string $how): void
     {
-        self::table()->where('id', $id)->whereNull('ended_at')->update(['ended_at' => time(), 'ended_by' => $how]);
+        $row = self::row($id);
+        if ($row === null) {
+            return;
+        }
+        self::table()->where('id', $id)->delete();
+        AuditLog::record('user.impersonation_ended', (int) $row['actor_userid'], (int) $row['target_userid'], ['how' => $how]);
     }
 
     /** The role from which a person may sign in as somebody else. */

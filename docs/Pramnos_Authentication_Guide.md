@@ -173,12 +173,16 @@ echo \Pramnos\Auth\Impersonation::banner(sURL . 'Impersonation');
 
 - **Nothing that signs the administrator in stays in the browser.** Their token ends when the
   other sign-in begins. The way back is a one-time key held only in the impersonated session. Its
-  hash is kept in `impersonations`, with who, as whom, and how it ended.
+  hash is kept in `impersonations` while the way back is open — who, as whom, until when — and the
+  row goes when it is used, signed out of, refused, or left past its expiry when the next begins.
 - **Coming back** (`POST /Impersonation`) ends the impersonated sign-in's token and signs the
   administrator in with a fresh one. The way back is then spent.
 - **Ending it otherwise.** The way back is open for eight hours. Signing out while impersonating
   closes it, so neither account stays signed in.
-- **The activity log records both events**: `impersonate`/`impersonated` and `impersonation_end`.
+- **What happened is in the logs, not the table.** The audit log records
+  `user.impersonation_started` and `user.impersonation_ended` with how it ended (`return`,
+  `logout`, `expired`, `refused`); each person's activity log records `impersonate`/`impersonated`
+  and `impersonation_end`.
 - **A shortcut of the application's own undoes it.** Code that signs the administrator back in
   on an admin request (from a cookie of its own, say) does so a moment after the impersonation
   starts. Remove it, or skip it while `Impersonation::current()` is not null.

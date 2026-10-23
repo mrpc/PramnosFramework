@@ -5,8 +5,9 @@ namespace Pramnos\Framework\Migrations\Auth;
 use Pramnos\Database\Migration;
 
 /**
- * `impersonations` — each time somebody signed in as somebody else: who, as whom, when it ended,
- * and the hash of the one-time key that brings the first back without a password.
+ * `impersonations` — somebody signed in as somebody else right now: who, as whom, until when, and
+ * the hash of the one-time key that brings the first back without a password. A row lives while
+ * the way back is open; what happened is the audit log's.
  */
 class CreateImpersonationsTable extends Migration
 {
@@ -14,7 +15,7 @@ class CreateImpersonationsTable extends Migration
     public string  $scope        = 'framework';
     public int     $priority     = 50;
     public array   $dependencies = ['create_users_table'];
-    public $description  = 'Creates impersonations, the record of signing in as another account';
+    public $description  = 'Creates impersonations, the ways back from signing in as another account that are still open';
 
     public function up(): void
     {
@@ -24,7 +25,7 @@ class CreateImpersonationsTable extends Migration
         }
 
         $schema->createTable('impersonations', function ($table) {
-            $table->comment('Signing in as another account: who, as whom, and the way back');
+            $table->comment('Signed in as another account now: who, as whom, and the way back while it is open');
             $table->increments('id');
             $table->bigInteger('actor_userid')->comment('Who signed in as somebody else');
             $table->bigInteger('target_userid')->comment('As whom');
@@ -32,8 +33,6 @@ class CreateImpersonationsTable extends Migration
             $table->boolean('remember')->default(false)->comment('Whether the actor had a remembered sign-in to restore');
             $table->integer('created_at');
             $table->integer('expires_at');
-            $table->integer('ended_at')->nullable();
-            $table->string('ended_by', 16)->nullable()->comment('return, logout or expired');
             $table->index(['actor_userid'], 'idx_impersonations_actor');
             $table->index(['target_userid'], 'idx_impersonations_target');
         });
