@@ -1563,6 +1563,8 @@ return [
     'Former member' => 'Πρώην μέλος',
     'Deleted profile' => 'Διαγραμμένο προφίλ',
     '(you)' => '(εσύ)',
+    'Remove preview' => 'Αφαίρεση προεπισκόπησης',
+    'Play' => 'Αναπαραγωγή',
     'Only a direct or group conversation keeps a member with no account.' => 'Μόνο μια προσωπική ή ομαδική συζήτηση κρατά μέλος χωρίς λογαριασμό.',
     'Faces above the button' => 'Πρόσωπα πάνω από το κουμπί',
     'Put away' => 'Απόκρυψη',

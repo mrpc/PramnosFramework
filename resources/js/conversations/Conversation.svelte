@@ -281,6 +281,7 @@
             'message.deleted': (m) => changed(m, 'message.deleted'),
             'message.reacted': (m) => changed(m, 'message.reacted'),
             'message.pinned': (m) => changed(m, 'message.pinned'),
+            'message.unfurled': (m) => changed(m, 'message.unfurled'),
             // The analyst on an answer — told by the server, which a worker can do and a whisper cannot.
             'assistant.thinking': (p) => {
                 const until = p && p.until ? p.until * 1000 : Date.now() + ASK_MS;

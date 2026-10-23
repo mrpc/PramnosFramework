@@ -387,6 +387,7 @@ class Worker
         \Pramnos\Llm\Chat\Routines::TASK => \Pramnos\Llm\Chat\TaskRunTask::class,
         \Pramnos\Event\EventListenerTask::TYPE => \Pramnos\Event\EventListenerTask::class,
         \Pramnos\Audience\Rules\Engine::TASK => \Pramnos\Audience\Rules\RuleTask::class,
+        \Pramnos\Conversations\Unfurls::TASK => \Pramnos\Conversations\UnfurlTask::class,
     ];
 
     // ── Factory hook ──────────────────────────────────────────────────────────

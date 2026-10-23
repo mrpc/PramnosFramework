@@ -45,6 +45,8 @@ use Pramnos\Http\Response;
  * | `delete/{id}` | POST | — | `{ok}` |
  * | `react/{id}` | POST | `emoji`, `on` | `{ok}` |
  * | `pin/{id}` | POST | `on` | `{ok}` |
+ * | `unfurl/{id}` | POST | `url` | `{ok}`: the writer takes that link's preview card off the message |
+ * | `preview` | GET | `name` | a preview card's picture, kept here so a reader's browser never asks the other site |
  * | `read/{id}` | POST | `message` | `{ok}` |
  * | `unread/{id}` | POST | `message` | `{ok}`: unread from that message on (a reply: from its root) |
  * | `notify/{id}` | POST | `notify` (all, mentions, none), `muted` | `{ok}` |
@@ -56,7 +58,7 @@ use Pramnos\Http\Response;
 class Conversations extends Controller
 {
     /** The writes: each a POST with the session's token. */
-    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread'];
+    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread'];
 
     /** The JSON body, decoded once. @var array<string, mixed>|null */
     private ?array $json = null;
@@ -64,7 +66,7 @@ class Conversations extends Controller
     /** Registers the actions: all behind sign-in, the writes POSTs with the session's token. */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'refs', 'emergencykey'], self::WRITES));
+        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'preview', 'refs', 'emergencykey'], self::WRITES));
         $this->addWriteAction(self::WRITES);
         parent::__construct($application);
     }
@@ -382,6 +384,28 @@ class Conversations extends Controller
 
             return ['ok' => true];
         });
+    }
+
+    /** Take a link's preview card off one's own message. */
+    public function unfurl(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $this->readable($me);
+            \Pramnos\Conversations\Unfurls::hide($this->id(), (string) $this->in('url'), (int) $me->userid);
+
+            return ['ok' => true];
+        });
+    }
+
+    /** A preview card's picture, to somebody who may use the conversations; a 404 to anybody else. */
+    public function preview(): mixed
+    {
+        if (!Access::canUse($this->me()) || !\Pramnos\Conversations\Unfurls::sendImage((string) $this->in('name'))) {
+            return Response::json(['error' => t('That file is not here.')], 404);
+        }
+        $this->terminate();
+
+        return null;
     }
 
     /** Mark a conversation read up to a message. */

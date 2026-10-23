@@ -210,6 +210,8 @@ final class Client
             'Save for later' => t('Save for later'),
             'Unpin message' => t('Unpin message'),
             'Pin message' => t('Pin message'),
+            'Remove preview' => t('Remove preview'),
+            'Play' => t('Play'),
             'Edit message' => t('Edit message'),
             'Delete message' => t('Delete message'),
             'Message people' => t('Message people'),

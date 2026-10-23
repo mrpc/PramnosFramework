@@ -308,3 +308,25 @@ test('an inactive person is suggested only by a whole part of their name', async
     assert.equal(lastSignIn(0), null);
     assert.equal(typeof lastSignIn(1700000000), 'string');
 });
+
+/**
+ * A link card's video plays in its site's own player, YouTube's from its cookie-free domain and
+ * Vimeo's without tracking, starting at once; an id cannot break out of the address, and a
+ * provider with no player has none.
+ */
+test('a card\'s video plays in its site\'s player, without cookies where there is such a player', async () => {
+    // Arrange
+    const { playerUrl } = await load();
+
+    // Act
+    const youtube = playerUrl({ provider: 'youtube', id: 'dQw4w9WgXcQ' });
+    const vimeo = playerUrl({ provider: 'vimeo', id: '76979871' });
+    const odd = playerUrl({ provider: 'youtube', id: 'a"b/c' });
+
+    // Assert
+    assert.equal(youtube, 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1');
+    assert.equal(vimeo, 'https://player.vimeo.com/video/76979871?autoplay=1&dnt=1');
+    assert.equal(odd, 'https://www.youtube-nocookie.com/embed/a%22b%2Fc?autoplay=1', 'escaped');
+    assert.equal(playerUrl({ provider: 'spotify', id: 'x' }), null);
+    assert.equal(playerUrl(null), null);
+});

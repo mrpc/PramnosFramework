@@ -190,6 +190,8 @@ final class Messages
         if (!empty($options['quiet'])) {
             return $id;
         }
+        // Its links' cards, read in the queue; history brought in quietly gets none.
+        Unfurls::remember($id, $body);
         $mentioned = self::mention($id, $conversationId, $author, $body, $at);
         Realtime::posted($id, $mentioned);
         \Pramnos\Event\Event::dispatch(new MessagePosted($id, $conversationId, $author, $thread));
@@ -232,6 +234,7 @@ final class Messages
         ]);
         $db->queryBuilder()->table('#PREFIX#conversation_mentions')->where('messageid', $id)->delete();
         self::mention($id, $message['conversationId'], $by, $body, time());
+        Unfurls::remember($id, $body);
         Realtime::changed($id, 'message.edited');
         // What it said before, as a save's diff: the changelog keeps it its thirty days, where it
         // has the feature, and nothing else does.
@@ -471,6 +474,7 @@ final class Messages
         }
         $names = People::names(array_merge(array_filter(array_column($messages, 'authorId')), array_filter(array_map('intval', array_column($roots, 'authorid'))),
             self::mentionedIn($messages)));
+        $cards = Unfurls::cards(array_combine($ids, array_map(static fn (array $m): array => $m['unfurls'] ?? [], $messages)));
 
         return array_map(static fn (array $m): array => array_merge($m, [
             'author'    => $m['authorId'] === null ? null : ($names[$m['authorId']] ?? '#' . $m['authorId']),
@@ -482,6 +486,7 @@ final class Messages
             'rootPreview' => $m['broadcast'] && isset($roots[$m['threadRootId']]) ? self::preview($roots[$m['threadRootId']], $names) : null,
             // The application's patterns, read now: one declared later finds older messages too.
             'refs'      => array_values(array_unique(array_merge($m['refs'], $m['deletedAt'] !== null ? [] : References::find($m['body'])))),
+            'unfurls'   => $m['deletedAt'] !== null ? [] : ($cards[$m['id']] ?? []),
         ]), $messages);
     }
 
@@ -640,6 +645,8 @@ final class Messages
             'threadRootId' => $int($row['threadrootid']), 'broadcast' => (bool) ($row['broadcast'] ?? false), 'replyCount' => (int) $row['replycount'], 'lastReplyAt' => $int($row['lastreplyat']),
             'editedAt' => $int($row['editedat']), 'deletedAt' => $int($row['deletedat']), 'source' => $row['source'] === null ? null : (string) $row['source'],
             'externalId' => $row['externalid'] === null ? null : (string) $row['externalid'],
-            'refs' => $row['refs'] === null ? [] : (array) json_decode((string) $row['refs'], true), 'at' => (int) $row['at_unix']];
+            'refs' => $row['refs'] === null ? [] : (array) json_decode((string) $row['refs'], true), 'at' => (int) $row['at_unix'],
+            // Its links with a card, as kept; present() gives the cards themselves.
+            'unfurls' => Unfurls::decode($row['unfurls'] ?? null)];
     }
 }

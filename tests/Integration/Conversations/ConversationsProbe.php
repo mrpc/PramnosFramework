@@ -66,6 +66,8 @@ trait ConversationsProbe
         require_once ROOT . '/database/migrations/framework/conversations/2026_10_23_000001_add_broadcast_to_conversation_messages.php';
         require_once ROOT . '/database/migrations/framework/conversations/2026_10_23_000002_add_former_members_to_conversation_members.php';
         require_once ROOT . '/database/migrations/framework/conversations/2026_10_23_000003_index_conversation_messages_by_time.php';
+        require_once ROOT . '/database/migrations/framework/conversations/2026_10_23_000004_add_unfurls_to_conversation_messages.php';
+        require_once ROOT . '/database/migrations/framework/conversations/2026_10_23_000005_create_link_previews_table.php';
         require_once ROOT . '/database/migrations/framework/llm/2026_10_13_000003_create_chat_conversations_table.php';
         require_once ROOT . '/database/migrations/framework/llm/2026_10_13_000004_create_chat_messages_table.php';
         require_once ROOT . '/database/migrations/framework/llm/2026_10_13_000009_add_tags_to_chat_conversations.php';
@@ -111,6 +113,8 @@ trait ConversationsProbe
             \Pramnos\Framework\Migrations\Conversations\AddBroadcastToConversationMessages::class,
             \Pramnos\Framework\Migrations\Conversations\AddFormerMembersToConversationMembers::class,
             \Pramnos\Framework\Migrations\Conversations\IndexConversationMessagesByTime::class,
+            \Pramnos\Framework\Migrations\Conversations\AddUnfurlsToConversationMessages::class,
+            \Pramnos\Framework\Migrations\Conversations\CreateLinkPreviewsTable::class,
             // The changelog: what a message said before an edit, and what moderation did.
             \Pramnos\Framework\Migrations\Changelog\CreateChangelogTables::class,
             \Pramnos\Framework\Migrations\Changelog\AddScopeToChangelogEvents::class,

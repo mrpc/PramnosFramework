@@ -10,7 +10,7 @@
     import Card from './Card.svelte';
     import { cardsFor, drawable, charts } from './extras.js';
     import { t, tn, clock } from './t.js';
-    import { size, tokensToText, mentionsToTokens, initials } from './logic.js';
+    import { size, tokensToText, mentionsToTokens, initials, playerUrl } from './logic.js';
 
     let {
         message, continued = false, me, names = {}, avatars = {}, api, emoji = {}, moderator = false, inThread = false,
@@ -18,6 +18,7 @@
     } = $props();
 
     let picking = $state(false);
+    let playing = $state('');          // the link whose video plays in place
     let refCards = $state({});
 
     // The application's cards for what the message refers to — `#user:48211` — read in batches.
@@ -58,6 +59,15 @@
         const on = !(message.reactions || []).some((r) => r.emoji === e && r.people.includes(me));
         try {
             await api.post('react/' + message.id, { emoji: e, on });
+        } catch (err) {
+            onerror(err.message);
+        }
+    }
+
+    /** Take a link's card off one's own message. */
+    async function hideCard(url) {
+        try {
+            await api.post('unfurl/' + message.id, { url });
         } catch (err) {
             onerror(err.message);
         }
@@ -168,6 +178,26 @@
             {#if message.card && (message.card.title || message.card.text || message.card.image || (message.card.fields && Object.keys(message.card.fields).length))}
                 <Card card={message.card} />
             {/if}
+            {#each message.unfurls || [] as card (card.url)}
+                <div class="pf-conv-unfurl">
+                    {#if mine}<button type="button" class="pf-conv-unfurl-hide" aria-label={t('Remove preview')} title={t('Remove preview')} onclick={() => hideCard(card.url)}>×</button>{/if}
+                    <div class="pf-conv-unfurl-site">{#if card.icon}<img src={card.icon} alt="" width="16" height="16" />{/if}{card.site}{#if card.author} · {card.author}{/if}</div>
+                    {#if card.title}<a class="pf-conv-unfurl-title" href={card.url} target="_blank" rel="noopener noreferrer">{card.title}</a>{/if}
+                    {#if card.description}<p class="pf-conv-unfurl-text">{card.description}</p>{/if}
+                    {#if card.embed && playing === card.url && playerUrl(card.embed)}
+                        <iframe class="pf-conv-unfurl-player" style="aspect-ratio: {card.embed.aspect}" src={playerUrl(card.embed)} title={card.title}
+                            allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+                    {:else if card.image && card.embed && playerUrl(card.embed)}
+                        <button type="button" class="pf-conv-unfurl-media pf-conv-unfurl-play" aria-label={t('Play')} onclick={() => (playing = card.url)}>
+                            <img src={card.image.url} alt="" width={card.image.width} height={card.image.height} loading="lazy" /><span aria-hidden="true">▶</span>
+                        </button>
+                    {:else if card.image}
+                        <a class="pf-conv-unfurl-media" href={card.url} target="_blank" rel="noopener noreferrer">
+                            <img src={card.image.url} alt="" width={card.image.width} height={card.image.height} loading="lazy" />
+                        </a>
+                    {/if}
+                </div>
+            {/each}
             {#each Object.entries(refCards) as [key, card] (key)}
                 {#if card}<Card {card} />{/if}
             {/each}

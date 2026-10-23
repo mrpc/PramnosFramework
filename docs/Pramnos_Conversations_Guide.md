@@ -5,6 +5,7 @@ use_cases:
   - Posting to a conversation from code or an integration — a chat webhook's call, a Jira card, a mention
   - Deciding who may use the conversations and who reads them all
   - Importing messages from another chat once, without duplicates on a second run
+  - Showing a link's preview card under a message, or turning previews off for some sites
   - Keeping the team talking when the server is down, with a second server as a beacon
 ---
 
@@ -327,6 +328,47 @@ because the worker does not know who reads it, and the page translates it into t
 person's placeholders. The message carries the person as a card linked to their page, signed by the
 rule's name; a run retried writes nothing new, and a test send goes to whoever asked for it.
 
+## Link previews
+
+A link in a message gets a card under it, as in Slack: the site and its icon, the title, a few
+words, a picture — and, for YouTube, Vimeo and Loom, a player that opens in place.
+
+```php
+'conversations' => ['unfurl' => false],                                     // no previews
+'conversations' => ['unfurl' => ['deny' => ['ads.example']]],               // not these sites
+'conversations' => ['unfurl' => ['allow' => ['youtube.com', 'vimeo.com']]], // only these
+```
+
+Writing or editing a message keeps its links on it (`Unfurls::urls()`): http(s), at most three,
+each once, none inside code, none that one of the application's `References::match()` patterns
+claims, and none to the application's own address. Reading them is the queue's
+(`conversation_unfurl`, answered by the worker with no registration), so a message is never held
+up by somebody else's site. History brought in quietly (`quiet`) gets no previews.
+
+The worker reads each link through `OutboundUrl::fetch()` — public addresses only, five seconds, a
+megabyte of page — and takes, in order: the site's oEmbed (YouTube, Vimeo, Loom, X, SoundCloud,
+Spotify, TikTok), the oEmbed a page names in its `<head>`, then its OpenGraph and Twitter card and
+`<title>`, read in the page's own charset. A title that is only the link — what a consent wall
+shows a robot — counts as nothing. What a link shows is kept in `pramnos.link_previews` and read
+again after a week (`Unfurls::FRESH`), so the same link in many messages is fetched once. The
+picture and the icon are kept beside the conversations' files (`previews/`) and served from here
+(`preview`), so a reader's browser never asks the other site. When the cards are ready the
+conversation is told `message.unfurled`.
+
+A message gives its cards as `unfurls`:
+
+```json
+[{"url": "https://www.youtube.com/watch?v=…", "title": "…", "description": "…", "site": "YouTube",
+  "author": "the channel", "icon": "/admin/Conversations/preview?name=….png",
+  "image": {"url": "/admin/Conversations/preview?name=….jpg", "width": 480, "height": 360},
+  "embed": {"provider": "youtube", "id": "…", "aspect": 1.7778}}]
+```
+
+`embed` names the video, never the site's own markup: a client builds the player from it —
+`playerUrl()` in the dock's `logic.js` gives YouTube's cookie-free player and Vimeo's without
+tracking. Its writer takes a card off a message (`unfurl/{id}` with `url`, `Unfurls::hide()`), and
+an edit keeps it off.
+
 ## Search
 
 ```php
@@ -405,7 +447,7 @@ A message is written first and told second, through Broadcasting:
 
 | channel | events |
 |---|---|
-| `private-conversation.{id}` | `message.posted`, `message.edited`, `message.deleted`, `message.reacted`, `message.pinned` — each with the message as a reader sees it (name, HTML, reactions, files) |
+| `private-conversation.{id}` | `message.posted`, `message.edited`, `message.deleted`, `message.reacted`, `message.pinned`, `message.unfurled` (its link previews read, or one taken off) — each with the message as a reader sees it (name, HTML, reactions, files, link previews) |
 | `private-conversation.{id}` | `assistant.thinking` `{thread, name, until}` when the analyst begins on a question there — `thread` null for the conversation itself — and `assistant.done` `{thread}` when it has finished, answered or not: the server says it, since a worker cannot whisper |
 | each member's own (`private-users.{id}`, or `broadcasting.notifications_channel`) | `conversation.activity`: a message in one of their conversations — its ids, its writer, whether it mentions them — for a sidebar's unread and a window that opens; `conversation.read`: what they have read there moved — read on another page, or marked unread — `{conversationId, lastReadId, unread, mentions}`; `conversation.changed` `{conversationId, mergedFrom}`: who is in it changed under them (`claimFormer()`) |
 | `presence-chat` | who of the team is connected, with their name |
@@ -604,6 +646,8 @@ conversation or message the person does not read 404.
 | `delete/{id}` | POST | — | `{ok}` |
 | `react/{id}` | POST | `emoji`, `on` | `{ok}` |
 | `pin/{id}` | POST | `on` | `{ok}` |
+| `unfurl/{id}` | POST | `url` | `{ok}`: the writer takes that link's preview card off the message |
+| `preview` | GET | `name` | a preview card's picture or icon, kept here |
 | `read/{id}` | POST | `message` | `{ok}` |
 | `unread/{id}` | POST | `message` | `{ok}` — unread from that message on, a reply from its root; 404 to somebody not in it |
 | `notify/{id}` | POST | `notify` (`all`, `mentions`, `none`), `muted` | `{ok}` |
@@ -721,7 +765,8 @@ where the application wants the team taken.
 
 The tables are `conversations`, `conversation_members`, `conversation_messages`,
 `conversation_reactions`, `conversation_mentions`, `conversation_pins` and `conversation_files`,
-all declared personal data. What a message said before an edit is not kept in a table of its own:
+all declared personal data. What each link shows is in `pramnos.link_previews`, one row per link —
+the framework's cache, not personal data. What a message said before an edit is not kept in a table of its own:
 an edit is a save's diff, written to the change feed (entity `conversation_message`) and kept as
 long as the changelog keeps diffs — thirty days unless app.php says otherwise. Without the
 `changelog` feature an edit is marked as one, and what it said before is not kept. Messages are kept for

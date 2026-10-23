@@ -322,3 +322,21 @@ export function keepDraft(me, conversationId, text, storage = globalThis.localSt
 export function lastSignIn(since) {
     return since > 0 ? new Date(since * 1000).toLocaleDateString() : null;
 }
+
+/**
+ * Where a link card's video plays in place: its site's player — YouTube's without its cookies,
+ * Vimeo's without tracking — starting at once; null for a provider without one.
+ *
+ * @param {{provider: string, id: string}} embed
+ * @returns {string|null}
+ */
+export function playerUrl(embed) {
+    const id = encodeURIComponent(String(embed?.id ?? ''));
+    const players = {
+        youtube: 'https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1',
+        vimeo: 'https://player.vimeo.com/video/' + id + '?autoplay=1&dnt=1',
+        loom: 'https://www.loom.com/embed/' + id + '?autoplay=1',
+    };
+
+    return id !== '' && players[embed.provider] ? players[embed.provider] : null;
+}

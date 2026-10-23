@@ -1878,6 +1878,39 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-conv-compact .pf-conv-thread { position: absolute; inset: 0; z-index: 10; grid-column: 1; }
 .pf-conv-compact:has(> .pf-conv-thread) { grid-template-columns: minmax(0, 1fr); }
 .pf-conv-compact .pf-conv-start { padding-top: 0.75rem; }
+/* A link's card under a message: its site, title, words, picture — a video plays in place. */
+.pf-conv-unfurl {
+    position: relative;
+    max-width: 26rem;
+    margin-top: 0.4rem;
+    padding: 0.25rem 1.75rem 0.25rem 0.75rem;
+    border-left: 3px solid var(--pf-line);
+}
+.pf-conv-unfurl-site { display: flex; align-items: center; gap: 0.35rem; font-size: 0.8em; opacity: 0.75; }
+.pf-conv-unfurl-site img { width: 16px; height: 16px; }
+.pf-conv-unfurl-title { display: block; font-weight: 600; }
+.pf-conv-unfurl-text { margin: 0.15rem 0 0; font-size: 0.9em; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.pf-conv-unfurl-media { position: relative; display: block; margin-top: 0.35rem; padding: 0; border: 0; background: none; cursor: pointer; }
+.pf-conv-unfurl-media img, .pf-conv-unfurl-player {
+    display: block;
+    width: 100%;
+    max-height: 15rem;
+    object-fit: contain;
+    border: 1px solid var(--pf-line);
+    border-radius: var(--pf-radius);
+}
+.pf-conv-unfurl-player { height: auto; max-height: none; }
+.pf-conv-unfurl-play span {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    padding: 0.4rem 0.75rem;
+    border-radius: 999px;
+    background: rgb(0 0 0 / 0.65);
+    color: #fff;
+}
+.pf-conv-unfurl-hide { position: absolute; top: 0; right: 0.25rem; border: 0; background: none; cursor: pointer; opacity: 0.6; }
+.pf-conv-unfurl-hide:hover { opacity: 1; }
 .pf-conv-compact .pf-conv-thumb img { max-width: 100%; max-height: 10rem; }
 .pf-conv-dock-toast { position: fixed; bottom: 6rem; }
 

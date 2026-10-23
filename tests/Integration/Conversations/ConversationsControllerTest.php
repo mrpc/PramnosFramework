@@ -314,7 +314,7 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame([422, 'A message needs something in it.'], [$empty['status'], $empty['body']['error']]);
         $this->assertSame([422, 'There is a channel called #finance already.'], [$twice['status'], $twice['body']['error']]);
         $this->assertSame(403, $off['status'], 'an application without the conversations');
-        $this->assertSame(['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread'], $writes,
+        $this->assertSame(['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread'], $writes,
             'every write checks the session\'s token');
     }
 
@@ -356,6 +356,58 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame([404, 'Ask is not here for you.'], [$sales['status'], $sales['body']['error']]);
         $this->assertSame(200, $posted['status']);
         $this->assertSame(['πόσοι σήμερα;'], $asked, 'a question without @Ask');
+    }
+
+    /**
+     * A link's card over HTTP: the message carries it as `unfurls`, its picture comes from this
+     * server (`preview`) — a name that is not a kept picture is a 404 — and only the writer takes
+     * the card off (`unfurl/{id}`), anybody else is refused.
+     */
+    #[DataProvider('databases')]
+    public function testALinksCardOverHttp(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->tree = sys_get_temp_dir() . '/pfchat-' . bin2hex(random_bytes(4));
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30, 'files_path' => $this->tree];
+        Application::getInstance()->applicationInfo['features'] = ['conversations'];
+        $general = Conversations::create('channel', 'general', [$this->ids['maria']], $this->ids['eleni']);
+        ob_start();
+        imagepng(imagecreatetruecolor(64, 32));
+        $png = (string) ob_get_clean();
+        \Pramnos\Conversations\Unfurls::fetchWith(static fn (string $url): string|false => [
+            'https://shop.example/item' => '<html><head><meta property="og:title" content="Προϊόν"><meta property="og:image" content="https://shop.example/i.png"></head></html>',
+            'https://shop.example/i.png' => $png,
+        ][$url] ?? false);
+
+        try {
+            // Act
+            $posted = $this->ask('eleni', 'post', $general, ['body' => 'Δες https://shop.example/item']);
+            \Pramnos\Conversations\Unfurls::run($posted['body']['id']);
+            $card    = $this->ask('maria', 'messages', $general)['body']['messages'][0]['unfurls'][0];
+            // Sent, the request ends there.
+            ob_start();
+            try {
+                $this->ask('maria', 'preview', null, ['name' => substr($card['image']['url'], strpos($card['image']['url'], 'name=') + 5)]);
+                $closed = false;
+            } catch (\Pramnos\Application\ApplicationClosedException) {
+                $closed = true;
+            }
+            $picture = (string) ob_get_clean();
+            $missing = $this->ask('maria', 'preview', null, ['name' => 'nothing.png']);
+            $refused = $this->ask('maria', 'unfurl', $posted['body']['id'], ['url' => 'https://shop.example/item']);
+            $hidden  = $this->ask('eleni', 'unfurl', $posted['body']['id'], ['url' => 'https://shop.example/item']);
+            $after   = $this->ask('maria', 'messages', $general)['body']['messages'][0]['unfurls'];
+        } finally {
+            \Pramnos\Conversations\Unfurls::fetchWith(null);
+        }
+
+        // Assert
+        $this->assertSame(['Προϊόν', 64], [$card['title'], $card['image']['width']]);
+        $this->assertSame([true, $png], [$closed, $picture], 'the kept picture itself');
+        $this->assertSame(404, $missing['status'], 'a name that is not a kept picture');
+        $this->assertSame([422, 200], [$refused['status'], $hidden['status']], 'only its writer');
+        $this->assertSame([], $after, 'taken off');
     }
 
     /**
