@@ -103,6 +103,9 @@ class Segments extends Controller
             ? '<span class="pf-nowrap">' . $e(number_format($row['members'])) . '</span>'
             : '<span class="pf-muted">' . $e(t('Being worked out…')) . '</span>';
 
+        // A segment first worked out this week: its 0 is a short week, not a still one.
+        $fresh   = static fn (?int $first): string => $first !== null && $first > time() - 7 * 86400
+            ? ' <span class="pf-muted pf-nowrap">' . $e(t('since %s', date('d/m', $first))) . '</span>' : '';
         $withActions = $tab === 'all' ? $this->rowActions('groups') || $this->rowActions('segments') : $this->rowActions($tab);
         // Open, edit, delete — delete disabled, saying why, while something uses it; the server
         // refuses it then too.
@@ -168,12 +171,12 @@ class Segments extends Controller
             $mine ? [0 => 'name', 1 => 'members', 2 => 'entered', 3 => 'left', 5 => 'recomputedAt']
                 : [0 => 'name', 1 => 'members', 2 => 'entered', 3 => 'left', 5 => 'ownerName', 6 => 'recomputedAt'],
             static fn (array $row): string => '#' . $row['id'] . ' ' . $row['name'] . ' ' . $row['description'],
-            static fn (array $page): array => array_map(static function (array $row) use ($e, $none, $number, $uses, $name, $members, $mine, $actions, $withActions): array {
+            static fn (array $page): array => array_map(static function (array $row) use ($e, $none, $number, $uses, $name, $members, $mine, $actions, $withActions, $fresh): array {
                 $found = SegmentStore::uses($row['id']);
                 $cells = [
                     $name($row),
                     $members($row),
-                    $number($row['entered'], 'pf-up'),
+                    $number($row['entered'], 'pf-up') . $fresh($row['firstComputedAt']),
                     $number($row['left'], 'pf-down'),
                     $uses($found),
                 ];
@@ -287,6 +290,7 @@ class Segments extends Controller
             'description' => $segment['description'], 'members' => $segment['recomputedAt'] === null ? -1 : $segment['members'],
             'entered' => $moved[$segment['id']]['entered'] ?? 0, 'left' => $moved[$segment['id']]['left'] ?? 0,
             'ownerName' => $owners[(int) $segment['owner']] ?? '', 'recomputedAt' => (int) $segment['recomputedAt'],
+            'firstComputedAt' => $segment['firstComputedAt'] ?? null,
             'url' => adminUrl('Segments/view/') . $segment['id'], 'mine' => $segment['owner'] === $me], $all);
         $groupMoves = \Pramnos\Audience\Groups::movements();
         $groups     = array_map(static fn (array $group): array => $group + ['url' => Groups::linkFor($group['id']),

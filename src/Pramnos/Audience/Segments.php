@@ -33,6 +33,9 @@ final class Segments
     /** @var array<string, callable(int): list<string>> Where segments are used, by who reports it */
     private static array $usage = [];
 
+    /** Whether segments record their first working out, once asked; see {@see knowsItsStart()}. */
+    private static ?bool $knowsItsStart = null;
+
     /**
      * Make a segment. Its first recomputation is the caller's — or the scheduler's within the hour.
      *
@@ -206,7 +209,8 @@ final class Segments
                 ->whereNull('left_at')->whereIn('userid', $chunk)->update(['left_at' => $now]);
         }
         self::db()->queryBuilder()->table('#PREFIX#segments')->where('segmentid', $id)
-            ->update(['members' => count($nowIn), 'recomputedat' => $now]);
+            ->update(['members' => count($nowIn), 'recomputedat' => $now]
+                + ($segment['firstComputedAt'] === null && self::knowsItsStart() ? ['firstcomputedat' => $now] : []));
 
         if ($segment['recomputedAt'] !== null) {
             foreach ($entered as $userid) {
@@ -326,7 +330,7 @@ final class Segments
      */
     public static function movement(int $id, int $days = 7): array
     {
-        $since = time() - $days * 86400;
+        $since = self::countsFrom($id, time() - $days * 86400);
         $count = static fn (string $column): int => (int) (self::db()->queryBuilder()->table('#PREFIX#segment_members')
             ->select([new Expression('COUNT(*) AS n')])->where('segmentid', $id)
             ->where($column, '>=', $since)->getAllOrFail()[0]['n'] ?? 0);
@@ -334,6 +338,16 @@ final class Segments
         return ['entered' => $count('entered_at'), 'left' => $count('left_at')];
     }
 
+    /**
+     * Where counting a segment's movement from `$since` starts: after its first working out,
+     * whose members are its start rather than people entering.
+     */
+    public static function countsFrom(int $id, int $since): int
+    {
+        $first = self::get($id)['firstComputedAt'] ?? null;
+
+        return $first === null ? $since : max($since, $first + 1);
+    }
     /**
      * Who entered and who left every segment over the last days, in two queries: what a list
      * sorts by, where {@see movement()} would ask once per segment.
@@ -343,9 +357,18 @@ final class Segments
     public static function movements(int $days = 7): array
     {
         $since  = time() - $days * 86400;
-        $counts = static fn (string $column): array => array_column(self::db()->queryBuilder()->table('#PREFIX#segment_members')
-            ->select(['segmentid', new Expression('COUNT(*) AS n')])->where($column, '>=', $since)
-            ->groupBy(['segmentid'])->getAllOrFail(), 'n', 'segmentid');
+        $start  = self::knowsItsStart();
+        $counts = static function (string $column) use ($since, $start): array {
+            $query = self::db()->queryBuilder()->table('#PREFIX#segment_members AS segment_members')
+                ->select(['segment_members.segmentid', new Expression('COUNT(*) AS n')])->where('segment_members.' . $column, '>=', $since);
+            if ($start) {
+                // Not the first working out: those members are the segment's start.
+                $query->join('#PREFIX#segments AS segments', 'segments.segmentid', '=', 'segment_members.segmentid')
+                    ->whereRaw('segment_members.' . $column . ' > COALESCE(segments.firstcomputedat, 0)');
+            }
+
+            return array_column($query->groupBy(['segment_members.segmentid'])->getAllOrFail(), 'n', 'segmentid');
+        };
         $entered = $counts('entered_at');
         $left    = $counts('left_at');
         $out     = [];
@@ -354,6 +377,15 @@ final class Segments
         }
 
         return $out;
+    }
+
+    /**
+     * Whether segments record their first working out here: `add_first_computed_at_to_segments`
+     * has run. Asked once a request.
+     */
+    public static function knowsItsStart(): bool
+    {
+        return self::$knowsItsStart ??= self::db()->schema()->hasColumn('segments', 'firstcomputedat');
     }
 
     /** Whether a person is in a segment now. */
@@ -366,7 +398,8 @@ final class Segments
     /** Forget what {@see usage()} was told: tests. */
     public static function reset(): void
     {
-        self::$usage = [];
+        self::$usage         = [];
+        self::$knowsItsStart = null;
     }
 
     /**
@@ -460,6 +493,8 @@ final class Segments
             'owner'        => $row['owner'] === null ? null : (int) $row['owner'],
             'members'      => (int) $row['members'],
             'recomputedAt' => $row['recomputedat'] === null ? null : (int) $row['recomputedat'],
+            // Its first working out, its start; null before it, and where the column is not there yet.
+            'firstComputedAt' => ($row['firstcomputedat'] ?? null) === null ? null : (int) $row['firstcomputedat'],
             'createdAt'    => (int) $row['createdat'],
             'updatedAt'    => (int) $row['updatedat'],
         ];

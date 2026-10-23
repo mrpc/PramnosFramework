@@ -6,6 +6,7 @@ namespace Pramnos\Audience\Rules;
 
 use Pramnos\Audience\ConsentLists;
 use Pramnos\Audience\Filter;
+use Pramnos\Audience\Segments;
 use Pramnos\Database\Database;
 use Pramnos\Database\Expression;
 
@@ -78,9 +79,9 @@ final class Tester
             'event' => [self::db()->queryBuilder()->table('#PREFIX#person_events')->select(['personid'])
                 ->where('event', $trigger['event'])->where('last_at', '>=', $since), 'personid', 'the event log'],
             'segment_entered' => [self::db()->queryBuilder()->table('#PREFIX#segment_members')->select(['userid'])
-                ->where('segmentid', $trigger['segment'])->where('entered_at', '>=', $since), 'userid', 'entries into the segment'],
+                ->where('segmentid', $trigger['segment'])->where('entered_at', '>=', Segments::countsFrom((int) $trigger['segment'], $since)), 'userid', 'entries into the segment'],
             'segment_left' => [self::db()->queryBuilder()->table('#PREFIX#segment_members')->select(['userid'])
-                ->where('segmentid', $trigger['segment'])->where('left_at', '>=', $since), 'userid', 'departures from the segment'],
+                ->where('segmentid', $trigger['segment'])->where('left_at', '>=', Segments::countsFrom((int) $trigger['segment'], $since)), 'userid', 'departures from the segment'],
             default => [null, '', 'who matches now'],
         };
         if ($query === null) {

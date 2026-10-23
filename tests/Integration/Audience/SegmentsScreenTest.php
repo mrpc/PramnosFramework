@@ -195,7 +195,8 @@ class SegmentsScreenTest extends TestCase
         $rows = array_combine(self::names($byName), $byName['data']);
         $this->assertSame('<span class="pf-nowrap">2</span>', $rows['Greek speakers'][1]);
         $this->assertStringContainsString('Being worked out…', $rows['Built on it'][1], 'not 0, which reads as empty');
-        $this->assertSame(['<span class="pf-up">2</span>', '<span class="pf-zero">0</span>'], [$rows['Greek speakers'][2], $rows['Greek speakers'][3]], 'entered and left this week');
+        $this->assertSame(['<span class="pf-zero">0</span> <span class="pf-muted pf-nowrap">since ' . date('d/m') . '</span>', '<span class="pf-zero">0</span>'],
+            [$rows['Greek speakers'][2], $rows['Greek speakers'][3]], 'made this week: its first members are its start, and it says since when');
         $this->assertStringContainsString('class="pf-chip" href="' . adminUrl('Segments/view/') . $built . '"', $rows['Greek speakers'][4], 'what uses it is a link');
         $this->assertStringContainsString('<span class="pf-chip">The newsletter</span>', $rows['Greek speakers'][4], 'what the application reports, without a page');
         $this->assertSame(['Bob', date('d/m/Y')], [strip_tags($rows['Built on it'][5]), substr(strip_tags($rows['Greek speakers'][6]), 0, 10)], 'the date as the administration writes it');
@@ -401,6 +402,7 @@ class SegmentsScreenTest extends TestCase
         $this->assertNull($gone);
         foreach ($html as $theme => $page) {
             $this->assertStringContainsString('Does not match the filter now.', $page, $theme);
+            $this->assertStringContainsString('<span class="pf-muted">since ' . date('d/m') . '</span>', $page, $theme . ': first worked out this week, it says since when');
             $this->assertStringContainsString('has: el', $page, $theme);
             $this->assertStringContainsString('Cara', $page, $theme);
             $this->assertStringContainsString('✗', $page, $theme);

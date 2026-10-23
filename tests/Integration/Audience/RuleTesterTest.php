@@ -102,7 +102,7 @@ class RuleTesterTest extends TestCase
         // Assert
         $this->assertSame(['entered' => 1, 'messages' => ['email' => 1], 'basis' => 'the event log'], $week, 'bob; anna is a parent');
         $this->assertSame(2, $month['entered'], 'and cara, 20 days ago');
-        $this->assertSame(['entered' => 2, 'messages' => [], 'basis' => 'entries into the segment'], $entered);
+        $this->assertSame(['entered' => 0, 'messages' => [], 'basis' => 'entries into the segment'], $entered, 'its first working out is its start, not entries');
         $this->assertSame(0, $left['entered']);
         $this->assertSame(['entered' => 3, 'messages' => ['site' => 3], 'basis' => 'who matches now'], $once);
     }

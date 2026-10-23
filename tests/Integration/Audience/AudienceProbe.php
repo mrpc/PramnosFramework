@@ -60,6 +60,7 @@ trait AudienceProbe
     private function boot(string $type, string $host, int $port, string $user): void
     {
         require_once ROOT . '/database/migrations/framework/core/2026_10_21_000009_create_segments_tables.php';
+        require_once ROOT . '/database/migrations/framework/core/2026_10_23_000001_add_first_computed_at_to_segments.php';
         require_once ROOT . '/database/migrations/framework/usergroups/2026_10_23_000001_add_membership_history_to_usergroups.php';
         require_once ROOT . '/database/migrations/framework/core/2026_10_21_000010_create_consent_lists_table.php';
         require_once ROOT . '/database/migrations/framework/core/2026_10_21_000011_create_person_events_tables.php';
@@ -108,6 +109,7 @@ trait AudienceProbe
             UserGroups\CreateAuthserverGroupRolesTable::class,
             UserGroups\AddMembershipHistoryToUsergroups::class,
             CreateSegmentsTables::class,
+            \Pramnos\Framework\Migrations\Core\AddFirstComputedAtToSegments::class,
             \Pramnos\Framework\Migrations\Core\CreateConsentListsTable::class,
             \Pramnos\Framework\Migrations\Messaging\CreateEmailoptoutsTable::class,
             \Pramnos\Framework\Migrations\Core\CreatePersonEventsTables::class,
@@ -291,5 +293,22 @@ trait AudienceProbe
         $queue->tasks = $kept;
 
         return $said;
+    }
+
+    /**
+     * Move a segment's start, and everything recorded of it, `$seconds` into the past — so a test
+     * can work it out again and have what changes then fall after its first working out, as it
+     * would a minute or a day later.
+     */
+    private function backdate(int $segment, int $seconds = 60): void
+    {
+        foreach (['firstcomputedat', 'recomputedat'] as $column) {
+            $this->db->queryBuilder()->table('segments')->where('segmentid', $segment)->whereNotNull($column)
+                ->update([$column => new \Pramnos\Database\Expression($column . ' - ' . (int) $seconds)]);
+        }
+        foreach (['entered_at', 'left_at'] as $column) {
+            $this->db->queryBuilder()->table('segment_members')->where('segmentid', $segment)->whereNotNull($column)
+                ->update([$column => new \Pramnos\Database\Expression($column . ' - ' . (int) $seconds)]);
+        }
     }
 }

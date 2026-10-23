@@ -94,7 +94,7 @@ class AudienceAnalystToolsTest extends TestCase
         // Assert
         $this->assertSame([['id' => $greek, 'name' => 'Greek', 'description' => 'Speak Greek', 'members' => 2]],
             array_map(static fn (array $s): array => array_intersect_key($s, array_flip(['id', 'name', 'description', 'members'])), $library['segments']));
-        $this->assertSame(['entered' => 2, 'left' => 0], $library['segments'][0]['last7days']);
+        $this->assertSame(['entered' => 0, 'left' => 0], $library['segments'][0]['last7days'], 'made in the test: its members are its start');
         $this->assertSame('el', $one['filter']['conditions'][0]['value']);
         $this->assertSame(['found' => false], $missing);
         $this->assertSame(['Paid to press', 'draft', 0, 0, 0], [$rules['rules'][0]['name'], $rules['rules'][0]['status'],

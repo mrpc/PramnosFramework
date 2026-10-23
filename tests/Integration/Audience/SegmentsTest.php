@@ -21,6 +21,7 @@ use Symfony\Component\Console\Tester\CommandTester;
  * history kept as stays, each change an event — except the first recomputation, which only
  * records who is in.
  */
+#[CoversClass(\Pramnos\Framework\Migrations\Core\AddFirstComputedAtToSegments::class)]
 #[CoversClass(Segments::class)]
 #[CoversClass(SegmentEntered::class)]
 #[CoversClass(SegmentLeft::class)]
@@ -96,6 +97,7 @@ class SegmentsTest extends TestCase
         $this->boot($type, $host, $port, $user);
         $id = $this->greek();
         Segments::recompute($id);
+        $this->backdate($id);
         $this->listen();
         $this->set('anna', ['language' => 'en']);
         $this->set('bob', ['language' => 'el']);
@@ -106,7 +108,7 @@ class SegmentsTest extends TestCase
         // Assert
         $this->assertSame(['entered' => 1, 'left' => 1, 'members' => 2], $result);
         $this->assertSame(['entered:' . $id . ':' . $this->ids['bob'], 'left:' . $id . ':' . $this->ids['anna']], $this->heard);
-        $this->assertSame(['entered' => 3, 'left' => 1], Segments::movement($id), 'two first stays and bob; anna left');
+        $this->assertSame(['entered' => 1, 'left' => 1], Segments::movement($id), 'bob in, anna out; the first two were its start, not entering');
         $stays = $this->db->queryBuilder()->table('segment_members')->where('userid', $this->ids['anna'])->getAll();
         $this->assertCount(1, $stays);
         $this->assertNotNull($stays[0]['left_at'], 'closed, not deleted');
@@ -340,5 +342,75 @@ class SegmentsTest extends TestCase
         $this->assertSame(1, $bad, 'an unknown segment is a failure');
         $this->assertSame(0, $none);
         $this->assertStringContainsString('No segments here', $tester->getDisplay());
+    }
+
+    /**
+     * A segment's first working out is its start: everybody in it then was not entering, so a
+     * segment made today with members shows 0 entered — and the next person who comes to match
+     * shows 1. The library counts the same way, and the rule tester's "entries into the segment"
+     * too.
+     */
+    #[DataProvider('databases')]
+    public function testTheFirstMembersAreTheStartNotMovement(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $id = $this->greek();
+        $at = time();
+
+        // Act
+        $first    = Segments::recompute($id);
+        $start    = Segments::get($id)['firstComputedAt'];
+        $atStart  = [Segments::movement($id), Segments::movements()[$id] ?? ['entered' => 0, 'left' => 0]];
+        $this->backdate($id);
+        $this->set('bob', ['language' => 'el']);
+        Segments::recompute($id);
+        $later    = [Segments::movement($id), Segments::movements()[$id]];
+        $tested   = \Pramnos\Audience\Rules\Tester::simulate(['trigger' => ['type' => 'segment_entered', 'segment' => $id], 'steps' => []], 7);
+
+        // Assert
+        $this->assertSame(2, $first['members']);
+        $this->assertGreaterThanOrEqual($at, $start, 'the moment of the first working out');
+        $this->assertSame([['entered' => 0, 'left' => 0], ['entered' => 0, 'left' => 0]], $atStart, 'made today with two in it: nobody entered');
+        $this->assertSame([['entered' => 1, 'left' => 0], ['entered' => 1, 'left' => 0]], $later, 'bob, who came to match after');
+        $this->assertSame(1, $tested['entered'], 'the rule tester counts bob alone');
+        $this->assertSame($start - 60, Segments::get($id)['firstComputedAt'], 'a later working out keeps the start');
+    }
+
+    /**
+     * The migration only adds the column, and dates a segment already worked out by its earliest
+     * member — or by its last working out where it has none; one never worked out stays without.
+     * Without the column, movement counts as before.
+     */
+    #[DataProvider('databases')]
+    public function testTheStartMigrationDatesSegmentsAlreadyWorkedOut(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $greek  = $this->greek();
+        $nobody = Segments::create('Nobody', ['conditions' => [['attribute' => 'language', 'op' => 'is', 'value' => 'xx']]]);
+        $never  = Segments::create('Never', ['conditions' => [['attribute' => 'language', 'op' => 'is', 'value' => 'el']]]);
+        Segments::recompute($greek);
+        Segments::recompute($nobody);
+        $application = (new \ReflectionClass(\Pramnos\Application\Application::class))->newInstanceWithoutConstructor();
+        $application->database = $this->db;
+        $migration = new \Pramnos\Framework\Migrations\Core\AddFirstComputedAtToSegments($application);
+        $this->db->queryBuilder()->table('segment_members')->where('segmentid', $greek)->update(['entered_at' => 1000]);
+
+        // Act
+        $migration->down();
+        Segments::reset();
+        $without = [Segments::knowsItsStart(), Segments::get($greek)['firstComputedAt'], Segments::movements()];
+        $migration->up();
+        $migration->up();
+        Segments::reset();
+        $recomputed = Segments::get($nobody)['recomputedAt'];
+
+        // Assert
+        $this->assertSame([false, null, []], $without, 'as before: nothing this week for members of long ago');
+        $this->assertTrue(Segments::knowsItsStart());
+        $this->assertSame(1000, Segments::get($greek)['firstComputedAt'], 'its earliest member');
+        $this->assertSame($recomputed, Segments::get($nobody)['firstComputedAt'], 'no members: its last working out');
+        $this->assertNull(Segments::get($never)['firstComputedAt'], 'never worked out');
     }
 }

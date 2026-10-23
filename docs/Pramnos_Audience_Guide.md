@@ -220,6 +220,15 @@ Segments::movement($id, days: 7);      // the library: ['entered' => 31, 'left' 
 Segments::isMember($id, $userid);
 ```
 
+- **The first working out is the start, not movement.** It puts everybody who matches in at once,
+  silently — no `segment.entered` events — and records the moment as `firstComputedAt`. Who
+  entered and who left (`movement()`, `movements()`, the library, Ask, the rule tester's entries
+  into a segment) counts only what happened after it, so a segment made today shows 0 entered,
+  not its size; the library and the segment's page add *since DD/MM* while it is younger than a
+  week, so that 0 does not read as a still week. A later change of filter is movement: its
+  working out announces who entered and who left. `Segments::countsFrom($id, $since)` is where
+  counting starts for one segment.
+
 - **Kept up to date twice over.** The framework schedules `segments:recompute` hourly, which
   catches what time alone changes ("last sign-in more than 30 days ago"). For changes a person
   makes, `Segments::refreshOn('user.saved', 'profile.updated')` puts a queued listener on those
