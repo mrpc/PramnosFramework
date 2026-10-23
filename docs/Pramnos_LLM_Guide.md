@@ -998,6 +998,13 @@ under `prefers-reduced-motion`. A set of the application's own is its markup and
 ```
 
 A plain picture (`avatar`) with no set is drawn in the same element and does not move.
+
+Two properties belong to the contract, and a set respects them: `--pf-assistant-size` (24px) and
+`--pf-assistant-color` (the theme's accent). Both are inherited — the element declares neither —
+so a parent sizes or colours the picture: `.pf-ask { --pf-assistant-size: 20px; --pf-assistant-color: #fff; }`.
+A set's stylesheet is outside any `@layer`, so it outranks layered utility classes; colouring
+through the property avoids a fight. Where the picture is drawn inside a button or a link,
+`AvatarSets::stylesheet()` gives the set's `<link>` to put before it; the side panel does so.
 `pfAssistant.state('thinking')` sets the state from the application's own script, and
 `pf-assistant:state` (`detail.state`) is dispatched on the document at each change.
 

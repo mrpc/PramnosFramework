@@ -739,6 +739,8 @@ a.pf-stat-tile:hover { border-color: var(--color-primary, #2563eb); }
    (8/12/16/24) and 36px controls. The tokens are set on each of its roots, so a dark theme's
    colours reach them by inheritance. */
 .pf-ui, .pf-audience, .pf-rule-editor, .pf-rule-canvas, .pf-site-message, .pf-audience-panel-title, .pf-audience-panel-list, .pf-combo, .pf-menu, .pf-conv-dock, .pf-conv-basic {
+    --pf-assistant-size: 24px;
+    --pf-assistant-color: var(--pf-accent);
     --pf-fg: var(--color-base-content, var(--bs-body-color, var(--text-main, #1f2937)));
     --pf-surface: var(--color-base-100, var(--bs-body-bg, var(--surface, #ffffff)));
     --pf-subtle: var(--color-base-200, var(--bs-tertiary-bg, #f5f6f8));
@@ -2012,10 +2014,11 @@ a.pf-person:hover { background: var(--pf-subtle); }
 }
 
 /* The analyst's living picture — Assist\AvatarSets. The framework changes only data-state; this is
-   the framework's own set, `pf`: a drop in the theme's accent, its eyes and dots moving with what
-   it does. A set of the application's own brings its own CSS. Still poses where less motion is
+   the framework's own set, `pf`: a drop in --pf-assistant-color (the theme's accent), its eyes and
+   dots moving with what it does; --pf-assistant-size is inherited, so a parent sizes it. A set of
+   the application's own brings its own CSS, and respects both. Still poses where less motion is
    asked for. */
-.pf-assistant-avatar { --pf-assistant-size: 24px; display: inline-flex; align-items: center; justify-content: center; width: var(--pf-assistant-size); height: var(--pf-assistant-size); vertical-align: middle; flex: none; color: var(--pf-accent); line-height: 1; }
+.pf-assistant-avatar { display: inline-flex; align-items: center; justify-content: center; width: var(--pf-assistant-size, 24px); height: var(--pf-assistant-size, 24px); vertical-align: middle; flex: none; color: var(--pf-assistant-color, var(--pf-accent, #2563eb)); line-height: 1; }
 .pf-assistant-avatar > img, .pf-assistant-avatar > svg { width: 100%; height: 100%; display: block; }
 .pf-assistant-pf .pf-assistant-body { fill: currentColor; transform-origin: 16px 30px; }
 .pf-assistant-pf .pf-assistant-eyes, .pf-assistant-pf .pf-assistant-dots { fill: #fff; }

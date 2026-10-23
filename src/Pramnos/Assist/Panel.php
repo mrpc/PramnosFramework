@@ -39,7 +39,7 @@ final class Panel
 
         // On Ask itself, the panel would be the page twice: the link it always was.
         if ($ask && $context['screen'] === 'ai') {
-            return $before . '<a class="pf-ask" href="' . self::e($askUrl) . '">' . self::analyst() . '</a>' . $after;
+            return $before . AvatarSets::stylesheet() . '<a class="pf-ask" href="' . self::e($askUrl) . '">' . self::analyst() . '</a>' . $after;
         }
 
         if (!$ask && $help === null) {
@@ -54,6 +54,8 @@ final class Panel
             : self::siteButton(self::e($href), $label, ['slug' => (string) $help['slug'], 'title' => (string) $help['title']]);
 
         return $before
+            // The analyst's set's stylesheet before the button, not inside it.
+            . ($ask ? AvatarSets::stylesheet() : '')
             . $opener
             . '<template data-pf-assist>' . self::panel($ask, $askUrl, $help, $context, $book) . '</template>'
             . '<script src="' . self::e(function_exists('assetUrl') ? assetUrl('assets/js/pf-assist.js') : 'assets/js/pf-assist.js') . '" defer></script>'

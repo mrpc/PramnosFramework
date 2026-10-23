@@ -75,6 +75,7 @@ final class AvatarSetsTest extends TestCase
         try {
             // Act
             $this->analyst(['name' => 'Naya', 'avatar_set' => ['markup' => $file, 'css' => '/naya.css', 'states' => ['success' => 500]]]);
+            $linkFirst = AvatarSets::stylesheet();
             $first  = AvatarSets::render('thinking');
             $second = AvatarSets::render();
             $this->analyst(['avatar_set' => 'kit']);
@@ -88,7 +89,8 @@ final class AvatarSetsTest extends TestCase
         }
 
         // Assert
-        $this->assertStringStartsWith('<link rel="stylesheet" href="/naya.css"><span class="pf-assistant-avatar pf-assistant--thinking" data-state="thinking"', $first);
+        $this->assertSame('<link rel="stylesheet" href="/naya.css">', $linkFirst, 'to put before a button; the picture then does not link it again');
+        $this->assertStringStartsWith('<span class="pf-assistant-avatar pf-assistant--thinking" data-state="thinking"', $first);
         $this->assertStringContainsString('<svg class="naya"></svg></span>', $first, 'its markup, from the file');
         $this->assertStringContainsString('aria-label="Naya"', $first);
         $this->assertStringContainsString('&quot;success&quot;:500', $first, 'its own duration');
@@ -97,5 +99,6 @@ final class AvatarSetsTest extends TestCase
         $this->assertStringContainsString('&quot;greeting&quot;:900', $named);
         $this->assertStringContainsString('<img src="/img/ai.svg" alt="" width="20" height="20"></span>', $plain, 'a plain picture in the contract\'s element');
         $this->assertStringContainsString('<svg class="pf-assistant-pf"', $unknown, 'a name nobody registered: the framework\'s');
+        $this->assertSame('', AvatarSets::stylesheet(), 'the framework\'s set has no stylesheet of its own');
     }
 }

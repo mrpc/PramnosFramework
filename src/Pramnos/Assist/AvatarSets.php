@@ -109,11 +109,7 @@ final class AvatarSets
             $durations = array_map('intval', $set['states'] + self::DURATIONS);
             $css       = $set['css'];
         }
-        $link = '';
-        if ($css !== null && $css !== '' && !isset(self::$linked[$css])) {
-            self::$linked[$css] = true;
-            $link = '<link rel="stylesheet" href="' . $e($css) . '">';
-        }
+        $link = self::link($css);
 
         return $link . '<span class="pf-assistant-avatar pf-assistant--' . $state . ($class !== '' ? ' ' . $e($class) : '') . '" data-state="' . $state . '"'
             . ' data-durations="' . $e((string) json_encode(array_intersect_key($durations, array_flip(self::STATES)))) . '"'
@@ -122,6 +118,27 @@ final class AvatarSets
             // The size the stylesheet gives it unless asked otherwise: a themed page carries no style.
             . ($size !== 24 ? ' style="--pf-assistant-size:' . max(8, $size) . 'px"' : '')
             . ' role="img" aria-label="' . $e($name) . '">' . $inner . '</span>';
+    }
+
+    /**
+     * The current set's stylesheet, once a page — for a caller that draws the picture inside an
+     * element where a `<link>` does not belong (a button, a link), to put it before. '' when there
+     * is none or it is in the page already.
+     */
+    public static function stylesheet(): string
+    {
+        return self::link(self::current()['css'] ?? null);
+    }
+
+    /** A `<link>` to a stylesheet the first time a page asks for it; '' after, or for none. */
+    private static function link(?string $css): string
+    {
+        if ($css === null || $css === '' || isset(self::$linked[$css])) {
+            return '';
+        }
+        self::$linked[$css] = true;
+
+        return '<link rel="stylesheet" href="' . htmlspecialchars($css, ENT_QUOTES, 'UTF-8') . '">';
     }
 
     /** A set's markup: given, read from its file, or returned by its callable. */
