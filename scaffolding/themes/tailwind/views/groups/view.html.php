@@ -21,7 +21,6 @@ $e     = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUO
 $group = $this->group ?? [];
 $gid   = (int) ($group['groupid'] ?? 0);
 $uses  = (array) ($this->uses ?? []);
-$token = static fn (): string => \Pramnos\Http\Session::getInstance()->getTokenField();
 ?>
 <div class="pf-ui">
     <?php $this->activeNav = 'groups_view'; $this->insert('../partials/admin_breadcrumb'); ?>
@@ -32,7 +31,7 @@ $token = static fn (): string => \Pramnos\Http\Session::getInstance()->getTokenF
         </div>
         <div class="pf-page-actions">
             <form method="post" action="<?php echo $e(adminUrl('Groups/delete/') . $gid); ?>" class="pf-inline-form" data-confirm="<?php echo $e(t('Delete this group? Its members keep their accounts.')); ?>">
-                <?php echo $token(); ?>
+                <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                 <button type="submit" class="pf-btn pf-btn-ghost pf-btn-danger" <?php echo $uses === [] ? '' : 'disabled title="' . $e(t('Used by: %s', implode(', ', array_column($uses, 'name')))) . '"'; ?>><?php echo $e(t('Delete')); ?></button>
             </form>
             <?php if (!empty($this->membersUrl)): ?>
@@ -58,7 +57,7 @@ $token = static fn (): string => \Pramnos\Http\Session::getInstance()->getTokenF
 
     <div class="pf-card pf-mt"><div class="pf-card-body">
         <form method="post" action="<?php echo $e(adminUrl('Groups/addmember/') . $gid); ?>" class="pf-rule-sentence">
-            <?php echo $token(); ?>
+            <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
             <label class="pf-visually-hidden" for="group-member"><?php echo $e(t('Add a member to the group')); ?></label>
             <input type="text" id="group-member" name="user" required class="pf-input" placeholder="<?php echo $e(t('Username, email or account id')); ?>">
             <button type="submit" class="pf-btn pf-btn-primary"><?php echo Icon::svg('plus', ''); ?><?php echo $e(t('Add to the group')); ?></button>
@@ -85,7 +84,7 @@ $token = static fn (): string => \Pramnos\Http\Session::getInstance()->getTokenF
                         <td><?php echo $e($r['description'] ?? ''); ?></td>
                         <td class="pf-num">
                             <form method="post" action="<?php echo $e(adminUrl('Groups/removerole/') . $gid); ?>" class="pf-inline-form" data-confirm="<?php echo $e(t('Withdraw this role from every member of the group?')); ?>">
-                                <?php echo $token(); ?>
+                                <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                                 <input type="hidden" name="roleid" value="<?php echo (int) $r['roleid']; ?>">
                                 <button type="submit" class="pf-btn pf-btn-ghost pf-btn-danger"><?php echo $e(t('Withdraw the role')); ?></button>
                             </form>
@@ -97,7 +96,7 @@ $token = static fn (): string => \Pramnos\Http\Session::getInstance()->getTokenF
         <?php endif; ?>
         <?php if (!empty($this->availableRoles)): ?>
             <form method="post" action="<?php echo $e(adminUrl('Groups/addrole/') . $gid); ?>" class="pf-rule-sentence pf-mt">
-                <?php echo $token(); ?>
+                <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                 <label class="pf-visually-hidden" for="group-role"><?php echo $e(t('Give the group a role')); ?></label>
                 <select id="group-role" name="roleid" required class="pf-input">
                     <?php foreach ($this->availableRoles as $r): ?>
