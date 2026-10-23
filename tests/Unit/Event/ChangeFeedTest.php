@@ -383,4 +383,45 @@ class ChangeFeedTest extends TestCase
         $this->assertCount(1, $received);
         $this->assertSame(0, ChangeFeed::pending());
     }
+
+    /**
+     * Where app.php lists the `changelog` feature, the first emitted change wires its writer —
+     * whether or not the feature's provider was booted. A bootstrap without init() had the
+     * feature on and recorded nothing. Without the feature, nothing is wired.
+     */
+    public function testTheChangelogListensWhereTheFeatureIsListed(): void
+    {
+        // Arrange
+        $ref    = new \ReflectionClass(\Pramnos\Application\Application::class);
+        $kept   = [$ref->getProperty('appInstances')->getValue(), $ref->getProperty('lastUsedApplication')->getValue()];
+        $app    = $ref->newInstanceWithoutConstructor();
+        $writer = static fn (): bool => in_array(\Pramnos\Changelog\ChangelogWriter::class, Event::getListeners(ChangeFeed::EVENT), true);
+        $ref->getProperty('appInstances')->setValue(null, ['default' => $app]);
+        $ref->getProperty('lastUsedApplication')->setValue(null, 'default');
+
+        try {
+            // Act
+            $app->applicationInfo = ['features' => []];
+            ChangeFeed::emit($this->change());
+            $without = $writer();
+            $app->applicationInfo = ['features' => ['changelog']];
+            Event::listen(ChangeFeed::EVENT, static fn (): null => null);
+            $listeners = static fn (): array => Event::getListeners(ChangeFeed::EVENT);
+            \Pramnos\Changelog\ChangelogWriter::listen();
+            $already = count($listeners());
+            Event::forget();
+            ChangeFeed::reset();
+            Event::listen(ChangeFeed::EVENT, static fn (): null => null);
+            ChangeFeed::emit($this->change('no-such-entity'));
+            $with = $writer();
+        } finally {
+            $ref->getProperty('appInstances')->setValue(null, $kept[0]);
+            $ref->getProperty('lastUsedApplication')->setValue(null, $kept[1]);
+        }
+
+        // Assert
+        $this->assertFalse($without, 'not listed: nothing wired');
+        $this->assertTrue($with, 'listed: the writer hears the feed without its provider');
+        $this->assertSame(2, $already, 'wired once, however often');
+    }
 }

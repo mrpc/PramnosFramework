@@ -94,6 +94,11 @@ class ChangeFeed
         // One boolean test, and it removes a whole class of "the feed stopped working"
         // that would only ever appear under a transaction.
         static::boot();
+        // The changelog records what is emitted wherever app.php lists it — not only where its
+        // provider was booted: a bootstrap without init() had the feature on and recorded nothing.
+        if (static::changelogListed()) {
+            \Pramnos\Changelog\ChangelogWriter::listen();
+        }
 
         if (static::inTransaction()) {
             static::$buffer[] = $change;
@@ -102,6 +107,14 @@ class ChangeFeed
         }
 
         Event::fire(self::EVENT, $change);
+    }
+
+    /** Whether the application lists the `changelog` feature: read from app.php, whichever entry point ran. */
+    private static function changelogListed(): bool
+    {
+        $app = \Pramnos\Application\Application::currentInstance();
+
+        return $app !== null && in_array('changelog', (array) ($app->applicationInfo['features'] ?? []), true);
     }
 
     /**

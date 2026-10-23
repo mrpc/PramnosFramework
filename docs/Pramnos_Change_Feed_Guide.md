@@ -310,7 +310,9 @@ Enable the `changelog` feature and every emitted change is recorded:
 ```
 
 That is the whole setup. The tables come with the feature — an application that does
-not enable it gets none of them.
+not enable it gets none of them. The first emitted change wires the writer from app.php's
+list, so it records whichever entry point ran — `init()`, a console bootstrap, a kernel of the
+application's own — with or without the feature's provider booted.
 
 ### Three tables, because retention is per table
 
