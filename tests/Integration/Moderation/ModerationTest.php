@@ -199,7 +199,9 @@ final class ModerationTest extends TestCase
         $refusals = array_column(Moderation::history($scope), 'reason');
 
         // Assert
-        $this->assertSame(['muted', 120], [$muted['reason'], $muted['retryAfter']]);
+        $this->assertSame('muted', $muted['reason']);
+        // The wait counts down from the mute: a second may pass between the two on a busy machine.
+        $this->assertContains($muted['retryAfter'], [119, 120]);
         $this->assertStringContainsString('2 h', $hours['message'], 'a wait in hours');
         $this->assertNull($nobody, 'nobody asked about, nothing in force');
         $this->assertTrue($slow[0]);

@@ -115,6 +115,17 @@ sidebar and with the messages. The dock shows them greyed, *Deleted profile* on 
 or profile to open and nobody to write to; the account in the conversation reads and writes it as
 notes.
 
+When such a person turns out to have an account, `Conversations::claimFormer('slack:U123', $userId, $by)`
+puts the account in their place wherever they are kept by that id, read up to the newest message,
+and makes what they wrote the account's. Where the account is in that conversation already, the
+former member just goes; a dm that now duplicates one the two accounts have is merged into the
+older one — its messages, mentions, pins and files; a group stays a group. It returns
+`['conversations' => …, 'messages' => …, 'merged' => …]`, records `conversations.former_claimed` in
+the audit log with `$by`, and tells each member `conversation.changed` `{conversationId, mergedFrom}`
+on their own channel, for the sidebar to read again. Calling it again does nothing. A merged
+conversation lists by message id, so the moved messages are not interleaved by when they were
+written.
+
 A reaction is a `:shortcode:` or the emoji itself; each different emoji is its own reaction, and the
 same one twice is one. On MySQL and MariaDB the column is binary for that
 (`make_conversation_reactions_emoji_binary`), as the tables' default collation takes every emoji
@@ -370,7 +381,7 @@ A message is written first and told second, through Broadcasting:
 |---|---|
 | `private-conversation.{id}` | `message.posted`, `message.edited`, `message.deleted`, `message.reacted`, `message.pinned` — each with the message as a reader sees it (name, HTML, reactions, files) |
 | `private-conversation.{id}` | `assistant.thinking` `{thread, name, until}` when the analyst begins on a question there — `thread` null for the conversation itself — and `assistant.done` `{thread}` when it has finished, answered or not: the server says it, since a worker cannot whisper |
-| each member's own (`private-users.{id}`, or `broadcasting.notifications_channel`) | `conversation.activity`: a message in one of their conversations — its ids, its writer, whether it mentions them — for a sidebar's unread and a window that opens; `conversation.read`: what they have read there moved — read on another page, or marked unread — `{conversationId, lastReadId, unread, mentions}` |
+| each member's own (`private-users.{id}`, or `broadcasting.notifications_channel`) | `conversation.activity`: a message in one of their conversations — its ids, its writer, whether it mentions them — for a sidebar's unread and a window that opens; `conversation.read`: what they have read there moved — read on another page, or marked unread — `{conversationId, lastReadId, unread, mentions}`; `conversation.changed` `{conversationId, mergedFrom}`: who is in it changed under them (`claimFormer()`) |
 | `presence-chat` | who of the team is connected, with their name |
 
 For the conversations to be live, three things have to hold; each fails silently when it does not:

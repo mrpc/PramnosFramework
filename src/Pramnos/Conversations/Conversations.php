@@ -449,6 +449,97 @@ final class Conversations
     }
 
     /**
+     * Somebody kept with no account here turns out to have one: wherever they are kept by this id,
+     * the account takes their place — read up to the newest message, so years of history are not
+     * unread — and the messages written as them become the account's. Where the account is in that
+     * conversation already, the former member just goes. A dm that now duplicates one the two
+     * accounts have is merged into the older of the two; a group stays a group. A second call finds
+     * nothing to do.
+     *
+     * @return array{conversations: int, messages: int, merged: int}
+     */
+    public static function claimFormer(string $externalid, int $person, ?int $by = null): array
+    {
+        $done = ['conversations' => 0, 'messages' => 0, 'merged' => 0];
+        if (trim($externalid) === '' || $person <= 0) {
+            return $done;
+        }
+        $db = self::db();
+        foreach (self::members_()->where('participanttype', 'former')->where('externalid', $externalid)->getAllOrFail() as $former) {
+            $id   = (int) $former['conversationid'];
+            $name = (string) $former['name'];
+            // What they wrote: written with their name and no account.
+            foreach ($db->queryBuilder()->table('#PREFIX#conversation_messages')->select(['messageid', 'card'])->where('conversationid', $id)
+                ->whereNull('authorid')->whereNotNull('card')->getAllOrFail() as $message) {
+                $card = json_decode((string) $message['card'], true);
+                if (is_array($card) && !empty($card['former']) && ($card['from'] ?? null) === $name) {
+                    $db->queryBuilder()->table('#PREFIX#conversation_messages')->where('messageid', (int) $message['messageid'])
+                        ->update(['authortype' => 'user', 'authorid' => $person, 'card' => null]);
+                    $done['messages']++;
+                }
+            }
+            $row = self::members_()->where('conversationid', $id)->where('participanttype', 'former')->where('participantid', (int) $former['participantid']);
+            if (self::members_()->where('conversationid', $id)->where('participanttype', 'user')->where('participantid', $person)->limit(1)->getAllOrFail() !== []) {
+                $row->delete();
+                self::members_()->where('conversationid', $id)->where('participanttype', 'user')->where('participantid', $person)->update(['leftat' => null]);
+            } else {
+                $row->update(['participanttype' => 'user', 'participantid' => $person, 'name' => null, 'externalid' => null, 'muted' => 0, 'notify' => 'all',
+                    'lastreadid' => (int) (self::get($id)['lastMessageId'] ?? 0)]);
+            }
+            $done['conversations']++;
+            $kept = $id;
+            $conversation = self::get($id);
+            $other = array_values(array_diff(self::members($id), [$person]))[0] ?? null;
+            if ($conversation !== null && $conversation['kind'] === 'dm' && $other !== null) {
+                $twin = self::db()->queryBuilder()->table('#PREFIX#conversation_members AS m')
+                    ->join('#PREFIX#conversation_members AS o', 'o.conversationid', '=', 'm.conversationid')
+                    ->join('#PREFIX#conversations AS c', 'c.conversationid', '=', 'm.conversationid')
+                    ->select(['m.conversationid'])->where('c.kind', 'dm')->where('m.conversationid', '<>', $id)
+                    ->where('m.participanttype', 'user')->where('m.participantid', $person)
+                    ->where('o.participanttype', 'user')->where('o.participantid', $other)->limit(1)->getAllOrFail()[0]['conversationid'] ?? null;
+                if ($twin !== null) {
+                    $kept = self::merge(min($id, (int) $twin), max($id, (int) $twin));
+                    $done['merged']++;
+                }
+            }
+            \Pramnos\Auth\AuditLog::about('conversations.former_claimed', $by, 'user', (string) $person,
+                ['externalid' => $externalid, 'name' => $name, 'conversation' => $id, 'kept' => $kept], 'conversation', $kept);
+            Realtime::conversationChanged($kept, self::members($kept), $kept === $id ? null : $id);
+        }
+
+        return $done;
+    }
+
+    /**
+     * Put the newer of two dms into the older: its messages, mentions, pins and files, each
+     * member's reading the further of the two, and the newer gone.
+     *
+     * ponytail: messages keep their ids, and a conversation lists by id, so the moved ones sit
+     * by when they were written into it, not by `at` — interleaving needs listing by time.
+     */
+    private static function merge(int $older, int $newer): int
+    {
+        $db = self::db();
+        foreach (['conversation_messages', 'conversation_mentions', 'conversation_pins', 'conversation_files'] as $table) {
+            $db->queryBuilder()->table('#PREFIX#' . $table)->where('conversationid', $newer)->update(['conversationid' => $older]);
+        }
+        foreach (self::members_()->where('conversationid', $newer)->where('participanttype', 'user')->getAllOrFail() as $member) {
+            self::members_()->where('conversationid', $older)->where('participanttype', 'user')->where('participantid', (int) $member['participantid'])
+                ->where('lastreadid', '<', (int) $member['lastreadid'])->update(['lastreadid' => (int) $member['lastreadid']]);
+        }
+        $a = self::get($older);
+        $b = self::get($newer);
+        if (($b['lastMessageAt'] ?? 0) > ($a['lastMessageAt'] ?? 0)) {
+            $db->queryBuilder()->table('#PREFIX#conversations')->where('conversationid', $older)
+                ->update(['lastmessageid' => $b['lastMessageId'], 'lastmessageat' => $b['lastMessageAt']]);
+        }
+        self::members_()->where('conversationid', $newer)->delete();
+        $db->queryBuilder()->table('#PREFIX#conversations')->where('conversationid', $newer)->delete();
+
+        return $older;
+    }
+
+    /**
      * The members with no account here, by conversation: what each was called.
      *
      * @param list<int> $ids

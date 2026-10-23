@@ -311,6 +311,48 @@ class ConversationsTest extends TestCase
     }
 
     /**
+     * Somebody kept with no account turns out to have one: in a dm they become its second account,
+     * read up to its newest message, their messages the account's — and the dm is merged into the
+     * older one the two accounts already had; in a group they become a member and it stays a group;
+     * where the account is in it already the former member just goes. A second call does nothing.
+     */
+    #[DataProvider('databases')]
+    public function testAnAccountClaimsSomebodyKeptWithNoAccount(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        [$eleni, $maria, $nikos] = [$this->ids['eleni'], $this->ids['maria'], $this->ids['nikos']];
+        $kostas  = ['name' => 'Κώστας Λ.', 'externalid' => 'slack:U123'];
+        $before  = Conversations::create('dm', null, [$nikos], $eleni);
+        Messages::post($before, $eleni, 'εδώ πρώτα');
+        $dm      = Conversations::create('dm', null, [], $eleni, '', [$kostas]);
+        $said    = Messages::post($dm, null, 'από το slack', ['quiet' => true, 'former' => 'slack:U123']);
+        $mine    = Messages::post($dm, $eleni, 'απάντηση');
+        $group   = Conversations::create('group', null, [], $maria, '', [$kostas, ['name' => 'Λένα']]);
+        $inThere = Conversations::create('group', null, [$nikos, $eleni], $maria, '', [$kostas]);
+        Messages::post($group, null, 'στην ομάδα', ['quiet' => true, 'former' => 'slack:U123']);
+
+        // Act
+        $done  = Conversations::claimFormer('slack:U123', $nikos, $eleni);
+        $again = Conversations::claimFormer('slack:U123', $nikos, $eleni);
+
+        // Assert
+        $this->assertSame(['conversations' => 3, 'messages' => 2, 'merged' => 1], $done);
+        $this->assertSame(['conversations' => 0, 'messages' => 0, 'merged' => 0], $again, 'nothing left to claim');
+        $this->assertNull(Conversations::get($dm), 'the newer dm is merged into the older');
+        $this->assertSame([$nikos, null], [Messages::get($said)['authorId'], Messages::get($said)['card']], 'their message is the account\'s');
+        $this->assertSame([$before, $before], [Messages::get($said)['conversationId'], Messages::get($mine)['conversationId']]);
+        $this->assertSame($before, Conversations::dmBetween($eleni, $nikos));
+        $this->assertSame(0, array_values(array_filter(Conversations::forPerson($nikos), static fn (array $c): bool => $c['id'] === $before))[0]['unread'] ?? null,
+            'read up to the newest: history is not unread');
+        $this->assertSame('group', Conversations::get($group)['kind'], 'a group stays a group');
+        $this->assertSame([$maria, $nikos], Conversations::members($group));
+        $this->assertSame([['former' => true, 'name' => 'Λένα']], Conversations::formers([$group])[$group]);
+        $this->assertArrayNotHasKey($inThere, Conversations::formers([$inThere]), 'already in it: the former member just goes');
+        $this->assertSame([$eleni, $maria, $nikos], Conversations::members($inThere));
+    }
+
+    /**
      * A name's card and profile: who they are, when last signed in, their local time where their
      * account names a zone (and none for a zone that is no zone), the direct conversation the two
      * have and whether the reader muted it, the channels both are in — not one only the reader is

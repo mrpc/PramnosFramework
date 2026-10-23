@@ -93,6 +93,20 @@ final class Realtime
             : ['thread' => $thread, 'name' => \Pramnos\Llm\Analyst\Analyst::name(), 'until' => time() + self::ASSISTANT_SECONDS]);
     }
 
+    /**
+     * Who is in a conversation changed under its members — somebody with no account turned out to
+     * have one — told to each, for a sidebar to read again; `mergedFrom` the conversation that was
+     * put into it, gone now.
+     *
+     * @param list<int> $people
+     */
+    public static function conversationChanged(int $conversationId, array $people, ?int $mergedFrom = null): void
+    {
+        foreach ($people as $person) {
+            self::tell(self::userChannel($person), 'conversation.changed', ['conversationId' => $conversationId, 'mergedFrom' => $mergedFrom]);
+        }
+    }
+
     /** A message changed — edited, deleted, reacted to, pinned — told as it now reads. */
     public static function changed(int $messageId, string $event): void
     {
