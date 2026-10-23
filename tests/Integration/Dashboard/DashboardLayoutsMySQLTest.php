@@ -13,7 +13,7 @@ use Pramnos\Dashboard\WidgetRegistry;
 use Pramnos\Dashboard\Widgets\Figures;
 use Pramnos\Database\Database;
 use Pramnos\Framework\Factory;
-use Pramnos\Framework\Migrations\Core\CreateUserDashboardsTable;
+use Pramnos\Framework\Migrations\Core\CreateUsersettingsTable;
 
 /**
  * The dashboard with its redirect and view caught, for the layout actions.
@@ -68,7 +68,6 @@ class LayoutDashboardController extends DashboardController
  */
 #[CoversClass(Layouts::class)]
 #[CoversClass(DashboardController::class)]
-#[CoversClass(CreateUserDashboardsTable::class)]
 #[CoversClass(\Pramnos\Dashboard\Widgets\QueueStatus::class)]
 #[CoversClass(\Pramnos\Dashboard\Widgets\EmailActivity::class)]
 #[CoversClass(\Pramnos\Dashboard\Widgets\AiSpend::class)]
@@ -85,17 +84,17 @@ class DashboardLayoutsMySQLTest extends TestCase
         $this->db = $this->connect();
         // `sessions` too: the active-users card counts from it, and run alone nothing else made it.
         \Pramnos\Framework\Testing\Schema::ensure([
-            CreateUserDashboardsTable::class,
+            CreateUsersettingsTable::class,
             \Pramnos\Framework\Migrations\Core\CreateSessionsTable::class,
         ], $this->db);
-        $this->db->queryBuilder()->table('#PREFIX#user_dashboards')->where('userid', self::ME)->delete();
+        $this->db->queryBuilder()->table('#PREFIX#usersettings')->where('userid', self::ME)->where('setting', 'like', Layouts::SETTING . '%')->delete();
         WidgetRegistry::reset();
         Figures::forget();
     }
 
     protected function tearDown(): void
     {
-        $this->db->queryBuilder()->table('#PREFIX#user_dashboards')->where('userid', self::ME)->delete();
+        $this->db->queryBuilder()->table('#PREFIX#usersettings')->where('userid', self::ME)->where('setting', 'like', Layouts::SETTING . '%')->delete();
         \Pramnos\Http\RequestIdentity::reset();
         Figures::forget();
         $_POST = [];
@@ -411,7 +410,7 @@ class DashboardLayoutsMySQLTest extends TestCase
     {
         // Arrange — the table gone, as before the migration ran
         $layouts = new Layouts($this->db);
-        $this->db->schema()->dropTableIfExists('user_dashboards');
+        $this->db->schema()->dropTableIfExists('usersettings');
 
         try {
             // Act
@@ -420,7 +419,7 @@ class DashboardLayoutsMySQLTest extends TestCase
             // Assert
             $this->assertSame(Layouts::defaults(self::me()), $layout);
         } finally {
-            \Pramnos\Framework\Testing\Schema::ensure([CreateUserDashboardsTable::class], $this->db);
+            \Pramnos\Framework\Testing\Schema::ensure([CreateUsersettingsTable::class], $this->db);
         }
     }
 }

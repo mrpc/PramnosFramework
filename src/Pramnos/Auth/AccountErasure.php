@@ -188,11 +188,12 @@ class AccountErasure
             'pramnos.pushlog'                  => 'userid',
             \Pramnos\Push\TestPush::TABLE      => 'userid',
             // What they arranged and agreed to, and what the assistant remembers about them.
-            'user_dashboards'                  => 'userid',
             'chat_memory'                      => 'userid',
             'chat_asks'                        => 'userid',
             'ai_consents'                      => 'userid',
             'ai_task_subscriptions'            => 'userid',
+            // Their own settings, the dashboard's layout among them.
+            (defined('DB_USERSETTINGSTABLE') ? (string) DB_USERSETTINGSTABLE : 'usersettings') => 'userid',
         ];
     }
 

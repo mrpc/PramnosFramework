@@ -1719,8 +1719,8 @@ because none of them has a cascading foreign key to `users` on every installatio
 | Consent and privacy | `authserver.oauth2_user_consents`, `authserver.user_privacy_settings`, `authserver.user_activity_log` |
 | What the person held | role assignments (`Role::assignmentTable()`), organisation memberships (`Role::membershipTable()`), `userstogroups` |
 | Notifications | `notifications` addressed to a user class, `pramnos.pushsubscriptions`, `pramnos.pushlog`, `pramnos.pushtests` |
-| The assistant | `chat_conversations` with every message in them, `chat_memory`, `chat_asks`, `ai_consents`, `user_dashboards`; its scheduled tasks (`ai_routines`) with their runs and readers, and its own report subscriptions. `llm_calls` keeps each call's cost and loses its `userid`, prompt, messages and reply |
-| Elsewhere | invitations it sent or came from, its mailing-list rows, and finally `users` |
+| The assistant | `chat_conversations` with every message in them, `chat_memory`, `chat_asks`, `ai_consents`; its scheduled tasks (`ai_routines`) with their runs and readers, and its own report subscriptions. `llm_calls` keeps each call's cost and loses its `userid`, prompt, messages and reply |
+| Elsewhere | its settings (`usersettings`, the dashboard's layout among them), invitations it sent or came from, its mailing-list rows, and finally `users` |
 
 **Scheduled tasks meant to outlive the account are handed over first.** The delete-account page
 (`Account::deleteaccount()`) asks, organisation by organisation, who takes over the person's

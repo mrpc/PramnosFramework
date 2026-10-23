@@ -370,8 +370,8 @@ it. Both are POST-only actions of the controller.
 So a saved layout never shows what its owner's permissions do not allow, and a permission taken
 away takes the card with it.
 
-Layouts live in `user_dashboards` (`userid`, `area`, `layout` as JSON), from a framework
-migration. `Dashboard\Layouts` reads and writes them:
+A layout is a user setting: `dashboard.{area}` in `usersettings` (or `DB_USERSETTINGSTABLE`), the
+layout as its JSON value. `Dashboard\Layouts` reads and writes them:
 
 ```php
 $layouts = new \Pramnos\Dashboard\Layouts();

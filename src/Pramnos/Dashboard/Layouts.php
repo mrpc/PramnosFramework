@@ -21,12 +21,14 @@ use Pramnos\Database\Database;
  * declare — each is dropped or put right, not an error. A width saved as the older `half` reads as
  * `m`. So a saved layout can never show what its owner's permissions do not allow.
  *
- * Kept in `user_dashboards` (`userid`, `area`, `layout` as JSON): a layout of a dozen widgets does
- * not fit the 255 characters of a user setting, and an area — the administration, a partner
- * portal — has a dashboard of its own.
+ * Kept as a user setting, `dashboard.{area}` in `usersettings` (`DB_USERSETTINGSTABLE`), the layout
+ * as its JSON value: an area — the administration, a partner portal — has a dashboard of its own.
  */
 final class Layouts
 {
+    /** The user setting a layout is kept under, before its area: `dashboard.admin`. */
+    public const SETTING = 'dashboard.';
+
     public function __construct(private readonly ?Database $db = null)
     {
     }
@@ -39,14 +41,14 @@ final class Layouts
     public function for(object $user, string $area = 'admin'): array
     {
         try {
-            $result = $this->table()->where('userid', (int) ($user->userid ?? 0))->where('area', $area)->first();
+            $rows = $this->table()->select(['value'])->where('userid', (int) ($user->userid ?? 0))->where('setting', self::SETTING . $area)
+                ->limit(1)->getAllOrFail();
         } catch (\Throwable $e) {
-            // No table yet — `migrate` has not run since the framework added it. The default still
-            // draws; saving will say what is wrong.
+            // No table yet — `migrate` has not run. The default still draws; saving will say what is wrong.
             \Pramnos\Logs\Logger::log('Dashboard layouts unavailable, the default shown: ' . $e->getMessage(), 'dashboard');
-            $result = null;
+            $rows = [];
         }
-        $saved  = $result && $result->numRows > 0 ? json_decode((string) ($result->fields['layout'] ?? ''), true) : null;
+        $saved = $rows === [] ? null : json_decode((string) ($rows[0]['value'] ?? ''), true);
 
         return is_array($saved) ? self::clean($saved, $user) : self::defaults($user);
     }
@@ -60,7 +62,7 @@ final class Layouts
     public function save(object $user, mixed $layout, string $area = 'admin'): array
     {
         $userId = (int) ($user->userid ?? 0);
-        $this->table()->where('userid', $userId)->where('area', $area)->delete();
+        $this->table()->where('userid', $userId)->where('setting', self::SETTING . $area)->delete();
         if ($layout === null) {
             return self::defaults($user);
         }
@@ -68,9 +70,10 @@ final class Layouts
         $clean = self::clean($layout, $user);
         $this->table()->insert([
             'userid'     => $userId,
-            'area'       => $area,
-            'layout'     => (string) json_encode($clean),
+            'setting'    => self::SETTING . $area,
+            'value'      => (string) json_encode($clean),
             'updated_at' => time(),
+            'updated_by' => $userId,
         ]);
 
         return $clean;
@@ -134,8 +137,8 @@ final class Layouts
     public function saved(string $area = 'admin'): array
     {
         $layouts = [];
-        foreach ($this->table()->select(['layout'])->where('area', $area)->get()->fetchAll() as $row) {
-            $layout = json_decode((string) ($row['layout'] ?? ''), true);
+        foreach ($this->table()->select(['value'])->where('setting', self::SETTING . $area)->getAllOrFail() as $row) {
+            $layout = json_decode((string) ($row['value'] ?? ''), true);
             if (is_array($layout)) {
                 $layouts[] = array_values(array_filter($layout, 'is_array'));
             }
@@ -146,6 +149,6 @@ final class Layouts
 
     private function table(): \Pramnos\Database\QueryBuilder
     {
-        return ($this->db ?? Database::getInstance())->queryBuilder()->table('#PREFIX#user_dashboards');
+        return ($this->db ?? Database::getInstance())->queryBuilder()->table(defined('DB_USERSETTINGSTABLE') ? DB_USERSETTINGSTABLE : '#PREFIX#usersettings');
     }
 }

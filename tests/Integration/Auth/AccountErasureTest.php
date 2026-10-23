@@ -90,7 +90,7 @@ class AccountErasureTest extends TestCase
             Notifications\CreatePushSubscriptionsTable::class,
             Notifications\CreatePushLogTable::class,
             Notifications\CreatePushtestsTable::class,
-            \Pramnos\Framework\Migrations\Core\CreateUserDashboardsTable::class,
+            \Pramnos\Framework\Migrations\Core\CreateUsersettingsTable::class,
             \Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class,
             ...self::llmMigrations(),
         ]);
@@ -143,7 +143,7 @@ class AccountErasureTest extends TestCase
         $qb('chat_memory')->insert(['userid' => $userId, 'kind' => 'fact', 'content' => 'Eleni', 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
         $qb('chat_asks')->insert(['userid' => $userId, 'status' => 'answered', 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
         $qb('ai_consents')->insert(['userid' => $userId, 'provider' => 'deepseek', 'created_at' => $stamp]);
-        $qb('user_dashboards')->insert(['userid' => $userId, 'area' => 'admin', 'layout' => '[]', 'updated_at' => time()]);
+        $qb('usersettings')->insert(['userid' => $userId, 'setting' => 'dashboard.admin', 'value' => '[]', 'updated_at' => time()]);
         $qb('ai_routines')->insert(['userid' => $userId, 'space' => 'chat', 'title' => 'Task ' . $userId, 'prompt' => 'p', 'cadence' => 'daily',
             'at' => '08:00', 'timezone' => 'UTC', 'is_active' => true, 'created_at' => $stamp, 'updated_at' => $stamp]);
         $task = (int) $qb('ai_routines')->where('userid', $userId)->first()->fields['routine_id'];
@@ -271,7 +271,7 @@ class AccountErasureTest extends TestCase
         (new AccountErasure($this->db))->erase($leaving);
 
         // Assert
-        foreach (['chat_conversations', 'chat_memory', 'chat_asks', 'ai_consents', 'user_dashboards', 'ai_routines', 'ai_task_subscriptions', 'llm_calls'] as $table) {
+        foreach (['chat_conversations', 'chat_memory', 'chat_asks', 'ai_consents', 'usersettings', 'ai_routines', 'ai_task_subscriptions', 'llm_calls'] as $table) {
             $this->assertSame(0, $count($table, 'userid', $leaving), $table . ' still holds the account');
             $this->assertSame(1, $count($table, 'userid', $staying), $table . ': another account\'s went too');
         }
