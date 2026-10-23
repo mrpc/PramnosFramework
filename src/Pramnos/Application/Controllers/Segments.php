@@ -96,7 +96,8 @@ class Segments extends Controller
 
             return $chips === '' ? $none : '<span class="pf-chips">' . $chips . '</span>';
         };
-        $name    = static fn (array $row): string => '<a class="pf-row-link" href="' . $e($row['url']) . '">' . $e($row['name']) . '</a>'
+        // A plain link, not the row-wide one: the row's chips and actions are links of their own.
+        $name    = static fn (array $row): string => '<a class="pf-row-name" href="' . $e($row['url']) . '">' . $e($row['name']) . '</a>'
             . ($row['description'] !== '' ? '<span class="pf-row-desc">' . $e($row['description']) . '</span>' : '');
         $members = static fn (array $row): string => $row['members'] >= 0
             ? '<span class="pf-nowrap">' . $e(number_format($row['members'])) . '</span>'

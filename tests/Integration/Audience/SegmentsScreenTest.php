@@ -200,6 +200,8 @@ class SegmentsScreenTest extends TestCase
         $this->assertStringContainsString('<span class="pf-chip">The newsletter</span>', $rows['Greek speakers'][4], 'what the application reports, without a page');
         $this->assertSame(['Bob', date('d/m/Y')], [strip_tags($rows['Built on it'][5]), substr(strip_tags($rows['Greek speakers'][6]), 0, 10)], 'the date as the administration writes it');
         $this->assertStringContainsString('Made from the Greek speakers', $rows['Built on it'][0], 'the description under the name');
+        $this->assertStringContainsString('<a class="pf-row-name"', $rows['Built on it'][0], 'a plain link: the row\'s chips and actions stay clickable');
+        $this->assertStringNotContainsString('pf-row-link', implode('', array_merge(...$byName['data'])), 'no row-wide link over them');
         $this->assertSame(['Greek speakers'], self::names($mine));
         $this->assertCount(6, $mine['data'][0], 'no owner among one\'s own');
         $this->assertSame(['Built on it', 'Greek speakers'], self::names($searched), 'the description matches too, ignoring case');

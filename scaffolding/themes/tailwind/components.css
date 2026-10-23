@@ -862,6 +862,8 @@ a.pf-stat-tile:hover { border-color: var(--color-primary, #2563eb); }
 .pf-table tbody tr { position: relative; }
 .pf-table tbody tr:hover { background: color-mix(in oklab, var(--pf-subtle) 70%, transparent); }
 .pf-table .pf-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pf-row-name { font-weight: 500; color: var(--pf-fg); text-decoration: none; }
+.pf-row-name:hover, .pf-row-name:focus-visible { text-decoration: underline; }
 .pf-row-link { font-weight: 500; color: var(--pf-fg); text-decoration: none; }
 .pf-row-link::after { content: ""; position: absolute; inset: 0; }
 .pf-row-link:focus-visible { outline: none; }
