@@ -851,10 +851,20 @@ one.
 The table sits in a `.pf-datatable` wrapper, and every theme's `components.css` styles the rest
 under it:
 
-- the controls on two lines;
+- the controls on two lines: a table with Buttons (`tableTools`) puts the buttons, the page length
+  and the search on the first, in `.pf-datatable-top`, the search at its right; the count and the
+  page buttons go on the second;
+- column headings on one line, and `.pf-nowrap` for a cell that should not wrap — a name, a date,
+  a number — so a wide table scrolls rather than squeezing them;
 - the processing note over the table;
 - sort marks that need no icon font. The Bootstrap integration's marks expect Glyphicons, which
   draw as empty boxes on a page without them.
+
+DataTables' own words come through `t()`, so they are in the application's language: the length
+menu (`Show _MENU_ rows`), the count (`Rows _START_ to _END_ of _TOTAL_`), the search
+(`Search the table:`), the empty and no-match notes, the page buttons (`First page`, `Previous
+page`, `Next page`, `Last page`) and Buttons' `Copy the rows` and `Print the rows`. An
+application's language file translates those keys; the framework's Greek is included.
 
 `jQuery.fn.dataTable.ext.classes` is global. So the classes also reach a table that the page
 starts with its own `dataTable()` call, provided an `Html\Datatable` was rendered on the same page.

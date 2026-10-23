@@ -315,6 +315,27 @@ class Datatable extends Base
         return (string) json_encode($value, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
 
+    /**
+     * DataTables' own words — the length menu, the count, the search, the page buttons — in the
+     * application's language, as a JavaScript object.
+     */
+    private static function language(): string
+    {
+        return (string) json_encode([
+            'lengthMenu'     => t('Show _MENU_ rows'),
+            'info'           => t('Rows _START_ to _END_ of _TOTAL_'),
+            'infoEmpty'      => t('No rows to show'),
+            'infoFiltered'   => t('(found among _MAX_)'),
+            'search'         => t('Search the table:'),
+            'zeroRecords'    => t('Nothing matches the search.'),
+            'emptyTable'     => t('Nothing in this table yet.'),
+            'processing'     => t('Loading the rows…'),
+            'loadingRecords' => t('Loading the rows…'),
+            'paginate'       => ['first' => t('First page'), 'previous' => t('Previous page'), 'next' => t('Next page'), 'last' => t('Last page')],
+            'buttons'        => ['copy' => t('Copy the rows'), 'print' => t('Print the rows')],
+        ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE);
+    }
+
     /** The project's UI system: `scaffold_theme`, or bootstrap where none is declared. */
     private static function uiSystem(): string
     {
@@ -802,7 +823,7 @@ embed;
             }
             $aoColumns .= '],';
         }
-        $language = "";
+        $language = '"language": ' . self::language() . ',';
         if ($this->stateSave === true) {
             $this->stateSave = "true";
         } elseif ($this->stateSave === false) {
@@ -829,7 +850,8 @@ embed;
             if ($this->jui == true) {
                 $tabletools .= '"sDom": \'<"clear"><"H"lfBr>t<"F"ip>\',';
             } else {
-                $tabletools .= " dom: '<\"right\">B<\"clear\">lfrtip', ";
+                // The buttons, the page length and the search on one line: `.pf-datatable-top`.
+                $tabletools .= " dom: '<\"pf-datatable-top\"Blf>rtip', ";
             }
         }
         $sf = "";

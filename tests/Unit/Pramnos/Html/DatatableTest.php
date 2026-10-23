@@ -369,11 +369,26 @@ class DatatableTest extends TestCase
         $this->assertStringContainsString('"sFilterInput":"form-control pf-ui-input-sm"', $plainJs);
         $this->assertStringContainsString('table table-hover', $plainHtml);
         $this->assertStringNotContainsString('"dom": \'lfrtip\'', $plainJs, 'Buttons\' own layout stands');
-        $this->assertStringContainsString('dom: \'<"right">B', $plainJs);
+        $this->assertStringContainsString('dom: \'<"pf-datatable-top"Blf>rtip\'', $plainJs, 'the buttons, length and search on one line');
         $this->assertStringNotContainsString('ext.classes', $bsJs);
         $this->assertStringNotContainsString('"renderer": "pf"', $bsJs);
         $this->assertStringContainsString('table table-striped table-bordered', $bsHtml);
         $this->assertStringNotContainsString('ext.classes', $noneJs);
+    }
+
+    /**
+     * DataTables' own words — the length menu, the count, the search, the page buttons — come
+     * through t(), so they are in the application's language rather than DataTables' English.
+     */
+    public function testDataTablesWordsAreTheApplications(): void
+    {
+        // Act
+        [, $js] = $this->builtUnder('plain-css', true);
+
+        // Assert
+        $this->assertStringContainsString('"language": {"lengthMenu":"Show _MENU_ rows"', $js);
+        $this->assertStringContainsString('"paginate":{"first":"First page","previous":"Previous page","next":"Next page","last":"Last page"}', $js);
+        $this->assertStringContainsString('"zeroRecords":"Nothing matches the search."', $js);
     }
 
     /**

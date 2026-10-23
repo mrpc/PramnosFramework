@@ -145,12 +145,13 @@ class SegmentsScreenTest extends TestCase
         $this->assertSame('Built on it', self::names($byOwner)[0], 'Bob owns it; the others have no owner named');
         $this->assertSame(self::names($byName), self::names($byUse), '"used by" is not sorted by: segments, then groups, each by name');
         $rows = array_combine(self::names($byName), $byName['data']);
-        $this->assertSame('2', $rows['Greek speakers'][2]);
+        $this->assertSame('<span class="pf-nowrap">2</span>', $rows['Greek speakers'][2]);
         $this->assertStringContainsString('not yet worked out', $rows['Built on it'][2]);
         $this->assertSame(['<span class="pf-up">2</span>', '<span class="pf-zero">0</span>'], [$rows['Greek speakers'][3], $rows['Greek speakers'][4]], 'entered and left this week');
         $this->assertStringContainsString('class="pf-chip" href="' . adminUrl('Segments/view/') . $built . '"', $rows['Greek speakers'][5], 'what uses it is a link');
         $this->assertStringContainsString('<span class="pf-chip">The newsletter</span>', $rows['Greek speakers'][5], 'what the application reports, without a page');
-        $this->assertSame(['Bob', date('Y-m-d')], [$rows['Built on it'][6], substr($rows['Greek speakers'][7], 0, 10)]);
+        $this->assertSame(['Bob', date('d/m/Y')], [strip_tags($rows['Built on it'][6]), substr(strip_tags($rows['Greek speakers'][7]), 0, 10)], 'the date as the administration writes it');
+        $this->assertStringContainsString('>Segment</span>', $rows['Greek speakers'][1], 'the kind in words the application translates');
         $this->assertStringContainsString('Made from the Greek speakers', $rows['Built on it'][0], 'the description under the name');
         $this->assertSame(array_fill(0, 5, '<span class="pf-zero">—</span>'), [$rows['Press'][3], $rows['Press'][4], $rows['Press'][5], $rows['Press'][6], $rows['Press'][7]], 'a group has none of these');
         $this->assertSame(['Press', 'Volunteers'], self::names($groups));

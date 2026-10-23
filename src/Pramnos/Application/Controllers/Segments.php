@@ -97,13 +97,13 @@ class Segments extends Controller
                 return [
                     '<a class="pf-row-link" href="' . $e($row['url']) . '">' . $e($row['name']) . '</a>'
                         . ($row['description'] !== '' ? '<span class="pf-row-desc">' . $e($row['description']) . '</span>' : ''),
-                    '<span class="pf-badge ' . ($row['kind'] === 'segment' ? 'pf-tone-accent' : 'pf-tone-neutral') . '">' . $e($row['kind'] === 'segment' ? t('segment') : t('group')) . '</span>',
-                    $row['members'] >= 0 ? $e(number_format($row['members'])) : '<span class="pf-muted">' . $e(t('not yet worked out')) . '</span>',
+                    '<span class="pf-badge ' . ($row['kind'] === 'segment' ? 'pf-tone-accent' : 'pf-tone-neutral') . '">' . $e($row['kind'] === 'segment' ? t('Segment') : t('Group')) . '</span>',
+                    $row['members'] >= 0 ? '<span class="pf-nowrap">' . $e(number_format($row['members'])) . '</span>' : '<span class="pf-muted">' . $e(t('not yet worked out')) . '</span>',
                     $row['kind'] === 'segment' ? $number($row['entered'], 'pf-up') : $none,
                     $row['kind'] === 'segment' ? $number($row['left'], 'pf-down') : $none,
                     $uses === '' ? $none : '<span class="pf-chips">' . $uses . '</span>',
-                    $row['ownerName'] !== '' ? $e($row['ownerName']) : $none,
-                    $row['recomputedAt'] > 0 ? $e(date('Y-m-d H:i', $row['recomputedAt'])) : $none,
+                    $row['ownerName'] !== '' ? '<span class="pf-nowrap">' . $e($row['ownerName']) . '</span>' : $none,
+                    $row['recomputedAt'] > 0 ? '<span class="pf-nowrap">' . $e(date('d/m/Y H:i', $row['recomputedAt'])) . '</span>' : $none,
                 ];
             }, $page),
         ));

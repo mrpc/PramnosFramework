@@ -439,7 +439,7 @@ a.pf-stat-tile:hover { border-color: var(--color-primary, #2563eb); }
 .pf-chart-data td { text-align: right; }
 
 /* Data tables — Pramnos\Html\Datatable. DataTables writes its own DOM, so these reach it under
-   the table's .pf-datatable wrapper: the length and search controls on one line, the count and
+   the table's .pf-datatable wrapper: the buttons, the length and the search on one line, the count and
    the page buttons on the next, a processing note over the table, and sort marks that need no
    icon font — the Bootstrap integration's expect Glyphicons, which a page without them shows as
    empty boxes. */
@@ -453,6 +453,10 @@ a.pf-stat-tile:hover { border-color: var(--color-primary, #2563eb); }
 .pf-datatable .dataTables_info { float: left; padding-top: .75rem; font-size: .875rem; opacity: .7; }
 .pf-datatable .dataTables_paginate { float: right; display: flex; flex-wrap: wrap; gap: .25rem; padding-top: .5rem; }
 .pf-datatable .dataTables_paginate .ellipsis { padding: 0 .25rem; }
+.pf-datatable .pf-datatable-top { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin-bottom: .75rem; }
+.pf-datatable .pf-datatable-top > * { float: none; margin: 0; }
+.pf-datatable .pf-datatable-top > .dataTables_filter { margin-left: auto; }
+.pf-datatable table.dataTable thead th, .pf-nowrap { white-space: nowrap; }
 .pf-datatable-processing { position: absolute; top: 50%; left: 50%; z-index: 10; transform: translate(-50%, -50%); padding: .5rem 1rem; border-radius: .5rem; background: var(--color-base-100, #fff); box-shadow: 0 4px 12px rgba(0, 0, 0, .15); }
 .pf-datatable table.dataTable thead > tr > th.sorting,
 .pf-datatable table.dataTable thead > tr > th.sorting_asc,
