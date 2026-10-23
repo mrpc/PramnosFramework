@@ -1,7 +1,7 @@
 <?php
 /**
  * The library of segments and groups: how many are in each now, who came and went this week, and
- * where each is used — tabs with their counts, a search over the names, a row that is one link.
+ * where each is used — tabs with their counts, then the framework's datatable: sorted, paged, searched.
  * The same markup in every theme: it is dressed by the `pf-*` rules in components.css.
  *
  * Variables:
@@ -48,12 +48,6 @@ $delta  = static function (?array $movement) use ($e): string {
             <?php echo $tab(t('Groups'), '?kind=groups', $kind === 'groups', 'groups'); ?>
             <?php echo $tab(t('Mine'), '?mine=1', !empty($this->mine), 'mine'); ?>
         </nav>
-        <?php if (!empty($this->rows)): ?>
-            <label class="pf-search">
-                <?php echo Icon::svg('search', ''); ?>
-                <input type="search" class="pf-input" data-pf-filter-rows="#pf-segments-table" placeholder="<?php echo $e(t('Search by name')); ?>" aria-label="<?php echo $e(t('Search by name')); ?>">
-            </label>
-        <?php endif; ?>
     </div>
     <div class="pf-card pf-card-flush">
         <?php if (empty($this->rows) && (int) ($counts['all'] ?? 0) > 0): ?>
@@ -66,33 +60,34 @@ $delta  = static function (?array $movement) use ($e): string {
                 <a href="<?php echo $e(adminUrl('Segments/edit')); ?>" class="pf-btn pf-btn-primary"><?php echo Icon::svg('plus', ''); ?><?php echo $e(t('New segment')); ?></a>
             </div>
         <?php else: ?>
-            <table class="pf-table" id="pf-segments-table">
-                <thead>
-                    <tr><th><?php echo $e(t('Name')); ?></th><th><?php echo $e(t('Segment or group')); ?></th><th class="pf-num"><?php echo $e(t('In it now')); ?></th><th class="pf-num"><?php echo $e(t('7 days')); ?></th><th><?php echo $e(t('Used by')); ?></th></tr>
-                </thead>
-                <tbody>
-                <?php foreach ($this->rows as $row): ?>
-                    <tr data-kind="<?php echo $e($row['kind']); ?>" data-pf-row-text="<?php echo $e(mb_strtolower($row['name'] . ' ' . ($row['description'] ?? ''))); ?>">
-                        <td>
-                            <a class="pf-row-link" href="<?php echo $e($row['url']); ?>"><?php echo $e($row['name']); ?></a>
-                            <?php if (($row['description'] ?? '') !== ''): ?><span class="pf-row-desc"><?php echo $e($row['description']); ?></span><?php endif; ?>
-                        </td>
-                        <td><span class="pf-badge <?php echo $row['kind'] === 'segment' ? 'pf-tone-accent' : 'pf-tone-neutral'; ?>"><?php echo $e($row['kind'] === 'segment' ? t('segment') : t('group')); ?></span></td>
-                        <td class="pf-num"><?php echo $row['computed'] ? $e(number_format((int) $row['members'])) : '<span class="pf-muted">' . $e(t('not yet worked out')) . '</span>'; ?></td>
-                        <td class="pf-num"><?php echo $delta($row['movement']); ?></td>
-                        <td>
-                            <?php if (empty($row['uses'])): ?>
-                                <span class="pf-zero">—</span>
-                            <?php else: ?>
-                                <span class="pf-chips"><?php foreach ($row['uses'] as $use): ?><?php echo $use['url'] !== null
-                                    ? '<a class="pf-chip" href="' . $e($use['url']) . '">' . $e($use['name']) . '</a>'
-                                    : '<span class="pf-chip">' . $e($use['name']) . '</span>'; ?><?php endforeach; ?></span>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-                </tbody>
-            </table>
+            <?php
+            // The framework's datatable, its rows given here: sorting, paging and the search,
+            // the same as every other list in the administration.
+            $table = new \Pramnos\Html\Datatable('pf-segments-table');
+            $table->bootstrap = false;
+            $table->addColumn($e(t('Name')))
+                ->addColumn($e(t('Segment or group')))
+                ->addColumn($e(t('In it now')), true, true, false, 'html-num-fmt')
+                ->addColumn($e(t('7 days')), true, false, false)
+                ->addColumn($e(t('Used by')), true, false, true);
+            foreach ($this->rows as $row) {
+                $uses = '';
+                foreach ($row['uses'] as $use) {
+                    $uses .= $use['url'] !== null
+                        ? '<a class="pf-chip" href="' . $e($use['url']) . '">' . $e($use['name']) . '</a>'
+                        : '<span class="pf-chip">' . $e($use['name']) . '</span>';
+                }
+                $table->addRow([
+                    '<a class="pf-row-link" href="' . $e($row['url']) . '">' . $e($row['name']) . '</a>'
+                        . (($row['description'] ?? '') !== '' ? '<span class="pf-row-desc">' . $e($row['description']) . '</span>' : ''),
+                    '<span class="pf-badge ' . ($row['kind'] === 'segment' ? 'pf-tone-accent' : 'pf-tone-neutral') . '">' . $e($row['kind'] === 'segment' ? t('segment') : t('group')) . '</span>',
+                    $row['computed'] ? $e(number_format((int) $row['members'])) : '<span class="pf-muted">' . $e(t('not yet worked out')) . '</span>',
+                    $delta($row['movement']),
+                    $uses === '' ? '<span class="pf-zero">—</span>' : '<span class="pf-chips">' . $uses . '</span>',
+                ]);
+            }
+            echo $table->render();
+            ?>
         <?php endif; ?>
     </div>
 </div>

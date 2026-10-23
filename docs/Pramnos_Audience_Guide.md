@@ -365,6 +365,10 @@ fields, a footer that keeps a long form's buttons in reach — dressed by each t
 theme's variables). A layout that prints the page's title itself hides the screens' own with
 `$document->bodyclasses[] = 'pf-titled'`.
 
+The library at `/admin/Segments` — segments and groups, with tabs for each and for the account's
+own — lists them in the framework's datatable (`Pramnos\Html\Datatable`, its rows given by the
+page), so it sorts, pages and searches as every other list in the administration.
+
 Two pieces work in any form:
 
 ```html

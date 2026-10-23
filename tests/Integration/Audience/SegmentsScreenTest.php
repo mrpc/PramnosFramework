@@ -96,6 +96,8 @@ class SegmentsScreenTest extends TestCase
             $this->assertStringContainsString('▲ 2</span><span class="pf-zero" title="Left, 7 days">▼ 0', $page, $theme);
             $this->assertStringContainsString('segment Built on it', $page, $theme);
             $this->assertStringContainsString('not yet worked out', $page, $theme);
+            // The list is the framework's datatable — sorted, paged and searched like every other.
+            $this->assertStringContainsString("jQuery('#pf-segments-table').dataTable(", $page, $theme);
         }
     }
 
