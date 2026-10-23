@@ -102,6 +102,31 @@ class FrameworkScriptsTest extends TestCase
     }
 
     /**
+     * A script only a feature's screens load is not missing where that feature is off — an
+     * application without the conversations is not told to publish their client — and is where it
+     * is on; a script every page may load is missing whatever the features. Without a list, all.
+     */
+    public function testAFeaturesOwnScriptIsMissingOnlyWithTheFeature(): void
+    {
+        // Arrange — an empty web root
+        $root = $this->root . '/www';
+
+        // Act
+        $none          = FrameworkScripts::missing($root, []);
+        $conversations = FrameworkScripts::missing($root, ['conversations']);
+        $all           = FrameworkScripts::missing($root);
+
+        // Assert
+        $this->assertNotContains('pf-conversations.js', $none, 'the feature is off');
+        $this->assertNotContains('pf-chat.js', $none);
+        $this->assertContains('pf-utils.js', $none, 'every page\'s script, whatever the features');
+        $this->assertContains('pf-conversations.js', $conversations);
+        $this->assertNotContains('pf-assist.js', $conversations, 'neither help nor llm is on');
+        $this->assertTrue(FrameworkScripts::wanted('pf-assist.js', ['help']), 'either of its features');
+        $this->assertSame(FrameworkScripts::shipped(), $all);
+    }
+
+    /**
      * A copy older than the framework's — what a `composer update` leaves in the web root — is
      * named as outdated, with the same fix; a missing one is still named as missing.
      */

@@ -1039,14 +1039,6 @@ class ProjectResync extends Command
     }
 
     /**
-     * The scripts each feature's screens load, which a resync adds where they are missing:
-     * an application that turns a feature on and resyncs gets what its pages ask for.
-     */
-    private const FEATURE_SCRIPTS = [
-        'conversations' => ['pf-conversations.js', 'pf-conversations-basic.js'],
-    ];
-
-    /**
      * Build the list of framework-owned files to sync.
      *
      * Each entry is: ['content' => string, 'dest' => relative path, 'exec' => bool].
@@ -1064,8 +1056,10 @@ class ProjectResync extends Command
             // The scripts an enabled feature cannot work without are added where they are
             // missing; the rest only with --all, as before.
             $needed = [];
-            foreach (array_intersect_key(self::FEATURE_SCRIPTS, array_flip(array_map('strval', $features))) as $names) {
-                $needed += array_flip($names);
+            foreach (\Pramnos\Application\FrameworkScripts::FEATURES as $name => $wantedBy) {
+                if (array_intersect($wantedBy, array_map('strval', $features)) !== []) {
+                    $needed[$name] = true;
+                }
             }
             // All pf-*.js UI hooks (glob so newly-added ones are picked up too).
             foreach (glob($scaffoldingDir . '/assets/js/*.js') ?: [] as $src) {

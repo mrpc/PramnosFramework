@@ -33,13 +33,38 @@ final class FrameworkScripts
     }
 
     /**
-     * The shipped scripts missing from a web root.
+     * The shipped scripts missing from a web root — with `$features`, only those an application
+     * with these features loads ({@see wanted()}).
      *
+     * @param list<string>|null $features
      * @return list<string>
      */
-    public static function missing(string $webRoot): array
+    public static function missing(string $webRoot, ?array $features = null): array
     {
-        return array_values(array_filter(self::shipped(), static fn (string $name): bool => !is_file($webRoot . '/assets/js/' . $name)));
+        return array_values(array_filter(self::shipped(), static fn (string $name): bool => !is_file($webRoot . '/assets/js/' . $name)
+            && ($features === null || self::wanted($name, $features))));
+    }
+
+    /**
+     * The scripts that only a feature's screens load, by the features that load them: one the
+     * application has none of these on for is not missing from its web root.
+     */
+    public const FEATURES = [
+        'pf-conversations.js'       => ['conversations'],
+        'pf-conversations-basic.js' => ['conversations'],
+        'pf-chat.js'                => ['llm'],
+        'pf-assist.js'              => ['help', 'llm'],
+    ];
+
+    /**
+     * Whether an application with these features loads a script: every script but a feature's own,
+     * and those where one of its features is on.
+     *
+     * @param list<string> $features
+     */
+    public static function wanted(string $name, array $features): bool
+    {
+        return !isset(self::FEATURES[$name]) || array_intersect(self::FEATURES[$name], $features) !== [];
     }
 
     /**

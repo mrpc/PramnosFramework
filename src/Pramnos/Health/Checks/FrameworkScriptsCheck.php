@@ -33,7 +33,9 @@ class FrameworkScriptsCheck implements HealthCheck
     public function run(): HealthCheckResult
     {
         $root    = $this->webRoot ?? FrameworkScripts::webRoot(defined('ROOT') ? (string) ROOT : (string) getcwd());
-        $missing  = FrameworkScripts::missing($root);
+        // A script only a feature's screens load is not missing where that feature is off.
+        $app      = \Pramnos\Application\Application::currentInstance();
+        $missing  = FrameworkScripts::missing($root, $app !== null && is_array($app->applicationInfo['features'] ?? null) ? $app->applicationInfo['features'] : null);
         $outdated = FrameworkScripts::outdated($root);
 
         if ($missing === [] && $outdated === []) {
