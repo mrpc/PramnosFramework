@@ -373,8 +373,12 @@ Files::prune(0, $conversationId);   // every one of a conversation
 
 **What may be sent** is decided by what the file is, not what it is called: images (JPEG, PNG, GIF,
 WebP), PDF, Word, Excel and PowerPoint, OpenDocument, CSV, plain text and zip. A program renamed
-`invoice.pdf` is refused. A name loses any path and any character a disk cannot hold. An image gets
-a JPEG thumbnail beside it, 400 pixels on its longest side.
+`invoice.pdf` is refused. A name loses any path and any character a disk cannot hold. An image
+larger than 400 pixels on a side gets a thumbnail beside it, fitted inside 400×400 with its own
+proportions: a PNG for a PNG or a GIF, so a transparent background stays transparent, a JPEG
+otherwise, named `.thumb.png` or `.thumb.jpg` for what it is. A smaller image has none and is shown
+itself, as is one GD cannot read (WebP on most builds). `./pramnos conversations:thumbnails` makes
+every image's thumbnail again (`Files::rebuildThumbnails()`).
 
 **Sending** is never a public link: `Files::send()` checks that the person reads the file's
 conversation, then sends its own type and name, `inline` for an image or a PDF and as an attachment

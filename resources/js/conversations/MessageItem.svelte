@@ -176,9 +176,10 @@
                     {#each message.files as file (file.id)}
                         {#if file.removedAt}
                             <span class="pf-conv-file pf-conv-file-removed">📎 {file.name} · {t('removed on %s', new Date(file.removedAt * 1000).toLocaleDateString())}</span>
-                        {:else if file.thumbnail}
+                        {:else if file.thumbnail || String(file.mime || '').startsWith('image/')}
+                            <!-- An image small enough has no thumbnail: it is shown itself. -->
                             <a class="pf-conv-thumb" href={api.fileUrl(file.id)} target="_blank" rel="noopener">
-                                <img src={api.fileUrl(file.id, true)} alt={file.name} loading="lazy" />
+                                <img src={api.fileUrl(file.id, file.thumbnail)} alt={file.name} loading="lazy" />
                             </a>
                         {:else}
                             <a class="pf-conv-file" href={api.fileUrl(file.id)} target="_blank" rel="noopener">

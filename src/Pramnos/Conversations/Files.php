@@ -25,7 +25,7 @@ use Pramnos\Database\Expression;
  * | the largest file | the setting `conversations_max_file_mb`, else `'conversations' => ['max_file_mb' => …]` | 25 MB |
  *
  * Allowed: images, PDF, Office and OpenDocument, CSV, plain text and zip — by what the file is, not
- * what it is called; never a program. An image gets a thumbnail beside it.
+ * what it is called; never a program. An image larger than THUMB gets a thumbnail beside it.
  */
 final class Files
 {
@@ -151,7 +151,7 @@ final class Files
         $file   = (array) self::get($id);
         $inline = str_starts_with($file['mime'], 'image/') || $file['mime'] === 'application/pdf';
         if (!headers_sent()) {
-            header('Content-Type: ' . ($thumbnail && $file['thumbPath'] !== null ? 'image/jpeg' : $file['mime']));
+            header('Content-Type: ' . ($thumbnail && $file['thumbPath'] !== null ? (str_ends_with($file['thumbPath'], '.png') ? 'image/png' : 'image/jpeg') : $file['mime']));
             header('Content-Length: ' . (string) filesize($path));
             header('Content-Disposition: ' . ($inline ? 'inline' : 'attachment') . "; filename*=UTF-8''" . rawurlencode($file['name']));
             header('Cache-Control: private, max-age=86400');
@@ -323,19 +323,53 @@ final class Files
         return mb_substr($name !== '' ? $name : 'file', -150);
     }
 
-    /** A thumbnail beside an image, or null where it cannot be made. */
+    /**
+     * A thumbnail beside an image, fitted inside THUMB×THUMB with its own proportions — a PNG for a
+     * PNG or GIF, so transparency stays, a JPEG otherwise, named for what it is. None for an image
+     * that fits already, which is shown itself, nor where one cannot be made.
+     */
     private static function thumbnail(string $absolute, string $relative): ?string
     {
         try {
-            $thumb  = (string) preg_replace('/\.[^.\/]+$/', '', $relative) . '.thumb.jpg';
+            $size = @getimagesize($absolute);
+            if (!is_array($size) || ($size[0] <= self::THUMB && $size[1] <= self::THUMB)) {
+                return null;
+            }
+            $thumb  = (string) preg_replace('/\.[^.\/]+$/', '', $relative) . '.thumb.' . (in_array($size[2], [IMAGETYPE_PNG, IMAGETYPE_GIF], true) ? 'png' : 'jpg');
             $resize = new \Pramnos\Media\ResizeTools();
             $resize->exportpath = dirname(self::root() . '/' . $thumb) . '/';
             $resize->exportfile = basename($thumb);
+            // By width alone, which keeps the proportions: the longer side becomes THUMB.
+            $width = $size[0] >= $size[1] ? self::THUMB : max(1, (int) round($size[0] * self::THUMB / $size[1]));
 
-            return $resize->resize($absolute, self::THUMB, self::THUMB) && is_file(self::root() . '/' . $thumb) ? $thumb : null;
+            return $resize->resize($absolute, $width, 0) && is_file(self::root() . '/' . $thumb) ? $thumb : null;
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    /**
+     * Make every image's thumbnail again — what `conversations:thumbnails` runs: the old one goes,
+     * and a new one is made where the image needs one.
+     *
+     * @return array{images: int, thumbnails: int}
+     */
+    public static function rebuildThumbnails(): array
+    {
+        $done = ['images' => 0, 'thumbnails' => 0];
+        $db   = Conversations::db();
+        foreach ($db->queryBuilder()->table('#PREFIX#conversation_files')->select(['fileid', 'path', 'thumbpath'])
+            ->where('mime', 'like', 'image/%')->whereNull('removedat')->getAllOrFail() as $row) {
+            if ($row['thumbpath'] !== null && is_file(self::root() . '/' . $row['thumbpath'])) {
+                @unlink(self::root() . '/' . $row['thumbpath']);
+            }
+            $thumb = is_file(self::root() . '/' . $row['path']) ? self::thumbnail(self::root() . '/' . $row['path'], (string) $row['path']) : null;
+            $db->queryBuilder()->table('#PREFIX#conversation_files')->where('fileid', (int) $row['fileid'])->update(['thumbpath' => $thumb]);
+            $done['images']++;
+            $done['thumbnails'] += $thumb === null ? 0 : 1;
+        }
+
+        return $done;
     }
 
     /** @param array<string, mixed> $r @return array<string, mixed> */

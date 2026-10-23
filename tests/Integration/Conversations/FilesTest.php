@@ -59,6 +59,63 @@ class FilesTest extends TestCase
         return (string) ob_get_clean();
     }
 
+    /** An image of this size: a PNG with a transparent background, or a JPEG. */
+    private static function image(int $width, int $height, string $kind = 'png'): string
+    {
+        $image = imagecreatetruecolor($width, $height);
+        imagealphablending($image, false);
+        imagesavealpha($image, true);
+        imagefill($image, 0, 0, imagecolorallocatealpha($image, 0, 0, 0, 127));
+        imagefilledrectangle($image, 0, 0, (int) ($width / 2), (int) ($height / 2), imagecolorallocate($image, 200, 30, 30));
+        ob_start();
+        $kind === 'png' ? imagepng($image) : imagejpeg($image);
+
+        return (string) ob_get_clean();
+    }
+
+    /**
+     * A thumbnail keeps its image's proportions inside THUMB×THUMB — a strip of text stays a strip,
+     * a tall photo stays tall — and is of the type its name says: a PNG for a PNG, transparency
+     * kept, a JPEG for a JPEG. An image that fits already has none: it is shown itself. The command
+     * makes them all again, so a square thumbnail made before goes, and a small image's goes too.
+     */
+    #[DataProvider('databases')]
+    public function testAThumbnailKeepsItsImagesProportionsAndType(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->tree = sys_get_temp_dir() . '/pfchat-' . bin2hex(random_bytes(4));
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30, 'files_path' => $this->tree];
+        $eleni   = $this->ids['eleni'];
+        $general = Conversations::create('channel', 'general', [], $eleni);
+
+        // Act
+        $strip = Files::store($general, $eleni, $this->upload(self::image(1380, 164)), 'λωρίδα.png');
+        $tall  = Files::store($general, $eleni, $this->upload(self::image(300, 900, 'jpeg')), 'ψηλή.jpg');
+        $small = Files::store($general, $eleni, $this->upload(self::image(345, 41)), 'μικρή.png');
+        $sizes = fn (int $id): array => array_slice((array) getimagesize($this->tree . '/' . Files::get($id)['thumbPath']), 0, 3);
+        $thumbs = [$sizes($strip), $sizes($tall)];
+        $corner = imagecolorat((object) imagecreatefrompng($this->tree . '/' . Files::get($strip)['thumbPath']), 399, 47) >> 24;
+        // A square thumbnail as one was made before, for the small one.
+        $old = dirname(Files::get($small)['path']) . '/' . $small . '-μικρή.thumb.jpg';
+        file_put_contents($this->tree . '/' . $old, self::image(41, 41));
+        $this->db->queryBuilder()->table('conversation_files')->where('fileid', $small)->update(['thumbpath' => $old]);
+        $console = new \Pramnos\Console\Application();
+        $tester  = new \Symfony\Component\Console\Tester\CommandTester($console->find('conversations:thumbnails'));
+        $status  = $tester->execute([]);
+
+        // Assert
+        $this->assertSame([[400, 48, IMAGETYPE_PNG], [133, 399, IMAGETYPE_JPEG]], $thumbs, 'fitted, each of its own type');
+        $this->assertStringEndsWith('.thumb.png', Files::get($strip)['thumbPath'], 'named for what it is');
+        $this->assertStringEndsWith('.thumb.jpg', Files::get($tall)['thumbPath']);
+        $this->assertSame(127, $corner, 'the transparent background stays transparent');
+        $this->assertSame(0, $status);
+        $this->assertSame('3 images, 2 with a thumbnail; the rest are shown themselves.', trim($tester->getDisplay()));
+        $this->assertNull(Files::get($small)['thumbPath'], 'small enough: shown itself');
+        $this->assertFileDoesNotExist($this->tree . '/' . $old, 'the square one is gone');
+        $this->assertSame([[400, 48, IMAGETYPE_PNG], [133, 399, IMAGETYPE_JPEG]], [$sizes($strip), $sizes($tall)], 'made again the same');
+    }
+
     /**
      * A file is kept under `YYYY/MM/<id>-<name>`, its type by what it is; a program is refused,
      * whatever it is called, and so is one larger than the setting; a name loses its path; the
