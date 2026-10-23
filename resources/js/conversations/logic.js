@@ -11,7 +11,19 @@ export const RUN_SECONDS = 5 * 60;
 export const TYPING_MS = 6000;
 
 /**
- * A list of messages with one more, or one changed: by id, oldest first, the newer copy kept.
+ * Where a message stands: when it was written, then its id — the server's order. History brought
+ * in later, or a dm merged into another, sits by when it was written, not at the end.
+ *
+ * @param {object} a
+ * @param {object} b
+ * @returns {number}
+ */
+export function byPosition(a, b) {
+    return (a.at - b.at) || (a.id - b.id);
+}
+
+/**
+ * A list of messages with one more, or one changed: where each stands, oldest first, the newer copy kept.
  *
  * @param {Array<object>} list
  * @param {object} message
@@ -20,7 +32,7 @@ export const TYPING_MS = 6000;
 export function upsert(list, message) {
     const rest = list.filter((m) => m.id !== message.id);
     rest.push(message);
-    rest.sort((a, b) => a.id - b.id);
+    rest.sort(byPosition);
 
     return rest;
 }
@@ -52,6 +64,10 @@ export function timeline(messages, lastReadId, me) {
     let day = '';
     let previous = null;
     let marked = false;
+    // What was read is a message: unread starts after where it stands. One not on this page is
+    // compared by id, the best there is without it.
+    const read = messages.find((m) => m.id === lastReadId);
+    const unread = (message) => (read ? byPosition(message, read) > 0 : message.id > lastReadId);
     for (const message of messages) {
         if (message.deletedAt !== null && message.deletedAt !== undefined && !(message.replyCount > 0)) {
             continue;
@@ -62,7 +78,7 @@ export function timeline(messages, lastReadId, me) {
             day = today;
             previous = null;
         }
-        if (!marked && lastReadId > 0 && message.id > lastReadId && message.authorId !== me) {
+        if (!marked && lastReadId > 0 && unread(message) && message.authorId !== me) {
             items.push({ type: 'new', key: 'new' });
             marked = true;
             previous = null;

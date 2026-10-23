@@ -188,10 +188,11 @@ class ConversationsTest extends TestCase
 
         // Assert
         $this->assertSame($import, $twice, 'an import is written once');
-        $this->assertSame([$first, $all, $system, $import, $call], array_column($top, 'id'), 'top level only, oldest first');
+        // The import was written in 2023: it stands first, by when it was written, not by its id.
+        $this->assertSame([$import, $first, $all, $system, $call], array_column($top, 'id'), 'top level only, oldest first');
         $this->assertSame([$first, $reply], array_column($thread, 'id'));
-        $this->assertSame([$reply, $all, $system, $import, $call], array_column($after, 'id'), 'what a reconnect missed, replies too');
-        $this->assertSame([$first], array_column($before, 'id'));
+        $this->assertSame([$reply, $all, $system, $call], array_column($after, 'id'), 'what a reconnect missed, replies too; not the past');
+        $this->assertSame([$import, $first], array_column($before, 'id'));
         $byId = array_column($top, null, 'id');
         $this->assertSame([1, 'Μαρία Κ.'], [$byId[$first]['replyCount'], Messages::list($general, ['thread' => $first])[1]['author']]);
         $this->assertStringContainsString('@Μαρία Κ.', $byId[$first]['html']);
@@ -219,8 +220,8 @@ class ConversationsTest extends TestCase
         $this->assertEquals($created, ConversationCreated::fromQueue($created->jsonSerialize()));
         $this->assertCount(8, $refusals);
         $this->assertSame('Only its members write in a conversation.', $refusals[0]);
-        $this->assertSame(['unread' => 3, 'mentions' => 1], ['unread' => $nikosSide[0]['unread'], 'mentions' => $nikosSide[0]['mentions']],
-            'writing @all read what came before it; after it, the system\'s, the import and maria\'s call, which mentions him');
+        $this->assertSame(['unread' => 2, 'mentions' => 1], ['unread' => $nikosSide[0]['unread'], 'mentions' => $nikosSide[0]['mentions']],
+            'writing @all read what came before it — the import too, written in the past; after it, the system\'s and maria\'s call, which mentions him');
         Conversations::markRead($general, $nikos, $call);
         Conversations::markRead($general, $nikos, $first);
         $this->assertSame(0, Conversations::forPerson($nikos)[0]['unread'], 'read, never back');
@@ -350,6 +351,51 @@ class ConversationsTest extends TestCase
         $this->assertSame([['former' => true, 'name' => 'Λένα']], Conversations::formers([$group])[$group]);
         $this->assertArrayNotHasKey($inThere, Conversations::formers([$inThere]), 'already in it: the former member just goes');
         $this->assertSame([$eleni, $maria, $nikos], Conversations::members($inThere));
+    }
+
+    /**
+     * Messages stand by when they were written, then by id — not by id alone: a dm merged into an
+     * older one (FW-270) interleaves with it, a page ends between two messages of the same second
+     * and the next page starts at the second of them, history in the past is not unread for
+     * somebody who read past it, the conversation's newest is the newest written, and a thread's
+     * replies follow when each was written.
+     */
+    #[DataProvider('databases')]
+    public function testMessagesStandByWhenTheyWereWritten(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — a live dm, then the history of one with somebody who had no account, in between
+        $this->boot($type, $host, $port, $user);
+        [$eleni, $nikos] = [$this->ids['eleni'], $this->ids['nikos']];
+        $t     = 1750000000;
+        $live  = Conversations::create('dm', null, [$nikos], $eleni);
+        $m10   = Messages::post($live, $eleni, 'δέκα', ['at' => $t + 10]);
+        $m20   = Messages::post($live, $nikos, 'είκοσι', ['at' => $t + 20]);
+        Conversations::markRead($live, $eleni, $m10);
+        $past  = Conversations::create('dm', null, [], $eleni, '', [['name' => 'Νίκος', 'externalid' => 'slack:U9']]);
+        $as    = ['quiet' => true, 'former' => 'slack:U9'];
+        $m5    = Messages::post($past, null, 'πέντε', $as + ['at' => $t + 5]);
+        $m15a  = Messages::post($past, null, 'δεκαπέντε α', $as + ['at' => $t + 15]);
+        $m15b  = Messages::post($past, null, 'δεκαπέντε β', $as + ['at' => $t + 15]);
+        $r18   = Messages::post($past, null, 'απάντηση 18', $as + ['at' => $t + 18, 'thread' => $m15a]);
+        $r17   = Messages::post($past, null, 'απάντηση 17', $as + ['at' => $t + 17, 'thread' => $m15a]);
+
+        // Act
+        Conversations::claimFormer('slack:U9', $nikos, $eleni);
+        $all    = array_column(Messages::list($live), 'id');
+        $page   = array_column(Messages::list($live, ['limit' => 2]), 'id');
+        $next   = array_column(Messages::list($live, ['limit' => 2, 'before' => $m15b]), 'id');
+        $after  = array_column(Messages::list($live, ['after' => $m15a]), 'id');
+        $thread = array_column(Messages::list($live, ['thread' => $m15a]), 'id');
+        $eleniSide = array_values(array_filter(Conversations::forPerson($eleni), static fn (array $c): bool => $c['id'] === $live))[0];
+
+        // Assert
+        $this->assertSame([$m5, $m10, $m15a, $m15b, $m20], $all, 'merged, in the order written');
+        $this->assertSame([$m15b, $m20], $page, 'the newest page');
+        $this->assertSame([$m10, $m15a], $next, 'the next page starts at the other message of that second');
+        $this->assertSame([$m15b, $r17, $r18, $m20], $after, 'after a message: the same second\'s next, replies too');
+        $this->assertSame([$m15a, $r17, $r18], $thread, 'a thread\'s replies by when written');
+        $this->assertSame(3, $eleniSide['unread'], 'what came after what she read, not the history before it');
+        $this->assertSame($m20, Conversations::get($live)['lastMessageId'], 'the newest written, though not the highest id');
     }
 
     /**

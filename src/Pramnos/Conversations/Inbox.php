@@ -35,13 +35,14 @@ final class Inbox
         $ids  = array_map('intval', array_column($rows, 'messageid'));
         $out  = [];
         foreach (Messages::many($ids) as $root) {
-            $mine = (int) (self::messages()->select([new \Pramnos\Database\Expression('MAX(messageid) AS n')])->where('threadrootid', $root['id'])
-                ->where('authorid', $person)->getAllOrFail()[0]['n'] ?? 0);
-            $since = max($mine, $root['authorId'] === $person ? $root['id'] : 0);
-            $new   = (int) (self::messages()->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->where('threadrootid', $root['id'])
-                ->where('messageid', '>', $since)->whereNull('deletedat')->where(self::others($person))->getAllOrFail()[0]['n'] ?? 0);
-            $latest = self::messages()->select(['messageid'])->where('threadrootid', $root['id'])->whereNull('deletedat')
-                ->orderBy('messageid', 'desc')->limit(1)->getAllOrFail()[0]['messageid'] ?? null;
+            // Their own newest reply, by when written; else the root, if it is theirs.
+            $mine = (int) (Messages::inOrder(self::messages()->select(['messageid'])->where('threadrootid', $root['id'])
+                ->where('authorid', $person), 'desc')->limit(1)->getAllOrFail()[0]['messageid'] ?? 0);
+            $since = $mine ?: ($root['authorId'] === $person ? $root['id'] : 0);
+            $new   = (int) (Messages::beyond(self::messages()->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->where('threadrootid', $root['id']), $since)
+                ->whereNull('deletedat')->where(self::others($person))->getAllOrFail()[0]['n'] ?? 0);
+            $latest = Messages::inOrder(self::messages()->select(['messageid'])->where('threadrootid', $root['id'])->whereNull('deletedat'), 'desc')
+                ->limit(1)->getAllOrFail()[0]['messageid'] ?? null;
             $out[] = ['root' => $root, 'latest' => $latest === null ? null : (Messages::many([(int) $latest])[0] ?? null),
                 'replies' => $root['replyCount'], 'newReplies' => $new];
         }
@@ -82,7 +83,7 @@ final class Inbox
         $roots = self::roots($person);
         if ($roots !== []) {
             foreach (self::messages()->select(['messageid'])->whereIn('threadrootid', $roots)->whereIn('conversationid', $mine)
-                ->whereNull('deletedat')->where(self::others($person))->orderBy('messageid', 'desc')->limit($limit)->getAllOrFail() as $row) {
+                ->whereNull('deletedat')->where(self::others($person))->orderBy('created_at', 'desc')->orderBy('messageid', 'desc')->limit($limit)->getAllOrFail() as $row) {
                 // A reply that mentions them is told once, as the mention.
                 $items['m' . $row['messageid']] ??= ['kind' => 'reply', 'at' => 0, 'id' => (int) $row['messageid'], 'by' => null, 'emoji' => null];
             }
@@ -120,9 +121,8 @@ final class Inbox
             if ($c['muted'] || $c['unread'] === 0 || $c['archivedAt'] !== null) {
                 continue;
             }
-            $ids = array_map('intval', array_column(Messages::inStream(self::messages())->select(['messageid'])->where('conversationid', $c['id'])
-                ->where('messageid', '>', $c['lastReadId'])->whereNull('deletedat')->where(self::others($person))
-                ->orderBy('messageid', 'desc')->limit(max(1, min(self::LIMIT, $each)))->getAllOrFail(), 'messageid'));
+            $ids = array_map('intval', array_column(Messages::inOrder(Messages::beyond(Messages::inStream(self::messages())->select(['messageid'])
+                ->where('conversationid', $c['id']), $c['lastReadId'])->whereNull('deletedat')->where(self::others($person)), 'desc')->limit(max(1, min(self::LIMIT, $each)))->getAllOrFail(), 'messageid'));
             $out[] = ['id' => $c['id'], 'title' => Conversations::names([$c['id']])[$c['id']] ?? '', 'unread' => $c['unread'],
                 'lastMessageId' => $c['lastMessageId'], 'messages' => Messages::many(array_reverse($ids))];
         }
@@ -139,7 +139,7 @@ final class Inbox
         }
 
         return Messages::many(array_map('intval', array_column(self::messages()->select(['messageid'])->where('authorid', $person)
-            ->whereIn('conversationid', $mine)->whereNull('deletedat')->orderBy('messageid', 'desc')
+            ->whereIn('conversationid', $mine)->whereNull('deletedat')->orderBy('created_at', 'desc')->orderBy('messageid', 'desc')
             ->limit(max(1, min(self::LIMIT, $limit)))->getAllOrFail(), 'messageid')));
     }
 
@@ -195,9 +195,9 @@ final class Inbox
     private static function roots(int $person): array
     {
         $replied = array_column(self::messages()->select(['threadrootid'])->where('authorid', $person)->whereNotNull('threadrootid')
-            ->orderBy('messageid', 'desc')->limit(500)->getAllOrFail(), 'threadrootid');
+            ->orderBy('created_at', 'desc')->orderBy('messageid', 'desc')->limit(500)->getAllOrFail(), 'threadrootid');
         $own     = array_column(self::messages()->select(['messageid'])->where('authorid', $person)->whereNull('threadrootid')
-            ->where('replycount', '>', 0)->orderBy('messageid', 'desc')->limit(500)->getAllOrFail(), 'messageid');
+            ->where('replycount', '>', 0)->orderBy('created_at', 'desc')->orderBy('messageid', 'desc')->limit(500)->getAllOrFail(), 'messageid');
 
         return array_values(array_unique(array_map('intval', array_merge($replied, $own))));
     }

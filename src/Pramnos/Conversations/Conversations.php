@@ -277,8 +277,12 @@ final class Conversations
     /** Somebody has read up to a message: never back. */
     public static function markRead(int $id, int $person, int $messageId): void
     {
-        self::members_()->where('conversationid', $id)->where('participanttype', 'user')->where('participantid', $person)
-            ->where('lastreadid', '<', $messageId)->update(['lastreadid' => $messageId]);
+        // Never back: by where the messages stand, so reading history brought in later moves nothing.
+        $read = self::member($id, $person)['lastReadId'] ?? null;
+        if ($read !== null && Messages::isAfter($messageId, $read)) {
+            self::members_()->where('conversationid', $id)->where('participanttype', 'user')->where('participantid', $person)
+                ->update(['lastreadid' => $messageId]);
+        }
     }
 
     /**
@@ -293,8 +297,8 @@ final class Conversations
             throw new \InvalidArgumentException(t('That message no longer exists.'));
         }
         $from     = $message['threadRootId'] ?? $message['id'];
-        $previous = self::db()->queryBuilder()->table('#PREFIX#conversation_messages')->select(['messageid'])->where('conversationid', $id)
-            ->whereNull('threadrootid')->where('messageid', '<', $from)->orderBy('messageid', 'desc')->limit(1)->getAllOrFail()[0]['messageid'] ?? 0;
+        $previous = Messages::inOrder(Messages::beyond(self::db()->queryBuilder()->table('#PREFIX#conversation_messages')->select(['messageid'])
+            ->where('conversationid', $id)->whereNull('threadrootid'), (int) $from, false), 'desc')->limit(1)->getAllOrFail()[0]['messageid'] ?? 0;
         self::members_()->where('conversationid', $id)->where('participanttype', 'user')->where('participantid', $person)
             ->update(['lastreadid' => (int) $previous]);
         Realtime::read($id, $person);
@@ -310,14 +314,15 @@ final class Conversations
     {
         $db = self::db();
         $unread = (int) (Messages::inStream($db->queryBuilder()->table('#PREFIX#conversation_messages'))->select([new Expression('COUNT(*) AS n')])
-            ->where('conversationid', $id)->where('messageid', '>', $after)->whereNull('deletedat')
+            ->where('conversationid', $id)->where(static fn ($q) => Messages::beyond($q, $after))->whereNull('deletedat')
             ->where(static function ($q) use ($person): void {
                 $q->whereNull('authorid')->orWhere('authorid', '!=', $person);
             })->getAllOrFail()[0]['n'] ?? 0);
-        $mentions = (int) ($db->queryBuilder()->table('#PREFIX#conversation_mentions')->select([new Expression('COUNT(*) AS n')])
-            ->where('conversationid', $id)->where('messageid', '>', $after)
+        $mentions = (int) ($db->queryBuilder()->table('#PREFIX#conversation_mentions AS mn')
+            ->join('#PREFIX#conversation_messages AS m', 'm.messageid', '=', 'mn.messageid')->select([new Expression('COUNT(*) AS n')])
+            ->where('mn.conversationid', $id)->where(static fn ($q) => Messages::beyond($q, $after, true, 'm.'))
             ->where(static function ($q) use ($person): void {
-                $q->where('participantid', $person)->whereIn('kind', ['all', 'online'], 'or');
+                $q->where('mn.participantid', $person)->whereIn('mn.kind', ['all', 'online'], 'or');
             })->getAllOrFail()[0]['n'] ?? 0);
 
         return ['unread' => $unread, 'mentions' => $mentions];
@@ -514,8 +519,8 @@ final class Conversations
      * Put the newer of two dms into the older: its messages, mentions, pins and files, each
      * member's reading the further of the two, and the newer gone.
      *
-     * ponytail: messages keep their ids, and a conversation lists by id, so the moved ones sit
-     * by when they were written into it, not by `at` — interleaving needs listing by time.
+     * The moved messages keep their ids; a conversation lists by when each was written, so they
+     * interleave with the older dm's.
      */
     private static function merge(int $older, int $newer): int
     {
@@ -524,12 +529,11 @@ final class Conversations
             $db->queryBuilder()->table('#PREFIX#' . $table)->where('conversationid', $newer)->update(['conversationid' => $older]);
         }
         foreach (self::members_()->where('conversationid', $newer)->where('participanttype', 'user')->getAllOrFail() as $member) {
-            self::members_()->where('conversationid', $older)->where('participanttype', 'user')->where('participantid', (int) $member['participantid'])
-                ->where('lastreadid', '<', (int) $member['lastreadid'])->update(['lastreadid' => (int) $member['lastreadid']]);
+            self::markRead($older, (int) $member['participantid'], (int) $member['lastreadid']);
         }
         $a = self::get($older);
         $b = self::get($newer);
-        if (($b['lastMessageAt'] ?? 0) > ($a['lastMessageAt'] ?? 0)) {
+        if ($b['lastMessageId'] !== null && ($a['lastMessageId'] === null || Messages::isAfter($b['lastMessageId'], $a['lastMessageId']))) {
             $db->queryBuilder()->table('#PREFIX#conversations')->where('conversationid', $older)
                 ->update(['lastmessageid' => $b['lastMessageId'], 'lastmessageat' => $b['lastMessageAt']]);
         }

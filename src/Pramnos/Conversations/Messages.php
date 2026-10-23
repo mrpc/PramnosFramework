@@ -7,6 +7,7 @@ namespace Pramnos\Conversations;
 use Pramnos\Conversations\Events\MentionReceived;
 use Pramnos\Conversations\Events\MessagePosted;
 use Pramnos\Database\Expression;
+use Pramnos\Database\QueryBuilder;
 use Pramnos\Database\Instant;
 
 /**
@@ -44,6 +45,61 @@ final class Messages
             ->where(static fn ($q) => $q->where('externalid', $former)->orWhere('name', $former))->limit(1)->getAllOrFail();
 
         return $rows === [] ? null : (string) $rows[0]['name'];
+    }
+
+    /**
+     * Where a message stands in its conversation: when it was written, then its id — the order
+     * every list, cursor and read marker follows, so history brought in later, or a dm merged
+     * into another, sits by when it was written. Null for no such message.
+     *
+     * @return array{at: string, id: int}|null
+     */
+    public static function position(int $id): ?array
+    {
+        if ($id <= 0) {
+            return null;
+        }
+        $row = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_messages')->select(['created_at'])
+            ->where('messageid', $id)->limit(1)->getAllOrFail()[0] ?? null;
+
+        return $row === null ? null : ['at' => (string) $row['created_at'], 'id' => $id];
+    }
+
+    /**
+     * Narrow a query to the messages after a message (`$after` true) or before it, in that order.
+     * Nothing is after "message 0"; an id that is no message falls back to comparing ids.
+     */
+    public static function beyond(QueryBuilder $query, int $id, bool $after = true, string $prefix = ''): QueryBuilder
+    {
+        $position = self::position($id);
+        $op       = $after ? '>' : '<';
+        if ($position === null) {
+            return $query->where($prefix . 'messageid', $op, $id);
+        }
+
+        return $query->where(static function ($q) use ($position, $op, $prefix): void {
+            $q->where($prefix . 'created_at', $op, $position['at'])->orWhere(static function ($same) use ($position, $op, $prefix): void {
+                $same->where($prefix . 'created_at', $position['at'])->where($prefix . 'messageid', $op, $position['id']);
+            });
+        });
+    }
+
+    /** Order a query by where messages stand: when written, then id. */
+    public static function inOrder(QueryBuilder $query, string $direction = 'asc', string $prefix = ''): QueryBuilder
+    {
+        return $query->orderBy($prefix . 'created_at', $direction)->orderBy($prefix . 'messageid', $direction);
+    }
+
+    /** Whether message `$a` stands after message `$b` (any message after "0"). */
+    public static function isAfter(int $a, int $b): bool
+    {
+        $pa = self::position($a);
+        $pb = self::position($b);
+        if ($pa === null || $pb === null) {
+            return $a > $b;
+        }
+
+        return [strtotime($pa['at']), $pa['id']] > [strtotime($pb['at']), $pb['id']];
     }
 
     /**
@@ -112,12 +168,19 @@ final class Messages
             'editedat' => isset($options['editedAt']) ? (int) $options['editedAt'] : null,
         ]);
         $id = (int) $db->getInsertId();
+        // History written into the past moves neither a root's newest reply nor the conversation's
+        // newest message back: they stay the newest by when written.
+        $notBefore = static fn (string $column) => static function ($q) use ($column, $at): void {
+            $q->whereNull($column)->orWhere($column, '<=', $at);
+        };
         if ($thread !== null) {
             $db->queryBuilder()->table('#PREFIX#conversation_messages')->where('messageid', $thread)
-                ->update(['replycount' => new Expression('replycount + 1'), 'lastreplyat' => $at]);
+                ->update(['replycount' => new Expression('replycount + 1')]);
+            $db->queryBuilder()->table('#PREFIX#conversation_messages')->where('messageid', $thread)->where($notBefore('lastreplyat'))
+                ->update(['lastreplyat' => $at]);
         }
         if ($thread === null || $broadcast) {
-            $db->queryBuilder()->table('#PREFIX#conversations')->where('conversationid', $conversationId)
+            $db->queryBuilder()->table('#PREFIX#conversations')->where('conversationid', $conversationId)->where($notBefore('lastmessageat'))
                 ->update(['lastmessageid' => $id, 'lastmessageat' => $at]);
         }
         if ($author !== null) {
@@ -297,13 +360,14 @@ final class Messages
         } elseif (!isset($options['after'])) {
             self::inStream($query);
         }
+        // In the order written; a cursor is a message's id, standing for where that message stands.
         if (isset($options['after'])) {
-            $rows = $query->where('messageid', '>', (int) $options['after'])->orderBy('messageid')->limit($limit)->getAllOrFail();
+            $rows = self::inOrder(self::beyond($query, (int) $options['after']))->limit($limit)->getAllOrFail();
         } else {
             if (isset($options['before'])) {
-                $query->where('messageid', '<', (int) $options['before']);
+                self::beyond($query, (int) $options['before'], false);
             }
-            $rows = array_reverse($query->orderBy('messageid', 'desc')->limit($limit)->getAllOrFail());
+            $rows = array_reverse(self::inOrder($query, 'desc')->limit($limit)->getAllOrFail());
         }
 
         return self::present(array_map(self::row(...), $rows));
@@ -366,7 +430,7 @@ final class Messages
         } elseif ($words !== []) {
             $query->whereRaw('MATCH(body) AGAINST (? IN BOOLEAN MODE)', [implode(' ', array_map(static fn (string $w): string => '+' . $w . '*', $words))]);
         }
-        $messages = self::present(array_map(self::row(...), $query->orderBy('messageid', 'desc')->limit(max(1, min(self::MAX_LIST, $limit)))->getAllOrFail()));
+        $messages = self::present(array_map(self::row(...), self::inOrder($query, 'desc')->limit(max(1, min(self::MAX_LIST, $limit)))->getAllOrFail()));
         $names    = Conversations::names(array_values(array_unique(array_column($messages, 'conversationId'))));
 
         return array_map(static fn (array $m): array => $m + ['conversation' => $names[$m['conversationId']] ?? ''], $messages);

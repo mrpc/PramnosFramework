@@ -38,6 +38,22 @@ test('a message arriving twice is kept once, the newer copy, in order; replace a
     assert.deepEqual(replaced.map((m) => m.id), [1, 3], 'a message not there is not added by replace');
 });
 
+test('a message stands by when it was written, then its id: history arriving later sits in its place, and unread starts after what was read', async () => {
+    // Arrange — 7 was read; 9 is history written before it, 5 a message of the same second as 7
+    const { upsert, timeline } = await load();
+    let list = [message(4, 5, 100), message(7, 5, 300), message(8, 5, 400)];
+
+    // Act
+    list = upsert(list, message(9, 6, 200));
+    list = upsert(list, message(5, 6, 300));
+    const marks = timeline(list, 7, 1).map((i) => i.type === 'new' ? 'new' : i.message?.id).filter(Boolean);
+
+    // Assert
+    assert.deepEqual(list.map((m) => m.id), [4, 9, 5, 7, 8], 'by when written, then id');
+    // 9 has a higher id than 7 but was written before it: read, as everything before 7.
+    assert.deepEqual(marks, [4, 9, 5, 7, 'new', 8]);
+});
+
 test('the timeline: a line per day, the unread line once and never at the reader\'s own, blocks by writer', async () => {
     // Arrange
     const { timeline } = await load();

@@ -81,6 +81,21 @@ Conversations::markUnread($general, $me, $id);    // unread again from that mess
 Conversations::counts($general, $me, $lastReadId); // ['unread' => …, 'mentions' => …] after a message
 ```
 
+**Messages stand by when they were written, then by id** — not by id alone. Every list, the
+`before` and `after` cursors, a thread's replies, search, unread counts and the conversation's
+newest message (`lastMessageId`) follow that order, so history brought in later, or a dm merged
+into another, sits where it belongs. A cursor stays a message's id: the server reads where that
+message stands, and two messages of the same second are told apart by id, so a page never skips or
+repeats one. What somebody has read is a message too: history written before it is not unread,
+and `markRead()` never moves back, by the same order. The index behind it is
+`idx_conversation_messages_time` (`conversationid, created_at, messageid`).
+
+A client that keeps its own timeline does the same: sort by `at`, then `id` — `byPosition()` in
+`resources/js/conversations/logic.js`, which `upsert()` uses — so a message arriving for the past
+goes to its place, not to the end; and start the unread line after the position of the
+`lastReadId` message, not at the first higher id. `after` with the newest message you hold fetches
+what came after it; history added before it appears on the next full load.
+
 **History from another system** is written as it was, through the same calls and with no table
 touched by the application:
 
@@ -123,8 +138,8 @@ older one — its messages, mentions, pins and files; a group stays a group. It 
 `['conversations' => …, 'messages' => …, 'merged' => …]`, records `conversations.former_claimed` in
 the audit log with `$by`, and tells each member `conversation.changed` `{conversationId, mergedFrom}`
 on their own channel, for the sidebar to read again. Calling it again does nothing. A merged
-conversation lists by message id, so the moved messages are not interleaved by when they were
-written.
+conversation lists by when each message was written, so the moved messages interleave with the
+older dm's.
 
 A reaction is a `:shortcode:` or the emoji itself; each different emoji is its own reaction, and the
 same one twice is one. On MySQL and MariaDB the column is binary for that
