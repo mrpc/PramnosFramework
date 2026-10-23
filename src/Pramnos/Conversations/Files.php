@@ -325,17 +325,18 @@ final class Files
 
     /**
      * A thumbnail beside an image, fitted inside THUMB×THUMB with its own proportions — a PNG for a
-     * PNG or GIF, so transparency stays, a JPEG otherwise, named for what it is. None for an image
-     * that fits already, which is shown itself, nor where one cannot be made.
+     * PNG, so transparency stays, a JPEG otherwise, named for what it is. None for an image that
+     * fits already or a GIF, which are shown themselves, nor where one cannot be made.
      */
     private static function thumbnail(string $absolute, string $relative): ?string
     {
         try {
             $size = @getimagesize($absolute);
-            if (!is_array($size) || ($size[0] <= self::THUMB && $size[1] <= self::THUMB)) {
+            // A GIF is shown itself: a thumbnail of it would stand still.
+            if (!is_array($size) || $size[2] === IMAGETYPE_GIF || ($size[0] <= self::THUMB && $size[1] <= self::THUMB)) {
                 return null;
             }
-            $thumb  = (string) preg_replace('/\.[^.\/]+$/', '', $relative) . '.thumb.' . (in_array($size[2], [IMAGETYPE_PNG, IMAGETYPE_GIF], true) ? 'png' : 'jpg');
+            $thumb  = (string) preg_replace('/\.[^.\/]+$/', '', $relative) . '.thumb.' . ($size[2] === IMAGETYPE_PNG ? 'png' : 'jpg');
             $resize = new \Pramnos\Media\ResizeTools();
             $resize->exportpath = dirname(self::root() . '/' . $thumb) . '/';
             $resize->exportfile = basename($thumb);

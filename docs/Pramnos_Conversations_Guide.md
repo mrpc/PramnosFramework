@@ -6,6 +6,7 @@ use_cases:
   - Deciding who may use the conversations and who reads them all
   - Importing messages from another chat once, without duplicates on a second run
   - Showing a link's preview card under a message, or turning previews off for some sites
+  - Letting people send GIFs from Giphy or Klipy without the key reaching the browser
   - Keeping the team talking when the server is down, with a second server as a beacon
 ---
 
@@ -369,6 +370,26 @@ A message gives its cards as `unfurls`:
 tracking. Its writer takes a card off a message (`unfurl/{id}` with `url`, `Unfurls::hide()`), and
 an edit keeps it off.
 
+## GIFs
+
+```php
+'conversations' => ['gifs' => ['provider' => 'giphy', 'key' => '…', 'rating' => 'pg']],   // or 'klipy'
+```
+
+With a key — app.php's, or an administrator's setting `conversations_gif_key`, which wins — the
+dock's composer has a GIF button: the trending GIFs, or those a search finds, at most the `rating`
+given (`g` unless said otherwise). The search is this server's (`gifs`, `Gifs::search()`), so the
+key never reaches a browser; each GIF comes back as `{id, title, preview: {url, width, height},
+url}`, Klipy's renditions chosen by weight — a light one for the picker, one that loads quickly
+for the message. The picker names the provider, as both require.
+
+A picked GIF is sent as a file of its message (`gif/{id}` with `url` and `title`, then `post` with
+the file; `Gifs::keep()`). Kept, not linked: it stays with the message when the provider removes
+it, a reader's browser never asks the provider for it, and it counts in the conversations' space
+and leaves with their files. Only a GIF from the provider's own media hosts, over https, is taken
+(`Gifs::MAX_BYTES`, 8 MB), so the endpoint cannot be used to make the server fetch anything else.
+The picker's own small pictures are loaded from the provider by the browser of whoever is choosing.
+
 ## Search
 
 ```php
@@ -417,9 +438,9 @@ Files::prune(0, $conversationId);   // every one of a conversation
 WebP), PDF, Word, Excel and PowerPoint, OpenDocument, CSV, plain text and zip. A program renamed
 `invoice.pdf` is refused. A name loses any path and any character a disk cannot hold. An image
 larger than 400 pixels on a side gets a thumbnail beside it, fitted inside 400×400 with its own
-proportions: a PNG for a PNG or a GIF, so a transparent background stays transparent, a JPEG
-otherwise, named `.thumb.png` or `.thumb.jpg` for what it is. A smaller image has none and is shown
-itself, as is one GD cannot read (WebP on most builds). `./pramnos conversations:thumbnails` makes
+proportions: a PNG for a PNG, so a transparent background stays transparent, a JPEG otherwise,
+named `.thumb.png` or `.thumb.jpg` for what it is. A smaller image has none and is shown itself, as
+is a GIF — a thumbnail of it would stand still — and one GD cannot read (WebP on most builds). `./pramnos conversations:thumbnails` makes
 every image's thumbnail again (`Files::rebuildThumbnails()`).
 
 **Sending** is never a public link: `Files::send()` checks that the person reads the file's
@@ -648,6 +669,8 @@ conversation or message the person does not read 404.
 | `pin/{id}` | POST | `on` | `{ok}` |
 | `unfurl/{id}` | POST | `url` | `{ok}`: the writer takes that link's preview card off the message |
 | `preview` | GET | `name` | a preview card's picture or icon, kept here |
+| `gifs` | GET | `q` | `{gifs}`: GIFs for a search, or the trending ones, asked with the application's key; 404 where there are none |
+| `gif/{id}` | POST | `url`, `title` | `{id, name, size, mime}`: a GIF the picker offered, kept as a file of the conversation |
 | `read/{id}` | POST | `message` | `{ok}` |
 | `unread/{id}` | POST | `message` | `{ok}` — unread from that message on, a reply from its root; 404 to somebody not in it |
 | `notify/{id}` | POST | `notify` (`all`, `mentions`, `none`), `muted` | `{ok}` |

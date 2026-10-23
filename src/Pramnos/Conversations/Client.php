@@ -66,6 +66,8 @@ final class Client
             'beacon'    => Beacon\Config::ready()
                 ? ['urls' => array_values(array_map('strval', (array) Beacon\Config::value('urls', []))), 'channel' => Beacon\Config::channel()] : null,
             'files'     => Access::managesFiles($me) ? adminUrl('ConversationFiles') : null,
+            // GIFs, where the application has a provider and its key; the key stays here.
+            'gifs'      => Gifs::enabled() ? ['provider' => Gifs::provider()] : null,
             'links'     => self::links($me),
             'strings'   => self::strings(),
         ];
@@ -211,6 +213,10 @@ final class Client
             'Unpin message' => t('Unpin message'),
             'Pin message' => t('Pin message'),
             'Remove preview' => t('Remove preview'),
+            'Send a GIF' => t('Send a GIF'),
+            'Find a GIF' => t('Find a GIF'),
+            'No GIFs found.' => t('No GIFs found.'),
+            'Powered by %s' => t('Powered by %s'),
             'Play' => t('Play'),
             'Edit message' => t('Edit message'),
             'Delete message' => t('Delete message'),

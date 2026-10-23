@@ -6,10 +6,11 @@
      * conversation is kept in this browser and comes back — the sidebar's *Drafts & sent*.
      */
     import EmojiPicker from './EmojiPicker.svelte';
+    import GifPicker from './GifPicker.svelte';
     import Avatar from './Avatar.svelte';
     import { t } from './t.js';
     import { mentionsToTokens, wordAt, suggestPeople, fold, size, commandIn, draftOf, keepDraft } from './logic.js';
-    import { commands, canAsk, assistant } from './extras.js';
+    import { commands, canAsk, assistant, gifProvider } from './extras.js';
 
     let {
         api, conversationId, thread = null, members = [], me, emoji = {}, maxFileMb = 25, placeholder = '',
@@ -25,6 +26,7 @@
     let chosen = $state(0);
     let current = null;               // the word being completed
     let picking = $state(false);
+    let gifPicking = $state(false);
     let sending = $state(false);
     let dragging = $state(false);
     let picker = $state(null);
@@ -199,6 +201,21 @@
         }
     }
 
+    /** A GIF from the picker, sent at once: kept here as a file of the message, as Slack sends one. */
+    async function sendGif(gif) {
+        gifPicking = false;
+        sending = true;
+        try {
+            const kept = await api.post('gif/' + conversationId, { url: gif.url, title: gif.title });
+            onsent((await api.post('post/' + conversationId, { body: '', thread, files: [kept.id] })).message);
+        } catch (err) {
+            onerror(err.message);
+        } finally {
+            sending = false;
+            box?.focus();
+        }
+    }
+
     /** An emoji from the picker, where the cursor is. */
     function insertEmoji(glyph) {
         picking = false;
@@ -249,11 +266,15 @@
             <input bind:this={picker} type="file" multiple hidden onchange={(e) => { add(e.currentTarget.files); e.currentTarget.value = ''; }} />
             <button type="button" class="pf-conv-icon-btn" title={t('Attach a file')} aria-label={t('Attach a file')} onclick={() => picker.click()} {disabled}>📎</button>
             <button type="button" class="pf-conv-icon-btn" title={t('Insert an emoji')} aria-label={t('Insert an emoji')} onclick={() => (picking = !picking)} {disabled}>☺</button>
+            {#if gifProvider()}<button type="button" class="pf-conv-icon-btn pf-conv-gif-btn" title={t('Send a GIF')} aria-label={t('Send a GIF')} onclick={() => (gifPicking = !gifPicking)} disabled={disabled || sending}>GIF</button>{/if}
             <button type="button" class="pf-conv-send" aria-label={t('Send')} title={t('Send')} disabled={!ready || disabled} onclick={send}>➤</button>
         </div>
     </div>
     {#if picking}
         <div class="pf-conv-pop-anchor pf-conv-pop-up"><EmojiPicker onpick={insertEmoji} onclose={() => (picking = false)} /></div>
+    {/if}
+    {#if gifPicking}
+        <div class="pf-conv-pop-anchor pf-conv-pop-up"><GifPicker {api} onpick={sendGif} onclose={() => (gifPicking = false)} {onerror} /></div>
     {/if}
     <p class="pf-conv-hint">{t('Enter to send · Shift+Enter for a new line · @ to mention')}</p>
 </div>

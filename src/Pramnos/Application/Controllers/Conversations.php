@@ -46,6 +46,8 @@ use Pramnos\Http\Response;
  * | `react/{id}` | POST | `emoji`, `on` | `{ok}` |
  * | `pin/{id}` | POST | `on` | `{ok}` |
  * | `unfurl/{id}` | POST | `url` | `{ok}`: the writer takes that link's preview card off the message |
+ * | `gifs` | GET | `q` | `{gifs}`: GIFs for a search, or the trending ones — `{id, title, preview: {url, width, height}, url}` — asked with the application's key |
+ * | `gif/{id}` | POST | `url`, `title` | `{id, name, size, mime}`: a GIF the picker offered, kept as a file of the conversation for the message about to be written |
  * | `preview` | GET | `name` | a preview card's picture, kept here so a reader's browser never asks the other site |
  * | `read/{id}` | POST | `message` | `{ok}` |
  * | `unread/{id}` | POST | `message` | `{ok}`: unread from that message on (a reply: from its root) |
@@ -58,7 +60,7 @@ use Pramnos\Http\Response;
 class Conversations extends Controller
 {
     /** The writes: each a POST with the session's token. */
-    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread'];
+    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread'];
 
     /** The JSON body, decoded once. @var array<string, mixed>|null */
     private ?array $json = null;
@@ -66,7 +68,7 @@ class Conversations extends Controller
     /** Registers the actions: all behind sign-in, the writes POSTs with the session's token. */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'preview', 'refs', 'emergencykey'], self::WRITES));
+        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'preview', 'gifs', 'refs', 'emergencykey'], self::WRITES));
         $this->addWriteAction(self::WRITES);
         parent::__construct($application);
     }
@@ -394,6 +396,23 @@ class Conversations extends Controller
             \Pramnos\Conversations\Unfurls::hide($this->id(), (string) $this->in('url'), (int) $me->userid);
 
             return ['ok' => true];
+        });
+    }
+
+    /** GIFs for a search, or the trending ones, asked by this server with the application's key. */
+    public function gifs(): mixed
+    {
+        return $this->answer(fn (object $me): array => ['gifs' => \Pramnos\Conversations\Gifs::search((string) ($this->in('q') ?? ''))]);
+    }
+
+    /** A GIF from the picker, kept as a file of the conversation for the message about to be written. */
+    public function gif(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $id   = \Pramnos\Conversations\Gifs::keep($this->id(), (int) $me->userid, (string) $this->in('url'), (string) ($this->in('title') ?? ''));
+            $kept = (array) Files::get($id);
+
+            return ['id' => $id, 'name' => $kept['name'], 'size' => $kept['size'], 'mime' => $kept['mime']];
         });
     }
 

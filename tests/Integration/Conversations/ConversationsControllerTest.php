@@ -314,7 +314,7 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame([422, 'A message needs something in it.'], [$empty['status'], $empty['body']['error']]);
         $this->assertSame([422, 'There is a channel called #finance already.'], [$twice['status'], $twice['body']['error']]);
         $this->assertSame(403, $off['status'], 'an application without the conversations');
-        $this->assertSame(['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread'], $writes,
+        $this->assertSame(['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread'], $writes,
             'every write checks the session\'s token');
     }
 
@@ -356,6 +356,51 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame([404, 'Ask is not here for you.'], [$sales['status'], $sales['body']['error']]);
         $this->assertSame(200, $posted['status']);
         $this->assertSame(['πόσοι σήμερα;'], $asked, 'a question without @Ask');
+    }
+
+    /**
+     * GIFs over HTTP: the picker's search answered through this server, a picked one kept as a file
+     * and sent with a message; the client is told the provider, never the key; without a key the
+     * search is a 404 and the client offers none.
+     */
+    #[DataProvider('databases')]
+    public function testGifsOverHttp(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->tree = sys_get_temp_dir() . '/pfchat-' . bin2hex(random_bytes(4));
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30, 'files_path' => $this->tree, 'gifs' => ['key' => 'secret-key']];
+        Application::getInstance()->applicationInfo['features'] = ['conversations'];
+        $general = Conversations::create('channel', 'general', [$this->ids['maria']], $this->ids['eleni']);
+        ob_start();
+        imagegif(imagecreatetruecolor(20, 20));
+        $gif = (string) ob_get_clean();
+        \Pramnos\Conversations\Gifs::fetchWith(static fn (string $url): string|false => [
+            'https://api.giphy.com/v1/gifs/search?q=yes&api_key=secret-key&limit=24&rating=g' => json_encode(['data' => [['id' => 'a', 'title' => 'Ναι',
+                'images' => ['fixed_width_small' => ['url' => 'https://media.giphy.com/s.gif'], 'original' => ['url' => 'https://media.giphy.com/o.gif']]]]]),
+            'https://media.giphy.com/o.gif' => $gif,
+        ][$url] ?? false);
+
+        try {
+            // Act
+            $found  = $this->ask('maria', 'gifs', null, ['q' => 'yes']);
+            $kept   = $this->ask('maria', 'gif', $general, ['url' => $found['body']['gifs'][0]['url'], 'title' => 'Ναι']);
+            $posted = $this->ask('maria', 'post', $general, ['files' => [$kept['body']['id']]]);
+            $props  = \Pramnos\Conversations\Client::props($this->user('maria'));
+            Application::getInstance()->applicationInfo['conversations']['gifs'] = [];
+            $none   = $this->ask('maria', 'gifs');
+            $off    = \Pramnos\Conversations\Client::props($this->user('maria'))['gifs'];
+        } finally {
+            \Pramnos\Conversations\Gifs::fetchWith(null);
+        }
+
+        // Assert
+        $this->assertSame('https://media.giphy.com/o.gif', $found['body']['gifs'][0]['url']);
+        $this->assertSame(['Ναι.gif', 'image/gif'], [$kept['body']['name'], $kept['body']['mime']]);
+        $this->assertSame([$kept['body']['id']], array_column($posted['body']['message']['files'], 'id'), 'sent with its message');
+        $this->assertSame(['provider' => 'giphy'], $props['gifs']);
+        $this->assertStringNotContainsString('secret-key', (string) json_encode($props), 'the key stays on the server');
+        $this->assertSame([404, null], [$none['status'], $off]);
     }
 
     /**

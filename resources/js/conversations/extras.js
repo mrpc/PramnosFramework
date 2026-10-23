@@ -6,6 +6,7 @@
 let types = new Set();
 let commandList = [];
 let asks = false;
+let gifs = null;                  // the GIF provider, where the application has one
 let analyst = { name: 'Ask', avatar: null, mentions: ['ask'], html: '' };
 const cards = new Map();          // key → card | null, or a promise while being read
 let waiting = new Map();          // key → [resolve]
@@ -16,6 +17,7 @@ export function configure(props) {
     types = new Set((props && props.refTypes) || []);
     commandList = (props && props.commands) || [];
     asks = !!(props && props.ask);
+    gifs = (props && props.gifs && props.gifs.provider) || null;
     const a = (props && props.assistant) || {};
     analyst = { name: a.name || 'Ask', avatar: a.avatar || null, mentions: (a.mentions && a.mentions.length ? a.mentions : ['ask']).map(String),
         html: a.html || '' };
@@ -39,6 +41,11 @@ export function analystState(state) {
 /** The analyst as the application names it: `{ name, avatar, mentions }` — `Ask` unless told otherwise. */
 export function assistant() {
     return analyst;
+}
+
+/** The GIF provider the application has — `giphy`, `klipy` — or null for no GIFs. */
+export function gifProvider() {
+    return gifs;
 }
 
 /** Whether the reader may call on the analyst with `@Ask`. */
