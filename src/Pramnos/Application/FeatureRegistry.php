@@ -296,10 +296,10 @@ class FeatureRegistry
                 dirname(__DIR__, 3) . '/database/migrations/framework/conversations',
             ],
         ]);
-        // Moderation: bans, mutes, kicks, warnings, slow mode, rates, the filter, reports and blocks —
+        // Moderation: bans, mutes, kicks, slow mode, rates, the filter and reports —
         // for conversations with visitors, comments, anything people write.
         static::register('moderation', [
-            'description' => 'Moderation — bans, mutes, warnings, slow mode, rate limits, a content filter, reports and blocks',
+            'description' => 'Moderation — bans, mutes, kicks, slow mode, rate limits, a content filter and reports',
             'migrations'  => [
                 dirname(__DIR__, 3) . '/database/migrations/framework/moderation',
             ],
