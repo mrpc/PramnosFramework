@@ -1003,8 +1003,15 @@ Two properties belong to the contract, and a set respects them: `--pf-assistant-
 `--pf-assistant-color` (the theme's accent). Both are inherited — the element declares neither —
 so a parent sizes or colours the picture: `.pf-ask { --pf-assistant-size: 20px; --pf-assistant-color: #fff; }`.
 A set's stylesheet is outside any `@layer`, so it outranks layered utility classes; colouring
-through the property avoids a fight. Where the picture is drawn inside a button or a link,
-`AvatarSets::stylesheet()` gives the set's `<link>` to put before it; the side panel does so.
+through the property avoids a fight.
+
+The set's stylesheet reaches a page once. `render()` puts its `<link>` before the first picture the
+page draws. Where the picture is drawn inside a button or a link, `AvatarSets::stylesheet()` gives
+the `<link>` to put before it; the side panel does so. A picture that is data rather than the
+page — in JSON, a `<template>`, a script's props — is drawn with `render($state, $size, '', false)`:
+no `<link>`, and the stylesheet is not counted as written, so whatever puts the data on the page
+calls `stylesheet()` (the conversations dock does). A stylesheet on this server is linked with
+`?v=` its file's time, so a cache or a CDN does not keep an old one.
 `pfAssistant.state('thinking')` sets the state from the application's own script, and
 `pf-assistant:state` (`detail.state`) is dispatched on the document at each change.
 

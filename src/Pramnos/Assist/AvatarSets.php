@@ -93,8 +93,12 @@ final class AvatarSets
      * The analyst's picture, in a state, at a size: the contract's element around the set's
      * markup — or around the plain picture, where that is what the application gives — with the
      * set's stylesheet the first time a page draws it.
+     *
+     * `$link = false` for a picture that is data rather than the page — in JSON, a `<template>`, a
+     * script's props: no `<link>`, and the stylesheet is not counted as written, so the page still
+     * gets it from {@see stylesheet()} or the next picture it draws.
      */
-    public static function render(string $state = 'idle', int $size = 24, string $class = ''): string
+    public static function render(string $state = 'idle', int $size = 24, string $class = '', bool $link = true): string
     {
         $state = in_array($state, self::STATES, true) ? $state : 'idle';
         $set   = self::current();
@@ -109,9 +113,8 @@ final class AvatarSets
             $durations = array_map('intval', $set['states'] + self::DURATIONS);
             $css       = $set['css'];
         }
-        $link = self::link($css);
 
-        return $link . '<span class="pf-assistant-avatar pf-assistant--' . $state . ($class !== '' ? ' ' . $e($class) : '') . '" data-state="' . $state . '"'
+        return ($link ? self::link($css) : '') . '<span class="pf-assistant-avatar pf-assistant--' . $state . ($class !== '' ? ' ' . $e($class) : '') . '" data-state="' . $state . '"'
             . ' data-durations="' . $e((string) json_encode(array_intersect_key($durations, array_flip(self::STATES)))) . '"'
             // Offline is the server's word: the page's own states do not wake it.
             . ($state === 'offline' ? ' data-offline' : '')
@@ -138,7 +141,26 @@ final class AvatarSets
         }
         self::$linked[$css] = true;
 
-        return '<link rel="stylesheet" href="' . htmlspecialchars($css, ENT_QUOTES, 'UTF-8') . '">';
+        return '<link rel="stylesheet" href="' . htmlspecialchars(self::versioned($css), ENT_QUOTES, 'UTF-8') . '">';
+    }
+
+    /**
+     * A stylesheet on this server with `?v=` its file's time, so a cache or a CDN does not keep an
+     * old one; one elsewhere, or that says its own version, as given.
+     */
+    private static function versioned(string $css): string
+    {
+        if (str_contains($css, '?') || preg_match('#^([a-z]+:)?//#i', $css)) {
+            return $css;
+        }
+        $roots = [rtrim((string) ($_SERVER['DOCUMENT_ROOT'] ?? ''), '/'), defined('ROOT') ? \Pramnos\Application\FrameworkScripts::webRoot((string) ROOT) : ''];
+        foreach (array_filter($roots) as $root) {
+            if (($time = @filemtime($root . '/' . ltrim($css, '/'))) !== false) {
+                return $css . '?v=' . $time;
+            }
+        }
+
+        return $css;
     }
 
     /** A set's markup: given, read from its file, or returned by its callable. */

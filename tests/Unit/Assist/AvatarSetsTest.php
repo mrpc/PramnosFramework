@@ -101,4 +101,62 @@ final class AvatarSetsTest extends TestCase
         $this->assertStringContainsString('<svg class="pf-assistant-pf"', $unknown, 'a name nobody registered: the framework\'s');
         $this->assertSame('', AvatarSets::stylesheet(), 'the framework\'s set has no stylesheet of its own');
     }
+
+    /**
+     * A picture drawn as data first — the dock's props, a `<template>` — carries no `<link>` and
+     * does not count as the page having the stylesheet: `stylesheet()` afterwards still gives it.
+     * Without this the stylesheet was spent on data, never reached the page, and a set's picture
+     * was drawn unstyled.
+     */
+    public function testAPictureDrawnAsDataLeavesTheStylesheetToThePage(): void
+    {
+        // Arrange
+        $this->analyst(['avatar_set' => ['markup' => '<svg class="naya"></svg>', 'css' => '/naya.css']]);
+
+        // Act
+        $data = AvatarSets::render('idle', 32, '', false);
+        $page = AvatarSets::stylesheet();
+        $next = AvatarSets::render();
+
+        // Assert
+        $this->assertStringStartsWith('<span class="pf-assistant-avatar', $data, 'data: no link');
+        $this->assertSame('<link rel="stylesheet" href="/naya.css">', $page, 'the page still gets it');
+        $this->assertStringNotContainsString('<link', $next, 'and once');
+    }
+
+    /**
+     * A stylesheet on this server is linked with `?v=` its file's time, so a cache or a CDN does not
+     * keep an old one; one on another host, or carrying its own query, is linked as given.
+     */
+    public function testAStylesheetOnThisServerCarriesItsVersion(): void
+    {
+        // Arrange
+        $root = sys_get_temp_dir() . '/pfavatar-' . bin2hex(random_bytes(4));
+        mkdir($root . '/naya', 0777, true);
+        file_put_contents($root . '/naya/naya.css', '.naya{}');
+        touch($root . '/naya/naya.css', 1700000000);
+        $kept = $_SERVER['DOCUMENT_ROOT'] ?? null;
+        $_SERVER['DOCUMENT_ROOT'] = $root;
+        $links = [];
+
+        try {
+            // Act
+            foreach (['/naya/naya.css', 'https://cdn.example.com/naya.css', '/naya/naya.css?v=7', '/naya/missing.css'] as $css) {
+                AvatarSets::reset();
+                $this->analyst(['avatar_set' => ['markup' => '<i></i>', 'css' => $css]]);
+                $links[] = AvatarSets::stylesheet();
+            }
+        } finally {
+            $_SERVER['DOCUMENT_ROOT'] = $kept;
+            exec('rm -rf ' . escapeshellarg($root));
+        }
+
+        // Assert
+        $this->assertSame([
+            '<link rel="stylesheet" href="/naya/naya.css?v=1700000000">',
+            '<link rel="stylesheet" href="https://cdn.example.com/naya.css">',
+            '<link rel="stylesheet" href="/naya/naya.css?v=7">',
+            '<link rel="stylesheet" href="/naya/missing.css">',
+        ], $links);
+    }
 }

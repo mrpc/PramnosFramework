@@ -61,7 +61,7 @@ final class Client
             'ask'       => Ask::canAsk($me),
             // The analyst as the page shows it: its name, its picture, and the words that call it.
             'assistant' => ['name' => \Pramnos\Llm\Analyst\Analyst::name(), 'avatar' => \Pramnos\Llm\Analyst\Analyst::avatar(),
-                'mentions' => \Pramnos\Llm\Analyst\Analyst::mentions(), 'html' => \Pramnos\Assist\AvatarSets::render('idle', 32)],
+                'mentions' => \Pramnos\Llm\Analyst\Analyst::mentions(), 'html' => \Pramnos\Assist\AvatarSets::render('idle', 32, '', false)],
             // Where this browser goes when this server does not answer, and its emergency channel.
             'beacon'    => Beacon\Config::ready()
                 ? ['urls' => array_values(array_map('strval', (array) Beacon\Config::value('urls', []))), 'channel' => Beacon\Config::channel()] : null,

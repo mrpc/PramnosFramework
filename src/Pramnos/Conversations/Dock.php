@@ -40,7 +40,9 @@ final class Dock
         $e     = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
         $props = (string) json_encode(Client::props($me, 'dock'), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-        return '<div class="pf-conv-dock" data-pf-conversations-dock data-props="' . $e($props) . '">'
+        // The analyst's picture is in the props, as data: its stylesheet is the page's.
+        return \Pramnos\Assist\AvatarSets::stylesheet()
+            . '<div class="pf-conv-dock" data-pf-conversations-dock data-props="' . $e($props) . '">'
             . '<button type="button" class="pf-conv-dock-button" aria-expanded="false" aria-label="' . $e(t('Conversations')) . '" title="' . $e(t('Conversations')) . '">'
             . '<span aria-hidden="true">💬</span><span class="pf-conv-dock-count" hidden></span></button>'
             . '<div class="pf-conv-dock-panel" role="dialog" aria-label="' . $e(t('Conversations')) . '" hidden></div>'

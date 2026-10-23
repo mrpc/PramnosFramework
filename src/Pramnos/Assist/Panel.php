@@ -226,7 +226,8 @@ final class Panel
     private static function analyst(): string
     {
         // Offline where it cannot answer — no key for its connection.
-        return AvatarSets::render(\Pramnos\Llm\Analyst\Analyst::available() ? 'idle' : 'offline') . ' '
+        // Inside a button or a `<template>`: the caller puts the stylesheet before (stylesheet()).
+        return AvatarSets::render(\Pramnos\Llm\Analyst\Analyst::available() ? 'idle' : 'offline', 24, '', false) . ' '
             . self::e(\Pramnos\Llm\Analyst\Analyst::name());
     }
     /** "Ask about this page", in the analyst's name where it has one of its own. */

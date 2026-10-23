@@ -283,6 +283,34 @@ class ConversationsPageTest extends TestCase
     }
 
     /**
+     * The analyst's picture rides in the dock's props as data, without a `<link>`; the dock puts the
+     * set's stylesheet on the page itself, before it — so a set's picture is styled even where the
+     * dock is the first thing on the page to draw it.
+     */
+    #[DataProvider('databases')]
+    public function testTheDockLinksTheAnalystsStylesheet(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->team();
+        $kept = Application::getInstance()->applicationInfo['llm'] ?? null;
+        Application::getInstance()->applicationInfo['llm'] = ['analyst' => ['avatar_set' => ['markup' => '<svg class="naya"></svg>', 'css' => '/naya.css']]];
+        \Pramnos\Assist\AvatarSets::reset();
+        RequestIdentity::seal($this->user('nikos'));
+
+        // Act
+        $drawn = Dock::render();
+        RequestIdentity::reset();
+        Application::getInstance()->applicationInfo['llm'] = $kept;
+        \Pramnos\Assist\AvatarSets::reset();
+
+        // Assert
+        $this->assertStringStartsWith('<link rel="stylesheet" href="/naya.css"><div class="pf-conv-dock"', $drawn, 'on the page, before the dock');
+        $this->assertSame(1, substr_count($drawn, 'naya.css'), 'not again inside the props');
+        $this->assertStringContainsString('&lt;svg class=\\&quot;naya\\&quot;&gt;', $drawn, 'the picture itself is in the props');
+    }
+
+    /**
      * The files screen: the space, by conversation and month, the largest and the oldest; the limit
      * changed, and refused outside 1–1024; old files removed with a report; one file removed, and a
      * file not there said so; a superuser's floor.
