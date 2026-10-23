@@ -129,7 +129,7 @@
         {:else if message.card?.from === 'Ask' && assistant().html}
             <span class="pf-conv-avatar pf-conv-avatar-assistant" aria-hidden="true">{@html assistant().html}</span>
         {:else if message.card?.former}
-            <span class="pf-conv-avatar pf-conv-avatar-former" title={t('Former member')} aria-hidden="true">{initials(writer)}</span>
+            <span class="pf-conv-avatar pf-conv-avatar-former" title={t('Deleted profile')} aria-hidden="true">{initials(writer)}</span>
         {:else}
             <span class="pf-conv-avatar pf-conv-avatar-system" aria-hidden="true">⚙</span>
         {/if}
@@ -137,7 +137,7 @@
     <div class="pf-conv-msg-main">
         {#if !continued}
             <header class="pf-conv-msg-head">
-                <span class="pf-conv-msg-author" class:pf-conv-msg-former={message.card?.former}>{writer}</span>
+                <span class="pf-conv-msg-author" class:pf-conv-msg-former={message.card?.former} title={message.card?.former ? t('Deleted profile') : null}>{writer}</span>
                 {#if message.card?.former}<span class="pf-conv-msg-badge">{t('Former member')}</span>{/if}
                 <time class="pf-conv-msg-time">{clock(message.at)}</time>
                 {#if message.pinned}<span class="pf-conv-msg-badge">📌 {t('Pinned message')}</span>{/if}

@@ -8,6 +8,7 @@
     import { assistant, isAnalyst } from './extras.js';
     import Conversation from './Conversation.svelte';
     import { t } from './t.js';
+    import { withFormer } from './logic.js';
 
     let { api, conversation, me, props, online = {}, avatars = {}, minimised = false, onminimise, onclose, onread, onerror } = $props();
 
@@ -18,7 +19,9 @@
 <section class="pf-conv-window" class:pf-conv-window-min={minimised} aria-label={title}>
     <header class="pf-conv-window-head">
         <button type="button" class="pf-conv-window-title" onclick={onminimise} aria-expanded={!minimised}>
-            {#if conversation.kind === 'dm' && other !== null}
+            {#if withFormer(conversation, me)}
+                <Avatar name={title} former small />
+            {:else if conversation.kind === 'dm' && other !== null}
                 <Avatar id={other} name={title} online={!!online[other]} src={conversation.avatar || avatars[other]} html={isAnalyst(conversation) ? assistant().html : null} small />
             {:else if conversation.kind === 'bot'}
                 <span class="pf-conv-avatar pf-conv-avatar-sm pf-conv-avatar-system" aria-hidden="true">⚙</span>

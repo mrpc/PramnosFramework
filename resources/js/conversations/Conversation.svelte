@@ -19,6 +19,8 @@
 
     let conversation = $state(null);
     let members = $state([]);
+    // Who has no account here any more: by name, a deleted profile.
+    let formers = $state([]);
     let messages = $state([]);
     let pinned = $state([]);
     let saved = $state([]);
@@ -47,7 +49,7 @@
     const ASK_MS = 180000;
     const threadTypers = $derived(thread ? Object.values(typingNow(typing, now)).filter((w) => w.thread === thread.root.id).map((w) => w.name) : []);
     const title = $derived(!conversation ? '' : conversation.slug ? conversation.slug : conversation.kind === 'bot' ? (conversation.displayName || conversation.name)
-        : members.filter((m) => m.id !== me).map((m) => m.name).join(', ') || names[me] || '');
+        : [...members.filter((m) => m.id !== me).map((m) => m.name), ...formers.map((f) => f.name)].join(', ') || names[me] || '');
     // A deleted reply leaves no trace in its thread.
     const replies = $derived(thread ? thread.replies.filter((r) => r.deletedAt === null) : []);
     // An owner deletes what others wrote.
@@ -67,6 +69,7 @@
             }
             conversation = answer.conversation;
             members = answer.members;
+            formers = answer.formers || [];
             messages = answer.messages;
             pinned = answer.pinned;
             saved = answer.saved ?? [];

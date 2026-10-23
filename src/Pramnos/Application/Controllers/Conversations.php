@@ -23,7 +23,7 @@ use Pramnos\Http\Response;
  * |---|---|---|---|
  * | `display` | GET | `#/c/{id}` | the basic page: the list, one conversation, a box to write in |
  * | `conversations` | GET | — | `{me, conversations, browse, people, avatars}`: one's own with unread and mentions and a title, the open ones to join, the names of the people in direct and group ones and their faces (`conversations.avatars`) |
- * | `messages/{id}` | GET | `before`, `after`, `thread`, `limit` | `{conversation, members, messages, pinned, saved}` |
+ * | `messages/{id}` | GET | `before`, `after`, `thread`, `limit` | `{conversation, members, formers, messages, pinned, saved}` |
  * | `threads` | GET | — | `{threads}`: the threads one takes part in, newest reply first, with replies new since one's own |
  * | `activity` | GET | — | `{activity}`: mentions of one, reactions to what one wrote, replies in one's threads |
  * | `unreads` | GET | — | `{unreads}`: every unread message, conversation by conversation |
@@ -98,16 +98,20 @@ class Conversations extends Controller
     {
         return $this->answer(function (object $me): array {
             $mine   = Store::forPerson((int) $me->userid);
+            $gone   = Store::formers(array_column($mine, 'id'));
             $ids    = array_merge([], ...array_map(static fn (array $c): array => $c['members'] ?? [], $mine));
             $people = \Pramnos\Conversations\People::names($ids);
             $asleep = \Pramnos\Conversations\People::inactive($ids);
             foreach ($mine as &$conversation) {
                 // The others in a direct or group conversation who are inactive: when each last signed in.
                 $conversation['inactive'] = (object) array_intersect_key($asleep, array_flip(array_diff($conversation['members'] ?? [], [(int) $me->userid])));
+                // Who has no account here any more, by name: a deleted profile, in the title too.
+                $conversation['formers'] = $gone[$conversation['id']] ?? [];
+                $others = array_merge(array_map(static fn (int $id): string => $people[$id] ?? '#' . $id,
+                    array_values(array_diff($conversation['members'] ?? [], [(int) $me->userid]))), array_column($conversation['formers'], 'name'));
                 $conversation['title'] = $conversation['kind'] === 'bot' ? \Pramnos\Conversations\Ask::displayName((string) $conversation['name'])
                     : ($conversation['members'] === null ? '#' . $conversation['slug']
-                    : implode(', ', array_map(static fn (int $id): string => $people[$id] ?? '#' . $id,
-                        array_values(array_diff($conversation['members'], [(int) $me->userid])) ?: [(int) $me->userid])));
+                    : implode(', ', $others ?: [$people[(int) $me->userid] ?? '#' . $me->userid]));
                 if (\Pramnos\Conversations\Ask::isOwn($conversation)) {
                     $conversation['avatar'] = \Pramnos\Llm\Analyst\Analyst::avatar();
                 }
@@ -195,6 +199,7 @@ class Conversations extends Controller
             return ['conversation' => Store::get($id) + ['member' => Store::member($id, (int) $me->userid)],
                 'members' => array_map(static fn (int $person): array => ['id' => $person, 'name' => $names[$person] ?? '#' . $person,
                     'inactive' => $asleep[$person] ?? null, 'avatar' => $faces[$person] ?? null], $members),
+                'formers' => Store::formers([$id])[$id] ?? [],
                 'messages' => $messages, 'pinned' => array_column(Messages::pinned($id), 'id'),
                 'saved' => Inbox::savedIds((int) $me->userid, array_column($messages, 'id'))];
         });

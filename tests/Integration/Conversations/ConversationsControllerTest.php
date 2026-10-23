@@ -65,6 +65,31 @@ class ConversationsControllerTest extends TestCase
     }
 
     /**
+     * A conversation with somebody who has no account here shows them by name: in its title on the
+     * sidebar, as `formers` there and with its messages — `{former: true, name}` — and never as a
+     * member with an id somebody could write to.
+     */
+    #[DataProvider('databases')]
+    public function testSomebodyWithNoAccountIsShownByName(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
+        Application::getInstance()->applicationInfo['features'] = ['conversations'];
+        $dm = \Pramnos\Conversations\Conversations::create('dm', null, [], $this->ids['maria'], '', [['name' => 'Κώστας Λ.', 'externalid' => 'slack:U123']]);
+
+        // Act
+        $side = $this->ask('maria', 'conversations');
+        $open = $this->ask('maria', 'messages', $dm);
+
+        // Assert
+        $row = array_values(array_filter($side['body']['conversations'], static fn (array $c): bool => $c['id'] === $dm))[0];
+        $this->assertSame(['Κώστας Λ.', [['former' => true, 'name' => 'Κώστας Λ.']]], [$row['title'], $row['formers']]);
+        $this->assertSame([['former' => true, 'name' => 'Κώστας Λ.']], $open['body']['formers']);
+        $this->assertSame([$this->ids['maria']], array_column($open['body']['members'], 'id'), 'members are accounts only');
+    }
+
+    /**
      * A browser's whole round: the sidebar, a new channel, a message with a mention, a reply,
      * reading, reacting, pinning, editing, searching, notifications, a star, deleting, leaving.
      */

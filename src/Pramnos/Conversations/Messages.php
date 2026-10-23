@@ -36,6 +36,16 @@ final class Messages
     /** The most messages one read returns. */
     public const MAX_LIST = 200;
 
+    /** The name of a conversation's member with no account, by their id where they came from or their name. */
+    private static function formerName(int $conversationId, string $former): ?string
+    {
+        $rows = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_members')->select(['name'])
+            ->where('conversationid', $conversationId)->where('participanttype', 'former')
+            ->where(static fn ($q) => $q->where('externalid', $former)->orWhere('name', $former))->limit(1)->getAllOrFail();
+
+        return $rows === [] ? null : (string) $rows[0]['name'];
+    }
+
     /**
      * Write a message. Its writer must be in the conversation, unless it is the system's. `quiet`
      * writes it without telling anybody — no live update, no events, no mentions — for history
@@ -44,15 +54,19 @@ final class Messages
      * History is written as it was: `source` and `externalid` say where it came from, once — the
      * same pair again is the message already written ({@see find()}); `at` is when it was written,
      * `editedAt` when it was last changed; `authorName` is a writer with no account here, shown by
-     * name as somebody who has left. Files go in through {@see Files::store()} and `files`.
+     * name as somebody who has left — or `former`, the id (or name) of the conversation's member with
+     * no account ({@see Conversations::create()}'s `formers`), whose name it then carries. Files go in through {@see Files::store()} and `files`.
      *
-     * @param array{thread?: int, card?: array<string, mixed>, source?: string, externalid?: string, at?: int, editedAt?: int, authorName?: string, files?: list<int>, quiet?: bool} $options
+     * @param array{thread?: int, card?: array<string, mixed>, source?: string, externalid?: string, at?: int, editedAt?: int, authorName?: string, former?: string, files?: list<int>, quiet?: bool} $options
      * @return int The message
      */
     public static function post(int $conversationId, ?int $author, string $body, array $options = []): int
     {
         $body  = rtrim($body);
         $card  = $options['card'] ?? null;
+        if ($author === null && $card === null && trim((string) ($options['former'] ?? '')) !== '') {
+            $options['authorName'] = self::formerName($conversationId, trim((string) $options['former'])) ?? $options['former'];
+        }
         if ($author === null && $card === null && trim((string) ($options['authorName'] ?? '')) !== '') {
             $card = ['from' => trim((string) $options['authorName']), 'former' => true];
         }

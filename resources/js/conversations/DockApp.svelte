@@ -12,7 +12,7 @@
     import DockList from './DockList.svelte';
     import DockWindow from './DockWindow.svelte';
     import { t } from './t.js';
-    import { dockLayout, sidebarPrefs, keepSidebarPrefs } from './logic.js';
+    import { dockLayout, sidebarPrefs, keepSidebarPrefs, withFormer } from './logic.js';
 
     let { api, props } = $props();
 
@@ -194,7 +194,7 @@
         <button type="button" class="pf-conv-dock-head" title={c.title} aria-label={c.title + (c.unread ? ' (' + c.unread + ')' : '')} onclick={() => open(c.id)}
             oncontextmenu={(e) => { e.preventDefault(); armed = armed === c.id ? null : c.id; }}>
             {#if c.kind === 'dm'}
-                <Avatar id={other} name={c.title} online={!!online[other]} src={c.avatar || avatars[other]} html={isAnalyst(c) ? assistant().html : null} />
+                <Avatar id={other} name={c.title} former={withFormer(c, me)} online={withFormer(c, me) ? null : !!online[other]} src={c.avatar || avatars[other]} html={isAnalyst(c) ? assistant().html : null} />
             {:else if c.kind === 'bot'}
                 <span class="pf-conv-avatar pf-conv-avatar-system" aria-hidden="true">⚙</span>
             {:else}

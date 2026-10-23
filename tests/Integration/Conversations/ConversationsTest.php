@@ -264,6 +264,53 @@ class ConversationsTest extends TestCase
     }
 
     /**
+     * A conversation with somebody who has no account here — a colleague who left, brought in by
+     * an import — keeps them by name: a dm of one account and them, found again by their id where
+     * they came from; a group of accounts and them, three or more in all. They are in its title, they
+     * never read or count, and a message of theirs carries their name. Nothing else keeps them.
+     */
+    #[DataProvider('databases')]
+    public function testAConversationKeepsSomebodyWithNoAccount(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        $kostas = ['name' => 'Κώστας Λ.', 'externalid' => 'slack:U123'];
+
+        // Act
+        $dm      = Conversations::create('dm', null, [], $eleni, '', [$kostas]);
+        $again   = Conversations::create('dm', null, [], $eleni, '', [['name' => 'άλλο όνομα', 'externalid' => 'slack:U123']]);
+        $byName  = Conversations::create('dm', null, [], $eleni, '', [['name' => 'Λένα']]);
+        $group   = Conversations::create('group', null, [$maria], $eleni, '', [$kostas]);
+        $said    = Messages::post($dm, null, 'γεια', ['quiet' => true, 'former' => 'slack:U123']);
+        Messages::post($dm, $eleni, 'σημείωση');
+        $refused = [];
+        foreach ([fn () => Conversations::create('dm', null, [], null, '', [$kostas, ['name' => 'Λένα']]),
+            fn () => Conversations::create('group', null, [], null, '', [$kostas, ['name' => 'Λένα'], ['name' => 'Νίκη']]),
+            fn () => Conversations::create('group', null, [], $eleni, '', [$kostas]),
+            fn () => Conversations::create('channel', 'gone', [], $eleni, '', [$kostas])] as $try) {
+            try {
+                $try();
+            } catch (\InvalidArgumentException) {
+                $refused[] = true;
+            }
+        }
+
+        // Assert
+        $this->assertSame($dm, $again, 'the same person by where they came from: the same dm');
+        $this->assertSame($byName, Conversations::dmWithFormer($eleni, 'Λένα'), 'by name where there is no id');
+        $this->assertNotSame($dm, $byName);
+        $this->assertSame([$eleni], Conversations::members($dm), 'only accounts are members');
+        $this->assertSame([[ 'former' => true, 'name' => 'Κώστας Λ.']], Conversations::formers([$dm])[$dm]);
+        $this->assertSame('Ελένη Σ., Κώστας Λ.', Conversations::names([$dm])[$dm], 'named by everybody in it, as any dm');
+        $this->assertStringContainsString('Κώστας Λ.', Conversations::names([$group])[$group], 'in a group\'s title too');
+        $this->assertSame(['from' => 'Κώστας Λ.', 'former' => true], Messages::get($said)['card'], 'their message carries their name');
+        $mine = array_values(array_filter(Conversations::forPerson($eleni), static fn (array $c): bool => $c['id'] === $dm))[0];
+        $this->assertSame(0, $mine['unread'], 'the account reads and writes it, as notes');
+        $this->assertCount(4, $refused, 'a dm of formers, a group with no account or too few people, a channel: refused');
+    }
+
+    /**
      * A name's card and profile: who they are, when last signed in, their local time where their
      * account names a zone (and none for a zone that is no zone), the direct conversation the two
      * have and whether the reader muted it, the channels both are in — not one only the reader is

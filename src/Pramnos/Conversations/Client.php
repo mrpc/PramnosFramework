@@ -193,6 +193,7 @@ final class Client
             'You' => t('You'),
             'Delete this message? It cannot be brought back.' => t('Delete this message? It cannot be brought back.'),
             'Former member' => t('Former member'),
+            'Deleted profile' => t('Deleted profile'),
             'Pinned message' => t('Pinned message'),
             'Replied to a thread:' => t('Replied to a thread:'),
             'This message was deleted.' => t('This message was deleted.'),

@@ -96,6 +96,25 @@ $id = Messages::find('legacy', $channel . ':' . $ts)                  // brought
 Messages::react($id, $person, ':tada:', true, $reactedAt, true);   // dated, and quiet
 ```
 
+**Somebody with no account here** — a colleague who left — is kept in a direct or group
+conversation by name, so its history is not lost:
+
+```php
+$kostas = ['name' => 'Κώστας Λ.', 'externalid' => 'slack:U123'];   // externalid optional
+$dm     = Conversations::create('dm', null, [], $eleni, '', [$kostas]);              // one account and them
+$group  = Conversations::create('group', null, [$maria], $eleni, '', [$kostas]);     // 1+ accounts, 3..GROUP_MAX in all
+Conversations::dmWithFormer($eleni, 'slack:U123');   // found again — by their id there, else by name
+Messages::post($dm, null, $text, ['quiet' => true, 'former' => 'slack:U123']);   // written with their name
+```
+
+Creating the same dm again returns the one there is. Such a member is `participanttype = 'former'`
+and never reads — no unread, no notifications, no read marker — and is not among
+`Conversations::members()`; `Conversations::formers($ids)` lists them, `{former: true, name}`. They
+are in the conversation's title, and the HTTP API gives them as `formers` beside `members` on the
+sidebar and with the messages. The dock shows them greyed, *Deleted profile* on hover, with no card
+or profile to open and nobody to write to; the account in the conversation reads and writes it as
+notes.
+
 A reaction is a `:shortcode:` or the emoji itself; each different emoji is its own reaction, and the
 same one twice is one. On MySQL and MariaDB the column is binary for that
 (`make_conversation_reactions_emoji_binary`), as the tables' default collation takes every emoji

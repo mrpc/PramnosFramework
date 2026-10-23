@@ -182,6 +182,11 @@ export function typingNow(typing, now) {
     return out;
 }
 
+/** Whether a direct conversation is with somebody who has no account here any more. */
+export function withFormer(conversation, me) {
+    return conversation.kind === 'dm' && !(conversation.members || []).some((id) => id !== me) && (conversation.formers || []).length > 0;
+}
+
 /** Two letters for a face: the first of the first two words. */
 export function initials(name) {
     const parts = String(name || '?').trim().split(/\s+/).filter(Boolean);

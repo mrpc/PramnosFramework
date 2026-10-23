@@ -48,8 +48,16 @@ final class Conversations
      *
      * @param list<int> $members Accounts in it besides its maker
      */
-    public static function create(string $kind, ?string $name, array $members = [], ?int $by = null, string $topic = ''): int
+    public static function create(string $kind, ?string $name, array $members = [], ?int $by = null, string $topic = '', array $formers = []): int
     {
+        // Somebody with no account here — a colleague who left — kept by name, and by their id
+        // where they came from (`slack:U123`), so a second import finds the same conversation.
+        $formers = array_values(array_filter(array_map(static fn ($f): array => ['name' => mb_substr(trim((string) ($f['name'] ?? '')), 0, 150),
+            'externalid' => trim((string) ($f['externalid'] ?? '')) === '' ? null : mb_substr(trim((string) $f['externalid']), 0, 100)], $formers),
+            static fn (array $f): bool => $f['name'] !== ''));
+        if ($formers !== [] && !in_array($kind, ['dm', 'group'], true)) {
+            throw new \InvalidArgumentException(t('Only a direct or group conversation keeps a member with no account.'));
+        }
         if (!in_array($kind, self::KINDS, true)) {
             throw new \InvalidArgumentException('A conversation is a ' . implode(', ', self::KINDS) . '.');
         }
@@ -73,14 +81,14 @@ final class Conversations
                 return $existing;
             }
         } elseif ($kind === 'dm') {
-            if (count($people) !== 2) {
+            if (count($people) + count($formers) !== 2 || $people === []) {
                 throw new \InvalidArgumentException(t('A direct conversation is between two people.'));
             }
-            $existing = self::dmBetween($people[0], $people[1]);
+            $existing = $formers === [] ? self::dmBetween($people[0], $people[1]) : self::dmWithFormer($people[0], $formers[0]['externalid'] ?? $formers[0]['name']);
             if ($existing !== null) {
                 return $existing;
             }
-        } elseif (count($people) < 3 || count($people) > self::GROUP_MAX) {
+        } elseif ($people === [] || count($people) + count($formers) < 3 || count($people) + count($formers) > self::GROUP_MAX) {
             throw new \InvalidArgumentException(t('A group conversation has three to %s people.', (string) self::GROUP_MAX));
         }
         $now = time();
@@ -92,6 +100,11 @@ final class Conversations
         $id = (int) $db->getInsertId();
         foreach ($people as $i => $person) {
             self::addRow($id, $person, $by !== null && $i === 0 ? 'owner' : 'member');
+        }
+        foreach ($formers as $i => $former) {
+            // Their own negative ids, so each is a row of its own; they never read.
+            self::members_()->insert(['conversationid' => $id, 'participanttype' => 'former', 'participantid' => -($i + 1), 'role' => 'member',
+                'lastreadid' => 0, 'muted' => 1, 'notify' => 'none', 'joinedat' => $now, 'name' => $former['name'], 'externalid' => $former['externalid']]);
         }
         \Pramnos\Event\Event::dispatch(new ConversationCreated($id, $kind, $by));
 
@@ -213,7 +226,7 @@ final class Conversations
                 continue;
             }
             $people     = People::names(self::members($id));
-            $names[$id] = implode(', ', array_filter($people));
+            $names[$id] = implode(', ', array_filter(array_merge($people, array_column(self::formers([$id])[$id] ?? [], 'name'))));
         }
 
         return $names;
@@ -416,6 +429,43 @@ final class Conversations
             ->groupBy(['m.conversationid'])->havingRaw('COUNT(*) = 2')->limit(1)->getAllOrFail();
 
         return $rows === [] ? null : (int) $rows[0]['conversationid'];
+    }
+
+    /**
+     * The dm a person has with somebody who has no account here — by their id where they came
+     * from, or by name — or null.
+     */
+    public static function dmWithFormer(int $person, string $former): ?int
+    {
+        $rows = self::db()->queryBuilder()->table('#PREFIX#conversation_members AS m')
+            ->join('#PREFIX#conversation_members AS f', 'f.conversationid', '=', 'm.conversationid')
+            ->join('#PREFIX#conversations AS c', 'c.conversationid', '=', 'm.conversationid')
+            ->select(['m.conversationid'])->where('c.kind', 'dm')->where('m.participanttype', 'user')->where('m.participantid', $person)
+            ->where('f.participanttype', 'former')
+            ->where(static fn ($q) => $q->where('f.externalid', $former)->orWhere(static fn ($n) => $n->whereNull('f.externalid')->where('f.name', $former)))
+            ->limit(1)->getAllOrFail();
+
+        return $rows === [] ? null : (int) $rows[0]['conversationid'];
+    }
+
+    /**
+     * The members with no account here, by conversation: what each was called.
+     *
+     * @param list<int> $ids
+     * @return array<int, list<array{former: true, name: string}>>
+     */
+    public static function formers(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+        $out = [];
+        foreach (self::members_()->select(['conversationid', 'name'])->whereIn('conversationid', $ids)->where('participanttype', 'former')
+            ->orderBy('participantid', 'desc')->getAllOrFail() as $row) {
+            $out[(int) $row['conversationid']][] = ['former' => true, 'name' => (string) $row['name']];
+        }
+
+        return $out;
     }
 
     /** Put somebody in, or back in. */

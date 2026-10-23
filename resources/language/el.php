@@ -1561,6 +1561,8 @@ return [
     'connected' => 'συνδεδεμένο',
     'Disconnect' => 'Αποσύνδεση',
     'Former member' => 'Πρώην μέλος',
+    'Deleted profile' => 'Διαγραμμένο προφίλ',
+    'Only a direct or group conversation keeps a member with no account.' => 'Μόνο μια προσωπική ή ομαδική συζήτηση κρατά μέλος χωρίς λογαριασμό.',
     'Faces above the button' => 'Πρόσωπα πάνω από το κουμπί',
     'Put away' => 'Απόκρυψη',
     'Remove from saved' => 'Αφαίρεση από τα αποθηκευμένα',

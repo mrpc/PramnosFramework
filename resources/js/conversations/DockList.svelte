@@ -8,7 +8,7 @@
     import { assistant, isAnalyst } from './extras.js';
     import NewConversation from './NewConversation.svelte';
     import { t } from './t.js';
-    import { fold } from './logic.js';
+    import { fold, withFormer } from './logic.js';
 
     let { api, me, conversations = [], browse = [], online = {}, avatars = {}, links = [], page = '', filesUrl = null, noFaces = false, onopen, onfaces, oncreated, onerror } = $props();
 
@@ -33,11 +33,11 @@
             <li>
                 <button type="button" class="pf-conv-item" class:pf-conv-unread={c.unread > 0 && !c.muted} onclick={() => onopen(c.id)}>
                     {#if c.kind === 'dm'}
-                        <Avatar id={other(c)} name={c.title} online={!!online[other(c)]} src={c.avatar || avatars[other(c)]} html={isAnalyst(c) ? assistant().html : null} small />
+                        <Avatar id={other(c)} name={c.title} former={withFormer(c, me)} online={withFormer(c, me) ? null : !!online[other(c)]} src={c.avatar || avatars[other(c)]} html={isAnalyst(c) ? assistant().html : null} small />
                     {:else}
                         <span class="pf-conv-avatar pf-conv-avatar-sm pf-conv-avatar-group" aria-hidden="true">{c.kind === 'private' ? '🔒' : c.slug ? '#' : c.kind === 'bot' ? '⚙' : (c.members || []).length}</span>
                     {/if}
-                    <span class="pf-conv-item-name">{c.title}</span>
+                    <span class="pf-conv-item-name" class:pf-conv-msg-former={withFormer(c, me)} title={withFormer(c, me) ? t('Deleted profile') : null}>{c.title}</span>
                     {#if c.muted}<span class="pf-conv-muted-text" title={t('Muted')}>🔕</span>{/if}
                     {#if c.unread > 0 && !c.muted}<span class="pf-conv-badge">{c.unread}</span>{/if}
                 </button>
