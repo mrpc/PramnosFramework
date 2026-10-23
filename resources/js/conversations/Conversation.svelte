@@ -11,6 +11,7 @@
     import Composer from './Composer.svelte';
     import { t, tn, dayLabel, longDate } from './t.js';
     import { upsert, replace, timeline, typingNow, TYPING_MS, lastSignIn } from './logic.js';
+    import { assistant } from './extras.js';
 
     // `openThread`: a thread to open with it — from the sidebar's Threads or Activity.
     let { api, id, me, emoji = {}, maxFileMb = 25, online = {}, resync = 0, onread = () => {}, onerror = () => {}, compact = false,
@@ -44,7 +45,7 @@
     // How long "thinking" shows without an answer: as long as the analyst takes at most.
     const ASK_MS = 180000;
     const threadTypers = $derived(thread ? Object.values(typingNow(typing, now)).filter((w) => w.thread === thread.root.id).map((w) => w.name) : []);
-    const title = $derived(!conversation ? '' : conversation.slug ? conversation.slug : conversation.kind === 'bot' ? conversation.name
+    const title = $derived(!conversation ? '' : conversation.slug ? conversation.slug : conversation.kind === 'bot' ? (conversation.displayName || conversation.name)
         : members.filter((m) => m.id !== me).map((m) => m.name).join(', ') || names[me] || '');
     // A deleted reply leaves no trace in its thread.
     const replies = $derived(thread ? thread.replies.filter((r) => r.deletedAt === null) : []);
@@ -183,7 +184,7 @@
             // In the conversation with Ask, a question sent is a question being answered, until the answer comes.
             if (isNew && conversation?.kind === 'bot' && conversation.name === 'Ask') {
                 const { ask: _done, ...rest } = typing;
-                typing = message.authorId === me ? { ...rest, ask: { name: 'Ask', thread: null, thinking: true, until: Date.now() + ASK_MS } } : rest;
+                typing = message.authorId === me ? { ...rest, ask: { name: assistant().name, thread: null, thinking: true, until: Date.now() + ASK_MS } } : rest;
             }
             if (isNew && stick) {
                 await tick();
@@ -358,7 +359,7 @@
                 ↓ {tn(unseen, '%s new message', '%s new messages')}
             </button>
         {/if}
-        <p class="pf-conv-typing" aria-live="polite">{#if thinking}{t('Ask is thinking…')}{:else if typers.length}{typers.length === 1 ? t('%s is typing…', typers[0]) : t('Several people are typing…')}{/if}</p>
+        <p class="pf-conv-typing" aria-live="polite">{#if thinking}{t('%s is thinking…', assistant().name)}{:else if typers.length}{typers.length === 1 ? t('%s is typing…', typers[0]) : t('Several people are typing…')}{/if}</p>
         {#if member && asleep}
             <p class="pf-conv-inactive-note" role="note">{lastSignIn(asleep.inactive) ? t('Has not signed in since %s — they will probably not see this.', lastSignIn(asleep.inactive))
                 : t('Has never signed in — they will probably not see this.')}</p>

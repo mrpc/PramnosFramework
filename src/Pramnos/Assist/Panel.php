@@ -39,18 +39,19 @@ final class Panel
 
         // On Ask itself, the panel would be the page twice: the link it always was.
         if ($ask && $context['screen'] === 'ai') {
-            return $before . '<a class="pf-ask" href="' . self::e($askUrl) . '">' . self::e(self::t('Ask')) . '</a>' . $after;
+            return $before . '<a class="pf-ask" href="' . self::e($askUrl) . '">' . self::analyst() . '</a>' . $after;
         }
 
         if (!$ask && $help === null) {
             return '';
         }
 
-        $label  = $ask ? self::t('Ask') : self::t('Help');
+        $label  = $ask ? self::analyst() : self::e(self::t('Help'));
         $href   = $ask ? $askUrl : ($book->screen() !== '' ? $book->url((string) $help['slug']) : '#');
         $opener = $ask || $book->level() !== HelpBook::SITE
-            ? '<a class="pf-ask" href="' . self::e($href) . '" data-pf-assist-open aria-haspopup="dialog">' . self::e($label) . '</a>'
-            : self::siteButton(self::e($href), self::e($label), ['slug' => (string) $help['slug'], 'title' => (string) $help['title']]);
+            ? '<a class="pf-ask" href="' . self::e($href) . '" data-pf-assist-open aria-haspopup="dialog"'
+                . ($ask ? ' aria-label="' . self::e(self::askAbout()) . '"' : '') . '>' . $label . '</a>'
+            : self::siteButton(self::e($href), $label, ['slug' => (string) $help['slug'], 'title' => (string) $help['title']]);
 
         return $before
             . $opener
@@ -168,19 +169,20 @@ final class Panel
         $both   = $ask && $help !== null;
         $chat   = function_exists('assetUrl') ? assetUrl('assets/js/pf-chat.js') : 'assets/js/pf-chat.js';
         $button = 'class="pf-assist-button"' . $style('background:none;border:1px solid rgba(128,128,128,.4);border-radius:6px;padding:2px 8px;color:inherit;cursor:pointer');
-        $html   = '<aside class="pf-assist" role="dialog" aria-label="' . self::e($ask ? self::t('Ask about this page') : self::t('Help')) . '"'
+        $html   = '<aside class="pf-assist" role="dialog" aria-label="' . self::e($ask ? self::askAbout() : self::t('Help')) . '"'
             . ' data-page="' . self::e((string) json_encode($context, JSON_UNESCAPED_UNICODE)) . '"'
             . ' data-ask="' . self::e($askUrl) . '" data-chat-script="' . self::e($chat) . '"'
-            . ' data-say-loading="' . self::e(self::t('Loading…')) . '" data-say-failed="' . self::e(self::t('Ask could not be opened here.')) . '"'
+            . ' data-say-loading="' . self::e(self::t('Loading…')) . '" data-say-failed="' . self::e(self::t('%s could not be opened here.', \Pramnos\Llm\Analyst\Analyst::name())) . '"'
             . $style('position:fixed;top:0;right:0;bottom:0;width:min(460px,100vw);z-index:1080;display:flex;flex-direction:column;'
                 . 'background:Canvas;color:CanvasText;box-shadow:-4px 0 24px rgba(0,0,0,.25);font-size:.95rem') . '>'
             . '<header class="pf-assist-header"' . $style('display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid rgba(128,128,128,.3)') . '>'
             . '<strong class="pf-assist-title"' . $style('flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap') . '>'
-            . self::e($context['title'] !== '' ? $context['title'] : ($ask ? self::t('Ask') : self::t('Help'))) . '</strong>';
+            . ($ask && \Pramnos\Llm\Analyst\Analyst::avatar() !== null ? '<img class="pf-assist-avatar" src="' . self::e((string) \Pramnos\Llm\Analyst\Analyst::avatar()) . '" alt="" width="20" height="20"> ' : '')
+            . ($context['title'] !== '' ? self::e($context['title']) : ($ask ? self::analyst() : self::e(self::t('Help')))) . '</strong>';
 
         if ($ask) {
             $html .= '<button type="button" data-pf-assist-new ' . $button . '>' . self::e(self::t('New')) . '</button>'
-                . '<a class="pf-assist-link" href="' . self::e($askUrl) . '" title="' . self::e(self::t('Open in Ask')) . '" aria-label="' . self::e(self::t('Open in Ask')) . '">↗</a>';
+                . '<a class="pf-assist-link" href="' . self::e($askUrl) . '" title="' . self::e(self::t('Open in %s', \Pramnos\Llm\Analyst\Analyst::name())) . '" aria-label="' . self::e(self::t('Open in %s', \Pramnos\Llm\Analyst\Analyst::name())) . '">↗</a>';
         }
 
         $html .= '<button type="button" data-pf-assist-close aria-label="' . self::e(self::t('Close')) . '" ' . $button . '>✕</button></header>';
@@ -188,7 +190,7 @@ final class Panel
         if ($both) {
             $tab = 'class="pf-assist-button pf-assist-tab"' . $style('background:none;border:1px solid rgba(128,128,128,.4);border-radius:6px;padding:2px 8px;color:inherit;cursor:pointer');
             $html .= '<nav class="pf-assist-tabs"' . $style('display:flex;gap:6px;padding:8px 12px 0') . ' role="tablist">'
-                . '<button type="button" role="tab" data-pf-assist-tab="ask" aria-selected="true" ' . $tab . '>' . self::e(self::t('Ask')) . '</button>'
+                . '<button type="button" role="tab" data-pf-assist-tab="ask" aria-selected="true" ' . $tab . '>' . self::e(\Pramnos\Llm\Analyst\Analyst::name()) . '</button>'
                 . '<button type="button" role="tab" data-pf-assist-tab="help" aria-selected="false" ' . $tab . '>' . self::e(self::t('Help')) . '</button>'
                 . '</nav>';
         }
@@ -211,9 +213,30 @@ final class Panel
         return $html . '</aside>';
     }
 
-    private static function t(string $words): string
+    private static function t(string $words, string ...$args): string
     {
-        return function_exists('t') ? (string) t($words) : $words;
+        return function_exists('t') ? (string) t($words, ...$args) : vsprintf($words, $args);
+    }
+
+    /**
+     * The analyst as the button and the panel's title show it: its picture, where the
+     * application gives one, and its name ({@see \Pramnos\Llm\Analyst\Analyst::name()}).
+     */
+    private static function analyst(): string
+    {
+        $avatar = \Pramnos\Llm\Analyst\Analyst::avatar();
+
+        return ($avatar !== null ? '<img class="pf-assist-avatar" src="' . self::e($avatar) . '" alt="" width="20" height="20"'
+                . (self::themed() ? '' : ' style="width:20px;height:20px;vertical-align:middle;margin-right:4px"') . '>' : '')
+            . self::e(\Pramnos\Llm\Analyst\Analyst::name());
+    }
+
+    /** "Ask about this page", in the analyst's name where it has one of its own. */
+    private static function askAbout(): string
+    {
+        $name = \Pramnos\Llm\Analyst\Analyst::name();
+
+        return $name === 'Ask' ? self::t('Ask about this page') : self::t('Ask %s about this page', $name);
     }
 
     private static function e(string $value): string

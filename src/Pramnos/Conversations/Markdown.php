@@ -165,7 +165,9 @@ final class Markdown
 
         $html = htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
         $html = (string) preg_replace('/(?<![\w@])@(all|online)\b/', '<span class="pf-conv-mention pf-conv-mention-$1">@$1</span>', $html);
-        $html = (string) preg_replace('/(?<![\w@])@ask\b/i', '<span class="pf-conv-mention pf-conv-mention-ask">@Ask</span>', $html);
+        // A call on the analyst — `@Ask` or a mention of its own — shown as its name.
+        $html = (string) preg_replace(\Pramnos\Llm\Analyst\Analyst::mentionPattern(), '<span class="pf-conv-mention pf-conv-mention-ask">@'
+            . htmlspecialchars(\Pramnos\Llm\Analyst\Analyst::name(), ENT_QUOTES, 'UTF-8') . '</span>', $html);
         $html = (string) preg_replace('/(?<![\w#])#([a-z][a-z0-9_]*:\w[\w-]*)/i', '<span class="pf-conv-ref" data-ref="$1">#$1</span>', $html);
         $html = (string) preg_replace('/\*\*(?=\S)(.+?)(?<=\S)\*\*/', '<strong>$1</strong>', $html);
         $html = (string) preg_replace('/~~(?=\S)(.+?)(?<=\S)~~/', '<del>$1</del>', $html);

@@ -1698,4 +1698,8 @@ return [
     'A group needs a name.' => 'Το group χρειάζεται όνομα.',
     'A group name is at most 80 characters.' => 'Το όνομα του group είναι έως 80 χαρακτήρες.',
     'This group is in use, so it is not deleted: %s.' => 'Το group χρησιμοποιείται, οπότε δεν διαγράφεται: %s.',
+    '%s is thinking…' => '%s: σκέφτεται…',
+    'Open in %s' => 'Άνοιγμα: %s',
+    'Ask %s about this page' => '%s: ερώτηση για αυτή τη σελίδα',
+    '%s could not be opened here.' => '%s: δεν άνοιξε εδώ.',
 ];

@@ -249,9 +249,10 @@ because the worker does not know who reads it, and the page translates it into t
   there is a question, answered in the conversation, not in a thread, with the asker's own rights,
   memory and CSV exports, as on Ask's page. It is one analyst conversation, which goes on from answer
   to answer and is the same conversation `/admin/Ai` lists. Each answer carries an *Open in Ask*
-  card to it. The page shows *Ask is thinking…* until the answer comes. It is listed with the direct
-  conversations.
-- **`@Ask` anywhere else** puts the message's question to the analyst, and the answer comes in the
+  card to it. The page shows *Ask is thinking…* until the answer comes — the analyst's own name and
+  picture, where the application gives it one. It is listed with the direct conversations.
+- **`@Ask` anywhere else** — or the analyst's own name and mentions (`llm.analyst.name`,
+  `mentions`; see the LLM guide) — puts the message's question to the analyst, and the answer comes in the
   message's thread. Everybody who reads that conversation reads the answer, so it is given with the
   rights of its least privileged reader (`Ask::readerOf()`): the lowest usertype among its members,
   or, in a channel or system conversation anybody may read, among everybody who may use the

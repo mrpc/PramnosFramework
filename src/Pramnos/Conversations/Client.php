@@ -59,6 +59,9 @@ final class Client
             'refTypes'  => References::types(),
             'commands'  => Commands::all(),
             'ask'       => Ask::canAsk($me),
+            // The analyst as the page shows it: its name, its picture, and the words that call it.
+            'assistant' => ['name' => \Pramnos\Llm\Analyst\Analyst::name(), 'avatar' => \Pramnos\Llm\Analyst\Analyst::avatar(),
+                'mentions' => \Pramnos\Llm\Analyst\Analyst::mentions()],
             // Where this browser goes when this server does not answer, and its emergency channel.
             'beacon'    => Beacon\Config::ready()
                 ? ['urls' => array_values(array_map('strval', (array) Beacon\Config::value('urls', []))), 'channel' => Beacon\Config::channel()] : null,
@@ -153,6 +156,8 @@ final class Client
             'Only you can see this.' => t('Only you can see this.'),
             'Close' => t('Close'),
             'Ask is thinking…' => t('Ask is thinking…'),
+            '%s is thinking…' => t('%s is thinking…'),
+            'Open in %s' => t('Open in %s'),
             '%s is typing…' => t('%s is typing…'),
             'Several people are typing…' => t('Several people are typing…'),
             'Has not signed in since %s — they will probably not see this.' => t('Has not signed in since %s — they will probably not see this.'),

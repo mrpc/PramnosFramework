@@ -92,10 +92,11 @@ class AiController extends Controller
         $page = $this->analystDesk()->page((int) $request->get('c', 0, 'get', 'int'), (int) $request->get('ask', 0, 'get', 'int'));
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Ask';
+        $doc->title = \Pramnos\Llm\Analyst\Analyst::name();
 
         $view              = $this->getView('ai');
-        $view->heading     = 'Ask';
+        $view->heading     = \Pramnos\Llm\Analyst\Analyst::name();
+        $view->headingAvatar = \Pramnos\Llm\Analyst\Analyst::avatar();
         $view->settingsUrl = $this->settingsLink();
         $analyst           = Llm::config('analyst', []);
         $view->waitingLines = is_array($analyst['waiting_lines'] ?? null) ? $analyst['waiting_lines'] : [];

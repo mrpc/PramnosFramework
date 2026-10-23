@@ -32,7 +32,7 @@
             <li>
                 <button type="button" class="pf-conv-item" class:pf-conv-unread={c.unread > 0 && !c.muted} onclick={() => onopen(c.id)}>
                     {#if c.kind === 'dm'}
-                        <Avatar id={other(c)} name={c.title} online={!!online[other(c)]} src={avatars[other(c)]} small />
+                        <Avatar id={other(c)} name={c.title} online={!!online[other(c)]} src={c.avatar || avatars[other(c)]} small />
                     {:else}
                         <span class="pf-conv-avatar pf-conv-avatar-sm pf-conv-avatar-group" aria-hidden="true">{c.kind === 'private' ? '🔒' : c.slug ? '#' : c.kind === 'bot' ? '⚙' : (c.members || []).length}</span>
                     {/if}

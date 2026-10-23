@@ -6,6 +6,7 @@
 let types = new Set();
 let commandList = [];
 let asks = false;
+let analyst = { name: 'Ask', avatar: null, mentions: ['ask'] };
 const cards = new Map();          // key → card | null, or a promise while being read
 let waiting = new Map();          // key → [resolve]
 let timer = null;
@@ -15,6 +16,13 @@ export function configure(props) {
     types = new Set((props && props.refTypes) || []);
     commandList = (props && props.commands) || [];
     asks = !!(props && props.ask);
+    const a = (props && props.assistant) || {};
+    analyst = { name: a.name || 'Ask', avatar: a.avatar || null, mentions: (a.mentions && a.mentions.length ? a.mentions : ['ask']).map(String) };
+}
+
+/** The analyst as the application names it: `{ name, avatar, mentions }` — `Ask` unless told otherwise. */
+export function assistant() {
+    return analyst;
 }
 
 /** Whether the reader may call on the analyst with `@Ask`. */

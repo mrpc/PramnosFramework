@@ -1,11 +1,14 @@
 <script>
     /** A card: a system message's, a reference's, a command's answer — title linked, text, an image, fields, a tone. */
     import { t } from './t.js';
+    import { assistant } from './extras.js';
 
     let { card } = $props();
     // Ask's titles come in English, written by a worker that knows no reader — t('Open in Ask') —
     // and are put in the reader's language here.
-    const title = $derived(card.from === 'Ask' && card.title ? t(card.title) : card.title);
+    // The analyst's own words, in the reader's language and its name: "Open in Naya".
+    const title = $derived(card.from === 'Ask' && card.title === 'Open in Ask' ? t('Open in %s', assistant().name)
+        : card.from === 'Ask' && card.title ? t(card.title) : card.title);
 </script>
 
 <div class="pf-conv-card pf-conv-card-{card.color || 'neutral'}">

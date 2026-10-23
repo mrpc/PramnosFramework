@@ -9,7 +9,7 @@
     import Avatar from './Avatar.svelte';
     import { t } from './t.js';
     import { mentionsToTokens, wordAt, suggestPeople, fold, size, commandIn, draftOf, keepDraft } from './logic.js';
-    import { commands, canAsk } from './extras.js';
+    import { commands, canAsk, assistant } from './extras.js';
 
     let {
         api, conversationId, thread = null, members = [], me, emoji = {}, maxFileMb = 25, placeholder = '',
@@ -67,8 +67,10 @@
         if (current.sign === '@') {
             suggestions = suggestPeople(members, current.word, me).map((p) => ({ ...p, label: p.special ? '@' + p.name : p.name,
                 hint: p.special ? (p.name === 'all' ? t('everybody here') : t('everybody here who is online')) : '' }));
-            if (canAsk() && 'ask'.startsWith(fold(current.word))) {
-                suggestions = [{ id: 0, name: 'Ask', special: true, label: `@Ask`, hint: t('the analyst answers in the thread') }, ...suggestions];
+            // The analyst, by its name or a word that calls it, offered as the name it goes by.
+            if (canAsk() && assistant().mentions.some((word) => word.startsWith(fold(current.word)))) {
+                const name = assistant().name;
+                suggestions = [{ id: 0, name, special: true, label: `@${name}`, hint: t('the analyst answers in the thread') }, ...suggestions];
             }
         } else {
             const w = fold(current.word);

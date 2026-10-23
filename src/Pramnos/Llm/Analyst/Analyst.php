@@ -39,6 +39,54 @@ final class Analyst
     }
 
     /**
+     * The analyst's name, wherever the administration shows it — the header's button, the side
+     * panel, the Ask page, the conversations: `'llm' => ['analyst' => ['name' => 'Naya']]`, or
+     * `Ask`. The model is told it too.
+     */
+    public static function name(): string
+    {
+        $config = Llm::config('analyst', []);
+        $name   = is_array($config) && is_string($config['name'] ?? null) ? trim($config['name']) : '';
+
+        return $name !== '' ? mb_substr($name, 0, 40) : 'Ask';
+    }
+
+    /**
+     * The words that call on the analyst after `@` in a conversation, lower-case: `ask` always,
+     * its name, and `'llm' => ['analyst' => ['mentions' => ['naya']]]` — each a word of letters,
+     * digits and `_`.
+     *
+     * @return list<string>
+     */
+    public static function mentions(): array
+    {
+        $config = Llm::config('analyst', []);
+        $words  = array_merge(['ask', self::name()], is_array($config) ? (array) ($config['mentions'] ?? []) : []);
+        $words  = array_map(static fn ($word): string => mb_strtolower(trim((string) $word)), $words);
+
+        return array_values(array_unique(array_filter($words, static fn (string $word): bool => preg_match('/^[\p{L}\p{N}_]+$/u', $word) === 1)));
+    }
+
+    /**
+     * The pattern that finds a call on the analyst in a message: `@` and one of
+     * {@see mentions()} as a word of its own, ignoring case — and `$then`, a pattern of what may
+     * follow it, where the call is to be taken out with what follows.
+     */
+    public static function mentionPattern(string $then = ''): string
+    {
+        return '/(?<![\w@])@(?:' . implode('|', array_map(static fn (string $word): string => preg_quote($word, '/'), self::mentions())) . ')\b' . $then . '/iu';
+    }
+
+    /** The analyst's picture, `'llm' => ['analyst' => ['avatar' => '/img/ai.svg']]`, or null for none. */
+    public static function avatar(): ?string
+    {
+        $config = Llm::config('analyst', []);
+        $url    = is_array($config) && is_string($config['avatar'] ?? null) ? trim($config['avatar']) : '';
+
+        return $url !== '' ? $url : null;
+    }
+
+    /**
      * The admin header's "Ask" — beside the search — and the side panel it opens: Ask about the
      * page you are on, and that page's help. See {@see \Pramnos\Assist\Panel}.
      *

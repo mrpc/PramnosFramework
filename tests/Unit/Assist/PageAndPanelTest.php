@@ -308,6 +308,45 @@ class PageAndPanelTest extends LlmTestCase
     }
 
     /**
+     * The analyst's name and picture from app.php — `llm.analyst.name`, `avatar` — on the button,
+     * the panel's title, its tab and what it says to a screen reader; `Ask` without them, and the
+     * words that call it are `ask`, its name and the mentions given, each a word.
+     */
+    public function testTheAnalystsNameAndPicture(): void
+    {
+        // Arrange
+        $app  = \Pramnos\Application\Application::getInstance();
+        $kept = $app->applicationInfo['llm'] ?? null;
+        $_SERVER['REQUEST_URI'] = '/admin/orders';
+        \Pramnos\Framework\Factory::getDocument()->title = '';
+        (new \ReflectionProperty(Page::class, 'screen'))->setValue(null, 'orders');
+
+        try {
+            // Act
+            $plain = [\Pramnos\Llm\Analyst\Analyst::name(), \Pramnos\Llm\Analyst\Analyst::avatar(), \Pramnos\Llm\Analyst\Analyst::mentions()];
+            $app->applicationInfo['llm'] = ['analyst' => ['name' => 'Naya', 'avatar' => '/img/ai.svg', 'mentions' => ['NAYA', 'ναγια', 'not a word', '']]];
+            $named = [\Pramnos\Llm\Analyst\Analyst::name(), \Pramnos\Llm\Analyst\Analyst::avatar(), \Pramnos\Llm\Analyst\Analyst::mentions()];
+            $panel = Panel::render(true, '/admin/Ai');
+            (new \ReflectionProperty(Page::class, 'screen'))->setValue(null, 'ai');
+            $onAsk = Panel::render(true, '/admin/Ai');
+        } finally {
+            $app->applicationInfo['llm'] = $kept;
+        }
+
+        // Assert
+        $this->assertSame(['Ask', null, ['ask']], $plain);
+        $this->assertSame(['Naya', '/img/ai.svg', ['ask', 'naya', 'ναγια']], $named, 'lower-case, each a word, once');
+        $this->assertStringContainsString('aria-label="Ask Naya about this page"', $panel);
+        $this->assertStringContainsString('<img class="pf-assist-avatar" src="/img/ai.svg" alt=""', $panel, 'its picture on the button');
+        $this->assertStringContainsString('Naya</a>', $panel);
+        $this->assertStringContainsString('data-say-failed="Naya could not be opened here."', $panel);
+        $this->assertStringContainsString('title="Open in Naya"', $panel);
+        $this->assertStringNotContainsString('>Ask<', $panel, 'not Ask anywhere it shows');
+        $this->assertStringContainsString('src="/img/ai.svg"', $onAsk);
+        $this->assertStringEndsWith('Naya</a>', $onAsk);
+    }
+
+    /**
      * A theme's own buttons: `opener()` draws one that opens the panel on a tab — nothing for a
      * page without help, nothing for Ask on Ask's own page — and `template()` the panel alone.
      */

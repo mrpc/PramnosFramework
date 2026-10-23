@@ -41,10 +41,22 @@ final class Ask
         self::$queue = $queue;
     }
 
-    /** Whether a message calls on the analyst: `@Ask` as a word of its own, anywhere in it. */
+    /**
+     * Whether a message calls on the analyst: `@Ask`, its name or one of its mentions
+     * ({@see \Pramnos\Llm\Analyst\Analyst::mentions()}) as a word of its own, anywhere in it.
+     */
     public static function called(string $body): bool
     {
-        return preg_match('/(?<![\w@])@ask\b/iu', $body) === 1;
+        return preg_match(\Pramnos\Llm\Analyst\Analyst::mentionPattern(), $body) === 1;
+    }
+
+    /**
+     * A bot conversation's name as people see it: the analyst's own name for Ask's, which is kept
+     * under {@see NAME} whatever the application calls it.
+     */
+    public static function displayName(string $name): string
+    {
+        return $name === self::NAME ? \Pramnos\Llm\Analyst\Analyst::name() : $name;
     }
 
     /** Whether this person may call on the analyst here. */
@@ -84,7 +96,7 @@ final class Ask
         if (!$own && !self::called($message['body'])) {
             return null;
         }
-        $question = trim((string) preg_replace('/(?<![\w@])@ask\b[,:]?/iu', '', $message['body']));
+        $question = trim((string) preg_replace(\Pramnos\Llm\Analyst\Analyst::mentionPattern('[,:]?'), '', $message['body']));
         $question = $question !== '' ? $question : $message['body'];
         $extra    = ['conversations' => ['conversation' => $message['conversationId'], 'thread' => $own ? null : ($message['threadRootId'] ?? $message['id']), 'message' => $messageId]];
         if (!$own) {

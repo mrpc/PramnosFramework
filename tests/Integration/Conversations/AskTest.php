@@ -54,6 +54,33 @@ class AskTest extends TestCase
     }
 
     /**
+     * Named in app.php — `llm.analyst.name`, `mentions` — the analyst is called by `@Ask`, its name
+     * and its mentions, and drawn by its name; its own conversation is shown by its name and
+     * picture, and kept under Ask::NAME.
+     */
+    public function testANamedAnalyst(): void
+    {
+        // Arrange
+        $app  = \Pramnos\Application\Application::getInstance();
+        $kept = $app->applicationInfo['llm'] ?? null;
+        $app->applicationInfo['llm'] = ['analyst' => ['name' => 'Naya', 'mentions' => ['ναγια'], 'avatar' => '/img/ai.svg']];
+
+        try {
+            // Act
+            $called = array_map([Ask::class, 'called'], ['@Naya πόσοι;', '@ναγια πόσοι;', '@Ask πόσοι;', '@nayas', 'naya']);
+            $html   = Markdown::render('@NAYA πόσοι;', static fn (): ?string => null);
+            $names  = [Ask::displayName(Ask::NAME), Ask::displayName('Jira')];
+        } finally {
+            $app->applicationInfo['llm'] = $kept;
+        }
+
+        // Assert
+        $this->assertSame([true, true, true, false, false], $called, 'its name, its mention, and Ask still');
+        $this->assertSame('<p><span class="pf-conv-mention pf-conv-mention-ask">@Naya</span> πόσοι;</p>', $html);
+        $this->assertSame(['Naya', 'Jira'], $names, 'only the analyst\'s conversation takes its name');
+    }
+
+    /**
      * A message with `@Ask` from somebody who may ask is queued — the question without the call,
      * as its writer, to be answered in its thread (a reply's, its root's); nothing without the
      * analyst, for somebody below its floor, or for a message that does not call on it.

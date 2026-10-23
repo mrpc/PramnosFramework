@@ -104,10 +104,13 @@ class Conversations extends Controller
             foreach ($mine as &$conversation) {
                 // The others in a direct or group conversation who are inactive: when each last signed in.
                 $conversation['inactive'] = (object) array_intersect_key($asleep, array_flip(array_diff($conversation['members'] ?? [], [(int) $me->userid])));
-                $conversation['title'] = $conversation['kind'] === 'bot' ? (string) $conversation['name']
+                $conversation['title'] = $conversation['kind'] === 'bot' ? \Pramnos\Conversations\Ask::displayName((string) $conversation['name'])
                     : ($conversation['members'] === null ? '#' . $conversation['slug']
                     : implode(', ', array_map(static fn (int $id): string => $people[$id] ?? '#' . $id,
                         array_values(array_diff($conversation['members'], [(int) $me->userid])) ?: [(int) $me->userid])));
+                if (\Pramnos\Conversations\Ask::isOwn($conversation)) {
+                    $conversation['avatar'] = \Pramnos\Llm\Analyst\Analyst::avatar();
+                }
             }
             unset($conversation);
 

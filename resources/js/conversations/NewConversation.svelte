@@ -6,7 +6,7 @@
     import Avatar from './Avatar.svelte';
     import { t } from './t.js';
     import { lastSignIn } from './logic.js';
-    import { canAsk } from './extras.js';
+    import { canAsk, assistant } from './extras.js';
 
     let { api, me, mode = 'new', browse = [], ondone, onclose, onerror = () => {} } = $props();
 
@@ -108,7 +108,7 @@
                 {#if askOffered}
                     <li>
                         <button type="button" disabled={busy} onclick={withAsk}>
-                            <Avatar id={0} name="Ask" small /> <span>Ask</span>
+                            <Avatar id={0} name={assistant().name} src={assistant().avatar} small /> <span>{assistant().name}</span>
                             <span class="pf-conv-muted-text">{t('Bot · every message a question to the analyst')}</span>
                         </button>
                     </li>

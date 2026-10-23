@@ -942,6 +942,27 @@ The reader's own conversations are left out of the list and the owner filter
 (`Review::list(['except' => $id])`, `Review::owners($id)`): they are in the Ask column already, where
 they are not read only, and `/admin/Ai/all?c=` with one of them redirects there.
 
+### Its name and picture
+
+The analyst is called *Ask* unless the application gives it a name of its own:
+
+```php
+'llm' => ['analyst' => [
+    'name'     => 'Naya',                     // the header's button, the side panel, the Ask page, the conversations
+    'mentions' => ['naya'],                   // words that call it after @ in a conversation, beside @Ask
+    'avatar'   => '/themes/main/img/ai.svg',  // its picture beside the name
+]],
+```
+
+`Analyst::name()`, `mentions()` and `avatar()` read them, and every place the administration shows
+the analyst asks them: the header's button and the side panel (its tab, title, and what a screen
+reader hears — *Ask Naya about this page*), the Ask page's title, the conversation with it and its
+*… is thinking*, the composer's `@` suggestion, and the *Open in …* card on an answer. In a
+conversation `@Ask`, `@Naya` and each mention call it, as a word of its own and ignoring case, and
+the mention is drawn as `@Naya`. Its conversation is kept as the bot `Ask` (`Ask::NAME`) whatever it
+is called; the JSON gives it a `displayName` and an `avatar`. The model is told its name, so it
+answers to it.
+
 ### What it reads
 
 Every tool only reads, and answers figures over a window — `days` (30 by default, at most 366)

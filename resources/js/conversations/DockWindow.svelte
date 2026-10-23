@@ -18,7 +18,7 @@
     <header class="pf-conv-window-head">
         <button type="button" class="pf-conv-window-title" onclick={onminimise} aria-expanded={!minimised}>
             {#if conversation.kind === 'dm' && other !== null}
-                <Avatar id={other} name={title} online={!!online[other]} src={avatars[other]} small />
+                <Avatar id={other} name={title} online={!!online[other]} src={conversation.avatar || avatars[other]} small />
             {:else if conversation.kind === 'bot'}
                 <span class="pf-conv-avatar pf-conv-avatar-sm pf-conv-avatar-system" aria-hidden="true">⚙</span>
             {:else}

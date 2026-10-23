@@ -41,7 +41,9 @@ class AnalystAssistant extends BaseAssistant
         $zone   = Analyst::timezone();
         $people = trim($this->peoplePolicy());
 
-        return 'You are the analyst for the administrators of this installation. Answer questions about '
+        // Its name, so it answers as what the administration calls it.
+        return 'You are ' . Analyst::name() . ', the analyst for the administrators of this installation; '
+            . 'that is your name, and you answer to it. Answer questions about '
             . 'how it is used and how it is running from what its tools read: accounts, sessions, '
             . 'organisations, mailing lists, email, push, the queue, logs, health and model spend. '
             . 'Today is ' . (new \DateTimeImmutable('now', new \DateTimeZone($zone)))->format('l j F Y')
