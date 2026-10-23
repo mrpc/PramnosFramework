@@ -75,6 +75,8 @@ Messages::list($general, ['before' => $oldest]);  // further back
 Messages::list($general, ['after' => $lastSeen]); // what a reconnect missed, replies too
 Messages::list($general, ['thread' => $id]);      // a thread: its root and replies
 Conversations::markRead($general, $me, $newest);  // never back
+Conversations::markUnread($general, $me, $id);    // unread again from that message on (a reply: from its root)
+Conversations::counts($general, $me, $lastReadId); // ['unread' => …, 'mentions' => …] after a message
 ```
 
 **History from another system** is written as it was, through the same calls and with no table
@@ -332,7 +334,7 @@ A message is written first and told second, through Broadcasting:
 | channel | events |
 |---|---|
 | `private-conversation.{id}` | `message.posted`, `message.edited`, `message.deleted`, `message.reacted`, `message.pinned` — each with the message as a reader sees it (name, HTML, reactions, files) |
-| each member's own (`private-users.{id}`, or `broadcasting.notifications_channel`) | `conversation.activity`: a message in one of their conversations — its ids, its writer, whether it mentions them — for a sidebar's unread and a window that opens |
+| each member's own (`private-users.{id}`, or `broadcasting.notifications_channel`) | `conversation.activity`: a message in one of their conversations — its ids, its writer, whether it mentions them — for a sidebar's unread and a window that opens; `conversation.read`: what they have read there moved — read on another page, or marked unread — `{conversationId, lastReadId, unread, mentions}` |
 | `presence-chat` | who of the team is connected, with their name |
 
 The `conversations` feature's provider adds the rules for these channels to the application's
@@ -517,6 +519,7 @@ conversation or message the person does not read 404.
 | `react/{id}` | POST | `emoji`, `on` | `{ok}` |
 | `pin/{id}` | POST | `on` | `{ok}` |
 | `read/{id}` | POST | `message` | `{ok}` |
+| `unread/{id}` | POST | `message` | `{ok}` — unread from that message on, a reply from its root; 404 to somebody not in it |
 | `notify/{id}` | POST | `notify` (`all`, `mentions`, `none`), `muted` | `{ok}` |
 | `star/{id}` | POST | `on` | `{ok}` |
 | `save/{id}` | POST | `on` | `{ok}` — a message kept for later, or let go |

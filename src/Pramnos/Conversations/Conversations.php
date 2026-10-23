@@ -268,6 +268,48 @@ final class Conversations
             ->where('lastreadid', '<', $messageId)->update(['lastreadid' => $messageId]);
     }
 
+    /**
+     * Mark a conversation unread from a message on: what the person has read goes back to the
+     * top-level message before it — before its root, for a reply in a thread — or to nothing, even
+     * when they had read further. Told on their own channel as `conversation.read`.
+     */
+    public static function markUnread(int $id, int $person, int $messageId): void
+    {
+        $message = Messages::get($messageId);
+        if ($message === null || $message['conversationId'] !== $id) {
+            throw new \InvalidArgumentException(t('That message no longer exists.'));
+        }
+        $from     = $message['threadRootId'] ?? $message['id'];
+        $previous = self::db()->queryBuilder()->table('#PREFIX#conversation_messages')->select(['messageid'])->where('conversationid', $id)
+            ->whereNull('threadrootid')->where('messageid', '<', $from)->orderBy('messageid', 'desc')->limit(1)->getAllOrFail()[0]['messageid'] ?? 0;
+        self::members_()->where('conversationid', $id)->where('participanttype', 'user')->where('participantid', $person)
+            ->update(['lastreadid' => (int) $previous]);
+        Realtime::read($id, $person);
+    }
+
+    /**
+     * What a person has not read in a conversation after a message: the top-level messages others
+     * wrote, and the mentions of them, `@all` and `@online` among them.
+     *
+     * @return array{unread: int, mentions: int}
+     */
+    public static function counts(int $id, int $person, int $after): array
+    {
+        $db = self::db();
+        $unread = (int) ($db->queryBuilder()->table('#PREFIX#conversation_messages')->select([new Expression('COUNT(*) AS n')])
+            ->where('conversationid', $id)->where('messageid', '>', $after)->whereNull('threadrootid')->whereNull('deletedat')
+            ->where(static function ($q) use ($person): void {
+                $q->whereNull('authorid')->orWhere('authorid', '!=', $person);
+            })->getAllOrFail()[0]['n'] ?? 0);
+        $mentions = (int) ($db->queryBuilder()->table('#PREFIX#conversation_mentions')->select([new Expression('COUNT(*) AS n')])
+            ->where('conversationid', $id)->where('messageid', '>', $after)
+            ->where(static function ($q) use ($person): void {
+                $q->where('participantid', $person)->whereIn('kind', ['all', 'online'], 'or');
+            })->getAllOrFail()[0]['n'] ?? 0);
+
+        return ['unread' => $unread, 'mentions' => $mentions];
+    }
+
     /** Archive a conversation: read, no longer written to. */
     public static function archive(int $id, bool $archived = true): void
     {
@@ -290,17 +332,8 @@ final class Conversations
             ->orderBy('c.lastmessageat', 'desc')->getAllOrFail();
         $out = [];
         foreach ($rows as $row) {
-            $id     = (int) $row['conversationid'];
-            $unread = (int) ($db->queryBuilder()->table('#PREFIX#conversation_messages')->select([new Expression('COUNT(*) AS n')])
-                ->where('conversationid', $id)->where('messageid', '>', (int) $row['lastreadid'])->whereNull('threadrootid')->whereNull('deletedat')
-                ->where(static function ($q) use ($person): void {
-                    $q->whereNull('authorid')->orWhere('authorid', '!=', $person);
-                })->getAllOrFail()[0]['n'] ?? 0);
-            $mentions = (int) ($db->queryBuilder()->table('#PREFIX#conversation_mentions')->select([new Expression('COUNT(*) AS n')])
-                ->where('conversationid', $id)->where('messageid', '>', (int) $row['lastreadid'])
-                ->where(static function ($q) use ($person): void {
-                    $q->where('participantid', $person)->whereIn('kind', ['all', 'online'], 'or');
-                })->getAllOrFail()[0]['n'] ?? 0);
+            $id = (int) $row['conversationid'];
+            ['unread' => $unread, 'mentions' => $mentions] = self::counts($id, $person, (int) $row['lastreadid']);
             $out[] = self::row($row) + ['unread' => $unread, 'mentions' => $mentions, 'muted' => (bool) $row['muted'], 'starred' => (bool) ($row['starred'] ?? false), 'notify' => (string) $row['notify'],
                 'lastReadId' => (int) $row['lastreadid'], 'members' => in_array($row['kind'], self::PERSONAL, true) ? self::members($id) : null];
         }

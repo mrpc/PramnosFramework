@@ -159,11 +159,13 @@
                 timer = setTimeout(refresh, 500);
             };
             const here = ({ members }) => { online = Object.fromEntries(Object.keys(members || {}).map((id) => [id, true])); };
-            const mine = realtime.channel(props.userChannel).listen('conversation.activity', soon);
+            // A message somewhere, or what the reader has read moved — on another page, or marked unread.
+            const mine = realtime.channel(props.userChannel).listen('conversation.activity', soon).listen('conversation.read', soon);
             const room = realtime.channel('presence-chat').listen('pusher:subscription_succeeded', here)
                 .listen('pusher:member_added', here).listen('pusher:member_removed', here);
             cleanup.push(() => {
                 mine.stopListening?.('conversation.activity', soon);
+                mine.stopListening?.('conversation.read', soon);
                 ['pusher:subscription_succeeded', 'pusher:member_added', 'pusher:member_removed'].forEach((e) => room.stopListening?.(e, here));
             });
         } else {

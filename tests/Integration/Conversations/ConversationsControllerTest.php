@@ -90,6 +90,9 @@ class ConversationsControllerTest extends TestCase
         $list    = $this->ask('maria', 'messages', $id);
         $thread  = $this->ask('maria', 'messages', $id, ['thread' => $posted['body']['id']]);
         $found   = $this->ask('maria', 'search', null, ['q' => 'καλημέρα']);
+        $unread  = $this->ask('maria', 'unread', $id, ['message' => $posted['body']['id']]);
+        $unreadSide = $this->ask('maria', 'conversations');
+        $stranger = $this->ask('nikos', 'unread', $id, ['message' => $posted['body']['id']]);
         $this->ask('maria', 'notify', $id, ['notify' => 'mentions', 'muted' => true]);
         $starred = $this->ask('maria', 'star', $id, ['on' => true]);
         $starSide = $this->ask('maria', 'conversations');
@@ -108,6 +111,8 @@ class ConversationsControllerTest extends TestCase
         $this->assertStringContainsString('@Μαρία Κ.', $posted['body']['message']['html'], 'the message as a reader sees it');
         $this->assertSame([1, 1], [$side['body']['conversations'][0]['unread'], $side['body']['conversations'][0]['mentions']]);
         $this->assertSame($maria, $side['body']['me']);
+        $this->assertSame([['ok' => true], 1, 404], [$unread['body'], $unreadSide['body']['conversations'][0]['unread'], $stranger['status']],
+            'unread from the message, so it counts again; somebody not in it is refused');
         $this->assertSame('Καλημέρα σε όλους', $edited['body']['message']['body']);
         $this->assertSame([$posted['body']['id']], array_column($list['body']['messages'], 'id'));
         $this->assertSame([$posted['body']['id']], $list['body']['pinned'], 'pinned before it was unpinned');
@@ -257,7 +262,7 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame([422, 'A message needs something in it.'], [$empty['status'], $empty['body']['error']]);
         $this->assertSame([422, 'There is a channel called #finance already.'], [$twice['status'], $twice['body']['error']]);
         $this->assertSame(403, $off['status'], 'an application without the conversations');
-        $this->assertSame(['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask'], $writes,
+        $this->assertSame(['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread'], $writes,
             'every write checks the session\'s token');
     }
 

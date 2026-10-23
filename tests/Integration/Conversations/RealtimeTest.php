@@ -78,6 +78,54 @@ class RealtimeTest extends TestCase
     }
 
     /**
+     * Marking unread from a message moves what the person has read back to the top-level message
+     * before it — before its root for a reply — or to nothing, though they had read further; told on
+     * their own channel as `conversation.read` with what is left unread. A message of another
+     * conversation is refused.
+     */
+    #[DataProvider('databases')]
+    public function testMarkingUnreadFromAMessage(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        $general = Conversations::create('channel', 'general', [$maria], $eleni);
+        $other   = Conversations::create('channel', 'other', [$maria], $eleni);
+        $first   = Messages::post($general, $eleni, 'πρώτο');
+        $second  = Messages::post($general, $eleni, 'δεύτερο <@' . $maria . '>');
+        $reply   = Messages::post($general, $eleni, 'απάντηση', ['thread' => $second]);
+        $third   = Messages::post($general, $eleni, 'τρίτο');
+        $there   = Messages::post($other, $eleni, 'αλλού');
+        Conversations::markRead($general, $maria, $third);
+        $fake    = FakeDriver::swap();
+        $read    = static fn (): int => Conversations::member($general, $maria)['lastReadId'];
+
+        // Act
+        Conversations::markUnread($general, $maria, $second);
+        $fromSecond = $read();
+        Conversations::markUnread($general, $maria, $reply);
+        $fromReply = $read();
+        Conversations::markUnread($general, $maria, $first);
+        $fromFirst = $read();
+        try {
+            Conversations::markUnread($general, $maria, $there);
+            $refused = null;
+        } catch (\InvalidArgumentException $e) {
+            $refused = $e->getMessage();
+        }
+
+        // Assert
+        $this->assertSame([$first, $first, 0], [$fromSecond, $fromReply, $fromFirst], 'a reply is unread from its root');
+        $told = $fake->recorded();
+        $this->assertSame(['private-users.' . $maria, 'conversation.read'], [$told[0]['channel'], $told[0]['event']]);
+        $this->assertSame(['conversationId' => $general, 'lastReadId' => $first, 'unread' => 2, 'mentions' => 1], $told[0]['payload'],
+            'the second and third unread again, the reply not counted, the mention back');
+        $this->assertSame(3, $told[2]['payload']['unread']);
+        $this->assertNotNull($refused);
+    }
+
+    /**
      * A conversation's channel is heard by whoever reads it; the presence channel by whoever may
      * use the conversations, under their name; the provider adds these rules to the application's.
      */

@@ -12,7 +12,7 @@ use Pramnos\Broadcasting\Auth\ChannelRegistry;
  * | channel                         | events                                                     |
  * |---------------------------------|------------------------------------------------------------|
  * | `private-conversation.{id}`     | `message.posted`, `message.edited`, `message.deleted`, `message.reacted`, `message.pinned` — and `client-typing`, which browsers whisper to each other |
- * | each member's own (`private-users.{id}`) | `conversation.activity`: a message in one of their conversations, whether it mentions them |
+ * | each member's own (`private-users.{id}`) | `conversation.activity`: a message in one of their conversations, whether it mentions them; `conversation.read`: what they have read there moved — read, or marked unread — with what is left |
  * | `presence-chat`                 | who of the team is connected                               |
  *
  * A message is written first and told second, so a browser that missed a telling asks for what came
@@ -65,6 +65,17 @@ final class Realtime
                     'messageId' => $messageId, 'threadRootId' => $message['threadRootId'], 'authorId' => $message['authorId'], 'mention' => isset($mentioned[$person])]);
             }
         }
+    }
+
+    /**
+     * What a person has read in a conversation moved — they read it, or marked it unread — told on
+     * their own channel, so their other pages and the dock count it again.
+     */
+    public static function read(int $conversationId, int $person): void
+    {
+        $lastRead = (int) (Conversations::member($conversationId, $person)['lastReadId'] ?? 0);
+        self::tell(self::userChannel($person), 'conversation.read', ['conversationId' => $conversationId, 'lastReadId' => $lastRead]
+            + Conversations::counts($conversationId, $person, $lastRead));
     }
 
     /** A message changed — edited, deleted, reacted to, pinned — told as it now reads. */

@@ -46,6 +46,7 @@ use Pramnos\Http\Response;
  * | `react/{id}` | POST | `emoji`, `on` | `{ok}` |
  * | `pin/{id}` | POST | `on` | `{ok}` |
  * | `read/{id}` | POST | `message` | `{ok}` |
+ * | `unread/{id}` | POST | `message` | `{ok}`: unread from that message on (a reply: from its root) |
  * | `notify/{id}` | POST | `notify` (all, mentions, none), `muted` | `{ok}` |
  * | `star/{id}` | POST | `on` | `{ok}` |
  * | `save/{id}` | POST | `on` | `{ok}`: a message kept for later, or let go |
@@ -55,7 +56,7 @@ use Pramnos\Http\Response;
 class Conversations extends Controller
 {
     /** The writes: each a POST with the session's token. */
-    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask'];
+    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread'];
 
     /** The JSON body, decoded once. @var array<string, mixed>|null */
     private ?array $json = null;
@@ -377,6 +378,20 @@ class Conversations extends Controller
     {
         return $this->answer(function (object $me): array {
             Store::markRead($this->id(), (int) $me->userid, (int) $this->in('message'));
+            \Pramnos\Conversations\Realtime::read($this->id(), (int) $me->userid);
+
+            return ['ok' => true];
+        });
+    }
+
+    /** Mark a conversation one is in unread from a message on. */
+    public function unread(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            if (Store::member($this->id(), (int) $me->userid) === null) {
+                throw new \DomainException(t('That conversation no longer exists.'));
+            }
+            Store::markUnread($this->id(), (int) $me->userid, (int) $this->in('message'));
 
             return ['ok' => true];
         });
