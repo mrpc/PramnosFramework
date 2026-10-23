@@ -300,7 +300,6 @@ class PersonalDataRegistry
             'mailing_list_subscribers',
             // Who is in which group: the usergroups feature.
             'userstogroups',
-            'usergroup_log',
             // Events in a stream: their arguments are whatever the application fired them with.
             'event_log',
             'event_deliveries',
@@ -308,7 +307,6 @@ class PersonalDataRegistry
             'conversations',
             'conversation_members',
             'conversation_messages',
-            'conversation_message_edits',
             'conversation_reactions',
             'conversation_mentions',
             'conversation_pins',

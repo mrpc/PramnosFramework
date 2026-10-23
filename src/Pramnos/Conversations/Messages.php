@@ -27,6 +27,9 @@ use Pramnos\Database\Instant;
  */
 final class Messages
 {
+    /** The changelog's entity for a message: its edits are its diffs. */
+    public const ENTITY = 'conversation_message';
+
     /** The longest message, in characters. */
     public const MAX_LENGTH = 40000;
 
@@ -130,7 +133,10 @@ final class Messages
         return $id === null ? null : (int) $id;
     }
 
-    /** Change a message's text — its writer only — keeping what it said before. */
+    /**
+     * Change a message's text — its writer only. What it said before goes to the change feed
+     * ({@see edits()}), kept as long as the changelog keeps a save's diff.
+     */
     public static function edit(int $id, int $by, string $body): void
     {
         $message = self::get($id) ?? throw new \InvalidArgumentException(t('That message no longer exists.'));
@@ -143,7 +149,6 @@ final class Messages
         }
         $body = self::moderated(Conversations::get($message['conversationId']) ?? [], $by, $body, false);
         $db = Conversations::db();
-        $db->queryBuilder()->table('#PREFIX#conversation_message_edits')->insert(['messageid' => $id, 'body' => $message['body'], 'editedby' => $by, 'editedat' => time()]);
         $refs = self::refs($body);
         $db->queryBuilder()->table('#PREFIX#conversation_messages')->where('messageid', $id)->update([
             'body' => $body, 'editedat' => time(), 'refs' => $refs === [] ? null : (string) json_encode($refs, JSON_UNESCAPED_UNICODE),
@@ -151,6 +156,10 @@ final class Messages
         $db->queryBuilder()->table('#PREFIX#conversation_mentions')->where('messageid', $id)->delete();
         self::mention($id, $message['conversationId'], $by, $body, time());
         Realtime::changed($id, 'message.edited');
+        // What it said before, as a save's diff: the changelog keeps it its thirty days, where it
+        // has the feature, and nothing else does.
+        \Pramnos\Event\ChangeFeed::emit(new \Pramnos\Event\ModelChange(self::ENTITY, $id, \Pramnos\Event\ModelChange::UPDATED, [],
+            ['body' => ['old' => $message['body'], 'new' => $body]], [], null, $by, \Pramnos\Changelog\ChangelogWriter::currentSource(), time(), self::class, 'conversation_messages'));
     }
 
     /**
@@ -431,11 +440,29 @@ final class Messages
         return self::present(array_values(array_filter(array_map(self::get(...), $ids))));
     }
 
-    /** What a message said before each of its edits, oldest first. @return list<array{body: string, editedBy: ?int, editedAt: int}> */
+    /**
+     * What a message said before each of its edits, oldest first — from the changelog, for as long
+     * as it keeps a save's diff; none where the application has no `changelog`.
+     *
+     * @return list<array{body: string, editedBy: ?int, editedAt: int}>
+     */
     public static function edits(int $id): array
     {
-        return array_map(static fn (array $r): array => ['body' => (string) $r['body'], 'editedBy' => $r['editedby'] === null ? null : (int) $r['editedby'],
-            'editedAt' => (int) $r['editedat']], Conversations::db()->queryBuilder()->table('#PREFIX#conversation_message_edits')->where('messageid', $id)->orderBy('id')->getAllOrFail());
+        try {
+            $rows = \Pramnos\Changelog\ChangelogReader::history(self::ENTITY, $id, ['feed'], 200);
+        } catch (\Throwable) {
+            return [];
+        }
+        $edits = [];
+        foreach (array_reverse($rows) as $row) {
+            $old = $row['changes']['body']['old'] ?? null;
+            if (is_string($old)) {
+                $edits[] = ['body' => $old, 'editedBy' => $row['userid'] === null ? null : (int) $row['userid'],
+                    'editedAt' => (int) (is_numeric($row['created_at']) ? $row['created_at'] : strtotime((string) $row['created_at']))];
+            }
+        }
+
+        return $edits;
     }
 
     /**

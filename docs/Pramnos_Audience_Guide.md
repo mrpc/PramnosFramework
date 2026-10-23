@@ -274,15 +274,15 @@ application's own word). The Groups screen adds and removes members through it t
 An application with its own `addGroup()` / `removeGroup()` on its user class can keep them and
 have them call these, so a membership changed anywhere is announced the same way.
 
-**History.** With the migration `add_membership_history_to_usergroups`, a membership keeps when it
-began, the account that made it and how (`userstogroups.addedat`, `addedby`, `addedsource`), and
-every real change is logged in `usergroup_log` — who joined or left, when, by whom, how. The log
-is what counts who entered and who left a group over a week, as `segment_members` does for a
-segment, so only changes made through `Groups::add()` / `remove()` count: memberships older than
-the migration have no date and are not counted as entering, and an application that knows when
-they began from a log of its own fills `addedat` itself. A deleted group's log goes with it
-(`Groups::forget()`). Without the migration groups work as before, with no history and no
-movement (`Groups::keepsHistory()`).
+**When, and who came and went.** With the migration `add_membership_history_to_usergroups`, a
+membership keeps when it began, the account that made it and how (`userstogroups.addedat`,
+`addedby`, `addedsource`) — state, gone with the membership. Every real change is also written to
+the changelog as `group.joined` or `group.left` on the group (entity `usergroup`, `Groups::ENTITY`),
+with the person and how; that is what counts who entered and who left a group over a week, so
+only changes made through `Groups::add()` / `remove()` count, and memberships older than the
+migration are not counted as entering. An application that knows when they began from a log of its
+own fills `addedat` itself. Without the migration nothing is said of when
+(`Groups::keepsHistory()`); without the `changelog` feature there is no movement to count.
 
 **What uses a group** is what the library's *used by* shows and what keeps a group from being
 deleted: a segment whose filter names it, a rule that reads it or puts people in it or takes them

@@ -54,6 +54,9 @@ trait ConversationsProbe
     private function boot(string $type, string $host, int $port, string $user): void
     {
         require_once ROOT . '/database/migrations/framework/conversations/2026_10_22_000001_create_conversations_tables.php';
+        require_once ROOT . '/database/migrations/framework/changelog/2026_08_25_000001_create_changelog_tables.php';
+        require_once ROOT . '/database/migrations/framework/changelog/2026_10_04_000001_add_scope_to_changelog_events.php';
+        require_once ROOT . '/database/migrations/framework/changelog/2026_10_22_000001_add_event_index_to_changelog_events.php';
         require_once ROOT . '/database/migrations/framework/auth/2020_01_01_000011_create_userdetails_table.php';
         require_once ROOT . '/database/migrations/framework/conversations/2026_10_22_000003_add_starred_to_conversation_members.php';
         require_once ROOT . '/database/migrations/framework/conversations/2026_10_22_000004_create_conversation_saved_table.php';
@@ -103,6 +106,10 @@ trait ConversationsProbe
             \Pramnos\Framework\Migrations\Conversations\CreateConversationSavedTable::class,
             \Pramnos\Framework\Migrations\Conversations\MakeConversationReactionsEmojiBinary::class,
             \Pramnos\Framework\Migrations\Conversations\AddBroadcastToConversationMessages::class,
+            // The changelog: what a message said before an edit, and what moderation did.
+            \Pramnos\Framework\Migrations\Changelog\CreateChangelogTables::class,
+            \Pramnos\Framework\Migrations\Changelog\AddScopeToChangelogEvents::class,
+            \Pramnos\Framework\Migrations\Changelog\AddEventIndexToChangelogEvents::class,
             // Moderation: who may write where, in the conversations and anywhere else.
             \Pramnos\Framework\Migrations\Moderation\CreateModerationTables::class,
             // The analyst's conversations and asks: where a conversation with Ask finds the one it
@@ -119,6 +126,9 @@ trait ConversationsProbe
         $singleton      = &Factory::getDatabase();
         $singleton      = $this->db;
         \Pramnos\Event\Event::forget();
+        // The changelog written at once, and listening to the change feed, as with the feature on.
+        \Pramnos\Database\WriteSpool::setDriver(\Pramnos\Database\WriteSpool::DRIVER_SYNC);
+        \Pramnos\Changelog\ChangelogWriter::listen();
         foreach (['conversation.created', 'conversation.message.posted', 'conversation.mention.received'] as $event) {
             \Pramnos\Event\Event::listen($event, function (object $e) use ($event): void {
                 $this->dispatched[] = [$event, $e];
@@ -134,6 +144,7 @@ trait ConversationsProbe
             $this->probeChanged($this->db->type);
         }
         \Pramnos\Event\Event::forget();
+        \Pramnos\Database\WriteSpool::setDriver(null);
         unset(Application::getInstance()->applicationInfo['conversations']);
         if ($this->previous !== null) {
             $singleton = &Factory::getDatabase();

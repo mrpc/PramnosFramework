@@ -152,10 +152,10 @@ class GroupsTest extends TestCase
     }
 
     /**
-     * A membership keeps when it began, by whom and how; joining and leaving are logged, which is
-     * what counts who entered and who left a group over a week — only real changes, and a
-     * membership older than its record is not counted as entering. A deleted group's log goes
-     * with it.
+     * A membership keeps when it began, by whom and how; joining and leaving go to the changelog
+     * as `group.joined` / `group.left` on the group, which is what counts who entered and who
+     * left over a week — only real changes, and a membership older than its record is not
+     * counted as entering.
      */
     #[DataProvider('databases')]
     public function testMembershipsKeepTheirHistory(string $type, string $host, int $port, string $user): void
@@ -164,32 +164,33 @@ class GroupsTest extends TestCase
         $this->boot($type, $host, $port, $user);
         $press = $this->groups['Press'];
         $volunteers = $this->groups['Volunteers'];
+        $events = fn (int $group): array => array_column($this->db->queryBuilder()->table(\Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE)
+            ->where('entity', Groups::ENTITY)->where('itemid', (string) $group)->orderBy('eventid')->getAllOrFail(), 'event');
 
         // Act
         $before = time();
         Groups::add($press, [$this->ids['anna'], $this->ids['bob']], 7, 'coupon');
         Groups::remove($press, [$this->ids['anna'], $this->ids['dan']], null, 'rule');
         Groups::add($volunteers, $this->ids['cara'], null, str_repeat('x', 30));
-        $this->db->queryBuilder()->table('usergroup_log')->insert(['groupid' => $volunteers, 'userid' => $this->ids['dan'], 'action' => 'in', 'createdat' => time() - 9 * 86400, 'actor' => null, 'source' => 'admin']);
+        \Pramnos\Changelog\ChangelogWriter::event(Groups::ENTITY, $volunteers, 'group.joined', ['userid' => $this->ids['dan']], by: 0, at: time() - 9 * 86400);
         $moves = Groups::movements();
         $card  = array_column(Groups::of($this->ids['cara']), null, 'name');
         $bob   = array_column(Groups::of($this->ids['bob']), null, 'name');
-        Groups::forget($volunteers);
 
         // Assert
         $this->assertSame(['entered' => 1, 'left' => 1], $moves[$press], 'anna in and out; bob was in already; dan never was');
         $this->assertSame(['entered' => 1, 'left' => 0], $moves[$volunteers], 'nine days ago is not this week');
+        $this->assertSame(['group.joined', 'group.left'], $events($press), 'anna in, anna out — in the changelog, not a table of its own');
         $this->assertGreaterThanOrEqual($before, $card['Volunteers']['addedAt']);
         $this->assertSame([null, str_repeat('x', 20)], [$card['Volunteers']['addedBy'], $card['Volunteers']['source']], 'how, cut to its column');
         $this->assertNull($bob['Press']['addedAt'], 'bob was in before the record: adding him again changes nothing');
-        $this->assertSame(0, (int) $this->db->queryBuilder()->table('usergroup_log')->where('groupid', $volunteers)->count(), 'forgotten with the group');
-        $this->assertSame(2, (int) $this->db->queryBuilder()->table('usergroup_log')->where('groupid', $press)->count(), 'anna in, anna out');
     }
 
     /**
-     * The migration only adds: three nullable columns on the memberships — the ones already there
-     * keep their rows, with nothing said of when — and the log. Without it groups work as before,
-     * with no history and no movement; it runs twice without harm, and comes off again.
+     * The migration only adds three nullable columns on the memberships — the ones already there
+     * keep their rows, with nothing said of when. Without it groups work as before, with nothing
+     * said of when; it runs twice without harm, and comes off again. Without the changelog there
+     * is no movement to count.
      */
     #[DataProvider('databases')]
     public function testTheHistoryMigrationAddsAndComesOff(string $type, string $host, int $port, string $user): void
@@ -204,20 +205,24 @@ class GroupsTest extends TestCase
         // Act
         $migration->down();
         Groups::reset();
-        $without = [$schema->hasTable('usergroup_log'), $schema->hasColumn('userstogroups', 'addedat'), Groups::keepsHistory()];
+        $without = [$schema->hasColumn('userstogroups', 'addedat'), Groups::keepsHistory()];
         $added   = Groups::add($this->groups['Press'], $this->ids['cara'], 2);
-        $plain   = [Groups::movements(), array_column(Groups::of($this->ids['cara']), 'addedAt')];
-        Groups::forget($this->groups['Press']);
+        $plain   = array_column(Groups::of($this->ids['cara']), 'addedAt');
         $migration->up();
         $migration->up();
         Groups::reset();
-        $with = [$schema->hasTable('usergroup_log'), $schema->hasColumn('userstogroups', 'addedsource'), Groups::keepsHistory()];
+        $with = [$schema->hasColumn('userstogroups', 'addedsource'), Groups::keepsHistory()];
+        // As where the changelog feature is off: its tables are not there.
+        (new \ReflectionProperty(Groups::class, 'changelog'))->setValue(null, false);
+        $noChangelog = [Groups::add($this->groups['Volunteers'], $this->ids['dan'], 2), Groups::movements()];
+        Groups::reset();
 
         // Assert
-        $this->assertSame([false, false, false], $without);
+        $this->assertSame([false, false], $without);
         $this->assertSame(1, $added, 'groups work without it');
-        $this->assertSame([[], [null]], $plain, 'with no history and no movement');
-        $this->assertSame([true, true, true], $with);
+        $this->assertSame([null], $plain, 'with nothing said of when');
+        $this->assertSame([true, true], $with);
         $this->assertSame(4, (int) $this->db->queryBuilder()->table('userstogroups')->whereNull('addedat')->count(), 'the three rows of the probe and cara\'s, kept, with nothing said of when');
+        $this->assertSame([1, []], $noChangelog, 'no changelog: the membership changes, and there is no movement to count');
     }
 }

@@ -272,6 +272,34 @@ So: no dates in a guide's prose (`since 2026-08-17`, `until 2026-08-16`, `correc
 the reasoning — *why* a design is what it is, is guidance and belongs there; *when* it
 changed belongs in the day's changelog post, which is exactly what it is for.
 
+### 14. History goes in the framework's logs — not in a table of its own
+
+What happened — who did what to what, when, how — goes in the logs the framework already has:
+
+- `ChangelogWriter::event()` → `changelog_events`: things that happened to a record, kept two years;
+- the change feed → `changelog`: what a save changed, kept thirty days;
+- `AuditLog::record()` / `change()` → `authserver.audit_log`: the operators' record of actions;
+- `ActivityLog` → a person's own history, shown to them.
+
+A table holds **state**: what is true now — who is in a group, the way back from an
+impersonation still open, a run still in progress. When a row stops being true it goes; it is not
+kept as history beside the logs.
+
+**Before creating a table, or adding columns, that record events, runs, edits, attempts or "who
+did what", write down in the migration's docblock why none of the four logs can hold it.** A
+reason is something like an index the logs cannot have, or a retention none of them can be
+given — not "it was simpler" or "the module is separate".
+
+**Why:** in October 2026, four modules each grew their own log — `usergroup_log`,
+`moderation_log`, `rule_log`, `conversation_message_edits` — and `impersonations` kept every past
+impersonation, beside the changelog and the audit log that already did the job. Every one had to
+be taken out again, and every installation that had run the migrations needed a one-time fix.
+
+**Changing a framework migration that has already run.** Do not add a second migration to undo
+the first: change the first, so a new installation makes the right shape, and give the
+installations that ran the old one a one-time statement — in the Upgrade Guide row, run by hand
+or by the application's session — that no migration carries for good.
+
 ---
 
 ## Session handoff rule

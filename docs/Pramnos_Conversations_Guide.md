@@ -66,7 +66,8 @@ $id = Messages::post($general, $me, 'Ο <@48211> ζητά επιστροφή —
 Messages::post($general, $maria, 'Το κοιτάζω', ['thread' => $id]);       // a reply, counted on its root
 Messages::post($general, $maria, 'Έγινε', ['thread' => $id, 'broadcast' => true]); // ...and sent to the conversation too
 Messages::post($alerts, null, '', ['card' => ['title' => 'Payment', 'fields' => ['Amount' => '29,90 €']]]);
-Messages::edit($id, $me, 'Ο <@48211> ζητά επιστροφή');                   // its writer only; what it said is kept
+Messages::edit($id, $me, 'Ο <@48211> ζητά επιστροφή');                   // its writer only; what it said goes to the changelog
+Messages::edits($id);                                                     // what it said before each edit, while the changelog keeps it
 Messages::delete($id, $user);                                            // its writer, an owner, or root
 Messages::react($id, $nikos, ':eyes:');                                  // and false to take it off
 Messages::pin($id, $me);
@@ -642,7 +643,10 @@ where the application wants the team taken.
 ## Storage
 
 The tables are `conversations`, `conversation_members`, `conversation_messages`,
-`conversation_message_edits`, `conversation_reactions`, `conversation_mentions`,
-`conversation_pins` and `conversation_files`, all declared personal data. Messages are kept for
+`conversation_reactions`, `conversation_mentions`, `conversation_pins` and `conversation_files`,
+all declared personal data. What a message said before an edit is not kept in a table of its own:
+an edit is a save's diff, written to the change feed (entity `conversation_message`) and kept as
+long as the changelog keeps diffs — thirty days unless app.php says otherwise. Without the
+`changelog` feature an edit is marked as one, and what it said before is not kept. Messages are kept for
 good: on TimescaleDB `conversation_messages` is a hypertable on `created_at`, its chunks compressed
 after 90 days and never dropped (`HypertableRegistry`, overridable in app.php's `hypertables`).

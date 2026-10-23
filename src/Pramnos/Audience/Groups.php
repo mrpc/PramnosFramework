@@ -34,8 +34,14 @@ final class Groups
     /** @var array<string, callable(int): list<string|array{name: string, url?: ?string}>> What the application said uses groups */
     private static array $usage = [];
 
-    /** Whether memberships keep their history here, once asked; see {@see keepsHistory()}. */
+    /** The changelog's entity for a group: `group.joined` / `group.left` are written on it. */
+    public const ENTITY = 'usergroup';
+
+    /** Whether memberships record when they began, once asked; see {@see keepsHistory()}. */
     private static ?bool $history = null;
+
+    /** Whether the changelog is here, once asked; see {@see changelogHere()}. */
+    private static ?bool $changelog = null;
 
     /**
      * Put people in a group; those already in are left as they are.
@@ -60,7 +66,7 @@ final class Groups
                 $chunk
             ));
         }
-        self::log($group, $added, 'in', $by, $source, $now);
+        self::log($group, $added, GroupJoined::EVENT, $by, $source, $now);
         self::changed($group, $added, 'group_joined', static fn (int $userid) => new GroupJoined($group, $userid, $by, $source));
 
         return count($added);
@@ -80,7 +86,7 @@ final class Groups
             self::db()->queryBuilder()->table('#PREFIX#userstogroups')
                 ->where('groupid', $group)->whereIn('userid', $chunk)->delete();
         }
-        self::log($group, $removed, 'out', $by, $source, time());
+        self::log($group, $removed, GroupLeft::EVENT, $by, $source, time());
         self::changed($group, $removed, 'group_left', static fn (int $userid) => new GroupLeft($group, $userid, $by, $source));
 
         return count($removed);
@@ -128,33 +134,29 @@ final class Groups
     }
 
     /**
-     * Who joined and who left every group over the last days, from `usergroup_log`, in one
-     * query: what the library sorts by. Empty where the log is not there.
+     * Who joined and who left every group over the last days — the changelog's `group.joined` and
+     * `group.left` — in one query: what the library sorts by. Empty where the changelog is not
+     * there.
      *
      * @return array<int, array{entered: int, left: int}> By group id; a group nobody moved in is absent
      */
     public static function movements(int $days = 7): array
     {
-        if (!self::keepsHistory()) {
+        if (!self::changelogHere()) {
             return [];
         }
+        $db  = self::db();
         $out = [];
-        foreach (self::db()->queryBuilder()->table('#PREFIX#usergroup_log')
-            ->select(['groupid', 'action', new \Pramnos\Database\Expression('COUNT(*) AS n')])
-            ->where('createdat', '>=', time() - $days * 86400)->groupBy(['groupid', 'action'])->getAllOrFail() as $row) {
-            $out[(int) $row['groupid']] ??= ['entered' => 0, 'left' => 0];
-            $out[(int) $row['groupid']][$row['action'] === 'in' ? 'entered' : 'left'] += (int) $row['n'];
+        foreach ($db->queryBuilder()->table(\Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE)
+            ->select(['itemid', 'event', new \Pramnos\Database\Expression('COUNT(*) AS n')])
+            ->where('entity', self::ENTITY)->whereIn('event', [GroupJoined::EVENT, GroupLeft::EVENT])
+            ->where('created_at', '>=', \Pramnos\Database\Instant::at($db, time() - $days * 86400))
+            ->groupBy(['itemid', 'event'])->getAllOrFail() as $row) {
+            $out[(int) $row['itemid']] ??= ['entered' => 0, 'left' => 0];
+            $out[(int) $row['itemid']][$row['event'] === GroupJoined::EVENT ? 'entered' : 'left'] += (int) $row['n'];
         }
 
         return $out;
-    }
-
-    /** Forget a deleted group's history with it. */
-    public static function forget(int $group): void
-    {
-        if (self::keepsHistory()) {
-            self::db()->queryBuilder()->table('#PREFIX#usergroup_log')->where('groupid', $group)->delete();
-        }
     }
 
     /**
@@ -203,34 +205,39 @@ final class Groups
     /** Forget what {@see usage()} was told: tests. */
     public static function reset(): void
     {
-        self::$usage   = [];
-        self::$history = null;
+        self::$usage     = [];
+        self::$history   = null;
+        self::$changelog = null;
     }
 
     /**
-     * Whether memberships keep their history here: `add_membership_history_to_usergroups` has
-     * run. Asked once a request.
+     * Whether memberships record when, by whom and how they began: `add_membership_history_to_usergroups`
+     * has run. Asked once a request.
      */
     public static function keepsHistory(): bool
     {
-        return self::$history ??= self::db()->schema()->hasTable('usergroup_log');
+        return self::$history ??= self::db()->schema()->hasColumn('userstogroups', 'addedat');
+    }
+
+    /** Whether the changelog's tables are here, to tell who joined and left. Asked once a request. */
+    private static function changelogHere(): bool
+    {
+        return self::$changelog ??= self::db()->schema()->hasTable(\Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE);
     }
 
     /**
-     * People joining or leaving a group, in the log.
+     * People joining or leaving a group, in the changelog: `group.joined` or `group.left` on the
+     * group, with who and how.
      *
      * @param list<int> $people
      */
-    private static function log(int $group, array $people, string $action, ?int $by, string $source, int $at): void
+    private static function log(int $group, array $people, string $event, ?int $by, string $source, int $at): void
     {
-        if ($people === [] || !self::keepsHistory()) {
+        if ($people === [] || !self::changelogHere()) {
             return;
         }
-        foreach (array_chunk($people, 500) as $chunk) {
-            self::db()->queryBuilder()->table('#PREFIX#usergroup_log')->insertMany(array_map(
-                static fn (int $userid): array => ['groupid' => $group, 'userid' => $userid, 'action' => $action, 'createdat' => $at, 'actor' => $by, 'source' => mb_substr($source, 0, 20)],
-                $chunk
-            ));
+        foreach ($people as $userid) {
+            \Pramnos\Changelog\ChangelogWriter::event(self::ENTITY, $group, $event, ['userid' => $userid, 'source' => $source], by: $by ?? 0, at: $at);
         }
     }
 

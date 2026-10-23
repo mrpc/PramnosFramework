@@ -16,8 +16,8 @@ use Pramnos\Database\Migration;
  *   and deleted marks, and where an imported message came from (`source`, `externalid`). On
  *   TimescaleDB a hypertable on `created_at`, its old chunks compressed: messages are kept for good
  *   ({@see \Pramnos\Database\HypertableRegistry}).
- * - `conversation_message_edits`, `conversation_reactions`, `conversation_mentions`,
- *   `conversation_pins`, `conversation_files` — the rest. A file is a file on disk under its own
+ * - `conversation_reactions`, `conversation_mentions`, `conversation_pins`,
+ *   `conversation_files` — the rest. What a message said before an edit is the changelog's. A file is a file on disk under its own
  *   tree; the row keeps its relative path.
  *
  * Messages are searched with a FULLTEXT index on MySQL and MariaDB and a `simple` tsvector GIN
@@ -102,18 +102,6 @@ class CreateConversationsTables extends Migration
             }
         }
 
-        if (!$schema->hasTable('conversation_message_edits')) {
-            $schema->createTable('conversation_message_edits', function ($table) {
-                $table->comment('What a message said before each edit');
-                $table->bigIncrements('id')->comment('Auto-increment identifier');
-                $table->bigInteger('messageid')->comment('conversation_messages.messageid');
-                $table->text('body')->comment('The text before this edit');
-                $table->bigInteger('editedby')->nullable()->comment('Who edited it');
-                $table->unsignedInteger('editedat')->comment('When');
-                $table->index(['messageid'], 'idx_conversation_message_edits');
-            });
-        }
-
         if (!$schema->hasTable('conversation_reactions')) {
             $schema->createTable('conversation_reactions', function ($table) {
                 $table->comment('An emoji a participant put on a message');
@@ -176,7 +164,7 @@ class CreateConversationsTables extends Migration
     {
         $schema = $this->application->database->schema();
         foreach (['conversation_files', 'conversation_pins', 'conversation_mentions', 'conversation_reactions',
-            'conversation_message_edits', 'conversation_messages', 'conversation_members', 'conversations'] as $table) {
+            'conversation_messages', 'conversation_members', 'conversations'] as $table) {
             $schema->dropTableIfExists($table);
         }
     }

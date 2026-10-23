@@ -388,7 +388,6 @@ class Groups extends Controller
         }
         $this->db()->queryBuilder()->table('#PREFIX#userstogroups')->where('groupid', $id)->delete();
         $this->db()->queryBuilder()->table('#PREFIX#usergroups')->where('groupid', $id)->delete();
-        \Pramnos\Audience\Groups::forget($id);
         $this->db()->cacheflush(self::CACHE_CATEGORY);
 
         $this->addMessage(t('Group deleted.'));
