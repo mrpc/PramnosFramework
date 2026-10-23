@@ -460,12 +460,37 @@ the screen deletes a group's memberships itself.
 *Administration → People → Groups* (`/admin/Groups`) appears only while the feature is on.
 There you:
 
-- find a group in a datatable of name, description and members (`Groups/data`), the most
-  members first, searched and sorted;
-- create, edit and delete groups;
-- open a group to see its members;
+- find a group in a datatable of number, name, description, order and members (`Groups/data`),
+  by the order first, searched by number, name and description;
+- create, edit and delete groups — a group has an order, -127 to 127 or none, for where it comes
+  in the lists; a group in use (`Audience\Groups::uses()`: a segment, a rule, what the
+  application reports) is not deleted, and the refusal says what uses it;
+- open a group to see its members, a page at a time from `Groups/members/{id}`, searched by
+  username, name, email or number, so a group of tens of thousands reads one page; the page also
+  says how many there are and what uses the group;
 - add a member by username, email or user id;
 - remove a member.
+
+Where the application lists accounts with tools of its own — bulk actions, sends — a group's page
+links its members there:
+
+```php
+'audience' => ['group_members_url' => '/admin/users/display/groupid/{id}'],   // app.php
+```
+
+Who may open the screen is `admin.groups` under `admin_access`. An application with a rule of its
+own subclasses the controller and refuses before the action, as with any administration screen:
+
+```php
+class Groups extends \Pramnos\Application\Controllers\Groups
+{
+    public function exec($action = '', $args = [])
+    {
+        if (!self::allows(User::getCurrentUser())) { $this->redirect(URL); return null; }
+        return parent::exec($action, $args);
+    }
+}
+```
 
 Nothing is scaffolded into the project. The controller is found through the framework's
 fallback, so a project that enables the feature later has the screen at once. An

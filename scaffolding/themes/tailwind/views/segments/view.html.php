@@ -58,7 +58,7 @@ $explain = static function (array $group) use (&$explain, $e): string {
     </header>
 
     <div class="pf-card"><div class="pf-card-body pf-stats">
-        <div><span class="pf-label"><?php echo $e(t('In it now')); ?></span><span class="pf-stat-value" data-field="members"><?php echo $e(number_format($segment['members'])); ?></span></div>
+        <div><span class="pf-label"><?php echo $e(t('Members in it')); ?></span><span class="pf-stat-value" data-field="members"><?php echo $e(number_format($segment['members'])); ?></span></div>
         <div><span class="pf-label"><?php echo $e(t('Entered, 7 days')); ?></span><span class="pf-stat-value <?php echo $this->movement['entered'] > 0 ? 'pf-up' : 'pf-zero'; ?>">▲ <?php echo $e(number_format($this->movement['entered'])); ?></span></div>
         <div><span class="pf-label"><?php echo $e(t('Left, 7 days')); ?></span><span class="pf-stat-value <?php echo $this->movement['left'] > 0 ? 'pf-down' : 'pf-zero'; ?>">▼ <?php echo $e(number_format($this->movement['left'])); ?></span></div>
         <div><span class="pf-label"><?php echo $e(t('Worked out')); ?></span><span class="pf-stat-value pf-stat-small"><?php echo $e($segment['recomputedAt'] === null ? t('not yet') : date('Y-m-d H:i', $segment['recomputedAt'])); ?></span></div>

@@ -31,6 +31,9 @@ final class Groups
     /** Roles held by a group; a membership change there changes permissions. */
     private const ROLES_TABLE = 'authserver.group_roles';
 
+    /** @var array<string, callable(int): list<string|array{name: string, url?: ?string}>> What the application said uses groups */
+    private static array $usage = [];
+
     /**
      * Put people in a group; those already in are left as they are.
      *
@@ -109,6 +112,55 @@ final class Groups
             ->where('userstogroups.userid', $userid)->orderBy('usergroups.name')->getAllOrFail();
 
         return array_map(static fn (array $row): array => ['id' => (int) $row['groupid'], 'name' => (string) $row['name']], $rows);
+    }
+
+    /**
+     * Tell the library where groups are used, so one in use is not deleted and the library's
+     * "used by" names it — a coupon that puts its buyers in a group, a package, a support team.
+     *
+     * ```php
+     * Groups::usage('coupons', fn (int $id): array => array_map(
+     *     fn ($c) => ['name' => 'coupon ' . $c->code, 'url' => adminUrl('Coupons/edit/') . $c->id],
+     *     Coupon::addingTo($id),
+     * ));
+     * ```
+     *
+     * @param callable(int): list<string|array{name: string, url?: ?string}> $finder What uses the group
+     */
+    public static function usage(string $source, callable $finder): void
+    {
+        self::$usage[$source] = $finder;
+    }
+
+    /**
+     * What uses a group: segments whose filter names it, rules that put people in it or take them
+     * out, and what {@see usage()} reports.
+     *
+     * @return list<array{name: string, url: ?string}>
+     */
+    public static function uses(int $id): array
+    {
+        $uses = [];
+        if (Installed::segments()) {
+            foreach (Segments::all() as $segment) {
+                if (in_array($id, Filter::groupsIn($segment['filter']), true)) {
+                    $uses[] = ['name' => t('segment %s', $segment['name']), 'url' => adminUrl('Segments/view/') . $segment['id']];
+                }
+            }
+        }
+        foreach (self::$usage as $finder) {
+            foreach ($finder($id) as $use) {
+                $uses[] = is_array($use) ? ['name' => (string) $use['name'], 'url' => $use['url'] ?? null] : ['name' => (string) $use, 'url' => null];
+            }
+        }
+
+        return array_merge($uses, Rules\Rules::linksUsingGroup($id));
+    }
+
+    /** Forget what {@see usage()} was told: tests. */
+    public static function reset(): void
+    {
+        self::$usage = [];
     }
 
     /**

@@ -20,10 +20,11 @@ use Pramnos\Application\Controller;
  * Actions:
  *   - display()              — every group, with its member count, in a datatable
  *   - data()                 — POST: a page of the datatable's rows, as JSON
+ *   - members($id)           — POST: a page of a group's members, as JSON
  *   - view($id)              — one group and its members
  *   - edit($id)              — create (no id) or edit form
  *   - save()                 — POST: create or update
- *   - delete($id)            — POST: the group and its memberships
+ *   - delete($id)            — POST: the group and its memberships; refused while in use
  *   - addmember($id)         — POST: a member, by username, email or id
  *   - removemember($id)      — POST: a member, by id
  *   - addrole($id)           — POST: a role the group holds, so every member holds it
@@ -49,7 +50,7 @@ class Groups extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction([
-            'display', 'data', 'view', 'edit', 'save', 'delete', 'addmember', 'removemember', 'addrole', 'removerole',
+            'display', 'data', 'members', 'view', 'edit', 'save', 'delete', 'addmember', 'removemember', 'addrole', 'removerole',
         ]);
         // POST with the session's token, or refused before the action runs: see Controller::exec().
         $this->addWriteAction(['save', 'delete', 'addmember', 'removemember', 'addrole', 'removerole']);
@@ -59,7 +60,8 @@ class Groups extends Controller
     // ── Screens ──────────────────────────────────────────────────────────────
 
     /**
-     * Every group, with how many members it has, in a datatable whose rows {@see data()} answers.
+     * Every group, with its number, its order and how many members it has, in a datatable whose
+     * rows {@see data()} answers — by the order first, as the groups were arranged.
      */
     public function display(): mixed
     {
@@ -72,9 +74,10 @@ class Groups extends Controller
         $table             = new \Pramnos\Html\Datatable('dt-groups');
         $table->source     = adminUrl('Groups/data');
         $table->bootstrap  = false;
-        $table->sortColumn = 2;
-        $table->sortOrder  = 'desc';
-        $table->addColumn('Name', true, true, false)->addColumn('Description', true, true, false)->addColumn('Members', true, true, false);
+        $table->sortColumn = 3;
+        $table->sortOrder  = 'asc';
+        $table->addColumn('#', true, true, false)->addColumn('Name', true, true, false)->addColumn('Description', true, true, false)
+            ->addColumn('Order', true, true, false)->addColumn('Members', true, true, false);
 
         $view = $this->getView('groups');
         $view->datatable = $table;
@@ -83,8 +86,8 @@ class Groups extends Controller
     }
 
     /**
-     * The groups, a page at a time: searched by name and description, sorted by any column, the
-     * members counted in one query.
+     * The groups, a page at a time: searched by number, name and description, sorted by any
+     * column, the members counted in one query.
      */
     public function data(): mixed
     {
@@ -92,24 +95,40 @@ class Groups extends Controller
             return null;
         }
         \Pramnos\Framework\Factory::getDocument('json');
-        $rows = array_map(static fn (array $row): array => ['id' => (int) $row['groupid'], 'name' => (string) $row['name'],
-            'description' => (string) ($row['description'] ?? ''), 'members' => (int) $row['members']],
-            $this->db()->queryBuilder()->table('#PREFIX#usergroups AS usergroups')
-                ->leftJoin('#PREFIX#userstogroups AS userstogroups', 'userstogroups.groupid', '=', 'usergroups.groupid')
-                ->select(['usergroups.groupid', 'usergroups.name', 'usergroups.description', new \Pramnos\Database\Expression('COUNT(userstogroups.userid) AS members')])
-                ->groupBy(['usergroups.groupid', 'usergroups.name', 'usergroups.description'])->orderBy('usergroups.name')->getAllOrFail());
         $e = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 
         return \Pramnos\Http\Response::json(\Pramnos\Html\Datatable\ArraySource::answer(
-            $rows,
-            [0 => 'name', 1 => 'description', 2 => 'members'],
-            static fn (array $row): string => $row['name'] . ' ' . $row['description'],
+            self::all(),
+            [0 => 'id', 1 => 'name', 2 => 'description', 3 => 'orderKey', 4 => 'members'],
+            static fn (array $row): string => '#' . $row['id'] . ' ' . $row['name'] . ' ' . $row['description'],
             static fn (array $page): array => array_map(static fn (array $row): array => [
+                (string) $row['id'],
                 '<a href="' . $e(adminUrl('Groups/view/') . $row['id']) . '">' . $e($row['name']) . '</a>',
                 $e($row['description']),
+                $row['order'] === null ? '' : (string) $row['order'],
                 (string) $row['members'],
             ], $page),
         ));
+    }
+
+    /**
+     * Every group with its member count, in one query, by its order and then its name — a group
+     * with no order after those with one. `orderKey` is what sorts by the order.
+     *
+     * @return list<array{id: int, name: string, description: string, order: ?int, orderKey: int, members: int}>
+     */
+    public static function all(): array
+    {
+        $rows = array_map(static fn (array $row): array => ['id' => (int) $row['groupid'], 'name' => (string) $row['name'],
+            'description' => (string) ($row['description'] ?? ''), 'order' => $row['order'] === null ? null : (int) $row['order'],
+            'orderKey' => $row['order'] === null ? PHP_INT_MAX : (int) $row['order'], 'members' => (int) $row['members']],
+            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#usergroups AS usergroups')
+                ->leftJoin('#PREFIX#userstogroups AS userstogroups', 'userstogroups.groupid', '=', 'usergroups.groupid')
+                ->select(['usergroups.groupid', 'usergroups.name', 'usergroups.description', 'usergroups.order', new \Pramnos\Database\Expression('COUNT(userstogroups.userid) AS members')])
+                ->groupBy(['usergroups.groupid', 'usergroups.name', 'usergroups.description', 'usergroups.order'])->orderBy('usergroups.name')->getAllOrFail());
+        usort($rows, static fn (array $a, array $b): int => $a['orderKey'] <=> $b['orderKey']);
+
+        return $rows;
     }
 
     /**
@@ -128,25 +147,20 @@ class Groups extends Controller
 
         \Pramnos\Framework\Factory::getDocument()->title = 'Group: ' . $group['name'];
 
-        $members = [];
-        $ids     = $this->db()->queryBuilder()->table('#PREFIX#userstogroups')
-            ->where('groupid', (int) $group['groupid'])->get();
-        $userIds = [];
-        foreach ($ids as $row) {
-            $userIds[] = (int) $row['userid'];
-        }
-        if ($userIds !== []) {
-            $users = $this->db()->queryBuilder()->table('#PREFIX#users')
-                ->select(['userid', 'username', 'email', 'firstname', 'lastname'])
-                ->whereIn('userid', $userIds)->orderBy('username', 'asc')->get();
-            foreach ($users as $row) {
-                $members[] = $row;
-            }
-        }
+        $members             = new \Pramnos\Html\Datatable('dt-group-members');
+        $members->source     = adminUrl('Groups/members/') . (int) $group['groupid'];
+        $members->bootstrap  = false;
+        $members->sortColumn = 1;
+        $members->sortOrder  = 'asc';
+        $members->addColumn('#', true, true, false)->addColumn('Username', true, true, false)->addColumn('Name', true, true, false)
+            ->addColumn('Email', true, true, false)->addColumn('', true, false, false);
 
         $view = $this->getView('groups');
-        $view->group   = $group;
-        $view->members = $members;
+        $view->group      = $group;
+        $view->members    = $members;
+        $view->count      = $this->memberCount((int) $group['groupid']);
+        $view->uses       = \Pramnos\Audience\Groups::uses((int) $group['groupid']);
+        $view->membersUrl = self::membersUrl((int) $group['groupid']);
 
         // Its roles, and the ones it could be given. Absent without the roles store.
         $view->rolesEnabled   = $this->rolesEnabled();
@@ -170,6 +184,72 @@ class Groups extends Controller
         }
 
         return $view->display('view');
+    }
+
+    /**
+     * A group's members, a page at a time, for its page's datatable: searched by number, username,
+     * name and email, sorted by any column but the last. Paged in the database, so a group of tens
+     * of thousands reads one page.
+     */
+    public function members(mixed $id = null): mixed
+    {
+        if ($this->refused()) {
+            return null;
+        }
+        \Pramnos\Framework\Factory::getDocument('json');
+        $id      = (int) \Pramnos\Http\Request::staticGetOption();
+        $query   = $this->db()->queryBuilder()->table('#PREFIX#userstogroups AS userstogroups')
+            ->join('#PREFIX#users AS users', 'users.userid', '=', 'userstogroups.userid')
+            ->where('userstogroups.groupid', $id);
+        $total   = (clone $query)->count();
+        $search  = trim((string) (is_array($_POST['search'] ?? null) ? ($_POST['search']['value'] ?? '') : ($_POST['search'] ?? '')));
+        if ($search !== '') {
+            $like = '%' . mb_strtolower($search) . '%';
+            $query->where(static function ($w) use ($like, $search): void {
+                foreach (['users.username', 'users.email', 'users.firstname', 'users.lastname'] as $column) {
+                    $w->orWhereRaw('LOWER(' . $column . ') LIKE ?', [$like]);
+                }
+                if (ctype_digit(ltrim($search, '#'))) {
+                    $w->orWhere('users.userid', (int) ltrim($search, '#'));
+                }
+            });
+        }
+        $filtered = $search === '' ? $total : (clone $query)->count();
+        $columns  = [0 => 'users.userid', 1 => 'users.username', 2 => 'users.lastname', 3 => 'users.email'];
+        foreach ((array) ($_POST['order'] ?? []) as $o) {
+            if (isset($columns[(int) ($o['column'] ?? -1)])) {
+                $query->orderBy($columns[(int) $o['column']], ($o['dir'] ?? 'asc') === 'desc' ? 'desc' : 'asc');
+            }
+        }
+        $length = (int) ($_POST['length'] ?? 50);
+        if ($length !== -1) {
+            $query->limit(max(1, $length))->offset(max(0, (int) ($_POST['start'] ?? 0)));
+        }
+        $e     = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+        $token = \Pramnos\Http\Session::getInstance()->getTokenField();
+        $rows  = array_map(static fn (array $m): array => [
+            (string) (int) $m['userid'],
+            '<a href="' . $e(\Pramnos\Html\AudienceBuilder::personUrl((int) $m['userid'])) . '">' . $e((string) $m['username']) . '</a>',
+            '<span class="pf-nowrap">' . $e(trim($m['firstname'] . ' ' . $m['lastname'])) . '</span>',
+            $e((string) $m['email']),
+            '<form method="post" action="' . $e(adminUrl('Groups/removemember/') . $id) . '" style="display:inline;margin:0">' . $token
+                . '<input type="hidden" name="userid" value="' . (int) $m['userid'] . '">'
+                . '<button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Remove this member from the group?">Remove</button></form>',
+        ], $query->select(['users.userid', 'users.username', 'users.email', 'users.firstname', 'users.lastname'])->getAllOrFail());
+
+        return \Pramnos\Http\Response::json(['draw' => (int) ($_POST['draw'] ?? 1), 'recordsTotal' => $total, 'recordsFiltered' => $filtered, 'data' => $rows]);
+    }
+
+    /**
+     * Where an application lists a group's members with its own tools — `audience.group_members_url`
+     * in app.php, `{id}` for the group — or null where it has none.
+     */
+    public static function membersUrl(int $id): ?string
+    {
+        $app      = \Pramnos\Application\Application::currentInstance();
+        $template = is_object($app) ? (string) ($app->applicationInfo['audience']['group_members_url'] ?? '') : '';
+
+        return $template === '' ? null : str_replace('{id}', (string) $id, $template);
     }
 
     /**
@@ -216,7 +296,14 @@ class Groups extends Controller
             return;
         }
 
-        $fields = ['name' => $name, 'description' => $description];
+        $order = trim((string) ($_POST['order'] ?? ''));
+        if ($order !== '' && (!preg_match('/^-?\d+$/', $order) || (int) $order < -127 || (int) $order > 127)) {
+            $this->addError('The order is a whole number from -127 to 127, or empty.');
+            $this->redirect(adminUrl('Groups/edit/') . ($id > 0 ? $id : ''));
+            return;
+        }
+
+        $fields = ['name' => $name, 'description' => $description, 'order' => $order === '' ? null : (int) $order];
         $table  = $this->db()->queryBuilder()->table('#PREFIX#usergroups');
 
         if ($id > 0) {
@@ -250,6 +337,12 @@ class Groups extends Controller
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($this->group($id) === null) {
             $this->gone();
+            return;
+        }
+        $uses = \Pramnos\Audience\Groups::uses($id);
+        if ($uses !== []) {
+            $this->addError('This group is in use, so it is not deleted: ' . implode(', ', array_column($uses, 'name')) . '.');
+            $this->redirect(adminUrl('Groups/view/') . $id);
             return;
         }
 

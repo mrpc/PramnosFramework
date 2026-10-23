@@ -25,6 +25,11 @@ $isNew = empty($group['groupid']);
                 <label class="block text-sm font-medium text-base-content mb-1" for="group-description">Description</label>
                 <textarea id="group-description" name="description" rows="3" class="input input-sm w-full"><?php echo htmlspecialchars((string) ($group['description'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></textarea>
             </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-base-content mb-1" for="group-order">Order</label>
+                <input type="number" id="group-order" name="order" min="-127" max="127" step="1" class="input input-sm w-40" value="<?php echo isset($group['order']) && $group['order'] !== null ? (int) $group['order'] : ''; ?>">
+                <p class="text-xs text-base-content/60 mt-1">Where the group comes in the list, from -127 to 127; empty puts it after those with one.</p>
+            </div>
             <div class="flex gap-2">
                 <button type="submit" class="btn btn-primary btn-sm">Save</button>
                 <a href="<?php echo $isNew ? adminUrl('Groups') : adminUrl('Groups/view/') . (int) $group['groupid']; ?>" class="btn btn-outline btn-sm">Cancel</a>

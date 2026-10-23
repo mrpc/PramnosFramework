@@ -286,6 +286,26 @@ final class Filter
     }
 
     /**
+     * The groups a filter names through the `groups` attribute, at any depth.
+     *
+     * @param  array<string, mixed> $group A filter's array, or one of its groups
+     * @return list<int>
+     */
+    public static function groupsIn(array $group): array
+    {
+        $found = [];
+        foreach ($group['conditions'] ?? [] as $condition) {
+            if (isset($condition['conditions'])) {
+                array_push($found, ...self::groupsIn($condition));
+            } elseif (($condition['attribute'] ?? '') === 'groups') {
+                array_push($found, ...array_map('intval', (array) ($condition['value'] ?? [])));
+            }
+        }
+
+        return array_values(array_unique($found));
+    }
+
+    /**
      * LEFT JOIN each one-to-one table the attributes read, once.
      *
      * @param list<Attribute> $attributes

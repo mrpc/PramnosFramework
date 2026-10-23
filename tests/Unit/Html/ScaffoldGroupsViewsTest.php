@@ -78,11 +78,11 @@ class ScaffoldGroupsViewsTest extends TestCase
         // Assert
         $this->assertStringContainsString("adminUrl('Groups/addmember/')", $page);
         $this->assertStringContainsString('name="user"', $page);
-        $this->assertStringContainsString("adminUrl('Groups/removemember/')", $page);
-        $this->assertStringContainsString('name="userid"', $page);
+        // The members — each with its remove form and token — are the datatable's rows, from Groups/members.
+        $this->assertStringContainsString('$this->members->render()', $page);
         $this->assertStringContainsString("adminUrl('Groups/delete/')", $page);
-        // One token field per form: add member, remove member, delete, give role, withdraw role.
-        $this->assertSame(5, substr_count($page, 'getTokenField()'));
+        // One token field per form: add member, delete, give role, withdraw role.
+        $this->assertSame(4, substr_count($page, 'getTokenField()'));
         $this->assertStringContainsString("adminUrl('Groups/addrole/')", $page);
         $this->assertStringContainsString("adminUrl('Groups/removerole/')", $page);
         $this->assertStringContainsString('name="roleid"', $page);

@@ -1648,4 +1648,12 @@ return [
     'Print the rows' => 'Εκτύπωση',
     'Audience segment' => 'Segment',
     'User group' => 'Group',
+    'New group' => 'Νέο group',
+    'Groups and segments' => 'Groups και segments',
+    'Members in it' => 'Μέλη',
+    'Order in the list' => 'Σειρά',
+    'Being worked out…' => 'Υπολογίζεται…',
+    'User groups' => 'User groups',
+    'Audience segments' => 'Segments',
+    'My segments' => 'Τα segments μου',
 ];

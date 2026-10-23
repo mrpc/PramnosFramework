@@ -377,6 +377,25 @@ class DatatableTest extends TestCase
     }
 
     /**
+     * An export name goes to the buttons that save a file — Excel, PDF, CSV — so two tables on one
+     * screen do not export under the page's one title; copy and print stay as they were.
+     */
+    public function testAnExportNameNamesTheFilesSaved(): void
+    {
+        // Arrange
+        $dt = new Datatable('groups');
+        $dt->addColumn('Name');
+        $dt->exportName = 'User "groups"';
+
+        // Act
+        $js = $dt->renderJs();
+
+        // Assert
+        $this->assertStringContainsString("buttons : ['copy', {\"extend\": \"excel\", \"filename\": \"User \\u0022groups\\u0022\"}", $js, 'escaped as a string literal');
+        $this->assertStringContainsString('{"extend": "csv", "filename": "User \\u0022groups\\u0022"}, \'print\']', $js);
+    }
+
+    /**
      * DataTables' own words — the length menu, the count, the search, the page buttons — come
      * through t(), so they are in the application's language rather than DataTables' English.
      */

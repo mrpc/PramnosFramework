@@ -264,6 +264,22 @@ application's own word). The Groups screen adds and removes members through it t
 An application with its own `addGroup()` / `removeGroup()` on its user class can keep them and
 have them call these, so a membership changed anywhere is announced the same way.
 
+**What uses a group** is what the library's *used by* shows and what keeps a group from being
+deleted: a segment whose filter names it, a rule that reads it or puts people in it or takes them
+out (`Rules::linksUsingGroup()`), and what the application reports — a coupon that adds its buyers,
+a package, a support team:
+
+```php
+Groups::usage('coupons', fn (int $id): array => array_map(
+    fn ($coupon) => ['name' => 'coupon ' . $coupon->code, 'url' => adminUrl('Coupons/edit/') . $coupon->id],
+    Coupon::addingTo($id),
+));
+Groups::uses($groupId);   // [['name' => 'segment Greek speakers', 'url' => …], ['name' => 'coupon SUMMER', 'url' => …]]
+```
+
+A finder answers names, or `['name' => …, 'url' => …]` where there is a page to open.
+`Filter::groupsIn($filter)` lists the groups a filter names, as `segmentsIn()` lists segments.
+
 ## Consent lists
 
 A send or a rule never names a field to find out who agreed — it names a **consent list**, so
@@ -365,13 +381,28 @@ fields, a footer that keeps a long form's buttons in reach — dressed by each t
 theme's variables). A layout that prints the page's title itself hides the screens' own with
 `$document->bodyclasses[] = 'pf-titled'`.
 
-The library at `/admin/Segments` has tabs for all, segments, groups and the account's own, each
-with its count, above a server-side datatable. Its rows come from `Segments/data`, which shows the
-name and description, the kind, the members, who entered and who left in seven days, what uses it,
-the owner, and when it was last worked out. Most members come first. It sorts by any column but
-*used by*, searches the name and description, and exports. The week's movement is counted for every
-segment in two queries, so the list can sort by it; what uses a segment is worked out for the rows
-shown only. A group has "—" where it has no movement, owner or working out.
+*Groups and segments* (`/admin/Segments`) has a tab each — groups, segments, and the account's
+own segments — with its count. Groups and segments are different things, so each tab has its own
+server-side datatable, with its own columns, column picker and export name; its rows come from
+`Segments/data` with the tab:
+
+| tab | columns | first order |
+|---|---|---|
+| Groups | #, name and description, members, order, used by | the order; a group with none after |
+| Segments | name and description, members, entered and left in seven days, used by, owner, last worked out | most members |
+| Mine | as Segments, without the owner | most members |
+
+Each sorts by any column but *used by*, searches the number, name and description, and exports.
+A segment not yet worked out reads *being worked out*, not 0. The week's movement is counted for
+every segment in two queries, so the list can sort by it; what uses a group or a segment is worked
+out for the rows shown only. The button makes what the tab lists — a group or a segment.
+
+The groups tab is shown unless the address asks for another (`?kind=segments`, `?mine=1`), or
+app.php names its own first:
+
+```php
+'audience' => ['default_tab' => 'segments'],   // groups, segments or mine
+```
 
 Two pieces work in any form:
 

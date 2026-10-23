@@ -16,6 +16,7 @@ use Pramnos\Audience\Rules\Definition;
  */
 #[CoversClass(Definition::class)]
 #[CoversClass(Actions::class)]
+#[CoversClass(\Pramnos\Audience\Filter::class)]
 class RuleDefinitionTest extends TestCase
 {
     /** An action step. */
@@ -132,5 +133,35 @@ class RuleDefinitionTest extends TestCase
         $this->assertSame('email', $all['email']['channel']);
         $this->assertNull($all['webhook']['channel']);
         $this->assertNull(Actions::get('sms'));
+    }
+
+    /**
+     * The groups a rule touches: those its filters name — who it is for, a branch, the exit, at any
+     * depth — and those its steps put people in or take them out of; what is what decides whether
+     * a group may be deleted.
+     */
+    public function testTheGroupsARuleReadsOrChanges(): void
+    {
+        // Arrange
+        $in = static fn (int ...$ids): array => ['attribute' => 'groups', 'op' => 'any_of', 'value' => $ids];
+        $definition = [
+            'who'   => ['match' => 'all', 'conditions' => [$in(1), ['match' => 'any', 'conditions' => [$in(2, 1)]]]],
+            'exit'  => ['conditions' => [$in(3)]],
+            'steps' => [
+                'a' => ['type' => 'branch', 'filter' => ['conditions' => [$in(4)]]],
+                'b' => ['type' => 'action', 'action' => 'group_add', 'params' => ['group' => 5]],
+                'c' => ['type' => 'action', 'action' => 'group_remove', 'params' => ['group' => '6']],
+                'd' => ['type' => 'action', 'action' => 'email', 'params' => ['group' => 7]],
+                'e' => ['type' => 'wait', 'seconds' => 60],
+            ],
+        ];
+
+        // Act
+        $groups = Definition::groups($definition);
+        $filter = \Pramnos\Audience\Filter::groupsIn(['conditions' => [['attribute' => 'language', 'op' => 'is', 'value' => 'el'], $in(9)]]);
+
+        // Assert
+        $this->assertSame([1, 2, 3, 4, 5, 6], $groups, 'an email step naming a "group" parameter is not a group action');
+        $this->assertSame([9], $filter, 'only the groups attribute names groups');
     }
 }

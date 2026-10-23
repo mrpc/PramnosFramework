@@ -75,6 +75,13 @@ class Datatable extends Base
     public $tableTools = true;
 
     /**
+     * The name an export (Excel, CSV, PDF) is saved under; empty for the page's title, which is
+     * what Buttons uses by default.
+     * @var string
+     */
+    public $exportName = '';
+
+    /**
      * Pagination Type
      * @var string
      */
@@ -846,7 +853,13 @@ embed;
 
         $tabletools = "";
         if ($this->tableTools == true) {
-            $tabletools = " buttons : [   'copy', 'excel', 'pdf', 'csv', 'print' ],";
+            $tabletools = $this->exportName === ''
+                ? " buttons : [   'copy', 'excel', 'pdf', 'csv', 'print' ],"
+                : ' buttons : [' . implode(', ', array_map(
+                    fn (string $b): string => in_array($b, ['excel', 'pdf', 'csv'], true)
+                        ? '{"extend": "' . $b . '", "filename": ' . self::js($this->exportName) . '}' : "'" . $b . "'",
+                    ['copy', 'excel', 'pdf', 'csv', 'print']
+                )) . '],';
             if ($this->jui == true) {
                 $tabletools .= '"sDom": \'<"clear"><"H"lfBr>t<"F"ip>\',';
             } else {

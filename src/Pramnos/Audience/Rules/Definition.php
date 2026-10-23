@@ -147,6 +147,27 @@ final class Definition
     }
 
     /**
+     * The groups a definition reads or changes: its filters' `groups` conditions, and the groups
+     * its `group_add` and `group_remove` steps name.
+     *
+     * @param  array<string, mixed> $definition Checked
+     * @return list<int>
+     */
+    public static function groups(array $definition): array
+    {
+        $ids = array_merge(Filter::groupsIn($definition['who']), Filter::groupsIn($definition['exit']));
+        foreach ($definition['steps'] as $step) {
+            if ($step['type'] === 'branch' && isset($step['filter'])) {
+                array_push($ids, ...Filter::groupsIn($step['filter']));
+            } elseif ($step['type'] === 'action' && in_array($step['action'], ['group_add', 'group_remove'], true)) {
+                $ids[] = (int) ($step['params']['group'] ?? 0);
+            }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /**
      * The event names a definition listens for: its trigger, its waits, its goal.
      *
      * @param  array<string, mixed> $definition Checked

@@ -212,6 +212,17 @@ final class Rules
     }
 
     /**
+     * The rules that read a group — in who they are for, a branch or the exit — or put people
+     * in it or take them out, as `[name, url]`.
+     *
+     * @return list<array{name: string, url: string}>
+     */
+    public static function linksUsingGroup(int $group): array
+    {
+        return self::using(static fn (array $definition): bool => in_array($group, Definition::groups($definition), true), true);
+    }
+
+    /**
      * The rules that send to a consent list.
      *
      * @return list<string>

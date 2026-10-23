@@ -19,8 +19,8 @@ use Pramnos\Audience\Segments as SegmentStore;
  * log with the filter before and after.
  *
  * Actions:
- *   - display()       — segments and groups, `?kind=segments|groups`, `?mine=1`, in a datatable
- *   - data()          — POST: a page of the datatable's rows, as JSON
+ *   - display()       — groups, segments or the account's own, `?kind=groups|segments`, `?mine=1`, each in its datatable
+ *   - data()          — POST: a page of a tab's rows, as JSON
  *   - edit($id)       — a segment's form; a new one may be filled in from `?draft=` (Ask)
  *   - view($id)       — one segment: members, movement, use, a sample, and `?person=` explained
  *   - edit($id)       — create (no id) or edit, with the filter builder
@@ -44,32 +44,35 @@ class Segments extends Controller
         parent::__construct($application);
     }
 
+    /** The library's tabs, in the order they are shown. */
+    public const TABS = ['groups', 'segments', 'mine'];
+
     /**
-     * The library: the tabs with their counts, and the datatable, whose rows {@see data()} answers
-     * a page at a time.
+     * The library: the tabs with their counts — groups, segments, the account's own — and the
+     * tab's own datatable, whose rows {@see data()} answers a page at a time. With no tab asked
+     * for, `audience.default_tab` in app.php names the one shown: `groups` (the default),
+     * `segments` or `mine`.
      */
     public function display(): mixed
     {
         if ($this->refused()) {
             return null;
         }
-        \Pramnos\Framework\Factory::getDocument()->title = t('Segments and groups');
-        $kind = (string) \Pramnos\Http\Request::staticGet('kind', '', 'get');
-        $mine = (string) \Pramnos\Http\Request::staticGet('mine', '', 'get') === '1';
+        \Pramnos\Framework\Factory::getDocument()->title = t('Groups and segments');
+        $tab = $this->tab();
 
-        $view         = $this->getView('segments');
-        $view->kind   = $kind;
-        $view->mine   = $mine;
-        $view->counts = $this->library()['counts'];
-        $view->datatable = $this->datatable($kind, $mine);
+        $view            = $this->getView('segments');
+        $view->tab       = $tab;
+        $view->counts    = $this->library()['counts'];
+        $view->datatable = $this->datatable($tab);
 
         return $view->display();
     }
 
     /**
-     * The library's rows, a page at a time, for the datatable: the tab's filter (`kind`, `mine`),
-     * the search over name and description, the order. What is used by what is worked out for the
-     * rows shown only.
+     * A tab's rows, a page at a time, for its datatable (`tab` in the request): the search over
+     * number, name and description, the order. What uses each is worked out for the rows shown
+     * only.
      */
     public function data(): mixed
     {
@@ -77,82 +80,138 @@ class Segments extends Controller
             return null;
         }
         \Pramnos\Framework\Factory::getDocument('json');
-        $library = $this->library((string) ($_POST['kind'] ?? ''), (string) ($_POST['mine'] ?? '') === '1');
+        $tab     = in_array($_POST['tab'] ?? '', self::TABS, true) ? (string) $_POST['tab'] : 'groups';
+        $library = $this->library();
         $e       = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $none    = '<span class="pf-zero">—</span>';
         $number  = static fn (int $n, string $class): string => '<span class="' . ($n > 0 ? $class : 'pf-zero') . '">' . $e(number_format($n)) . '</span>';
+        $uses    = static function (array $found) use ($e, $none): string {
+            $chips = '';
+            foreach ($found as $use) {
+                $chips .= $use['url'] !== null
+                    ? '<a class="pf-chip" href="' . $e($use['url']) . '">' . $e($use['name']) . '</a>'
+                    : '<span class="pf-chip">' . $e($use['name']) . '</span>';
+            }
+
+            return $chips === '' ? $none : '<span class="pf-chips">' . $chips . '</span>';
+        };
+        $name    = static fn (array $row): string => '<a class="pf-row-link" href="' . $e($row['url']) . '">' . $e($row['name']) . '</a>'
+            . ($row['description'] !== '' ? '<span class="pf-row-desc">' . $e($row['description']) . '</span>' : '');
+        $members = static fn (array $row): string => $row['members'] >= 0
+            ? '<span class="pf-nowrap">' . $e(number_format($row['members'])) . '</span>'
+            : '<span class="pf-muted">' . $e(t('Being worked out…')) . '</span>';
+
+        if ($tab === 'groups') {
+            return \Pramnos\Http\Response::json(\Pramnos\Html\Datatable\ArraySource::answer(
+                $library['groups'],
+                [0 => 'id', 1 => 'name', 2 => 'members', 3 => 'orderKey'],
+                static fn (array $row): string => '#' . $row['id'] . ' ' . $row['name'] . ' ' . $row['description'],
+                static fn (array $page): array => array_map(static fn (array $row): array => [
+                    (string) $row['id'],
+                    $name($row),
+                    $members($row),
+                    $row['order'] === null ? $none : $e((string) $row['order']),
+                    $uses(\Pramnos\Audience\Groups::uses($row['id'])),
+                ], $page),
+            ));
+        }
+
+        $mine = $tab === 'mine';
 
         return \Pramnos\Http\Response::json(\Pramnos\Html\Datatable\ArraySource::answer(
-            $library['rows'],
-            [0 => 'name', 1 => 'kind', 2 => 'members', 3 => 'entered', 4 => 'left', 6 => 'ownerName', 7 => 'recomputedAt'],
-            static fn (array $row): string => $row['name'] . ' ' . $row['description'],
-            static fn (array $page): array => array_map(static function (array $row) use ($e, $none, $number): array {
-                $uses = '';
-                foreach ($row['kind'] === 'segment' ? SegmentStore::uses($row['id']) : [] as $use) {
-                    $uses .= $use['url'] !== null
-                        ? '<a class="pf-chip" href="' . $e($use['url']) . '">' . $e($use['name']) . '</a>'
-                        : '<span class="pf-chip">' . $e($use['name']) . '</span>';
-                }
-
-                return [
-                    '<a class="pf-row-link" href="' . $e($row['url']) . '">' . $e($row['name']) . '</a>'
-                        . ($row['description'] !== '' ? '<span class="pf-row-desc">' . $e($row['description']) . '</span>' : ''),
-                    '<span class="pf-badge ' . ($row['kind'] === 'segment' ? 'pf-tone-accent' : 'pf-tone-neutral') . '">' . $e($row['kind'] === 'segment' ? t('Audience segment') : t('User group')) . '</span>',
-                    $row['members'] >= 0 ? '<span class="pf-nowrap">' . $e(number_format($row['members'])) . '</span>' : '<span class="pf-muted">' . $e(t('not yet worked out')) . '</span>',
-                    $row['kind'] === 'segment' ? $number($row['entered'], 'pf-up') : $none,
-                    $row['kind'] === 'segment' ? $number($row['left'], 'pf-down') : $none,
-                    $uses === '' ? $none : '<span class="pf-chips">' . $uses . '</span>',
-                    $row['ownerName'] !== '' ? '<span class="pf-nowrap">' . $e($row['ownerName']) . '</span>' : $none,
-                    $row['recomputedAt'] > 0 ? '<span class="pf-nowrap">' . $e(date('d/m/Y H:i', $row['recomputedAt'])) . '</span>' : $none,
+            $mine ? $library['mine'] : $library['segments'],
+            $mine ? [0 => 'name', 1 => 'members', 2 => 'entered', 3 => 'left', 5 => 'recomputedAt']
+                : [0 => 'name', 1 => 'members', 2 => 'entered', 3 => 'left', 5 => 'ownerName', 6 => 'recomputedAt'],
+            static fn (array $row): string => '#' . $row['id'] . ' ' . $row['name'] . ' ' . $row['description'],
+            static fn (array $page): array => array_map(static function (array $row) use ($e, $none, $number, $uses, $name, $members, $mine): array {
+                $cells = [
+                    $name($row),
+                    $members($row),
+                    $number($row['entered'], 'pf-up'),
+                    $number($row['left'], 'pf-down'),
+                    $uses(SegmentStore::uses($row['id'])),
                 ];
+                if (!$mine) {
+                    $cells[] = $row['ownerName'] !== '' ? '<span class="pf-nowrap">' . $e($row['ownerName']) . '</span>' : $none;
+                }
+                $cells[] = $row['recomputedAt'] > 0 ? '<span class="pf-nowrap">' . $e(date('d/m/Y H:i', $row['recomputedAt'])) . '</span>' : $none;
+
+                return $cells;
             }, $page),
         ));
     }
 
     /**
-     * The library's datatable: its columns, the tab's filter sent with every request, the most
-     * members first.
+     * The tab asked for — `?kind=groups|segments`, `?mine=1` — or `audience.default_tab`.
+     *
+     * @return 'groups'|'segments'|'mine'
      */
-    protected function datatable(string $kind, bool $mine): \Pramnos\Html\Datatable
+    protected function tab(): string
     {
-        $table             = new \Pramnos\Html\Datatable('pf-segments-table');
+        if ((string) \Pramnos\Http\Request::staticGet('mine', '', 'get') === '1') {
+            return 'mine';
+        }
+        $kind = (string) \Pramnos\Http\Request::staticGet('kind', '', 'get');
+        if (in_array($kind, self::TABS, true)) {
+            return $kind;
+        }
+        $default = (string) ($this->application->applicationInfo['audience']['default_tab'] ?? 'groups');
+
+        return in_array($default, self::TABS, true) ? $default : 'groups';
+    }
+
+    /**
+     * A tab's datatable: its own columns, picker and export name, the tab sent with every
+     * request, and its first order — groups by their order, segments by most members.
+     */
+    protected function datatable(string $tab): \Pramnos\Html\Datatable
+    {
+        $table             = new \Pramnos\Html\Datatable('pf-' . $tab . '-table');
         $table->source     = adminUrl('Segments/data');
         $table->bootstrap  = false;
-        $table->sortColumn = 2;
-        $table->sortOrder  = 'desc';
-        $table->aoData     = [['name' => 'kind', 'value' => $kind], ['name' => 'mine', 'value' => $mine ? '1' : '']];
-        foreach ([t('Name'), t('Segment or group'), t('In it now'), t('Entered, 7 days'), t('Left, 7 days'), t('Used by'), t('Owned by'), t('Last worked out')] as $i => $label) {
-            $table->addColumn(htmlspecialchars($label, ENT_QUOTES, 'UTF-8'), true, $i !== 5, false);
+        $table->aoData     = [['name' => 'tab', 'value' => $tab]];
+        $table->exportName = match ($tab) {
+            'groups'   => t('User groups'),
+            'segments' => t('Audience segments'),
+            default    => t('My segments'),
+        };
+        $columns = match ($tab) {
+            'groups' => ['#', t('Name'), t('Members in it'), t('Order in the list'), t('Used by')],
+            'mine'   => [t('Name'), t('Members in it'), t('Entered, 7 days'), t('Left, 7 days'), t('Used by'), t('Last worked out')],
+            default  => [t('Name'), t('Members in it'), t('Entered, 7 days'), t('Left, 7 days'), t('Used by'), t('Owned by'), t('Last worked out')],
+        };
+        $usedBy = array_search(t('Used by'), $columns, true);
+        foreach ($columns as $i => $label) {
+            $table->addColumn(htmlspecialchars($label, ENT_QUOTES, 'UTF-8'), true, $i !== $usedBy, false);
         }
+        [$table->sortColumn, $table->sortOrder] = $tab === 'groups' ? [3, 'asc'] : [1, 'desc'];
 
         return $table;
     }
 
     /**
-     * Every segment and group as the library sorts and filters them, nothing per row worked out
-     * yet but the week's movement, in two queries; and how many each tab holds.
+     * The groups, by their order; the segments by name, with the week's movement counted for all
+     * in two queries; the account's own; and how many each tab holds. Nothing per row worked out
+     * yet beyond that.
      *
-     * @return array{rows: list<array{kind: string, id: int, name: string, description: string, members: int, entered: int, left: int, ownerName: string, recomputedAt: int, url: string}>, counts: array{all: int, segments: int, groups: int, mine: int}}
+     * @return array{groups: list<array<string, mixed>>, segments: list<array<string, mixed>>, mine: list<array<string, mixed>>, counts: array{groups: int, segments: int, mine: int}}
      */
-    protected function library(string $kind = '', bool $mine = false): array
+    protected function library(): array
     {
         $me       = $this->me();
         $all      = SegmentStore::all();
         $moved    = SegmentStore::movements();
         $owners   = $this->names(array_values(array_filter(array_column($all, 'owner'))));
-        $segments = array_map(static fn (array $segment): array => ['kind' => 'segment', 'id' => $segment['id'], 'name' => $segment['name'],
+        $segments = array_map(static fn (array $segment): array => ['id' => $segment['id'], 'name' => $segment['name'],
             'description' => $segment['description'], 'members' => $segment['recomputedAt'] === null ? -1 : $segment['members'],
             'entered' => $moved[$segment['id']]['entered'] ?? 0, 'left' => $moved[$segment['id']]['left'] ?? 0,
             'ownerName' => $owners[(int) $segment['owner']] ?? '', 'recomputedAt' => (int) $segment['recomputedAt'],
             'url' => adminUrl('Segments/view/') . $segment['id'], 'mine' => $segment['owner'] === $me], $all);
-        // A group has no movement, owner or working out: -1 sorts it below every segment's.
-        $groups = array_map(static fn (array $group): array => ['kind' => 'group', 'id' => $group['id'], 'name' => $group['name'],
-            'description' => '', 'members' => $group['members'], 'entered' => -1, 'left' => -1, 'ownerName' => '', 'recomputedAt' => -1,
-            'url' => adminUrl('Groups/view/') . $group['id'], 'mine' => false], $this->groups());
-        $own  = array_values(array_filter($segments, static fn (array $row): bool => $row['mine']));
-        $rows = $mine ? $own : ($kind === 'segments' ? $segments : ($kind === 'groups' ? $groups : array_merge($segments, $groups)));
+        $groups = array_map(static fn (array $group): array => $group + ['url' => adminUrl('Groups/view/') . $group['id']], $this->groups());
+        $mine   = array_values(array_filter($segments, static fn (array $row): bool => $row['mine']));
 
-        return ['rows' => $rows, 'counts' => ['all' => count($segments) + count($groups), 'segments' => count($segments), 'groups' => count($groups), 'mine' => count($own)]];
+        return ['groups' => $groups, 'segments' => $segments, 'mine' => $mine,
+            'counts' => ['groups' => count($groups), 'segments' => count($segments), 'mine' => count($mine)]];
     }
 
     /**
@@ -348,23 +407,18 @@ class Segments extends Controller
     }
 
     /**
-     * The groups with their member counts; none where groups are not installed.
+     * The groups with their member counts and order, by that order; none where groups are not
+     * installed.
      *
-     * @return list<array{id: int, name: string, members: int}>
+     * @return list<array{id: int, name: string, description: string, order: ?int, orderKey: int, members: int}>
      */
     protected function groups(): array
     {
         try {
-            $rows = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('#PREFIX#usergroups AS usergroups')
-                ->leftJoin('#PREFIX#userstogroups AS userstogroups', 'userstogroups.groupid', '=', 'usergroups.groupid')
-                ->select(['usergroups.groupid', 'usergroups.name', new \Pramnos\Database\Expression('COUNT(userstogroups.userid) AS members')])
-                ->groupBy(['usergroups.groupid', 'usergroups.name'])->orderBy('usergroups.name')->getAllOrFail();
+            return Groups::all();
         } catch (\Throwable) {
             return [];
         }
-
-        return array_map(static fn (array $row): array => ['id' => (int) $row['groupid'], 'name' => (string) $row['name'], 'members' => (int) $row['members']], $rows);
     }
 
     /**

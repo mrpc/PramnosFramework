@@ -1745,7 +1745,7 @@ class Application extends Base
         // Audiences: segments and the consent lists every send and rule asks — no feature of
         // their own, since the tables are the core's and an empty library says how to start.
         NavRegistry::register(new NavItem(
-            'admin.segments', 'Segments', $admin('Segments'),
+            'admin.segments', 'Groups & segments', $admin('Segments'),
             NavSection::Admin, 16, requireAuth: true, minUserType: $floor,
             icon: 'filter', group: 'People',
             // Not before the migrations have made the tables: an application can hold them back.

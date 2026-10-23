@@ -860,6 +860,9 @@ under it:
 - sort marks that need no icon font. The Bootstrap integration's marks expect Glyphicons, which
   draw as empty boxes on a page without them.
 
+`$table->exportName = 'User groups'` names the file an Excel, CSV or PDF export is saved as;
+without it Buttons uses the page's title, so two tables on one screen would export under one name.
+
 DataTables' own words come through `t()`, so they are in the application's language: the length
 menu (`Show _MENU_ rows`), the count (`Rows _START_ to _END_ of _TOTAL_`), the search
 (`Search the table:`), the empty and no-match notes, the page buttons (`First page`, `Previous

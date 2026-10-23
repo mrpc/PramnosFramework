@@ -164,6 +164,7 @@ trait AudienceProbe
         }
         Attributes::reset();
         Segments::reset();
+        \Pramnos\Audience\Groups::reset();
         \Pramnos\Audience\ConsentLists::reset();
         \Pramnos\Audience\PersonEvents::reset();
         \Pramnos\Audience\Rules\Actions::reset();

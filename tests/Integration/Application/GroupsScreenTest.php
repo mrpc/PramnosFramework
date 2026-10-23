@@ -166,6 +166,7 @@ class GroupsScreenTest extends TestCase
         $this->admin?->close();
         $_POST = [];
         $_GET  = [];
+        \Pramnos\Audience\Groups::reset();
     }
 
     private function user(string $username): int
@@ -281,46 +282,163 @@ class GroupsScreenTest extends TestCase
         $this->assertSame(0, (int) $this->db->queryBuilder()->table('usergroups')->where('groupid', $drop)->count());
     }
 
+    /** One answer of a datatable action, with these parameters, decoded. */
+    private static function answer(callable $action, array $post): array
+    {
+        $_POST = $post + ['draw' => 2, 'start' => 0, 'length' => 10];
+
+        return json_decode((string) $action()->getBody(), true);
+    }
+
     /**
-     * The list is a datatable whose rows `Groups/data` answers — members counted, searched by name
-     * and description, sorted, paged — and a group's page lists them; a group that is not there
-     * sends the operator back to the list with a message.
+     * The list is a datatable whose rows `Groups/data` answers: number, name, description, order
+     * and members — by the order first, a group with none after those with one — searched by
+     * number, name and description, sorted by any column; a group that is not there sends the
+     * operator back to the list with a message.
      */
     #[DataProvider('databases')]
-    public function testTheListAndTheGroupPage(string $type, string $host, int $port, string $user): void
+    public function testTheListAndAMissingGroup(string $type, string $host, int $port, string $user): void
     {
         // Arrange
         $this->boot($type, $host, $port, $user);
-        $groupId = $this->group('Readers');
-        $alice   = $this->user('alice');
-        $this->db->queryBuilder()->table('userstogroups')->insert(['groupid' => $groupId, 'userid' => $alice]);
+        $readers = $this->group('Readers');
+        $press   = $this->group('Press');
+        $staff   = $this->group('Staff');
+        $this->db->queryBuilder()->table('usergroups')->where('groupid', $press)->update(['order' => -5]);
+        $this->db->queryBuilder()->table('usergroups')->where('groupid', $readers)->update(['order' => 10]);
+        $this->db->queryBuilder()->table('userstogroups')->insert(['groupid' => $readers, 'userid' => $this->user('alice')]);
+        $data = static fn (): mixed => (new ProbeGroups())->data();
 
         // Act
-        $this->group('Press');
         $list = new ProbeGroups();
         $list->display();
-        $_POST = ['draw' => 2, 'start' => 0, 'length' => 10, 'order' => [['column' => 2, 'dir' => 'desc']]];
-        $byMembers = json_decode((string) (new ProbeGroups())->data()->getBody(), true);
-        $_POST = ['draw' => 3, 'start' => 0, 'length' => 1, 'search' => ['value' => 'PRE'], 'order' => [['column' => 0, 'dir' => 'asc']]];
-        $searched = json_decode((string) (new ProbeGroups())->data()->getBody(), true);
-        $_POST = [];
-        $page = new ProbeGroups();
-        $_GET['_option'] = $groupId;
-        $page->view();
-        $missing = new ProbeGroups();
+        $byOrder   = self::answer($data, ['order' => [['column' => 3, 'dir' => 'asc']]]);
+        $byMembers = self::answer($data, ['order' => [['column' => 4, 'dir' => 'desc']]]);
+        $byNumber  = self::answer($data, ['search' => ['value' => '#' . $staff]]);
+        $byName    = self::answer($data, ['search' => ['value' => 'PRE'], 'length' => 1]);
+        $missing   = new ProbeGroups();
         $_GET['_option'] = 999999;
         $missing->view();
 
         // Assert
+        $names = static fn (array $answer): array => array_map(static fn (array $row): string => strip_tags($row[1]), $answer['data']);
         $this->assertSame(adminUrl('Groups/data'), $list->lastView->datatable->source);
-        $this->assertSame([2, 2, 2], [$byMembers['draw'], $byMembers['recordsTotal'], $byMembers['recordsFiltered']]);
-        $this->assertSame(['Readers', '1'], [strip_tags($byMembers['data'][0][0]), $byMembers['data'][0][2]], 'the most members first');
-        $this->assertSame(['Press', '0'], [strip_tags($byMembers['data'][1][0]), $byMembers['data'][1][2]], 'a group nobody is in counts 0');
-        $this->assertSame([2, 1, 'Press'], [$searched['recordsTotal'], $searched['recordsFiltered'], strip_tags($searched['data'][0][0])], 'searched ignoring case');
-        $this->assertSame('view', $page->lastLayout);
-        $this->assertSame('alice', $page->lastView->members[0]['username']);
+        $this->assertSame([3, 'asc'], [$list->lastView->datatable->sortColumn, $list->lastView->datatable->sortOrder], 'by the order first');
+        $this->assertSame(['Press', 'Readers', 'Staff'], $names($byOrder), 'a group with no order comes after');
+        $this->assertSame([(string) $press, '-5', '0'], [$byOrder['data'][0][0], $byOrder['data'][0][3], $byOrder['data'][0][4]]);
+        $this->assertSame('', $byOrder['data'][2][3], 'no order shows nothing');
+        $this->assertSame(['Readers', '1'], [$names($byMembers)[0], $byMembers['data'][0][4]], 'the most members first');
+        $this->assertSame(['Staff'], $names($byNumber), 'found by its number');
+        $this->assertSame([3, 1, ['Press']], [$byName['recordsTotal'], $byName['recordsFiltered'], $names($byName)], 'searched ignoring case');
         $this->assertStringEndsWith('Groups', (string) $missing->redirectedTo);
         $this->assertContains('That group no longer exists.', $_SESSION['_errors'] ?? []);
+    }
+
+    /**
+     * A group's page reads its members a page at a time from `Groups/members/{id}` — searched by
+     * username, name, email or number, sorted, paged in the database — and says how many there
+     * are, what uses the group and where the application lists them with its own tools.
+     */
+    #[DataProvider('databases')]
+    public function testAGroupsPageAndItsMembers(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $groupId = $this->group('Readers');
+        $other   = $this->group('Other');
+        $ids     = [];
+        foreach (['alice', 'bob', 'carol'] as $name) {
+            $ids[$name] = $this->user($name);
+            $this->db->queryBuilder()->table('userstogroups')->insert(['groupid' => $groupId, 'userid' => $ids[$name]]);
+        }
+        $this->db->queryBuilder()->table('users')->where('userid', $ids['bob'])->update(['firstname' => 'Robert', 'lastname' => 'Smith']);
+        $this->db->queryBuilder()->table('userstogroups')->insert(['groupid' => $other, 'userid' => $this->user('dave')]);
+        \Pramnos\Audience\Groups::usage('coupons', static fn (int $id): array => $id === $groupId ? [['name' => 'coupon SUMMER', 'url' => '/admin/Coupons/edit/4'], 'package Gold'] : []);
+        \Pramnos\Application\Application::getInstance()->applicationInfo['audience']['group_members_url'] = '/admin/users/display/groupid/{id}';
+        $_GET['_option'] = $groupId;
+        $members = static fn (): mixed => (new ProbeGroups())->members();
+
+        // Act
+        $page = new ProbeGroups();
+        $page->view();
+        $all      = self::answer($members, ['order' => [['column' => 1, 'dir' => 'desc']]]);
+        $byName   = self::answer($members, ['search' => ['value' => 'SMITH']]);
+        $byEmail  = self::answer($members, ['search' => ['value' => 'carol@']]);
+        $byNumber = self::answer($members, ['search' => ['value' => (string) $ids['alice']]]);
+        $second   = self::answer($members, ['order' => [['column' => 1, 'dir' => 'asc']], 'start' => 1, 'length' => 1]);
+        $every    = self::answer($members, ['length' => -1, 'search' => 'o']);
+        unset(\Pramnos\Application\Application::getInstance()->applicationInfo['audience']['group_members_url']);
+
+        // Assert
+        $users = static fn (array $answer): array => array_map(static fn (array $row): string => strip_tags($row[1]), $answer['data']);
+        $this->assertSame('view', $page->lastLayout);
+        $this->assertSame(adminUrl('Groups/members/') . $groupId, $page->lastView->members->source);
+        $this->assertSame(3, $page->lastView->count);
+        $this->assertSame('/admin/users/display/groupid/' . $groupId, $page->lastView->membersUrl);
+        $this->assertSame([['name' => 'coupon SUMMER', 'url' => '/admin/Coupons/edit/4'], ['name' => 'package Gold', 'url' => null]], $page->lastView->uses);
+        $this->assertSame(['carol', 'bob', 'alice'], $users($all), 'only this group, by username descending');
+        $this->assertSame([3, 3], [$all['recordsTotal'], $all['recordsFiltered']]);
+        $this->assertStringContainsString('name="userid" value="' . $ids['carol'] . '"', $all['data'][0][4], 'each row removes its member');
+        $this->assertSame(['bob'], $users($byName), 'by surname, ignoring case');
+        $this->assertSame('Robert Smith', strip_tags($byName['data'][0][2]));
+        $this->assertSame(['carol'], $users($byEmail));
+        $this->assertContains('alice', $users($byNumber), 'by number');
+        $this->assertSame([['bob'], 3], [$users($second), $second['recordsFiltered']], 'the second of three');
+        $this->assertSame(['bob', 'carol'], array_values(array_intersect(['bob', 'carol'], $users($every))), 'every row, searched as a plain string');
+    }
+
+    /**
+     * The order is a whole number from -127 to 127, or empty for none; anything else is refused
+     * and changes nothing.
+     */
+    #[DataProvider('databases')]
+    public function testTheOrderIsSavedWithinItsRange(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $groupId = $this->group('Ordered');
+        $order   = fn (): mixed => $this->db->queryBuilder()->table('usergroups')->where('groupid', $groupId)->first()->fields['order'];
+
+        // Act
+        $_POST = ['groupid' => $groupId, 'name' => 'Ordered', 'order' => '-12'];
+        (new ProbeGroups())->save();
+        $set = $order();
+        $_POST = ['groupid' => $groupId, 'name' => 'Ordered', 'order' => '200'];
+        $refused = new ProbeGroups();
+        $refused->save();
+        $kept = $order();
+        $errors = $_SESSION['_errors'] ?? [];
+        $_POST = ['groupid' => $groupId, 'name' => 'Ordered', 'order' => ''];
+        (new ProbeGroups())->save();
+
+        // Assert
+        $this->assertSame([-12, -12], [(int) $set, (int) $kept], 'an order out of range changes nothing');
+        $this->assertContains('The order is a whole number from -127 to 127, or empty.', $errors);
+        $this->assertStringEndsWith('Groups/edit/' . $groupId, (string) $refused->redirectedTo);
+        $this->assertNull($order(), 'empty is no order');
+    }
+
+    /**
+     * A group in use is not deleted — by a segment whose filter names it, by a rule that puts
+     * people in it, or by what the application reports — and the refusal says what uses it.
+     */
+    #[DataProvider('databases')]
+    public function testAGroupInUseIsNotDeleted(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $used = $this->group('Used');
+        \Pramnos\Audience\Groups::usage('support', static fn (int $id): array => $id === $used ? ['support team Billing'] : []);
+        $_GET['_option'] = $used;
+
+        // Act
+        $screen = new ProbeGroups();
+        $screen->delete();
+
+        // Assert
+        $this->assertSame(1, (int) $this->db->queryBuilder()->table('usergroups')->where('groupid', $used)->count(), 'still there');
+        $this->assertContains('This group is in use, so it is not deleted: support team Billing.', $_SESSION['_errors'] ?? []);
+        $this->assertStringEndsWith('Groups/view/' . $used, (string) $screen->redirectedTo);
     }
 
     /**
@@ -503,6 +621,7 @@ class GroupsScreenTest extends TestCase
         $refused = new BelowTheFloorGroups();
         $refused->display();
         $rows = (new BelowTheFloorGroups())->data();
+        $members = (new BelowTheFloorGroups())->members();
         $noId = new ProbeGroups();
         $_GET['_option'] = 0;
         $noId->view();
@@ -510,6 +629,7 @@ class GroupsScreenTest extends TestCase
         // Assert
         $this->assertNull($refused->lastView, 'a screen rendered below its floor');
         $this->assertNull($rows, 'nor its rows');
+        $this->assertNull($members, 'nor a group\'s members');
         $this->assertNull($noId->lastView);
         $this->assertStringEndsWith('Groups', (string) $noId->redirectedTo);
     }
