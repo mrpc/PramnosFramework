@@ -183,36 +183,57 @@ final class Moderation
     }
 
     /**
-     * Write down what was done.
+     * Write down what was done — in the audit log, as `moderation.{action}` about the subject (an
+     * account is the `user` it is), in the scope (`*` for everywhere), with the reason and the
+     * details. Nothing is kept in a table of moderation's own.
      *
      * @param array<string, mixed> $details
      */
     public static function log(string $action, ?Subject $subject, string $scope = '', ?int $by = null, string $reason = '', array $details = []): void
     {
-        self::table('moderation_log')->insert(['scope' => $scope, 'action' => $action, 'subjectkind' => $subject?->kind ?? '',
-            'subject' => $subject?->value ?? '', 'actor' => $by, 'reason' => mb_substr($reason, 0, 255),
-            'details' => $details === [] ? null : (string) json_encode($details, JSON_UNESCAPED_UNICODE), 'createdat' => time()]);
+        \Pramnos\Auth\AuditLog::about('moderation.' . $action, $by, $subject === null ? 'scope' : self::targetType($subject->kind),
+            $subject === null ? self::scopeId($scope) : $subject->value, ['reason' => mb_substr($reason, 0, 255)] + $details, 'scope', self::scopeId($scope));
     }
 
     /**
-     * What was done, newest first — in a scope, about a subject, or everything.
+     * What was done, newest first — in a scope, about a subject, or everything — from the audit
+     * log.
      *
      * @return list<array{id: int, scope: string, action: string, subjectKind: string, subject: string, by: ?int, reason: string, details: array<string, mixed>, at: int}>
      */
     public static function history(?string $scope = null, ?Subject $subject = null, int $limit = 100): array
     {
-        $query = self::table('moderation_log');
+        $filters = ['event' => 'moderation.*'];
         if ($scope !== null) {
-            $query->where('scope', $scope);
+            $filters += ['object_type' => 'scope', 'object_id' => self::scopeId($scope)];
         }
         if ($subject !== null) {
-            $query->where('subjectkind', $subject->kind)->where('subject', $subject->value);
+            $filters += ['target_type' => self::targetType($subject->kind), 'target_id' => $subject->value];
         }
 
-        return array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'scope' => (string) $r['scope'], 'action' => (string) $r['action'],
-            'subjectKind' => (string) $r['subjectkind'], 'subject' => (string) $r['subject'], 'by' => $r['actor'] === null ? null : (int) $r['actor'],
-            'reason' => (string) $r['reason'], 'details' => (array) json_decode((string) ($r['details'] ?? ''), true), 'at' => (int) $r['createdat']],
-            $query->orderBy('id', 'desc')->limit(max(1, min(500, $limit)))->getAllOrFail());
+        return array_map(static function (array $r): array {
+            $details = (array) ($r['metadata'] ?? []);
+            $reason  = (string) ($details['reason'] ?? '');
+            unset($details['reason']);
+            $kind    = (string) ($r['target_type'] ?? '');
+
+            return ['id' => (int) $r['auditid'], 'scope' => ($r['object_id'] ?? '*') === '*' ? '' : (string) $r['object_id'],
+                'action' => substr((string) $r['event_type'], strlen('moderation.')),
+                'subjectKind' => $kind === 'scope' ? '' : ($kind === 'user' ? 'account' : $kind), 'subject' => $kind === 'scope' ? '' : (string) $r['target_id'],
+                'by' => $r['actor_userid'] === null ? null : (int) $r['actor_userid'], 'reason' => $reason, 'details' => $details, 'at' => (int) $r['at']];
+        }, \Pramnos\Auth\AuditLog::query($filters, max(1, min(500, $limit))));
+    }
+
+    /** How a subject's kind is named in the audit log: an account is the `user` it is. */
+    private static function targetType(string $kind): string
+    {
+        return $kind === 'account' ? 'user' : $kind;
+    }
+
+    /** A scope as the audit log keeps it: `*` for everywhere. */
+    private static function scopeId(string $scope): string
+    {
+        return $scope === '' ? '*' : $scope;
     }
 
     /** A restriction written down, and logged. */

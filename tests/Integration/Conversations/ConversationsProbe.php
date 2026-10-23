@@ -55,6 +55,7 @@ trait ConversationsProbe
     {
         require_once ROOT . '/database/migrations/framework/conversations/2026_10_22_000001_create_conversations_tables.php';
         require_once ROOT . '/database/migrations/framework/changelog/2026_08_25_000001_create_changelog_tables.php';
+        require_once ROOT . '/database/migrations/framework/authserver/2020_01_01_000024_create_authserver_audit_log_table.php';
         require_once ROOT . '/database/migrations/framework/changelog/2026_10_04_000001_add_scope_to_changelog_events.php';
         require_once ROOT . '/database/migrations/framework/changelog/2026_10_22_000001_add_event_index_to_changelog_events.php';
         require_once ROOT . '/database/migrations/framework/auth/2020_01_01_000011_create_userdetails_table.php';
@@ -111,6 +112,8 @@ trait ConversationsProbe
             \Pramnos\Framework\Migrations\Changelog\AddScopeToChangelogEvents::class,
             \Pramnos\Framework\Migrations\Changelog\AddEventIndexToChangelogEvents::class,
             // Moderation: who may write where, in the conversations and anywhere else.
+            // …and what was done about whom: the audit log.
+            \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverAuditLogTable::class,
             \Pramnos\Framework\Migrations\Moderation\CreateModerationTables::class,
             // The analyst's conversations and asks: where a conversation with Ask finds the one it
             // goes on, and what a worker answers.
@@ -129,6 +132,7 @@ trait ConversationsProbe
         // The changelog written at once, and listening to the change feed, as with the feature on.
         \Pramnos\Database\WriteSpool::setDriver(\Pramnos\Database\WriteSpool::DRIVER_SYNC);
         \Pramnos\Changelog\ChangelogWriter::listen();
+        \Pramnos\Auth\AuditLog::resetTableCache();
         foreach (['conversation.created', 'conversation.message.posted', 'conversation.mention.received'] as $event) {
             \Pramnos\Event\Event::listen($event, function (object $e) use ($event): void {
                 $this->dispatched[] = [$event, $e];

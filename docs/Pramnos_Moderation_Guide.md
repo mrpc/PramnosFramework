@@ -118,10 +118,17 @@ decides.
 
 ## The log
 
-Everything is written down — `ban`, `mute`, `lift`, `kick`, `refuse`, `report`, `resolve`,
-`slowmode` — with the scope, the subject, who did it (null for the rules themselves), why, and
-details. `Moderation::history('conversation:12')`, or `history(null, $subject)` for one person,
-newest first; `Moderation::log()` writes an action of the application's own.
+Everything is written to the audit log (`authserver.audit_log`) — `moderation.ban`, `mute`,
+`lift`, `kick`, `refuse`, `report`, `resolve`, `slowmode` — about the subject (an account is the
+`user` it is; a visitor, an address or a nickname its own kind), in the scope (`*` for everywhere),
+by whom (null for the rules themselves), with why and the details. Moderation keeps no log of its
+own: the audit log is the operators' record of actions, and how long it is kept is the
+application's policy (`audit:prune`).
+
+`Moderation::history('conversation:12')`, or `history(null, $subject)` for one person, newest
+first, reads it back; `Moderation::log()` writes an action of the application's own;
+`AuditLog::query(['event' => 'moderation.*', 'target_type' => 'ip', 'target_id' => '203.0.113.4'])`
+asks the audit log directly.
 
 ## In the conversations
 
@@ -154,9 +161,8 @@ anybody else is told so. The answer is the moderator's alone, and the log keeps 
 | table | what |
 |---|---|
 | `moderation_restrictions` | a ban or a mute: scope, effect, subject, reason, by whom, when, until, lifted |
-| `moderation_log` | every action |
 | `moderation_reports` | reporter, subject, content, snapshot, reason, status |
 | `moderation_scopes` | a scope's slow mode |
 
-The subjects and what they wrote are personal data, declared in the personal-data registry. Times
-are Unix seconds.
+What was done is the audit log's, above. The subjects and what they wrote are personal data,
+declared in the personal-data registry. Times are Unix seconds.

@@ -67,6 +67,29 @@ final class AuditLog
     }
 
     /**
+     * An event about something that is not an account — a visitor, an address, a nickname — or
+     * an account named its own way: `$targetType` and `$targetId` say what, as `record()` says
+     * `user` and the id.
+     *
+     * ```php
+     * AuditLog::about('moderation.ban', $adminId, 'ip', '203.0.113.4', ['reason' => 'Spam'], 'scope', 'conversation:12');
+     * AuditLog::query(['target_type' => 'ip', 'target_id' => '203.0.113.4']);
+     * ```
+     *
+     * @param array<string, mixed> $context What else an auditor needs, redacted
+     */
+    public static function about(string $event, ?int $actor, string $targetType, string $targetId, array $context = [], ?string $objectType = null, string|int|null $objectId = null): void
+    {
+        self::write($event, $actor, [
+            'target_type' => substr($targetType, 0, 50),
+            'target_id'   => substr($targetId, 0, 100),
+            'object_type' => $objectType !== null ? substr($objectType, 0, 50) : null,
+            'object_id'   => $objectId !== null ? substr((string) $objectId, 0, 100) : null,
+            'metadata'    => $context,
+        ]);
+    }
+
+    /**
      * A record changed: what it was and what it became, each redacted — and, when the record
      * belongs to an account, which one.
      *
@@ -123,7 +146,7 @@ final class AuditLog
             if (isset($filters['target'])) {
                 $query->where('target_type', 'user')->where('target_id', (string) (int) $filters['target']);
             }
-            foreach (['object_type', 'object_id'] as $column) {
+            foreach (['object_type', 'object_id', 'target_type', 'target_id'] as $column) {
                 if (isset($filters[$column])) {
                     $query->where($column, (string) $filters[$column]);
                 }

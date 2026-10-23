@@ -10,9 +10,11 @@ use Pramnos\Database\Migration;
  * - `moderation_restrictions` — a ban (not here at all) or a mute (here, silent) of a subject — an
  *   account, a visitor, an address or a nickname — everywhere or in one scope, for good or until a
  *   time, lifted early or not.
- * - `moderation_log` — every action, by whom and why: bans, mutes, kicks, refused messages.
  * - `moderation_reports` — somebody reporting somebody, with what they wrote as it was then.
  * - `moderation_scopes` — a scope's own rules: its slow mode.
+ *
+ * What was done about whom — bans, mutes, kicks, refused messages, reports — is the audit log's
+ * (`moderation.*`), not a table of moderation's own.
  *
  * Subjects are a kind and a value, so a visitor with no account and an address are moderated as an
  * account is. Times are Unix seconds. The subjects and what they wrote are personal data.
@@ -22,7 +24,7 @@ class CreateModerationTables extends Migration
     public string $feature     = 'moderation';
     public string $scope       = 'framework';
     public int    $priority    = 10;
-    public $description = 'Creates moderation: restrictions, the log, reports and each scope\'s rules';
+    public $description = 'Creates moderation: restrictions, reports and each scope\'s rules';
 
     /** Create the tables. */
     public function up(): void
@@ -45,23 +47,6 @@ class CreateModerationTables extends Migration
                 $table->bigInteger('liftedby')->nullable()->comment('Who lifted it');
                 $table->index(['subjectkind', 'subject'], 'idx_moderation_restrictions_subject');
                 $table->index(['scope'], 'idx_moderation_restrictions_scope');
-            });
-        }
-
-        if (!$schema->hasTable('moderation_log')) {
-            $schema->createTable('moderation_log', function ($table) {
-                $table->comment('What was done about whom, by whom and why');
-                $table->bigIncrements('id')->comment('Auto-increment identifier');
-                $table->string('scope', 100)->default('')->comment('Where');
-                $table->string('action', 16)->comment('ban | mute | lift | kick | refuse | report | resolve | slowmode');
-                $table->string('subjectkind', 10)->default('')->comment('account | visitor | ip | nickname');
-                $table->string('subject', 191)->default('')->comment('Whom');
-                $table->bigInteger('actor')->nullable()->comment('Who, or null for the rules themselves');
-                $table->string('reason', 255)->default('')->comment('Why');
-                $table->text('details')->nullable()->comment('What else, as JSON');
-                $table->unsignedInteger('createdat')->comment('When');
-                $table->index(['subjectkind', 'subject', 'action', 'createdat'], 'idx_moderation_log_subject');
-                $table->index(['scope', 'createdat'], 'idx_moderation_log_scope');
             });
         }
 
@@ -102,7 +87,7 @@ class CreateModerationTables extends Migration
     public function down(): void
     {
         $schema = $this->application->database->schema();
-        foreach (['moderation_scopes', 'moderation_reports', 'moderation_log', 'moderation_restrictions'] as $table) {
+        foreach (['moderation_scopes', 'moderation_reports', 'moderation_restrictions'] as $table) {
             $schema->dropTableIfExists($table);
         }
     }
