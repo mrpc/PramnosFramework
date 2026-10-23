@@ -1869,7 +1869,7 @@ class SchemaBuilder
      * Run a bulk write with the table's compression policy paused, then compress what is due.
      *
      * ```php
-     * $schema->withCompressionPaused('mail_bodies', function () use ($rows): void {
+     * $schema->withCompressionPaused('pramnos.mail_bodies', function () use ($rows): void {
      *     foreach ($rows as $row) { … insert … }
      * });
      * ```

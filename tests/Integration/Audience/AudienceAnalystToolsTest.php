@@ -217,7 +217,7 @@ class AudienceAnalystToolsTest extends TestCase
         $either = Segments::create('Greek or Bob', ['conditions' => [['match' => 'any', 'conditions' => [
             ['attribute' => 'language', 'op' => 'is', 'value' => 'el'], ['attribute' => 'usertype', 'op' => 'is', 'value' => 2]]]]]);
         $grouped = (new AudienceWhyTool($admin))->execute(['person' => $this->ids['bob'], 'segment' => $either]);
-        foreach (['rule_log', 'rule_runs', 'rule_versions', 'rules'] as $table) {
+        foreach (['pramnos.rule_log', 'pramnos.rule_runs', 'rule_versions', 'rules'] as $table) {
             $this->db->schema()->dropTableIfExists($table);
         }
         $this->probeChanged($this->db->type);

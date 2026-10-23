@@ -45,7 +45,7 @@ class MailBodiesToDatabase extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $db = Factory::getDatabase();
-        if (!$db->schema()->hasTable('mail_bodies')) {
+        if (!$db->schema()->hasTable('pramnos.mail_bodies')) {
             $output->writeln('<error>There is no mail_bodies table.</error> It is made by the messaging migrations, on TimescaleDB only: run migrate there.');
 
             return Command::FAILURE;
@@ -67,7 +67,7 @@ class MailBodiesToDatabase extends Command
         $started = microtime(true);
         // With mail_bodies' compression paused: a body moved now is dated in the past, and a
         // chunk compressed while the move still fills it takes each write at many times the cost.
-        $status = $db->schema()->withCompressionPaused('mail_bodies', function () use ($db, $batch, $limit, $content, $output, $started, &$moved, &$missing, &$after): int {
+        $status = $db->schema()->withCompressionPaused('pramnos.mail_bodies', function () use ($db, $batch, $limit, $content, $output, $started, &$moved, &$missing, &$after): int {
             while ($limit === 0 || $moved + $missing < $limit) {
                 $rows = $this->pending($content)->select(['id', 'date', 'path', 'content'])->where('id', '>', $after)
                     ->orderBy('id')->limit($limit === 0 ? $batch : min($batch, $limit - $moved - $missing))->get()->fetchAll();

@@ -35,7 +35,7 @@ final class QueuedEvents
     public const MAX_DEPTH = 10;
 
     /** The keys of work already done. */
-    public const IDEMPOTENCY_TABLE = 'queue_idempotency';
+    public const IDEMPOTENCY_TABLE = 'pramnos.queue_idempotency';
 
     /** The log a refused event is written to. */
     public const LOG = 'events';

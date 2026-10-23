@@ -24,11 +24,11 @@ class CreateScheduleoverridesTable extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasTable('scheduleoverrides')) {
+        if ($schema->hasTable('pramnos.scheduleoverrides')) {
             return;
         }
 
-        $schema->createTable('scheduleoverrides', function ($table) {
+        $schema->createTable('pramnos.scheduleoverrides', function ($table) {
             $table->comment('Operator settings of adjustable scheduled tasks, set from the Scheduler screen; no row is the code\'s schedule');
             $table->string('taskid', 100)->primary()->comment('The id the application gave the task in ->adjustable()');
             $table->tinyInteger('enabled')->default(1)->comment('0 while paused: the task is not due');
@@ -44,6 +44,6 @@ class CreateScheduleoverridesTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('scheduleoverrides');
+        $this->application->database->schema()->dropTableIfExists('pramnos.scheduleoverrides');
     }
 }

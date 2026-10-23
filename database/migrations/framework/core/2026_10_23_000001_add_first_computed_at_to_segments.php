@@ -33,7 +33,7 @@ class AddFirstComputedAtToSegments extends Migration
             $table->unsignedInteger('firstcomputedat')->nullable()->comment('Unix time it was first worked out; who entered before it is its start, not movement');
         });
 
-        $first = array_column($db->queryBuilder()->table('#PREFIX#segment_members')
+        $first = array_column($db->queryBuilder()->table('pramnos.segment_members')
             ->select(['segmentid', new Expression('MIN(entered_at) AS first')])->groupBy(['segmentid'])->getAllOrFail(), 'first', 'segmentid');
         foreach ($db->queryBuilder()->table('#PREFIX#segments')->select(['segmentid', 'recomputedat'])->whereNotNull('recomputedat')->getAllOrFail() as $segment) {
             $db->queryBuilder()->table('#PREFIX#segments')->where('segmentid', (int) $segment['segmentid'])

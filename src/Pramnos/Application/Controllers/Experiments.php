@@ -187,7 +187,7 @@ class Experiments extends Controller
         if ($this->requireMinUserType($this->adminFloor())) {
             return true;
         }
-        if (!Installed::has('experiments', 'experiment_assignments')) {
+        if (!Installed::has('experiments', 'pramnos.experiment_assignments')) {
             $this->addError(t('A/B tests are not installed here yet: run migrate.'));
             $this->redirect(adminUrl(''));
 

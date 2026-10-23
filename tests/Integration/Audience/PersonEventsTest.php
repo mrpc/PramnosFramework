@@ -299,16 +299,16 @@ class PersonEventsTest extends TestCase
         $this->payments();
         $segment = Segments::create('Paid', ['conditions' => [['event' => 'payment.made', 'op' => 'ever']]]);
         $old     = time() - 400 * 86400;
-        $members = $this->db->queryBuilder()->table('segment_members');
+        $members = $this->db->queryBuilder()->table('pramnos.segment_members');
         $members->insert(['segmentid' => $segment, 'userid' => $this->ids['anna'], 'entered_at' => $old - 86400, 'left_at' => $old]);
-        $this->db->queryBuilder()->table('segment_members')->insert(['segmentid' => $segment, 'userid' => $this->ids['bob'], 'entered_at' => $old, 'left_at' => null]);
-        $this->db->queryBuilder()->table('segment_members')->insert(['segmentid' => $segment, 'userid' => $this->ids['cara'], 'entered_at' => $old, 'left_at' => time() - 86400]);
+        $this->db->queryBuilder()->table('pramnos.segment_members')->insert(['segmentid' => $segment, 'userid' => $this->ids['bob'], 'entered_at' => $old, 'left_at' => null]);
+        $this->db->queryBuilder()->table('pramnos.segment_members')->insert(['segmentid' => $segment, 'userid' => $this->ids['cara'], 'entered_at' => $old, 'left_at' => time() - 86400]);
         $tester = new CommandTester(new AudiencePruneEvents());
 
         // Act
         $code = $tester->execute(['--days' => '30']);
         $said = $tester->getDisplay();
-        $left = array_map('intval', array_column($this->db->queryBuilder()->table('segment_members')->getAll(), 'userid'));
+        $left = array_map('intval', array_column($this->db->queryBuilder()->table('pramnos.segment_members')->getAll(), 'userid'));
         Application::getInstance()->applicationInfo['audience'] = ['segment_history_days' => 0, 'rule_log_days' => 0];
         $tester->execute([]);
         $kept = $tester->getDisplay();

@@ -222,7 +222,7 @@ final class PersonEvents
         if (Installed::eventLog()) {
             self::occurrences(self::db()->queryBuilder(), $event)->delete();
         }
-        self::db()->queryBuilder()->table('#PREFIX#person_events')->where('event', $event)->delete();
+        self::db()->queryBuilder()->table('pramnos.person_events')->where('event', $event)->delete();
     }
 
     /**
@@ -232,7 +232,7 @@ final class PersonEvents
      */
     public static function of(int $person): array
     {
-        $rows = self::db()->queryBuilder()->table('#PREFIX#person_events')->where('personid', $person)
+        $rows = self::db()->queryBuilder()->table('pramnos.person_events')->where('personid', $person)
             ->orderBy('last_at', 'desc')->getAllOrFail();
 
         return array_map(static fn (array $row): array => [
@@ -342,7 +342,7 @@ final class PersonEvents
     private static function merge(array $sums, string $event): void
     {
         $db   = self::db();
-        $own  = $db->type === 'postgresql' ? '#PREFIX#person_events.' : '';
+        $own  = $db->type === 'postgresql' ? 'pramnos.person_events.' : '';
         $new  = static fn (string $c): string => $db->type === 'postgresql' ? 'EXCLUDED.' . $c : 'VALUES(' . $c . ')';
         // An upsert: the statement that adds to a row another worker may be adding to as well.
         $update = [
@@ -351,7 +351,7 @@ final class PersonEvents
             'last_at'     => new Expression('GREATEST(' . $own . 'last_at, ' . $new('last_at') . ')'),
         ];
         foreach ($sums as $person => $sum) {
-            $db->queryBuilder()->table('#PREFIX#person_events')->upsert([
+            $db->queryBuilder()->table('pramnos.person_events')->upsert([
                 'personid'    => $person,
                 'event'       => mb_substr($event, 0, 100),
                 'occurrences' => $sum['n'],

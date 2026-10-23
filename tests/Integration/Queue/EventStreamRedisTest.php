@@ -104,7 +104,7 @@ class EventStreamRedisTest extends TestCase
     /** Drop the tables this class builds. */
     private function dropTables(): void
     {
-        foreach (['event_deliveries', 'event_consumers', 'event_log', 'queueitems', 'queuestats', 'queue_idempotency'] as $table) {
+        foreach (['pramnos.event_deliveries', 'pramnos.event_consumers', 'pramnos.event_log', 'queueitems', 'queuestats', 'pramnos.queue_idempotency'] as $table) {
             $this->db->schema()->dropTableIfExists($table);
         }
     }
@@ -171,7 +171,7 @@ class EventStreamRedisTest extends TestCase
         $this->assertSame(1, $again);
         $this->assertSame(1, $rerun['retried']);
         $this->assertSame([2, 'plain'], StreamListenerA::$runs[1], 'tried again from the screen');
-        $this->assertSame([], $this->db->queryBuilder()->table('event_deliveries')->getAll());
+        $this->assertSame([], $this->db->queryBuilder()->table('pramnos.event_deliveries')->getAll());
     }
 
     /**
@@ -182,14 +182,14 @@ class EventStreamRedisTest extends TestCase
     {
         // Arrange
         Event::fire('account.changed', 1, 'plain');
-        $this->db->queryBuilder()->table('event_log')->insert(['event' => 'account.changed', 'eventid' => 'x', 'payload' => '{}',
+        $this->db->queryBuilder()->table('pramnos.event_log')->insert(['event' => 'account.changed', 'eventid' => 'x', 'payload' => '{}',
             'groups' => '[]', 'createdat' => time()]);
-        $this->db->queryBuilder()->table('event_log')->where('entryid', '>', 0)->update(['createdat' => time() - 40 * 86400]);
+        $this->db->queryBuilder()->table('pramnos.event_log')->where('entryid', '>', 0)->update(['createdat' => time() - 40 * 86400]);
 
         // Act
         $status = array_column(StreamConsumer::status(), null, 'group');
         $pruned = StreamConsumer::prune(30);
-        $left   = count($this->db->queryBuilder()->table('event_log')->getAll());
+        $left   = count($this->db->queryBuilder()->table('pramnos.event_log')->getAll());
 
         // Assert
         $this->assertSame(1, $pruned, 'the appended one');

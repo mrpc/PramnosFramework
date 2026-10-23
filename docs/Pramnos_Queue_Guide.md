@@ -279,7 +279,7 @@ before it is deployed (`--json` for a script). An application adds a transport o
 ### The stream: one entry per event
 
 With `'transport' => 'stream'` (for the installation, or for a listener), an event is written
-**once** to `event_log` — in the caller's transaction, as a task is — for every listener set to
+**once** to `pramnos.event_log` — in the caller's transaction, as a task is — for every listener set to
 the stream, and each of those listeners is a **consumer group** that reads the log from its own
 position. One row per event however many listeners there are; a listener added later needs no
 change where the event is fired. The tables come from the `queue` feature's
@@ -296,7 +296,7 @@ bin/pramnos events:consume --once                # one pass: a cron, a test
 - **One consumer per group at a time.** A group is leased (60 s, renewed as it reads); a second
   daemon for the same groups waits its turn — a standby, not a double run.
 - **A failure never holds up the rest.** The position moves on; the entry waits in
-  `event_deliveries` to be tried again after 30 s, then 1, 2, 4 … minutes (at most an hour), and
+  `pramnos.event_deliveries` to be tried again after 30 s, then 1, 2, 4 … minutes (at most an hour), and
   past the listener's `maxAttempts()` it is kept there as **dead**, with its error.
 - **At least once.** A consumer that dies after running an entry and before moving past it runs
   it again: what must happen once says so with `idempotencyKey()`, which works as on the queue.
@@ -318,12 +318,12 @@ application, or many events a second:
 ],
 ```
 
-The database still writes each event to `event_log` in the caller's transaction — that row is
+The database still writes each event to `pramnos.event_log` in the caller's transaction — that row is
 the outbox — and a relay appends what is committed to one Redis stream, in order: at once when
 the event was fired outside a transaction, and on every pass of `events:consume`, so a process
 that dies between the commit and Redis loses nothing. Each listener is a Redis consumer group;
 an entry read and never acknowledged (its consumer died) is claimed again once it has waited, a
-failure past its attempts is acknowledged and kept in `event_deliveries` as dead, where the Queue
+failure past its attempts is acknowledged and kept in `pramnos.event_deliveries` as dead, where the Queue
 screen shows it. **A Redis that evicts keys (`maxmemory-policy allkeys-*`) is refused** — the
 stream is passed over for the queue and the `events` log says why — so give the events an
 instance of their own with `noeviction`, not the page cache's.
@@ -340,7 +340,7 @@ Transports::register(new App\Events\KafkaTransport($producer));   // then 'trans
 with the id every listener of that firing shares — and `QueuedEvents::payload()` gives what to
 send, encoded and checked as the queue and the stream check it. To keep the stream's guarantee
 that nothing is lost between the commit and the broker, write the event in the caller's
-transaction first (`StreamTransport` does, to `event_log`) and publish what is committed, as
+transaction first (`StreamTransport` does, to `pramnos.event_log`) and publish what is committed, as
 `RedisStream::relay()` does; `available()` false sends the listeners to the queue.
 
 **Watching it.** The Queue screen shows each group under *Event streams*: how many entries wait
@@ -350,7 +350,7 @@ again* (at once, their attempts back to none) and *Delete the dead* per group. T
 `queue` tool answers the same figures; `StreamConsumer::status()` and
 `StreamConsumer::redrive($group, $drop)` are the calls behind them.
 
-`event_log` holds what an event was fired with and nothing else, and is declared personal data
+`pramnos.event_log` holds what an event was fired with and nothing else, and is declared personal data
 (`PersonalDataRegistry`): a diagnostic tool returns none of its rows. Fire an event with ids,
 not with a person's details, as for the queue.
 

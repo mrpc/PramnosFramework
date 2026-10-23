@@ -78,8 +78,8 @@ class ImpersonationTest extends TestCase
     {
         if ($this->db !== null) {
             foreach ($this->made as $id) {
-                $this->db->queryBuilder()->table('#PREFIX#impersonations')->where('actor_userid', $id)->delete();
-                $this->db->queryBuilder()->table('#PREFIX#remember_tokens')->where('userid', $id)->delete();
+                $this->db->queryBuilder()->table('authserver.impersonations')->where('actor_userid', $id)->delete();
+                $this->db->queryBuilder()->table('authserver.remember_tokens')->where('userid', $id)->delete();
                 $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $id)->delete();
             }
         }
@@ -106,13 +106,13 @@ class ImpersonationTest extends TestCase
         $theirs   = (string) $_SESSION['auth'];
         $current  = Impersonation::current();
         $banner   = Impersonation::banner('/Impersonation');
-        $open     = $this->db->queryBuilder()->table('#PREFIX#impersonations')->where('actor_userid', $people['admin'])->first()->fields;
+        $open     = $this->db->queryBuilder()->table('authserver.impersonations')->where('actor_userid', $people['admin'])->first()->fields;
         // …and back
         $back     = (new Auth())->endImpersonation();
         $asAdmin  = (int) $_SESSION['uid'];
         $fresh    = (string) $_SESSION['auth'];
         $again    = Impersonation::end();
-        $left     = $this->db->queryBuilder()->table('#PREFIX#impersonations')->where('actor_userid', $people['admin'])->count();
+        $left     = $this->db->queryBuilder()->table('authserver.impersonations')->where('actor_userid', $people['admin'])->count();
         $audit    = \Pramnos\Auth\AuditLog::query(['actor' => $people['admin'], 'event' => 'user.impersonation_*']);
 
         // Assert
@@ -148,18 +148,18 @@ class ImpersonationTest extends TestCase
         $people = $this->people($type, $host, $port);
         $this->signIn($people['admin']);
         Impersonation::start($people['customer']);
-        $this->db->queryBuilder()->table('#PREFIX#impersonations')->where('actor_userid', $people['admin'])->update(['expires_at' => time() - 1]);
+        $this->db->queryBuilder()->table('authserver.impersonations')->where('actor_userid', $people['admin'])->update(['expires_at' => time() - 1]);
 
         // Act
         $expired = Impersonation::end();
         $this->signIn($people['admin']);
         Impersonation::start($people['customer']);
         (new Auth())->logout();
-        $this->db->queryBuilder()->table('#PREFIX#impersonations')->insert(['actor_userid' => $people['admin'], 'target_userid' => $people['customer'],
+        $this->db->queryBuilder()->table('authserver.impersonations')->insert(['actor_userid' => $people['admin'], 'target_userid' => $people['customer'],
             'return_hash' => str_repeat('0', 64), 'remember' => false, 'created_at' => time() - 7200, 'expires_at' => time() - 3600]);
         $this->signIn($people['admin']);
         Impersonation::start($people['customer']);
-        $kept    = (int) $this->db->queryBuilder()->table('#PREFIX#impersonations')->where('actor_userid', $people['admin'])->count();
+        $kept    = (int) $this->db->queryBuilder()->table('authserver.impersonations')->where('actor_userid', $people['admin'])->count();
         $endings = array_map(static fn (array $row): ?string => $row['metadata']['how'] ?? null,
             \Pramnos\Auth\AuditLog::query(['actor' => $people['admin'], 'event' => 'user.impersonation_ended']));
 
@@ -270,9 +270,9 @@ class ImpersonationTest extends TestCase
 
         // Act
         $inactive = Impersonation::start($people['customer']);
-        $closed   = (int) $this->db->queryBuilder()->table('#PREFIX#impersonations')->where('actor_userid', $people['admin'])->count();
+        $closed   = (int) $this->db->queryBuilder()->table('authserver.impersonations')->where('actor_userid', $people['admin'])->count();
         $refused  = \Pramnos\Auth\AuditLog::query(['actor' => $people['admin'], 'event' => 'user.impersonation_ended']);
-        $this->db->schema()->dropTableIfExists('impersonations');
+        $this->db->schema()->dropTableIfExists('authserver.impersonations');
         $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $people['customer'])->update(['active' => 1]);
         $noTable  = Impersonation::start($people['customer']);
         $_SESSION['impersonation'] = ['id' => 1, 'key' => 'x', 'actor' => $people['admin']];

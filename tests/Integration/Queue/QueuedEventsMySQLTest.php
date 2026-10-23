@@ -167,7 +167,7 @@ class QueuedEventsMySQLTest extends TestCase
     /** Drop the queue tables this class builds. */
     protected function dropTables(): void
     {
-        foreach (['queueitems', 'queuestats', 'queue_idempotency'] as $table) {
+        foreach (['queueitems', 'queuestats', 'pramnos.queue_idempotency'] as $table) {
             $this->db->schema()->dropTableIfExists($table);
         }
     }
@@ -283,7 +283,7 @@ class QueuedEventsMySQLTest extends TestCase
         Event::fire('account.changed', 9, 'once');
         $worker = new Worker($this->controller);
         $failed = $worker->processNextTask();
-        $heldAfterFailure = $this->db->queryBuilder()->table('queue_idempotency')->count();
+        $heldAfterFailure = $this->db->queryBuilder()->table('pramnos.queue_idempotency')->count();
 
         // Act — the retry runs it; then the same event again
         IntegrationQueuedListener::$fail = false;

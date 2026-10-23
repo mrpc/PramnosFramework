@@ -195,7 +195,7 @@ class RuleActionsTest extends TestCase
 
             return $item;
         };
-        $this->db->queryBuilder()->table('rule_log')->insert(['runid' => 1, 'ruleid' => 1, 'version' => 1, 'personid' => $this->ids['anna'],
+        $this->db->queryBuilder()->table('pramnos.rule_log')->insert(['runid' => 1, 'ruleid' => 1, 'version' => 1, 'personid' => $this->ids['anna'],
             'step' => null, 'outcome' => 'entered', 'at' => time() - 200 * 86400]);
         $tester = new CommandTester(new RulesRun());
         $prune  = new CommandTester(new AudiencePruneEvents());
@@ -217,7 +217,7 @@ class RuleActionsTest extends TestCase
         $this->assertStringContainsString('0 scheduled rule(s) due.', $tester->getDisplay());
         $this->assertStringContainsString('Rule log: 1 rows past its retention deleted.', $prune->getDisplay());
         $this->assertNull($whole);
-        $this->assertSame([], $this->db->queryBuilder()->table('rule_log')->getAll());
+        $this->assertSame([], $this->db->queryBuilder()->table('pramnos.rule_log')->getAll());
     }
 
     /**

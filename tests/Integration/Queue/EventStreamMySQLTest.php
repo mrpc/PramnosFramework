@@ -156,7 +156,7 @@ class EventStreamMySQLTest extends TestCase
     /** Drop the tables this class builds. */
     protected function dropTables(): void
     {
-        foreach (['event_deliveries', 'event_consumers', 'event_log', 'queueitems', 'queuestats', 'queue_idempotency'] as $table) {
+        foreach (['pramnos.event_deliveries', 'pramnos.event_consumers', 'pramnos.event_log', 'queueitems', 'queuestats', 'pramnos.queue_idempotency'] as $table) {
             $this->db->schema()->dropTableIfExists($table);
         }
     }
@@ -170,7 +170,7 @@ class EventStreamMySQLTest extends TestCase
     /** A group's position. */
     private function position(string $group): int
     {
-        return (int) $this->db->queryBuilder()->table('event_consumers')->where('groupname', $group)->first()->fields['position'];
+        return (int) $this->db->queryBuilder()->table('pramnos.event_consumers')->where('groupname', $group)->first()->fields['position'];
     }
 
     /**
@@ -185,13 +185,13 @@ class EventStreamMySQLTest extends TestCase
         // Act
         $results = Event::fire('account.changed', 7, 'plain');
         $this->db->rollbackTransaction();
-        $after = $this->rows('event_log');
+        $after = $this->rows('pramnos.event_log');
         $kept  = Event::fire('account.changed', 8, 'plain');
 
         // Assert
         $this->assertSame($results[0], $results[1], 'one entry, both listeners');
         $this->assertSame(0, $after, 'the rollback took it');
-        $entries = $this->db->queryBuilder()->table('event_log')->getAll();
+        $entries = $this->db->queryBuilder()->table('pramnos.event_log')->getAll();
         $this->assertCount(1, $entries);
         $this->assertSame([StreamListenerA::class, StreamListenerB::class], json_decode($entries[0]['groups'], true));
         $this->assertSame('account.changed', $entries[0]['event']);
@@ -224,7 +224,7 @@ class EventStreamMySQLTest extends TestCase
         $this->assertSame(2, $rest['ran'], 'the second picked up where the first stopped');
         $this->assertSame([[1, 'plain'], [2, 'plain'], [3, 'plain']], StreamListenerA::$runs);
         $this->assertSame([], StreamListenerB::$runs, 'the other group has read nothing yet');
-        $this->assertSame((int) $this->db->queryBuilder()->table('event_log')->orderBy('entryid', 'desc')->first()->fields['entryid'], $this->position(StreamListenerA::class));
+        $this->assertSame((int) $this->db->queryBuilder()->table('pramnos.event_log')->orderBy('entryid', 'desc')->first()->fields['entryid'], $this->position(StreamListenerA::class));
     }
 
     /**
@@ -244,12 +244,12 @@ class EventStreamMySQLTest extends TestCase
         $other  = $consumer->consume(StreamListenerB::class);
         $notDue = $consumer->consume(StreamListenerA::class);
         // The first failure falls due; the second not yet.
-        $first = (int) $this->db->queryBuilder()->table('event_deliveries')->orderBy('id')->first()->fields['id'];
-        $this->db->queryBuilder()->table('event_deliveries')->where('id', $first)->update(['nextat' => 0]);
+        $first = (int) $this->db->queryBuilder()->table('pramnos.event_deliveries')->orderBy('id')->first()->fields['id'];
+        $this->db->queryBuilder()->table('pramnos.event_deliveries')->where('id', $first)->update(['nextat' => 0]);
         StreamListenerA::$fail = false;
         $retried = $consumer->consume(StreamListenerA::class);
         StreamListenerA::$fail = true;
-        $this->db->queryBuilder()->table('event_deliveries')->where('id', '>', 0)->update(['nextat' => 0]);
+        $this->db->queryBuilder()->table('pramnos.event_deliveries')->where('id', '>', 0)->update(['nextat' => 0]);
         $died = $consumer->consume(StreamListenerA::class);
 
         // Assert
@@ -259,7 +259,7 @@ class EventStreamMySQLTest extends TestCase
         $this->assertSame(1, $retried['retried']);
         $this->assertSame([[1, 'plain']], StreamListenerA::$runs, 'run when tried again');
         $this->assertSame(1, $died['dead'], 'its second attempt was its last');
-        $dead = $this->db->queryBuilder()->table('event_deliveries')->getAll();
+        $dead = $this->db->queryBuilder()->table('pramnos.event_deliveries')->getAll();
         $this->assertCount(1, $dead);
         $this->assertSame(['dead', 2], [$dead[0]['status'], (int) $dead[0]['attempts']]);
         $this->assertStringContainsString('provider down', (string) $dead[0]['error']);
@@ -303,19 +303,19 @@ class EventStreamMySQLTest extends TestCase
         foreach ([1, 2, 3] as $account) {
             Event::fire('account.changed', $account, 'plain');
         }
-        $this->db->queryBuilder()->table('event_log')->update(['createdat' => time() - 40 * 86400]);
+        $this->db->queryBuilder()->table('pramnos.event_log')->update(['createdat' => time() - 40 * 86400]);
         $consume = new CommandTester(new EventsConsume());
         $consume->execute(['--once' => true, '--group' => [StreamListenerA::class]]);
         StreamListenerB::$runs = [];
-        $middle = (int) $this->db->queryBuilder()->table('event_log')->orderBy('entryid')->getAll()[1]['entryid'];
-        $this->db->queryBuilder()->table('event_consumers')->where('groupname', StreamListenerB::class)->update(['position' => $middle]);
-        $this->db->queryBuilder()->table('event_deliveries')->insert(['groupname' => StreamListenerA::class, 'entryid' => $middle - 1,
+        $middle = (int) $this->db->queryBuilder()->table('pramnos.event_log')->orderBy('entryid')->getAll()[1]['entryid'];
+        $this->db->queryBuilder()->table('pramnos.event_consumers')->where('groupname', StreamListenerB::class)->update(['position' => $middle]);
+        $this->db->queryBuilder()->table('pramnos.event_deliveries')->insert(['groupname' => StreamListenerA::class, 'entryid' => $middle - 1,
             'attempts' => 1, 'status' => 'pending', 'nextat' => time() + 60, 'createdat' => time()]);
         $prune = new CommandTester(new EventsPrune());
 
         // Act
         $prune->execute(['--days' => '30']);
-        $left = array_map('intval', array_column($this->db->queryBuilder()->table('event_log')->orderBy('entryid')->getAll(), 'entryid'));
+        $left = array_map('intval', array_column($this->db->queryBuilder()->table('pramnos.event_log')->orderBy('entryid')->getAll(), 'entryid'));
         $all  = new CommandTester(new EventsConsume());
         $all->execute(['--once' => true]);
 
@@ -375,7 +375,7 @@ class EventStreamMySQLTest extends TestCase
         }
         StreamListenerA::$fail = true;
         (new StreamConsumer('one'))->consume(StreamListenerA::class, 2);
-        $this->db->queryBuilder()->table('event_deliveries')->where('id', '>', 0)->update(['status' => 'dead']);
+        $this->db->queryBuilder()->table('pramnos.event_deliveries')->where('id', '>', 0)->update(['status' => 'dead']);
         $screen = new class () extends \Pramnos\Queue\Controllers\QueueController {
             /** @var list<string> What was flashed */
             public array $said = [];
@@ -435,8 +435,8 @@ class EventStreamMySQLTest extends TestCase
         }
         $_POST = ['group' => StreamListenerA::class];
         $screen->streamretry();
-        $retried = $this->db->queryBuilder()->table('event_deliveries')->where('status', 'pending')->getAll();
-        $this->db->queryBuilder()->table('event_deliveries')->where('id', '>', 0)->update(['status' => 'dead']);
+        $retried = $this->db->queryBuilder()->table('pramnos.event_deliveries')->where('status', 'pending')->getAll();
+        $this->db->queryBuilder()->table('pramnos.event_deliveries')->where('id', '>', 0)->update(['status' => 'dead']);
         $screen->streamdrop();
         $_POST = [];
 
@@ -454,7 +454,7 @@ class EventStreamMySQLTest extends TestCase
         }
         $this->assertCount(2, $retried, 'tried again at once');
         $this->assertSame([0, 0], array_map('intval', array_column($retried, 'attempts')), 'with their attempts back to none');
-        $this->assertSame([], $this->db->queryBuilder()->table('event_deliveries')->getAll(), 'deleted');
+        $this->assertSame([], $this->db->queryBuilder()->table('pramnos.event_deliveries')->getAll(), 'deleted');
         $this->assertSame(['2 dead entries will be tried again.', '2 dead entries deleted.'], $screen->said);
     }
 }

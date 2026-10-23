@@ -75,20 +75,20 @@ final class StreamConsumer
         $now      = time();
 
         // What failed and is due again.
-        $due = $db->queryBuilder()->table('#PREFIX#' . StreamTransport::DELIVERIES_TABLE)->where('groupname', $group)
+        $due = $db->queryBuilder()->table(StreamTransport::DELIVERIES_TABLE)->where('groupname', $group)
             ->where('status', 'pending')->where('nextat', '<=', $now)->orderBy('id')->limit($limit)->getAllOrFail();
         foreach ($due as $delivery) {
             $entry = $this->entry((int) $delivery['entryid']);
             $error = $entry === null ? 'The entry is no longer in the log.' : $this->run($group, $entry);
             $tally['retried']++;
             if ($error === null) {
-                $db->queryBuilder()->table('#PREFIX#' . StreamTransport::DELIVERIES_TABLE)->where('id', (int) $delivery['id'])->delete();
+                $db->queryBuilder()->table(StreamTransport::DELIVERIES_TABLE)->where('id', (int) $delivery['id'])->delete();
                 continue;
             }
             $tries = (int) $delivery['attempts'] + 1;
             $dead  = $tries >= $attempts || $entry === null;
             $tally[$dead ? 'dead' : 'failed']++;
-            $db->queryBuilder()->table('#PREFIX#' . StreamTransport::DELIVERIES_TABLE)->where('id', (int) $delivery['id'])->update([
+            $db->queryBuilder()->table(StreamTransport::DELIVERIES_TABLE)->where('id', (int) $delivery['id'])->update([
                 'attempts' => $tries, 'status' => $dead ? 'dead' : 'pending', 'nextat' => $now + self::backoff($tries), 'error' => mb_substr($error, 0, 2000),
             ]);
         }
@@ -105,9 +105,9 @@ final class StreamConsumer
         }
 
         // What came after the position.
-        $position = (int) ($db->queryBuilder()->table('#PREFIX#' . StreamTransport::CONSUMERS_TABLE)->where('groupname', $group)
+        $position = (int) ($db->queryBuilder()->table(StreamTransport::CONSUMERS_TABLE)->where('groupname', $group)
             ->limit(1)->getAllOrFail()[0]['position'] ?? 0);
-        $entries = $db->queryBuilder()->table('#PREFIX#' . StreamTransport::LOG_TABLE)->where('entryid', '>', $position)
+        $entries = $db->queryBuilder()->table(StreamTransport::LOG_TABLE)->where('entryid', '>', $position)
             ->orderBy('entryid')->limit($limit)->getAllOrFail();
         foreach ($entries as $entry) {
             if (in_array($group, (array) json_decode((string) $entry['groups'], true), true)) {
@@ -117,13 +117,13 @@ final class StreamConsumer
                 } else {
                     $dead = $attempts <= 1;
                     $tally[$dead ? 'dead' : 'failed']++;
-                    $db->queryBuilder()->table('#PREFIX#' . StreamTransport::DELIVERIES_TABLE)->insertOrIgnore([
+                    $db->queryBuilder()->table(StreamTransport::DELIVERIES_TABLE)->insertOrIgnore([
                         'groupname' => $group, 'entryid' => (int) $entry['entryid'], 'attempts' => 1, 'status' => $dead ? 'dead' : 'pending',
                         'nextat' => time() + self::backoff(1), 'error' => mb_substr($error, 0, 2000), 'createdat' => time(),
                     ]);
                 }
             }
-            $db->queryBuilder()->table('#PREFIX#' . StreamTransport::CONSUMERS_TABLE)->where('groupname', $group)
+            $db->queryBuilder()->table(StreamTransport::CONSUMERS_TABLE)->where('groupname', $group)
                 ->update(['position' => (int) $entry['entryid'], 'updatedat' => time(), 'leaseduntil' => time() + self::LEASE]);
         }
 
@@ -135,7 +135,7 @@ final class StreamConsumer
      */
     public function release(string $group): void
     {
-        StreamTransport::db()->queryBuilder()->table('#PREFIX#' . StreamTransport::CONSUMERS_TABLE)
+        StreamTransport::db()->queryBuilder()->table(StreamTransport::CONSUMERS_TABLE)
             ->where('groupname', $group)->where('owner', $this->owner)->update(['leaseduntil' => 0]);
     }
 
@@ -149,15 +149,15 @@ final class StreamConsumer
         $db    = StreamTransport::db();
         // On Redis the groups read Redis: what the relay has appended is all the log still owes.
         $floor = RedisStream::enabled()
-            ? ($db->queryBuilder()->table('#PREFIX#' . StreamTransport::CONSUMERS_TABLE)->where('groupname', RedisStream::RELAY)->limit(1)->getAllOrFail()[0]['position'] ?? 0)
-            : ($db->queryBuilder()->table('#PREFIX#' . StreamTransport::CONSUMERS_TABLE)
+            ? ($db->queryBuilder()->table(StreamTransport::CONSUMERS_TABLE)->where('groupname', RedisStream::RELAY)->limit(1)->getAllOrFail()[0]['position'] ?? 0)
+            : ($db->queryBuilder()->table(StreamTransport::CONSUMERS_TABLE)
                 ->select([new \Pramnos\Database\Expression('MIN(position) AS p')])->getAllOrFail()[0]['p'] ?? null);
-        $old   = $db->queryBuilder()->table('#PREFIX#' . StreamTransport::LOG_TABLE)->where('createdat', '<', time() - max(1, $days) * 86400);
+        $old   = $db->queryBuilder()->table(StreamTransport::LOG_TABLE)->where('createdat', '<', time() - max(1, $days) * 86400);
         if ($floor !== null) {
             $old->where('entryid', '<=', (int) $floor);
         }
         // What still waits to be tried again stays, whatever its age.
-        $waiting = array_map('intval', array_column($db->queryBuilder()->table('#PREFIX#' . StreamTransport::DELIVERIES_TABLE)
+        $waiting = array_map('intval', array_column($db->queryBuilder()->table(StreamTransport::DELIVERIES_TABLE)
             ->select(['entryid'])->where('status', 'pending')->getAllOrFail(), 'entryid'));
         if ($waiting !== []) {
             $old->whereIn('entryid', $waiting, 'and', true);
@@ -184,18 +184,18 @@ final class StreamConsumer
     {
         $db   = StreamTransport::db();
         $rows = [];
-        foreach ($db->queryBuilder()->table('#PREFIX#' . StreamTransport::CONSUMERS_TABLE)->where('groupname', '!=', RedisStream::RELAY)
+        foreach ($db->queryBuilder()->table(StreamTransport::CONSUMERS_TABLE)->where('groupname', '!=', RedisStream::RELAY)
             ->orderBy('groupname')->getAllOrFail() as $consumer) {
             $group = (string) $consumer['groupname'];
             // ponytail: the lag is counted here over at most LAG_SCAN entries' group lists; a JSON
             // index per driver would count it in SQL if a stream ever runs that far behind.
-            $after = $db->queryBuilder()->table('#PREFIX#' . StreamTransport::LOG_TABLE)->select(['groups'])
+            $after = $db->queryBuilder()->table(StreamTransport::LOG_TABLE)->select(['groups'])
                 ->where('entryid', '>', (int) $consumer['position'])->orderBy('entryid')->limit(self::LAG_SCAN + 1)->getAllOrFail();
             $lag   = count(array_filter(array_slice($after, 0, self::LAG_SCAN),
                 static fn (array $e): bool => in_array($group, (array) json_decode((string) $e['groups'], true), true)));
-            $count = static fn (string $status): int => (int) ($db->queryBuilder()->table('#PREFIX#' . StreamTransport::DELIVERIES_TABLE)
+            $count = static fn (string $status): int => (int) ($db->queryBuilder()->table(StreamTransport::DELIVERIES_TABLE)
                 ->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->where('groupname', $group)->where('status', $status)->getAllOrFail()[0]['n'] ?? 0);
-            $oldest = $db->queryBuilder()->table('#PREFIX#' . StreamTransport::DELIVERIES_TABLE)
+            $oldest = $db->queryBuilder()->table(StreamTransport::DELIVERIES_TABLE)
                 ->select([new \Pramnos\Database\Expression('MIN(createdat) AS t')])->where('groupname', $group)->where('status', 'pending')->getAllOrFail()[0]['t'] ?? null;
             $onRedis = RedisStream::enabled() ? RedisStream::groupStatus($group) : null;
             $rows[] = ['group' => $group, 'position' => (int) $consumer['position'], 'lag' => $onRedis['lag'] ?? $lag,
@@ -216,7 +216,7 @@ final class StreamConsumer
      */
     public static function redrive(string $group, bool $drop = false): int
     {
-        $dead  = StreamTransport::db()->queryBuilder()->table('#PREFIX#' . StreamTransport::DELIVERIES_TABLE)
+        $dead  = StreamTransport::db()->queryBuilder()->table(StreamTransport::DELIVERIES_TABLE)
             ->where('groupname', $group)->where('status', 'dead');
         $count = (int) ((clone $dead)->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->getAllOrFail()[0]['n'] ?? 0);
         if ($count > 0) {
@@ -244,16 +244,16 @@ final class StreamConsumer
         $db    = StreamTransport::db();
         $now   = time();
         $owner = $this->owner;
-        $end   = (int) ($db->queryBuilder()->table('#PREFIX#' . StreamTransport::LOG_TABLE)
+        $end   = (int) ($db->queryBuilder()->table(StreamTransport::LOG_TABLE)
             ->select([new \Pramnos\Database\Expression('MAX(entryid) AS m')])->getAllOrFail()[0]['m'] ?? 0);
-        $db->queryBuilder()->table('#PREFIX#' . StreamTransport::CONSUMERS_TABLE)
+        $db->queryBuilder()->table(StreamTransport::CONSUMERS_TABLE)
             ->insertOrIgnore(['groupname' => $group, 'position' => $end, 'updatedat' => $now]);
-        $db->queryBuilder()->table('#PREFIX#' . StreamTransport::CONSUMERS_TABLE)->where('groupname', $group)
+        $db->queryBuilder()->table(StreamTransport::CONSUMERS_TABLE)->where('groupname', $group)
             ->where(static function ($q) use ($now, $owner): void {
                 $q->where('leaseduntil', '<', $now)->orWhere('owner', $owner);
             })->update(['owner' => $owner, 'leaseduntil' => $now + self::LEASE]);
         // Read back rather than count: MySQL counts a renewal within the same second as no change.
-        $row = $db->queryBuilder()->table('#PREFIX#' . StreamTransport::CONSUMERS_TABLE)->where('groupname', $group)->limit(1)->getAllOrFail()[0] ?? [];
+        $row = $db->queryBuilder()->table(StreamTransport::CONSUMERS_TABLE)->where('groupname', $group)->limit(1)->getAllOrFail()[0] ?? [];
 
         return ($row['owner'] ?? null) === $owner;
     }
@@ -261,7 +261,7 @@ final class StreamConsumer
     /** @return array<string, mixed>|null An entry of the log */
     private function entry(int $id): ?array
     {
-        return StreamTransport::db()->queryBuilder()->table('#PREFIX#' . StreamTransport::LOG_TABLE)
+        return StreamTransport::db()->queryBuilder()->table(StreamTransport::LOG_TABLE)
             ->where('entryid', $id)->limit(1)->getAllOrFail()[0] ?? null;
     }
 

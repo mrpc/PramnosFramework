@@ -28,11 +28,11 @@ class CreateSchedulerunsTable extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasTable('scheduleruns')) {
+        if ($schema->hasTable('pramnos.scheduleruns')) {
             return;
         }
 
-        $schema->createTable('scheduleruns', function ($table) {
+        $schema->createTable('pramnos.scheduleruns', function ($table) {
             $table->comment('Every run of a scheduled task, written by ScheduledTask::run(), and runs requested from the screen');
             $table->bigIncrements('id');
             $table->string('task', 64)->comment('The task\'s key, ScheduledTask::key(): stable across deploys while its definition is');
@@ -52,6 +52,6 @@ class CreateSchedulerunsTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('scheduleruns');
+        $this->application->database->schema()->dropTableIfExists('pramnos.scheduleruns');
     }
 }

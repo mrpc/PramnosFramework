@@ -60,13 +60,13 @@ final class Installed
     /** Segments and their members. */
     public static function segments(): bool
     {
-        return self::has('segments', 'segment_members');
+        return self::has('segments', 'pramnos.segment_members');
     }
 
     /** What people did, summed. */
     public static function personEvents(): bool
     {
-        return self::has('person_events');
+        return self::has('pramnos.person_events');
     }
 
     /** Each occurrence of what people did: the change log's application events. */

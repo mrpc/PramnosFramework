@@ -60,7 +60,7 @@ class RememberTokensTest extends TestCase
         // Act
         $token = $this->signIn();
         [$selector, $validator] = explode('.', $token);
-        $row = $this->db->queryBuilder()->table('#PREFIX#remember_tokens')->where('selector', $selector)->first()->fields;
+        $row = $this->db->queryBuilder()->table('authserver.remember_tokens')->where('selector', $selector)->first()->fields;
 
         // Assert
         $this->assertTrue(RememberTokens::isToken($token));
@@ -133,14 +133,14 @@ class RememberTokensTest extends TestCase
         // Arrange
         $this->connect($type, $host, $port);
         $token = $this->signIn();
-        $this->db->queryBuilder()->table('#PREFIX#remember_tokens')->where('userid', $this->userId)->update(['expires_at' => time() - 1]);
+        $this->db->queryBuilder()->table('authserver.remember_tokens')->where('userid', $this->userId)->update(['expires_at' => time() - 1]);
 
         // Act
         $who = RememberTokens::userFor($token);
 
         // Assert
         $this->assertNull($who);
-        $this->assertSame(0, $this->db->queryBuilder()->table('#PREFIX#remember_tokens')->where('userid', $this->userId)->count());
+        $this->assertSame(0, $this->db->queryBuilder()->table('authserver.remember_tokens')->where('userid', $this->userId)->count());
     }
 
     /**
@@ -249,7 +249,7 @@ class RememberTokensTest extends TestCase
             RememberTokens::revoke($token);
             $spent   = $driver->verify($name, $token, true)->success;
         } finally {
-            $this->db->queryBuilder()->table('#PREFIX#remember_tokens')->where('userid', (int) $other->userid)->delete();
+            $this->db->queryBuilder()->table('authserver.remember_tokens')->where('userid', (int) $other->userid)->delete();
             $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', (int) $other->userid)->delete();
         }
 
@@ -282,7 +282,7 @@ class RememberTokensTest extends TestCase
             (new Auth())->loginById((int) $other->userid, false);
             $theirs = (string) $_SESSION['auth'];
         } finally {
-            $this->db->queryBuilder()->table('#PREFIX#remember_tokens')->where('userid', (int) $other->userid)->delete();
+            $this->db->queryBuilder()->table('authserver.remember_tokens')->where('userid', (int) $other->userid)->delete();
             $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', (int) $other->userid)->delete();
         }
 
@@ -305,7 +305,7 @@ class RememberTokensTest extends TestCase
         $unknown = str_repeat('a', 24) . '.' . str_repeat('b', 64);
         $nobodys = RememberTokens::userFor($unknown);
         $hash    = $this->passwordHash();
-        $this->db->schema()->dropTableIfExists('remember_tokens');
+        $this->db->schema()->dropTableIfExists('authserver.remember_tokens');
 
         try {
             // Act

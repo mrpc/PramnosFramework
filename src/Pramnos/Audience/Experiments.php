@@ -108,7 +108,7 @@ final class Experiments
      */
     public static function variant(string $slug, ?int $person = null, ?string $visitor = null): ?string
     {
-        if (!Installed::has('experiments', 'experiment_assignments')) {
+        if (!Installed::has('experiments', 'pramnos.experiment_assignments')) {
             return null;
         }
         $test = self::bySlug($slug);
@@ -159,11 +159,11 @@ final class Experiments
      */
     public static function adopt(string $visitor, int $person): int
     {
-        if ($visitor === '' || $person < 1 || !Installed::has('experiments', 'experiment_assignments')) {
+        if ($visitor === '' || $person < 1 || !Installed::has('experiments', 'pramnos.experiment_assignments')) {
             return 0;
         }
         $moved = 0;
-        $table = static fn () => self::db()->queryBuilder()->table('#PREFIX#experiment_assignments');
+        $table = static fn () => self::db()->queryBuilder()->table('pramnos.experiment_assignments');
         foreach ($table()->where('subject', 'v:' . $visitor)->getAllOrFail() as $row) {
             $held = $table()->where('experimentid', (int) $row['experimentid'])->where('subject', 'p:' . $person)->limit(1)->getAllOrFail();
             if ($held !== []) {
@@ -203,11 +203,11 @@ final class Experiments
         $test = self::get($id) ?? throw new \InvalidArgumentException("No test {$id}.");
         $rows = [];
         foreach ($test['variants'] as $variant) {
-            $people = (int) (self::db()->queryBuilder()->table('#PREFIX#experiment_assignments')
+            $people = (int) (self::db()->queryBuilder()->table('pramnos.experiment_assignments')
                 ->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->where('experimentid', $id)
                 ->where('variant', $variant['key'])->whereNotNull('personid')->getAllOrFail()[0]['n'] ?? 0);
             $converted = $test['goalEvent'] === null || !Installed::eventLog() ? 0 : (int) (self::db()->queryBuilder()
-                ->table('#PREFIX#experiment_assignments AS experiment_assignments')
+                ->table('pramnos.experiment_assignments AS experiment_assignments')
                 ->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])
                 ->where('experiment_assignments.experimentid', $id)->where('experiment_assignments.variant', $variant['key'])
                 ->whereNotNull('experiment_assignments.personid')
@@ -223,7 +223,7 @@ final class Experiments
         foreach ($rows as $i => $row) {
             $rows[$i] += $i === 0 ? ['confidence' => null, 'needed' => null] : self::compare($control, $row);
         }
-        $visitors = (int) (self::db()->queryBuilder()->table('#PREFIX#experiment_assignments')
+        $visitors = (int) (self::db()->queryBuilder()->table('pramnos.experiment_assignments')
             ->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->where('experimentid', $id)->whereNull('personid')->getAllOrFail()[0]['n'] ?? 0);
 
         return ['variants' => $rows, 'visitors' => $visitors, 'counted' => $test['goalEvent'] !== null && Installed::eventLog()];
@@ -280,7 +280,7 @@ final class Experiments
      */
     private static function assign(array $test, string $subject, ?int $person): string
     {
-        $table = static fn () => self::db()->queryBuilder()->table('#PREFIX#experiment_assignments');
+        $table = static fn () => self::db()->queryBuilder()->table('pramnos.experiment_assignments');
         $held  = $table()->where('experimentid', $test['id'])->where('subject', $subject)->limit(1)->getAllOrFail();
         if ($held !== []) {
             return (string) $held[0]['variant'];

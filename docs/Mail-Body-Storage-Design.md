@@ -383,7 +383,7 @@ each alone.
    and a screen. *Done* — `Email\Bounces`, `mail:bounces`, the message page in Email History.
 6. GDPR erasure and retention, files and rows alike. *Done* — `Email\MailPersonalData`, `BodyStore::discard()`, `Retention` over the store.
 7. `mails` as a hypertable. *Done* — `Email\MailHypertable`, `mail:hypertable`. The move of an
-   application's files into `mail_bodies` is `mail:bodies-to-database`. *Done.*
+   application's files into `pramnos.mail_bodies` is `mail:bodies-to-database`. *Done.*
 
 **`date` stays a Unix timestamp**, against §7's "date to `timestamptz`". Every reader and writer
 compares it with `time()`, in the framework and in every application that writes `mails` itself.

@@ -447,7 +447,7 @@ process that defined it.
 
 ### The run history
 
-Every run is a row in `scheduleruns`, whoever started it — `work`, `schedule:run`, a
+Every run is a row in `pramnos.scheduleruns`, whoever started it — `work`, `schedule:run`, a
 background process, a run asked for from the screen: the task, when it started, how long it
 took, `ok` / `failed` / `skipped`, a command's exit status and the last 4 KB of what it
 printed or the error it threw. A run in progress is `running`; one a killed worker left
@@ -503,7 +503,7 @@ Scheduler::command('mail:flush')->everyMinute()->adjustable('mail.flush', 'Outgo
 ```
 
 - **The id** (`digest.send`) is the application's and must not change: the settings are kept
-  under it, in `scheduleoverrides` (migration `create_scheduleoverrides_table`). It is not the
+  under it, in `pramnos.scheduleoverrides` (migration `create_scheduleoverrides_table`). It is not the
   task's `key()`, which follows the expression and would lose them when the code's schedule
   changes. The label names the task on the screen when it has no description; the group puts the
   adjustable tasks together under a heading, before the rest.
@@ -513,7 +513,7 @@ Scheduler::command('mail:flush')->everyMinute()->adjustable('mail.flush', 'Outgo
   names none.
 - **The hours window** is a start and an end in the application's time zone. One that ends before
   it starts crosses midnight (22:00–06:00). Outside it, and while paused, the task is not due: no
-  run, and no row in `scheduleruns` for every minute it did not run.
+  run, and no row in `pramnos.scheduleruns` for every minute it did not run.
 - **The per-run limit** is offered only where the task declares `limit: [min, max]`, and is held to
   that range. A command then runs with `--limit=N`; a callable, or a job's `handle()`, gets `N` as
   its argument. With no limit set, the task runs as written.

@@ -81,7 +81,7 @@ final class Engine
      */
     public static function schedule(array $job, int $delay = 0, ?string $key = null): ?int
     {
-        if (!Installed::has('rules', 'rule_runs', 'rule_log')) {
+        if (!Installed::has('rules', 'pramnos.rule_runs', 'pramnos.rule_log')) {
             return null;
         }
         try {
@@ -172,7 +172,7 @@ final class Engine
             return null;
         }
         $now = time();
-        self::db()->queryBuilder()->table('#PREFIX#rule_runs')->insert([
+        self::db()->queryBuilder()->table('pramnos.rule_runs')->insert([
             'ruleid' => $rule['id'], 'version' => $rule['version'], 'personid' => $person,
             'status' => $definition['start'] === null ? 'done' : 'running', 'step' => $definition['start'], 'seq' => 0,
             'shadow' => $rule['status'] === 'shadow' ? 1 : 0, 'trigger' => json_encode($trigger, JSON_UNESCAPED_UNICODE),
@@ -353,7 +353,7 @@ final class Engine
 
             return "Run {$runId}: timed out.";
         }
-        $moved = self::db()->queryBuilder()->table('#PREFIX#rule_runs')->where('runid', $runId)->where('seq', (int) $run['seq'])
+        $moved = self::db()->queryBuilder()->table('pramnos.rule_runs')->where('runid', $runId)->where('seq', (int) $run['seq'])
             ->update(['status' => 'waiting', 'waitingfor' => $step['event'], 'updatedat' => time()]);
         if (self::affected($moved)) {
             self::log($run, $name, 'waiting', ['event' => $step['event'], 'seconds' => $step['seconds']]);
@@ -410,7 +410,7 @@ final class Engine
                 }
             }
         }
-        self::db()->queryBuilder()->table('#PREFIX#rule_runs')->where('runid', (int) $run['runid'])->update(['variant' => $chosen['key']]);
+        self::db()->queryBuilder()->table('pramnos.rule_runs')->where('runid', (int) $run['runid'])->update(['variant' => $chosen['key']]);
         self::log($run, $name, 'branch', ['variant' => $chosen['key']]);
         self::advance($run, $chosen['next'], 0, null);
 
@@ -424,7 +424,7 @@ final class Engine
      */
     public static function messageStatus(int $runId, string $step): array
     {
-        $sent = self::db()->queryBuilder()->table('#PREFIX#rule_log')->where('runid', $runId)->where('step', $step)
+        $sent = self::db()->queryBuilder()->table('pramnos.rule_log')->where('runid', $runId)->where('step', $step)
             ->where('outcome', 'sent')->orderBy('id', 'desc')->limit(1)->getAllOrFail()[0] ?? null;
         $detail = (array) json_decode((string) ($sent['detail'] ?? ''), true);
         $mail   = (int) ($detail['mail'] ?? 0);
@@ -455,7 +455,7 @@ final class Engine
         $caps = array_filter([(array) ($ruleCaps[$channel] ?? []),
             (array) (is_object($app) ? ($app->applicationInfo['audience']['caps'][$channel] ?? []) : [])]);
         foreach ($caps as $cap) {
-            $sent = count(self::db()->queryBuilder()->table('#PREFIX#rule_log')->select(['id'])->where('personid', $person)
+            $sent = count(self::db()->queryBuilder()->table('pramnos.rule_log')->select(['id'])->where('personid', $person)
                 ->where('outcome', 'sent')->where('channel', $channel)->where('at', '>=', time() - (int) $cap['days'] * 86400)
                 ->limit((int) $cap['max'])->getAllOrFail());
             if ($sent >= (int) $cap['max']) {
@@ -499,7 +499,7 @@ final class Engine
     private static function advance(array $run, ?string $next, int $delay, ?string $outcome, ?array $detail = null): bool
     {
         $seq   = (int) $run['seq'];
-        $moved = self::db()->queryBuilder()->table('#PREFIX#rule_runs')->where('runid', (int) $run['runid'])->where('seq', $seq)
+        $moved = self::db()->queryBuilder()->table('pramnos.rule_runs')->where('runid', (int) $run['runid'])->where('seq', $seq)
             ->update(['step' => $next, 'seq' => $seq + 1, 'status' => $next === null ? 'done' : 'running', 'waitingfor' => null, 'updatedat' => time()]);
         if (!self::affected($moved)) {
             return false;
@@ -524,7 +524,7 @@ final class Engine
      */
     private static function finish(array $run, string $status, ?array $detail): void
     {
-        $moved = self::db()->queryBuilder()->table('#PREFIX#rule_runs')->where('runid', (int) $run['runid'])->where('seq', (int) $run['seq'])
+        $moved = self::db()->queryBuilder()->table('pramnos.rule_runs')->where('runid', (int) $run['runid'])->where('seq', (int) $run['seq'])
             ->update(['status' => $status, 'step' => null, 'seq' => (int) $run['seq'] + 1, 'waitingfor' => null, 'updatedat' => time()]);
         if (self::affected($moved)) {
             self::log($run, null, $status, $detail);
@@ -539,7 +539,7 @@ final class Engine
      */
     private static function log(array $run, ?string $step, string $outcome, ?array $detail, ?string $channel = null): void
     {
-        self::db()->queryBuilder()->table('#PREFIX#rule_log')->insert([
+        self::db()->queryBuilder()->table('pramnos.rule_log')->insert([
             'runid' => (int) $run['runid'], 'ruleid' => (int) $run['ruleid'], 'version' => (int) $run['version'],
             'personid' => (int) $run['personid'], 'step' => $step, 'outcome' => $outcome, 'channel' => $channel,
             'detail' => $detail === null ? null : json_encode($detail, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE),
@@ -585,10 +585,10 @@ final class Engine
     {
         $app    = \Pramnos\Application\Application::currentInstance();
         $days ??= (int) (is_object($app) ? ($app->applicationInfo['audience']['rule_log_days'] ?? self::DEFAULT_LOG_DAYS) : self::DEFAULT_LOG_DAYS);
-        if ($days <= 0 || !Installed::has('rule_log')) {
+        if ($days <= 0 || !Installed::has('pramnos.rule_log')) {
             return null;
         }
-        $old   = self::db()->queryBuilder()->table('#PREFIX#rule_log')->where('at', '<', time() - $days * 86400);
+        $old   = self::db()->queryBuilder()->table('pramnos.rule_log')->where('at', '<', time() - $days * 86400);
         $count = (int) ((clone $old)->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->getAllOrFail()[0]['n'] ?? 0);
         if ($count > 0) {
             $old->delete();
@@ -605,7 +605,7 @@ final class Engine
 
     private static function runs(): \Pramnos\Database\QueryBuilder
     {
-        return self::db()->queryBuilder()->table('#PREFIX#rule_runs');
+        return self::db()->queryBuilder()->table('pramnos.rule_runs');
     }
 
     private static function db(): Database

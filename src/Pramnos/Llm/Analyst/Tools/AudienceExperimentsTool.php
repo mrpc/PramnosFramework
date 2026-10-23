@@ -30,7 +30,7 @@ final class AudienceExperimentsTool extends AudienceTool
 
     protected function tables(): array
     {
-        return ['experiments', 'experiment_assignments'];
+        return ['experiments', 'pramnos.experiment_assignments'];
     }
 
     protected function ability(): string

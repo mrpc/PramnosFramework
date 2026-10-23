@@ -45,7 +45,7 @@ final class ScheduleRunsTest extends TestCase
     {
         Scheduler::reset();
         if ($this->db !== null) {
-            $this->db->schema()->dropTableIfExists('scheduleruns');
+            $this->db->schema()->dropTableIfExists('pramnos.scheduleruns');
         }
         if ($this->previous !== null) {
             $singleton = &Factory::getDatabase();
@@ -75,7 +75,7 @@ final class ScheduleRunsTest extends TestCase
         $singleton      = &Factory::getDatabase();
         $singleton      = $db;
         $this->db       = $db;
-        $db->schema()->dropTableIfExists('scheduleruns');
+        $db->schema()->dropTableIfExists('pramnos.scheduleruns');
         $app = $this->getMockBuilder(Application::class)->disableOriginalConstructor()->getMock();
         $app->database = $db;
         (new \Pramnos\Framework\Migrations\Core\CreateSchedulerunsTable($app))->up();
@@ -106,7 +106,7 @@ final class ScheduleRunsTest extends TestCase
 
         // Assert
         $this->assertTrue($ran);
-        $this->assertTrue($this->db->schema()->hasTable('scheduleruns'), 'the migration made no table');
+        $this->assertTrue($this->db->schema()->hasTable('pramnos.scheduleruns'), 'the migration made no table');
         $this->assertCount(1, $rows);
         $this->assertSame('ok', $rows[0]['result']);
         $this->assertSame($task->key(), $rows[0]['task']);
@@ -337,7 +337,7 @@ final class ScheduleRunsTest extends TestCase
     {
         // Arrange
         $this->connect($type, $host, $port);
-        $this->db->schema()->dropTableIfExists('scheduleruns');
+        $this->db->schema()->dropTableIfExists('pramnos.scheduleruns');
         RunLog::reset();
         $ran  = false;
         $task = Scheduler::call(static function () use (&$ran): void {

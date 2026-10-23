@@ -204,7 +204,7 @@ class AbsentTablesTest extends TestCase
         $this->assertSame('https://example.com/', $clicked);
         $this->assertSame([true, null], $worker, 'a task queued before the tables went away does nothing');
         $this->assertSame(['entered' => [], 'left' => []], $changes);
-        $this->assertFalse($this->db->schema()->hasTable('person_events'), 'and nothing made a table');
+        $this->assertFalse($this->db->schema()->hasTable('pramnos.person_events'), 'and nothing made a table');
     }
 
     /**

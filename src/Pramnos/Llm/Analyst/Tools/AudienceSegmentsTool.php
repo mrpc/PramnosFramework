@@ -30,7 +30,7 @@ final class AudienceSegmentsTool extends AudienceTool
 
     protected function tables(): array
     {
-        return ['segments', 'segment_members'];
+        return ['segments', 'pramnos.segment_members'];
     }
 
     protected function ability(): string

@@ -291,7 +291,7 @@ class PersonalDataRegistry
             'oauth2_device_codes',
             'mails',
             // Sent messages' bodies, and who opened them.
-            'mail_bodies',
+            'pramnos.mail_bodies',
             'emailtracking',
             'notifications',
             'pushtokens',
@@ -301,8 +301,8 @@ class PersonalDataRegistry
             // Who is in which group: the usergroups feature.
             'userstogroups',
             // Events in a stream: their arguments are whatever the application fired them with.
-            'event_log',
-            'event_deliveries',
+            'pramnos.event_log',
+            'pramnos.event_deliveries',
             // What people wrote to each other, and the files they sent.
             'conversations',
             'conversation_members',

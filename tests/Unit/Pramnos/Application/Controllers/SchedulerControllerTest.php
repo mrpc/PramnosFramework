@@ -254,7 +254,7 @@ final class SchedulerControllerTest extends TestCase
         if (!$db->connected) {
             $db->connect();
         }
-        $db->schema()->dropTableIfExists('scheduleruns');
+        $db->schema()->dropTableIfExists('pramnos.scheduleruns');
         \Pramnos\Scheduling\RunLog::reset();
         $task = (new ScheduledTask('reports:nightly', 'command'))->daily();
         $controller = $this->controller([$task]);

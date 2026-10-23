@@ -31,7 +31,7 @@ final class AudienceRulesTool extends AudienceTool
 
     protected function tables(): array
     {
-        return ['rules', 'rule_runs', 'rule_log'];
+        return ['rules', 'pramnos.rule_runs', 'pramnos.rule_log'];
     }
 
     protected function ability(): string

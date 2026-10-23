@@ -75,7 +75,7 @@ class Rules extends Controller
         $view->rule     = $rule;
         $view->canvas   = \Pramnos\Html\RuleCanvas::render($rule['definition'], \Pramnos\Html\RuleCanvas::counts($rule['id']));
         $view->versions = Store::versions($rule['id']);
-        $view->log      = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#rule_log')->where('ruleid', $rule['id'])
+        $view->log      = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('pramnos.rule_log')->where('ruleid', $rule['id'])
             ->orderBy('id', 'desc')->limit(self::LOG_ROWS)->getAllOrFail();
         $view->person   = (int) $get('person');
         $view->why      = $view->person > 0 ? Tester::why($rule['id'], $view->person) : null;
@@ -200,7 +200,7 @@ class Rules extends Controller
         if ($this->requireMinUserType($this->adminFloor())) {
             return true;
         }
-        if (!Installed::has('rules', 'rule_versions', 'rule_runs', 'rule_log')) {
+        if (!Installed::has('rules', 'rule_versions', 'pramnos.rule_runs', 'pramnos.rule_log')) {
             $this->addError(t('Rules are not installed here yet: run migrate.'));
             $this->redirect(adminUrl(''));
 

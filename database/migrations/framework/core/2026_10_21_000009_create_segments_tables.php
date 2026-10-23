@@ -39,8 +39,8 @@ class CreateSegmentsTables extends Migration
             });
         }
 
-        if (!$schema->hasTable('segment_members')) {
-            $schema->createTable('segment_members', function ($table) {
+        if (!$schema->hasTable('pramnos.segment_members')) {
+            $schema->createTable('pramnos.segment_members', function ($table) {
                 $table->comment('Who was in each segment, from when to when: one row per stay');
                 $table->bigIncrements('id')->comment('Auto-increment row identifier');
                 $table->integer('segmentid')->unsigned()->comment('segments.segmentid');
@@ -57,7 +57,7 @@ class CreateSegmentsTables extends Migration
     public function down(): void
     {
         $schema = $this->application->database->schema();
-        $schema->dropTableIfExists('segment_members');
+        $schema->dropTableIfExists('pramnos.segment_members');
         $schema->dropTableIfExists('segments');
     }
 }

@@ -54,8 +54,8 @@ final class ScheduleOverridesTest extends TestCase
     protected function tearDown(): void
     {
         if ($this->db !== null) {
-            $this->db->schema()->dropTableIfExists('scheduleoverrides');
-            $this->db->schema()->dropTableIfExists('scheduleruns');
+            $this->db->schema()->dropTableIfExists('pramnos.scheduleoverrides');
+            $this->db->schema()->dropTableIfExists('pramnos.scheduleruns');
             $this->db->queryBuilder()->table(AuditLog::TABLE)->where('object_id', $this->id)->delete();
         }
         if ($this->previous !== null) {
@@ -98,8 +98,8 @@ final class ScheduleOverridesTest extends TestCase
         $singleton      = $db;
         $this->db       = $db;
         $this->id       = 'sends.' . bin2hex(random_bytes(4));
-        $db->schema()->dropTableIfExists('scheduleoverrides');
-        $db->schema()->dropTableIfExists('scheduleruns');
+        $db->schema()->dropTableIfExists('pramnos.scheduleoverrides');
+        $db->schema()->dropTableIfExists('pramnos.scheduleruns');
         $app = $this->getMockBuilder(Application::class)->disableOriginalConstructor()->getMock();
         $app->database = $db;
         (new \Pramnos\Framework\Migrations\Core\CreateSchedulerunsTable($app))->up();
@@ -316,7 +316,7 @@ final class ScheduleOverridesTest extends TestCase
         $call('adjust', $task->key(), ['frequency' => 'daily', 'time' => '07:30', 'enabled' => '1']);
         $daily = ScheduleOverrides::all()[$this->id]['frequency'] ?? null;
         $errors = $_SESSION['_errors'] ?? [];
-        $this->db->schema()->dropTableIfExists('scheduleoverrides');
+        $this->db->schema()->dropTableIfExists('pramnos.scheduleoverrides');
         $remembered = ScheduleOverrides::all();
         ScheduleOverrides::reset();
         $call('adjust', $task->key(), ['frequency' => '', 'enabled' => '1']);

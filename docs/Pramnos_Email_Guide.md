@@ -1867,7 +1867,7 @@ A sent message's body is not kept in its `mails` row but in the **body store**
 
 | Store | Where | The row's `path` |
 |---|---|---|
-| `database` | `mail_bodies`, a compressed hypertable. Its migration creates it only on TimescaleDB | `db:` |
+| `database` | `pramnos.mail_bodies`, a compressed hypertable. Its migration creates it only on TimescaleDB | `db:` |
 | `files` | `var/emails/2026/10/19/13/<md5>.body.gz`, one per distinct body and hour | relative to the root, or `disk:<name>:<path>` |
 | `content` | the row's `content`, as before | empty |
 
@@ -1941,7 +1941,7 @@ has run, a templated message is kept filled as well. Either way it reads back th
 to its store. The application has to be able to write the `files` folder.
 
 **Moving bodies from files into the database.** An installation that kept its bodies on disk,
-and has TimescaleDB now, moves them into `mail_bodies`:
+and has TimescaleDB now, moves them into `pramnos.mail_bodies`:
 
 ```bash
 php bin/pramnos mail:bodies-to-database --dry-run          # how many rows there are to move
@@ -1950,7 +1950,7 @@ php bin/pramnos mail:bodies-to-database --include-content   # bodies kept in mai
 ```
 
 - **What it reads:** each row's body as it is kept — an application's `.html.gz`, the store's
-  `.body.gz`, a file on a storage disk. It then points the row at `mail_bodies` (`path` =
+  `.body.gz`, a file on a storage disk. It then points the row at `pramnos.mail_bodies` (`path` =
   `db:`), so the row reads exactly as before.
 - **Stopping and starting:** a row already moved is not read again, so a run that was stopped is
   finished by the next. A batch the database refuses is rolled back whole, and the run stops,
@@ -2360,7 +2360,7 @@ With nothing configured the command reports the table's size and explains the tw
 **assumes no policy**. `mail:prune --apply` is scheduled daily at 04:10 and does nothing until
 somebody has decided; a default here would apply a guess to an audit trail.
 
-**The body goes from wherever it is kept**: the row's `content`, its `mail_bodies` row, its file
+**The body goes from wherever it is kept**: the row's `content`, its `pramnos.mail_bodies` row, its file
 under `var/emails`, or its file on a storage disk. A file that another message still names is left
 until that message is stripped too, because identical bodies of the same hour are one file. A
 stripped row has an empty `path`, and reads as a message with no body.

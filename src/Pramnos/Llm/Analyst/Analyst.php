@@ -168,11 +168,11 @@ final class Analyst
 
         // Audiences, where their tables are: read everything, write drafts only.
         foreach ([
-            \Pramnos\Llm\Analyst\Tools\AudienceSegmentsTool::class    => ['segments', 'segment_members'],
+            \Pramnos\Llm\Analyst\Tools\AudienceSegmentsTool::class    => ['segments', 'pramnos.segment_members'],
             \Pramnos\Llm\Analyst\Tools\AudienceWhyTool::class         => ['segments'],
             \Pramnos\Llm\Analyst\Tools\AudienceDraftTool::class       => ['segments'],
-            \Pramnos\Llm\Analyst\Tools\AudienceRulesTool::class       => ['rules', 'rule_runs', 'rule_log'],
-            \Pramnos\Llm\Analyst\Tools\AudienceExperimentsTool::class => ['experiments', 'experiment_assignments'],
+            \Pramnos\Llm\Analyst\Tools\AudienceRulesTool::class       => ['rules', 'pramnos.rule_runs', 'pramnos.rule_log'],
+            \Pramnos\Llm\Analyst\Tools\AudienceExperimentsTool::class => ['experiments', 'pramnos.experiment_assignments'],
         ] as $class => $tables) {
             if (\Pramnos\Audience\Installed::has(...$tables)) {
                 $tools[] = new $class($adminId);

@@ -28,9 +28,9 @@ application declares its attributes once and every screen can use them.
 
 ## Before the migrations run
 
-The audience tables — `segments`, `segment_members`, `consent_lists`, `person_events`, `rules`,
-`rule_versions`, `rule_runs`, `rule_log`, `site_messages`, `experiments`,
-`experiment_assignments` — come from core migrations, and an application can hold them back while
+The audience tables — `segments`, `pramnos.segment_members`, `consent_lists`, `pramnos.person_events`, `rules`,
+`rule_versions`, `pramnos.rule_runs`, `pramnos.rule_log`, `site_messages`, `experiments`,
+`pramnos.experiment_assignments` — come from core migrations, and an application can hold them back while
 it tries the feature elsewhere:
 
 ```php
@@ -201,7 +201,7 @@ a staff account can satisfy every condition and still be out.
 
 ## Segments
 
-A segment is a filter with a name, kept worked out: `segment_members` holds who is in it, one row
+A segment is a filter with a name, kept worked out: `pramnos.segment_members` holds who is in it, one row
 per stay (`entered_at`, `left_at` — NULL while it lasts), so a person who leaves and comes back
 has two rows and "who entered this week" is a range over one column.
 
@@ -516,7 +516,7 @@ named are recorded, never every URL.
 
 | | Keeps | Answers |
 | --- | --- | --- |
-| `person_events` | per person and event: how many, the first, the last — for good | ever, never, at least / at most N of all time, first or last before / after a day, last within N days, *had it been on* |
+| `pramnos.person_events` | per person and event: how many, the first, the last — for good | ever, never, at least / at most N of all time, first or last before / after a day, last within N days, *had it been on* |
 | `pramnos.changelog_events`, entity `user` | each occurrence, with its properties as `details` — what the change log keeps | at least / at most N **in the last M days**; an A/B test's goal |
 
 Each occurrence is an application event of the change log (`PersonEvents::LOG`): written through
@@ -677,8 +677,8 @@ causation ids, the variant and the consent list.
 
 A saved change is a new version (`rule_versions`); runs finish on the version they started on.
 Creating, changing, switching and deleting are in the audit log with before and after. Each run
-(`rule_runs`) moves only from the step its queued task names — a retried task, or a timeout after
-the event it waited for, does nothing — and every decision is a row in `rule_log`: entered, each
+(`pramnos.rule_runs`) moves only from the step its queued task names — a retried task, or a timeout after
+the event it waited for, does nothing — and every decision is a row in `pramnos.rule_log`: entered, each
 action's outcome and reason, each branch with its conditions and values, waits, exit, goal. The log
 keeps `audience.rule_log_days` (90; 0 keeps it), pruned daily by `audience:prune-events`, which
 also deletes segment stays that ended more than `audience.segment_history_days` ago (365). A segment or consent
@@ -778,7 +778,7 @@ if (Experiments::variant('annual-first') === 'B') {
 `variant($slug, ?$person, ?$visitor)` answers null for a draft, a stopped test, a test that does
 not exist, or somebody outside the test's segment; the winner for everybody once one is decided.
 Without arguments it takes whoever is signed in, else the visitor's `pf_visitor` cookie (set once).
-The assignment is kept (`experiment_assignments`), so the answer never changes; a visitor who
+The assignment is kept (`pramnos.experiment_assignments`), so the answer never changes; a visitor who
 signs in keeps what they were shown — it moves to the account once a session, unless the account
 had its own.
 

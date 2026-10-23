@@ -32,7 +32,7 @@ trait SignsInOnEachDatabase
     protected function tearDown(): void
     {
         if ($this->db !== null && $this->userId > 1) {
-            foreach (['remember_tokens', 'usertokens', 'users'] as $table) {
+            foreach (['authserver.remember_tokens', 'usertokens', 'users'] as $table) {
                 try {
                     $this->db->queryBuilder()->table($table)->where('userid', $this->userId)->delete();
                 } catch (\Throwable) {

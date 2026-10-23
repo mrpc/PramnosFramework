@@ -480,7 +480,7 @@ class Segments extends Controller
     protected function members(int $segment): array
     {
         $rows = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-            ->table('#PREFIX#segment_members AS segment_members')
+            ->table('pramnos.segment_members AS segment_members')
             ->join(Attributes::FROM, 'users.userid', '=', 'segment_members.userid')
             ->select(['users.userid', 'users.username', 'users.firstname', 'users.lastname', 'segment_members.entered_at'])
             ->where('segment_members.segmentid', $segment)->whereNull('segment_members.left_at')

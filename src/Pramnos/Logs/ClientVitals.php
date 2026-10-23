@@ -206,6 +206,6 @@ final class ClientVitals
 
     private function table(): \Pramnos\Database\QueryBuilder
     {
-        return ($this->db ?? \Pramnos\Framework\Factory::getDatabase())->queryBuilder()->table('#PREFIX#client_vitals');
+        return ($this->db ?? \Pramnos\Framework\Factory::getDatabase())->queryBuilder()->table('pramnos.client_vitals');
     }
 }

@@ -30,8 +30,8 @@ class CreateEventLogTables extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('event_log')) {
-            $schema->createTable('event_log', function ($table) {
+        if (!$schema->hasTable('pramnos.event_log')) {
+            $schema->createTable('pramnos.event_log', function ($table) {
                 $table->comment('Each fired event once, for the consumer groups it is for');
                 $table->bigIncrements('entryid')->comment('The position in the stream');
                 $table->string('event', 150)->comment('The event, by name');
@@ -43,8 +43,8 @@ class CreateEventLogTables extends Migration
             });
         }
 
-        if (!$schema->hasTable('event_consumers')) {
-            $schema->createTable('event_consumers', function ($table) {
+        if (!$schema->hasTable('pramnos.event_consumers')) {
+            $schema->createTable('pramnos.event_consumers', function ($table) {
                 $table->comment('Each consumer group\'s position in the stream');
                 $table->string('groupname', 191)->comment('The group: a queued listener\'s class');
                 $table->bigInteger('position')->default(0)->comment('The last entry it has read');
@@ -55,8 +55,8 @@ class CreateEventLogTables extends Migration
             });
         }
 
-        if (!$schema->hasTable('event_deliveries')) {
-            $schema->createTable('event_deliveries', function ($table) {
+        if (!$schema->hasTable('pramnos.event_deliveries')) {
+            $schema->createTable('pramnos.event_deliveries', function ($table) {
                 $table->comment('Entries a group failed, to be tried again, or dead past their attempts');
                 $table->bigIncrements('id')->comment('Auto-increment row identifier');
                 $table->string('groupname', 191)->comment('The consumer group');
@@ -76,8 +76,8 @@ class CreateEventLogTables extends Migration
     public function down(): void
     {
         $schema = $this->application->database->schema();
-        $schema->dropTableIfExists('event_deliveries');
-        $schema->dropTableIfExists('event_consumers');
-        $schema->dropTableIfExists('event_log');
+        $schema->dropTableIfExists('pramnos.event_deliveries');
+        $schema->dropTableIfExists('pramnos.event_consumers');
+        $schema->dropTableIfExists('pramnos.event_log');
     }
 }

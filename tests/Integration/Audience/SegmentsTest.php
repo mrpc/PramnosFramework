@@ -109,7 +109,7 @@ class SegmentsTest extends TestCase
         $this->assertSame(['entered' => 1, 'left' => 1, 'members' => 2], $result);
         $this->assertSame(['entered:' . $id . ':' . $this->ids['bob'], 'left:' . $id . ':' . $this->ids['anna']], $this->heard);
         $this->assertSame(['entered' => 1, 'left' => 1], Segments::movement($id), 'bob in, anna out; the first two were its start, not entering');
-        $stays = $this->db->queryBuilder()->table('segment_members')->where('userid', $this->ids['anna'])->getAll();
+        $stays = $this->db->queryBuilder()->table('pramnos.segment_members')->where('userid', $this->ids['anna'])->getAll();
         $this->assertCount(1, $stays);
         $this->assertNotNull($stays[0]['left_at'], 'closed, not deleted');
     }
@@ -247,7 +247,7 @@ class SegmentsTest extends TestCase
         // Assert
         $this->assertSame(['This segment is in use: segment Built', 'This segment is in use: rule Welcome'], $refused);
         $this->assertSame([], Segments::all());
-        $this->assertSame([], $this->db->queryBuilder()->table('segment_members')->getAll(), 'the history goes with it');
+        $this->assertSame([], $this->db->queryBuilder()->table('pramnos.segment_members')->getAll(), 'the history goes with it');
     }
 
     /**
@@ -330,7 +330,7 @@ class SegmentsTest extends TestCase
         $out  = $tester->getDisplay();
         $one  = $tester->execute(['--segment' => (string) $greek]);
         $bad  = $tester->execute(['--segment' => '424242']);
-        $this->db->schema()->dropTableIfExists('segment_members');
+        $this->db->schema()->dropTableIfExists('pramnos.segment_members');
         $this->db->schema()->dropTableIfExists('segments');
         $this->probeChanged($this->db->type);
         $none = $tester->execute([]);
@@ -395,7 +395,7 @@ class SegmentsTest extends TestCase
         $application = (new \ReflectionClass(\Pramnos\Application\Application::class))->newInstanceWithoutConstructor();
         $application->database = $this->db;
         $migration = new \Pramnos\Framework\Migrations\Core\AddFirstComputedAtToSegments($application);
-        $this->db->queryBuilder()->table('segment_members')->where('segmentid', $greek)->update(['entered_at' => 1000]);
+        $this->db->queryBuilder()->table('pramnos.segment_members')->where('segmentid', $greek)->update(['entered_at' => 1000]);
 
         // Act
         $migration->down();

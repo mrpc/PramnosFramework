@@ -240,6 +240,6 @@ final class Impersonation
 
     private static function table(): \Pramnos\Database\QueryBuilder
     {
-        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#impersonations');
+        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('authserver.impersonations');
     }
 }

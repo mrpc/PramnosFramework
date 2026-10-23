@@ -26,7 +26,7 @@ final class RuleCanvas
      */
     public static function counts(int $rule): array
     {
-        $rows = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#rule_log')
+        $rows = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('pramnos.rule_log')
             ->select(['step', 'outcome', new \Pramnos\Database\Expression('COUNT(DISTINCT runid) AS n')])
             ->where('ruleid', $rule)->whereNotNull('step')->groupBy(['step', 'outcome'])->getAllOrFail();
         $counts = [];

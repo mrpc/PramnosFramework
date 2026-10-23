@@ -23,11 +23,11 @@ class CreateMailBodiesTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
-        if ($schema->hasTable('mail_bodies') || !$this->application->database->capabilities()->hasTimescaleDB()) {
+        if ($schema->hasTable('pramnos.mail_bodies') || !$this->application->database->capabilities()->hasTimescaleDB()) {
             return;
         }
 
-        $schema->createTable('mail_bodies', function ($table) {
+        $schema->createTable('pramnos.mail_bodies', function ($table) {
             $table->comment('Sent messages\' bodies, compressed — the mails row names them with path db:');
 
             $table->bigInteger('mail_id')
@@ -42,13 +42,13 @@ class CreateMailBodiesTable extends Migration
 
             $table->index(['mail_id'], 'idx_mail_bodies_mail');
         });
-        $schema->createHypertable('mail_bodies', 'sent_at', ['chunk_time_interval' => '7 days']);
-        $schema->enableCompression('mail_bodies', ['orderby' => 'sent_at']);
-        $schema->addCompressionPolicy('mail_bodies', '7 days');
+        $schema->createHypertable('pramnos.mail_bodies', 'sent_at', ['chunk_time_interval' => '7 days']);
+        $schema->enableCompression('pramnos.mail_bodies', ['orderby' => 'sent_at']);
+        $schema->addCompressionPolicy('pramnos.mail_bodies', '7 days');
     }
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('mail_bodies');
+        $this->application->database->schema()->dropTableIfExists('pramnos.mail_bodies');
     }
 }

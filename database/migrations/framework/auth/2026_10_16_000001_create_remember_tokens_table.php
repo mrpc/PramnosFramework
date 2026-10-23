@@ -24,11 +24,11 @@ class CreateRememberTokensTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
-        if ($schema->hasTable('remember_tokens')) {
+        if ($schema->hasTable('authserver.remember_tokens')) {
             return;
         }
 
-        $schema->createTable('remember_tokens', function ($table) {
+        $schema->createTable('authserver.remember_tokens', function ($table) {
             $table->comment('Per-device sign-in credential: the auth cookie, hashed, with expiry');
             $table->increments('id');
             $table->bigInteger('userid')->comment('The account it signs in');
@@ -46,6 +46,6 @@ class CreateRememberTokensTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('remember_tokens');
+        $this->application->database->schema()->dropTableIfExists('authserver.remember_tokens');
     }
 }

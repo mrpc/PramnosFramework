@@ -55,7 +55,7 @@ class ClientVitalsTest extends TestCase
     {
         Application::getInstance()->applicationInfo = $this->info;
         if ($this->db !== null) {
-            $this->db->schema()->dropTableIfExists('client_vitals');
+            $this->db->schema()->dropTableIfExists('pramnos.client_vitals');
         }
         if ($this->previous !== null) {
             $singleton = &Factory::getDatabase();
@@ -86,7 +86,7 @@ class ClientVitalsTest extends TestCase
         $singleton      = &Factory::getDatabase();
         $singleton      = $db;
         $this->db       = $db;
-        $db->schema()->dropTableIfExists('client_vitals');
+        $db->schema()->dropTableIfExists('pramnos.client_vitals');
         $app = $this->getMockBuilder(Application::class)->disableOriginalConstructor()->getMock();
         $app->database = $db;
         (new \Pramnos\Framework\Migrations\Core\CreateClientVitalsTable($app))->up();
@@ -120,7 +120,7 @@ class ClientVitalsTest extends TestCase
         // Act
         $kept  = $vitals->record(self::report('/el/jobs/42', ['LCP' => 2100, 'CLS' => 0.031, 'FID' => 5, 'INP' => 'fast']), true);
         $other = $vitals->record(self::report('/about', ['LCP' => 900], ['device' => 'fridge', 'worker' => 'yes', 'source' => '<b>x</b>']), false);
-        $rows  = $this->db->queryBuilder()->table('#PREFIX#client_vitals')->orderBy('id')->get();
+        $rows  = $this->db->queryBuilder()->table('pramnos.client_vitals')->orderBy('id')->get();
         $all   = [];
         while (($row = $rows->fetch()) !== null) {
             $all[] = $row;
@@ -150,7 +150,7 @@ class ClientVitalsTest extends TestCase
             $vitals->record(self::report('/jobs', ['LCP' => $lcp, 'INP' => 600]), false);
         }
         $vitals->record(self::report('/jobs', ['LCP' => 99999]), false);
-        $this->db->queryBuilder()->table('#PREFIX#client_vitals')->where('value', 99999)->update(['created_at' => time() - 30 * 86400]);
+        $this->db->queryBuilder()->table('pramnos.client_vitals')->where('value', 99999)->update(['created_at' => time() - 30 * 86400]);
 
         // Act
         $summary = $vitals->summary();
@@ -205,13 +205,13 @@ class ClientVitalsTest extends TestCase
         $_SERVER['CONTENT_LENGTH'] = '100';
         $kept = $status($endpoint->display());
         unset($_SERVER['CONTENT_LENGTH']);
-        $this->db->schema()->dropTableIfExists('client_vitals');
+        $this->db->schema()->dropTableIfExists('pramnos.client_vitals');
         $noTable = $status($endpoint->display());
 
         // Assert
         $this->assertSame([405, 403, 413, 204, 204], [$get, $foreign, $large, $kept, $noTable]);
         $this->connect($type, $host, $port, ['sample' => 1]);
-        $this->assertSame(0, $this->db->queryBuilder()->table('#PREFIX#client_vitals')->count(), 'a fresh table');
+        $this->assertSame(0, $this->db->queryBuilder()->table('pramnos.client_vitals')->count(), 'a fresh table');
     }
 
     /**

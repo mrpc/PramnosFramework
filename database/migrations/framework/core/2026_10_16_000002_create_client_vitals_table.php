@@ -19,11 +19,11 @@ class CreateClientVitalsTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
-        if ($schema->hasTable('client_vitals')) {
+        if ($schema->hasTable('pramnos.client_vitals')) {
             return;
         }
 
-        $schema->createTable('client_vitals', function ($table) {
+        $schema->createTable('pramnos.client_vitals', function ($table) {
             $table->comment('Core Web Vitals measured in visitors\' browsers, one row per metric of a sampled page view');
             $table->increments('id');
             $table->string('metric', 8)->comment('TTFB, FCP, LCP, INP or CLS');
@@ -46,6 +46,6 @@ class CreateClientVitalsTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('client_vitals');
+        $this->application->database->schema()->dropTableIfExists('pramnos.client_vitals');
     }
 }

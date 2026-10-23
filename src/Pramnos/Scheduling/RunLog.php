@@ -255,7 +255,7 @@ final class RunLog
     {
         if (self::$available === null) {
             try {
-                self::$available = \Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('scheduleruns');
+                self::$available = \Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('pramnos.scheduleruns');
             } catch (\Throwable) {
                 return false;
             }
@@ -274,7 +274,7 @@ final class RunLog
     /** A builder on the table. */
     public static function table(): \Pramnos\Database\QueryBuilder
     {
-        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#scheduleruns');
+        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('pramnos.scheduleruns');
     }
 
     /** A raw expression for a select list. */

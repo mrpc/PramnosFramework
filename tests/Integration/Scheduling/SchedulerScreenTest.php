@@ -46,7 +46,7 @@ final class SchedulerScreenTest extends TestCase
     protected function tearDown(): void
     {
         if ($this->db !== null) {
-            $this->db->schema()->dropTableIfExists('scheduleruns');
+            $this->db->schema()->dropTableIfExists('pramnos.scheduleruns');
         }
         if ($this->previous !== null) {
             $singleton = &Factory::getDatabase();
@@ -83,7 +83,7 @@ final class SchedulerScreenTest extends TestCase
         $singleton      = &Factory::getDatabase();
         $singleton      = $db;
         $this->db       = $db;
-        $db->schema()->dropTableIfExists('scheduleruns');
+        $db->schema()->dropTableIfExists('pramnos.scheduleruns');
         $app = $this->getMockBuilder(Application::class)->disableOriginalConstructor()->getMock();
         $app->database = $db;
         (new \Pramnos\Framework\Migrations\Core\CreateSchedulerunsTable($app))->up();

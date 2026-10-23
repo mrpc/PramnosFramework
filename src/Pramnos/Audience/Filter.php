@@ -433,7 +433,7 @@ final class Filter
         $days  = (int) ($condition['days'] ?? 0);
         $op    = $condition['op'];
         $summary = static fn (?callable $more = null): \Closure => static function (QueryBuilder $sub) use ($event, $more): void {
-            $sub->table('#PREFIX#person_events AS person_events')->select([new Expression('1')])
+            $sub->table('pramnos.person_events AS person_events')->select([new Expression('1')])
                 ->whereRaw('person_events.personid = users.userid')->where('person_events.event', $event);
             if ($more !== null) {
                 $more($sub);
@@ -483,14 +483,14 @@ final class Filter
      */
     private function applyExperiment(QueryBuilder $query, array $condition, string $boolean): void
     {
-        $test = Installed::has('experiments', 'experiment_assignments') ? Experiments::bySlug($condition['experiment']) : null;
+        $test = Installed::has('experiments', 'pramnos.experiment_assignments') ? Experiments::bySlug($condition['experiment']) : null;
         if ($test === null) {
             $query->whereRaw($condition['op'] === 'in' ? '1 = 0' : '1 = 1', [], $boolean);
 
             return;
         }
         $query->whereExists(static function (QueryBuilder $sub) use ($test, $condition): void {
-            $sub->table('#PREFIX#experiment_assignments AS experiment_assignments')->select([new Expression('1')])
+            $sub->table('pramnos.experiment_assignments AS experiment_assignments')->select([new Expression('1')])
                 ->whereRaw('experiment_assignments.personid = users.userid')
                 ->where('experiment_assignments.experimentid', $test['id'])
                 ->where('experiment_assignments.variant', $condition['variant']);
@@ -501,7 +501,7 @@ final class Filter
     private static function inSegment(int $segment): \Closure
     {
         return static function (QueryBuilder $sub) use ($segment): void {
-            $sub->table('#PREFIX#segment_members AS segment_members')->select([new Expression('1')])
+            $sub->table('pramnos.segment_members AS segment_members')->select([new Expression('1')])
                 ->whereRaw('segment_members.userid = users.userid')
                 ->where('segment_members.segmentid', $segment)
                 ->whereNull('segment_members.left_at');
@@ -609,7 +609,7 @@ final class Filter
     {
         $query = $this->database->queryBuilder()->table(Attributes::FROM)->where('users.userid', $personId);
         $this->applyEvent($query, $condition, 'and');
-        $row = $this->database->queryBuilder()->table('#PREFIX#person_events')->where('personid', $personId)
+        $row = $this->database->queryBuilder()->table('pramnos.person_events')->where('personid', $personId)
             ->where('event', $condition['event'])->limit(1)->getAllOrFail()[0] ?? null;
         $actual = ['count' => (int) ($row['occurrences'] ?? 0), 'first' => $row === null ? null : (int) $row['first_at'],
             'last' => $row === null ? null : (int) $row['last_at']];
@@ -637,8 +637,8 @@ final class Filter
     {
         $query = $this->database->queryBuilder()->table(Attributes::FROM)->where('users.userid', $personId);
         $this->applyExperiment($query, $condition, 'and');
-        $test  = Installed::has('experiments', 'experiment_assignments') ? Experiments::bySlug($condition['experiment']) : null;
-        $given = $test === null ? [] : $this->database->queryBuilder()->table('#PREFIX#experiment_assignments')
+        $test  = Installed::has('experiments', 'pramnos.experiment_assignments') ? Experiments::bySlug($condition['experiment']) : null;
+        $given = $test === null ? [] : $this->database->queryBuilder()->table('pramnos.experiment_assignments')
             ->where('experimentid', $test['id'])->where('personid', $personId)->limit(1)->getAllOrFail();
 
         return $condition + [

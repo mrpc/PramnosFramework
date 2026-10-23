@@ -111,8 +111,8 @@ final class Rules
         if (in_array($rule['status'], self::RUNNING, true)) {
             throw new \RuntimeException(t('Pause the rule before deleting it.'));
         }
-        foreach (['rule_log', 'rule_runs', 'rule_versions', 'rules'] as $table) {
-            self::db()->queryBuilder()->table('#PREFIX#' . $table)->where('ruleid', $id)->delete();
+        foreach (['pramnos.rule_log', 'pramnos.rule_runs', '#PREFIX#rule_versions', '#PREFIX#rules'] as $table) {
+            self::db()->queryBuilder()->table($table)->where('ruleid', $id)->delete();
         }
         \Pramnos\Auth\AuditLog::change('rule.deleted', $by, 'rule', $id, ['name' => $rule['name'], 'definition' => $rule['definition']], []);
         self::forgetEvents();
@@ -195,9 +195,9 @@ final class Rules
         $db    = self::db();
 
         return [
-            'entered' => $count($db->queryBuilder()->table('#PREFIX#rule_log')->where('ruleid', $id)->where('outcome', 'entered')->where('at', '>=', time() - 7 * 86400)),
-            'running' => $count($db->queryBuilder()->table('#PREFIX#rule_runs')->where('ruleid', $id)->whereIn('status', ['running', 'waiting'])),
-            'goals'   => $count($db->queryBuilder()->table('#PREFIX#rule_runs')->where('ruleid', $id)->where('status', 'goal')),
+            'entered' => $count($db->queryBuilder()->table('pramnos.rule_log')->where('ruleid', $id)->where('outcome', 'entered')->where('at', '>=', time() - 7 * 86400)),
+            'running' => $count($db->queryBuilder()->table('pramnos.rule_runs')->where('ruleid', $id)->whereIn('status', ['running', 'waiting'])),
+            'goals'   => $count($db->queryBuilder()->table('pramnos.rule_runs')->where('ruleid', $id)->where('status', 'goal')),
         ];
     }
 

@@ -56,7 +56,7 @@ final class MailPersonalDataPostgreSQLTest extends MailPersonalDataTest
             BodyStore::putRow($id, $date, '<p>Body of ' . $id . '</p>');
         }
         // The old chunk compressed, as the policy would have done after a week.
-        $this->db->query("SELECT compress_chunk(c, true) FROM show_chunks('mail_bodies', older_than => now() - interval '100 days') c");
+        $this->db->query("SELECT compress_chunk(c, true) FROM show_chunks('pramnos.mail_bodies', older_than => now() - interval '100 days') c");
 
         // Act
         $erased   = MailPersonalData::erase('erase@example.com');
@@ -68,6 +68,6 @@ final class MailPersonalDataPostgreSQLTest extends MailPersonalDataTest
         $this->assertGreaterThanOrEqual(1, $stripped);
         $this->assertNull(BodyStore::getRow($strip, $old), 'and the stripped one\'s, from a compressed chunk');
         $this->assertNotNull(BodyStore::getRow($stays, $recent), 'another message\'s stays');
-        $this->db->queryBuilder()->table('mail_bodies')->where('mail_id', $stays)->delete();
+        $this->db->queryBuilder()->table('pramnos.mail_bodies')->where('mail_id', $stays)->delete();
     }
 }

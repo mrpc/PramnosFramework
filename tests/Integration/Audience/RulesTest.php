@@ -66,13 +66,13 @@ class RulesTest extends TestCase
     private function outcomes(int $rule, string $person): array
     {
         return array_map(static fn (array $row): string => $row['outcome'] . ($row['step'] === null ? '' : ':' . $row['step']),
-            $this->db->queryBuilder()->table('rule_log')->where('ruleid', $rule)->where('personid', $this->ids[$person])->orderBy('id')->getAll());
+            $this->db->queryBuilder()->table('pramnos.rule_log')->where('ruleid', $rule)->where('personid', $this->ids[$person])->orderBy('id')->getAll());
     }
 
     /** A run's row. */
     private function runOf(int $rule, string $person): array
     {
-        return $this->db->queryBuilder()->table('rule_runs')->where('ruleid', $rule)->where('personid', $this->ids[$person])->orderBy('runid', 'desc')->getAll()[0] ?? [];
+        return $this->db->queryBuilder()->table('pramnos.rule_runs')->where('ruleid', $rule)->where('personid', $this->ids[$person])->orderBy('runid', 'desc')->getAll()[0] ?? [];
     }
 
     /**
@@ -144,7 +144,7 @@ class RulesTest extends TestCase
         $this->work($queue);
 
         // Assert
-        $runs = fn (int $rule): int => count($this->db->queryBuilder()->table('rule_runs')->where('ruleid', $rule)->getAll());
+        $runs = fn (int $rule): int => count($this->db->queryBuilder()->table('pramnos.rule_runs')->where('ruleid', $rule)->getAll());
         $this->assertSame(1, $runs($first));
         $this->assertSame(2, $runs($every));
     }
@@ -213,7 +213,7 @@ class RulesTest extends TestCase
         $this->assertSame(['entered', 'sent:one', 'skipped:two', 'finished'], $this->outcomes($real, 'cara'), 'one email a day');
         $this->assertSame([[$this->ids['cara'], 'one']], array_map(static fn (array $d): array => [$d['person'], $d['tag']], $this->done));
         $reasons = array_map(static fn (array $r): string => json_decode($r['detail'], true)['reason'],
-            $this->db->queryBuilder()->table('rule_log')->where('outcome', 'skipped')->orderBy('id')->getAll());
+            $this->db->queryBuilder()->table('pramnos.rule_log')->where('outcome', 'skipped')->orderBy('id')->getAll());
         $this->assertSame(['consent', 'consent', 'cap'], $reasons);
         $this->assertSame('1', (string) $this->runOf($shadow, 'cara')['shadow']);
     }
@@ -488,7 +488,7 @@ class RulesTest extends TestCase
         $tasks = $queue->tasks;
         $queue->tasks = [];
         $annaRun = (int) $this->runOf($orphan, 'anna')['runid'];
-        $this->db->queryBuilder()->table('rule_runs')->where('runid', (int) $this->runOf($orphan, 'cara')['runid'])->update(['step' => 'ghost']);
+        $this->db->queryBuilder()->table('pramnos.rule_runs')->where('runid', (int) $this->runOf($orphan, 'cara')['runid'])->update(['step' => 'ghost']);
         $ghost = Engine::handle($tasks[0]['job']);
         $this->db->queryBuilder()->table('rules')->where('ruleid', $orphan)->delete();
         $lost  = Engine::step($annaRun, 0);
@@ -507,14 +507,14 @@ class RulesTest extends TestCase
         $refused = Engine::schedule(['kind' => 'event']);
         $this->db->schema()->dropTableIfExists('pramnos.emailtracking');
         $this->probeChanged($this->db->type);
-        $this->db->queryBuilder()->table('rule_log')->insert(['runid' => 5, 'ruleid' => 1, 'version' => 1, 'personid' => 1, 'step' => 'm', 'outcome' => 'sent', 'detail' => '{"mail":3}', 'at' => time()]);
+        $this->db->queryBuilder()->table('pramnos.rule_log')->insert(['runid' => 5, 'ruleid' => 1, 'version' => 1, 'personid' => 1, 'step' => 'm', 'outcome' => 'sent', 'detail' => '{"mail":3}', 'at' => time()]);
         $untracked = Engine::messageStatus(5, 'm');
 
         // Assert
         $outcomes = $this->outcomes($rule, 'bob');
         $this->assertSame(['entered', 'error:gone', 'error:boom', 'finished'], $outcomes);
         $reasons = array_map(static fn (array $r): string => json_decode($r['detail'], true)['reason'],
-            $this->db->queryBuilder()->table('rule_log')->where('ruleid', $rule)->where('outcome', 'error')->orderBy('id')->getAll());
+            $this->db->queryBuilder()->table('pramnos.rule_log')->where('ruleid', $rule)->where('outcome', 'error')->orderBy('id')->getAll());
         $this->assertSame(['no action note', 'provider down'], $reasons);
         $this->assertStringContainsString('no step ghost', $ghost);
         $this->assertSame('failed', $this->runOf($orphan, 'cara')['status']);

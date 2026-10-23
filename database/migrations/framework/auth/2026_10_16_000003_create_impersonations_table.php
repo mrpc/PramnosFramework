@@ -20,11 +20,11 @@ class CreateImpersonationsTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
-        if ($schema->hasTable('impersonations')) {
+        if ($schema->hasTable('authserver.impersonations')) {
             return;
         }
 
-        $schema->createTable('impersonations', function ($table) {
+        $schema->createTable('authserver.impersonations', function ($table) {
             $table->comment('Signed in as another account now: who, as whom, and the way back while it is open');
             $table->increments('id');
             $table->bigInteger('actor_userid')->comment('Who signed in as somebody else');
@@ -40,6 +40,6 @@ class CreateImpersonationsTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('impersonations');
+        $this->application->database->schema()->dropTableIfExists('authserver.impersonations');
     }
 }

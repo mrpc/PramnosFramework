@@ -96,7 +96,7 @@ final class Segments
         if ($uses !== []) {
             throw new \RuntimeException(t('This segment is in use: %s', implode(', ', $uses)));
         }
-        self::db()->queryBuilder()->table('#PREFIX#segment_members')->where('segmentid', $id)->delete();
+        self::db()->queryBuilder()->table('pramnos.segment_members')->where('segmentid', $id)->delete();
         self::db()->queryBuilder()->table('#PREFIX#segments')->where('segmentid', $id)->delete();
     }
 
@@ -199,13 +199,13 @@ final class Segments
         $left    = array_keys(array_diff_key($wasIn, $nowIn));
 
         foreach (array_chunk($entered, 500) as $chunk) {
-            self::db()->queryBuilder()->table('#PREFIX#segment_members')->insertMany(array_map(
+            self::db()->queryBuilder()->table('pramnos.segment_members')->insertMany(array_map(
                 static fn (int $userid): array => ['segmentid' => $id, 'userid' => $userid, 'entered_at' => $now, 'left_at' => null],
                 $chunk
             ));
         }
         foreach (array_chunk($left, 500) as $chunk) {
-            self::db()->queryBuilder()->table('#PREFIX#segment_members')->where('segmentid', $id)
+            self::db()->queryBuilder()->table('pramnos.segment_members')->where('segmentid', $id)
                 ->whereNull('left_at')->whereIn('userid', $chunk)->update(['left_at' => $now]);
         }
         self::db()->queryBuilder()->table('#PREFIX#segments')->where('segmentid', $id)
@@ -261,13 +261,13 @@ final class Segments
             }
             $matches = Filter::fromArray($segment['filter'], self::db())->matches($userid);
             if ($matches && !isset($open[$id])) {
-                self::db()->queryBuilder()->table('#PREFIX#segment_members')
+                self::db()->queryBuilder()->table('pramnos.segment_members')
                     ->insert(['segmentid' => $id, 'userid' => $userid, 'entered_at' => $now, 'left_at' => null]);
                 self::recount($id);
                 $changes['entered'][] = $id;
                 Event::dispatch(new SegmentEntered($id, $userid, $now));
             } elseif (!$matches && isset($open[$id])) {
-                self::db()->queryBuilder()->table('#PREFIX#segment_members')->where('segmentid', $id)
+                self::db()->queryBuilder()->table('pramnos.segment_members')->where('segmentid', $id)
                     ->where('userid', $userid)->whereNull('left_at')->update(['left_at' => $now]);
                 self::recount($id);
                 $changes['left'][] = $id;
@@ -310,7 +310,7 @@ final class Segments
      */
     public static function of(int $userid): array
     {
-        $rows = self::db()->queryBuilder()->table('#PREFIX#segment_members AS segment_members')
+        $rows = self::db()->queryBuilder()->table('pramnos.segment_members AS segment_members')
             ->join('#PREFIX#segments AS segments', 'segments.segmentid', '=', 'segment_members.segmentid')
             ->select(['segments.segmentid', 'segments.name', 'segment_members.entered_at'])
             ->where('segment_members.userid', $userid)->whereNull('segment_members.left_at')
@@ -331,7 +331,7 @@ final class Segments
     public static function movement(int $id, int $days = 7): array
     {
         $since = self::countsFrom($id, time() - $days * 86400);
-        $count = static fn (string $column): int => (int) (self::db()->queryBuilder()->table('#PREFIX#segment_members')
+        $count = static fn (string $column): int => (int) (self::db()->queryBuilder()->table('pramnos.segment_members')
             ->select([new Expression('COUNT(*) AS n')])->where('segmentid', $id)
             ->where($column, '>=', $since)->getAllOrFail()[0]['n'] ?? 0);
 
@@ -359,7 +359,7 @@ final class Segments
         $since  = time() - $days * 86400;
         $start  = self::knowsItsStart();
         $counts = static function (string $column) use ($since, $start): array {
-            $query = self::db()->queryBuilder()->table('#PREFIX#segment_members AS segment_members')
+            $query = self::db()->queryBuilder()->table('pramnos.segment_members AS segment_members')
                 ->select(['segment_members.segmentid', new Expression('COUNT(*) AS n')])->where('segment_members.' . $column, '>=', $since);
             if ($start) {
                 // Not the first working out: those members are the segment's start.
@@ -391,7 +391,7 @@ final class Segments
     /** Whether a person is in a segment now. */
     public static function isMember(int $id, int $userid): bool
     {
-        return self::db()->queryBuilder()->table('#PREFIX#segment_members')->select(['userid'])
+        return self::db()->queryBuilder()->table('pramnos.segment_members')->select(['userid'])
             ->where('segmentid', $id)->where('userid', $userid)->whereNull('left_at')->limit(1)->getAllOrFail() !== [];
     }
 
@@ -461,20 +461,20 @@ final class Segments
     private static function memberIds(int $id): array
     {
         return array_map(static fn (array $row): int => (int) $row['userid'], self::db()->queryBuilder()
-            ->table('#PREFIX#segment_members')->select(['userid'])->where('segmentid', $id)->whereNull('left_at')->getAllOrFail());
+            ->table('pramnos.segment_members')->select(['userid'])->where('segmentid', $id)->whereNull('left_at')->getAllOrFail());
     }
 
     /** @return list<int> The segments a person is in now */
     private static function segmentsOf(int $userid): array
     {
         return array_map(static fn (array $row): int => (int) $row['segmentid'], self::db()->queryBuilder()
-            ->table('#PREFIX#segment_members')->select(['segmentid'])->where('userid', $userid)->whereNull('left_at')->getAllOrFail());
+            ->table('pramnos.segment_members')->select(['segmentid'])->where('userid', $userid)->whereNull('left_at')->getAllOrFail());
     }
 
     /** Store a segment's count as its open stays say. */
     private static function recount(int $id): void
     {
-        $open = self::db()->queryBuilder()->table('#PREFIX#segment_members')->select([new Expression('COUNT(*) AS n')])
+        $open = self::db()->queryBuilder()->table('pramnos.segment_members')->select([new Expression('COUNT(*) AS n')])
             ->where('segmentid', $id)->whereNull('left_at')->getAllOrFail();
         self::db()->queryBuilder()->table('#PREFIX#segments')->where('segmentid', $id)->update(['members' => (int) ($open[0]['n'] ?? 0)]);
     }
@@ -535,7 +535,7 @@ final class Segments
         if ($days <= 0 || !Installed::segments()) {
             return null;
         }
-        $old   = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#segment_members')
+        $old   = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('pramnos.segment_members')
             ->whereNotNull('left_at')->where('left_at', '<', time() - $days * 86400);
         $count = (int) ((clone $old)->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->getAllOrFail()[0]['n'] ?? 0);
         if ($count > 0) {

@@ -521,7 +521,7 @@ class SegmentsScreenTest extends TestCase
         $anna = \Pramnos\Html\AudiencePanel::person($this->ids['anna']);
         $dan  = \Pramnos\Html\AudiencePanel::person($this->ids['dan']);
         // Without the segment tables the card still shows the groups.
-        $this->db->schema()->dropTableIfExists('segment_members');
+        $this->db->schema()->dropTableIfExists('pramnos.segment_members');
         $this->probeChanged($this->db->type);
         $bare = \Pramnos\Html\AudiencePanel::person($this->ids['anna']);
 

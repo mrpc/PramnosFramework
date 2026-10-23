@@ -804,7 +804,7 @@ same-origin POST, small body, a few per minute.
 The scaffolded footers print `\Pramnos\Logs\ClientVitals::tag()`. It writes the
 `<meta name="pf-vitals">`, the library and the script, and prints nothing while the sample is 0.
 In an existing project:
-1. Run `migrate` (`client_vitals`).
+1. Run `migrate` (`pramnos.client_vitals`).
 2. Run `project:install web-vitals` and `project:resync --js --all`.
 3. Print the tag before `</body>`.
 

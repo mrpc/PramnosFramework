@@ -51,8 +51,8 @@ class CreateRulesTables extends Migration
             });
         }
 
-        if (!$schema->hasTable('rule_runs')) {
-            $schema->createTable('rule_runs', function ($table) {
+        if (!$schema->hasTable('pramnos.rule_runs')) {
+            $schema->createTable('pramnos.rule_runs', function ($table) {
                 $table->comment('One person on their way through one rule');
                 $table->bigIncrements('runid')->comment('Auto-increment run identifier');
                 $table->integer('ruleid')->unsigned()->comment('rules.ruleid');
@@ -73,8 +73,8 @@ class CreateRulesTables extends Migration
             });
         }
 
-        if (!$schema->hasTable('rule_log')) {
-            $schema->createTable('rule_log', function ($table) {
+        if (!$schema->hasTable('pramnos.rule_log')) {
+            $schema->createTable('pramnos.rule_log', function ($table) {
                 $table->comment('Every step of every run: what was decided, what was done, why');
                 $table->bigIncrements('id')->comment('Auto-increment row identifier');
                 $table->bigInteger('runid')->comment('rule_runs.runid');
@@ -96,7 +96,7 @@ class CreateRulesTables extends Migration
     public function down(): void
     {
         $schema = $this->application->database->schema();
-        foreach (['rule_log', 'rule_runs', 'rule_versions', 'rules'] as $table) {
+        foreach (['pramnos.rule_log', 'pramnos.rule_runs', 'rule_versions', 'rules'] as $table) {
             $schema->dropTableIfExists($table);
         }
     }

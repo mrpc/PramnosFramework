@@ -23,8 +23,8 @@ class CreatePersonEventsTables extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('person_events')) {
-            $schema->createTable('person_events', function ($table) {
+        if (!$schema->hasTable('pramnos.person_events')) {
+            $schema->createTable('pramnos.person_events', function ($table) {
                 $table->comment('What each person did, summed: how many times, the first and the last');
                 $table->bigInteger('personid')->comment('users.userid of the person');
                 $table->string('event', 100)->comment('The event, by name — segment.entered, payment.made…');
@@ -41,6 +41,6 @@ class CreatePersonEventsTables extends Migration
     public function down(): void
     {
         $schema = $this->application->database->schema();
-        $schema->dropTableIfExists('person_events');
+        $schema->dropTableIfExists('pramnos.person_events');
     }
 }

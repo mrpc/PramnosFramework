@@ -24,11 +24,11 @@ class CreateQueueIdempotencyTable extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasTable('queue_idempotency')) {
+        if ($schema->hasTable('pramnos.queue_idempotency')) {
             return;
         }
 
-        $schema->createTable('queue_idempotency', function ($table) {
+        $schema->createTable('pramnos.queue_idempotency', function ($table) {
             $table->comment('Keys of work queued listeners have done, so it is not done twice');
             $table->string('idempotencykey', 191)
                 ->comment('The listener\'s key, e.g. welcome-email:42');
@@ -46,6 +46,6 @@ class CreateQueueIdempotencyTable extends Migration
     /** Drop it. */
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('queue_idempotency');
+        $this->application->database->schema()->dropTableIfExists('pramnos.queue_idempotency');
     }
 }

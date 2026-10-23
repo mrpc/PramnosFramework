@@ -20,7 +20,7 @@ live in the [Changelog](version-history/index.md); this page tracks what is
 
 The built-in login lifecycle, session tracking, activity logging **and remember-me** now cover
 what the legacy addons provided. Remember-me is one rotating token per sign-in in
-`remember_tokens` (`Auth\RememberTokens`). `Auth::authCheck()` re-establishes a remembered login
+`authserver.remember_tokens` (`Auth\RememberTokens`). `Auth::authCheck()` re-establishes a remembered login
 through `Auth::rememberLogin()` when no auth addon is registered. `SessionTrackingMiddleware`
 already calls it, and an application in production uses it through its own addon.
 

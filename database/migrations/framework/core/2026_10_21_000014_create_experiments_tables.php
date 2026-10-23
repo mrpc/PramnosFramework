@@ -43,8 +43,8 @@ class CreateExperimentsTables extends Migration
             });
         }
 
-        if (!$schema->hasTable('experiment_assignments')) {
-            $schema->createTable('experiment_assignments', function ($table) {
+        if (!$schema->hasTable('pramnos.experiment_assignments')) {
+            $schema->createTable('pramnos.experiment_assignments', function ($table) {
                 $table->comment('Which variant each person or visitor was given, for good');
                 $table->bigIncrements('id')->comment('Auto-increment row identifier');
                 $table->integer('experimentid')->unsigned()->comment('experiments.experimentid');
@@ -62,7 +62,7 @@ class CreateExperimentsTables extends Migration
     public function down(): void
     {
         $schema = $this->application->database->schema();
-        $schema->dropTableIfExists('experiment_assignments');
+        $schema->dropTableIfExists('pramnos.experiment_assignments');
         $schema->dropTableIfExists('experiments');
     }
 }

@@ -22,13 +22,13 @@ final class StreamTransport implements EventTransport
     public const NAME = 'stream';
 
     /** The log. */
-    public const LOG_TABLE = 'event_log';
+    public const LOG_TABLE = 'pramnos.event_log';
 
     /** Each group's position. */
-    public const CONSUMERS_TABLE = 'event_consumers';
+    public const CONSUMERS_TABLE = 'pramnos.event_consumers';
 
     /** What failed, to be tried again or dead. */
-    public const DELIVERIES_TABLE = 'event_deliveries';
+    public const DELIVERIES_TABLE = 'pramnos.event_deliveries';
 
     /** @var array<string, bool> Whether the tables are here, asked once per process and database */
     private static array $available = [];
@@ -69,7 +69,7 @@ final class StreamTransport implements EventTransport
         $entry   = null;
         if ($payload !== null) {
             $db = self::db();
-            $db->queryBuilder()->table('#PREFIX#' . self::LOG_TABLE)->insert([
+            $db->queryBuilder()->table(self::LOG_TABLE)->insert([
                 'event'     => mb_substr($envelope->event, 0, 150),
                 'eventid'   => mb_substr($envelope->id(), 0, 64),
                 'payload'   => (string) json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION),
@@ -78,7 +78,7 @@ final class StreamTransport implements EventTransport
             ]);
             $entry = (int) $db->getInsertId();
             foreach ($groups as $group) {
-                $db->queryBuilder()->table('#PREFIX#' . self::CONSUMERS_TABLE)
+                $db->queryBuilder()->table(self::CONSUMERS_TABLE)
                     ->insertOrIgnore(['groupname' => $group, 'position' => $entry - 1, 'updatedat' => time()]);
             }
         }

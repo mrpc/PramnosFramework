@@ -300,6 +300,23 @@ the first: change the first, so a new installation makes the right shape, and gi
 installations that ran the old one a one-time statement — in the Upgrade Guide row, run by hand
 or by the application's session — that no migration carries for good.
 
+### 15. The framework's tables are not the application's
+
+A table the framework makes for itself goes in a schema of its own: **`authserver.*`** for
+sign-in, identity and permissions, **`pramnos.*`** for the engine — logs, queues, schedulers,
+caches, the state behind segments and rules. On MySQL the schema becomes a name prefix
+(`pramnos_rule_log`); the query builder resolves either, and raw SQL uses
+`$schema->quoteTable('pramnos.x')`. A join across schemas costs nothing.
+
+The application's schema keeps what the application defines and manages — groups, segments,
+rules, consent lists, conversations — and any table applications already had under that name
+before the framework adopted it (`javascripterrors`, `bounces`, `usergroups`): moving those would
+break their own code.
+
+**Why:** until October 2026 this held without being written down; then most of the tables added that month went into
+the application's schema, and every installation that had run them needed a one-time
+move.
+
 ---
 
 ## Session handoff rule

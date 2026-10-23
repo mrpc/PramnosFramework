@@ -245,7 +245,7 @@ class ExperimentsTest extends TestCase
             Engine::onEvent('x', $this->ids[$name]);
         }
         $this->work($queue);
-        $variants = array_column($this->db->queryBuilder()->table('rule_runs')->where('ruleid', $rule)->getAll(), 'variant', 'personid');
+        $variants = array_column($this->db->queryBuilder()->table('pramnos.rule_runs')->where('ruleid', $rule)->getAll(), 'variant', 'personid');
 
         // Assert
         sort($bees);
@@ -355,7 +355,7 @@ class ExperimentsTest extends TestCase
         $this->request('POST', $id);
         $screen->stop();
         $status = Experiments::get($id)['status'];
-        $this->db->schema()->dropTableIfExists('experiment_assignments');
+        $this->db->schema()->dropTableIfExists('pramnos.experiment_assignments');
         $this->probeChanged($this->db->type);
         \Pramnos\Audience\Installed::reset();
         $this->request('GET');

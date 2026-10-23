@@ -136,7 +136,7 @@ class RuleTesterTest extends TestCase
         $row = $this->db->queryBuilder()->table('mails')->where('id', $sent['detail']['mail'])->getAll()[0];
         $this->assertSame(['bob@example.com', '[Test] Γεια Cara', $this->ids['bob']], [$row['tomail'], $row['subject'], (int) $row['userid']]);
         $this->assertSame(["Rule {$rule} has no action step greek.", 'No rule 999.', 'No rule 999.'], $refusals);
-        $this->assertSame([], $this->db->queryBuilder()->table('rule_log')->getAll(), 'not part of any run');
+        $this->assertSame([], $this->db->queryBuilder()->table('pramnos.rule_log')->getAll(), 'not part of any run');
     }
 
     /**

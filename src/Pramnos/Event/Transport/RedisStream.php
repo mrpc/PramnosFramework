@@ -96,7 +96,7 @@ final class RedisStream
         if ($db->inTransaction()) {
             return 0;   // what this transaction wrote is not committed yet
         }
-        $consumers = '#PREFIX#' . StreamTransport::CONSUMERS_TABLE;
+        $consumers = StreamTransport::CONSUMERS_TABLE;
         $row       = $db->queryBuilder()->table($consumers)->where('groupname', self::RELAY)->limit(1)->getAllOrFail()[0] ?? null;
         if ($row === null) {
             // From what the groups had not read yet: a switch from the database loses nothing.
@@ -104,7 +104,7 @@ final class RedisStream
             $db->queryBuilder()->table($consumers)->insertOrIgnore(['groupname' => self::RELAY, 'position' => (int) ($floor ?? 0), 'updatedat' => time()]);
             $row = ['position' => (int) ($floor ?? 0)];
         }
-        $entries = $db->queryBuilder()->table('#PREFIX#' . StreamTransport::LOG_TABLE)->where('entryid', '>', (int) $row['position'])
+        $entries = $db->queryBuilder()->table(StreamTransport::LOG_TABLE)->where('entryid', '>', (int) $row['position'])
             ->orderBy('entryid')->limit($limit)->getAllOrFail();
         $redis = self::redis();
         $max   = (int) (self::settings()['max_length'] ?? self::MAX_LENGTH);
@@ -200,7 +200,7 @@ final class RedisStream
 
             return;
         }
-        $entry = StreamTransport::db()->queryBuilder()->table('#PREFIX#' . StreamTransport::LOG_TABLE)
+        $entry = StreamTransport::db()->queryBuilder()->table(StreamTransport::LOG_TABLE)
             ->where('entryid', (int) ($fields['entry'] ?? 0))->limit(1)->getAllOrFail()[0] ?? null;
         $error = $entry === null ? 'The entry is no longer in the log.' : $run($entry);
         if ($error === null) {
@@ -216,7 +216,7 @@ final class RedisStream
         }
         $tally['dead']++;
         $redis->xAck(self::key(), $group, [$id]);
-        StreamTransport::db()->queryBuilder()->table('#PREFIX#' . StreamTransport::DELIVERIES_TABLE)->insertOrIgnore([
+        StreamTransport::db()->queryBuilder()->table(StreamTransport::DELIVERIES_TABLE)->insertOrIgnore([
             'groupname' => $group, 'entryid' => (int) ($fields['entry'] ?? 0), 'attempts' => $delivery, 'status' => 'dead',
             'nextat' => 0, 'error' => mb_substr($error, 0, 2000), 'createdat' => time(),
         ]);

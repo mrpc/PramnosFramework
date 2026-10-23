@@ -65,7 +65,7 @@ final class BodyStore
         }
         // Asked once a process. A database that cannot answer throws, and the body is kept in its
         // row ({@see \Pramnos\Email\Email::keptBody()}).
-        return self::$resolved ??= \Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('mail_bodies') ? self::DATABASE : self::FILES;
+        return self::$resolved ??= \Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('pramnos.mail_bodies') ? self::DATABASE : self::FILES;
     }
 
     /** Forget the answer to 'auto' — after a migration made the table, or between tests. */
@@ -148,7 +148,7 @@ final class BodyStore
     /** Keep a body in `mail_bodies`, for the `mails` row `$mailId`. */
     public static function putRow(int $mailId, int $sentAt, string $body, bool $rebuild = true): void
     {
-        \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#mail_bodies')->insert([
+        \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('pramnos.mail_bodies')->insert([
             'mail_id' => $mailId,
             'sent_at' => gmdate('Y-m-d H:i:s+00', $sentAt),
             'rebuild' => $rebuild,
@@ -164,7 +164,7 @@ final class BodyStore
      */
     public static function getRow(int $mailId, int $sentAt): ?array
     {
-        $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#mail_bodies')
+        $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('pramnos.mail_bodies')
             ->select(['body', 'rebuild'])
             ->where('mail_id', $mailId)
             // The row's own moment: the chunk it is in, and no other, is read.
@@ -193,9 +193,9 @@ final class BodyStore
         $removed = 0;
 
         $inDatabase = array_values(array_filter($rows, static fn (array $row): bool => (string) $row['path'] === self::IN_DATABASE));
-        if ($inDatabase !== [] && $db->schema()->hasTable('mail_bodies')) {
+        if ($inDatabase !== [] && $db->schema()->hasTable('pramnos.mail_bodies')) {
             $dates = array_map(static fn (array $row): int => (int) $row['date'], $inDatabase);
-            $result = $db->queryBuilder()->table('#PREFIX#mail_bodies')
+            $result = $db->queryBuilder()->table('pramnos.mail_bodies')
                 ->whereIn('mail_id', array_map(static fn (array $row): int => (int) $row['id'], $inDatabase))
                 // The rows' own moments: only the chunks they are in are read.
                 ->whereBetween('sent_at', [gmdate('Y-m-d H:i:s+00', min($dates)), gmdate('Y-m-d H:i:s+00', max($dates))])

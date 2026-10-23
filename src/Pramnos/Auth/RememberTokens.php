@@ -144,6 +144,6 @@ final class RememberTokens
 
     private static function table(): \Pramnos\Database\QueryBuilder
     {
-        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#remember_tokens');
+        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('authserver.remember_tokens');
     }
 }

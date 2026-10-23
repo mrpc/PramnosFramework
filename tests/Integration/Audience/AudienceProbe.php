@@ -307,7 +307,7 @@ trait AudienceProbe
                 ->update([$column => new \Pramnos\Database\Expression($column . ' - ' . (int) $seconds)]);
         }
         foreach (['entered_at', 'left_at'] as $column) {
-            $this->db->queryBuilder()->table('segment_members')->where('segmentid', $segment)->whereNotNull($column)
+            $this->db->queryBuilder()->table('pramnos.segment_members')->where('segmentid', $segment)->whereNotNull($column)
                 ->update([$column => new \Pramnos\Database\Expression($column . ' - ' . (int) $seconds)]);
         }
     }

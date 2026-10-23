@@ -34,7 +34,7 @@ final class Tester
         $found      = Rules::get($rule) ?? throw new \InvalidArgumentException("No rule {$rule}.");
         $definition = $found['definition'];
         $reasons    = [];
-        $runs       = self::db()->queryBuilder()->table('#PREFIX#rule_runs')->where('ruleid', $rule)->where('personid', $person)->getAllOrFail();
+        $runs       = self::db()->queryBuilder()->table('pramnos.rule_runs')->where('ruleid', $rule)->where('personid', $person)->getAllOrFail();
         if ($definition['entry'] === 'first' && $runs !== []) {
             $reasons[] = 'entered before';
         }
@@ -76,11 +76,11 @@ final class Tester
         $trigger    = $definition['trigger'];
         [$query, $column, $basis] = match ($trigger['type']) {
             // The summary answers it exactly: somebody did it in the window when they last did it there.
-            'event' => [self::db()->queryBuilder()->table('#PREFIX#person_events')->select(['personid'])
+            'event' => [self::db()->queryBuilder()->table('pramnos.person_events')->select(['personid'])
                 ->where('event', $trigger['event'])->where('last_at', '>=', $since), 'personid', 'the event log'],
-            'segment_entered' => [self::db()->queryBuilder()->table('#PREFIX#segment_members')->select(['userid'])
+            'segment_entered' => [self::db()->queryBuilder()->table('pramnos.segment_members')->select(['userid'])
                 ->where('segmentid', $trigger['segment'])->where('entered_at', '>=', Segments::countsFrom((int) $trigger['segment'], $since)), 'userid', 'entries into the segment'],
-            'segment_left' => [self::db()->queryBuilder()->table('#PREFIX#segment_members')->select(['userid'])
+            'segment_left' => [self::db()->queryBuilder()->table('pramnos.segment_members')->select(['userid'])
                 ->where('segmentid', $trigger['segment'])->where('left_at', '>=', Segments::countsFrom((int) $trigger['segment'], $since)), 'userid', 'departures from the segment'],
             default => [null, '', 'who matches now'],
         };

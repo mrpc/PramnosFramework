@@ -112,7 +112,7 @@ final class MailBodyStoreTimescaleTest extends TestCase
         $mail->send();
         $row = (array) $this->db->queryBuilder()->table('#PREFIX#mails')->where('tomail', $to)->first()->fields;
         $before = Body::of($row);
-        $this->db->query("SELECT compress_chunk(c, if_not_compressed => true) FROM show_chunks('" . $this->db->prefix . "mail_bodies') c");
+        $this->db->query("SELECT compress_chunk(c, if_not_compressed => true) FROM show_chunks('" . $this->db->prefix . "pramnos.mail_bodies') c");
         $after = Body::of($row);
 
         // Assert
