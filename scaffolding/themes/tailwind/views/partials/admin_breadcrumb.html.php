@@ -204,7 +204,8 @@ $trails = [
     'organizations_edit'     => [['Organizations', $orgsUrl], [$orgId > 0 ? $orgLabel : 'New Organization', '']],
     'organizations_members'  => [['Organizations', $orgsUrl], [$orgLabel, $orgViewUrl], ['Members', '']],
     'groups'                 => [['Groups', '']],
-    'groups_view'            => [['Groups', $groupsUrl], [$groupLabel, '']],
+    // A group is opened from the library's groups tab, where an application lists them.
+    'groups_view'            => [[t('Groups and segments'), $base . 'Segments?kind=groups'], [$groupLabel, '']],
     'groups_edit'            => [['Groups', $groupsUrl], [$groupId > 0 ? $groupLabel : 'New group', '']],
     'mailtemplates'      => [['Message templates', '']],
     'ai'                 => [['AI', '']],

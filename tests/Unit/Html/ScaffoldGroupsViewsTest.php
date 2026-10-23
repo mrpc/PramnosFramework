@@ -82,7 +82,8 @@ class ScaffoldGroupsViewsTest extends TestCase
         $this->assertStringContainsString('$this->members->render()', $page);
         $this->assertStringContainsString("adminUrl('Groups/delete/')", $page);
         // One token field per form: add member, delete, give role, withdraw role.
-        $this->assertSame(4, substr_count($page, 'getTokenField()'));
+        $this->assertSame(4, substr_count($page, '$token()'));
+        $this->assertSame(1, substr_count($page, 'getTokenField()'), 'the one place the token comes from');
         $this->assertStringContainsString("adminUrl('Groups/addrole/')", $page);
         $this->assertStringContainsString("adminUrl('Groups/removerole/')", $page);
         $this->assertStringContainsString('name="roleid"', $page);

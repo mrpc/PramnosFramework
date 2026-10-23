@@ -457,7 +457,9 @@ the screen deletes a group's memberships itself.
 
 ### The screen
 
-*Administration → People → Groups* (`/admin/Groups`) appears only while the feature is on.
+*Administration → People → Groups* (`/admin/Groups`) appears only while the feature is on. The
+screen itself opens where the feature is on or its tables are there, so an application that had
+`usergroups` before the feature uses it without enabling the feature to make them again.
 There you:
 
 - find a group in a datatable of number, name, description, order and members (`Groups/data`),
@@ -467,7 +469,10 @@ There you:
   application reports) is not deleted, and the refusal says what uses it;
 - open a group to see its members, a page at a time from `Groups/members/{id}`, searched by
   username, name, email or number, so a group of tens of thousands reads one page; the page also
-  says how many there are and what uses the group;
+  says how many there are, its order and what uses the group, and its delete button is disabled
+  while something does;
+- give the group roles, which every member then holds. The section shows where there are roles
+  to give or held; `'audience' => ['group_roles' => false]` hides it where groups are given none;
 - add a member by username, email or user id;
 - remove a member.
 

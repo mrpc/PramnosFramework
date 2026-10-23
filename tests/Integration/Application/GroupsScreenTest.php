@@ -583,27 +583,38 @@ class GroupsScreenTest extends TestCase
     }
 
     /**
-     * With the feature off every action is turned away, not only the list.
+     * With no groups here — the feature off and no tables — every action is turned away, not
+     * only the list. With the feature off but the tables there, as in an application that had
+     * groups before the feature and so does not enable it to have them made again, the screen
+     * works.
      */
     #[DataProvider('databases')]
-    public function testEveryActionIsClosedWhenTheFeatureIsOff(string $type, string $host, int $port, string $user): void
+    public function testEveryActionIsClosedWithoutGroupsAndOpenWithTheirTables(string $type, string $host, int $port, string $user): void
     {
         // Arrange
         $this->boot($type, $host, $port, $user);
         $groupId = $this->group('Closed');
         (new \ReflectionProperty(FeatureRegistry::class, 'enabled'))->setValue(null, ['auth' => true]);
         $_GET['_option'] = $groupId;
-        $_POST = ['name' => 'Changed', 'groupid' => $groupId, 'user' => 'x'];
 
         // Act
-        foreach (['view', 'edit', 'save', 'delete', 'addmember', 'removemember', 'addrole', 'removerole'] as $action) {
+        $open = new ProbeGroups();
+        $open->view();
+        $this->db->query('DROP TABLE userstogroups');
+        $this->db->query('DROP TABLE usergroups');
+        $this->probeChanged($type);
+        $_POST   = ['name' => 'Changed', 'groupid' => $groupId, 'user' => 'x'];
+        $closed  = [];
+        foreach (['display', 'data', 'members', 'view', 'edit', 'save', 'delete', 'addmember', 'removemember', 'addrole', 'removerole'] as $action) {
             $screen = new ProbeGroups();
             $screen->$action();
-            $this->assertNull($screen->lastView, $action . ' rendered with the feature off');
+            $closed[$action] = $screen->lastView === null && str_ends_with((string) $screen->redirectedTo, '/');
         }
 
-        // Assert — the group is exactly as it was.
-        $this->assertSame('Closed', $this->db->queryBuilder()->table('usergroups')->where('groupid', $groupId)->first()->fields['name']);
+        // Assert
+        $this->assertSame('view', $open->lastLayout, 'the tables are enough');
+        $this->assertSame(array_fill_keys(array_keys($closed), true), $closed, 'turned away to the administration\'s start');
+        $this->assertContains('User groups are not enabled on this site.', $_SESSION['_errors'] ?? []);
     }
 
     /**

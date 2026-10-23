@@ -145,15 +145,17 @@ class Groups extends Controller
             return $this->gone();
         }
 
-        \Pramnos\Framework\Factory::getDocument()->title = 'Group: ' . $group['name'];
+        \Pramnos\Framework\Factory::getDocument()->title = (string) $group['name'];
 
         $members             = new \Pramnos\Html\Datatable('dt-group-members');
         $members->source     = adminUrl('Groups/members/') . (int) $group['groupid'];
         $members->bootstrap  = false;
         $members->sortColumn = 1;
         $members->sortOrder  = 'asc';
-        $members->addColumn('#', true, true, false)->addColumn('Username', true, true, false)->addColumn('Name', true, true, false)
-            ->addColumn('Email', true, true, false)->addColumn('', true, false, false);
+        $members->exportName = t('Members of %s', (string) $group['name']);
+        foreach (['#', t('Username'), t('Full name'), t('Email address'), ''] as $i => $label) {
+            $members->addColumn(htmlspecialchars($label, ENT_QUOTES, 'UTF-8'), true, $i < 4, false);
+        }
 
         $view = $this->getView('groups');
         $view->group      = $group;
@@ -163,7 +165,8 @@ class Groups extends Controller
         $view->membersUrl = self::membersUrl((int) $group['groupid']);
 
         // Its roles, and the ones it could be given. Absent without the roles store.
-        $view->rolesEnabled   = $this->rolesEnabled();
+        // Not shown where the application says it gives groups no roles (`audience.group_roles`).
+        $view->rolesEnabled   = ($this->application->applicationInfo['audience']['group_roles'] ?? true) !== false && $this->rolesEnabled();
         $view->roles          = [];
         $view->availableRoles = [];
         if ($view->rolesEnabled) {
@@ -182,6 +185,9 @@ class Groups extends Controller
                 }
             }
         }
+
+        // No roles anywhere to give or hold: the section would only say so.
+        $view->rolesEnabled = $view->rolesEnabled && ($view->roles !== [] || $view->availableRoles !== []);
 
         return $view->display('view');
     }
@@ -234,7 +240,7 @@ class Groups extends Controller
             $e((string) $m['email']),
             '<form method="post" action="' . $e(adminUrl('Groups/removemember/') . $id) . '" style="display:inline;margin:0">' . $token
                 . '<input type="hidden" name="userid" value="' . (int) $m['userid'] . '">'
-                . '<button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Remove this member from the group?">Remove</button></form>',
+                . '<button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="' . $e(t('Remove this member from the group?')) . '">' . $e(t('Remove from the group')) . '</button></form>',
         ], $query->select(['users.userid', 'users.username', 'users.email', 'users.firstname', 'users.lastname'])->getAllOrFail());
 
         return \Pramnos\Http\Response::json(['draw' => (int) ($_POST['draw'] ?? 1), 'recordsTotal' => $total, 'recordsFiltered' => $filtered, 'data' => $rows]);
@@ -555,11 +561,10 @@ class Groups extends Controller
     }
 
     /**
-     * Whether this request stops here: below the screen's floor, or the feature is off.
+     * Whether this request stops here: below the screen's floor, or no groups here.
      *
-     * The feature check is here as well as on the menu item, because a URL can be typed.
-     * With the feature off the tables may not exist, and the answer is a page that says
-     * so rather than a database error.
+     * The check is here as well as on the menu item, because a URL can be typed. Without the
+     * feature or its tables, the answer is a page that says so rather than a database error.
      */
     protected function refused(): bool
     {
@@ -567,13 +572,23 @@ class Groups extends Controller
             return true;
         }
 
-        if (!\Pramnos\Application\FeatureRegistry::isEnabled('usergroups')) {
+        if (!$this->groupsHere()) {
             $this->addError('User groups are not enabled on this site.');
             $this->redirect(adminUrl(''));
             return true;
         }
 
         return false;
+    }
+
+    /**
+     * Whether groups are here: the `usergroups` feature, or its tables made some other way — an
+     * application that had them before the feature, and so does not enable it to have its
+     * migrations make them again.
+     */
+    protected function groupsHere(): bool
+    {
+        return \Pramnos\Application\FeatureRegistry::isEnabled('usergroups') || $this->db()->schema()->hasTable('usergroups');
     }
 
     /** @return array<string, mixed>|null */
