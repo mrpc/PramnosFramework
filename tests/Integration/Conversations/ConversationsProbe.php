@@ -59,6 +59,7 @@ trait ConversationsProbe
         require_once ROOT . '/database/migrations/framework/conversations/2026_10_22_000004_create_conversation_saved_table.php';
         require_once ROOT . '/database/migrations/framework/conversations/2026_10_22_000005_make_conversation_reactions_emoji_binary.php';
         require_once ROOT . '/database/migrations/framework/moderation/2026_10_23_000001_create_moderation_tables.php';
+        require_once ROOT . '/database/migrations/framework/conversations/2026_10_23_000001_add_broadcast_to_conversation_messages.php';
         require_once ROOT . '/database/migrations/framework/llm/2026_10_13_000003_create_chat_conversations_table.php';
         require_once ROOT . '/database/migrations/framework/llm/2026_10_13_000004_create_chat_messages_table.php';
         require_once ROOT . '/database/migrations/framework/llm/2026_10_13_000009_add_tags_to_chat_conversations.php';
@@ -101,6 +102,7 @@ trait ConversationsProbe
             \Pramnos\Framework\Migrations\Conversations\AddStarredToConversationMembers::class,
             \Pramnos\Framework\Migrations\Conversations\CreateConversationSavedTable::class,
             \Pramnos\Framework\Migrations\Conversations\MakeConversationReactionsEmojiBinary::class,
+            \Pramnos\Framework\Migrations\Conversations\AddBroadcastToConversationMessages::class,
             // Moderation: who may write where, in the conversations and anywhere else.
             \Pramnos\Framework\Migrations\Moderation\CreateModerationTables::class,
             // The analyst's conversations and asks: where a conversation with Ask finds the one it

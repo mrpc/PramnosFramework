@@ -369,6 +369,50 @@ class ConversationsTest extends TestCase
     }
 
     /**
+     * A reply also sent to the conversation stays in its thread and is listed with the conversation's
+     * own messages, in order, showing what it answers; it counts as unread like them and moves the
+     * conversation's newest; `broadcast` without a thread is refused. Told as any message is, marked.
+     */
+    #[DataProvider('databases')]
+    public function testAReplyAlsoSentToTheConversation(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->team();
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        $general = Conversations::create('channel', 'general', [$maria], $eleni);
+        $root    = Messages::post($general, $eleni, '**Ποιος** κοιτάζει το <@' . $maria . '> θέμα;');
+        Conversations::markRead($general, $maria, $root);
+
+        // Act
+        $quiet = Messages::post($general, $maria, 'μόνο στο νήμα', ['thread' => $root]);
+        $loud  = Messages::post($general, $maria, 'και στο κανάλι', ['thread' => $root, 'broadcast' => true]);
+        $after = Messages::post($general, $eleni, 'ευχαριστώ');
+        $top   = Messages::list($general);
+        $inThread = Messages::list($general, ['thread' => $root]);
+        $unread = Conversations::counts($general, $eleni, $root);
+        try {
+            Messages::post($general, $eleni, 'χωρίς νήμα', ['broadcast' => true]);
+            $refused = null;
+        } catch (\InvalidArgumentException $e) {
+            $refused = $e->getMessage();
+        }
+        $activity = array_values(array_filter($this->dispatched, static fn (array $d): bool => $d[0] === 'conversation.message.posted'));
+
+        // Assert
+        $this->assertSame([$root, $loud, $after], array_column($top, 'id'), 'the broadcast reply among the conversation\'s own, the other not');
+        $this->assertSame([$root, $quiet, $loud], array_column($inThread, 'id'), 'and in its thread');
+        $this->assertSame(['id' => $root, 'author' => 'Ελένη Σ.', 'text' => 'Ποιος κοιτάζει το @Μαρία Κ. θέμα;'], $top[1]['rootPreview']);
+        $this->assertSame([true, $root], [$top[1]['broadcast'], $top[1]['threadRootId']]);
+        $this->assertNull($top[0]['rootPreview']);
+        $this->assertSame(2, $top[0]['replyCount']);
+        $this->assertSame(1, $unread['unread'], 'eleni: maria\'s broadcast reply, not the quiet one nor her own');
+        $this->assertSame($after, Conversations::get($general)['lastMessageId']);
+        $this->assertNotNull($refused);
+        $this->assertCount(4, $activity, 'every message is told, the broadcast one too');
+    }
+
+    /**
      * Two different emoji from one person on one message are two reactions, and the same emoji
      * twice is one. MySQL's `utf8mb4_unicode_ci` compares every emoji equal (😍 = 💝), so under
      * the unique key the second was dropped; the migration makes the column binary and keeps

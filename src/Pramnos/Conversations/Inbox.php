@@ -120,8 +120,8 @@ final class Inbox
             if ($c['muted'] || $c['unread'] === 0 || $c['archivedAt'] !== null) {
                 continue;
             }
-            $ids = array_map('intval', array_column(self::messages()->select(['messageid'])->where('conversationid', $c['id'])
-                ->where('messageid', '>', $c['lastReadId'])->whereNull('threadrootid')->whereNull('deletedat')->where(self::others($person))
+            $ids = array_map('intval', array_column(Messages::inStream(self::messages())->select(['messageid'])->where('conversationid', $c['id'])
+                ->where('messageid', '>', $c['lastReadId'])->whereNull('deletedat')->where(self::others($person))
                 ->orderBy('messageid', 'desc')->limit(max(1, min(self::LIMIT, $each)))->getAllOrFail(), 'messageid'));
             $out[] = ['id' => $c['id'], 'title' => Conversations::names([$c['id']])[$c['id']] ?? '', 'unread' => $c['unread'],
                 'lastMessageId' => $c['lastMessageId'], 'messages' => Messages::many(array_reverse($ids))];

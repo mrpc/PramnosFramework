@@ -40,7 +40,7 @@ use Pramnos\Http\Response;
  * | `withask` | POST | — | `{id, conversation}`: one's conversation with Ask, made the first time; 404 to whoever may not ask it |
  * | `join/{id}`, `leave/{id}` | POST | — | `{ok}` |
  * | `add/{id}` | POST | `person` | `{ok}` |
- * | `post/{id}` | POST | `body`, `thread`, `files[]` | `{id, message}` |
+ * | `post/{id}` | POST | `body`, `thread`, `broadcast`, `files[]` | `{id, message}` — `broadcast` with `thread`: the reply is also sent to the conversation |
  * | `edit/{id}` | POST | `body` | `{message}` |
  * | `delete/{id}` | POST | — | `{ok}` |
  * | `react/{id}` | POST | `emoji`, `on` | `{ok}` |
@@ -322,6 +322,8 @@ class Conversations extends Controller
             $id = Messages::post($this->id(), (int) $me->userid, (string) $this->in('body'), array_filter([
                 'thread' => $this->in('thread') !== null && $this->in('thread') !== '' ? (int) $this->in('thread') : null,
                 'files'  => array_map('intval', (array) ($this->in('files') ?? [])),
+                // A reply also sent to the conversation.
+                'broadcast' => $this->flag('broadcast', false) ?: null,
             ]));
 
             // `@Ask`, or a question to Ask in one's conversation with it: the analyst answers.

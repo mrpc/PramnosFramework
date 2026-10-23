@@ -12,7 +12,7 @@ use Pramnos\Broadcasting\Auth\ChannelRegistry;
  * | channel                         | events                                                     |
  * |---------------------------------|------------------------------------------------------------|
  * | `private-conversation.{id}`     | `message.posted`, `message.edited`, `message.deleted`, `message.reacted`, `message.pinned` — and `client-typing`, which browsers whisper to each other |
- * | each member's own (`private-users.{id}`) | `conversation.activity`: a message in one of their conversations, whether it mentions them; `conversation.read`: what they have read there moved — read, or marked unread — with what is left |
+ * | each member's own (`private-users.{id}`) | `conversation.activity`: a message in one of their conversations — a reply also sent to it marked `broadcast` — whether it mentions them; `conversation.read`: what they have read there moved — read, or marked unread — with what is left |
  * | `presence-chat`                 | who of the team is connected                               |
  *
  * A message is written first and told second, so a browser that missed a telling asks for what came
@@ -62,7 +62,8 @@ final class Realtime
         foreach (Conversations::members($message['conversationId']) as $person) {
             if ($person !== $message['authorId']) {
                 self::tell(self::userChannel($person), 'conversation.activity', ['conversationId' => $message['conversationId'],
-                    'messageId' => $messageId, 'threadRootId' => $message['threadRootId'], 'authorId' => $message['authorId'], 'mention' => isset($mentioned[$person])]);
+                    'messageId' => $messageId, 'threadRootId' => $message['threadRootId'], 'broadcast' => $message['broadcast'], 'authorId' => $message['authorId'],
+                    'mention' => isset($mentioned[$person])]);
             }
         }
     }

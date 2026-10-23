@@ -83,6 +83,7 @@ class ConversationsControllerTest extends TestCase
         $posted  = $this->ask('eleni', 'post', $id, ['body' => 'Καλημέρα <@' . $maria . '>']);
         $side    = $this->ask('maria', 'conversations');
         $replied = $this->ask('maria', 'post', $id, ['body' => 'Καλημέρα', 'thread' => $posted['body']['id']]);
+        $loud    = $this->ask('maria', 'post', $id, ['body' => 'Και στο κανάλι', 'thread' => $posted['body']['id'], 'broadcast' => true]);
         $this->ask('maria', 'read', $id, ['message' => $posted['body']['id']]);
         $this->ask('maria', 'react', $posted['body']['id'], ['emoji' => ':wave:']);
         $this->ask('eleni', 'pin', $posted['body']['id'], []);
@@ -111,18 +112,19 @@ class ConversationsControllerTest extends TestCase
         $this->assertStringContainsString('@Μαρία Κ.', $posted['body']['message']['html'], 'the message as a reader sees it');
         $this->assertSame([1, 1], [$side['body']['conversations'][0]['unread'], $side['body']['conversations'][0]['mentions']]);
         $this->assertSame($maria, $side['body']['me']);
+        $this->assertSame([false, true], [$replied['body']['message']['broadcast'], $loud['body']['message']['broadcast']], 'a reply also sent to the conversation');
         $this->assertSame([['ok' => true], 1, 404], [$unread['body'], $unreadSide['body']['conversations'][0]['unread'], $stranger['status']],
             'unread from the message, so it counts again; somebody not in it is refused');
         $this->assertSame('Καλημέρα σε όλους', $edited['body']['message']['body']);
-        $this->assertSame([$posted['body']['id']], array_column($list['body']['messages'], 'id'));
+        $this->assertSame([$posted['body']['id'], $loud['body']['id']], array_column($list['body']['messages'], 'id'), 'the reply sent to the conversation too');
         $this->assertSame([$posted['body']['id']], $list['body']['pinned'], 'pinned before it was unpinned');
         $this->assertSame(':wave:', $list['body']['messages'][0]['reactions'][0]['emoji']);
         $this->assertSame(['member', 'Οι πωλήσεις'], [$list['body']['conversation']['member']['role'], $list['body']['conversation']['topic']]);
-        $this->assertSame([$posted['body']['id'], $replied['body']['id']], array_column($thread['body']['messages'], 'id'));
+        $this->assertSame([$posted['body']['id'], $replied['body']['id'], $loud['body']['id']], array_column($thread['body']['messages'], 'id'));
         $this->assertCount(2, $found['body']['messages']);
         $this->assertSame(['mentions', true], [Conversations::member($id, $maria)['notify'], Conversations::member($id, $maria)['muted']]);
         $this->assertSame([$eleni, $maria, $this->ids['nikos']], Conversations::members($id), 'nikos joined, left, was added');
-        $this->assertSame(0, Conversations::forPerson($eleni)[0]['unread'], 'eleni read what she wrote');
+        $this->assertSame(1, Conversations::forPerson($eleni)[0]['unread'], 'what eleni wrote is read; maria\'s reply sent to the conversation is not');
         $this->assertSame(['ok' => true], $starred['body']);
         $this->assertTrue($starSide['body']['conversations'][0]['starred'], 'her sidebar shows it starred');
         $this->assertFalse(Conversations::forPerson($eleni)[0]['starred'], 'a star is the member\'s own');

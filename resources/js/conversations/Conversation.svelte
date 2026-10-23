@@ -161,7 +161,16 @@
         if (message.conversationId !== id) {
             return;
         }
-        if (message.threadRootId === null) {
+        if (message.threadRootId !== null) {
+            if (thread && thread.root.id === message.threadRootId) {
+                thread = { ...thread, replies: upsert(thread.replies, message) };
+            }
+            // Counted once, though it arrives twice — from the composer and from the channel.
+            messages = messages.map((m) => (m.id === message.threadRootId && !m._counted?.includes(message.id)
+                ? { ...m, replyCount: m.replyCount + 1, lastReplyAt: message.at, _counted: [...(m._counted || []), message.id] } : m));
+        }
+        // A reply also sent to the conversation is in both: its thread, and the conversation's own list.
+        if (message.threadRootId === null || message.broadcast) {
             const isNew = !messages.some((m) => m.id === message.id);
             messages = upsert(messages, message);
             if (thread && thread.root.id === message.id) {
@@ -183,13 +192,6 @@
             } else if (isNew && message.authorId !== me) {
                 unseen++;
             }
-        } else {
-            if (thread && thread.root.id === message.threadRootId) {
-                thread = { ...thread, replies: upsert(thread.replies, message) };
-            }
-            // Counted once, though it arrives twice — from the composer and from the channel.
-            messages = messages.map((m) => (m.id === message.threadRootId && !m._counted?.includes(message.id)
-                ? { ...m, replyCount: m.replyCount + 1, lastReplyAt: message.at, _counted: [...(m._counted || []), message.id] } : m));
         }
     }
 

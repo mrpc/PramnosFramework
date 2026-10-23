@@ -64,13 +64,14 @@ use Pramnos\Conversations\Messages;
 
 $id = Messages::post($general, $me, 'Ο <@48211> ζητά επιστροφή — το βλέπει η <@' . $maria . '>;');
 Messages::post($general, $maria, 'Το κοιτάζω', ['thread' => $id]);       // a reply, counted on its root
+Messages::post($general, $maria, 'Έγινε', ['thread' => $id, 'broadcast' => true]); // ...and sent to the conversation too
 Messages::post($alerts, null, '', ['card' => ['title' => 'Payment', 'fields' => ['Amount' => '29,90 €']]]);
 Messages::edit($id, $me, 'Ο <@48211> ζητά επιστροφή');                   // its writer only; what it said is kept
 Messages::delete($id, $user);                                            // its writer, an owner, or root
 Messages::react($id, $nikos, ':eyes:');                                  // and false to take it off
 Messages::pin($id, $me);
 
-Messages::list($general);                         // the newest top-level messages, oldest first
+Messages::list($general);                         // the newest top-level messages and replies sent here too, oldest first
 Messages::list($general, ['before' => $oldest]);  // further back
 Messages::list($general, ['after' => $lastSeen]); // what a reconnect missed, replies too
 Messages::list($general, ['thread' => $id]);      // a thread: its root and replies
@@ -98,6 +99,13 @@ A reaction is a `:shortcode:` or the emoji itself; each different emoji is its o
 same one twice is one. On MySQL and MariaDB the column is binary for that
 (`make_conversation_reactions_emoji_binary`), as the tables' default collation takes every emoji
 for every other.
+
+**A reply also sent to the conversation** (`broadcast`, only with `thread`) stays in its thread and
+is listed with the conversation's own messages too, in order, carrying `broadcast` and a
+`rootPreview` — the root's id, writer and first words — for a client to show what it answers. It
+counts as unread like the conversation's own messages and is the conversation's newest, and it is
+told as any message is, `broadcast` marked on the members' `conversation.activity`. The dock shows
+it with *Replied to a thread:* above it, which opens the thread.
 
 A listed message carries its writer's name, its HTML, its reactions counted with who, its files and
 whether it is pinned; a deleted one keeps its place and nothing else — and the page leaves it out,
@@ -513,7 +521,7 @@ conversation or message the person does not read 404.
 | `create` | POST | `kind`, `name`, `topic`, `members[]` | `{id, conversation}` — the conversation as `messages` gives it |
 | `join/{id}`, `leave/{id}` | POST | — | `{ok}` |
 | `add/{id}` | POST | `person` | `{ok}` |
-| `post/{id}` | POST | `body`, `thread`, `files[]` | `{id, message}` |
+| `post/{id}` | POST | `body`, `thread`, `broadcast`, `files[]` | `{id, message}` — `broadcast` with `thread`: the reply is also sent to the conversation |
 | `edit/{id}` | POST | `body` | `{message}` |
 | `delete/{id}` | POST | — | `{ok}` |
 | `react/{id}` | POST | `emoji`, `on` | `{ok}` |

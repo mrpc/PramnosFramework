@@ -71,7 +71,11 @@ final class Messages
                 return $existing;
             }
         }
-        $thread = isset($options['thread']) ? (int) $options['thread'] : null;
+        $thread    = isset($options['thread']) ? (int) $options['thread'] : null;
+        $broadcast = !empty($options['broadcast']);
+        if ($broadcast && $thread === null) {
+            throw new \InvalidArgumentException(t('Only a reply in a thread is also sent to the conversation.'));
+        }
         if ($thread !== null) {
             $root = self::get($thread);
             if ($root === null || $root['conversationId'] !== $conversationId || $root['threadRootId'] !== null) {
@@ -86,7 +90,7 @@ final class Messages
         $db->queryBuilder()->table('#PREFIX#conversation_messages')->insert([
             'conversationid' => $conversationId, 'authortype' => $author === null ? 'system' : 'user', 'authorid' => $author,
             'body' => $body, 'card' => $card === null ? null : (string) json_encode($card, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            'threadrootid' => $thread, 'source' => $options['source'] ?? null, 'externalid' => $options['externalid'] ?? null,
+            'threadrootid' => $thread, 'broadcast' => $broadcast ? 1 : 0, 'source' => $options['source'] ?? null, 'externalid' => $options['externalid'] ?? null,
             'refs' => $refs === [] ? null : (string) json_encode($refs, JSON_UNESCAPED_UNICODE), 'created_at' => Instant::at($db, $at),
             'editedat' => isset($options['editedAt']) ? (int) $options['editedAt'] : null,
         ]);
@@ -94,7 +98,8 @@ final class Messages
         if ($thread !== null) {
             $db->queryBuilder()->table('#PREFIX#conversation_messages')->where('messageid', $thread)
                 ->update(['replycount' => new Expression('replycount + 1'), 'lastreplyat' => $at]);
-        } else {
+        }
+        if ($thread === null || $broadcast) {
             $db->queryBuilder()->table('#PREFIX#conversations')->where('conversationid', $conversationId)
                 ->update(['lastmessageid' => $id, 'lastmessageat' => $at]);
         }
@@ -267,7 +272,7 @@ final class Messages
                 $q->where('threadrootid', (int) $options['thread'])->orWhere('messageid', (int) $options['thread']);
             });
         } elseif (!isset($options['after'])) {
-            $query->whereNull('threadrootid');
+            self::inStream($query);
         }
         if (isset($options['after'])) {
             $rows = $query->where('messageid', '>', (int) $options['after'])->orderBy('messageid')->limit($limit)->getAllOrFail();
@@ -368,7 +373,17 @@ final class Messages
         foreach (Files::forMessages($ids) as $file) {
             $files[$file['messageId']][] = $file;
         }
-        $names = People::names(array_merge(array_filter(array_column($messages, 'authorId')), self::mentionedIn($messages)));
+        // A reply also sent to the conversation shows what it answers: the root's writer and the start of it.
+        $roots = [];
+        $rootIds = array_values(array_unique(array_column(array_filter($messages, static fn (array $m): bool => $m['broadcast'] && $m['threadRootId'] !== null), 'threadRootId')));
+        if ($rootIds !== []) {
+            foreach ($db->queryBuilder()->table('#PREFIX#conversation_messages')->select(['messageid', 'authorid', 'body', 'deletedat'])
+                ->whereIn('messageid', $rootIds)->getAllOrFail() as $r) {
+                $roots[(int) $r['messageid']] = $r;
+            }
+        }
+        $names = People::names(array_merge(array_filter(array_column($messages, 'authorId')), array_filter(array_map('intval', array_column($roots, 'authorid'))),
+            self::mentionedIn($messages)));
 
         return array_map(static fn (array $m): array => array_merge($m, [
             'author'    => $m['authorId'] === null ? null : ($names[$m['authorId']] ?? '#' . $m['authorId']),
@@ -377,6 +392,7 @@ final class Messages
                 array_keys($reactions[$m['id']] ?? []), $reactions[$m['id']] ?? []),
             'files'     => $files[$m['id']] ?? [],
             'pinned'    => isset($pinned[$m['id']]),
+            'rootPreview' => $m['broadcast'] && isset($roots[$m['threadRootId']]) ? self::preview($roots[$m['threadRootId']], $names) : null,
             // The application's patterns, read now: one declared later finds older messages too.
             'refs'      => array_values(array_unique(array_merge($m['refs'], $m['deletedAt'] !== null ? [] : References::find($m['body'])))),
         ]), $messages);
@@ -481,6 +497,34 @@ final class Messages
         return array_map('intval', $m[1]);
     }
 
+    /**
+     * What a reply also sent to the conversation shows of the message it answers: who wrote it and its
+     * first words, as text — mentions by name, marks left out.
+     *
+     * @param array<string, mixed>   $root
+     * @param array<int, string>     $names
+     * @return array{id: int, author: ?string, text: string}
+     */
+    private static function preview(array $root, array $names): array
+    {
+        $text = $root['deletedat'] !== null ? '' : (string) preg_replace_callback('/<@(\d+)>/', static fn (array $m): string => '@' . ($names[(int) $m[1]] ?? '#' . $m[1]), (string) $root['body']);
+        $text = trim((string) preg_replace('/\s+/u', ' ', str_replace(['**', '__', '`', '~~'], '', $text)));
+
+        return ['id' => (int) $root['messageid'], 'author' => $root['authorid'] === null ? null : ($names[(int) $root['authorid']] ?? '#' . $root['authorid']),
+            'text' => mb_strlen($text) > 120 ? mb_substr($text, 0, 119) . '…' : $text];
+    }
+
+    /**
+     * Keep a query to what the conversation itself lists: its top-level messages, and the replies
+     * also sent to it.
+     */
+    public static function inStream(\Pramnos\Database\QueryBuilder $query): \Pramnos\Database\QueryBuilder
+    {
+        return $query->where(static function ($q): void {
+            $q->whereNull('threadrootid')->orWhere('broadcast', 1);
+        });
+    }
+
     /** @param array<string, mixed> $row @return array<string, mixed> */
     private static function row(array $row): array
     {
@@ -488,7 +532,7 @@ final class Messages
 
         return ['id' => (int) $row['messageid'], 'conversationId' => (int) $row['conversationid'], 'authorType' => (string) $row['authortype'],
             'authorId' => $int($row['authorid']), 'body' => (string) $row['body'], 'card' => $row['card'] === null ? null : json_decode((string) $row['card'], true),
-            'threadRootId' => $int($row['threadrootid']), 'replyCount' => (int) $row['replycount'], 'lastReplyAt' => $int($row['lastreplyat']),
+            'threadRootId' => $int($row['threadrootid']), 'broadcast' => (bool) ($row['broadcast'] ?? false), 'replyCount' => (int) $row['replycount'], 'lastReplyAt' => $int($row['lastreplyat']),
             'editedAt' => $int($row['editedat']), 'deletedAt' => $int($row['deletedat']), 'source' => $row['source'] === null ? null : (string) $row['source'],
             'externalId' => $row['externalid'] === null ? null : (string) $row['externalid'],
             'refs' => $row['refs'] === null ? [] : (array) json_decode((string) $row['refs'], true), 'at' => (int) $row['at_unix']];

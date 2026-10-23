@@ -189,6 +189,7 @@ final class Client
             'Delete this message? It cannot be brought back.' => t('Delete this message? It cannot be brought back.'),
             'Former member' => t('Former member'),
             'Pinned message' => t('Pinned message'),
+            'Replied to a thread:' => t('Replied to a thread:'),
             'This message was deleted.' => t('This message was deleted.'),
             'Enter to save · Esc to cancel' => t('Enter to save · Esc to cancel'),
             'Cancel' => t('Cancel'),

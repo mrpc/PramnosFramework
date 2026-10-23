@@ -1628,4 +1628,6 @@ return [
     '%s is no longer banned here.' => 'Ο/Η %s δεν είναι πια αποκλεισμένος/η εδώ.',
     '%s was not banned here.' => 'Ο/Η %s δεν ήταν αποκλεισμένος/η εδώ.',
     '%s was put out of here.' => 'Ο/Η %s βγήκε από εδώ.',
+    'Replied to a thread:' => 'Απάντησε σε νήμα:',
+    'Only a reply in a thread is also sent to the conversation.' => 'Μόνο μια απάντηση σε νήμα στέλνεται και στη συζήτηση.',
 ];

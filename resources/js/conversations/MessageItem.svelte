@@ -141,6 +141,11 @@
             </header>
         {/if}
 
+        {#if message.rootPreview && !inThread}
+            <button type="button" class="pf-conv-msg-root" onclick={() => onreply?.({ id: message.threadRootId })}>
+                {t('Replied to a thread:')} <span>{message.rootPreview.author ? message.rootPreview.author + ': ' : ''}{message.rootPreview.text}</span>
+            </button>
+        {/if}
         {#if deleted}
             <p class="pf-conv-msg-deleted">{t('This message was deleted.')}</p>
         {:else if editing}

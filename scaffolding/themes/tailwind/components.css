@@ -1523,6 +1523,10 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-conv-reaction-count { font-weight: 700; font-size: 0.75rem; }
 .pf-conv-reaction-add { color: var(--pf-muted); opacity: 0; }
 .pf-conv-msg:hover .pf-conv-reaction-add { opacity: 1; }
+/* A reply also sent to the conversation: what it answers, above it */
+.pf-conv-msg-root { display: block; max-width: 100%; margin: 0 0 0.15rem; padding: 0; overflow: hidden; font-size: 0.8rem; color: var(--pf-muted); text-align: left; white-space: nowrap; text-overflow: ellipsis; background: none; border: 0; }
+.pf-conv-msg-root span { color: var(--pf-fg); }
+.pf-conv-msg-root:hover span { text-decoration: underline; }
 .pf-conv-replies {
     display: inline-flex;
     align-items: center;

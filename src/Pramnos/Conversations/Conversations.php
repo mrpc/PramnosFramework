@@ -296,8 +296,8 @@ final class Conversations
     public static function counts(int $id, int $person, int $after): array
     {
         $db = self::db();
-        $unread = (int) ($db->queryBuilder()->table('#PREFIX#conversation_messages')->select([new Expression('COUNT(*) AS n')])
-            ->where('conversationid', $id)->where('messageid', '>', $after)->whereNull('threadrootid')->whereNull('deletedat')
+        $unread = (int) (Messages::inStream($db->queryBuilder()->table('#PREFIX#conversation_messages'))->select([new Expression('COUNT(*) AS n')])
+            ->where('conversationid', $id)->where('messageid', '>', $after)->whereNull('deletedat')
             ->where(static function ($q) use ($person): void {
                 $q->whereNull('authorid')->orWhere('authorid', '!=', $person);
             })->getAllOrFail()[0]['n'] ?? 0);
