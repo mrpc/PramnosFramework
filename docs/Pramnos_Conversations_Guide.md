@@ -354,11 +354,24 @@ A message is written first and told second, through Broadcasting:
 | each member's own (`private-users.{id}`, or `broadcasting.notifications_channel`) | `conversation.activity`: a message in one of their conversations — its ids, its writer, whether it mentions them — for a sidebar's unread and a window that opens; `conversation.read`: what they have read there moved — read on another page, or marked unread — `{conversationId, lastReadId, unread, mentions}` |
 | `presence-chat` | who of the team is connected, with their name |
 
-The `conversations` feature's provider adds the rules for these channels to the application's
-(`broadcasting.channels`): a conversation's channel is heard by whoever reads it, the presence
-channel by whoever may use the conversations. **Typing** is a `client-typing` event browsers
-whisper on the conversation's channel — turn client events on for the WebSocket daemon
-(`'broadcasting' => ['websocket' => ['client_events' => true]]`). A browser that was disconnected
+For the conversations to be live, three things have to hold; each fails silently when it does not:
+
+1. **The daemon reads the conversations' channels.** `broadcast:serve` ingests
+   `private-conversation.*` by itself where the `conversations` feature is on and the backplane is
+   Redis pub/sub (`broadcasting.default = redis`), beside every user's notifications channel. On
+   `redis-stream` no pattern reads them, and it says so at startup: what a worker writes there —
+   an answer, *… is thinking* — would never reach an open page.
+2. **The auth endpoint signs them.** The `conversations` feature's provider adds the rules to the
+   application's (`broadcasting.channels`): a conversation's channel is heard by whoever reads it,
+   the presence channel by whoever may use the conversations. An application with an auth
+   controller of its own, which signs only the channels its own `channels()` names, adds them
+   there: `\Pramnos\Conversations\Realtime::authorize($channels)`. A channel left unsigned shows
+   in `pfRealtime.status().error` as *The auth endpoint did not sign presence-chat*.
+3. **Client events are on**, for typing: a `client-typing` event browsers whisper on the
+   conversation's channel — `'broadcasting' => ['websocket' => ['client_events' => true]]`.
+
+A conversation whose channel the server has not confirmed — refused, or the socket down — is
+caught up every few seconds, as without realtime, until it is. A browser that was disconnected
 asks for what came after the last message it has, `Messages::list($id, ['after' => $last])`.
 Without broadcasting set up nothing is told, and a driver that fails is logged — never the
 writer's failure.

@@ -293,6 +293,36 @@ class BroadcastServeTest extends TestCase
     }
 
     /**
+     * With the `conversations` feature the conversations' channels are ingested as one pattern,
+     * `private-conversation.*`, so what a worker writes there reaches the open dock; not twice
+     * when the ingest names them; and on a stream, which no pattern reads, said at startup.
+     */
+    public function testTheConversationsChannelsJoinTheIngestWithTheFeature(): void
+    {
+        // Arrange
+        $run = function (array $broadcasting, array $features, array $options = []): string {
+            $this->installApplicationWithFeatures($broadcasting, $features);
+            $server = $this->createMock(LocalBroadcastServer::class);
+            $tester = new CommandTester($this->buildCommand(false, $server));
+            $tester->execute($options);
+
+            return $tester->getDisplay();
+        };
+
+        // Act
+        $with    = $run(['default' => 'redis', 'redis' => ['prefix' => 'app:']], ['broadcasting', 'conversations']);
+        $without = $run(['default' => 'redis'], ['broadcasting']);
+        $named   = $run(['default' => 'redis', 'ingest' => 'private-conversation.*'], ['broadcasting', 'conversations']);
+        $stream  = $run(['default' => 'redis-stream'], ['broadcasting', 'conversations'], ['--channels' => 'chat.updates']);
+
+        // Assert
+        $this->assertStringContainsString('Redis ingest: app:private-users.*, app:private-conversation.* via', $with);
+        $this->assertStringNotContainsString('private-conversation', $without, 'only with the feature');
+        $this->assertSame(1, substr_count($named, 'private-conversation.*'), 'not listed twice');
+        $this->assertStringContainsString('Conversations: not ingested', $stream);
+    }
+
+    /**
      * On the stream backplane the ingest reads the key RedisStreamDriver writes
      * (prefix + `stream:` + channel), and says notifications are not ingested.
      *

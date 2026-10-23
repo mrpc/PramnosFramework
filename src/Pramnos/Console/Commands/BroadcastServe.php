@@ -311,6 +311,19 @@ class BroadcastServe extends CommandBase
             );
         }
 
+        // The conversations' channels, the same way, where the application has them:
+        // `private-conversation.{id}` is `private-conversation.*`, so what a worker writes there —
+        // an answer, "… is thinking" — reaches the open dock without anybody listing them.
+        if (in_array('conversations', $this->applicationFeatures(), true)) {
+            $conversations = str_replace('0', '*', \Pramnos\Conversations\Realtime::channel(0));
+            if ($backplane === 'redis' && !in_array($prefix . $conversations, $prefixed, true)) {
+                $prefixed[] = $prefix . $conversations;
+            } elseif ($usesStream) {
+                $output->writeln('  Conversations: <comment>not ingested — a stream cannot be read by pattern; '
+                    . 'use broadcasting.default = redis for the conversations to be live</comment>');
+            }
+        }
+
         // The pairing rule above settles *which* Redis primitive to read with. It cannot
         // help when the application publishes somewhere else entirely — a `log`, `pusher`
         // or `null` backplane with `--channels` asked for here opens a healthy

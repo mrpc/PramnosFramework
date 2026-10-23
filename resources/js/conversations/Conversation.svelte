@@ -295,8 +295,20 @@
             },
         };
         Object.entries(handlers).forEach(([event, fn]) => channel.listen(event, fn));
+        // A channel the server never confirms — its auth refused, the socket down — hears nothing:
+        // until it is confirmed, the conversation is caught up as it is without realtime.
+        const name = 'private-conversation.' + conversationId;
+        const watchdog = setInterval(() => {
+            const status = window.pfRealtime?.status?.();
+            if (!status || !(status.subscribed || []).includes(name)) {
+                untrack(catchUp);
+            }
+        }, 8000);
 
-        return () => Object.entries(handlers).forEach(([event, fn]) => channel.stopListening?.(event, fn));
+        return () => {
+            clearInterval(watchdog);
+            Object.entries(handlers).forEach(([event, fn]) => channel.stopListening?.(event, fn));
+        };
     });
 
     // Whatever grows below — a card read, a picture loaded — keeps the newest in view while the
