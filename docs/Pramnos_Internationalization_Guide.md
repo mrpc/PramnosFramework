@@ -52,8 +52,10 @@ The Internationalization system consists of:
 ## Which language a request is served in
 
 Nothing has to be called for this to work. `Application::init()` resolves the language
-once per request and loads the catalogue, and every candidate it consults is one you can
-set:
+once per request and loads the catalogue — and where one application serves many requests
+(`TestClient`, a long-running runtime), `beginRequest()` resolves it again for each, so an
+`/admin/…` request after a public one is in the area's language. Every candidate it consults is
+one you can set:
 
 | Rank | Where it comes from | Set it by |
 |------|--------------------|-----------|

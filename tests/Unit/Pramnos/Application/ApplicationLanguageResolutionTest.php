@@ -250,6 +250,31 @@ class ApplicationLanguageResolutionTest extends TestCase
     }
 
     /**
+     * One application serving many requests — a TestClient, a long-running runtime — chooses the
+     * language again for each, once init() has chosen one: the admin area's own language depends
+     * on whether this request is inside it, and the first request's answer stood for every later one.
+     */
+    public function testEachRequestChoosesItsLanguageAgain(): void
+    {
+        // Arrange — initialised on a public page, in the site's language
+        $_SESSION['language'] = 'el';
+        $app = $this->app(['el', 'en'])->withAdminArea(['admin' => ['prefix' => 'admin', 'language' => 'en']]);
+        (new \ReflectionProperty(Application::class, 'initialized'))->setValue($app, true);
+        $app->language = 'el';
+
+        // Act — the next request is inside the admin area, the one after outside it
+        $_GET['r'] = 'admin/Dashboard';
+        $app->beginRequest();
+        $admin = $app->language;
+        $_GET['r'] = 'Home';
+        $app->beginRequest();
+        $site = $app->language;
+
+        // Assert
+        $this->assertSame(['en', 'el'], [$admin, $site]);
+    }
+
+    /**
      * With nothing configured, the first installed language — not `english`.
      *
      * `english` is the framework's default and is not necessarily a file that exists: a

@@ -1303,6 +1303,12 @@ class Application extends Base
         // request's: one process can serve many (TestClient, a long-running runtime).
         \Pramnos\Assist\Page::reset();
         $this->enterAdminAreaIfRequested();
+        // The language too, once init() has chosen one: the admin area's own `language` depends on
+        // whether this request is inside it, which init() decided for the first request only.
+        if ($this->initialized) {
+            $this->language = $this->resolveLanguage();
+            \Pramnos\Translator\Language::getInstance($this->language)->load($this->language);
+        }
     }
 
     /**
