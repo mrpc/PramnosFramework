@@ -45,6 +45,17 @@ jobs:
           # reproducible with ./lintjs and ./testjs rather than being a CI-only surprise.
           node-version: "20"
 
+      # Some tests compare the browser code with the PHP that serves or reads it — the toolbar's
+      # asset, the SPA modules, the consent cookie — by running that PHP: it needs an autoloader.
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.5"
+          tools: composer
+          coverage: none
+
+      - name: Install the PHP the tests call
+        run: composer install --no-dev --no-interaction --no-progress --prefer-dist
+
       - name: Install dev dependencies
         run: npm install --no-audit --no-fund
 
