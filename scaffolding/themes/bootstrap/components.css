@@ -451,9 +451,9 @@ a.pf-stat-tile:hover { border-color: var(--bs-primary, #0d6efd); }
 .pf-datatable .dataTables_paginate { float: right; display: flex; flex-wrap: wrap; gap: .25rem; padding-top: .5rem; }
 .pf-datatable .dataTables_paginate .ellipsis { padding: 0 .25rem; }
 .pf-datatable .pf-datatable-top { display: flex; align-items: center; gap: .5rem 1rem; margin-bottom: .75rem; }
-.pf-datatable .pf-datatable-top > * { float: none; margin: 0; flex: none; }
-.pf-datatable .pf-datatable-top > .dt-buttons { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; gap: .25rem; }
-.pf-datatable .pf-datatable-top > .dataTables_filter { margin-left: auto; }
+.pf-datatable .pf-datatable-top > * { float: none; margin: 0; flex: 0 0 auto; }
+.pf-datatable .pf-datatable-top > .dt-buttons { flex: 1 1 0; min-width: 12rem; display: flex; flex-wrap: wrap; gap: .25rem; }
+.pf-datatable .pf-datatable-top > .dataTables_filter { flex: 0 0 auto; order: 0; margin-left: auto; }
 @media (max-width: 640px) { .pf-datatable .pf-datatable-top { flex-wrap: wrap; } }
 .pf-datatable table.dataTable thead th, .pf-nowrap { white-space: nowrap; }
 .pf-datatable-processing { position: absolute; top: 50%; left: 50%; z-index: 10; transform: translate(-50%, -50%); padding: .5rem 1rem; border-radius: .5rem; background: var(--bs-body-bg, #fff); box-shadow: 0 4px 12px rgba(0, 0, 0, .15); }
