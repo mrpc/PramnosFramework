@@ -57,6 +57,9 @@ class Blueprint
     /** @var string|null  Table-level comment */
     protected ?string $tableComment = null;
 
+    /** @var string|null  ALGORITHM= clause for ALTER TABLE (MySQL/MariaDB only, ignored elsewhere) */
+    protected ?string $algorithm = null;
+
     // -------------------------------------------------------------------------
     // Construction
     // -------------------------------------------------------------------------
@@ -486,6 +489,22 @@ class Blueprint
         $this->tableComment = $text;
     }
 
+    /**
+     * Require an ALGORITHM= for this ALTER TABLE (MySQL/MariaDB: INSTANT, INPLACE, COPY).
+     *
+     * The grammar emits it as-is; if the server cannot honour it (e.g. INSTANT on a
+     * change that needs a table rebuild), the ALTER TABLE fails with the server's own
+     * error instead of silently falling back to a slower algorithm. No-op on dialects
+     * where column changes are already metadata-only (PostgreSQL).
+     */
+    public function algorithm(string $algorithm): void
+    {
+        if ($algorithm === '') {
+            throw new \InvalidArgumentException('algorithm() requires a non-empty value');
+        }
+        $this->algorithm = strtoupper($algorithm);
+    }
+
     // =========================================================================
     // Getters for SchemaGrammar
     // =========================================================================
@@ -494,6 +513,7 @@ class Blueprint
     public function getMode(): string       { return $this->mode; }
     public function isTemporary(): bool     { return $this->temporary; }
     public function getComment(): ?string   { return $this->tableComment; }
+    public function getAlgorithm(): ?string { return $this->algorithm; }
     public function getColumns(): array     { return $this->columns; }
     public function getDroppedColumns(): array   { return $this->droppedColumns; }
     public function getRenamedColumns(): array   { return $this->renamedColumns; }

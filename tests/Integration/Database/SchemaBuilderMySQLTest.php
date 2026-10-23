@@ -644,6 +644,51 @@ class SchemaBuilderMySQLTest extends TestCase
         $this->assertSame('0', $this->columnInfo('sb_alter', 'score')['COLUMN_DEFAULT']);
     }
 
+    /**
+     * Blueprint::algorithm('instant') on a change MySQL can genuinely apply without a
+     * table rebuild (setting a default) succeeds and takes effect, same as without it.
+     */
+    public function testAlterTableModifyColumnDefaultWithAlgorithmInstant(): void
+    {
+        // Arrange — integer column without a default
+        $this->schema->createTable('sb_alter', function ($t) {
+            $t->increments('id');
+            $t->integer('score')->nullable();
+        });
+
+        // Act — add a default of 0, requiring the ALTER to be instant
+        $this->schema->alterTable('sb_alter', function ($t) {
+            $t->modifyColumn('score', 'integer')->nullable()->default(0);
+            $t->algorithm('instant');
+        });
+
+        // Assert — default is now 0, so the server honoured ALGORITHM=INSTANT
+        $this->assertSame('0', $this->columnInfo('sb_alter', 'score')['COLUMN_DEFAULT']);
+    }
+
+    /**
+     * Blueprint::algorithm('instant') on a change that needs a table rebuild
+     * (VARCHAR → TEXT) must fail with the server's own error (FW-277) — never silently
+     * fall back to a slower algorithm, since that is the whole point of asking for it on
+     * a table too large to rebuild unnoticed.
+     */
+    public function testAlterTableModifyColumnTypeWithAlgorithmInstantFails(): void
+    {
+        // Arrange — VARCHAR(50) column
+        $this->schema->createTable('sb_alter', function ($t) {
+            $t->increments('id');
+            $t->string('bio', 50);
+        });
+
+        // Act / Assert — VARCHAR → TEXT cannot be done in place, so MySQL rejects it
+        // instead of transparently rebuilding the table.
+        $this->expectException(\Exception::class);
+        $this->schema->alterTable('sb_alter', function ($t) {
+            $t->modifyColumn('bio', 'text');
+            $t->algorithm('instant');
+        });
+    }
+
     // -------------------------------------------------------------------------
     // renameTable
     // -------------------------------------------------------------------------

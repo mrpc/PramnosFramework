@@ -322,6 +322,21 @@ $schema->alterTable('#PREFIX#users', function ($table) {
 | PostgreSQL | Up to 3 separate `ALTER COLUMN` statements: `TYPE`, `SET/DROP NOT NULL`, `SET/DROP DEFAULT` |
 | TimescaleDB | Same as PostgreSQL |
 
+### Choosing the ALTER algorithm (MySQL/MariaDB)
+
+```php
+$schema->alterTable('#PREFIX#visits', function ($table) {
+    $table->modifyColumn('duration', 'integer')->nullable(false)->default(0);
+    $table->algorithm('instant');   // INSTANT, INPLACE or COPY
+});
+```
+
+`algorithm()` appends `, ALGORITHM=...` to every `ALTER TABLE` statement the Blueprint emits on
+MySQL/MariaDB. If the server cannot honour it — e.g. `INSTANT` on a change that needs a table
+rebuild — the statement fails with the server's own error instead of silently falling back to a
+slower algorithm. Use it when backfilling a default on a table too large to rebuild unnoticed.
+It is a no-op on PostgreSQL/TimescaleDB, where column changes are already metadata-only.
+
 ### Dropping a CHECK constraint
 
 ```php

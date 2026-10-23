@@ -169,6 +169,12 @@ class MySQLSchemaGrammar extends SchemaGrammar
         return $opt;
     }
 
+    protected function compileAlgorithmSuffix(Blueprint $blueprint): string
+    {
+        $algorithm = $blueprint->getAlgorithm();
+        return $algorithm ? ', ALGORITHM=' . $algorithm : '';
+    }
+
     // =========================================================================
     // Inline UNIQUE (MySQL wants UNIQUE KEY name (...))
     // =========================================================================

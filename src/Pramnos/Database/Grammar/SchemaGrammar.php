@@ -352,7 +352,25 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
             $statements[] = $stmt;
         }
 
+        if ($algorithm = $this->compileAlgorithmSuffix($blueprint)) {
+            $statements = array_map(
+                fn(string $stmt): string => str_starts_with($stmt, 'ALTER TABLE ') ? $stmt . $algorithm : $stmt,
+                $statements
+            );
+        }
+
         return array_values(array_filter($statements));
+    }
+
+    /**
+     * Returns the trailing ", ALGORITHM=..." clause for Blueprint::algorithm(), or ''.
+     *
+     * Dialects whose column changes are already metadata-only (PostgreSQL) leave this
+     * as a no-op; MySQL/MariaDB override it.
+     */
+    protected function compileAlgorithmSuffix(Blueprint $blueprint): string
+    {
+        return '';
     }
 
     protected function compileRenameColumn(string $table, string $from, string $to): string

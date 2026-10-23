@@ -795,6 +795,50 @@ class SchemaGrammarTest extends TestCase
     }
 
     /**
+     * Blueprint::algorithm('INSTANT') appends ", ALGORITHM=INSTANT" to every ALTER TABLE
+     * statement MySQL emits, matching the raw SQL FW-277 migrations wrote by hand because
+     * the builder had no way to ask for it (nannuka visits/dailystats default backfills).
+     */
+    public function testMysqlCompileAlterModifyColumnWithAlgorithmInstant(): void
+    {
+        // Arrange
+        $bp = new Blueprint('visits', 'alter');
+        $bp->modifyColumn('duration', 'integer')->default(0)->nullable(false);
+        $bp->algorithm('instant');
+        $grammar = $this->mysqlGrammar();
+
+        // Act
+        $statements = $grammar->compileAlter($bp, 'visits');
+
+        // Assert
+        // Case is normalised and the clause lands at the end of the statement, where
+        // MySQL/MariaDB expect ALGORITHM= on an ALTER TABLE.
+        $this->assertCount(1, $statements);
+        $this->assertStringEndsWith(', ALGORITHM=INSTANT', $statements[0]);
+    }
+
+    /**
+     * PostgreSQL column changes are already metadata-only, so algorithm() is a no-op there
+     * rather than emitting an invalid clause.
+     */
+    public function testPgCompileAlterModifyColumnIgnoresAlgorithm(): void
+    {
+        // Arrange
+        $bp = new Blueprint('visits', 'alter');
+        $bp->modifyColumn('duration', 'integer')->default(0);
+        $bp->algorithm('instant');
+        $grammar = $this->pgGrammar();
+
+        // Act
+        $statements = $grammar->compileAlter($bp, 'visits');
+
+        // Assert
+        foreach ($statements as $stmt) {
+            $this->assertStringNotContainsString('ALGORITHM', $stmt);
+        }
+    }
+
+    /**
      * ADD UNIQUE INDEX via alterTable() compiles to CREATE UNIQUE INDEX.
      */
     public function testMysqlCompileAlterAddUniqueIndex(): void
