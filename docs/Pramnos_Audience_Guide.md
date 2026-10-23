@@ -401,8 +401,20 @@ The groups tab is shown unless the address asks for another (`?kind=segments`, `
 app.php names its own first:
 
 ```php
-'audience' => ['default_tab' => 'segments'],   // groups, segments or mine
+'audience' => [
+    'default_tab'       => 'segments',                            // groups, segments or mine
+    'row_actions'       => ['groups', 'segments'],                // open, edit, delete on each row; ['groups'] unless set
+    'group_link'        => 'members',                             // a group's name leads to its members' list…
+    'group_members_url' => '/admin/users/display/groupid/{id}',   // …here; 'page' (the default) leads to the group's page
+],
 ```
+
+A tab whose kind `row_actions` names ends with *Row actions*: open, edit and delete, each an icon
+with its name as `title` and `aria-label`. Delete is a POST with the form token and asks first;
+while something uses the group or segment it is disabled, its title saying what uses it, and the
+server refuses it then too. The column is not sorted by and stays out of every export.
+`Controllers\Groups::linkFor($id)` is where a group's name leads, wherever the administration
+shows one — the library and a person's card.
 
 Two pieces work in any form:
 

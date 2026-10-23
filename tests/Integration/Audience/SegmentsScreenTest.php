@@ -110,7 +110,7 @@ class SegmentsScreenTest extends TestCase
         $this->assertSame('groups', $groups['tab'], 'groups unless asked');
         $this->assertSame('segments', $fallback, 'a tab that is no longer there is the default one');
         $this->assertSame(['groups' => 2, 'segments' => 1, 'mine' => 1], $groups['counts'], 'each tab says how many it holds');
-        $this->assertSame(['#', 'Name', 'Members in it', 'Order in the list', 'Used by'], $labels($groups));
+        $this->assertSame(['#', 'Name', 'Members in it', 'Order in the list', 'Used by', 'Row actions'], $labels($groups), 'groups carry their actions unless told otherwise');
         $this->assertSame(['Name', 'Members in it', 'Entered, 7 days', 'Left, 7 days', 'Used by', 'Owned by', 'Last worked out'], $labels($segments));
         $this->assertSame(['Name', 'Members in it', 'Entered, 7 days', 'Left, 7 days', 'Used by', 'Last worked out'], $labels($mine), 'no owner among one\'s own');
         $this->assertSame(['pf-groups-table', [['name' => 'tab', 'value' => 'groups']], 3, 'asc', 'User groups'],
@@ -205,6 +205,63 @@ class SegmentsScreenTest extends TestCase
         $this->assertSame([2, 2], [$searched['recordsTotal'], $searched['recordsFiltered']]);
         $this->assertSame(['Greek speakers'], self::names($second), 'the second');
         $this->assertSame(['Volunteers', 'Press'], self::names($unknown, 1), 'an unknown tab is the groups');
+    }
+
+    /**
+     * A tab's rows carry open, edit and delete where `audience.row_actions` names their kind —
+     * groups unless set — with delete disabled, saying what uses it, while something does; and a
+     * group's name leads to its page, or with `group_link => members` to the application's list
+     * of its members where it has one. The person card follows the same link.
+     */
+    #[DataProvider('databases')]
+    public function testRowActionsAndWhereAGroupLeads(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $greek = $this->greek();
+        $press = $this->groups['Press'];
+        $volunteers = $this->groups['Volunteers'];
+        Segments::create('Press people', ['conditions' => [['attribute' => 'groups', 'op' => 'any_of', 'value' => [$press]]]]);
+        $this->signIn();
+        $screen = $this->screen(Screen::class);
+        $info   = &\Pramnos\Application\Application::getInstance()->applicationInfo;
+        $byName = static fn (string $tab): array => ['tab' => $tab, 'order' => [['column' => $tab === 'groups' ? 1 : 0, 'dir' => 'asc']]];
+
+        // Act
+        $groups   = $this->page($screen, $byName('groups'));
+        $segments = $this->page($screen, $byName('segments'));
+        $info['audience'] = ['row_actions' => ['groups', 'segments'], 'group_link' => 'members', 'group_members_url' => '/admin/users/display/groupid/{id}'];
+        $both     = $this->page($screen, $byName('segments'));
+        $mine     = $this->page($screen, $byName('mine'));
+        $linked   = $this->page($screen, $byName('groups'));
+        $this->request('GET', null, ['kind' => 'segments']);
+        $screen->display();
+        $columns  = count($screen->view->datatable->aoColumns);
+        $card     = \Pramnos\Html\AudiencePanel::person($this->ids['bob']);
+        $info['audience'] = ['row_actions' => [], 'group_link' => 'members'];
+        $none     = $this->page($screen, $byName('groups'));
+        unset($info['audience']);
+
+        // Assert
+        $rows = array_combine(self::names($groups, 1), $groups['data']);
+        $this->assertStringContainsString('disabled="disabled"', $rows['Press'][5], 'in use: not deleted from here');
+        $this->assertStringContainsString('title="Used by: segment Press people"', $rows['Press'][5], 'and it says why');
+        $this->assertStringNotContainsString('disabled', $rows['Volunteers'][5]);
+        $this->assertStringContainsString('action="' . adminUrl('Groups/delete/') . $volunteers . '"', $rows['Volunteers'][5]);
+        $this->assertStringContainsString('data-confirm="Delete this group? Its members keep their accounts."', $rows['Volunteers'][5]);
+        $this->assertStringContainsString('href="' . adminUrl('Groups/view/') . $volunteers . '"', $rows['Volunteers'][5]);
+        $this->assertStringContainsString('href="' . adminUrl('Groups/edit/') . $volunteers . '"', $rows['Volunteers'][5]);
+        $this->assertStringContainsString('href="' . adminUrl('Groups/view/') . $volunteers . '"', $rows['Volunteers'][1], 'the name leads to the page by default');
+        $this->assertCount(7, $segments['data'][0], 'segments carry none unless told');
+        $this->assertCount(8, $both['data'][0]);
+        $this->assertStringContainsString('href="' . adminUrl('Segments/edit/') . $greek . '"', array_combine(self::names($both), $both['data'])['Greek speakers'][7]);
+        $this->assertStringNotContainsString('disabled', array_combine(self::names($both), $both['data'])['Greek speakers'][7], 'nothing uses it: it can be deleted');
+        $this->assertCount(7, $mine['data'][0], 'one\'s own follow segments');
+        $this->assertSame(8, $columns, 'the column is there too');
+        $this->assertStringContainsString('href="/admin/users/display/groupid/' . $volunteers . '"', array_combine(self::names($linked, 1), $linked['data'])['Volunteers'][1], 'the members\' list');
+        $this->assertStringContainsString('href="/admin/users/display/groupid/' . $press . '"', $card, 'the person card follows it');
+        $this->assertStringContainsString('href="' . adminUrl('Groups/view/') . $volunteers . '"', $none['data'][1][1] . $none['data'][0][1], 'no members\' list: the page');
+        $this->assertCount(5, $none['data'][0], 'no actions where none are named');
     }
 
     /**

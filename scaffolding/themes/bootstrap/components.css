@@ -267,6 +267,11 @@
     margin-inline-start: 0.125rem;
 }
 
+/* A row's actions — open, edit, delete — side by side; one that cannot be done now is dimmed
+   and says why in its title. */
+.pf-row-actions { display: inline-flex; align-items: center; gap: .125rem; white-space: nowrap; }
+.pf-action[disabled] { opacity: .3; cursor: not-allowed; background: none; }
+
 .pf-action-danger:hover,
 .pf-action-danger:focus-visible {
     color: #dc2626;

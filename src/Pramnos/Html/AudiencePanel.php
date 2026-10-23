@@ -35,7 +35,7 @@ final class AudiencePanel
         }
         foreach ($groups as $g) {
             $items[] = '<li class="pf-audience-panel-item"><span class="pf-audience-panel-kind">' . $e(t('group')) . '</span> '
-                . '<a href="' . $e(adminUrl('Groups/view/') . $g['id']) . '">' . $e($g['name']) . '</a></li>';
+                . '<a href="' . $e(\Pramnos\Application\Controllers\Groups::linkFor((int) $g['id'])) . '">' . $e($g['name']) . '</a></li>';
         }
 
         return '<section class="pf-audience-panel" aria-label="' . $e(t('Segments and groups')) . '">'

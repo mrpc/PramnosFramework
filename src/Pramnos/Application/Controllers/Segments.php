@@ -101,18 +101,34 @@ class Segments extends Controller
             ? '<span class="pf-nowrap">' . $e(number_format($row['members'])) . '</span>'
             : '<span class="pf-muted">' . $e(t('Being worked out…')) . '</span>';
 
+        $withActions = $this->rowActions($tab);
+        // Open, edit, delete — delete disabled, saying why, while something uses it; the server
+        // refuses it then too.
+        $actions = static fn (string $screen, int $id, array $found): string => '<span class="pf-row-actions">'
+            . \Pramnos\Html\Icon::link(adminUrl($screen . '/view/') . $id, 'view', $screen === 'Groups' ? t('Open the group') : t('Open the segment'))
+            . \Pramnos\Html\Icon::link(adminUrl($screen . '/edit/') . $id, 'edit', $screen === 'Groups' ? t('Edit the group') : t('Edit the segment'))
+            . ($found === []
+                ? \Pramnos\Html\Icon::postButton(adminUrl($screen . '/delete/') . $id, 'delete', $screen === 'Groups' ? t('Delete the group') : t('Delete the segment'),
+                    ['class' => 'pf-action-danger', 'data-confirm' => $screen === 'Groups' ? t('Delete this group? Its members keep their accounts.') : t('Delete this segment and its history?')])
+                : \Pramnos\Html\Icon::postButton(adminUrl($screen . '/delete/') . $id, 'delete', t('Used by: %s', implode(', ', array_column($found, 'name'))), ['disabled' => 'disabled']))
+            . '</span>';
+
         if ($tab === 'groups') {
             return \Pramnos\Http\Response::json(\Pramnos\Html\Datatable\ArraySource::answer(
                 $library['groups'],
                 [0 => 'id', 1 => 'name', 2 => 'members', 3 => 'orderKey'],
                 static fn (array $row): string => '#' . $row['id'] . ' ' . $row['name'] . ' ' . $row['description'],
-                static fn (array $page): array => array_map(static fn (array $row): array => [
-                    (string) $row['id'],
-                    $name($row),
-                    $members($row),
-                    $row['order'] === null ? $none : $e((string) $row['order']),
-                    $uses(\Pramnos\Audience\Groups::uses($row['id'])),
-                ], $page),
+                static function (array $page) use ($name, $members, $none, $e, $uses, $actions, $withActions): array {
+                    return array_map(static function (array $row) use ($name, $members, $none, $e, $uses, $actions, $withActions): array {
+                        $found = \Pramnos\Audience\Groups::uses($row['id']);
+                        $cells = [(string) $row['id'], $name($row), $members($row), $row['order'] === null ? $none : $e((string) $row['order']), $uses($found)];
+                        if ($withActions) {
+                            $cells[] = $actions('Groups', $row['id'], $found);
+                        }
+
+                        return $cells;
+                    }, $page);
+                },
             ));
         }
 
@@ -123,18 +139,22 @@ class Segments extends Controller
             $mine ? [0 => 'name', 1 => 'members', 2 => 'entered', 3 => 'left', 5 => 'recomputedAt']
                 : [0 => 'name', 1 => 'members', 2 => 'entered', 3 => 'left', 5 => 'ownerName', 6 => 'recomputedAt'],
             static fn (array $row): string => '#' . $row['id'] . ' ' . $row['name'] . ' ' . $row['description'],
-            static fn (array $page): array => array_map(static function (array $row) use ($e, $none, $number, $uses, $name, $members, $mine): array {
+            static fn (array $page): array => array_map(static function (array $row) use ($e, $none, $number, $uses, $name, $members, $mine, $actions, $withActions): array {
+                $found = SegmentStore::uses($row['id']);
                 $cells = [
                     $name($row),
                     $members($row),
                     $number($row['entered'], 'pf-up'),
                     $number($row['left'], 'pf-down'),
-                    $uses(SegmentStore::uses($row['id'])),
+                    $uses($found),
                 ];
                 if (!$mine) {
                     $cells[] = $row['ownerName'] !== '' ? '<span class="pf-nowrap">' . $e($row['ownerName']) . '</span>' : $none;
                 }
                 $cells[] = $row['recomputedAt'] > 0 ? '<span class="pf-nowrap">' . $e(date('d/m/Y H:i', $row['recomputedAt'])) . '</span>' : $none;
+                if ($withActions) {
+                    $cells[] = $actions('Segments', $row['id'], $found);
+                }
 
                 return $cells;
             }, $page),
@@ -184,9 +204,24 @@ class Segments extends Controller
         foreach ($columns as $i => $label) {
             $table->addColumn(htmlspecialchars($label, ENT_QUOTES, 'UTF-8'), true, $i !== $usedBy, false);
         }
-        [$table->sortColumn, $table->sortOrder] = $tab === 'groups' ? [3, 'asc'] : [1, 'desc'];
+        if ($this->rowActions($tab)) {
+            $table->addColumn(htmlspecialchars(t('Row actions'), ENT_QUOTES, 'UTF-8'), ['bSortable' => false, 'bSearchable' => false, 'sClass' => 'pf-actions pf-no-export']);
+        }
+                [$table->sortColumn, $table->sortOrder] = $tab === 'groups' ? [3, 'asc'] : [1, 'desc'];
 
         return $table;
+    }
+
+    /**
+     * Whether a tab's rows carry open, edit and delete: `audience.row_actions` names the kinds
+     * that do — `['groups']` unless set, `['groups', 'segments']` for both (the account's own
+     * follow segments).
+     */
+    protected function rowActions(string $tab): bool
+    {
+        $kinds = (array) ($this->application->applicationInfo['audience']['row_actions'] ?? ['groups']);
+
+        return in_array($tab === 'groups' ? 'groups' : 'segments', $kinds, true);
     }
 
     /**
@@ -207,7 +242,7 @@ class Segments extends Controller
             'entered' => $moved[$segment['id']]['entered'] ?? 0, 'left' => $moved[$segment['id']]['left'] ?? 0,
             'ownerName' => $owners[(int) $segment['owner']] ?? '', 'recomputedAt' => (int) $segment['recomputedAt'],
             'url' => adminUrl('Segments/view/') . $segment['id'], 'mine' => $segment['owner'] === $me], $all);
-        $groups = array_map(static fn (array $group): array => $group + ['url' => adminUrl('Groups/view/') . $group['id']], $this->groups());
+        $groups = array_map(static fn (array $group): array => $group + ['url' => Groups::linkFor($group['id'])], $this->groups());
         $mine   = array_values(array_filter($segments, static fn (array $row): bool => $row['mine']));
 
         return ['groups' => $groups, 'segments' => $segments, 'mine' => $mine,

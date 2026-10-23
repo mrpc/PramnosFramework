@@ -853,11 +853,14 @@ embed;
 
         $tabletools = "";
         if ($this->tableTools == true) {
-            $tabletools = $this->exportName === ''
+            // A column marked `pf-no-export` (row actions) stays out of every button's output.
+            $noExport = array_filter($this->aoColumns, static fn ($c): bool => str_contains(' ' . $c->sClass . ' ', ' pf-no-export ')) !== [];
+            $tabletools = $this->exportName === '' && !$noExport
                 ? " buttons : [   'copy', 'excel', 'pdf', 'csv', 'print' ],"
                 : ' buttons : [' . implode(', ', array_map(
-                    fn (string $b): string => in_array($b, ['excel', 'pdf', 'csv'], true)
-                        ? '{"extend": "' . $b . '", "filename": ' . self::js($this->exportName) . '}' : "'" . $b . "'",
+                    fn (string $b): string => '{"extend": "' . $b . '"'
+                        . ($this->exportName !== '' && in_array($b, ['excel', 'pdf', 'csv'], true) ? ', "filename": ' . self::js($this->exportName) : '')
+                        . ($noExport ? ', "exportOptions": {"columns": ":not(.pf-no-export)"}' : '') . '}',
                     ['copy', 'excel', 'pdf', 'csv', 'print']
                 )) . '],';
             if ($this->jui == true) {

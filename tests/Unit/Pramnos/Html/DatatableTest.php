@@ -391,8 +391,27 @@ class DatatableTest extends TestCase
         $js = $dt->renderJs();
 
         // Assert
-        $this->assertStringContainsString("buttons : ['copy', {\"extend\": \"excel\", \"filename\": \"User \\u0022groups\\u0022\"}", $js, 'escaped as a string literal');
-        $this->assertStringContainsString('{"extend": "csv", "filename": "User \\u0022groups\\u0022"}, \'print\']', $js);
+        $this->assertStringContainsString('buttons : [{"extend": "copy"}, {"extend": "excel", "filename": "User \\u0022groups\\u0022"}', $js, 'escaped as a string literal');
+        $this->assertStringContainsString('{"extend": "csv", "filename": "User \\u0022groups\\u0022"}, {"extend": "print"}]', $js);
+    }
+
+    /**
+     * A column marked `pf-no-export` — row actions — carries its class to DataTables and is left
+     * out of what every button copies, prints or saves.
+     */
+    public function testAColumnCanBeLeftOutOfExports(): void
+    {
+        // Arrange
+        $dt = new Datatable('groups');
+        $dt->addColumn('Name')->addColumn('Actions', ['bSortable' => false, 'sClass' => 'pf-actions pf-no-export']);
+
+        // Act
+        $js = $dt->renderJs();
+
+        // Assert
+        $this->assertStringContainsString('"sClass": "pf-actions pf-no-export"', $js);
+        $this->assertSame(5, substr_count($js, '"exportOptions": {"columns": ":not(.pf-no-export)"}'), 'all five buttons');
+        $this->assertStringNotContainsString('"filename"', $js, 'no export name, none given');
     }
 
     /**

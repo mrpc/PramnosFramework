@@ -25,6 +25,13 @@ class Column extends Base {
     public $js="";
 
     /**
+     * Classes for the column's cells, heading included. `pf-no-export` keeps a column — row
+     * actions — out of what Buttons copies, prints and saves.
+     * @var string
+     */
+    public $sClass = '';
+
+    /**
      * Characters before this column's footer search box sends a query; null for the table's
      * `minSearchLength`. An id column wants 1 — an id of 7 is a whole answer — while a phone
      * column keeps the table's, since every mobile number starts with the same two digits.
@@ -67,7 +74,8 @@ class Column extends Base {
             . \Pramnos\General\Helpers::bool2string($this->bSearchable)
             . ', "sTitle": "' . $this->label
             . '", "sType": "' . $this->sType
-            . '"}';
+            . '"' . ($this->sClass !== '' ? ', "sClass": ' . json_encode((string) $this->sClass, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) : '')
+            . '}';
     }
 
 }

@@ -860,6 +860,9 @@ under it:
 - sort marks that need no icon font. The Bootstrap integration's marks expect Glyphicons, which
   draw as empty boxes on a page without them.
 
+A column given `'sClass' => 'pf-no-export'` — row actions — stays out of what every button copies,
+prints and saves: `$table->addColumn('Actions', ['bSortable' => false, 'sClass' => 'pf-actions pf-no-export'])`.
+
 `$table->exportName = 'User groups'` names the file an Excel, CSV or PDF export is saved as;
 without it Buttons uses the page's title, so two tables on one screen would export under one name.
 

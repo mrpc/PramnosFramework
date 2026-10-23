@@ -1673,4 +1673,11 @@ return [
     'Withdraw the role' => 'Αφαίρεση ρόλου',
     'Give the group a role' => 'Ανάθεση ρόλου στο group',
     'Give the role' => 'Ανάθεση',
+    'Open the group' => 'Άνοιγμα του group',
+    'Edit the group' => 'Επεξεργασία του group',
+    'Delete the group' => 'Διαγραφή του group',
+    'Open the segment' => 'Άνοιγμα του segment',
+    'Edit the segment' => 'Επεξεργασία του segment',
+    'Delete the segment' => 'Διαγραφή του segment',
+    'Row actions' => 'Ενέργειες',
 ];

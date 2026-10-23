@@ -247,6 +247,24 @@ class Groups extends Controller
     }
 
     /**
+     * Where a group's name leads, wherever the administration shows one — the library, a person's
+     * card: its page, or with `'audience' => ['group_link' => 'members']` the application's own
+     * list of its members (`group_members_url`), where there is one.
+     */
+    public static function linkFor(int $id): string
+    {
+        $app = \Pramnos\Application\Application::currentInstance();
+        if (is_object($app) && ($app->applicationInfo['audience']['group_link'] ?? 'page') === 'members') {
+            $members = self::membersUrl($id);
+            if ($members !== null) {
+                return $members;
+            }
+        }
+
+        return adminUrl('Groups/view/') . $id;
+    }
+
+    /**
      * Where an application lists a group's members with its own tools — `audience.group_members_url`
      * in app.php, `{id}` for the group — or null where it has none.
      */
