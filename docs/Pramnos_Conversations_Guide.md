@@ -344,7 +344,9 @@ Writing or editing a message keeps its links on it (`Unfurls::urls()`): http(s),
 each once, none inside code, none that one of the application's `References::match()` patterns
 claims, and none to the application's own address. Reading them is the queue's
 (`conversation_unfurl`, answered by the worker with no registration), so a message is never held
-up by somebody else's site. History brought in quietly (`quiet`) gets no previews.
+up by somebody else's site. History brought in quietly (`quiet`) keeps its links too, so a
+reader who opens an imported thread later still gets a card; the rest of `quiet` (no live
+update, no mentions) is unaffected.
 
 The worker reads each link through `OutboundUrl::fetch()` — public addresses only, five seconds, a
 megabyte of page — and takes, in order: the site's oEmbed (YouTube, Vimeo, Loom, X, SoundCloud,
@@ -370,6 +372,10 @@ A message gives its cards as `unfurls`:
 tracking. Its writer takes a card off a message (`unfurl/{id}` with `url`, `Unfurls::hide()`), and
 an edit keeps it off.
 
+`conversations:unfurls-prune` drops a preview row not read again past `conversations.unfurl.keep_days`
+(30, by default — a cache, so it prunes even unconfigured), and the picture files no remaining
+row still names. Scheduled daily by the framework; `Unfurls::prune()` is the static it calls.
+
 ## GIFs
 
 ```php
@@ -388,7 +394,10 @@ the file; `Gifs::keep()`). Kept, not linked: it stays with the message when the 
 it, a reader's browser never asks the provider for it, and it counts in the conversations' space
 and leaves with their files. Only a GIF from the provider's own media hosts, over https, is taken
 (`Gifs::MAX_BYTES`, 8 MB), so the endpoint cannot be used to make the server fetch anything else.
-The picker's own small pictures are loaded from the provider by the browser of whoever is choosing.
+The picker's own small pictures are loaded from the provider by the browser of whoever is
+choosing — by design, not a gap to close: only the person searching ever asks the provider for
+them, nobody else in the conversation, and a GIF they do not send is never kept. What *is* sent
+goes through `Gifs::keep()` above, so a reader's browser never reaches the provider for it.
 
 ## Search
 

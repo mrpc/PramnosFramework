@@ -187,11 +187,12 @@ final class Messages
             Conversations::markRead($conversationId, $author, $id);
         }
         Files::attach($files, $id, $conversationId, $author);
+        // Its links' cards, read in the queue — history brought in quietly gets one too, since
+        // a reader who later opens it still deserves a card, not a bare URL.
+        Unfurls::remember($id, $body);
         if (!empty($options['quiet'])) {
             return $id;
         }
-        // Its links' cards, read in the queue; history brought in quietly gets none.
-        Unfurls::remember($id, $body);
         $mentioned = self::mention($id, $conversationId, $author, $body, $at);
         Realtime::posted($id, $mentioned);
         \Pramnos\Event\Event::dispatch(new MessagePosted($id, $conversationId, $author, $thread));

@@ -269,4 +269,71 @@ class UnfurlsTest extends TestCase
         $this->assertStringStartsWith('Broken', $broken['title'], 'broken UTF-8 cleaned');
         $this->assertSame('not a link', Unfurls::normalize('not a link'));
     }
+
+    /**
+     * History brought in with `quiet` keeps its links too — a reader who opens an imported
+     * thread later still deserves a card, not a bare URL, even though nobody is notified of it.
+     */
+    #[DataProvider('databases')]
+    public function testQuietHistoryStillGetsACard(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $general = $this->start($type, $host, $port, $user);
+        $this->web = ['https://old.example/' => '<title>Παλιά είδηση</title>'];
+
+        // Act
+        $id = Messages::post($general, $this->ids['eleni'], 'https://old.example/', ['quiet' => true]);
+
+        // Assert — the link is kept on the message despite quiet, so the worker has something
+        // to read once it runs; the moderation/mention/realtime half of post() stays skipped,
+        // which is covered by the other quiet tests.
+        $this->assertSame(['https://old.example/'], array_column(Messages::get($id)['unfurls'], 'url'));
+        $this->assertSame(1, Unfurls::run($id));
+    }
+
+    /** The picture name a card's image URL carries after `?name=`. */
+    private static function pictureName(array $card): string
+    {
+        parse_str((string) parse_url((string) $card['image']['url'], PHP_URL_QUERY), $q);
+
+        return (string) ($q['name'] ?? '');
+    }
+
+    /**
+     * prune() drops previews not read again past the given number of days, and the picture
+     * files no remaining row still names — but a picture two links happen to share (the same
+     * image URL) is not deleted while a fresher row still points at it.
+     */
+    #[DataProvider('databases')]
+    public function testPruneDropsStalePreviewsAndTheirPictures(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — two links, each with its own image, and a third sharing one link's image
+        $general = $this->start($type, $host, $port, $user);
+        $this->web = [
+            'https://stale.example/' => '<head><meta property="og:title" content="Παλιό"><meta property="og:image" content="/img.png"></head>',
+            'https://fresh.example/' => '<head><meta property="og:title" content="Φρέσκο"><meta property="og:image" content="/shared.png"></head>',
+            'https://shared.example/' => '<head><meta property="og:title" content="Κοινό"><meta property="og:image" content="https://fresh.example/shared.png"></head>',
+            'https://stale.example/img.png' => self::png(10, 10),
+            'https://fresh.example/shared.png' => self::png(12, 12),
+        ];
+        Unfurls::run(Messages::post($general, $this->ids['eleni'], 'https://stale.example/'));
+        Unfurls::run(Messages::post($general, $this->ids['eleni'], 'https://fresh.example/'));
+        Unfurls::run(Messages::post($general, $this->ids['eleni'], 'https://shared.example/'));
+        $staleName  = self::pictureName(Messages::list($general)[0]['unfurls'][0]);
+        $sharedName = self::pictureName(Messages::list($general)[1]['unfurls'][0]);
+        $this->assertSame($sharedName, self::pictureName(Messages::list($general)[2]['unfurls'][0]), 'same image URL, same kept file');
+        $staleHash = hash('sha256', 'https://stale.example/');
+        $sharedHash = hash('sha256', 'https://shared.example/');
+        $this->db->queryBuilder()->table('pramnos.link_previews')->whereIn('url_hash', [$staleHash, $sharedHash])->update(['fetched_at' => time() - 31 * 86400]);
+
+        // Act — only https://stale.example/ and https://shared.example/ are past 30 days;
+        // https://fresh.example/ still names the picture shared.example's row also used.
+        $dropped = Unfurls::prune(30);
+
+        // Assert
+        $this->assertSame(2, $dropped);
+        $this->assertSame([], $this->db->queryBuilder()->table('pramnos.link_previews')->where('url_hash', $staleHash)->getAllOrFail());
+        $this->assertFileDoesNotExist($this->tree . '/previews/' . $staleName, 'the stale link\'s own picture is gone');
+        $this->assertFileExists($this->tree . '/previews/' . $sharedName, 'still named by the fresh row');
+    }
 }

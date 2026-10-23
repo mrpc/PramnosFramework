@@ -326,6 +326,13 @@ class FrameworkSchedule
                 'description' => 'Remove read in-app notifications past the configured age',
             ],
 
+            // Link previews not read again in a while, and the pictures only they kept under
+            // previews/ — a cache, so a built-in default prunes it even unconfigured.
+            'conversations:unfurls-prune' => [
+                'cadence'     => [['daily'], ['at', '04:22']],
+                'description' => 'Drop link previews not read again in a while, and their pictures',
+            ],
+
             // The language-model call log: every call, with its prompt and reply, kept ninety
             // days. A no-op without the `llm` feature, which has no table.
             'llm:prune' => [

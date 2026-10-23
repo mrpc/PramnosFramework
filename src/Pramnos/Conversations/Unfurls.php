@@ -16,6 +16,8 @@ use Pramnos\Security\OutboundUrl;
  * where the site has it, OpenGraph and Twitter cards otherwise — keeps the pictures beside the
  * conversations' files, so a reader's browser never asks the other site, and tells the
  * conversation `message.unfurled`. A writer takes a card off their message with {@see hide()}.
+ * A preview nobody's link has pointed at again in a while, and its picture, leave with
+ * {@see prune()} — scheduled as `conversations:unfurls-prune`.
  *
  * ```php
  * 'conversations' => ['unfurl' => false],                                     // none at all
@@ -126,6 +128,51 @@ final class Unfurls
         Realtime::changed($id, 'message.unfurled');
 
         return $shown;
+    }
+
+    /**
+     * Drop link previews not read again in this long, and the pictures only they kept —
+     * `pramnos.link_previews` otherwise grows forever, one row per link ever mentioned, and
+     * `previews/` with it.
+     *
+     * @return int How many previews were dropped
+     */
+    public static function prune(int $days): int
+    {
+        if ($days < 1) {
+            return 0;
+        }
+        $query = self::table()->where('fetched_at', '<', time() - $days * 86400);
+        $count = (int) (clone $query)->count();
+        if ($count > 0) {
+            $query->delete();
+            self::sweepFiles();
+        }
+
+        return $count;
+    }
+
+    /** Delete pictures under {@see dir()} no row still names — only pruning calls this. */
+    private static function sweepFiles(): void
+    {
+        $dir = self::dir();
+        if (!is_dir($dir)) {
+            return;
+        }
+        $used = [];
+        foreach (self::table()->select(['preview'])->getAllOrFail() as $row) {
+            $preview = $row['preview'] === null ? null : json_decode((string) $row['preview'], true);
+            foreach (['image', 'icon'] as $key) {
+                if (isset($preview[$key]['name'])) {
+                    $used[(string) $preview[$key]['name']] = true;
+                }
+            }
+        }
+        foreach (scandir($dir) ?: [] as $file) {
+            if ($file !== '.' && $file !== '..' && !isset($used[$file])) {
+                @unlink($dir . '/' . $file);
+            }
+        }
     }
 
     /** Take a link's card off a message — by its writer only. */
