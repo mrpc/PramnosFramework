@@ -324,14 +324,14 @@ class Groups extends Controller
         $description = trim((string) ($_POST['description'] ?? ''));
 
         if ($name === '' || mb_strlen($name) > 80) {
-            $this->addError($name === '' ? 'A group needs a name.' : 'A group name is at most 80 characters.');
+            $this->addError($name === '' ? t('A group needs a name.') : t('A group name is at most 80 characters.'));
             $this->redirect(adminUrl('Groups/edit/') . ($id > 0 ? $id : ''));
             return;
         }
 
         $order = trim((string) ($_POST['order'] ?? ''));
         if ($order !== '' && (!preg_match('/^-?\d+$/', $order) || (int) $order < -127 || (int) $order > 127)) {
-            $this->addError('The order is a whole number from -127 to 127, or empty.');
+            $this->addError(t('The order is a whole number from -127 to 127, or empty.'));
             $this->redirect(adminUrl('Groups/edit/') . ($id > 0 ? $id : ''));
             return;
         }
@@ -350,7 +350,7 @@ class Groups extends Controller
             $id = (int) $this->db()->getInsertId();
         }
 
-        $this->addMessage('Saved.');
+        $this->addMessage(t('The group is saved.'));
         $this->redirect(adminUrl('Groups/view/') . $id);
     }
 
@@ -374,7 +374,7 @@ class Groups extends Controller
         }
         $uses = \Pramnos\Audience\Groups::uses($id);
         if ($uses !== []) {
-            $this->addError('This group is in use, so it is not deleted: ' . implode(', ', array_column($uses, 'name')) . '.');
+            $this->addError(t('This group is in use, so it is not deleted: %s.', implode(', ', array_column($uses, 'name'))));
             $this->redirect(adminUrl('Groups/view/') . $id);
             return;
         }
@@ -391,7 +391,7 @@ class Groups extends Controller
         \Pramnos\Audience\Groups::forget($id);
         $this->db()->cacheflush(self::CACHE_CATEGORY);
 
-        $this->addMessage('Group deleted.');
+        $this->addMessage(t('Group deleted.'));
         $this->redirect(adminUrl('Groups'));
     }
 
@@ -413,16 +413,16 @@ class Groups extends Controller
 
         $userId = $this->findUser(trim((string) ($_POST['user'] ?? '')));
         if ($userId === null) {
-            $this->addError('No account matches that username, email or id.');
+            $this->addError(t('No account matches that username, email or id.'));
             $this->redirect(adminUrl('Groups/view/') . $id);
             return;
         }
 
         // One path with the bulk action and rules: the cache, the permissions and `group.joined`.
         if (\Pramnos\Audience\Groups::add($id, $userId, $this->operator()) === 0) {
-            $this->addMessage('Already a member.');
+            $this->addMessage(t('Already a member.'));
         } else {
-            $this->addMessage('Member added.');
+            $this->addMessage(t('Member added.'));
         }
 
         $this->redirect(adminUrl('Groups/view/') . $id);
@@ -443,7 +443,7 @@ class Groups extends Controller
 
         \Pramnos\Audience\Groups::remove($id, $userId, $this->operator());
 
-        $this->addMessage('Member removed.');
+        $this->addMessage(t('Member removed.'));
         $this->redirect(adminUrl('Groups/view/') . $id);
     }
 
@@ -466,7 +466,7 @@ class Groups extends Controller
             return;
         }
         if (!$this->rolesEnabled() || !$this->activeRoleExists($roleId)) {
-            $this->addError('That role does not exist or is switched off.');
+            $this->addError(t('That role does not exist or is switched off.'));
             $this->redirect(adminUrl('Groups/view/') . $id);
             return;
         }
@@ -487,7 +487,7 @@ class Groups extends Controller
         $this->permissionsChangedFor($this->memberIds($id), [
             'operation' => 'group_role_assigned', 'groupid' => $id, 'roleid' => $roleId,
         ]);
-        $this->addMessage('Role given to the group.');
+        $this->addMessage(t('Role given to the group.'));
         $this->redirect(adminUrl('Groups/view/') . $id);
     }
 
@@ -515,7 +515,7 @@ class Groups extends Controller
             ]);
         }
 
-        $this->addMessage('Role withdrawn from the group.');
+        $this->addMessage(t('Role withdrawn from the group.'));
         $this->redirect(adminUrl('Groups/view/') . $id);
     }
 
@@ -601,7 +601,7 @@ class Groups extends Controller
         }
 
         if (!$this->groupsHere()) {
-            $this->addError('User groups are not enabled on this site.');
+            $this->addError(t('User groups are not enabled on this site.'));
             $this->redirect(adminUrl(''));
             return true;
         }
@@ -661,7 +661,7 @@ class Groups extends Controller
 
     protected function gone(): mixed
     {
-        $this->addError('That group no longer exists.');
+        $this->addError(t('That group no longer exists.'));
         $this->redirect(adminUrl('Groups'));
 
         return null;

@@ -54,6 +54,10 @@ final class FrameworkGreekCatalogueTest extends TestCase
         'scaffolding/themes/*/views/{segments,consentlists,rules,experiments}/*.php',
         'src/Pramnos/Application/Controllers/{Rules,Experiments}.php',
         'src/Pramnos/Html/{RuleCanvas,RuleEditor}.php',
+        // Groups, their page and the library's tables.
+        'src/Pramnos/Application/Controllers/Groups.php',
+        'scaffolding/themes/*/views/groups/view.html.php',
+        'src/Pramnos/Html/Datatable.php',
     ];
 
     /**
