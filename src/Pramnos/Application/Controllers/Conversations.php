@@ -111,7 +111,8 @@ class Conversations extends Controller
                     array_values(array_diff($conversation['members'] ?? [], [(int) $me->userid]))), array_column($conversation['formers'], 'name'));
                 $conversation['title'] = $conversation['kind'] === 'bot' ? \Pramnos\Conversations\Ask::displayName((string) $conversation['name'])
                     : ($conversation['members'] === null ? '#' . $conversation['slug']
-                    : implode(', ', $others ?: [$people[(int) $me->userid] ?? '#' . $me->userid]));
+                    // Nobody else: one's own dm, one's notes.
+                    : ($others === [] ? ($people[(int) $me->userid] ?? '#' . $me->userid) . ' ' . t('(you)') : implode(', ', $others)));
                 if (\Pramnos\Conversations\Ask::isOwn($conversation)) {
                     $conversation['avatar'] = \Pramnos\Llm\Analyst\Analyst::avatar();
                 }

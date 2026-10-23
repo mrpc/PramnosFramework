@@ -31,6 +31,7 @@ use Pramnos\Conversations\Conversations;
 $general = Conversations::create('channel', 'General', [], $me, 'For everybody');   // #general
 $finance = Conversations::create('private', 'Finance', [$maria], $me);             // members only
 $dm      = Conversations::create('dm', null, [$maria], $me);                       // the same one if they have one
+$notes   = Conversations::create('dm', null, [], $me);                           // one's own: one each, one's notes
 $group   = Conversations::create('group', null, [$maria, $nikos], $me);            // three to nine people
 $alerts  = Conversations::create('system', 'Payments', [], null);                  // the system writes here
 
@@ -46,7 +47,7 @@ Conversations::archive($group);                 // read, no longer written to
 |-----------|---------------------------------|---------------------------------------|
 | `channel` | whoever joins                   | everybody who may use conversations   |
 | `private` | whoever its members add         | its members                           |
-| `dm`      | two people, for good            | the two                               |
+| `dm`      | two people, for good — or one, their own | the two — or the one          |
 | `bot`     | one person, and a named bot that writes to them (`SystemPost`) | that person |
 | `group`   | three to nine people            | them                                  |
 | `system`  | whoever joins; the system writes | everybody who may use conversations  |
@@ -56,6 +57,12 @@ joined by dashes, in any script (`#γενικά-θέματα`). Its maker is its
 `Conversations::forPerson($id)` is a sidebar: the conversations somebody is in, newest first, with
 how many messages they have not read and how many of those mention them;
 `Conversations::browse($id)` lists the open ones to join.
+
+A dm of one person is their own, as Slack keeps one for each: notes, drafts, links kept for later.
+There is one per person — made by them or for them, `Conversations::dmBetween($me, $me)` finds it —
+and what they write there is never unread and tells nobody, a mention of themselves or `@all`
+included. The sidebar names it after its reader with "(you)" beside the name; in the dock it is
+started from *New conversation* by choosing oneself, which is never one of a group.
 
 ## Messages
 

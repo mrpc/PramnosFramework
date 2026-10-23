@@ -67,7 +67,7 @@ class ConversationsTest extends TestCase
     }
 
     /**
-     * Channels have a unique name; a dm is two people and the same two have one; a group is three
+     * Channels have a unique name; a dm is two people (or one, their own) and the same two have one; a group is three
      * to nine; open ones are joined, closed ones added to by a member; a dm cannot be left; who
      * reads and who writes follows.
      */
@@ -91,7 +91,7 @@ class ConversationsTest extends TestCase
         foreach ([
             fn () => Conversations::create('channel', 'γενικά-θέματα', [], $eleni),
             fn () => Conversations::create('channel', ' # ', [], $eleni),
-            fn () => Conversations::create('dm', null, [], $eleni),
+            fn () => Conversations::create('dm', null, [$maria, $nikos], $eleni),
             fn () => Conversations::create('group', null, [$maria], $eleni),
             fn () => Conversations::create('room', null),
             fn () => Conversations::join($secret, $root),
@@ -351,6 +351,46 @@ class ConversationsTest extends TestCase
         $this->assertSame([['former' => true, 'name' => 'Λένα']], Conversations::formers([$group])[$group]);
         $this->assertArrayNotHasKey($inThere, Conversations::formers([$inThere]), 'already in it: the former member just goes');
         $this->assertSame([$eleni, $maria, $nikos], Conversations::members($inThere));
+    }
+
+    /**
+     * A person alone is their own dm — their notes, as Slack keeps one for each: one per person,
+     * made by them or for them, found by `dmBetween($p, $p)`, never confused with a dm they share,
+     * with somebody who has no account among them. What they write there is never unread and tells
+     * nobody — a mention of themselves or `@all` included. Somebody claiming who they were in a dm
+     * with themselves gets the two merged, into the older.
+     */
+    #[DataProvider('databases')]
+    public function testAPersonHasADmWithThemselves(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — a dm with somebody else, and one with somebody who has no account
+        $this->boot($type, $host, $port, $user);
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        $shared = Conversations::create('dm', null, [$maria], $eleni);
+        $former = Conversations::create('dm', null, [], $eleni, '', [['name' => 'Ελένη (παλιά)', 'externalid' => 'slack:U5']]);
+        $before = Conversations::dmBetween($eleni, $eleni);
+
+        // Act
+        $own    = Conversations::create('dm', null, [], $eleni);
+        $forHer = Conversations::create('dm', null, [$eleni]);
+        $events = count($this->dispatched);
+        Messages::post($own, $eleni, 'σημείωση για <@' . $eleni . '> και @all');
+        $posted = array_column(array_slice($this->dispatched, $events), 0);
+        $mine   = array_values(array_filter(Conversations::forPerson($eleni), static fn (array $c): bool => $c['id'] === $own))[0];
+        $found  = Conversations::dmBetween($eleni, $eleni);
+        $alone  = Conversations::members($own);
+        $done   = Conversations::claimFormer('slack:U5', $eleni, $eleni);
+
+        // Assert
+        $this->assertNull($before, 'nobody has one before it is made');
+        $this->assertSame([$own, $own], [$forHer, $found], 'one each, made by them or for them');
+        $this->assertNotContains($own, [$shared, $former], 'not a dm they share');
+        $this->assertSame([$eleni], $alone);
+        $this->assertSame([0, 0], [$mine['unread'], $mine['mentions']], 'their own words are never unread');
+        $this->assertNotContains(MentionReceived::EVENT, $posted, 'nobody told, themselves included');
+        $this->assertSame(1, $done['merged'], 'who they were, with themselves: merged with their own');
+        $this->assertNull(Conversations::get($own), 'into the older, as any merged dm');
+        $this->assertSame([$former, [$eleni]], [Conversations::dmBetween($eleni, $eleni), Conversations::members($former)]);
     }
 
     /**

@@ -90,6 +90,31 @@ class ConversationsControllerTest extends TestCase
     }
 
     /**
+     * Choosing oneself in "new conversation" makes one's own dm — one's notes — and the sidebar
+     * names it after its reader, "(you)" beside the name; choosing oneself again finds the same one.
+     */
+    #[DataProvider('databases')]
+    public function testOnesOwnDmIsNamedForItsReader(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
+        Application::getInstance()->applicationInfo['features'] = ['conversations'];
+
+        // Act
+        $made  = $this->ask('maria', 'create', null, ['kind' => 'dm', 'members' => [$this->ids['maria']]]);
+        $again = $this->ask('maria', 'create', null, ['kind' => 'dm', 'members' => [$this->ids['maria']]]);
+        $side  = $this->ask('maria', 'conversations');
+
+        // Assert
+        $id  = $made['body']['id'];
+        $row = array_values(array_filter($side['body']['conversations'], static fn (array $c): bool => $c['id'] === $id))[0];
+        $this->assertSame([200, $id], [$made['status'], $again['body']['id']], 'one each: the same one again');
+        $this->assertSame(['dm', [$this->ids['maria']]], [$row['kind'], $row['members']]);
+        $this->assertStringEndsWith(' (you)', $row['title'], 'named for its reader, as theirs');
+    }
+
+    /**
      * A browser's whole round: the sidebar, a new channel, a message with a mention, a reply,
      * reading, reacting, pinning, editing, searching, notifications, a star, deleting, leaving.
      */

@@ -34,7 +34,7 @@
             return;
         }
         const timer = setTimeout(() => {
-            api.get('people', withInactive ? { q, inactive: 1 } : { q }).then((r) => (found = r.people.filter((p) => p.id !== me))).catch((err) => onerror(err.message));
+            api.get('people', withInactive ? { q, inactive: 1 } : { q }).then((r) => (found = r.people)).catch((err) => onerror(err.message));
         }, 200);
 
         return () => clearTimeout(timer);
@@ -56,6 +56,11 @@
     }
 
     function choose(person) {
+        // Oneself alone is one's own dm, one's notes: never one of a group.
+        if (person.id === me || chosen.some((p) => p.id === me)) {
+            chosen = chosen.some((p) => p.id === person.id) ? [] : [person];
+            return;
+        }
         chosen = chosen.some((p) => p.id === person.id) ? chosen.filter((p) => p.id !== person.id) : [...chosen, person].slice(0, 8);
     }
 
@@ -116,7 +121,7 @@
                 {#each found as person (person.id)}
                     <li>
                         <button type="button" class:pf-conv-active={chosen.some((p) => p.id === person.id)} onclick={() => choose(person)}>
-                            <Avatar id={person.id} name={person.name} small /> <span class:pf-conv-inactive={person.inactive != null}>{person.name}</span>
+                            <Avatar id={person.id} name={person.name} small /> <span class:pf-conv-inactive={person.inactive != null}>{person.id === me ? person.name + ' ' + t('(you)') : person.name}</span>
                             {#if person.inactive != null}<span class="pf-conv-muted-text">{lastSignIn(person.inactive) ? t('Inactive: last signed in %s', lastSignIn(person.inactive)) : t('Inactive: never signed in')}</span>{/if}
                         </button>
                     </li>

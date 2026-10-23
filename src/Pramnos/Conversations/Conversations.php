@@ -44,7 +44,7 @@ final class Conversations
 
     /**
      * Make a conversation: its maker is its owner and first member. A dm between two people who
-     * have one already is that one.
+     * have one already is that one. A dm of one person is theirs alone — one each, their notes.
      *
      * @param list<int> $members Accounts in it besides its maker
      */
@@ -81,10 +81,12 @@ final class Conversations
                 return $existing;
             }
         } elseif ($kind === 'dm') {
-            if (count($people) + count($formers) !== 2 || $people === []) {
+            // One person alone is their own dm: their notes, as Slack keeps one for each.
+            if (count($people) + count($formers) > 2 || $people === []) {
                 throw new \InvalidArgumentException(t('A direct conversation is between two people.'));
             }
-            $existing = $formers === [] ? self::dmBetween($people[0], $people[1]) : self::dmWithFormer($people[0], $formers[0]['externalid'] ?? $formers[0]['name']);
+            $existing = $formers !== [] ? self::dmWithFormer($people[0], $formers[0]['externalid'] ?? $formers[0]['name'])
+                : self::dmBetween($people[0], $people[1] ?? $people[0]);
             if ($existing !== null) {
                 return $existing;
             }
@@ -425,13 +427,29 @@ final class Conversations
         return $rows === [] ? null : (int) $rows[0]['conversationid'];
     }
 
-    /** The dm two people have, or null. */
+    /** The dm two people have — one person's own, when both are the same — or null. */
     public static function dmBetween(int $a, int $b): ?int
     {
+        if ($a === $b) {
+            return self::ownDm($a);
+        }
         $rows = self::db()->queryBuilder()->table('#PREFIX#conversation_members AS m')
             ->join('#PREFIX#conversations AS c', 'c.conversationid', '=', 'm.conversationid')
             ->select(['m.conversationid'])->where('c.kind', 'dm')->where('m.participanttype', 'user')->whereIn('m.participantid', [$a, $b])
             ->groupBy(['m.conversationid'])->havingRaw('COUNT(*) = 2')->limit(1)->getAllOrFail();
+
+        return $rows === [] ? null : (int) $rows[0]['conversationid'];
+    }
+
+    /** A person's own dm — them alone, their notes — other than one, or null. */
+    private static function ownDm(int $person, int $except = 0): ?int
+    {
+        $rows = self::db()->queryBuilder()->table('#PREFIX#conversation_members AS m')
+            ->join('#PREFIX#conversation_members AS a', 'a.conversationid', '=', 'm.conversationid')
+            ->join('#PREFIX#conversations AS c', 'c.conversationid', '=', 'm.conversationid')
+            ->select(['m.conversationid'])->where('c.kind', 'dm')->where('m.conversationid', '<>', $except)
+            ->where('m.participanttype', 'user')->where('m.participantid', $person)
+            ->groupBy(['m.conversationid'])->havingRaw('COUNT(*) = 1')->limit(1)->getAllOrFail();
 
         return $rows === [] ? null : (int) $rows[0]['conversationid'];
     }
@@ -495,8 +513,9 @@ final class Conversations
             $kept = $id;
             $conversation = self::get($id);
             $other = array_values(array_diff(self::members($id), [$person]))[0] ?? null;
-            if ($conversation !== null && $conversation['kind'] === 'dm' && $other !== null) {
-                $twin = self::db()->queryBuilder()->table('#PREFIX#conversation_members AS m')
+            if ($conversation !== null && $conversation['kind'] === 'dm') {
+                // Somebody claiming who they were in a dm with themselves: that dm is now their own.
+                $twin = $other === null ? self::ownDm($person, $id) : self::db()->queryBuilder()->table('#PREFIX#conversation_members AS m')
                     ->join('#PREFIX#conversation_members AS o', 'o.conversationid', '=', 'm.conversationid')
                     ->join('#PREFIX#conversations AS c', 'c.conversationid', '=', 'm.conversationid')
                     ->select(['m.conversationid'])->where('c.kind', 'dm')->where('m.conversationid', '<>', $id)

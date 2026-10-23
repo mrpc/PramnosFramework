@@ -191,6 +191,7 @@ final class Client
             'System message' => t('System message'),
             '(edited)' => t('(edited)'),
             'You' => t('You'),
+            '(you)' => t('(you)'),
             'Delete this message? It cannot be brought back.' => t('Delete this message? It cannot be brought back.'),
             'Former member' => t('Former member'),
             'Deleted profile' => t('Deleted profile'),

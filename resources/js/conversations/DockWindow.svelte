@@ -12,7 +12,7 @@
 
     let { api, conversation, me, props, online = {}, avatars = {}, minimised = false, onminimise, onclose, onread, onerror } = $props();
 
-    const other = $derived((conversation.members || []).find((id) => id !== me) ?? null);
+    const other = $derived((conversation.members || []).find((id) => id !== me) ?? me);
     const title = $derived(conversation.title || (conversation.slug ? '#' + conversation.slug : ''));
 </script>
 
