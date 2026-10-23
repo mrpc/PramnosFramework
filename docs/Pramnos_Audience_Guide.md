@@ -381,13 +381,14 @@ fields, a footer that keeps a long form's buttons in reach — dressed by each t
 theme's variables). A layout that prints the page's title itself hides the screens' own with
 `$document->bodyclasses[] = 'pf-titled'`.
 
-*Groups and segments* (`/admin/Segments`) has a tab each — groups, segments, and the account's
-own segments — with its count. Groups and segments are different things, so each tab has its own
+*Groups and segments* (`/admin/Segments`) has a tab each — all of them, groups, segments, and the
+account's own segments — with its count. Groups and segments are different things, so each tab has its own
 server-side datatable, with its own columns, column picker and export name; its rows come from
 `Segments/data` with the tab:
 
 | tab | columns | first order |
 |---|---|---|
+| All | name and description, kind, members, used by | kind: groups first, each in its own order |
 | Groups | #, name and description, members, order, used by | the order; a group with none after |
 | Segments | name and description, members, entered and left in seven days, used by, owner, last worked out | most members |
 | Mine | as Segments, without the owner | most members |
@@ -395,14 +396,16 @@ server-side datatable, with its own columns, column picker and export name; its 
 Each sorts by any column but *used by*, searches the number, name and description, and exports.
 A segment not yet worked out reads *being worked out*, not 0. The week's movement is counted for
 every segment in two queries, so the list can sort by it; what uses a group or a segment is worked
-out for the rows shown only. The button makes what the tab lists — a group or a segment.
+out for the rows shown only. The button makes what the tab lists — a group or a segment, and both on *all*. A default tab not
+among `tabs` gives way to the first that is.
 
 The groups tab is shown unless the address asks for another (`?kind=segments`, `?mine=1`), or
 app.php names its own first:
 
 ```php
 'audience' => [
-    'default_tab'       => 'segments',                            // groups, segments or mine
+    'tabs'              => ['all', 'groups', 'segments', 'mine'], // the tabs shown, in this order; all four unless set
+    'default_tab'       => 'segments',                            // all, groups, segments or mine; groups unless set
     'row_actions'       => ['groups', 'segments'],                // open, edit, delete on each row; ['groups'] unless set
     'group_link'        => 'members',                             // a group's name leads to its members' list…
     'group_members_url' => '/admin/users/display/groupid/{id}',   // …here; 'page' (the default) leads to the group's page

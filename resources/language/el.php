@@ -1680,4 +1680,5 @@ return [
     'Edit the segment' => 'Επεξεργασία του segment',
     'Delete the segment' => 'Διαγραφή του segment',
     'Row actions' => 'Ενέργειες',
+    'Kind of audience' => 'Είδος',
 ];

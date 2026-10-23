@@ -99,7 +99,7 @@ class SegmentsScreenTest extends TestCase
         $screen->display();
         $mine = (array) $screen->view;
         $info['audience']['default_tab'] = 'segments';
-        $this->request('GET', null, ['kind' => 'all']);
+        $this->request('GET', null, ['kind' => 'everything']);
         $screen->display();
         $fallback = $screen->view->tab;
         unset($info['audience']['default_tab']);
@@ -109,7 +109,8 @@ class SegmentsScreenTest extends TestCase
         // Assert
         $this->assertSame('groups', $groups['tab'], 'groups unless asked');
         $this->assertSame('segments', $fallback, 'a tab that is no longer there is the default one');
-        $this->assertSame(['groups' => 2, 'segments' => 1, 'mine' => 1], $groups['counts'], 'each tab says how many it holds');
+        $this->assertSame(['all' => 3, 'groups' => 2, 'segments' => 1, 'mine' => 1], $groups['counts'], 'each tab says how many it holds');
+        $this->assertSame(['all', 'groups', 'segments', 'mine'], $groups['tabs']);
         $this->assertSame(['#', 'Name', 'Members in it', 'Order in the list', 'Used by', 'Row actions'], $labels($groups), 'groups carry their actions unless told otherwise');
         $this->assertSame(['Name', 'Members in it', 'Entered, 7 days', 'Left, 7 days', 'Used by', 'Owned by', 'Last worked out'], $labels($segments));
         $this->assertSame(['Name', 'Members in it', 'Entered, 7 days', 'Left, 7 days', 'Used by', 'Last worked out'], $labels($mine), 'no owner among one\'s own');
@@ -204,7 +205,68 @@ class SegmentsScreenTest extends TestCase
         $this->assertSame(['Built on it', 'Greek speakers'], self::names($searched), 'the description matches too, ignoring case');
         $this->assertSame([2, 2], [$searched['recordsTotal'], $searched['recordsFiltered']]);
         $this->assertSame(['Greek speakers'], self::names($second), 'the second');
-        $this->assertSame(['Volunteers', 'Press'], self::names($unknown, 1), 'an unknown tab is the groups');
+        $this->assertSame(['Volunteers', 'Press', 'Built on it', 'Greek speakers'], self::names($unknown), 'an unknown tab is the first shown, all: groups, then segments');
+    }
+
+    /**
+     * *All* lists groups and segments together — groups first, each in its own order, then by
+     * any column over the whole — with name, kind, members, uses and each row's own actions; a
+     * group's name follows `linkFor()`. `audience.tabs` keeps only some tabs, and a default that
+     * is not among them gives way to the first that is.
+     */
+    #[DataProvider('databases')]
+    public function testTheAllTabAndChosenTabs(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $greek = $this->greek();
+        $this->db->queryBuilder()->table('usergroups')->where('groupid', $this->groups['Volunteers'])->update(['order' => 1]);
+        $this->signIn();
+        $screen = $this->screen(Screen::class);
+        $info   = &\Pramnos\Application\Application::getInstance()->applicationInfo;
+
+        // Act
+        $first   = $this->page($screen, ['tab' => 'all', 'order' => [['column' => 1, 'dir' => 'asc']]]);
+        $members = $this->page($screen, ['tab' => 'all', 'order' => [['column' => 2, 'dir' => 'desc'], ['column' => 0, 'dir' => 'asc']]]);
+        $this->request('GET', null, ['kind' => 'all']);
+        $screen->display();
+        $all = (array) $screen->view;
+        $html = $this->everyTheme('segments/segments.html.php', $all);
+        $info['audience'] = ['tabs' => ['segments', 'groups'], 'default_tab' => 'mine', 'row_actions' => ['segments']];
+        $this->request('GET', null, ['kind' => 'all']);
+        $screen->display();
+        $chosen = [$screen->view->tab, $screen->view->tabs];
+        $refused = $this->page($screen, ['tab' => 'all']);
+        $actions = $this->page($screen, ['tab' => 'all']);
+        $info['audience'] = ['tabs' => ['all'], 'row_actions' => ['segments']];
+        $mixed = $this->page($screen, ['tab' => 'all', 'order' => [['column' => 1, 'dir' => 'asc']]]);
+        unset($info['audience']);
+
+        // Assert
+        $names = self::names($first);
+        $this->assertSame(['Volunteers', 'Press', 'Greek speakers'], $names, 'groups first, by their order; then segments');
+        $rows = array_combine($names, $first['data']);
+        $this->assertStringContainsString('>User group</span>', $rows['Press'][1]);
+        $this->assertStringContainsString('>Audience segment</span>', $rows['Greek speakers'][1]);
+        $this->assertStringContainsString('href="' . adminUrl('Groups/view/') . $this->groups['Press'] . '"', $rows['Press'][0]);
+        $this->assertStringContainsString('href="' . adminUrl('Segments/view/') . $greek . '"', $rows['Greek speakers'][0]);
+        $this->assertStringContainsString(adminUrl('Groups/edit/'), $rows['Press'][4], 'a group\'s actions, groups having them by default');
+        $this->assertSame('', $rows['Greek speakers'][4], 'segments have none unless named');
+        $this->assertSame(['Greek speakers', 'Volunteers', 'Press'], self::names($members), 'by members over the whole');
+        $this->assertSame(['pf-all-table', 1, 'asc', 'Groups and segments'], [$all['datatable']->name, $all['datatable']->sortColumn, $all['datatable']->sortOrder, $all['datatable']->exportName]);
+        $this->assertSame(['Name', 'Kind of audience', 'Members in it', 'Used by', 'Row actions'], array_map(static fn ($c): string => $c->label, array_values($all['datatable']->aoColumns)));
+        foreach ($html as $theme => $page) {
+            $this->assertStringContainsString(adminUrl('Groups/edit'), $page, $theme . ': both buttons');
+            $this->assertStringContainsString(adminUrl('Segments/edit'), $page, $theme);
+            $this->assertStringContainsString('<span class="pf-count">3</span>', $page, $theme);
+            $this->assertLessThan(strpos($page, '?kind=groups'), strpos($page, '?kind=all'), 'all first');
+        }
+        $this->assertSame(['groups', ['groups', 'segments']], $chosen, 'kept in the library\'s order; the default gives way');
+        $this->assertSame(['Volunteers', 'Press'], self::names($refused, 1), 'a tab not shown is answered as the first shown');
+        $this->assertCount(5, $actions['data'][0], 'groups without actions here');
+        $rows = array_combine(self::names($mixed), $mixed['data']);
+        $this->assertSame('', $rows['Press'][4], 'each row its own kind\'s actions');
+        $this->assertStringContainsString(adminUrl('Segments/edit/') . $greek, $rows['Greek speakers'][4]);
     }
 
     /**

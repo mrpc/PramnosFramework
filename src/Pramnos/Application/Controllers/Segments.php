@@ -19,7 +19,7 @@ use Pramnos\Audience\Segments as SegmentStore;
  * log with the filter before and after.
  *
  * Actions:
- *   - display()       — groups, segments or the account's own, `?kind=groups|segments`, `?mine=1`, each in its datatable
+ *   - display()       — all, groups, segments or the account's own, `?kind=all|groups|segments`, `?mine=1`, each in its datatable
  *   - data()          — POST: a page of a tab's rows, as JSON
  *   - edit($id)       — a segment's form; a new one may be filled in from `?draft=` (Ask)
  *   - view($id)       — one segment: members, movement, use, a sample, and `?person=` explained
@@ -44,14 +44,14 @@ class Segments extends Controller
         parent::__construct($application);
     }
 
-    /** The library's tabs, in the order they are shown. */
-    public const TABS = ['groups', 'segments', 'mine'];
+    /** The library's tabs, in the order they are shown; `audience.tabs` keeps some of them. */
+    public const TABS = ['all', 'groups', 'segments', 'mine'];
 
     /**
-     * The library: the tabs with their counts — groups, segments, the account's own — and the
-     * tab's own datatable, whose rows {@see data()} answers a page at a time. With no tab asked
-     * for, `audience.default_tab` in app.php names the one shown: `groups` (the default),
-     * `segments` or `mine`.
+     * The library: the tabs with their counts — all, groups, segments, the account's own — and
+     * the tab's own datatable, whose rows {@see data()} answers a page at a time. With no tab
+     * asked for, `audience.default_tab` in app.php names the one shown: `groups` (the default),
+     * `all`, `segments` or `mine`.
      */
     public function display(): mixed
     {
@@ -63,6 +63,7 @@ class Segments extends Controller
 
         $view            = $this->getView('segments');
         $view->tab       = $tab;
+        $view->tabs      = $this->tabs();
         $view->counts    = $this->library()['counts'];
         $view->datatable = $this->datatable($tab);
 
@@ -80,7 +81,7 @@ class Segments extends Controller
             return null;
         }
         \Pramnos\Framework\Factory::getDocument('json');
-        $tab     = in_array($_POST['tab'] ?? '', self::TABS, true) ? (string) $_POST['tab'] : 'groups';
+        $tab     = in_array($_POST['tab'] ?? '', $this->tabs(), true) ? (string) $_POST['tab'] : $this->tabs()[0];
         $library = $this->library();
         $e       = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $none    = '<span class="pf-zero">—</span>';
@@ -101,7 +102,7 @@ class Segments extends Controller
             ? '<span class="pf-nowrap">' . $e(number_format($row['members'])) . '</span>'
             : '<span class="pf-muted">' . $e(t('Being worked out…')) . '</span>';
 
-        $withActions = $this->rowActions($tab);
+        $withActions = $tab === 'all' ? $this->rowActions('groups') || $this->rowActions('segments') : $this->rowActions($tab);
         // Open, edit, delete — delete disabled, saying why, while something uses it; the server
         // refuses it then too.
         $actions = static fn (string $screen, int $id, array $found): string => '<span class="pf-row-actions">'
@@ -112,6 +113,32 @@ class Segments extends Controller
                     ['class' => 'pf-action-danger', 'data-confirm' => $screen === 'Groups' ? t('Delete this group? Its members keep their accounts.') : t('Delete this segment and its history?')])
                 : \Pramnos\Html\Icon::postButton(adminUrl($screen . '/delete/') . $id, 'delete', t('Used by: %s', implode(', ', array_column($found, 'name'))), ['disabled' => 'disabled']))
             . '</span>';
+
+        if ($tab === 'all') {
+            $groupActions   = $this->rowActions('groups');
+            $segmentActions = $this->rowActions('segments');
+
+            return \Pramnos\Http\Response::json(\Pramnos\Html\Datatable\ArraySource::answer(
+                $library['all'],
+                [0 => 'name', 1 => 'kindOrder', 2 => 'members'],
+                static fn (array $row): string => '#' . $row['id'] . ' ' . $row['name'] . ' ' . $row['description'],
+                static fn (array $page): array => array_map(static function (array $row) use ($name, $members, $e, $uses, $actions, $withActions, $groupActions, $segmentActions): array {
+                    $group = $row['kind'] === 'group';
+                    $found = $group ? \Pramnos\Audience\Groups::uses($row['id']) : SegmentStore::uses($row['id']);
+                    $cells = [
+                        $name($row),
+                        '<span class="pf-badge ' . ($group ? 'pf-tone-neutral' : 'pf-tone-accent') . '">' . $e($group ? t('User group') : t('Audience segment')) . '</span>',
+                        $members($row),
+                        $uses($found),
+                    ];
+                    if ($withActions) {
+                        $cells[] = ($group ? $groupActions : $segmentActions) ? $actions($group ? 'Groups' : 'Segments', $row['id'], $found) : '';
+                    }
+
+                    return $cells;
+                }, $page),
+            ));
+        }
 
         if ($tab === 'groups') {
             return \Pramnos\Http\Response::json(\Pramnos\Html\Datatable\ArraySource::answer(
@@ -162,22 +189,32 @@ class Segments extends Controller
     }
 
     /**
-     * The tab asked for — `?kind=groups|segments`, `?mine=1` — or `audience.default_tab`.
+     * The tabs shown: `audience.tabs`, in the library's order, or all four.
      *
-     * @return 'groups'|'segments'|'mine'
+     * @return non-empty-list<string>
+     */
+    protected function tabs(): array
+    {
+        $chosen = (array) ($this->application->applicationInfo['audience']['tabs'] ?? self::TABS);
+        $tabs   = array_values(array_intersect(self::TABS, $chosen));
+
+        return $tabs === [] ? self::TABS : $tabs;
+    }
+
+    /**
+     * The tab asked for — `?kind=all|groups|segments`, `?mine=1` — where it is shown, or
+     * `audience.default_tab`, or the first shown.
      */
     protected function tab(): string
     {
-        if ((string) \Pramnos\Http\Request::staticGet('mine', '', 'get') === '1') {
-            return 'mine';
-        }
-        $kind = (string) \Pramnos\Http\Request::staticGet('kind', '', 'get');
-        if (in_array($kind, self::TABS, true)) {
-            return $kind;
+        $tabs  = $this->tabs();
+        $asked = (string) \Pramnos\Http\Request::staticGet('mine', '', 'get') === '1' ? 'mine' : (string) \Pramnos\Http\Request::staticGet('kind', '', 'get');
+        if (in_array($asked, $tabs, true)) {
+            return $asked;
         }
         $default = (string) ($this->application->applicationInfo['audience']['default_tab'] ?? 'groups');
 
-        return in_array($default, self::TABS, true) ? $default : 'groups';
+        return in_array($default, $tabs, true) ? $default : $tabs[0];
     }
 
     /**
@@ -191,11 +228,13 @@ class Segments extends Controller
         $table->bootstrap  = false;
         $table->aoData     = [['name' => 'tab', 'value' => $tab]];
         $table->exportName = match ($tab) {
+            'all'      => t('Groups and segments'),
             'groups'   => t('User groups'),
             'segments' => t('Audience segments'),
             default    => t('My segments'),
         };
         $columns = match ($tab) {
+            'all'    => [t('Name'), t('Kind of audience'), t('Members in it'), t('Used by')],
             'groups' => ['#', t('Name'), t('Members in it'), t('Order in the list'), t('Used by')],
             'mine'   => [t('Name'), t('Members in it'), t('Entered, 7 days'), t('Left, 7 days'), t('Used by'), t('Last worked out')],
             default  => [t('Name'), t('Members in it'), t('Entered, 7 days'), t('Left, 7 days'), t('Used by'), t('Owned by'), t('Last worked out')],
@@ -204,10 +243,15 @@ class Segments extends Controller
         foreach ($columns as $i => $label) {
             $table->addColumn(htmlspecialchars($label, ENT_QUOTES, 'UTF-8'), true, $i !== $usedBy, false);
         }
-        if ($this->rowActions($tab)) {
+        if ($tab === 'all' ? $this->rowActions('groups') || $this->rowActions('segments') : $this->rowActions($tab)) {
             $table->addColumn(htmlspecialchars(t('Row actions'), ENT_QUOTES, 'UTF-8'), ['bSortable' => false, 'bSearchable' => false, 'sClass' => 'pf-actions pf-no-export']);
         }
-                [$table->sortColumn, $table->sortOrder] = $tab === 'groups' ? [3, 'asc'] : [1, 'desc'];
+        // All: by kind, groups first, each in its own order; groups by their order; segments by most members.
+        [$table->sortColumn, $table->sortOrder] = match ($tab) {
+            'all'    => [1, 'asc'],
+            'groups' => [3, 'asc'],
+            default  => [1, 'desc'],
+        };
 
         return $table;
     }
@@ -215,7 +259,7 @@ class Segments extends Controller
     /**
      * Whether a tab's rows carry open, edit and delete: `audience.row_actions` names the kinds
      * that do — `['groups']` unless set, `['groups', 'segments']` for both (the account's own
-     * follow segments).
+     * follow segments; in *all*, each row its own kind).
      */
     protected function rowActions(string $tab): bool
     {
@@ -226,10 +270,10 @@ class Segments extends Controller
 
     /**
      * The groups, by their order; the segments by name, with the week's movement counted for all
-     * in two queries; the account's own; and how many each tab holds. Nothing per row worked out
+     * in two queries; the account's own; both, groups first; and how many each tab holds. Nothing per row worked out
      * yet beyond that.
      *
-     * @return array{groups: list<array<string, mixed>>, segments: list<array<string, mixed>>, mine: list<array<string, mixed>>, counts: array{groups: int, segments: int, mine: int}}
+     * @return array{all: list<array<string, mixed>>, groups: list<array<string, mixed>>, segments: list<array<string, mixed>>, mine: list<array<string, mixed>>, counts: array{all: int, groups: int, segments: int, mine: int}}
      */
     protected function library(): array
     {
@@ -246,7 +290,9 @@ class Segments extends Controller
         $mine   = array_values(array_filter($segments, static fn (array $row): bool => $row['mine']));
 
         return ['groups' => $groups, 'segments' => $segments, 'mine' => $mine,
-            'counts' => ['groups' => count($groups), 'segments' => count($segments), 'mine' => count($mine)]];
+            'all' => array_merge(array_map(static fn (array $row): array => $row + ['kind' => 'group', 'kindOrder' => 0], $groups),
+                array_map(static fn (array $row): array => $row + ['kind' => 'segment', 'kindOrder' => 1], $segments)),
+            'counts' => ['all' => count($groups) + count($segments), 'groups' => count($groups), 'segments' => count($segments), 'mine' => count($mine)]];
     }
 
     /**
