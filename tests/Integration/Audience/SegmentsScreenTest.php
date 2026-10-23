@@ -151,7 +151,8 @@ class SegmentsScreenTest extends TestCase
         $this->assertStringContainsString('class="pf-chip" href="' . adminUrl('Segments/view/') . $built . '"', $rows['Greek speakers'][5], 'what uses it is a link');
         $this->assertStringContainsString('<span class="pf-chip">The newsletter</span>', $rows['Greek speakers'][5], 'what the application reports, without a page');
         $this->assertSame(['Bob', date('d/m/Y')], [strip_tags($rows['Built on it'][6]), substr(strip_tags($rows['Greek speakers'][7]), 0, 10)], 'the date as the administration writes it');
-        $this->assertStringContainsString('>Segment</span>', $rows['Greek speakers'][1], 'the kind in words the application translates');
+        $this->assertStringContainsString('>Audience segment</span>', $rows['Greek speakers'][1], 'the kind under keys of its own: an application\'s "Group" may mean something else');
+        $this->assertStringContainsString('>User group</span>', $rows['Press'][1]);
         $this->assertStringContainsString('Made from the Greek speakers', $rows['Built on it'][0], 'the description under the name');
         $this->assertSame(array_fill(0, 5, '<span class="pf-zero">—</span>'), [$rows['Press'][3], $rows['Press'][4], $rows['Press'][5], $rows['Press'][6], $rows['Press'][7]], 'a group has none of these');
         $this->assertSame(['Press', 'Volunteers'], self::names($groups));

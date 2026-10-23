@@ -97,7 +97,7 @@ class Segments extends Controller
                 return [
                     '<a class="pf-row-link" href="' . $e($row['url']) . '">' . $e($row['name']) . '</a>'
                         . ($row['description'] !== '' ? '<span class="pf-row-desc">' . $e($row['description']) . '</span>' : ''),
-                    '<span class="pf-badge ' . ($row['kind'] === 'segment' ? 'pf-tone-accent' : 'pf-tone-neutral') . '">' . $e($row['kind'] === 'segment' ? t('Segment') : t('Group')) . '</span>',
+                    '<span class="pf-badge ' . ($row['kind'] === 'segment' ? 'pf-tone-accent' : 'pf-tone-neutral') . '">' . $e($row['kind'] === 'segment' ? t('Audience segment') : t('User group')) . '</span>',
                     $row['members'] >= 0 ? '<span class="pf-nowrap">' . $e(number_format($row['members'])) . '</span>' : '<span class="pf-muted">' . $e(t('not yet worked out')) . '</span>',
                     $row['kind'] === 'segment' ? $number($row['entered'], 'pf-up') : $none,
                     $row['kind'] === 'segment' ? $number($row['left'], 'pf-down') : $none,

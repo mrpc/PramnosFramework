@@ -1646,4 +1646,6 @@ return [
     'Last page' => 'Τελευταία σελίδα',
     'Copy the rows' => 'Αντιγραφή',
     'Print the rows' => 'Εκτύπωση',
+    'Audience segment' => 'Segment',
+    'User group' => 'Group',
 ];
