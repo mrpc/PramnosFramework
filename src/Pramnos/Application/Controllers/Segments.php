@@ -19,7 +19,8 @@ use Pramnos\Audience\Segments as SegmentStore;
  * log with the filter before and after.
  *
  * Actions:
- *   - display()       — segments and groups, `?kind=segments|groups`, `?mine=1`
+ *   - display()       — segments and groups, `?kind=segments|groups`, `?mine=1`, in a datatable
+ *   - data()          — POST: a page of the datatable's rows, as JSON
  *   - edit($id)       — a segment's form; a new one may be filled in from `?draft=` (Ask)
  *   - view($id)       — one segment: members, movement, use, a sample, and `?person=` explained
  *   - edit($id)       — create (no id) or edit, with the filter builder
@@ -38,12 +39,15 @@ class Segments extends Controller
     /** Registers the actions: all behind sign-in, the writes POSTs with the session's token. */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'view', 'edit', 'save', 'recompute', 'delete']);
+        $this->addAuthAction(['display', 'data', 'view', 'edit', 'save', 'recompute', 'delete']);
         $this->addWriteAction(['save', 'recompute', 'delete']);
         parent::__construct($application);
     }
 
-    /** The library: segments with their movement and use, then the groups. */
+    /**
+     * The library: the tabs with their counts, and the datatable, whose rows {@see data()} answers
+     * a page at a time.
+     */
     public function display(): mixed
     {
         if ($this->refused()) {
@@ -52,30 +56,124 @@ class Segments extends Controller
         \Pramnos\Framework\Factory::getDocument()->title = t('Segments and groups');
         $kind = (string) \Pramnos\Http\Request::staticGet('kind', '', 'get');
         $mine = (string) \Pramnos\Http\Request::staticGet('mine', '', 'get') === '1';
-        $me   = $this->me();
 
-        // Every row once, so each tab can say how many it holds.
-        $segments = [];
-        foreach (SegmentStore::all() as $segment) {
-            $uses       = SegmentStore::uses($segment['id']);
-            $segments[] = ['kind' => 'segment', 'id' => $segment['id'], 'name' => $segment['name'], 'description' => $segment['description'],
-                'members' => $segment['members'], 'movement' => SegmentStore::movement($segment['id']), 'usedBy' => array_column($uses, 'name'),
-                'uses' => $uses, 'computed' => $segment['recomputedAt'] !== null, 'url' => adminUrl('Segments/view/') . $segment['id'],
-                'mine' => $segment['owner'] === $me];
+        $view         = $this->getView('segments');
+        $view->kind   = $kind;
+        $view->mine   = $mine;
+        $view->counts = $this->library()['counts'];
+        $view->datatable = $this->datatable($kind, $mine);
+
+        return $view->display();
+    }
+
+    /**
+     * The library's rows, a page at a time, for the datatable: the tab's filter (`kind`, `mine`),
+     * the search over name and description, the order. What is used by what is worked out for the
+     * rows shown only.
+     */
+    public function data(): mixed
+    {
+        if ($this->refused()) {
+            return null;
         }
+        \Pramnos\Framework\Factory::getDocument('json');
+        $library = $this->library((string) ($_POST['kind'] ?? ''), (string) ($_POST['mine'] ?? '') === '1');
+        $e       = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $none    = '<span class="pf-zero">—</span>';
+        $number  = static fn (int $n, string $class): string => '<span class="' . ($n > 0 ? $class : 'pf-zero') . '">' . $e(number_format($n)) . '</span>';
+
+        return \Pramnos\Http\Response::json(\Pramnos\Html\Datatable\ArraySource::answer(
+            $library['rows'],
+            [0 => 'name', 1 => 'kind', 2 => 'members', 3 => 'entered', 4 => 'left', 6 => 'ownerName', 7 => 'recomputedAt'],
+            static fn (array $row): string => $row['name'] . ' ' . $row['description'],
+            static fn (array $page): array => array_map(static function (array $row) use ($e, $none, $number): array {
+                $uses = '';
+                foreach ($row['kind'] === 'segment' ? SegmentStore::uses($row['id']) : [] as $use) {
+                    $uses .= $use['url'] !== null
+                        ? '<a class="pf-chip" href="' . $e($use['url']) . '">' . $e($use['name']) . '</a>'
+                        : '<span class="pf-chip">' . $e($use['name']) . '</span>';
+                }
+
+                return [
+                    '<a class="pf-row-link" href="' . $e($row['url']) . '">' . $e($row['name']) . '</a>'
+                        . ($row['description'] !== '' ? '<span class="pf-row-desc">' . $e($row['description']) . '</span>' : ''),
+                    '<span class="pf-badge ' . ($row['kind'] === 'segment' ? 'pf-tone-accent' : 'pf-tone-neutral') . '">' . $e($row['kind'] === 'segment' ? t('segment') : t('group')) . '</span>',
+                    $row['members'] >= 0 ? $e(number_format($row['members'])) : '<span class="pf-muted">' . $e(t('not yet worked out')) . '</span>',
+                    $row['kind'] === 'segment' ? $number($row['entered'], 'pf-up') : $none,
+                    $row['kind'] === 'segment' ? $number($row['left'], 'pf-down') : $none,
+                    $uses === '' ? $none : '<span class="pf-chips">' . $uses . '</span>',
+                    $row['ownerName'] !== '' ? $e($row['ownerName']) : $none,
+                    $row['recomputedAt'] > 0 ? $e(date('Y-m-d H:i', $row['recomputedAt'])) : $none,
+                ];
+            }, $page),
+        ));
+    }
+
+    /**
+     * The library's datatable: its columns, the tab's filter sent with every request, the most
+     * members first.
+     */
+    protected function datatable(string $kind, bool $mine): \Pramnos\Html\Datatable
+    {
+        $table             = new \Pramnos\Html\Datatable('pf-segments-table');
+        $table->source     = adminUrl('Segments/data');
+        $table->bootstrap  = false;
+        $table->sortColumn = 2;
+        $table->sortOrder  = 'desc';
+        $table->aoData     = [['name' => 'kind', 'value' => $kind], ['name' => 'mine', 'value' => $mine ? '1' : '']];
+        foreach ([t('Name'), t('Segment or group'), t('In it now'), t('Entered, 7 days'), t('Left, 7 days'), t('Used by'), t('Owned by'), t('Last worked out')] as $i => $label) {
+            $table->addColumn(htmlspecialchars($label, ENT_QUOTES, 'UTF-8'), true, $i !== 5, false);
+        }
+
+        return $table;
+    }
+
+    /**
+     * Every segment and group as the library sorts and filters them, nothing per row worked out
+     * yet but the week's movement, in two queries; and how many each tab holds.
+     *
+     * @return array{rows: list<array{kind: string, id: int, name: string, description: string, members: int, entered: int, left: int, ownerName: string, recomputedAt: int, url: string}>, counts: array{all: int, segments: int, groups: int, mine: int}}
+     */
+    protected function library(string $kind = '', bool $mine = false): array
+    {
+        $me       = $this->me();
+        $all      = SegmentStore::all();
+        $moved    = SegmentStore::movements();
+        $owners   = $this->names(array_values(array_filter(array_column($all, 'owner'))));
+        $segments = array_map(static fn (array $segment): array => ['kind' => 'segment', 'id' => $segment['id'], 'name' => $segment['name'],
+            'description' => $segment['description'], 'members' => $segment['recomputedAt'] === null ? -1 : $segment['members'],
+            'entered' => $moved[$segment['id']]['entered'] ?? 0, 'left' => $moved[$segment['id']]['left'] ?? 0,
+            'ownerName' => $owners[(int) $segment['owner']] ?? '', 'recomputedAt' => (int) $segment['recomputedAt'],
+            'url' => adminUrl('Segments/view/') . $segment['id'], 'mine' => $segment['owner'] === $me], $all);
+        // A group has no movement, owner or working out: -1 sorts it below every segment's.
         $groups = array_map(static fn (array $group): array => ['kind' => 'group', 'id' => $group['id'], 'name' => $group['name'],
-            'description' => '', 'members' => $group['members'], 'movement' => null, 'usedBy' => [], 'uses' => [], 'computed' => true,
+            'description' => '', 'members' => $group['members'], 'entered' => -1, 'left' => -1, 'ownerName' => '', 'recomputedAt' => -1,
             'url' => adminUrl('Groups/view/') . $group['id'], 'mine' => false], $this->groups());
         $own  = array_values(array_filter($segments, static fn (array $row): bool => $row['mine']));
         $rows = $mine ? $own : ($kind === 'segments' ? $segments : ($kind === 'groups' ? $groups : array_merge($segments, $groups)));
 
-        $view       = $this->getView('segments');
-        $view->rows = $rows;
-        $view->kind = $kind;
-        $view->mine   = $mine;
-        $view->counts = ['all' => count($segments) + count($groups), 'segments' => count($segments), 'groups' => count($groups), 'mine' => count($own)];
+        return ['rows' => $rows, 'counts' => ['all' => count($segments) + count($groups), 'segments' => count($segments), 'groups' => count($groups), 'mine' => count($own)]];
+    }
 
-        return $view->display();
+    /**
+     * Accounts' names, in one query.
+     *
+     * @param list<int> $ids
+     * @return array<int, string>
+     */
+    protected function names(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+        $names = [];
+        foreach (\Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table(Attributes::FROM)
+            ->select(['users.userid', 'users.username', 'users.firstname', 'users.lastname'])
+            ->whereIn('users.userid', array_values(array_unique($ids)))->getAllOrFail() as $row) {
+            $names[(int) $row['userid']] = trim($row['firstname'] . ' ' . $row['lastname']) ?: (string) $row['username'];
+        }
+
+        return $names;
     }
 
     /** One segment: its numbers, where it is used, a sample of members, and "why" for a person. */

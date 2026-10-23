@@ -16,6 +16,8 @@ use Pramnos\Audience\Segments;
  * with what the controller gave it.
  */
 #[CoversClass(Screen::class)]
+#[CoversClass(\Pramnos\Html\Datatable\ArraySource::class)]
+#[CoversClass(Segments::class)]
 #[CoversClass(\Pramnos\Html\AudiencePanel::class)]
 class SegmentsScreenTest extends TestCase
 {
@@ -51,54 +53,112 @@ class SegmentsScreenTest extends TestCase
         return $html;
     }
 
+    /** One answer of the library's datatable: `Segments/data` with these parameters, decoded. */
+    private function page(object $screen, array $post): array
+    {
+        $this->request('POST', null, [], $post + ['draw' => 3, 'start' => 0, 'length' => 10]);
+
+        return json_decode((string) $screen->data()->getBody(), true);
+    }
+
+    /** The first cell of each row: the name's link, its text only. @return list<string> */
+    private static function names(array $answer): array
+    {
+        return array_map(static fn (array $row): string => strip_tags(explode('<span class="pf-row-desc">', $row[0])[0]), $answer['data']);
+    }
+
     /**
-     * The library lists segments with their count, movement and use, then the groups; the tabs
-     * narrow it to segments, groups, or the account's own.
+     * The library's page is the tabs with their counts and the framework's datatable, which asks
+     * `Segments/data` with the tab's filter, the most members first — in every theme.
      */
     #[DataProvider('databases')]
-    public function testTheLibraryListsSegmentsAndGroups(string $type, string $host, int $port, string $user): void
+    public function testTheLibraryIsTabsAndADatatable(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->signIn();
+        $screen = $this->screen(Screen::class);
+        $this->request('GET');
+        $screen->display();
+        $empty = $this->everyTheme('segments/segments.html.php', (array) $screen->view);
+        $this->greek();
+
+        // Act
+        $this->request('GET', null, ['kind' => 'groups']);
+        $screen->display();
+        $vars = (array) $screen->view;
+        $html = $this->everyTheme('segments/segments.html.php', $vars);
+        $this->request('GET');
+        $screen->display();
+
+        // Assert
+        $this->assertSame(['all' => 3, 'segments' => 1, 'groups' => 2, 'mine' => 1], $vars['counts'], 'each tab says how many it holds');
+        $this->assertSame(adminUrl('Segments/data'), $vars['datatable']->source);
+        $this->assertSame([['name' => 'kind', 'value' => 'groups'], ['name' => 'mine', 'value' => '']], $vars['datatable']->aoData, 'the tab is the filter sent');
+        $this->assertSame([2, 'desc'], [$vars['datatable']->sortColumn, $vars['datatable']->sortOrder], 'the most members first');
+        $this->assertSame([['name' => 'kind', 'value' => ''], ['name' => 'mine', 'value' => '']], $screen->view->datatable->aoData);
+        foreach ($empty as $theme => $page) {
+            // Groups alone are no library yet: the empty state is about segments.
+            $this->assertStringNotContainsString('No segments yet', $page, $theme);
+        }
+        foreach ($html as $theme => $page) {
+            $this->assertStringContainsString('<span class="pf-count">3</span>', $page, $theme);
+            $this->assertStringContainsString("jQuery('#pf-segments-table').dataTable(", $page, $theme);
+            $this->assertStringContainsString('"serverSide": true', $page, $theme);
+            $this->assertStringContainsString('Last worked out', $page, $theme);
+        }
+    }
+
+    /**
+     * `Segments/data` answers a page: each segment with its count, the week's movement, what uses
+     * it, its owner and when it was worked out; a group with "—" where it has none of those. It
+     * sorts by any column but "used by", narrows to a tab, searches name and description, pages.
+     */
+    #[DataProvider('databases')]
+    public function testTheLibrarysRowsSortFilterSearchAndPage(string $type, string $host, int $port, string $user): void
     {
         // Arrange
         $this->boot($type, $host, $port, $user);
         $greek = $this->greek();
-        Segments::create('Built on it', ['conditions' => [['segment' => $greek, 'op' => 'in']]], owner: 9);
+        $built = Segments::create('Built on it', ['conditions' => [['segment' => $greek, 'op' => 'in']]], $this->ids['bob'], 'Made from the Greek speakers');
+        Segments::usage('campaigns', static fn (int $id): array => $id === $greek ? ['The newsletter'] : []);
         $this->signIn();
         $screen = $this->screen(Screen::class);
+        $order  = static fn (int $column, string $dir): array => ['order' => [['column' => $column, 'dir' => $dir]]];
 
         // Act
-        $this->request('GET');
-        $screen->display();
-        $all = (array) $screen->view;
-        $this->request('GET', null, ['kind' => 'groups']);
-        $screen->display();
-        $groups = array_column($screen->view->rows, 'name');
-        $this->request('GET', null, ['mine' => '1']);
-        $screen->display();
-        $mine = array_column($screen->view->rows, 'name');
-        $html = $this->everyTheme('segments/segments.html.php', $all);
+        $byMembers = $this->page($screen, $order(2, 'desc'));
+        $byName    = $this->page($screen, $order(0, 'asc'));
+        $byOwner   = $this->page($screen, $order(6, 'desc'));
+        $byUse     = $this->page($screen, $order(5, 'asc'));
+        $groups    = $this->page($screen, ['kind' => 'groups'] + $order(0, 'asc'));
+        $segments  = $this->page($screen, ['kind' => 'segments'] + $order(0, 'asc'));
+        $mine      = $this->page($screen, ['mine' => '1'] + $order(0, 'asc'));
+        $searched  = $this->page($screen, ['search' => ['value' => 'GREEK']] + $order(0, 'asc'));
+        $second    = $this->page($screen, ['start' => 1, 'length' => 2] + $order(0, 'asc'));
 
         // Assert
-        $byName = array_column($all['rows'], null, 'name');
-        $this->assertSame(['Built on it', 'Greek speakers', 'Press', 'Volunteers'], array_column($all['rows'], 'name'));
-        $this->assertSame(2, $byName['Greek speakers']['members']);
-        $this->assertSame(['entered' => 2, 'left' => 0], $byName['Greek speakers']['movement']);
-        $this->assertSame(['segment Built on it'], $byName['Greek speakers']['usedBy']);
-        $this->assertFalse($byName['Built on it']['computed']);
-        $this->assertSame(2, $byName['Volunteers']['members']);
-        $this->assertSame(['Press', 'Volunteers'], $groups);
-        $this->assertSame(['Greek speakers'], $mine);
-        $this->assertSame(['all' => 4, 'segments' => 2, 'groups' => 2, 'mine' => 1], $all['counts'], 'each tab says how many it holds');
-        $this->assertSame(adminUrl('Segments/view/') . $byName['Built on it']['id'], $byName['Greek speakers']['uses'][0]['url'], 'what uses it is a link');
-        foreach ($html as $theme => $page) {
-            $this->assertStringContainsString('<span class="pf-count">4</span>', $page, $theme);
-            $this->assertStringContainsString('class="pf-chip" href="' . adminUrl('Segments/view/') . $byName['Built on it']['id'] . '"', $page, $theme);
-            $this->assertStringContainsString('Greek speakers', $page, $theme);
-            $this->assertStringContainsString('▲ 2</span><span class="pf-zero" title="Left, 7 days">▼ 0', $page, $theme);
-            $this->assertStringContainsString('segment Built on it', $page, $theme);
-            $this->assertStringContainsString('not yet worked out', $page, $theme);
-            // The list is the framework's datatable — sorted, paged and searched like every other.
-            $this->assertStringContainsString("jQuery('#pf-segments-table').dataTable(", $page, $theme);
-        }
+        $this->assertSame(3, $byMembers['draw'], 'the draw counter comes back');
+        $this->assertSame([4, 4], [$byMembers['recordsTotal'], $byMembers['recordsFiltered']]);
+        $this->assertSame(['Greek speakers', 'Volunteers', 'Press', 'Built on it'], self::names($byMembers), 'most members first; not yet worked out last');
+        $this->assertSame(['Built on it', 'Greek speakers', 'Press', 'Volunteers'], self::names($byName));
+        $this->assertSame('Built on it', self::names($byOwner)[0], 'Bob owns it; the others have no owner named');
+        $this->assertSame(self::names($byName), self::names($byUse), '"used by" is not sorted by: segments, then groups, each by name');
+        $rows = array_combine(self::names($byName), $byName['data']);
+        $this->assertSame('2', $rows['Greek speakers'][2]);
+        $this->assertStringContainsString('not yet worked out', $rows['Built on it'][2]);
+        $this->assertSame(['<span class="pf-up">2</span>', '<span class="pf-zero">0</span>'], [$rows['Greek speakers'][3], $rows['Greek speakers'][4]], 'entered and left this week');
+        $this->assertStringContainsString('class="pf-chip" href="' . adminUrl('Segments/view/') . $built . '"', $rows['Greek speakers'][5], 'what uses it is a link');
+        $this->assertStringContainsString('<span class="pf-chip">The newsletter</span>', $rows['Greek speakers'][5], 'what the application reports, without a page');
+        $this->assertSame(['Bob', date('Y-m-d')], [$rows['Built on it'][6], substr($rows['Greek speakers'][7], 0, 10)]);
+        $this->assertStringContainsString('Made from the Greek speakers', $rows['Built on it'][0], 'the description under the name');
+        $this->assertSame(array_fill(0, 5, '<span class="pf-zero">—</span>'), [$rows['Press'][3], $rows['Press'][4], $rows['Press'][5], $rows['Press'][6], $rows['Press'][7]], 'a group has none of these');
+        $this->assertSame(['Press', 'Volunteers'], self::names($groups));
+        $this->assertSame(['Built on it', 'Greek speakers'], self::names($segments));
+        $this->assertSame(['Greek speakers'], self::names($mine));
+        $this->assertSame(['Built on it', 'Greek speakers'], self::names($searched), 'the description matches too, ignoring case');
+        $this->assertSame([4, 2], [$searched['recordsTotal'], $searched['recordsFiltered']], 'all there are, and those found');
+        $this->assertSame(['Greek speakers', 'Press'], self::names($second), 'the second and third');
     }
 
     /**
@@ -265,14 +325,14 @@ class SegmentsScreenTest extends TestCase
         $this->request('POST', $id, [], ['name' => 'x', 'filter' => '']);
 
         // Act
-        $answers = [$screen->display(), $screen->view(), $screen->edit()];
+        $answers = [$screen->display(), $screen->data(), $screen->view(), $screen->edit()];
         $screen->save();
         $screen->recompute();
         $screen->delete();
 
         // Assert
-        $this->assertSame([null, null, null], $answers);
-        $this->assertCount(6, $screen->redirects);
+        $this->assertSame([null, null, null, null], $answers, 'the datatable\'s rows too');
+        $this->assertCount(7, $screen->redirects);
         $this->assertNotNull(Segments::get($id));
         $this->assertCount(1, Segments::all());
     }

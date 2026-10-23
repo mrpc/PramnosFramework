@@ -32,7 +32,8 @@ class ScaffoldGroupsViewsTest extends TestCase
     }
 
     /**
-     * The list links each group to its page and offers a new one.
+     * The list is the controller's datatable — whose rows, from `Groups/data`, link each group to
+     * its page — and offers a new one.
      */
     #[DataProvider('themes')]
     public function testTheListLinksToEachGroup(string $theme): void
@@ -41,7 +42,7 @@ class ScaffoldGroupsViewsTest extends TestCase
         $list = self::view($theme, 'groups/groups.html.php');
 
         // Assert
-        $this->assertStringContainsString("adminUrl('Groups/view/')", $list);
+        $this->assertStringContainsString('$this->datatable->render()', $list);
         $this->assertStringContainsString("adminUrl('Groups/edit')", $list);
         $this->assertStringContainsString("activeNav = 'groups'", $list);
     }

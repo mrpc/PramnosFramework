@@ -334,6 +334,28 @@ final class Segments
         return ['entered' => $count('entered_at'), 'left' => $count('left_at')];
     }
 
+    /**
+     * Who entered and who left every segment over the last days, in two queries: what a list
+     * sorts by, where {@see movement()} would ask once per segment.
+     *
+     * @return array<int, array{entered: int, left: int}> By segment id; a segment nobody moved in is absent
+     */
+    public static function movements(int $days = 7): array
+    {
+        $since  = time() - $days * 86400;
+        $counts = static fn (string $column): array => array_column(self::db()->queryBuilder()->table('#PREFIX#segment_members')
+            ->select(['segmentid', new Expression('COUNT(*) AS n')])->where($column, '>=', $since)
+            ->groupBy(['segmentid'])->getAllOrFail(), 'n', 'segmentid');
+        $entered = $counts('entered_at');
+        $left    = $counts('left_at');
+        $out     = [];
+        foreach (array_keys($entered + $left) as $id) {
+            $out[(int) $id] = ['entered' => (int) ($entered[$id] ?? 0), 'left' => (int) ($left[$id] ?? 0)];
+        }
+
+        return $out;
+    }
+
     /** Whether a person is in a segment now. */
     public static function isMember(int $id, int $userid): bool
     {

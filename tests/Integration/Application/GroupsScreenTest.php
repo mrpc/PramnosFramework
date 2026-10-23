@@ -282,7 +282,8 @@ class GroupsScreenTest extends TestCase
     }
 
     /**
-     * The list counts members, and a group's page lists them; a group that is not there
+     * The list is a datatable whose rows `Groups/data` answers — members counted, searched by name
+     * and description, sorted, paged — and a group's page lists them; a group that is not there
      * sends the operator back to the list with a message.
      */
     #[DataProvider('databases')]
@@ -295,8 +296,14 @@ class GroupsScreenTest extends TestCase
         $this->db->queryBuilder()->table('userstogroups')->insert(['groupid' => $groupId, 'userid' => $alice]);
 
         // Act
+        $this->group('Press');
         $list = new ProbeGroups();
         $list->display();
+        $_POST = ['draw' => 2, 'start' => 0, 'length' => 10, 'order' => [['column' => 2, 'dir' => 'desc']]];
+        $byMembers = json_decode((string) (new ProbeGroups())->data()->getBody(), true);
+        $_POST = ['draw' => 3, 'start' => 0, 'length' => 1, 'search' => ['value' => 'PRE'], 'order' => [['column' => 0, 'dir' => 'asc']]];
+        $searched = json_decode((string) (new ProbeGroups())->data()->getBody(), true);
+        $_POST = [];
         $page = new ProbeGroups();
         $_GET['_option'] = $groupId;
         $page->view();
@@ -305,7 +312,11 @@ class GroupsScreenTest extends TestCase
         $missing->view();
 
         // Assert
-        $this->assertSame(1, (int) $list->lastView->groups[0]['members']);
+        $this->assertSame(adminUrl('Groups/data'), $list->lastView->datatable->source);
+        $this->assertSame([2, 2, 2], [$byMembers['draw'], $byMembers['recordsTotal'], $byMembers['recordsFiltered']]);
+        $this->assertSame(['Readers', '1'], [strip_tags($byMembers['data'][0][0]), $byMembers['data'][0][2]], 'the most members first');
+        $this->assertSame(['Press', '0'], [strip_tags($byMembers['data'][1][0]), $byMembers['data'][1][2]], 'a group nobody is in counts 0');
+        $this->assertSame([2, 1, 'Press'], [$searched['recordsTotal'], $searched['recordsFiltered'], strip_tags($searched['data'][0][0])], 'searched ignoring case');
         $this->assertSame('view', $page->lastLayout);
         $this->assertSame('alice', $page->lastView->members[0]['username']);
         $this->assertStringEndsWith('Groups', (string) $missing->redirectedTo);
@@ -491,12 +502,14 @@ class GroupsScreenTest extends TestCase
         // Act
         $refused = new BelowTheFloorGroups();
         $refused->display();
+        $rows = (new BelowTheFloorGroups())->data();
         $noId = new ProbeGroups();
         $_GET['_option'] = 0;
         $noId->view();
 
         // Assert
         $this->assertNull($refused->lastView, 'a screen rendered below its floor');
+        $this->assertNull($rows, 'nor its rows');
         $this->assertNull($noId->lastView);
         $this->assertStringEndsWith('Groups', (string) $noId->redirectedTo);
     }

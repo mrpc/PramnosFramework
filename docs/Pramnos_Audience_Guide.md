@@ -365,9 +365,13 @@ fields, a footer that keeps a long form's buttons in reach — dressed by each t
 theme's variables). A layout that prints the page's title itself hides the screens' own with
 `$document->bodyclasses[] = 'pf-titled'`.
 
-The library at `/admin/Segments` — segments and groups, with tabs for each and for the account's
-own — lists them in the framework's datatable (`Pramnos\Html\Datatable`, its rows given by the
-page), so it sorts, pages and searches as every other list in the administration.
+The library at `/admin/Segments` has tabs for all, segments, groups and the account's own, each
+with its count, above a server-side datatable. Its rows come from `Segments/data`, which shows the
+name and description, the kind, the members, who entered and who left in seven days, what uses it,
+the owner, and when it was last worked out. Most members come first. It sorts by any column but
+*used by*, searches the name and description, and exports. The week's movement is counted for every
+segment in two queries, so the list can sort by it; what uses a segment is worked out for the rows
+shown only. A group has "—" where it has no movement, owner or working out.
 
 Two pieces work in any form:
 

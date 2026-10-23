@@ -460,6 +460,8 @@ the screen deletes a group's memberships itself.
 *Administration → People → Groups* (`/admin/Groups`) appears only while the feature is on.
 There you:
 
+- find a group in a datatable of name, description and members (`Groups/data`), the most
+  members first, searched and sorted;
 - create, edit and delete groups;
 - open a group to see its members;
 - add a member by username, email or user id;

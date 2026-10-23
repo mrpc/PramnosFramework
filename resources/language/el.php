@@ -1630,4 +1630,6 @@ return [
     '%s was put out of here.' => 'Ο/Η %s βγήκε από εδώ.',
     'Replied to a thread:' => 'Απάντησε σε νήμα:',
     'Only a reply in a thread is also sent to the conversation.' => 'Μόνο μια απάντηση σε νήμα στέλνεται και στη συζήτηση.',
+    'Owned by' => 'Ιδιοκτήτης',
+    'Last worked out' => 'Τελευταίος υπολογισμός',
 ];

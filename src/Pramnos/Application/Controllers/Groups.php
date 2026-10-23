@@ -18,7 +18,8 @@ use Pramnos\Application\Controller;
  * anything. An application class named `Groups` replaces it.
  *
  * Actions:
- *   - display()              — every group, with its member count
+ *   - display()              — every group, with its member count, in a datatable
+ *   - data()                 — POST: a page of the datatable's rows, as JSON
  *   - view($id)              — one group and its members
  *   - edit($id)              — create (no id) or edit form
  *   - save()                 — POST: create or update
@@ -48,7 +49,7 @@ class Groups extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction([
-            'display', 'view', 'edit', 'save', 'delete', 'addmember', 'removemember', 'addrole', 'removerole',
+            'display', 'data', 'view', 'edit', 'save', 'delete', 'addmember', 'removemember', 'addrole', 'removerole',
         ]);
         // POST with the session's token, or refused before the action runs: see Controller::exec().
         $this->addWriteAction(['save', 'delete', 'addmember', 'removemember', 'addrole', 'removerole']);
@@ -58,7 +59,7 @@ class Groups extends Controller
     // ── Screens ──────────────────────────────────────────────────────────────
 
     /**
-     * Every group, with how many members it has.
+     * Every group, with how many members it has, in a datatable whose rows {@see data()} answers.
      */
     public function display(): mixed
     {
@@ -68,18 +69,47 @@ class Groups extends Controller
 
         \Pramnos\Framework\Factory::getDocument()->title = 'Groups';
 
-        $groups = [];
-        $result = $this->db()->queryBuilder()->table('#PREFIX#usergroups')
-            ->orderBy('name', 'asc')->get();
-        foreach ($result as $row) {
-            $row['members'] = $this->memberCount((int) $row['groupid']);
-            $groups[] = $row;
-        }
+        $table             = new \Pramnos\Html\Datatable('dt-groups');
+        $table->source     = adminUrl('Groups/data');
+        $table->bootstrap  = false;
+        $table->sortColumn = 2;
+        $table->sortOrder  = 'desc';
+        $table->addColumn('Name', true, true, false)->addColumn('Description', true, true, false)->addColumn('Members', true, true, false);
 
         $view = $this->getView('groups');
-        $view->groups = $groups;
+        $view->datatable = $table;
 
         return $view->display();
+    }
+
+    /**
+     * The groups, a page at a time: searched by name and description, sorted by any column, the
+     * members counted in one query.
+     */
+    public function data(): mixed
+    {
+        if ($this->refused()) {
+            return null;
+        }
+        \Pramnos\Framework\Factory::getDocument('json');
+        $rows = array_map(static fn (array $row): array => ['id' => (int) $row['groupid'], 'name' => (string) $row['name'],
+            'description' => (string) ($row['description'] ?? ''), 'members' => (int) $row['members']],
+            $this->db()->queryBuilder()->table('#PREFIX#usergroups AS usergroups')
+                ->leftJoin('#PREFIX#userstogroups AS userstogroups', 'userstogroups.groupid', '=', 'usergroups.groupid')
+                ->select(['usergroups.groupid', 'usergroups.name', 'usergroups.description', new \Pramnos\Database\Expression('COUNT(userstogroups.userid) AS members')])
+                ->groupBy(['usergroups.groupid', 'usergroups.name', 'usergroups.description'])->orderBy('usergroups.name')->getAllOrFail());
+        $e = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+
+        return \Pramnos\Http\Response::json(\Pramnos\Html\Datatable\ArraySource::answer(
+            $rows,
+            [0 => 'name', 1 => 'description', 2 => 'members'],
+            static fn (array $row): string => $row['name'] . ' ' . $row['description'],
+            static fn (array $page): array => array_map(static fn (array $row): array => [
+                '<a href="' . $e(adminUrl('Groups/view/') . $row['id']) . '">' . $e($row['name']) . '</a>',
+                $e($row['description']),
+                (string) $row['members'],
+            ], $page),
+        ));
     }
 
     /**

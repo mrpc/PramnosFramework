@@ -1083,6 +1083,39 @@ fragments from the calling code, never from a request.
 
 ---
 
+### A list that is not one table's rows — `ArraySource`
+
+Some lists have no single query to page: segments beside groups, or rows with a figure worked out
+in PHP. `Datatable\ArraySource` answers the same server-side request from rows held in memory:
+
+```php
+use Pramnos\Html\Datatable\ArraySource;
+
+public function data(): mixed
+{
+    \Pramnos\Framework\Factory::getDocument('json');
+
+    return \Pramnos\Http\Response::json(ArraySource::answer(
+        $rows,                                       // every row, with the values it sorts by
+        [0 => 'name', 2 => 'members'],               // column index => the key it sorts by
+        static fn (array $row): string => $row['name'] . ' ' . $row['description'],   // searched
+        fn (array $page): array => array_map($this->cells(...), $page),               // drawn
+    ));
+}
+```
+
+- It reads DataTables' own parameters — `draw`, `start`, `length` (`-1` for all),
+  `search[value]`, `order[N]` — and answers `draw`, `recordsTotal`, `recordsFiltered` and `data`.
+- The search matches anywhere in the row's text, ignoring case. Text sorts ignoring case, and a
+  second `order` entry breaks a tie. A column missing from the map is not sorted by.
+- The cells are drawn for the page alone, so what is costly per row — a lookup, a link list —
+  goes in the last callable, never into `$rows`.
+- `$table->aoData` sends a page's own filter with every request, such as a tab:
+  `[['name' => 'kind', 'value' => $kind]]`, read back from `$_POST['kind']`.
+
+Every row is in memory, which suits hundreds or a few thousand. A longer list wants its own query
+and `Datasource`.
+
 ## Pagination
 
 ```php
