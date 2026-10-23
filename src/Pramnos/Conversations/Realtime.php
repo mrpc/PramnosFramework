@@ -21,6 +21,9 @@ use Pramnos\Broadcasting\Auth\ChannelRegistry;
  */
 final class Realtime
 {
+    /** How long an answer may take before "… is thinking" is let go, if no `assistant.done` came. */
+    public const ASSISTANT_SECONDS = 180;
+
     /** The team's presence channel. */
     public const PRESENCE = 'presence-chat';
 
@@ -77,6 +80,17 @@ final class Realtime
         $lastRead = (int) (Conversations::member($conversationId, $person)['lastReadId'] ?? 0);
         self::tell(self::userChannel($person), 'conversation.read', ['conversationId' => $conversationId, 'lastReadId' => $lastRead]
             + Conversations::counts($conversationId, $person, $lastRead));
+    }
+
+    /**
+     * The analyst is answering in a conversation — `assistant.thinking`, with the thread it answers
+     * in (null for the conversation itself), its name and until when it may take — or has
+     * finished, answered or not: `assistant.done`. A worker cannot whisper, so it says so here.
+     */
+    public static function assistant(int $conversationId, ?int $thread, bool $done = false): void
+    {
+        self::tell(self::channel($conversationId), $done ? 'assistant.done' : 'assistant.thinking', $done ? ['thread' => $thread]
+            : ['thread' => $thread, 'name' => \Pramnos\Llm\Analyst\Analyst::name(), 'until' => time() + self::ASSISTANT_SECONDS]);
     }
 
     /** A message changed — edited, deleted, reacted to, pinned — told as it now reads. */

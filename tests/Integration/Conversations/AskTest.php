@@ -9,6 +9,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
+use Pramnos\Broadcasting\Testing\FakeDriver;
 use Pramnos\Conversations\Ask;
 use Pramnos\Conversations\Conversations;
 use Pramnos\Conversations\Markdown;
@@ -23,6 +24,9 @@ use Pramnos\Conversations\Messages;
 #[CoversClass(Markdown::class)]
 class AskTest extends TestCase
 {
+    /** The conversation the broadcast test answers in. */
+    private int $general = 0;
+
     use ConversationsProbe {
         tearDown as private probeTearDown;
     }
@@ -151,6 +155,87 @@ class AskTest extends TestCase
         $this->assertSame(["**42** χθες.\n- Αθήνα 30", 'Ask'], [$thread[1]['body'], $thread[1]['card']['from']]);
         $this->assertSame('⚠ The AI stopped: timeout', $thread[2]['body']);
         $this->assertSame(2, Messages::get($root)['replyCount']);
+    }
+
+    /**
+     * The people in a conversation are told the analyst is answering — `assistant.thinking`, with
+     * the thread, its name and until when — and that it has finished, answered or not:
+     * `assistant.done`. A worker cannot whisper, so the server says so.
+     */
+    #[DataProvider('databases')]
+    public function testTheConversationIsToldTheAnalystIsAnswering(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
+        $general = Conversations::create('channel', 'general', [], $this->ids['eleni']);
+        $root    = Messages::post($general, $this->ids['eleni'], '@Ask πόσοι;');
+        $job     = ['ask_id' => 7, 'extra' => ['conversations' => ['conversation' => $general, 'thread' => $root, 'message' => $root]]];
+        $fake    = FakeDriver::swap();
+        $before  = time();
+
+        try {
+            // Act
+            Ask::thinking($job);
+            Ask::answered($job, ['ok' => false, 'says' => 'The AI stopped: timeout']);
+            Ask::thinking(['extra' => []]);
+            $told = array_values(array_filter($fake->recorded(), static fn (array $r): bool => str_starts_with($r['event'], 'assistant.')));
+        } finally {
+            FakeDriver::restore();
+        }
+
+        // Assert
+        $this->assertSame(['private-conversation.' . $general, 'assistant.thinking'], [$told[0]['channel'], $told[0]['event']]);
+        $this->assertSame([$root, 'Ask'], [$told[0]['payload']['thread'], $told[0]['payload']['name']]);
+        $this->assertGreaterThanOrEqual($before + \Pramnos\Conversations\Realtime::ASSISTANT_SECONDS, $told[0]['payload']['until']);
+        $this->assertSame(['assistant.done', ['thread' => $root]], [$told[1]['event'], $told[1]['payload']], 'done, though it failed');
+        $this->assertCount(2, $told, 'an ask from elsewhere tells nobody');
+    }
+
+    /**
+     * An answer in a thread is seen in the channel too — FW-258's broadcast — when the question is
+     * still the newest message there, nobody having written since (`if_last`, the default); not
+     * when somebody has; `always` and `never` as they say.
+     */
+    #[DataProvider('databases')]
+    public function testAnAnswerIsSeenInTheChannelWhenNothingCameSince(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $app = Application::getInstance();
+        $app->applicationInfo['conversations'] = ['usertype' => 30];
+        $kept    = $app->applicationInfo['llm'] ?? null;
+        $general = Conversations::create('channel', 'general', [$this->ids['maria']], $this->ids['eleni']);
+        $asks    = 100;
+        $answer  = function (int $root) use (&$asks): array {
+            // An ask of its own each time: the same ask told twice is posted once.
+            Ask::answered(['ask_id' => ++$asks, 'extra' => ['conversations' => ['conversation' => $this->general, 'thread' => $root, 'message' => $root]]],
+                ['ok' => true, 'message' => ['content' => 'απάντηση ' . $root]]);
+            $replies = Messages::list($this->general, ['thread' => $root]);
+
+            return [end($replies)['broadcast']];
+        };
+        $this->general = $general;
+
+        try {
+            // Act
+            $last     = $answer(Messages::post($general, $this->ids['eleni'], '@Ask πρώτη;'));
+            $asked    = Messages::post($general, $this->ids['eleni'], '@Ask δεύτερη;');
+            Messages::post($general, $this->ids['maria'], 'κάτι άλλο');
+            $notLast  = $answer($asked);
+            $app->applicationInfo['llm'] = ['analyst' => ['thread_broadcast' => 'always']];
+            $always   = $answer($asked);
+            $app->applicationInfo['llm'] = ['analyst' => ['thread_broadcast' => 'never']];
+            $never    = $answer(Messages::post($general, $this->ids['eleni'], '@Ask τρίτη;'));
+        } finally {
+            $app->applicationInfo['llm'] = $kept;
+        }
+
+        // Assert
+        $this->assertSame([true], $last, 'nothing since: seen in the channel too');
+        $this->assertSame([false], $notLast, 'somebody wrote since: the thread only');
+        $this->assertSame([true], $always);
+        $this->assertSame([false], $never, 'never, though it is the newest');
     }
 
     /**

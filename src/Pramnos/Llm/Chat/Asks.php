@@ -72,6 +72,14 @@ class Asks
         $org   = $job['organization_id'] ?? null;
         $scope = new Scope((int) ($job['userid'] ?? 0), $org === null ? null : (int) $org, (string) ($job['space'] ?? Scope::CHAT));
         $chat  = $this->chat->as($scope);
+        // An ask from the conversations: the people there are told the analyst is on it.
+        if (isset($job['extra']['conversations'])) {
+            try {
+                \Pramnos\Conversations\Ask::thinking($job);
+            } catch (\Throwable $why) {
+                \Pramnos\Logs\Logger::log('llm ask thinking: ' . $why->getMessage());
+            }
+        }
 
         try {
             $answer = $this->chat->assistant()->acting($scope, static fn (): array => $chat->ask(

@@ -154,6 +154,37 @@ final class Ask
     }
 
     /**
+     * The analyst has begun on an ask from a conversation: the people there are told, in the
+     * thread it answers in or in the conversation itself.
+     *
+     * @param array<string, mixed> $job As the ask was queued
+     */
+    public static function thinking(array $job): void
+    {
+        $where = $job['extra']['conversations'] ?? null;
+        if (is_array($where) && isset($where['conversation'])) {
+            Realtime::assistant((int) $where['conversation'], empty($where['thread']) ? null : (int) $where['thread']);
+        }
+    }
+
+    /**
+     * Whether an answer in a thread is sent to the conversation too (FW-258's broadcast):
+     * `llm.analyst.thread_broadcast` — `if_last` (the default) when the question is still the
+     * conversation's newest message, nobody having written since; `always`; or `never`.
+     */
+    public static function broadcasts(int $conversationId, int $thread): bool
+    {
+        $config = \Pramnos\Llm\Llm::config('analyst', []);
+        $rule   = is_array($config) && is_string($config['thread_broadcast'] ?? null) ? $config['thread_broadcast'] : 'if_last';
+
+        return match ($rule) {
+            'always' => true,
+            'never'  => false,
+            default  => (Conversations::get($conversationId)['lastMessageId'] ?? null) === $thread,
+        };
+    }
+
+    /**
      * Post an answered ask in its thread — the analyst's answer, or why there is none. An ask that
      * did not come from a conversation is left alone. `Asks::run()` calls it for every ask whose
      * `extra` names a conversation — in whatever process answers it, providers booted or not.
@@ -174,8 +205,15 @@ final class Ask
             // In English: the worker knows no reader; the page puts it in the reader's language.
             $card += ['title' => 'Open in Ask', 'url' => \Pramnos\Llm\Analyst\AnalystAssistant::areaUrl('Ai?c=' . (int) $answer['conversation_id'])];
         }
-        Messages::post((int) $where['conversation'], null, mb_substr(trim($text) !== '' ? $text : '…', 0, Messages::MAX_LENGTH), array_filter([
-            'thread' => empty($where['thread']) ? null : (int) $where['thread'], 'card' => $card, 'source' => 'ask', 'externalid' => (string) ($job['ask_id'] ?? ''),
-        ], static fn ($v): bool => $v !== null));
+        $thread = empty($where['thread']) ? null : (int) $where['thread'];
+        try {
+            Messages::post((int) $where['conversation'], null, mb_substr(trim($text) !== '' ? $text : '…', 0, Messages::MAX_LENGTH), array_filter([
+                'thread' => $thread, 'card' => $card, 'source' => 'ask', 'externalid' => (string) ($job['ask_id'] ?? ''),
+                // Asked in a channel and nobody has written since: the answer is seen there too.
+                'broadcast' => $thread !== null && self::broadcasts((int) $where['conversation'], $thread) ? true : null,
+            ], static fn ($v): bool => $v !== null));
+        } finally {
+            Realtime::assistant((int) $where['conversation'], $thread, true);
+        }
     }
 }

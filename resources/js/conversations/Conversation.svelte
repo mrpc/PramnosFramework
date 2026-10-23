@@ -41,7 +41,8 @@
     const member = $derived(conversation?.member ?? null);
     const items = $derived(timeline(messages, openedAt, me));
     const typers = $derived(Object.values(typingNow(typing, now)).filter((w) => w.thread === null && !w.thinking).map((w) => w.name));
-    const thinking = $derived(!!typingNow(typing, now).ask);
+    // The analyst answering in the conversation itself; in a thread, it is that thread's "… is typing".
+    const thinking = $derived(!!typingNow(typing, now).ask && (typingNow(typing, now).ask.thread ?? null) === null);
     // How long "thinking" shows without an answer: as long as the analyst takes at most.
     const ASK_MS = 180000;
     const threadTypers = $derived(thread ? Object.values(typingNow(typing, now)).filter((w) => w.thread === thread.root.id).map((w) => w.name) : []);
@@ -277,6 +278,16 @@
             'message.deleted': (m) => changed(m, 'message.deleted'),
             'message.reacted': (m) => changed(m, 'message.reacted'),
             'message.pinned': (m) => changed(m, 'message.pinned'),
+            // The analyst on an answer — told by the server, which a worker can do and a whisper cannot.
+            'assistant.thinking': (p) => {
+                const until = p && p.until ? p.until * 1000 : Date.now() + ASK_MS;
+                typing = { ...typing, ask: { name: (p && p.name) || assistant().name, thread: p?.thread ?? null, thinking: true, until } };
+                analystState('thinking');
+            },
+            'assistant.done': () => {
+                const { ask: _done, ...rest } = typing;
+                typing = rest;
+            },
             'client-typing': (w) => {
                 if (w && w.id !== me) {
                     typing = { ...typing, [w.id]: { name: w.name, thread: w.thread ?? null, until: Date.now() + TYPING_MS } };

@@ -259,6 +259,12 @@ because the worker does not know who reads it, and the page translates it into t
   conversations. It carries nothing of the asker's own — no memory, no CSV file — and the model is
   told which of the asker's tools it may not use there, to say so and suggest asking in the
   conversation with Ask. The cost and the analyst conversation are the asker's.
+- **An answer in a thread is seen in the conversation too** when the question is still its newest
+  message — nobody has written since — as a reply sent to the conversation (*Replied to a thread*).
+  `'llm' => ['analyst' => ['thread_broadcast' => 'if_last']]` is the default; `'always'` and
+  `'never'` do as they say.
+- **While the analyst answers**, the people there see *… is thinking* — in the thread, or in the
+  conversation for its own — told by `assistant.thinking` and let go by `assistant.done`.
 
 ```
 @Ask πόσες νέες εγγραφές γονέων είχαμε χθες στη Θεσσαλονίκη;
@@ -344,6 +350,7 @@ A message is written first and told second, through Broadcasting:
 | channel | events |
 |---|---|
 | `private-conversation.{id}` | `message.posted`, `message.edited`, `message.deleted`, `message.reacted`, `message.pinned` — each with the message as a reader sees it (name, HTML, reactions, files) |
+| `private-conversation.{id}` | `assistant.thinking` `{thread, name, until}` when the analyst begins on a question there — `thread` null for the conversation itself — and `assistant.done` `{thread}` when it has finished, answered or not: the server says it, since a worker cannot whisper |
 | each member's own (`private-users.{id}`, or `broadcasting.notifications_channel`) | `conversation.activity`: a message in one of their conversations — its ids, its writer, whether it mentions them — for a sidebar's unread and a window that opens; `conversation.read`: what they have read there moved — read on another page, or marked unread — `{conversationId, lastReadId, unread, mentions}` |
 | `presence-chat` | who of the team is connected, with their name |
 
