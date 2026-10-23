@@ -96,7 +96,7 @@ class AiController extends Controller
 
         $view              = $this->getView('ai');
         $view->heading     = \Pramnos\Llm\Analyst\Analyst::name();
-        $view->headingAvatar = \Pramnos\Llm\Analyst\Analyst::avatar();
+        $view->headingAvatar = \Pramnos\Assist\AvatarSets::render(\Pramnos\Llm\Analyst\Analyst::available() ? 'idle' : 'offline', 32);
         $view->settingsUrl = $this->settingsLink();
         $analyst           = Llm::config('analyst', []);
         $view->waitingLines = is_array($analyst['waiting_lines'] ?? null) ? $analyst['waiting_lines'] : [];

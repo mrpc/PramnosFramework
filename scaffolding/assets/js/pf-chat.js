@@ -286,6 +286,22 @@
         }
     }
 
+    /**
+     * The analyst's picture follows the question (pfAssistant, in pf-utils.js): thinking from the
+     * question to the answer, talking as it arrives, then success; error when it fails.
+     */
+    function assistant(state) {
+        if (window.pfAssistant && typeof window.pfAssistant.state === 'function') {
+            window.pfAssistant.state(state);
+        }
+    }
+
+    /** An answer arrived: the analyst talks for a moment, then is pleased. */
+    function answered() {
+        assistant('talking');
+        window.setTimeout(function () { assistant('success'); }, 1200);
+    }
+
     function init(root) {
         // Once per drawing: the page that loads this script after placing a conversation (the side
         // panel) and this script's own start would otherwise both run it, and every button and
@@ -339,6 +355,7 @@
                         window.history.replaceState(null, '', url);
                     }
                     init(root);
+                    answered();
                 })
                 .catch(function () { window.location.href = url; });
         }
@@ -346,6 +363,9 @@
         /** The line in the thinking bubble, or the reason it stopped. */
         function say(text, isError) {
             stop();
+            if (isError) {
+                assistant('error');
+            }
             var line = root.querySelector('[data-pf-chat-waiting]') || document.createElement('p');
             line.textContent = text;
             line.setAttribute('role', isError ? 'alert' : 'status');
@@ -587,8 +607,24 @@
             });
         }
 
+        // Listening while the reader writes; back to idle when they stop for a moment.
+        var quiet = null;
+        if (box) {
+            box.addEventListener('input', function () {
+                assistant('listening');
+                if (quiet !== null) {
+                    window.clearTimeout(quiet);
+                }
+                quiet = window.setTimeout(function () { quiet = null; assistant('idle'); }, 2500);
+            });
+        }
+
         form.addEventListener('submit', function (event) {
             event.preventDefault();
+            if (quiet !== null) {
+                window.clearTimeout(quiet);
+                quiet = null;
+            }
 
             var button = form.querySelector('button[type="submit"]');
             var question = box ? box.value : '';
@@ -675,6 +711,7 @@
                 say(reason, true);
             }
 
+            assistant('thinking');
             fetch(form.action, {
                 method: 'POST',
                 body: body,

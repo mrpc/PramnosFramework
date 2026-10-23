@@ -2815,3 +2815,56 @@
     }
 
 })();
+
+/*
+ * pfAssistant — the analyst's living picture (Assist\AvatarSets). Every `.pf-assistant-avatar` on
+ * the page carries `data-state` and a `pf-assistant--{state}` class; this changes them, and
+ * nothing else — the movement is the set's CSS. A state that ends by itself (`success`,
+ * `greeting`, `notify`) goes back to `idle` after the set's duration (`data-durations`, ms).
+ * `pf-assistant:state` is dispatched on the document with `{ state }`, so the application can
+ * follow it; `pfAssistant.state('thinking')` lets it drive it too. `within` limits the change to
+ * the pictures inside an element.
+ */
+(function () {
+    // Not in a worker: the shared connection's worker loads this file too.
+    if (typeof window === 'undefined' || typeof document === 'undefined') { return; }
+    var STATES = ['idle', 'listening', 'thinking', 'talking', 'success', 'error', 'offline', 'greeting', 'notify'];
+    var timers = new Map();
+
+    function apply(avatar, state) {
+        STATES.forEach(function (s) { avatar.classList.remove('pf-assistant--' + s); });
+        avatar.classList.add('pf-assistant--' + state);
+        avatar.setAttribute('data-state', state);
+        if (timers.has(avatar)) {
+            window.clearTimeout(timers.get(avatar));
+            timers.delete(avatar);
+        }
+        var durations = {};
+        try { durations = JSON.parse(avatar.getAttribute('data-durations') || '{}') || {}; } catch (e) { durations = {}; }
+        if (durations[state] > 0) {
+            timers.set(avatar, window.setTimeout(function () {
+                timers.delete(avatar);
+                if (avatar.getAttribute('data-state') === state) { apply(avatar, 'idle'); }
+            }, durations[state]));
+        }
+    }
+
+    function state(name, within) {
+        if (STATES.indexOf(name) === -1) { return; }
+        var root = within && within.querySelectorAll ? within : document;
+        Array.prototype.forEach.call(root.querySelectorAll('.pf-assistant-avatar'), function (avatar) {
+            // Offline stays offline: the analyst cannot answer here, whatever the page does.
+            if (avatar.getAttribute('data-state') === 'offline' && avatar.hasAttribute('data-offline')) { return; }
+            apply(avatar, name);
+        });
+        document.dispatchEvent(new CustomEvent('pf-assistant:state', { bubbles: true, detail: { state: name } }));
+    }
+
+    window.pfAssistant = { state: state, states: STATES.slice() };
+
+    // A scheduled task's answer arrived for the reader: the analyst says so.
+    document.addEventListener('pf:notification', function (event) {
+        var type = String((event.detail && event.detail.type) || '');
+        if (/RoutineReady|routine/i.test(type)) { state('notify'); }
+    });
+})();

@@ -126,7 +126,7 @@ const file = (name, size = 10, type = 'text/plain') => ({ name, size, type });
  *
  * @param {{waiting?: string, answers: Array<object|string|Error>, attributes?: object, parser?: boolean, now?: () => number}} options
  */
-function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, examples = [], before = [], clipboard = null, pfChat = undefined }) {
+function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, examples = [], before = [], clipboard = null, pfChat = undefined, states = null }) {
     const page = element('div', { 'data-pf-chat': '', 'data-asked': '/chat/asked/', 'data-question-class': 'bubble', ...attributes });
     examples.forEach((text) => page.appendChild(element('button', { type: 'button', 'data-pf-chat-suggestion': text })));
     before.forEach((one) => page.appendChild(one));
@@ -159,6 +159,10 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
         clearInterval: () => {},
         history: { replaceState: (s, t, url) => replaced.push(url) },
     };
+    if (states) {
+        window.pfAssistant = { state: (state) => states.push(state) };
+        window.clearTimeout = () => {};
+    }
     if (parser) {
         window.DOMParser = function DOMParser() {
             this.parseFromString = (html) => ({ querySelector: () => (html.includes('data-pf-chat') ? { innerHTML: html } : null) });
@@ -604,3 +608,28 @@ test('a page without the conversation does nothing', () => {
     // Act / Assert
     assert.doesNotThrow(() => vm.runInNewContext(SOURCE, { window: {}, document: { querySelector: () => null } }));
 });
+
+test('the analyst\'s picture follows the question: listening, thinking, talking, then pleased — or troubled', async () => {
+    // Arrange
+    const states = [];
+    const ui = run({ states, answers: [{ status: 202, data: { ask_id: 5 } }, { data: { status: 'answered', conversation_id: 9 } }, '<div data-pf-chat>answered</div>'] });
+    const failing = [];
+    const bad = run({ states: failing, answers: [{ status: 202, data: { ask_id: 6 } }, { data: { status: 'failed', says: 'No.' } }] });
+
+    // Act
+    ui.box.value = 'How did it go?';
+    ui.box.dispatch('input');
+    ui.form.dispatch('submit');
+    await settle();
+    ui.timers.splice(0).forEach((fn) => fn());
+    await settle();
+    bad.box.value = 'Again?';
+    bad.form.dispatch('submit');
+    await settle();
+
+    // Assert
+    assert.deepEqual(states.slice(0, 3), ['listening', 'thinking', 'talking'], 'writing, asked, answered');
+    assert.ok(states.includes('success'), 'and pleased a moment later');
+    assert.deepEqual(failing, ['thinking', 'error'], 'a failure troubles it');
+});
+

@@ -108,7 +108,7 @@
                 {#if askOffered}
                     <li>
                         <button type="button" disabled={busy} onclick={withAsk}>
-                            <Avatar id={0} name={assistant().name} src={assistant().avatar} small /> <span>{assistant().name}</span>
+                            <Avatar id={0} name={assistant().name} src={assistant().avatar} html={assistant().html} small /> <span>{assistant().name}</span>
                             <span class="pf-conv-muted-text">{t('Bot · every message a question to the analyst')}</span>
                         </button>
                     </li>

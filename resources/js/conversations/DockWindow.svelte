@@ -5,6 +5,7 @@
      * Minimised, it is its header, with what is unread.
      */
     import Avatar from './Avatar.svelte';
+    import { assistant, isAnalyst } from './extras.js';
     import Conversation from './Conversation.svelte';
     import { t } from './t.js';
 
@@ -18,7 +19,7 @@
     <header class="pf-conv-window-head">
         <button type="button" class="pf-conv-window-title" onclick={onminimise} aria-expanded={!minimised}>
             {#if conversation.kind === 'dm' && other !== null}
-                <Avatar id={other} name={title} online={!!online[other]} src={conversation.avatar || avatars[other]} small />
+                <Avatar id={other} name={title} online={!!online[other]} src={conversation.avatar || avatars[other]} html={isAnalyst(conversation) ? assistant().html : null} small />
             {:else if conversation.kind === 'bot'}
                 <span class="pf-conv-avatar pf-conv-avatar-sm pf-conv-avatar-system" aria-hidden="true">⚙</span>
             {:else}

@@ -793,7 +793,7 @@ class AnalystTest extends LlmTestCase
             \Pramnos\Http\RequestIdentity::reset();
             $enabled->setValue(null, $saved);
         }
-        $this->assertMatchesRegularExpression('#^<li><a class="pf-ask" href="[^"]*Ai" data-pf-assist-open[^>]*>Ask</a><template data-pf-assist>.*</template><script src="[^"]*pf-assist\.js" defer></script></li>$#s', $button, 'an administrator sees it, and the panel it opens');
+        $this->assertMatchesRegularExpression('#^<li><a class="pf-ask" href="[^"]*Ai" data-pf-assist-open[^>]*><span class="pf-assistant-avatar pf-assistant--idle"[^>]*>.*?</span> Ask</a><template data-pf-assist>.*</template><script src="[^"]*pf-assist\.js" defer></script></li>$#s', $button, 'an administrator sees it, and the panel it opens');
         $this->assertSame('', $member, 'below the floor, and no help on this page: no button');
         $this->assertSame('', $keyless, 'no key: nothing to ask with, and no help here either');
         $app = \Pramnos\Application\Application::getInstance();

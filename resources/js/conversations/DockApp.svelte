@@ -8,6 +8,7 @@
      * turned off altogether.
      */
     import Avatar from './Avatar.svelte';
+    import { assistant, isAnalyst } from './extras.js';
     import DockList from './DockList.svelte';
     import DockWindow from './DockWindow.svelte';
     import { t } from './t.js';
@@ -193,7 +194,7 @@
         <button type="button" class="pf-conv-dock-head" title={c.title} aria-label={c.title + (c.unread ? ' (' + c.unread + ')' : '')} onclick={() => open(c.id)}
             oncontextmenu={(e) => { e.preventDefault(); armed = armed === c.id ? null : c.id; }}>
             {#if c.kind === 'dm'}
-                <Avatar id={other} name={c.title} online={!!online[other]} src={c.avatar || avatars[other]} />
+                <Avatar id={other} name={c.title} online={!!online[other]} src={c.avatar || avatars[other]} html={isAnalyst(c) ? assistant().html : null} />
             {:else if c.kind === 'bot'}
                 <span class="pf-conv-avatar pf-conv-avatar-system" aria-hidden="true">⚙</span>
             {:else}

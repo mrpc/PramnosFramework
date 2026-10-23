@@ -296,7 +296,8 @@ class PageAndPanelTest extends LlmTestCase
         $this->assertStringNotContainsString('data-pf-assist-tab', $askOnly, 'one pane, no tabs');
         $this->assertStringContainsString('data-pf-assist-pane="ask"', $askOnly);
         $this->assertSame('', $nothing, 'neither: no button');
-        $this->assertSame('<a class="pf-ask" href="/admin/Ai">Ask</a>', $onAsk);
+        $this->assertStringStartsWith('<a class="pf-ask" href="/admin/Ai"><span class="pf-assistant-avatar', $onAsk, 'the analyst\'s picture');
+        $this->assertStringEndsWith('</span> Ask</a>', $onAsk, 'and its name');
 
         // Without the `help` feature: no Help tab, and no help for the analyst either
         (new \ReflectionProperty(\Pramnos\Application\FeatureRegistry::class, 'enabled'))->setValue(null, []);
@@ -337,7 +338,7 @@ class PageAndPanelTest extends LlmTestCase
         $this->assertSame(['Ask', null, ['ask']], $plain);
         $this->assertSame(['Naya', '/img/ai.svg', ['ask', 'naya', 'ναγια']], $named, 'lower-case, each a word, once');
         $this->assertStringContainsString('aria-label="Ask Naya about this page"', $panel);
-        $this->assertStringContainsString('<img class="pf-assist-avatar" src="/img/ai.svg" alt=""', $panel, 'its picture on the button');
+        $this->assertStringContainsString('<img src="/img/ai.svg" alt=""', $panel, 'its picture on the button, in the living picture\'s element');
         $this->assertStringContainsString('Naya</a>', $panel);
         $this->assertStringContainsString('data-say-failed="Naya could not be opened here."', $panel);
         $this->assertStringContainsString('title="Open in Naya"', $panel);

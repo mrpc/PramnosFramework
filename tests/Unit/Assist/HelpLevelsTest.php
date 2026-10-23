@@ -379,7 +379,8 @@ class HelpLevelsTest extends TestCase
         $this->assertStringContainsString('<button class="mine" data-pf-assist-open aria-haspopup="dialog" data-page="posts">Help: Reading a post</button>', $own);
         $this->assertStringContainsString('<template data-pf-assist>', $own, 'the panel is still the framework\'s');
         $this->assertStringContainsString('>Help</a>', $wrong, 'not a HelpButton: the word');
-        $this->assertStringContainsString('<a class="pf-ask" href="/admin/Ai" data-pf-assist-open aria-haspopup="dialog" aria-label="Ask about this page">Ask</a>', $askToo, 'the analyst says what it does, beside its name');
+        $this->assertStringContainsString('<a class="pf-ask" href="/admin/Ai" data-pf-assist-open aria-haspopup="dialog" aria-label="Ask about this page"><span class="pf-assistant-avatar', $askToo, 'the analyst says what it does');
+        $this->assertStringContainsString('</span> Ask</a>', $askToo, 'its picture, then its name');
     }
 
     /**

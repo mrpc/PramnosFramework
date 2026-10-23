@@ -2005,3 +2005,42 @@ a.pf-person:hover { background: var(--pf-subtle); }
 @media (max-width: 760px) {
     .pf-conv-basic { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* The analyst's living picture — Assist\AvatarSets. The framework changes only data-state; this is
+   the framework's own set, `pf`: a drop in the theme's accent, its eyes and dots moving with what
+   it does. A set of the application's own brings its own CSS. Still poses where less motion is
+   asked for. */
+.pf-assistant-avatar { --pf-assistant-size: 24px; display: inline-flex; align-items: center; justify-content: center; width: var(--pf-assistant-size); height: var(--pf-assistant-size); vertical-align: middle; flex: none; color: var(--pf-accent); line-height: 1; }
+.pf-assistant-avatar > img, .pf-assistant-avatar > svg { width: 100%; height: 100%; display: block; }
+.pf-assistant-pf .pf-assistant-body { fill: currentColor; transform-origin: 16px 30px; }
+.pf-assistant-pf .pf-assistant-eyes, .pf-assistant-pf .pf-assistant-dots { fill: #fff; }
+.pf-assistant-pf .pf-assistant-mouth { fill: none; stroke: #fff; stroke-width: 1.4; stroke-linecap: round; }
+.pf-assistant-pf .pf-assistant-dots { opacity: 0; }
+.pf-assistant-pf .pf-assistant-eyes { transform-origin: 16px 19px; animation: pf-assistant-blink 5s infinite; }
+.pf-assistant-avatar[data-state="listening"] .pf-assistant-body { animation: pf-assistant-lean 1.6s ease-in-out infinite; }
+.pf-assistant-avatar[data-state="thinking"] .pf-assistant-dots { opacity: 1; }
+.pf-assistant-avatar[data-state="thinking"] .pf-assistant-dots circle { animation: pf-assistant-dot 1.2s infinite; }
+.pf-assistant-avatar[data-state="thinking"] .pf-assistant-dots circle:nth-child(2) { animation-delay: .2s; }
+.pf-assistant-avatar[data-state="thinking"] .pf-assistant-dots circle:nth-child(3) { animation-delay: .4s; }
+.pf-assistant-avatar[data-state="talking"] .pf-assistant-mouth { animation: pf-assistant-talk .35s ease-in-out infinite alternate; transform-origin: 16px 24px; }
+.pf-assistant-avatar[data-state="success"] .pf-assistant-body { animation: pf-assistant-hop .6s ease-out 2; }
+.pf-assistant-avatar[data-state="greeting"] .pf-assistant-body { animation: pf-assistant-wave 1.2s ease-in-out 2; }
+.pf-assistant-avatar[data-state="notify"] .pf-assistant-body { animation: pf-assistant-hop .5s ease-out infinite; }
+.pf-assistant-avatar[data-state="error"] { color: var(--pf-bad); }
+.pf-assistant-avatar[data-state="error"] .pf-assistant-body { animation: pf-assistant-shake .4s ease-in-out 2; }
+.pf-assistant-avatar[data-state="offline"] { opacity: .45; filter: grayscale(1); }
+.pf-assistant-avatar[data-state="offline"] .pf-assistant-eyes { animation: none; transform: scaleY(.15); }
+@keyframes pf-assistant-blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(.1); } }
+@keyframes pf-assistant-lean { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-6deg); } }
+@keyframes pf-assistant-dot { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+@keyframes pf-assistant-talk { from { transform: scaleY(1); } to { transform: scaleY(2.2); } }
+@keyframes pf-assistant-hop { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-14%); } }
+@keyframes pf-assistant-wave { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-10deg); } 75% { transform: rotate(10deg); } }
+@keyframes pf-assistant-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-8%); } 75% { transform: translateX(8%); } }
+@media (prefers-reduced-motion: reduce) {
+    .pf-assistant-avatar *, .pf-assistant-avatar { animation: none !important; transition: none !important; }
+}
+
+/* The analyst's living picture in the conversations: its own colours, not a person's hue. */
+.pf-conv-avatar-assistant { background: none; }
+.pf-conv-avatar-assistant .pf-assistant-avatar { width: 100%; height: 100%; }

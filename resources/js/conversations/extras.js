@@ -6,7 +6,7 @@
 let types = new Set();
 let commandList = [];
 let asks = false;
-let analyst = { name: 'Ask', avatar: null, mentions: ['ask'] };
+let analyst = { name: 'Ask', avatar: null, mentions: ['ask'], html: '' };
 const cards = new Map();          // key → card | null, or a promise while being read
 let waiting = new Map();          // key → [resolve]
 let timer = null;
@@ -17,7 +17,23 @@ export function configure(props) {
     commandList = (props && props.commands) || [];
     asks = !!(props && props.ask);
     const a = (props && props.assistant) || {};
-    analyst = { name: a.name || 'Ask', avatar: a.avatar || null, mentions: (a.mentions && a.mentions.length ? a.mentions : ['ask']).map(String) };
+    analyst = { name: a.name || 'Ask', avatar: a.avatar || null, mentions: (a.mentions && a.mentions.length ? a.mentions : ['ask']).map(String),
+        html: a.html || '' };
+}
+
+/** Whether a conversation is the reader's own with the analyst — the bot `Ask`, whatever it is called. */
+export function isAnalyst(conversation) {
+    return !!conversation && conversation.kind === 'bot' && conversation.name === 'Ask';
+}
+
+/**
+ * The analyst's living picture follows its conversations: thinking while it answers, talking as
+ * the answer arrives (pfAssistant, in pf-utils.js, where the page has it).
+ */
+export function analystState(state) {
+    if (typeof window !== 'undefined' && window.pfAssistant && typeof window.pfAssistant.state === 'function') {
+        window.pfAssistant.state(state);
+    }
 }
 
 /** The analyst as the application names it: `{ name, avatar, mentions }` — `Ask` unless told otherwise. */

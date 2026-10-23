@@ -183,6 +183,13 @@
 
     /** Open the panel, on `tab` when given, else on the one it was on. */
     function open(tab) {
+        // The analyst greets the reader the first time the panel opens in this session.
+        try {
+            if (window.pfAssistant && !window.sessionStorage.getItem('pf-assistant-greeted')) {
+                window.sessionStorage.setItem('pf-assistant-greeted', '1');
+                window.setTimeout(function () { window.pfAssistant.state('greeting'); }, 0);
+            }
+        } catch (e) { /* no session storage: no greeting */ }
         if (!panel) {
             panel = template.content.firstElementChild.cloneNode(true);
             document.body.appendChild(panel);

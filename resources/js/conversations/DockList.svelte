@@ -5,6 +5,7 @@
      * manages them; the application's links; and whether the faces show above the launcher.
      */
     import Avatar from './Avatar.svelte';
+    import { assistant, isAnalyst } from './extras.js';
     import NewConversation from './NewConversation.svelte';
     import { t } from './t.js';
     import { fold } from './logic.js';
@@ -32,7 +33,7 @@
             <li>
                 <button type="button" class="pf-conv-item" class:pf-conv-unread={c.unread > 0 && !c.muted} onclick={() => onopen(c.id)}>
                     {#if c.kind === 'dm'}
-                        <Avatar id={other(c)} name={c.title} online={!!online[other(c)]} src={c.avatar || avatars[other(c)]} small />
+                        <Avatar id={other(c)} name={c.title} online={!!online[other(c)]} src={c.avatar || avatars[other(c)]} html={isAnalyst(c) ? assistant().html : null} small />
                     {:else}
                         <span class="pf-conv-avatar pf-conv-avatar-sm pf-conv-avatar-group" aria-hidden="true">{c.kind === 'private' ? '🔒' : c.slug ? '#' : c.kind === 'bot' ? '⚙' : (c.members || []).length}</span>
                     {/if}

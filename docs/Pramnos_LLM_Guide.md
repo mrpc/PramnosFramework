@@ -963,6 +963,44 @@ the mention is drawn as `@Naya`. Its conversation is kept as the bot `Ask` (`Ask
 is called; the JSON gives it a `displayName` and an `avatar`. The model is told its name, so it
 answers to it.
 
+### Its living picture
+
+The analyst's picture moves with what it does. The contract is one element and one attribute:
+
+```html
+<span class="pf-assistant-avatar pf-assistant--thinking" data-state="thinking" data-durations='{"success":1800,…}'>…the set's markup…</span>
+```
+
+The framework changes only `data-state` (and the `pf-assistant--{state}` class), to one of nine:
+`idle`, `listening`, `thinking`, `talking`, `success`, `error`, `offline`, `greeting`, `notify`.
+Every movement is the set's CSS reacting to `[data-state="…"]`. `success`, `greeting` and
+`notify` go back to `idle` after their duration.
+
+| where | when |
+|---|---|
+| the side panel and the Ask page | `greeting` the first time the panel opens in a session; `listening` while the reader writes; `thinking` from the question to the answer; `talking` as the answer arrives, then `success`; `error` when it fails; `offline` where it cannot answer |
+| the header's button | the same, and `notify` when a scheduled task's result arrives |
+| the conversations | its picture on its conversation and its answers; `thinking` at a question in its conversation, `talking` as an answer arrives |
+
+`Assist\AvatarSets::render($state, $size)` draws it. Without a set it is the framework's own,
+`pf` — a drop with eyes in the theme's accent, its CSS in every theme's `components.css`, still
+under `prefers-reduced-motion`. A set of the application's own is its markup and its CSS:
+
+```php
+'llm' => ['analyst' => ['avatar_set' => [
+    'markup' => APP_PATH . '/themes/admin/assets/naya/naya.svg',   // a file, the markup, or a callable
+    'css'    => '/themes/admin/assets/naya/naya.css',              // linked once a page
+    'states' => ['success' => 1800, 'greeting' => 2400],           // ms, for those that end by themselves
+]]],
+
+\Pramnos\Assist\AvatarSets::register('naya', $markup, '/assets/naya.css', ['greeting' => 2400]);
+'llm' => ['analyst' => ['avatar_set' => 'naya']],
+```
+
+A plain picture (`avatar`) with no set is drawn in the same element and does not move.
+`pfAssistant.state('thinking')` sets the state from the application's own script, and
+`pf-assistant:state` (`detail.state`) is dispatched on the document at each change.
+
 ### What it reads
 
 Every tool only reads, and answers figures over a window — `days` (30 by default, at most 366)

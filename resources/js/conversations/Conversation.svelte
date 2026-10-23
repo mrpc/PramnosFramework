@@ -11,7 +11,7 @@
     import Composer from './Composer.svelte';
     import { t, tn, dayLabel, longDate } from './t.js';
     import { upsert, replace, timeline, typingNow, TYPING_MS, lastSignIn } from './logic.js';
-    import { assistant } from './extras.js';
+    import { assistant, analystState } from './extras.js';
 
     // `openThread`: a thread to open with it — from the sidebar's Threads or Activity.
     let { api, id, me, emoji = {}, maxFileMb = 25, online = {}, resync = 0, onread = () => {}, onerror = () => {}, compact = false,
@@ -185,6 +185,15 @@
             if (isNew && conversation?.kind === 'bot' && conversation.name === 'Ask') {
                 const { ask: _done, ...rest } = typing;
                 typing = message.authorId === me ? { ...rest, ask: { name: assistant().name, thread: null, thinking: true, until: Date.now() + ASK_MS } } : rest;
+                // The analyst's picture: thinking at the question, talking as its answer arrives.
+                analystState(message.authorId === me ? 'thinking' : 'talking');
+                if (message.authorId !== me) {
+                    setTimeout(() => analystState('success'), 1200);
+                }
+            } else if (isNew && message.card?.from === 'Ask') {
+                // An answer in a thread, to an @-call.
+                analystState('talking');
+                setTimeout(() => analystState('success'), 1200);
             }
             if (isNew && stick) {
                 await tick();

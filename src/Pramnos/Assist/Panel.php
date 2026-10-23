@@ -177,7 +177,6 @@ final class Panel
                 . 'background:Canvas;color:CanvasText;box-shadow:-4px 0 24px rgba(0,0,0,.25);font-size:.95rem') . '>'
             . '<header class="pf-assist-header"' . $style('display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid rgba(128,128,128,.3)') . '>'
             . '<strong class="pf-assist-title"' . $style('flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap') . '>'
-            . ($ask && \Pramnos\Llm\Analyst\Analyst::avatar() !== null ? '<img class="pf-assist-avatar" src="' . self::e((string) \Pramnos\Llm\Analyst\Analyst::avatar()) . '" alt="" width="20" height="20"> ' : '')
             . ($context['title'] !== '' ? self::e($context['title']) : ($ask ? self::analyst() : self::e(self::t('Help')))) . '</strong>';
 
         if ($ask) {
@@ -219,18 +218,15 @@ final class Panel
     }
 
     /**
-     * The analyst as the button and the panel's title show it: its picture, where the
-     * application gives one, and its name ({@see \Pramnos\Llm\Analyst\Analyst::name()}).
+     * The analyst as the button and the panel's title show it: its living picture
+     * ({@see AvatarSets}) and its name ({@see \Pramnos\Llm\Analyst\Analyst::name()}).
      */
     private static function analyst(): string
     {
-        $avatar = \Pramnos\Llm\Analyst\Analyst::avatar();
-
-        return ($avatar !== null ? '<img class="pf-assist-avatar" src="' . self::e($avatar) . '" alt="" width="20" height="20"'
-                . (self::themed() ? '' : ' style="width:20px;height:20px;vertical-align:middle;margin-right:4px"') . '>' : '')
+        // Offline where it cannot answer — no key for its connection.
+        return AvatarSets::render(\Pramnos\Llm\Analyst\Analyst::available() ? 'idle' : 'offline') . ' '
             . self::e(\Pramnos\Llm\Analyst\Analyst::name());
     }
-
     /** "Ask about this page", in the analyst's name where it has one of its own. */
     private static function askAbout(): string
     {

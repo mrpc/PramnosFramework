@@ -5,6 +5,7 @@
      * its thread, and the actions on hover. One component, so the places cannot drift apart.
      */
     import Avatar from './Avatar.svelte';
+    import { assistant } from './extras.js';
     import EmojiPicker from './EmojiPicker.svelte';
     import Card from './Card.svelte';
     import { cardsFor, drawable, charts } from './extras.js';
@@ -34,7 +35,7 @@
     const deleted = $derived(message.deletedAt !== null);
     // A system message is signed by what sent it: the card's `from`, its source (`jira` → Jira), or "System".
     const writer = $derived(message.authorType === 'user' ? (message.author || '#' + message.authorId)
-        : message.card?.from || (message.source ? message.source.charAt(0).toUpperCase() + message.source.slice(1) : t('System message')));
+        : message.card?.from === 'Ask' ? assistant().name : message.card?.from || (message.source ? message.source.charAt(0).toUpperCase() + message.source.slice(1) : t('System message')));
 
     // "(edited)" inside the text's last paragraph, so it ends the line rather than starting one.
     const body = $derived(!message.editedAt ? message.html
@@ -125,6 +126,8 @@
             <time class="pf-conv-msg-hover-time">{clock(message.at)}</time>
         {:else if message.authorType === 'user'}
             <Avatar id={message.authorId} name={writer} online={online[message.authorId] ?? null} src={avatars[message.authorId]} />
+        {:else if message.card?.from === 'Ask' && assistant().html}
+            <span class="pf-conv-avatar pf-conv-avatar-assistant" aria-hidden="true">{@html assistant().html}</span>
         {:else if message.card?.former}
             <span class="pf-conv-avatar pf-conv-avatar-former" title={t('Former member')} aria-hidden="true">{initials(writer)}</span>
         {:else}

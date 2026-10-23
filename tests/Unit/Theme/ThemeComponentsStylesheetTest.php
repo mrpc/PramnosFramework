@@ -39,13 +39,15 @@ class ThemeComponentsStylesheetTest extends TestCase
     /**
      * No rule in components.css reaches beyond the framework's own `pf-*` hooks: nothing for
      * `html`, `body`, `:root` or the theme's own screens, which belong to the page an
-     * application owns.
+     * application owns. Keyframes named `pf-…` are a component's own movement.
      */
     #[DataProvider('themes')]
     public function testTheComponentsCarryNoPageRules(string $theme): void
     {
-        // Arrange — an @media header is not a selector, its contents are
-        $css = (string) preg_replace('/@media[^{]*\{/', '', self::read($theme, 'components.css'));
+        // Arrange — an @media header is not a selector, its contents are; a component's own
+        // @keyframes (`pf-…`) are its movement, not rules, and go whole
+        $css = (string) preg_replace('/@keyframes\s+pf-[\w-]+\s*\{(?:[^{}]*\{[^{}]*\})*\s*\}/', '', self::read($theme, 'components.css'));
+        $css = (string) preg_replace('/@media[^{]*\{/', '', $css);
 
         // Act — every selector in every selector list
         preg_match_all('/([^{}@;]+)\{/', $css, $m);

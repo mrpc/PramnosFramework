@@ -11,7 +11,7 @@
  *   $this->consent       — provider, label, place, required, given
  *   $this->urls          — optional: page, ask, asked, consent, delete, forget, scheduled, all (the analyst's)
  *   $this->heading       — optional: the title when no conversation is open
- *   $this->headingAvatar — optional: a picture beside that title (the analyst's, `llm.analyst.avatar`)
+ *   $this->headingAvatar — optional: HTML of the picture beside that title (the analyst's, Assist\AvatarSets::render())
  *   $this->suggestions   — optional: example questions, shown while no conversation is open
  *   $this->assistantName — optional: the name over an answer, "Assistant" by default
  *
@@ -87,7 +87,7 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
         </nav>
 
         <main style="flex:1 1 420px;min-width:0">
-            <h1><?php if (empty($open['title']) && !empty($this->headingAvatar)): ?><img class="pf-chat-avatar" src="<?php echo $e($this->headingAvatar); ?>" alt="" width="28" height="28" style="width:28px;height:28px;vertical-align:middle;margin-right:6px"><?php endif; ?><?php echo $e($open['title'] ?? ($this->heading ?? t('Ask AI'))); ?></h1>
+            <h1><?php if (empty($open['title']) && !empty($this->headingAvatar)): ?><?php echo $this->headingAvatar; ?> <?php endif; ?><?php echo $e($open['title'] ?? ($this->heading ?? t('Ask AI'))); ?></h1>
             <?php // The page's own tools, out of the way: a gear with whichever of them the reader has. ?>
             <?php if (!empty($this->settingsUrl) || $u['all'] !== ''): ?>
                 <details class="pf-ask-gear" style="display:inline-block;position:relative;margin-bottom:12px">
