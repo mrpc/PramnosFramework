@@ -492,6 +492,33 @@ class MaintenanceFlagLifecycleTest extends TestCase
 
         return $app;
     }
+
+    /**
+     * getInstance() rethrows a failed construction instead of swallowing it.
+     *
+     * With the flag on disk, the constructor's `showError()` path throws
+     * `ApplicationClosedException` (under `PRAMNOS_TESTING`) rather than exiting.
+     * `getInstance()` used to catch that `\Exception`, log it, and return the
+     * array slot it was never assigned — `null` to the caller. A caller that did
+     * not check the return value carried on with no application at all, and the
+     * real cause (maintenance mode) surfaced only later, as whatever next needed
+     * something the constructor had never reached — the method's own docblock
+     * already declares `@throws Exception`; this is that contract honoured.
+     *
+     * In production nothing changes: `close()` calls `exit()` there, so this
+     * exception never reaches a real request — only `showError()`'s test-mode
+     * substitute for it does.
+     */
+    public function testGetInstanceRethrowsInsteadOfSwallowingAFailedConstruction(): void
+    {
+        // Arrange — a flag, and an app name getInstance() has not built before
+        file_put_contents($this->flag, 'Reason: a stuck deploy');
+        $appName = 'maintenance-probe-' . bin2hex(random_bytes(4));
+
+        // Act + Assert
+        $this->expectException(\Pramnos\Application\ApplicationClosedException::class);
+        Application::getInstance($appName);
+    }
 }
 
 /**

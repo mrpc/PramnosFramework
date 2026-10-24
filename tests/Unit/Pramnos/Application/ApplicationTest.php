@@ -1369,20 +1369,24 @@ class ApplicationTest extends TestCase
     // =========================================================================
 
     /**
-     * getInstance() must silently swallow exceptions that occur while loading
-     * an application's config file and log the error via Logger::log().
+     * getInstance() logs and rethrows an exception from a broken config file,
+     * rather than swallowing it and returning null.
      *
-     * This covers lines 885–886 (config file path construction + require) and
-     * lines 902–906 (catch block: `Logger::log('Cannot start ...')`).
+     * Was a characterization test for the opposite behaviour — a bug, not a
+     * design choice: `self::$appInstances['throwapp']` is never assigned either
+     * way, so the old "swallow it" path returned null with no indication why,
+     * and whatever ran next failed on that null several layers away from the
+     * real cause. `getInstance()`'s own docblock already declares
+     * `@throws Exception`; this locks in that contract actually being honoured.
      *
      * The fixture file `tests/fixtures/app/throwapp.php` always throws a
-     * RuntimeException when required; getInstance() must catch it, log the
-     * message, and return without propagating the exception.
-     *
+     * RuntimeException when required; getInstance() must log the message
+     * (`Logger::log('Cannot start ...')`, lines 902–906) and let that same
+     * exception propagate.
      */
     #[RunInSeparateProcess]
     #[PreserveGlobalState(false)]
-    public function testGetInstanceCatchesExceptionFromBrokenConfigFile(): void
+    public function testGetInstanceLogsAndRethrowsExceptionFromBrokenConfigFile(): void
     {
         // Arrange — make sure 'throwapp' is not already in the registry
         $refInstances = new \ReflectionProperty(Application::class, 'appInstances');
@@ -1390,28 +1394,17 @@ class ApplicationTest extends TestCase
         unset($instances['throwapp']);
         $refInstances->setValue(null, $instances);
 
-        // Act — loading 'throwapp' triggers a RuntimeException inside require.
-        // getInstance() must catch it and not re-throw.
-        $result = null;
+        // Act + Assert — loading 'throwapp' triggers a RuntimeException inside
+        // require, and getInstance() must let it through rather than return null.
+        $this->expectException(\RuntimeException::class);
         try {
-            $result = Application::getInstance('throwapp');
-        } catch (\Throwable $unexpected) {
-            $this->fail(
-                'getInstance() must NOT propagate exceptions from broken config files, '
-                . 'but got: ' . get_class($unexpected) . ': ' . $unexpected->getMessage()
-            );
+            Application::getInstance('throwapp');
+        } finally {
+            // Cleanup — runs even though the exception above ends the test method
+            $instances = $refInstances->getValue();
+            unset($instances['throwapp']);
+            $refInstances->setValue(null, $instances);
         }
-
-        // Assert — no exception escaped; the result is null or an Application instance
-        $this->assertTrue(
-            $result === null || $result instanceof Application,
-            'getInstance() must return null or an Application after a config exception'
-        );
-
-        // Cleanup
-        $instances = $refInstances->getValue();
-        unset($instances['throwapp']);
-        $refInstances->setValue(null, $instances);
     }
 
     // =========================================================================

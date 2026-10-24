@@ -1230,7 +1230,9 @@ error must not query the database that just failed.
 
 A tell-tale of the mistake is a guard such as `if ($app)` or `if (!is_object($app))` after a
 `getInstance()` call: the factory never returns null, so the guard is dead and the
-construction is live.
+construction is live. A failed construction (maintenance mode, a broken `app.php`) throws
+rather than returning null — it always has, by this method's own `@throws` — so there is
+nothing for such a guard to catch either way.
 
 One practical consequence when you convert a call site: `currentInstance()`
 declares `?Application` while `getInstance()` declares nothing, so any test that

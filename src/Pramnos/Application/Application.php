@@ -2972,6 +2972,23 @@ class Application extends Base
                     'Cannot start ' . $app . ' application: '
                     . $Exception->getMessage()
                 );
+
+                /*
+                 * Rethrown, matching this method's own `@throws` — it had never actually
+                 * thrown. `self::$appInstances[$app]` stays unset either way, so a caller that
+                 * swallowed the silent null got the same broken application either way, just
+                 * three layers later and as an unrelated symptom: a maintenance-mode failure
+                 * (the one case most likely to land here) surfaced as "Database is not
+                 * connected", since nothing after this point had run.
+                 *
+                 * Does not reach a real request in production: `close()` — which
+                 * maintenance mode and every other terminal path in the constructor route
+                 * through — calls `exit()` there, ending the script before an exception could
+                 * ever get here. It only throws (`ApplicationClosedException`) under
+                 * `PRAMNOS_TESTING`, so that a test can assert on it without ending the PHPUnit
+                 * process — and that throw is exactly what this catch used to swallow.
+                 */
+                throw $Exception;
             }
         }
         return self::$appInstances[$app];
