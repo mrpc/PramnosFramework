@@ -93,6 +93,7 @@ No local Python or pip installation is required — everything runs inside Docke
 - **[Installation & Setup](docs/Getting_Started.md)** - Quick start guide for new projects
 - **[v1.2 New Features Reference](docs/1.2-new-features.md)** - Comprehensive feature documentation (implementation reference)
 - **[Upgrade Guide](docs/Pramnos_Upgrade_Guide.md)** - What changed between versions, and what to do about it
+- **[Contributing Guide](docs/Pramnos_Contributing_Guide.md)** - Working on the framework's own source: setup, tests, conventions
 
 ### Core Guides by Topic
 

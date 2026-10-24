@@ -66,6 +66,7 @@ nav:
   - Getting Started:
     - Quickstart: index.md
     - Full Setup Guide: Getting_Started.md
+    - Contributing: Pramnos_Contributing_Guide.md
   - Version History:
     - Changelog: version-history/index.md
     - Releases: releases.md
