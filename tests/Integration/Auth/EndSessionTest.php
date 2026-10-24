@@ -27,6 +27,9 @@ class EndSessionTest extends BaseTestCase
 
     private const USER = 990402;
 
+    /** A second application, so a token under it can prove revoke() leaves another client's alone. */
+    private const OTHER_APP = 990403;
+
     /** One key pair for the class. */
     private static ?array $keys = null;
 
@@ -66,6 +69,10 @@ class EndSessionTest extends BaseTestCase
             'appid' => self::APP, 'name' => 'Leaving app', 'status' => 1, 'apikey' => 'leaving-app',
             'callback' => 'https://app.example/callback https://app.example/signed-out', 'url' => 'https://app.example',
         ]);
+        $this->db->queryBuilder()->table('applications')->insert([
+            'appid' => self::OTHER_APP, 'name' => 'Another app', 'status' => 1, 'apikey' => 'another-app',
+            'callback' => 'https://other.example/callback', 'url' => 'https://other.example',
+        ]);
 
         if (self::$keys === null) {
             $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
@@ -89,6 +96,7 @@ class EndSessionTest extends BaseTestCase
     {
         $this->db->queryBuilder()->table('usertokens')->where('userid', self::USER)->delete();
         $this->db->queryBuilder()->table('applications')->where('appid', self::APP)->delete();
+        $this->db->queryBuilder()->table('applications')->where('appid', self::OTHER_APP)->delete();
         $this->db->queryBuilder()->table('users')->where('userid', self::USER)->delete();
     }
 
@@ -206,7 +214,7 @@ class EndSessionTest extends BaseTestCase
     public function testRevokingEndsThatClientsTokensOnly(): void
     {
         // Arrange
-        foreach ([['a1', 'access_token', self::APP], ['r1', 'refresh_token', self::APP], ['w1', 'auth', self::APP], ['o1', 'access_token', 1]] as [$value, $type, $app]) {
+        foreach ([['a1', 'access_token', self::APP], ['r1', 'refresh_token', self::APP], ['w1', 'auth', self::APP], ['o1', 'access_token', self::OTHER_APP]] as [$value, $type, $app]) {
             $this->db->queryBuilder()->table('usertokens')->insert([
                 'userid' => self::USER, 'applicationid' => $app, 'tokentype' => $type, ...\Pramnos\User\Token::storageFor($value),
                 'status' => 1, 'created' => time(), 'expires' => time() + 3600, 'deviceinfo' => '', 'scope' => '',
