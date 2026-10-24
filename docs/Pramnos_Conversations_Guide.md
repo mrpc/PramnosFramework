@@ -23,7 +23,7 @@ creates its tables:
 ```
 
 The administration gets **Conversations** in its menu: a page at `/admin/Conversations` and a dock
-over its other pages — see [The page and the dock](#the-page-and-the-dock).
+over its other pages — see [The dock and the basic page](#the-dock-and-the-basic-page).
 
 ## Conversations and who is in them
 
