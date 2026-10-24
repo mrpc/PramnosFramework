@@ -1410,7 +1410,7 @@ Each statement is then translated on its way to the server. That covers `query()
 | `… ON DUPLICATE KEY UPDATE n = n + VALUES(n)` | `… ON CONFLICT (key) DO UPDATE SET n = t.n + EXCLUDED.n` |
 | `REPLACE INTO t (…) VALUES …` | `INSERT INTO t (…) VALUES … ON CONFLICT (key) DO UPDATE SET …` |
 | `SHA2(x, 256)` (224, 384, 512; 0 is 256) | `encode(sha256(convert_to((x)::text, 'UTF8')), 'hex')` |
-| `CAST(x AS SIGNED)`, `CAST(x AS UNSIGNED [INTEGER])` | `CAST(x AS bigint)` |
+| `CAST(x AS SIGNED)`, `CAST(x AS UNSIGNED [INTEGER])` | the leading run of digits as `bigint`, `0` where there is none — never an error, as in MySQL |
 | `DAY(d)`, `MONTH(d)`, `YEAR(d)` | `EXTRACT(DAY FROM d)::int`, … |
 | `a REGEXP p`, `a RLIKE p`, `a NOT REGEXP p` | `a ~* p`, `a ~* p`, `a !~* p` — case-insensitive, as under a `_ci` collation |
 | `GET_LOCK(name, t)`, `RELEASE_LOCK(name)` | `pg_try_advisory_lock(hashtext(name))`, `pg_advisory_unlock(…)`, as 1 or 0 |

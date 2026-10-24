@@ -177,6 +177,24 @@ final class MysqlToPostgresIntegrationTest extends TestCase
     }
 
     /**
+     * `CAST(x AS SIGNED/UNSIGNED)` on a string MySQL would not reject reads the leading digits
+     * and takes 0 where there are none — never an error (FW-282).
+     *
+     * `users.subscription` legitimately holds a non-numeric sentinel ('pay3', manual billing)
+     * alongside real packageid strings; a WHERE/JOIN comparing it with `CAST(... AS UNSIGNED)`
+     * must keep working for every row, not turn into "invalid input syntax for type bigint" the
+     * moment one row holds the sentinel.
+     */
+    public function testCastToUnsignedIsLenientOnNonNumericText(): void
+    {
+        $this->assertSame(0, (int) $this->value("SELECT CAST('pay3' AS UNSIGNED)"), "no leading digit: MySQL's 0, not an error");
+        $this->assertSame(3, (int) $this->value("SELECT CAST('3pay' AS SIGNED)"), 'a leading digit run is read, the rest discarded');
+        $this->assertSame(42, (int) $this->value("SELECT CAST('  42' AS UNSIGNED)"), 'leading whitespace before the digits is skipped, as MySQL skips it');
+        $this->assertSame(0, (int) $this->value("SELECT CAST('' AS UNSIGNED)"), 'empty string: 0, not an error');
+        $this->assertSame(123, (int) $this->value("SELECT CAST('123' AS UNSIGNED)"), 'an ordinary numeric value is unaffected');
+    }
+
+    /**
      * `prepareQuery()` with a `DATE_FORMAT` written for printf — `'%%Y-%%m'` — and a value to put
      * in: the pattern reaches `to_char` as `YYYY-MM` and the value its place. It threw "Unknown
      * format specifier" because the pattern was translated as MySQL would read it.

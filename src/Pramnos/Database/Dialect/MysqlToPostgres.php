@@ -30,7 +30,7 @@ namespace Pramnos\Database\Dialect;
  * | `… ON DUPLICATE KEY UPDATE c = VALUES(c)` | `… ON CONFLICT (key) DO UPDATE SET c = EXCLUDED.c` |
  * | `REPLACE INTO t (…) VALUES …` | `INSERT INTO t (…) VALUES … ON CONFLICT (key) DO UPDATE SET …` |
  * | `SHA2(x, 256)` | `encode(sha256(convert_to((x)::text, 'UTF8')), 'hex')` |
- * | `CAST(x AS SIGNED)`, `… AS UNSIGNED` | `CAST(x AS bigint)` |
+ * | `CAST(x AS SIGNED)`, `… AS UNSIGNED` | the leading run of digits as `bigint`, `0` where there is none — never an error |
  * | `DAY(d)`, `MONTH(d)`, `YEAR(d)` | `EXTRACT(DAY FROM d)::int`, … |
  * | `GET_LOCK(name, t)`, `RELEASE_LOCK(name)` | advisory locks on `hashtext(name)`, as 1 or 0 |
  * | `JSON_EXTRACT(doc, '$.a[0]')`, `JSON_UNQUOTE(…)` | `(doc)::jsonb #> '{a,0}'`, `… #>> '{}'` |
@@ -314,8 +314,19 @@ final class MysqlToPostgres
             'SHA2'           => count($given) === 2 && in_array($bits = $text($given[1]), ['0', '224', '256', '384', '512'], true)
                 ? "encode(sha" . ($bits === '0' ? '256' : $bits) . "(convert_to((" . $text($given[0]) . ")::text, 'UTF8')), 'hex')"
                 : null,
+            // MySQL's CAST(x AS SIGNED/UNSIGNED) is lenient on a string: it reads the leading
+            // run of digits (with an optional sign, skipping leading whitespace) and takes 0
+            // where there is none — a warning, never an error. CAST(x AS bigint) alone refuses
+            // anything that is not entirely numeric: 'invalid input syntax for type bigint'.
+            // That turns a WHERE/JOIN comparing a column with even one such value (users.subscription
+            // can legitimately hold a non-numeric sentinel like 'pay3' for manual billing,
+            // alongside real packageid strings) into a hard error for the whole query instead
+            // of the row-level 0 MySQL gives, which is how a query comparing nothing unusual
+            // returned false/nothing rather than every other row (FW-282). substring() with a
+            // capturing group returns only the leading digits, as if a pattern anchored at
+            // the start without one had matched them and discarded the rest.
             'CAST'           => count($given) === 1 && preg_match('/^(.*\S)\s+AS\s+(?:UN)?SIGNED(?:\s+INT(?:EGER)?)?$/is', $text($given[0]), $m) === 1
-                ? 'CAST(' . $m[1] . ' AS bigint)'
+                ? "CAST(COALESCE(substring((" . $m[1] . ")::text from '^[[:space:]]*([+-]?[0-9]+)'), '0') AS bigint)"
                 : null,
             'DAY', 'MONTH', 'YEAR' => count($given) === 1 ? 'EXTRACT(' . $name . ' FROM ' . $text($given[0]) . ')::int' : null,
             // ponytail: GET_LOCK's timeout is not waited out — taken now or not at all.

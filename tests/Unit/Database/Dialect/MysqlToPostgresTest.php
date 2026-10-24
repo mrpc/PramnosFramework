@@ -104,7 +104,11 @@ class MysqlToPostgresTest extends TestCase
             // FW-165 §8
             'SHA2'                  => ['SELECT SHA2(email, 256), SHA2(x, 0) FROM t', "SELECT encode(sha256(convert_to((email)::text, 'UTF8')), 'hex'), encode(sha256(convert_to((x)::text, 'UTF8')), 'hex') FROM t"],
             'SHA2, other lengths'   => ['SELECT SHA2(x, 512), SHA2(x, 100)', "SELECT encode(sha512(convert_to((x)::text, 'UTF8')), 'hex'), SHA2(x, 100)"],
-            'CAST AS SIGNED'        => ["SELECT CAST(a AS SIGNED), CAST(b AS UNSIGNED INTEGER), CAST(c AS CHAR) FROM t", 'SELECT CAST(a AS bigint), CAST(b AS bigint), CAST(c AS CHAR) FROM t'],
+            // FW-282: MySQL's CAST(x AS SIGNED/UNSIGNED) reads the leading digits and takes 0
+            // where there are none, rather than erroring — CAST(x AS bigint) alone refuses
+            // anything not entirely numeric.
+            'CAST AS SIGNED'        => ["SELECT CAST(a AS SIGNED), CAST(b AS UNSIGNED INTEGER), CAST(c AS CHAR) FROM t",
+                                        "SELECT CAST(COALESCE(substring((a)::text from '^[[:space:]]*([+-]?[0-9]+)'), '0') AS bigint), CAST(COALESCE(substring((b)::text from '^[[:space:]]*([+-]?[0-9]+)'), '0') AS bigint), CAST(c AS CHAR) FROM t"],
             'DAY, MONTH, YEAR'      => ['SELECT DAY(d), MONTH(d), YEAR(NOW()) FROM t WHERE d > DATE_SUB(NOW(), INTERVAL 1 DAY)',
                                         "SELECT EXTRACT(DAY FROM d)::int, EXTRACT(MONTH FROM d)::int, EXTRACT(YEAR FROM NOW())::int FROM t WHERE d > (NOW() - (1) * INTERVAL '1 day')"],
             'GET_LOCK, RELEASE_LOCK'=> ["SELECT GET_LOCK('job', 10), RELEASE_LOCK('job')",
