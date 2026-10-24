@@ -129,4 +129,32 @@ class GetAllOrFailPostgreSQLTest extends DatabaseTestCase
             $this->db->query('ALTER TABLE goafpg_blacklist_probe RENAME TO goafpg_blacklist');
         }
     }
+
+    /**
+     * FW-283: `getAllOrFail()`'s own message named nothing — "cannot be distinguished from an
+     * empty table" is true of every failure, so every one read the same regardless of what
+     * actually broke. `execute()` already keeps the driver's own text in `$error_text` before
+     * returning `false`; this is that text reaching the caller, not a sentence that never
+     * changes.
+     */
+    public function testGetAllOrFailCarriesTheDriversOwnMessage(): void
+    {
+        // Arrange
+        $this->db->query('ALTER TABLE goafpg_blacklist RENAME TO goafpg_blacklist_probe');
+
+        try {
+            // Act
+            $this->db->queryBuilder()->from('goafpg_blacklist')->getAllOrFail();
+            $this->fail('getAllOrFail() must throw when the table is missing.');
+        } catch (QueryException $e) {
+            // Assert — PostgreSQL's own wording for a missing relation, not empty; getDriverMessage()
+            // is the environment-independent accessor (getMessage() only adds it when
+            // QueryException::$detailed says to), so this is the fix itself, not a display setting.
+            $this->assertStringContainsString('goafpg_blacklist', $e->getDriverMessage());
+            $this->assertStringContainsString('does not exist', $e->getDriverMessage());
+        } finally {
+            // Cleanup
+            $this->db->query('ALTER TABLE goafpg_blacklist_probe RENAME TO goafpg_blacklist');
+        }
+    }
 }

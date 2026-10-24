@@ -1547,8 +1547,11 @@ class QueryBuilder
         }
 
         if (!$result instanceof \Pramnos\Database\Result) {
+            // execute() already captured the driver's own text into $error_text before
+            // returning false (FW-283) -- read it here, or every failure in this path reads
+            // as the same unhelpful sentence regardless of what actually went wrong.
             throw new QueryException(
-                'The query failed, so its result cannot be distinguished from an empty table.',
+                $this->db->error_text !== '' ? $this->db->error_text : 'The query failed, so its result cannot be distinguished from an empty table.',
                 $this->toSql(),
                 null,
                 // Already a sentence that names nothing, so it stays the surfaceable one
