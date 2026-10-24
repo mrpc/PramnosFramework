@@ -75,70 +75,71 @@ nav:
     - Roadmap & Open Items: Roadmap.md
     - Mail Body Storage (design): Mail-Body-Storage-Design.md
     - hreflang and Sitemaps (design): Hreflang-And-Sitemap-Design.md
-  - Core Framework:
-    - Framework Overview: Pramnos_Framework_Guide.md
-    - Application Styles (MVC / SPA / hybrid): Pramnos_Application_Styles_Guide.md
-    - Routing: Pramnos_Routing_Guide.md
-    - Validation: Pramnos_Validation_System_Guide.md
-    - Theming: Pramnos_Theme_Guide.md
-    - Internationalization: Pramnos_Internationalization_Guide.md
-    - Document Output: Pramnos_Document_Output_Guide.md
-    - Environment Variables: Pramnos_Environment_Variables_Guide.md
-    - API Guide: Pramnos_API_Guide.md
-  - UI Widgets & Tools:
-    - HTML Components: Pramnos_Html_Components_Guide.md
-    - Rich Text Editor: Pramnos_Rich_Editor_Guide.md
-    - Dashboard: Pramnos_Dashboard_Guide.md
-    - Calendar: Pramnos_Calendar_Guide.md
-    - Image Upload (crop and resize): Pramnos_Image_Upload_Guide.md
-  - Data Layer:
-    - Database API: Pramnos_Database_API_Guide.md
-    - Query Builder: Pramnos_QueryBuilder_Guide.md
-    - Schema Builder: Pramnos_Schema_Builder_Guide.md
-    - ORM: Pramnos_ORM_Guide.md
-    - Migrations: Pramnos_Migration_Guide.md
-    - Hypertables (TimescaleDB): Pramnos_Hypertable_Guide.md
-    - Cross-Entity Search: Pramnos_Search_Guide.md
-  - Infrastructure Services:
-    - Caching: Pramnos_Cache_Guide.md
-    - Page Cache: Pramnos_Page_Cache_Guide.md
-    - Service Worker: Pramnos_Service_Worker_Guide.md
-    - Redis: Pramnos_Redis_Guide.md
-    - Queues: Pramnos_Queue_Guide.md
-    - Realtime (SSE & WebSockets): Pramnos_Realtime_Guide.md
-    - Model Change Feed: Pramnos_Change_Feed_Guide.md
-  - Security & Identity:
-    - Authentication: Pramnos_Authentication_Guide.md
-    - Setting up an Auth Server: Pramnos_AuthServer_Setup_Guide.md
-    - Authorization: Pramnos_Authorization_Guide.md
-    - Security Hardening: Pramnos_Security_Guide.md
-    - Cookie Consent: Pramnos_Cookie_Consent_Guide.md
-    - Account & Security (End Users): Pramnos_Account_Guide.md
-    - Third-Party Integration: Pramnos_AuthServer_Integration_Guide.md
-  - External Integrations:
-    - HTTP Client (outbound requests): Pramnos_Http_Client_Guide.md
-    - Language models (LLM): Pramnos_LLM_Guide.md
-    - OAuth2 Client (signing in elsewhere): Pramnos_OAuth_Client_Guide.md
-  - Platform Engines:
-    - Administration help and side panel: Pramnos_Admin_Assistant_Guide.md
-    - Notifications: Pramnos_Notifications_Guide.md
-    - Email: Pramnos_Email_Guide.md
-    - Audiences (attributes and filters): Pramnos_Audience_Guide.md
-    - Conversations (team chat, support, messages): Pramnos_Conversations_Guide.md
-    - Moderation (bans, mutes, filter, reports): Pramnos_Moderation_Guide.md
-    - Web Push: Pramnos_Push_Guide.md
-    - Media: Pramnos_Media_Guide.md
-  - Operations:
-    - Console Commands: Pramnos_Console_Guide.md
-    - Health checks: Pramnos_Health_Guide.md
-    - MCP server (AI assistant integration): Pramnos_MCP_Guide.md
-    - Workers & Daemons: Pramnos_Workers_And_Daemons_Guide.md
-    - One server to several: Pramnos_Multi_Server_Guide.md
-    - Deploy webhooks: Pramnos_Deploy_Webhook_Guide.md
-    - Moving from MySQL: Pramnos_Moving_From_MySQL_Guide.md
-    - Logging: Pramnos_Logging_Guide.md
-    - Testing: Pramnos_Testing_Guide.md
-    - Test suite performance: Pramnos_Test_Suite_Performance.md
-    - Debugging: Pramnos_Debugging_Guide.md
-    - DevPanel: Pramnos_DevPanel_Guide.md
-    - Using the debug toolbar: Pramnos_Debug_Toolbar_Usage.md
+  - Documentation:
+    - Core Framework:
+      - Framework Overview: Pramnos_Framework_Guide.md
+      - Application Styles (MVC / SPA / hybrid): Pramnos_Application_Styles_Guide.md
+      - Routing: Pramnos_Routing_Guide.md
+      - Validation: Pramnos_Validation_System_Guide.md
+      - Theming: Pramnos_Theme_Guide.md
+      - Internationalization: Pramnos_Internationalization_Guide.md
+      - Document Output: Pramnos_Document_Output_Guide.md
+      - Environment Variables: Pramnos_Environment_Variables_Guide.md
+      - API Guide: Pramnos_API_Guide.md
+    - UI Widgets & Tools:
+      - HTML Components: Pramnos_Html_Components_Guide.md
+      - Rich Text Editor: Pramnos_Rich_Editor_Guide.md
+      - Dashboard: Pramnos_Dashboard_Guide.md
+      - Calendar: Pramnos_Calendar_Guide.md
+      - Image Upload (crop and resize): Pramnos_Image_Upload_Guide.md
+    - Data Layer:
+      - Database API: Pramnos_Database_API_Guide.md
+      - Query Builder: Pramnos_QueryBuilder_Guide.md
+      - Schema Builder: Pramnos_Schema_Builder_Guide.md
+      - ORM: Pramnos_ORM_Guide.md
+      - Migrations: Pramnos_Migration_Guide.md
+      - Hypertables (TimescaleDB): Pramnos_Hypertable_Guide.md
+      - Cross-Entity Search: Pramnos_Search_Guide.md
+    - Infrastructure Services:
+      - Caching: Pramnos_Cache_Guide.md
+      - Page Cache: Pramnos_Page_Cache_Guide.md
+      - Service Worker: Pramnos_Service_Worker_Guide.md
+      - Redis: Pramnos_Redis_Guide.md
+      - Queues: Pramnos_Queue_Guide.md
+      - Realtime (SSE & WebSockets): Pramnos_Realtime_Guide.md
+      - Model Change Feed: Pramnos_Change_Feed_Guide.md
+    - Security & Identity:
+      - Authentication: Pramnos_Authentication_Guide.md
+      - Setting up an Auth Server: Pramnos_AuthServer_Setup_Guide.md
+      - Authorization: Pramnos_Authorization_Guide.md
+      - Security Hardening: Pramnos_Security_Guide.md
+      - Cookie Consent: Pramnos_Cookie_Consent_Guide.md
+      - Account & Security (End Users): Pramnos_Account_Guide.md
+      - Third-Party Integration: Pramnos_AuthServer_Integration_Guide.md
+    - External Integrations:
+      - HTTP Client (outbound requests): Pramnos_Http_Client_Guide.md
+      - Language models (LLM): Pramnos_LLM_Guide.md
+      - OAuth2 Client (signing in elsewhere): Pramnos_OAuth_Client_Guide.md
+    - Platform Engines:
+      - Administration help and side panel: Pramnos_Admin_Assistant_Guide.md
+      - Notifications: Pramnos_Notifications_Guide.md
+      - Email: Pramnos_Email_Guide.md
+      - Audiences (attributes and filters): Pramnos_Audience_Guide.md
+      - Conversations (team chat, support, messages): Pramnos_Conversations_Guide.md
+      - Moderation (bans, mutes, filter, reports): Pramnos_Moderation_Guide.md
+      - Web Push: Pramnos_Push_Guide.md
+      - Media: Pramnos_Media_Guide.md
+    - Operations:
+      - Console Commands: Pramnos_Console_Guide.md
+      - Health checks: Pramnos_Health_Guide.md
+      - MCP server (AI assistant integration): Pramnos_MCP_Guide.md
+      - Workers & Daemons: Pramnos_Workers_And_Daemons_Guide.md
+      - One server to several: Pramnos_Multi_Server_Guide.md
+      - Deploy webhooks: Pramnos_Deploy_Webhook_Guide.md
+      - Moving from MySQL: Pramnos_Moving_From_MySQL_Guide.md
+      - Logging: Pramnos_Logging_Guide.md
+      - Testing: Pramnos_Testing_Guide.md
+      - Test suite performance: Pramnos_Test_Suite_Performance.md
+      - Debugging: Pramnos_Debugging_Guide.md
+      - DevPanel: Pramnos_DevPanel_Guide.md
+      - Using the debug toolbar: Pramnos_Debug_Toolbar_Usage.md
