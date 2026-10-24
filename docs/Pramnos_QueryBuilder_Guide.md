@@ -427,6 +427,20 @@ alone.
 `where($column, 'LIKE', …)` stays the comparison as each database makes it. On PostgreSQL that
 is case- and accent-sensitive, which is what an exact code or a case-sensitive key wants.
 
+#### `whereLikeText(string $column, string $pattern): static` / `orWhereLikeText(…)`
+
+```php
+$qb->whereLikeText('payload', '%' . $term . '%');
+// MySQL:      WHERE payload LIKE ?
+// PostgreSQL: WHERE convert_from(payload, 'UTF8') LIKE $1
+```
+
+For a column typed `bytea` that really holds text — a MySQL `blob` a migration mapped across
+without `--blob-as-text` (FW-278). `whereLike()`'s `::text` cast gives a `bytea`'s hex output
+form on PostgreSQL, not the bytes decoded, so it never matches; this decodes the column first.
+Throws on PostgreSQL if the column's bytes are not valid UTF-8 — a genuinely binary column has
+no text to find. See the [Database API guide](Pramnos_Database_API_Guide.md#searching-inside-a-bytea-that-is-really-text-whereliketext).
+
 #### `whereBetween(string $column, array $values): static`
 
 ```php

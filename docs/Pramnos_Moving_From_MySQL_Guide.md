@@ -233,6 +233,11 @@ For a table the command makes, `--blob-as-text=table.column,…` creates it as `
 real bytes is not named. Write those through `Pramnos\Database\Binary`; see the
 [Database API guide](Pramnos_Database_API_Guide.md#bytes-binary-and-reading-a-bytea).
 
+A column already moved as `bytea` — an earlier run, or a table a framework migration made
+rather than this command — is not retyped after the fact by this flag. `WHERE ... LIKE` against
+it still needs `whereLikeText()`, not `whereLike()`; see [*Searching inside a `bytea` that is
+really text*](Pramnos_Database_API_Guide.md#searching-inside-a-bytea-that-is-really-text-whereliketext).
+
 ### Comparisons without regard to case
 
 MySQL's `_ci` collations (`utf8mb4_general_ci`, `utf8mb4_0900_ai_ci`, MariaDB's

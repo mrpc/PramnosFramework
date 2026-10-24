@@ -1732,4 +1732,39 @@ class GrammarTest extends TestCase
         // Assert
         $this->assertSame('TIME(created_at)', $result);
     }
+
+    /**
+     * whereLikeText() on MySQL compiles to a plain LIKE — identical to whereLike(), since a
+     * MySQL blob's bytes already compare correctly as text.
+     */
+    public function testMysqlWhereLikeTextCompilesToPlainLike(): void
+    {
+        // Arrange
+        $qb = $this->mysqlQB()->from('imported_rows')->whereLikeText('payload', '%needle%');
+
+        // Act
+        $sql = (new MySQLGrammar())->compileSelect($qb);
+
+        // Assert
+        $this->assertStringContainsString('payload LIKE %s', $sql);
+    }
+
+    /**
+     * whereLikeText() on PostgreSQL wraps the column in convert_from(…, 'UTF8') rather than
+     * the bare ::text cast whereLike() uses — ::text on a bytea gives its hex/escape output
+     * format, not the bytes decoded, which is FW-278: a pattern visibly inside the stored
+     * value never matched.
+     */
+    public function testPostgresWhereLikeTextUsesConvertFromNotTextCast(): void
+    {
+        // Arrange
+        $qb = $this->postgresQB()->from('imported_rows')->whereLikeText('payload', '%needle%');
+
+        // Act
+        $sql = (new PostgreSQLGrammar())->compileSelect($qb);
+
+        // Assert
+        $this->assertStringContainsString("convert_from(payload, 'UTF8') LIKE %s", $sql);
+        $this->assertStringNotContainsString('payload::text', $sql);
+    }
 }

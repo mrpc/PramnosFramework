@@ -10,6 +10,7 @@ use_cases:
   - Running an application's MySQL-written SQL on PostgreSQL without rewriting it
   - Finding the SQL that would mean something else on PostgreSQL than on MySQL
   - Writing binary data to a blob or bytea column, and reading it back as bytes
+  - Searching inside a migrated blob/bytea column for a substring, when LIKE matches nothing
 ---
 
 # Pramnos Database API Guide
@@ -374,6 +375,34 @@ On PostgreSQL it is bound with `pg_escape_bytea()`, and on MySQL as the bytes th
 binary column takes `Binary` the same way. Read
 back through `query()`, `execute()` or the builder, a `bytea` is the bytes again, as a MySQL
 `blob` always was. PostgreSQL itself returns hex text (`\x00ff…`), and the result decodes it.
+
+### Searching inside a `bytea` that is really text: `whereLikeText()`
+
+A MySQL `blob` moved by `db:migrate-from-mysql` without `--blob-as-text` (see the
+[Moving from MySQL guide](Pramnos_Moving_From_MySQL_Guide.md#text-kept-in-a-blob))
+arrives as `bytea` even when every value in it is text — a `serialize()` string, most often.
+`whereLike()` casts the column with a bare `::text`, which on a real text column is a no-op,
+but on `bytea` is PostgreSQL's *hex output format* (`\x4142…`) — so a pattern that is visibly
+inside the stored value never matches:
+
+```php
+// Never matches: ::text on a bytea gives its hex form, not the bytes read as text.
+$db->queryBuilder()->table('imported_rows')->whereLike('payload', '%needle%')->get();
+
+// Decodes the column with convert_from(column, 'UTF8') before comparing.
+$db->queryBuilder()->table('imported_rows')->whereLikeText('payload', '%needle%')->get();
+```
+
+`whereLikeText()` (and `orWhereLikeText()`) is for exactly this case — a column typed `bytea`
+whose bytes are decodable text. It throws if they are not: a column of genuine binary data
+(an image, a file) has no text to find, and PostgreSQL's `convert_from()` refusal is better
+surfaced as a clear failure than hidden behind a query that silently returns nothing. On
+MySQL it compiles to the same plain `LIKE` as `whereLike()`, since a `blob`'s bytes already
+compare correctly as text there.
+
+If the column still has no data in it, mapping it to `text` at migration time with
+`--blob-as-text` avoids the question entirely — `whereLikeText()` is for a column that
+already exists as `bytea`, or one that must stay `bytea` for other callers.
 
 ## Writing a point: `'geometry'` and the coordinate order
 

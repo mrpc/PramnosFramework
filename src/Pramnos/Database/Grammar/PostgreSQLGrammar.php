@@ -61,6 +61,20 @@ class PostgreSQLGrammar extends Grammar
         return $fold($column . '::text') . ' LIKE ' . $fold($placeholder);
     }
 
+    /**
+     * A `bytea` column that is really decodable text — most often a MySQL `blob` a migration
+     * mapped straight across instead of `--blob-as-text` (FW-278). `::text`, what
+     * {@see compileLikeIgnoringCase()} and {@see wrapColumnForOperator()} use, casts a `bytea`
+     * to PostgreSQL's hex/escape *output format* (`\x4142…`), not the bytes decoded as text —
+     * so a pattern visibly inside the stored value never matches. `convert_from()` decodes it
+     * instead, and throws on bytes that are not valid UTF-8: a column of real binary data has
+     * no text to find, and that should fail loudly rather than silently match nothing.
+     */
+    protected function compileLikeOnText(string $column, string $placeholder): string
+    {
+        return "convert_from({$column}, 'UTF8') LIKE {$placeholder}";
+    }
+
     protected function compileLock(QueryBuilder $qb): string
     {
         return match ($qb->getLock()) {

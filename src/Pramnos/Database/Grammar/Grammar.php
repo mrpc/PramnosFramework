@@ -98,6 +98,18 @@ abstract class Grammar implements GrammarInterface
         return $column . ' LIKE ' . $placeholder;
     }
 
+    /**
+     * `whereLikeText()`'s comparison: a `LIKE` against a column that holds text but is typed
+     * for raw bytes (a MySQL `blob` moved to PostgreSQL `bytea` without `--blob-as-text`). A
+     * `blob`'s bytes already compare as text under a plain `LIKE`, so the base is the same as
+     * {@see compileLikeIgnoringCase()}'s plain case; a dialect whose text-typed-as-binary
+     * columns need decoding first overrides this (FW-278).
+     */
+    protected function compileLikeOnText(string $column, string $placeholder): string
+    {
+        return $column . ' LIKE ' . $placeholder;
+    }
+
     /** A name quoted only when it is a reserved word. */
     protected function quoteIfReserved(string $name): string
     {
@@ -352,6 +364,10 @@ abstract class Grammar implements GrammarInterface
 
                 case 'Like':
                     $part .= $this->compileLikeIgnoringCase($this->quoteIfCaseSensitive($where['column']), $this->getPlaceholder($where['value']));
+                    break;
+
+                case 'LikeText':
+                    $part .= $this->compileLikeOnText($this->quoteIfCaseSensitive($where['column']), $this->getPlaceholder($where['value']));
                     break;
 
                 case 'NotNull':

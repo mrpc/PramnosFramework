@@ -3,6 +3,7 @@
 namespace Pramnos\Tests\Integration\Database;
 
 use Pramnos\Framework\Testing\DatabaseTestCase;
+use Pramnos\Database\Binary;
 use Pramnos\Database\Database;
 
 /**
@@ -47,7 +48,7 @@ class QueryBuilderPostgreSQLTest extends DatabaseTestCase
      */
     protected static function ownedTables(): array
     {
-        return ['qb_tags', 'qb_products', 'qb_events'];
+        return ['qb_tags', 'qb_products', 'qb_events', 'qb_blobs'];
     }
 
     /**
@@ -77,6 +78,12 @@ class QueryBuilderPostgreSQLTest extends DatabaseTestCase
             id         SERIAL PRIMARY KEY,
             name       VARCHAR(100)  NOT NULL,
             event_time TIMESTAMPTZ   NOT NULL
+        )",
+            // A blob a MySQL migration mapped straight to bytea instead of --blob-as-text
+            // (FW-278) — real text, typed for raw bytes.
+            "CREATE TABLE qb_blobs (
+            id      SERIAL PRIMARY KEY,
+            payload BYTEA NOT NULL
         )",
         ];
     }
@@ -1867,5 +1874,49 @@ class QueryBuilderPostgreSQLTest extends DatabaseTestCase
             $counts[] = (int) $result->fields['cnt'];
         }
         $this->assertSame([2, 2], $counts, 'each hourly bucket must contain exactly 2 events');
+    }
+
+    /**
+     * FW-278: a `bytea` column holding real text (what a migrated MySQL `blob` is, unless
+     * moved with `--blob-as-text`) cannot be found with whereLike() — ::text casts it to
+     * PostgreSQL's hex output format, not the bytes decoded — but whereLikeText() finds it.
+     */
+    public function testWhereLikeTextFindsTextInsideAByteaColumnThatPlainLikeMisses(): void
+    {
+        // Arrange — a payload that is really text (serialize() output, as a migrated row's
+        // blob column would hold), stored as bytea.
+        $this->db->queryBuilder()->table('qb_blobs')->insert([
+            'payload' => new Binary('a:1:{s:4:"name";s:5:"Maria";}'),
+        ]);
+
+        // Act
+        $plainLikeMiss = $this->db->queryBuilder()->table('qb_blobs')->whereLike('payload', '%Maria%')->count();
+        $textLikeHit   = $this->db->queryBuilder()->table('qb_blobs')->whereLikeText('payload', '%Maria%')->count();
+
+        // Assert — the substring is visibly in the stored value; whereLike() still finds
+        // nothing (the bug), whereLikeText() finds the row (the fix).
+        $this->assertSame(0, (int) $plainLikeMiss, 'whereLike() casts bytea with ::text — PostgreSQL\'s hex output, not the decoded bytes — so it must not match');
+        $this->assertSame(1, (int) $textLikeHit);
+    }
+
+    /**
+     * whereLikeText() throws on a bytea column that is genuinely binary, not text — the point
+     * of using convert_from() rather than silently returning no match for a column type it
+     * cannot safely search this way.
+     */
+    public function testWhereLikeTextThrowsOnGenuineNonUtf8Binary(): void
+    {
+        // Arrange — a lone continuation byte is not valid UTF-8 on its own.
+        $this->db->queryBuilder()->table('qb_blobs')->insert([
+            'payload' => new Binary("\xFF\xFE\x00\x01"),
+        ]);
+
+        // Act + Assert — convert_from() refuses to decode it; throwOnError (set by the test
+        // fixture) turns the driver's refusal into an exception instead of an empty result.
+        // PostgreSQL's own path through setError() throws plain \Exception, not QueryException
+        // — the same as any other failed execute() on this driver.
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessageMatches('/invalid byte sequence/i');
+        $this->db->queryBuilder()->table('qb_blobs')->whereLikeText('payload', '%anything%')->count();
     }
 }

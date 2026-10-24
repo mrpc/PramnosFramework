@@ -475,6 +475,51 @@ class QueryBuilder
     }
 
     /**
+     * A `LIKE` against a column that holds text but is typed `bytea` — usually a MySQL `blob`
+     * a migration mapped straight across instead of `--blob-as-text` (see the Moving from
+     * MySQL guide). On PostgreSQL the column is decoded with `convert_from(column, 'UTF8')`
+     * before comparing: a bare `::text` cast — what {@see whereLike()} and
+     * `where($col, 'LIKE', …)` use — gives the column's hex/escape *output format*, not its
+     * bytes read as text, so a pattern that is visibly inside the stored value never matches
+     * (FW-278). On MySQL a `blob` already compares correctly under a plain `LIKE`, so this is
+     * identical to an ordinary `LIKE` there.
+     *
+     * Throws on PostgreSQL if the column's bytes are not valid UTF-8 — a column of real
+     * binary data (an image, a file) has no text to find, and failing loudly on it beats
+     * matching nothing and looking like an empty result.
+     *
+     * ```php
+     * $db->queryBuilder()->table('imported_rows')->whereLikeText('payload', '%' . $term . '%')->get();
+     * ```
+     *
+     * @param string $column
+     * @param string $pattern With its own `%` and `_`
+     * @param string $boolean
+     * @return $this
+     */
+    public function whereLikeText($column, string $pattern, $boolean = 'and')
+    {
+        $type  = 'LikeText';
+        $value = $pattern;
+        $this->wheres[] = compact('type', 'column', 'value', 'boolean');
+        $this->addBinding($pattern, 'where');
+
+        return $this;
+    }
+
+    /**
+     * {@see whereLikeText()}, joined with `OR`.
+     *
+     * @param string $column
+     * @param string $pattern
+     * @return $this
+     */
+    public function orWhereLikeText($column, string $pattern)
+    {
+        return $this->whereLikeText($column, $pattern, 'or');
+    }
+
+    /**
      * Add a "where not null" clause.
      *
      * @param string $column
