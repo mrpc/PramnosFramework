@@ -92,49 +92,83 @@ No local Python or pip installation is required — everything runs inside Docke
 ### Getting Started
 - **[Installation & Setup](docs/Getting_Started.md)** - Quick start guide for new projects
 - **[v1.2 New Features Reference](docs/1.2-new-features.md)** - Comprehensive feature documentation (implementation reference)
+- **[Upgrade Guide](docs/Pramnos_Upgrade_Guide.md)** - What changed between versions, and what to do about it
 
 ### Core Guides by Topic
 
-#### Database & ORM
-- **[Database API Guide](docs/Pramnos_Database_API_Guide.md)** - Legacy `Database::query()` API and patterns
-- **[DML Query Builder Guide](docs/Pramnos_QueryBuilder_Guide.md)** - Fluent query construction for SELECT/INSERT/UPDATE/DELETE *(new in v1.2)*
-- **[DDL Schema Builder Guide](docs/Pramnos_Schema_Builder_Guide.md)** - Programmatic schema definition *(new in v1.2)*
-- **[ORM Guide](docs/Pramnos_ORM_Guide.md)** - Model definition, relationships, scopes, and casting *(new in v1.2)*
-- **[Migration System Guide](docs/Pramnos_Migration_Guide.md)** - Database versioning and auto-run system *(new in v1.2)*
+The full, current list — kept in sync with [`mkdocs.yml`](mkdocs.yml)'s navigation, which a
+test (`DocsRetrievabilityTest`) enforces every guide is actually listed in — lives on the
+[documentation site](https://mrpc.github.io/PramnosFramework/). The groups below mirror it:
 
-#### Web & API
-- **[Framework Guide](docs/Pramnos_Framework_Guide.md)** - Controllers, views, and MVC architecture
-- **[REST API Guide](docs/Pramnos_API_Guide.md)** - Building and deploying REST APIs *(updated for v1.2)*
-- **[Routing Guide](docs/Pramnos_Routing_Guide.md)** - Modern attribute-based routing *(new in v1.2)*
-- **[Response & Status Guide](docs/Pramnos_Response_Guide.md)** - HTTP response abstraction *(new in v1.2)*
-
-#### Authentication & Security
-- **[Authentication Guide](docs/Pramnos_Authentication_Guide.md)** - Authentication drivers, session management, OAuth2
-- **[Authorization & Policies Guide](docs/Pramnos_Authorization_Guide.md)** - Policy engine and access control *(new in v1.2)*
-- **[Security Best Practices](docs/Pramnos_Security_Guide.md)** - CSRF, XSS, injection prevention, and hardening *(new in v1.2)*
-
-#### Backend & Infrastructure
-- **[Console Commands Guide](docs/Pramnos_Console_Guide.md)** - Building and running CLI commands
-- **[Service Providers Guide](docs/Pramnos_ServiceProviders_Guide.md)** - Application bootstrap and dependency injection *(new in v1.2)*
-- **[Health Check Guide](docs/Pramnos_Health_Guide.md)** - Monitoring and diagnostics *(new in v1.2)*
-- **[Scheduled Tasks Guide](docs/Pramnos_Scheduler_Guide.md)** - Background job scheduling *(new in v1.2)*
-- **[Queue System Guide](docs/Pramnos_Queue_Guide.md)** - Asynchronous job processing
-
-#### Developer Tools
-- **[Logging System Guide](docs/Pramnos_Logging_Guide.md)** - Structured logging and analytics
-- **[Caching Guide](docs/Pramnos_Cache_Guide.md)** - Query, data, and application-level caching
-- **[Testing Guide](docs/Pramnos_Testing_Guide.md)** - HTTP tests, factories, seeders *(updated for v1.2)*
-- **[Scaffolding Guide](docs/Pramnos_Scaffolding_Guide.md)** - Code generation tools *(new in v1.2)*
-- **[DebugBar Guide](docs/Pramnos_DebugBar_Guide.md)** - Development profiling and debugging *(updated for v1.2)*
-
-#### Content & UI
-- **[Theme System Guide](docs/Pramnos_Theme_Guide.md)** - Template system, widgets, and theming
-- **[Document & Output Guide](docs/Pramnos_Document_Output_Guide.md)** - Multi-format output (HTML, PDF, JSON, etc.)
+#### Core Framework
+- **[Framework Guide](docs/Pramnos_Framework_Guide.md)** - Controllers, models, views (the MVC primer)
+- **[Application Styles Guide](docs/Pramnos_Application_Styles_Guide.md)** - Choosing MVC vs SPA vs hybrid
+- **[Routing Guide](docs/Pramnos_Routing_Guide.md)** - Attribute-based route registration and middleware
 - **[Validation Guide](docs/Pramnos_Validation_System_Guide.md)** - Form validation and custom rules
+- **[Theme Guide](docs/Pramnos_Theme_Guide.md)** - Templates, widgets, menus, theme assets
 - **[Internationalization Guide](docs/Pramnos_Internationalization_Guide.md)** - Multi-language support
-- **[Email Guide](docs/Pramnos_Email_Guide.md)** - Email delivery and templates
-- **[Media & Storage Guide](docs/Pramnos_Media_Guide.md)** - File uploads and storage abstraction *(updated for v1.2)*
+- **[Document Output Guide](docs/Pramnos_Document_Output_Guide.md)** - Multi-format output (HTML, PDF, JSON, etc.)
 - **[Environment Variables Guide](docs/Pramnos_Environment_Variables_Guide.md)** - Configuration management
+
+#### UI Widgets & Tools
+- **[HTML Components Guide](docs/Pramnos_Html_Components_Guide.md)** - Reusable UI widgets: tiles, charts, inputs
+- **[Rich Text Editor Guide](docs/Pramnos_Rich_Editor_Guide.md)** - Rich-text editor widget for forms
+- **[Dashboard Guide](docs/Pramnos_Dashboard_Guide.md)** - Admin dashboard cards
+- **[Calendar Guide](docs/Pramnos_Calendar_Guide.md)** - Month/week/day event calendar
+- **[Image Upload Guide](docs/Pramnos_Image_Upload_Guide.md)** - Client-side crop/resize before upload
+- **[Cross-Entity Search Guide](docs/Pramnos_Search_Guide.md)** - Admin search box across entities
+
+#### Data Layer
+- **[Database API Guide](docs/Pramnos_Database_API_Guide.md)** - Core DB access, raw SQL and its pitfalls
+- **[Query Builder Guide](docs/Pramnos_QueryBuilder_Guide.md)** - Fluent SELECT/INSERT/UPDATE/DELETE
+- **[Schema Builder Guide](docs/Pramnos_Schema_Builder_Guide.md)** - Programmatic DDL (columns, indexes, FKs)
+- **[ORM Guide](docs/Pramnos_ORM_Guide.md)** - Models, relationships, scopes, casts, soft deletes
+- **[Migration Guide](docs/Pramnos_Migration_Guide.md)** - Writing and running DB migrations
+- **[Moving from MySQL Guide](docs/Pramnos_Moving_From_MySQL_Guide.md)** - Migrating to PostgreSQL/TimescaleDB
+- **[Hypertable Guide](docs/Pramnos_Hypertable_Guide.md)** - TimescaleDB hypertables for time-series data
+- **[Cache Guide](docs/Pramnos_Cache_Guide.md)** - Query, data, and application-level caching
+- **[Page Cache Guide](docs/Pramnos_Page_Cache_Guide.md)** - Full-page caching for anonymous traffic
+- **[Service Worker Guide](docs/Pramnos_Service_Worker_Guide.md)** - Browser service-worker asset caching
+- **[Redis Guide](docs/Pramnos_Redis_Guide.md)** - The shared Redis connection manager
+
+#### Security & Identity
+- **[Authentication Guide](docs/Pramnos_Authentication_Guide.md)** - Sign-in, roles, JWT/bearer tokens
+- **[Auth Server Setup Guide](docs/Pramnos_AuthServer_Setup_Guide.md)** - Standing up an OAuth2/OIDC auth server
+- **[Authorization Guide](docs/Pramnos_Authorization_Guide.md)** - Permission checks for controllers/routes
+- **[Security Guide](docs/Pramnos_Security_Guide.md)** - CSRF, XSS, injection prevention, hardening
+- **[Cookie Consent Guide](docs/Pramnos_Cookie_Consent_Guide.md)** - EU cookie banner, Consent Mode v2
+- **[Account Guide](docs/Pramnos_Account_Guide.md)** - End-user account/security screens: 2FA, passkeys
+- **[AuthServer Integration Guide](docs/Pramnos_AuthServer_Integration_Guide.md)** - Connecting an app to the auth server
+- **[OAuth2 Client Guide](docs/Pramnos_OAuth_Client_Guide.md)** - Signing in with Google/Meta/TikTok, etc.
+
+#### APIs & Integrations
+- **[API Guide](docs/Pramnos_API_Guide.md)** - Building and deploying JSON REST APIs
+- **[HTTP Client Guide](docs/Pramnos_Http_Client_Guide.md)** - Outbound calls to third-party REST APIs
+- **[LLM Guide](docs/Pramnos_LLM_Guide.md)** - Calling LLM providers from the app
+- **[Admin Assistant Guide](docs/Pramnos_Admin_Assistant_Guide.md)** - AI-assisted help panel for admin screens
+- **[Realtime Guide](docs/Pramnos_Realtime_Guide.md)** - SSE/WebSocket push to browsers
+- **[Change Feed Guide](docs/Pramnos_Change_Feed_Guide.md)** - Broadcasting model changes, audit logging
+- **[Queue Guide](docs/Pramnos_Queue_Guide.md)** - Background job dispatch, drivers, workers
+- **[Notifications Guide](docs/Pramnos_Notifications_Guide.md)** - Notification bell UI
+- **[Email Guide](docs/Pramnos_Email_Guide.md)** - Email delivery, configuration, tracking
+- **[Audience Guide](docs/Pramnos_Audience_Guide.md)** - Filterable audiences of people by attribute
+- **[Conversations Guide](docs/Pramnos_Conversations_Guide.md)** - Team chat and support messaging
+- **[Moderation Guide](docs/Pramnos_Moderation_Guide.md)** - Bans, mutes, word filters, reports
+- **[Web Push Guide](docs/Pramnos_Push_Guide.md)** - Web push notifications
+- **[Media Guide](docs/Pramnos_Media_Guide.md)** - File/image upload handling, thumbnails, storage
+- **[Logging Guide](docs/Pramnos_Logging_Guide.md)** - PSR-3 logging, rotation, viewer
+
+#### Operations
+- **[Console Guide](docs/Pramnos_Console_Guide.md)** - Built-in CLI commands and code generation
+- **[Health Guide](docs/Pramnos_Health_Guide.md)** - Health-check endpoints for uptime monitors
+- **[MCP Guide](docs/Pramnos_MCP_Guide.md)** - Exposing app schema/tools to an AI assistant
+- **[Workers & Daemons Guide](docs/Pramnos_Workers_And_Daemons_Guide.md)** - Long-running workers, scheduling
+- **[Multi-Server Guide](docs/Pramnos_Multi_Server_Guide.md)** - Load-balanced, multi-node deployment
+- **[Deploy Webhook Guide](docs/Pramnos_Deploy_Webhook_Guide.md)** - Auto-deploy on push via webhook
+- **[Testing Guide](docs/Pramnos_Testing_Guide.md)** - Writing tests, factories, seeders
+- **[Debugging Guide](docs/Pramnos_Debugging_Guide.md)** - Debugging queries, timings, exceptions
+- **[DevPanel Guide](docs/Pramnos_DevPanel_Guide.md)** - Live install diagnostics panel
+- **[Debug Toolbar Usage](docs/Pramnos_Debug_Toolbar_Usage.md)** - Using the in-browser debug toolbar
 
 ## Requirements
 

@@ -81,15 +81,16 @@ nav:
     - Routing: Pramnos_Routing_Guide.md
     - Validation: Pramnos_Validation_System_Guide.md
     - Theming: Pramnos_Theme_Guide.md
+    - Internationalization: Pramnos_Internationalization_Guide.md
+    - Document Output: Pramnos_Document_Output_Guide.md
+    - Environment Variables: Pramnos_Environment_Variables_Guide.md
+  - UI Widgets & Tools:
     - HTML Components: Pramnos_Html_Components_Guide.md
     - Rich Text Editor: Pramnos_Rich_Editor_Guide.md
     - Dashboard: Pramnos_Dashboard_Guide.md
     - Calendar: Pramnos_Calendar_Guide.md
     - Image Upload (crop and resize): Pramnos_Image_Upload_Guide.md
     - Cross-Entity Search: Pramnos_Search_Guide.md
-    - Internationalization: Pramnos_Internationalization_Guide.md
-    - Document Output: Pramnos_Document_Output_Guide.md
-    - Environment Variables: Pramnos_Environment_Variables_Guide.md
   - Data Layer:
     - Database API: Pramnos_Database_API_Guide.md
     - Query Builder: Pramnos_QueryBuilder_Guide.md
