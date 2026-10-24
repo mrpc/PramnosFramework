@@ -391,7 +391,14 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
         }
 
         if ($debug==true) {
+            // Escaped, not a raw var_dump(): $_POST reaches here verbatim, and var_dump()
+            // writes it to the response with no HTML encoding — a value containing markup
+            // renders as markup (Psalm taint-analysis, TaintedHtml). ob_start() keeps
+            // var_dump()'s familiar layout; only the bytes it would have echoed directly
+            // are escaped.
+            ob_start();
             var_dump($_POST, $this);
+            echo htmlspecialchars((string) ob_get_clean(), ENT_QUOTES);
         }
 
         // For existing records, check if there are any changes before saving

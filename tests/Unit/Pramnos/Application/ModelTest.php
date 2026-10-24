@@ -793,6 +793,33 @@ class ModelTest extends TestCase
     }
 
     /**
+     * save(..., $debug = true) echoes $_POST verbatim for a developer to read, which is
+     * exactly what a raw var_dump() would write unescaped into the response — a value
+     * containing markup would render as markup (Psalm taint-analysis, TaintedHtml). The
+     * fixed code wraps the dump in htmlspecialchars(); this proves markup in $_POST survives
+     * only as escaped text, never as a tag the output could run.
+     */
+    public function testSaveWithDebugEscapesPostContent(): void
+    {
+        // Arrange — $_POST carries a value that would be live markup if ever reflected raw
+        $_POST['injected'] = '<script>alert(1)</script>';
+        $model = new TestProductModel($this->controller);
+        $model->name = 'Escaped Item';
+        $model->price = 5.00;
+        $model->save();
+
+        // Act — debug on an update, same call shape as testSaveWithForceAndDebug()
+        ob_start();
+        $model->save(true, true, true);
+        $output = ob_get_clean();
+        unset($_POST['injected']);
+
+        // Assert — the tag survives only as its escaped entities, never as itself
+        $this->assertStringNotContainsString('<script>', $output, 'a literal <script> tag must never reach the response');
+        $this->assertStringContainsString('&lt;script&gt;', $output, 'the markup is present, but as escaped text');
+    }
+
+    /**
      * Tests getApiList with array filter, JSON fields/search, and datatables format.
      */
     public function testGetApiListAdvancedParameters(): void
