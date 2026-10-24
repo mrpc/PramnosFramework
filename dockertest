@@ -289,6 +289,28 @@ if [[ $dep_rc -ne 0 ]]; then
     docker-compose exec -T php-apache-environment composer install </dev/null
 fi
 
+# The OAuth2 signing key pair (app/keys/private.key, public.key) is provisioned on
+# purpose — generateKeyPair()'s own docblock says so — not generated as a side
+# effect of instantiating the Oauth controller or of a first real request. Every
+# OAuth2 integration test that builds the real controller fails on a checkout that
+# has never run `oauth:keys`, which this machine's long-lived app/keys/ (kept out
+# of the repo by .gitignore) had silently been standing in for. A fresh clone, or
+# a fresh CI runner, has no such leftover.
+timeout -k 5 "$DOCKER_CTL_TIMEOUT" docker-compose exec -T php-apache-environment test -f app/keys/private.key </dev/null
+keys_rc=$?
+[[ $keys_rc -eq 124 ]] && _die_docker_wedged "docker-compose exec (signing key check)"
+if [[ $keys_rc -ne 0 ]]; then
+    echo "Generating the OAuth2 signing key pair (app/keys/)..."
+    # --owner=www-data: 'docker-compose exec' runs as root here, same as Apache's own
+    # master process, but Apache's worker processes — what actually answers a real
+    # HTTP request to the token endpoint — run as www-data. A pair written as root
+    # (the command's own default) is unreadable to them; left that way, every
+    # HTTP-driven OAuth2 test would still fail, just with a different, more
+    # confusing error ("not readable by this process") than the one this exists
+    # to prevent.
+    docker-compose exec -T php-apache-environment php bin/pramnos oauth:keys --owner=www-data </dev/null
+fi
+
 # --mariadb: start the profile-gated MariaDB service, wait until it answers, and run only the
 # `mariadb` group. Left running afterwards, like the other databases.
 if [[ "$mariadb" == true ]]; then

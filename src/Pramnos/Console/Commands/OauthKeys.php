@@ -13,10 +13,14 @@ use Symfony\Component\Console\Output\OutputInterface;
  * Generate the RSA key pair the authorization server signs its tokens with: `app/keys/private.key`
  * and `public.key`.
  *
- * The server makes one on its first request when there is none, so this is for doing it on
- * purpose: at deploy time, before the web server's user would have to write into `app/keys`, or to
- * replace a pair. **Replacing it invalidates every token signed with the old key** — access tokens
- * and ID tokens stop verifying, and a client holding the old public key from the JWKS refuses the
+ * Nothing generates one on its own — a request that reaches the authorization server before
+ * this has run gets `OAuth2 signing key missing at ...: run php bin/pramnos oauth:keys`
+ * ({@see \Pramnos\Auth\OAuth2\OAuth2ServerFactory::readableKey()}), on purpose: a key
+ * generated as a side effect of whichever request happened to be first is not something to
+ * leave to request timing. Run this at deploy time, before the web server's user would have
+ * to write into `app/keys`, or to replace a pair. **Replacing it invalidates every token
+ * signed with the old key** — access tokens and ID tokens stop verifying, and a client
+ * holding the old public key from the JWKS refuses the
  * new ones until it fetches again. So an existing pair is replaced only with `--force`.
  */
 class OauthKeys extends Command

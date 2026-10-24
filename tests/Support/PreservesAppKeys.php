@@ -7,13 +7,16 @@ namespace Pramnos\Tests\Support;
 /**
  * Keeps ROOT/app/keys out of the repository working tree.
  *
- * Instantiating the real `Oauth` controller runs
- * `new OAuth2ServerFactory($this)` followed by `generateKeyPair()`. With no
- * explicit paths the factory falls back to `ROOT/app/keys/private.key` and
- * `public.key`, and its constructor also persists `encryption.key` there. Under
- * PHPUnit ROOT is the framework checkout, so those side effects wrote a
- * root-owned `app/keys/` directory into the repo on every run and nothing ever
- * removed it.
+ * Instantiating the real `Oauth` controller runs `new OAuth2ServerFactory($this)`,
+ * whose constructor persists `encryption.key` under `ROOT/app/keys/` (no explicit
+ * paths given). The RSA pair itself (`private.key`, `public.key`) is not made
+ * here, or anywhere else as a side effect of a request — `./dockertest` runs
+ * `oauth:keys` once before the suite, on a checkout that has none
+ * ({@see \Pramnos\Console\Commands\OauthKeys}), which is what every OAuth2
+ * integration test that builds the real controller actually depends on. Under
+ * PHPUnit ROOT is the framework checkout, so the encryption key's side effect
+ * wrote a root-owned `app/keys/` directory into the repo on every run and
+ * nothing ever removed it.
  *
  * Tests that build the real controller mix this trait in: call
  * snapshotAppKeys() from setUp() and restoreAppKeys() from tearDown(). Only
