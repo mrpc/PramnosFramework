@@ -45,7 +45,8 @@
         "aws/aws-sdk-php": "^3.0",
         "matomo/device-detector": "^6.5",
         "jaybizzle/crawler-detect": "^1.2",
-        "brianium/paratest": "^7.8"
+        "brianium/paratest": "^7.8",
+        "vimeo/psalm": "^6.20"
     },
     "autoload": {
         "files": [

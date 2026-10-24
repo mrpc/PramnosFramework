@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<files psalm-version="6.20.1@376425b8e67b79773add388e16b4f6be5693dc87">
+  <file src="src/Pramnos/Application/Api.php">
+    <TaintedHeader>
+      <code><![CDATA[$name . ': ' . $value]]></code>
+    </TaintedHeader>
+  </file>
+  <file src="src/Pramnos/Application/Application.php">
+    <TaintedHeader>
+      <code><![CDATA["Location: " . $this->_redirect]]></code>
+      <code><![CDATA["Location: " . $url]]></code>
+      <code><![CDATA[$headerName . ': ' . $headerValue]]></code>
+    </TaintedHeader>
+    <TaintedHtml>
+      <code><![CDATA[$this->redirectFallback($this->_redirect)]]></code>
+      <code><![CDATA[$this->redirectFallback($url)]]></code>
+    </TaintedHtml>
+    <TaintedTextWithQuotes>
+      <code><![CDATA[$this->redirectFallback($this->_redirect)]]></code>
+      <code><![CDATA[$this->redirectFallback($url)]]></code>
+    </TaintedTextWithQuotes>
+  </file>
+  <file src="src/Pramnos/Application/Controllers/Adminer.php">
+    <TaintedFile>
+      <code><![CDATA[$resolved]]></code>
+    </TaintedFile>
+  </file>
+  <file src="src/Pramnos/Application/Controllers/AiController.php">
+    <TaintedFile>
+      <code><![CDATA[$file]]></code>
+    </TaintedFile>
+  </file>
+  <file src="src/Pramnos/Application/Controllers/HelpController.php">
+    <TaintedFile>
+      <code><![CDATA[$file]]></code>
+    </TaintedFile>
+  </file>
+  <file src="src/Pramnos/Application/Controllers/LogController.php">
+    <TaintedHeader>
+      <code><![CDATA[$header]]></code>
+    </TaintedHeader>
+  </file>
+  <file src="src/Pramnos/Application/Controllers/Mailinglist.php">
+    <TaintedHtml>
+      <code><![CDATA[json_encode(['ok' => $status < 400, 'message' => $message] + $this->standalonePageData)]]></code>
+    </TaintedHtml>
+    <TaintedTextWithQuotes>
+      <code><![CDATA[json_encode(['ok' => $status < 400, 'message' => $message] + $this->standalonePageData)]]></code>
+    </TaintedTextWithQuotes>
+  </file>
+  <file src="src/Pramnos/Application/Model.php">
+    <TaintedHtml>
+      <code><![CDATA[$_POST]]></code>
+    </TaintedHtml>
+  </file>
+  <file src="src/Pramnos/Assist/HelpApi.php">
+    <TaintedFile>
+      <code><![CDATA[$file]]></code>
+    </TaintedFile>
+  </file>
+  <file src="src/Pramnos/Auth/Controllers/Account.php">
+    <TaintedHtml>
+      <code><![CDATA[json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)]]></code>
+    </TaintedHtml>
+    <TaintedTextWithQuotes>
+      <code><![CDATA[json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)]]></code>
+    </TaintedTextWithQuotes>
+  </file>
+  <file src="src/Pramnos/Cache/Cache.php">
+    <TaintedCallable>
+      <code><![CDATA[$class]]></code>
+    </TaintedCallable>
+  </file>
+  <file src="src/Pramnos/Console/Commands/DebugStatus.php">
+    <TaintedHtml>
+      <code><![CDATA[$appDebug]]></code>
+    </TaintedHtml>
+  </file>
+  <file src="src/Pramnos/Conversations/Unfurls.php">
+    <TaintedFile>
+      <code><![CDATA[$path]]></code>
+    </TaintedFile>
+  </file>
+  <file src="src/Pramnos/Database/QueryBuilder.php">
+    <TaintedCallable>
+      <code><![CDATA[$callback]]></code>
+    </TaintedCallable>
+  </file>
+  <file src="src/Pramnos/Debug/DebugAccess.php">
+    <TaintedCookie>
+      <code><![CDATA[$token]]></code>
+    </TaintedCookie>
+  </file>
+  <file src="src/Pramnos/DevPanel/DevPanelController.php">
+    <TaintedHtml>
+      <code><![CDATA[json_encode($data, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)]]></code>
+      <code><![CDATA[json_encode([
+                'ok'      => false,
+                'error'   => 'The server itself threw: ' . $exception->getMessage(),
+                'request' => $request,
+            ])]]></code>
+      <code><![CDATA[json_encode([
+            'ok'       => true,
+            'ms'       => round((microtime(true) - $started) * 1000, 1),
+            'request'  => $request,
+            'response' => $response,
+            // A tool that threw comes back as a *successful* JSON-RPC response whose content
+            // is the exception message. Said out loud, or the page shows it as the answer.
+            'failed'   => !empty($response['result']['isError']) || isset($response['error']),
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]]></code>
+      <code><![CDATA[json_encode(['ok' => $data !== false, 'key' => $rawKey, 'content' => $content])]]></code>
+    </TaintedHtml>
+    <TaintedTextWithQuotes>
+      <code><![CDATA[json_encode($data, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)]]></code>
+      <code><![CDATA[json_encode([
+                'ok'      => false,
+                'error'   => 'The server itself threw: ' . $exception->getMessage(),
+                'request' => $request,
+            ])]]></code>
+      <code><![CDATA[json_encode([
+            'ok'       => true,
+            'ms'       => round((microtime(true) - $started) * 1000, 1),
+            'request'  => $request,
+            'response' => $response,
+            // A tool that threw comes back as a *successful* JSON-RPC response whose content
+            // is the exception message. Said out loud, or the page shows it as the answer.
+            'failed'   => !empty($response['result']['isError']) || isset($response['error']),
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]]></code>
+      <code><![CDATA[json_encode(['ok' => $data !== false, 'key' => $rawKey, 'content' => $content])]]></code>
+    </TaintedTextWithQuotes>
+  </file>
+  <file src="src/Pramnos/Email/Email.php">
+    <TaintedHtml>
+      <code><![CDATA[$recipients]]></code>
+      <code><![CDATA[$this->from]]></code>
+      <code><![CDATA[$this->to]]></code>
+    </TaintedHtml>
+  </file>
+  <file src="src/Pramnos/Http/Request.php">
+    <TaintedCookie>
+      <code><![CDATA[(string)$value]]></code>
+    </TaintedCookie>
+  </file>
+  <file src="src/Pramnos/Http/Response.php">
+    <TaintedHeader>
+      <code><![CDATA[$name . ': ' . $value]]></code>
+    </TaintedHeader>
+  </file>
+  <file src="src/Pramnos/Logs/LogManager.php">
+    <TaintedFile>
+      <code><![CDATA[$filepath]]></code>
+    </TaintedFile>
+  </file>
+  <file src="src/Pramnos/Logs/LogViewer.php">
+    <TaintedFile>
+      <code><![CDATA[$this->filePath]]></code>
+      <code><![CDATA[$this->filePath]]></code>
+    </TaintedFile>
+  </file>
+  <file src="src/Pramnos/Security/OutboundUrl.php">
+    <TaintedFile>
+      <code><![CDATA[$dialled]]></code>
+    </TaintedFile>
+  </file>
+  <file src="src/Pramnos/Theme/Theme.php">
+    <TaintedUnserialize>
+      <code><![CDATA[$stored]]></code>
+      <code><![CDATA[\Pramnos\Application\Settings::getSetting('theme_' . $this->theme . '_bannerLocations')]]></code>
+      <code><![CDATA[\Pramnos\Application\Settings::getSetting('theme_' . $this->theme . '_menus')]]></code>
+    </TaintedUnserialize>
+  </file>
+  <file src="src/Pramnos/Translator/Language.php">
+    <TaintedInclude>
+      <code><![CDATA[$file]]></code>
+      <code><![CDATA[$file]]></code>
+      <code><![CDATA[$file]]></code>
+      <code><![CDATA[$path . DS . "language" . DS . $language . ".php"]]></code>
+    </TaintedInclude>
+  </file>
+</files>

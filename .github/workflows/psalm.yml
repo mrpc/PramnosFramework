@@ -1,0 +1,53 @@
+name: Psalm (taint analysis)
+
+# Informational only — never fails the build. CodeQL covers the two JS/TypeScript languages
+# it supports in this repo (javascript-typescript, actions); PHP isn't a CodeQL language at
+# all, and Psalm's --taint-analysis is the closest equivalent for the framework's own source.
+#
+# psalm-baseline.xml freezes every finding that existed when this workflow was added — all
+# already triaged by hand (see the 2026-10-24 changelog entries for the two that were real).
+# A future run only surfaces genuinely new findings, as an annotation on the run; nothing
+# here blocks a merge. Regenerate the baseline (`vendor/bin/psalm --taint-analysis
+# --set-baseline=psalm-baseline.xml`) after triaging a new batch, the same way it was built.
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "README.md"
+      - "brand/**"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "README.md"
+      - "brand/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: psalm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  psalm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.5"
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress
+
+      - name: Run Psalm taint analysis
+        run: vendor/bin/psalm --taint-analysis --no-cache --use-baseline=psalm-baseline.xml
+        continue-on-error: true
