@@ -238,6 +238,25 @@ class PermissionsAuthserverStoreTest extends TestCase
     }
 
     /**
+     * A grant written with a *numeric* resource is readable back too (FW-285).
+     *
+     * `object_type` arrives from the driver as a string no matter what; a caller naming its
+     * resource as an int (a module id, say) is exactly as valid as one naming it as a string —
+     * `isAllowed()`'s own signature is untyped. `_isAllowedFromAuthserver()` compared the two
+     * with `!==`, so `990002 !== '990002'` refused every grant a numeric resource ever matched,
+     * silently: `allow()` wrote the row correctly, and the read alone never found it.
+     */
+    public function testAllowThenReadBackWithANumericResource(): void
+    {
+        // Arrange
+        $resource = 990002;
+        $this->permissions->allow(self::USER, $resource, 'view');
+
+        // Act + Assert
+        $this->assertTrue($this->permissions->isAllowed(self::USER, $resource, 'view', '', 'module', 'user', false));
+    }
+
+    /**
      * A deny is read back as an explicit refusal, not as silence.
      */
     public function testDenyThenReadBack(): void

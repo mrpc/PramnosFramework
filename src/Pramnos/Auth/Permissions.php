@@ -672,12 +672,17 @@ class Permissions extends \Pramnos\Framework\Base
 
         $verdict = null;
         foreach ($result['permissions'] ?? [] as $grant) {
-            if (($grant['object_type'] ?? '') !== $resource) {
+            // (string), not strict ===: $resource/$resourceElement are untyped on isAllowed()'s
+            // own public signature, so a caller naming a numeric resource as an int is as valid
+            // as one naming it as a string -- but a row's object_type/object_id always arrives a
+            // string, straight from the driver, so an int resource never matched anything here
+            // (FW-285).
+            if ((string) ($grant['object_type'] ?? '') !== (string) $resource) {
                 continue;
             }
 
             $objectId = $grant['object_id'] ?? null;
-            if ($resourceElement !== '' && $objectId !== null && $objectId !== $resourceElement) {
+            if ($resourceElement !== '' && $objectId !== null && (string) $objectId !== (string) $resourceElement) {
                 continue;
             }
             if ($resourceElement === '' && $objectId !== null) {
