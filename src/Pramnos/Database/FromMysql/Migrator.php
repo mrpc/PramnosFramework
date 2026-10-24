@@ -34,6 +34,13 @@ final class Migrator
     /** PostgreSQL schemas that hold no application tables. */
     private const SYSTEM_SCHEMAS = "'pg_catalog', 'information_schema', 'pg_toast', 'timescaledb_information', 'timescaledb_experimental'";
 
+    /**
+     * The framework's own PostgreSQL schemas (CLAUDE.md rule 15) — a MySQL table flattens one
+     * into its name (`pramnos_x`, `authserver_x`), so a fresh target with no match for it still
+     * belongs in that schema, not in `public` under the flattened name (FW-284).
+     */
+    private const FRAMEWORK_SCHEMAS = ['pramnos', 'authserver'];
+
     /** Most bind parameters one statement takes, kept under PostgreSQL's 65,535. */
     private const MAX_PARAMETERS = 60000;
 
@@ -189,7 +196,7 @@ final class Migrator
 
         // Where each source table goes: the target table of the same name, or one made after it.
         $targetOf = fn (string $source): string => $byName[$this->comparable($source, (string) $this->sourcePrefix, false)]
-            ?? $this->targetPrefix . $this->comparable($source, (string) $this->sourcePrefix, false);
+            ?? $this->fallbackTargetName($this->comparable($source, (string) $this->sourcePrefix, false));
 
         $tables = [];
         $ledger = [];
@@ -317,6 +324,7 @@ final class Migrator
         foreach ($plan['order'] as $name) {
             $table = $plan['tables'][$name];
             if ($table['create'] !== null && !$this->hasTargetTable($table['target'])) {
+                $this->ensureTargetSchema($table['target']);
                 // Noted before it is made, so a run that stops anywhere after leaves the table
                 // marked as this tool's, with its indexes and keys still to come.
                 $this->tracker()->put($name, 'created', 0, 0, 0, ProgressTracker::RUNNING);
@@ -1233,6 +1241,30 @@ final class Migrator
     }
 
     /**
+     * The target name for a source table with no existing match — `comparable()`'s own name,
+     * schema-qualified where it is one of the framework's own (FW-284).
+     *
+     * `comparable()` already reads `authserver.x` on the target side as the same table as
+     * `authserver_x` on the source, for matching one that already exists. Nothing did the same
+     * for one that does not: a fresh PostgreSQL target, migrated before its own migrations have
+     * run, made `public.pramnos_emailoptouts` instead of the schema its migrations would have —
+     * `pramnos.emailoptouts` — and every later query qualifying it as `pramnos.x` found no such
+     * schema at all.
+     */
+    private function fallbackTargetName(string $comparableName): string
+    {
+        if ($this->target->type === 'postgresql') {
+            foreach (self::FRAMEWORK_SCHEMAS as $schema) {
+                if (str_starts_with($comparableName, $schema . '_')) {
+                    return $schema . '.' . substr($comparableName, strlen($schema) + 1);
+                }
+            }
+        }
+
+        return $this->targetPrefix . $comparableName;
+    }
+
+    /**
      * A table name as both sides can be matched on: the side's prefix taken off, and on the
      * PostgreSQL side a schema written the way MySQL flattens it (`authserver.x` is `authserver_x`).
      */
@@ -1802,6 +1834,20 @@ final class Migrator
     private function hasTargetTable(string $table): bool
     {
         return isset($this->targetTables()[$table]);
+    }
+
+    /**
+     * `CREATE SCHEMA IF NOT EXISTS`, for a target name {@see fallbackTargetName()} made
+     * schema-qualified — `CREATE TABLE "pramnos"."x"` fails outright if nothing made "pramnos"
+     * first, and this tool is the one deciding to put it there (FW-284).
+     */
+    private function ensureTargetSchema(string $table): void
+    {
+        if ($this->target->type !== 'postgresql' || !str_contains($table, '.')) {
+            return;
+        }
+        [$schema] = explode('.', $table, 2);
+        $this->target->query('CREATE SCHEMA IF NOT EXISTS "' . str_replace('"', '""', $schema) . '"');
     }
 
     private function hasCompressedChunks(string $table): bool

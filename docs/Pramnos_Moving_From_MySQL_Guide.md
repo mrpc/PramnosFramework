@@ -100,6 +100,13 @@ and then does nothing — no `authserver`/`pramnos` schemas, no hypertables, eve
 Always run `migrate` to completion first; `db:migrate-from-mysql` then backfills data into the
 structure it already built correctly.
 
+A framework table this command's own plan would otherwise create fresh — one MySQL flattens a
+schema into (`pramnos_x`, `authserver_x`) — goes into that real schema on PostgreSQL
+(`pramnos.x`, `authserver.x`, the schema created if it is not there yet), not a flat table in
+`public` under the MySQL name. That is a fallback for a table `migrate` has not made yet, not a
+reason to skip running it first: a table an application's own migration also owns, with no
+schema prefix to read, is still created exactly where MySQL had it.
+
 | MySQL | PostgreSQL |
 |---|---|
 | `int unsigned` | `bigint`: the range fits |

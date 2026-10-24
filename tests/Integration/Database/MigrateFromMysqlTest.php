@@ -197,6 +197,69 @@ class MigrateFromMysqlTest extends TestCase
     }
 
     /**
+     * A MySQL source holding a framework table (`pramnos_x`, as MySQL flattens the schema), and
+     * a PostgreSQL target with *neither* the `pramnos` schema nor the table — the migrations
+     * that would normally make both have not run (FW-284).
+     */
+    private function freshDatabasesWithAFrameworkTable(): CommandTester
+    {
+        $this->mysql    = self::server('mysql');
+        $this->postgres = self::server('postgresql');
+        $this->name     = 'pfmove_' . bin2hex(random_bytes(3));
+        $this->mysql->query('CREATE DATABASE `' . $this->name . '` CHARACTER SET utf8mb4');
+        $this->postgres->query('CREATE DATABASE "' . $this->name . '"');
+
+        $this->source = self::server('mysql');
+        $this->source->query('USE `' . $this->name . '`');
+        $this->source->database = $this->name;
+        foreach ([
+            'CREATE TABLE pramnos_emailoptouts (optoutid INT AUTO_INCREMENT PRIMARY KEY, email VARCHAR(255), list VARCHAR(64) DEFAULT \'all\') ENGINE=InnoDB',
+            "INSERT INTO pramnos_emailoptouts (email, list) VALUES ('a@example.com', 'all')",
+        ] as $sql) {
+            $this->source->query($sql);
+        }
+
+        // Nothing made here, not even the schema: this is the installation before its own
+        // migrations have run, which is exactly what fallbackTargetName() has to cope with.
+        $this->target = self::server('postgresql');
+        $this->target->close();
+        $this->target->database = $this->name;
+        $this->target->connect(false);
+
+        $app = clone (\Pramnos\Application\Application::currentInstance() ?? \Pramnos\Application\Application::getInstance());
+        $app->database = $this->target;
+        $console = new ConsoleApplication();
+        $console->add(new MigrateFromMysqlOver($app));
+
+        return new CommandTester($console->find('db:migrate-from-mysql'));
+    }
+
+    /**
+     * A MySQL table whose name flattens one of the framework's own schemas
+     * (`pramnos_emailoptouts`) goes to that schema on a PostgreSQL target that has neither it
+     * nor the schema yet — `pramnos.emailoptouts`, with `pramnos` created along the way — not a
+     * flat `public.pramnos_emailoptouts` that every schema-qualified query in the framework
+     * would then find nothing at (FW-284).
+     */
+    public function testAFrameworkTableGoesToItsSchemaEvenOnAFreshTarget(): void
+    {
+        // Arrange
+        $tester = $this->freshDatabasesWithAFrameworkTable();
+
+        // Act
+        $code = $tester->execute(['--source' => $this->dsn()]);
+
+        // Assert
+        $this->assertSame(0, $code, $tester->getDisplay());
+        $this->assertTrue($this->target->schema()->hasTable('pramnos.emailoptouts'), 'the real schema, not a flat table');
+        $this->assertFalse($this->target->schema()->hasTable('pramnos_emailoptouts'), 'never a flat fallback in public');
+        $this->assertSame(
+            [['email' => 'a@example.com', 'list' => 'all']],
+            $this->rows('SELECT email, list FROM pramnos.emailoptouts')
+        );
+    }
+
+    /**
      * The dry run names what moves and what does not, and changes nothing: the order is parents
      * first, `authserver_things` goes to `authserver.things`, the table only MySQL has is to be
      * created, the column only MySQL has is not moved, the column only the target requires is
