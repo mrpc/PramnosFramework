@@ -3,8 +3,10 @@ name: Coverage
 # A separate, slow workflow on purpose: ./dockertest --coverage instruments every line with
 # Xdebug, roughly 3.3x the plain run (see dockertest's own comment, and CLAUDE.md's rule 4) —
 # fine once a week, wrong to put in the way of every push and pull request's fast feedback.
-# Uploads to Codecov, tokenless (this repository is public), so the number the suite is
-# already passing at shows up as a badge instead of living only in a local coverage/ report.
+# Uploads to Codecov with the repository's own upload token (CODECOV_TOKEN secret) — Codecov's
+# tokenless upload only accepts a PR from a fork; a push or workflow_dispatch on main needs a
+# token even on a public repository, so the number the suite is already passing at shows up as
+# a badge instead of living only in a local coverage/ report.
 
 on:
   schedule:
@@ -39,5 +41,6 @@ jobs:
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/clover.xml
           fail_ci_if_error: false
