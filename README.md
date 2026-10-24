@@ -109,6 +109,7 @@ test (`DocsRetrievabilityTest`) enforces every guide is actually listed in — l
 - **[Internationalization Guide](docs/Pramnos_Internationalization_Guide.md)** - Multi-language support
 - **[Document Output Guide](docs/Pramnos_Document_Output_Guide.md)** - Multi-format output (HTML, PDF, JSON, etc.)
 - **[Environment Variables Guide](docs/Pramnos_Environment_Variables_Guide.md)** - Configuration management
+- **[API Guide](docs/Pramnos_API_Guide.md)** - Building this application's own JSON REST API
 
 #### UI Widgets & Tools
 - **[HTML Components Guide](docs/Pramnos_Html_Components_Guide.md)** - Reusable UI widgets: tiles, charts, inputs
@@ -116,7 +117,6 @@ test (`DocsRetrievabilityTest`) enforces every guide is actually listed in — l
 - **[Dashboard Guide](docs/Pramnos_Dashboard_Guide.md)** - Admin dashboard cards
 - **[Calendar Guide](docs/Pramnos_Calendar_Guide.md)** - Month/week/day event calendar
 - **[Image Upload Guide](docs/Pramnos_Image_Upload_Guide.md)** - Client-side crop/resize before upload
-- **[Cross-Entity Search Guide](docs/Pramnos_Search_Guide.md)** - Admin search box across entities
 
 #### Data Layer
 - **[Database API Guide](docs/Pramnos_Database_API_Guide.md)** - Core DB access, raw SQL and its pitfalls
@@ -124,12 +124,17 @@ test (`DocsRetrievabilityTest`) enforces every guide is actually listed in — l
 - **[Schema Builder Guide](docs/Pramnos_Schema_Builder_Guide.md)** - Programmatic DDL (columns, indexes, FKs)
 - **[ORM Guide](docs/Pramnos_ORM_Guide.md)** - Models, relationships, scopes, casts, soft deletes
 - **[Migration Guide](docs/Pramnos_Migration_Guide.md)** - Writing and running DB migrations
-- **[Moving from MySQL Guide](docs/Pramnos_Moving_From_MySQL_Guide.md)** - Migrating to PostgreSQL/TimescaleDB
 - **[Hypertable Guide](docs/Pramnos_Hypertable_Guide.md)** - TimescaleDB hypertables for time-series data
+- **[Cross-Entity Search Guide](docs/Pramnos_Search_Guide.md)** - One term, several models, aggregated results
+
+#### Infrastructure Services
 - **[Cache Guide](docs/Pramnos_Cache_Guide.md)** - Query, data, and application-level caching
 - **[Page Cache Guide](docs/Pramnos_Page_Cache_Guide.md)** - Full-page caching for anonymous traffic
 - **[Service Worker Guide](docs/Pramnos_Service_Worker_Guide.md)** - Browser service-worker asset caching
 - **[Redis Guide](docs/Pramnos_Redis_Guide.md)** - The shared Redis connection manager
+- **[Queue Guide](docs/Pramnos_Queue_Guide.md)** - Background job dispatch, drivers, workers
+- **[Realtime Guide](docs/Pramnos_Realtime_Guide.md)** - SSE/WebSocket push to browsers
+- **[Change Feed Guide](docs/Pramnos_Change_Feed_Guide.md)** - Broadcasting model changes, audit logging
 
 #### Security & Identity
 - **[Authentication Guide](docs/Pramnos_Authentication_Guide.md)** - Sign-in, roles, JWT/bearer tokens
@@ -138,17 +143,15 @@ test (`DocsRetrievabilityTest`) enforces every guide is actually listed in — l
 - **[Security Guide](docs/Pramnos_Security_Guide.md)** - CSRF, XSS, injection prevention, hardening
 - **[Cookie Consent Guide](docs/Pramnos_Cookie_Consent_Guide.md)** - EU cookie banner, Consent Mode v2
 - **[Account Guide](docs/Pramnos_Account_Guide.md)** - End-user account/security screens: 2FA, passkeys
-- **[AuthServer Integration Guide](docs/Pramnos_AuthServer_Integration_Guide.md)** - Connecting an app to the auth server
-- **[OAuth2 Client Guide](docs/Pramnos_OAuth_Client_Guide.md)** - Signing in with Google/Meta/TikTok, etc.
+- **[AuthServer Integration Guide](docs/Pramnos_AuthServer_Integration_Guide.md)** - Letting another app sign in through this one
 
-#### APIs & Integrations
-- **[API Guide](docs/Pramnos_API_Guide.md)** - Building and deploying JSON REST APIs
+#### External Integrations
 - **[HTTP Client Guide](docs/Pramnos_Http_Client_Guide.md)** - Outbound calls to third-party REST APIs
 - **[LLM Guide](docs/Pramnos_LLM_Guide.md)** - Calling LLM providers from the app
+- **[OAuth2 Client Guide](docs/Pramnos_OAuth_Client_Guide.md)** - Signing in with Google/Meta/TikTok, etc.
+
+#### Platform Engines
 - **[Admin Assistant Guide](docs/Pramnos_Admin_Assistant_Guide.md)** - AI-assisted help panel for admin screens
-- **[Realtime Guide](docs/Pramnos_Realtime_Guide.md)** - SSE/WebSocket push to browsers
-- **[Change Feed Guide](docs/Pramnos_Change_Feed_Guide.md)** - Broadcasting model changes, audit logging
-- **[Queue Guide](docs/Pramnos_Queue_Guide.md)** - Background job dispatch, drivers, workers
 - **[Notifications Guide](docs/Pramnos_Notifications_Guide.md)** - Notification bell UI
 - **[Email Guide](docs/Pramnos_Email_Guide.md)** - Email delivery, configuration, tracking
 - **[Audience Guide](docs/Pramnos_Audience_Guide.md)** - Filterable audiences of people by attribute
@@ -156,7 +159,6 @@ test (`DocsRetrievabilityTest`) enforces every guide is actually listed in — l
 - **[Moderation Guide](docs/Pramnos_Moderation_Guide.md)** - Bans, mutes, word filters, reports
 - **[Web Push Guide](docs/Pramnos_Push_Guide.md)** - Web push notifications
 - **[Media Guide](docs/Pramnos_Media_Guide.md)** - File/image upload handling, thumbnails, storage
-- **[Logging Guide](docs/Pramnos_Logging_Guide.md)** - PSR-3 logging, rotation, viewer
 
 #### Operations
 - **[Console Guide](docs/Pramnos_Console_Guide.md)** - Built-in CLI commands and code generation
@@ -165,6 +167,8 @@ test (`DocsRetrievabilityTest`) enforces every guide is actually listed in — l
 - **[Workers & Daemons Guide](docs/Pramnos_Workers_And_Daemons_Guide.md)** - Long-running workers, scheduling
 - **[Multi-Server Guide](docs/Pramnos_Multi_Server_Guide.md)** - Load-balanced, multi-node deployment
 - **[Deploy Webhook Guide](docs/Pramnos_Deploy_Webhook_Guide.md)** - Auto-deploy on push via webhook
+- **[Moving from MySQL Guide](docs/Pramnos_Moving_From_MySQL_Guide.md)** - A one-time cutover to PostgreSQL/TimescaleDB
+- **[Logging Guide](docs/Pramnos_Logging_Guide.md)** - PSR-3 logging, rotation, viewer
 - **[Testing Guide](docs/Pramnos_Testing_Guide.md)** - Writing tests, factories, seeders
 - **[Debugging Guide](docs/Pramnos_Debugging_Guide.md)** - Debugging queries, timings, exceptions
 - **[DevPanel Guide](docs/Pramnos_DevPanel_Guide.md)** - Live install diagnostics panel
