@@ -1416,11 +1416,21 @@
             });
         }
 
-        /** A page's text, for an agent to read: the markup and its scripts left out. */
+        var ENTITIES = { '&nbsp;': ' ', '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"' };
+
+        /**
+         * A page's text, for an agent to read: the markup and its scripts left out.
+         *
+         * Entities decode in one pass, by lookup, not as five chained `.replace()` calls —
+         * chaining decodes `&amp;lt;` (the literal text "&lt;") in two steps: `&amp;` first
+         * becomes `&`, leaving `&lt;` for the *next* `.replace()` to decode a second time,
+         * into a real `<` the source never had (CodeQL js/double-escaping). One pass can only
+         * ever match each source character once.
+         */
         function textOf(html) {
             return String(html).replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ')
-                .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-                .replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/\s+/g, ' ').trim();
+                .replace(/&(?:nbsp|amp|lt|gt|quot);|&#0?39;/g, function (m) { return ENTITIES[m] || "'"; })
+                .replace(/\s+/g, ' ').trim();
         }
 
         /** What the form would send: its named, enabled fields — hidden ones included — as pairs. */
@@ -1963,6 +1973,14 @@
 
         function merge(target, source) {
             Object.keys(source || {}).forEach(function (key) {
+                // __proto__/constructor/prototype: a chart config is server-rendered JSON
+                // today, but this is a general-purpose deep merge a scaffolded app can call
+                // with anything — skipping these three is what keeps a key that walks the
+                // prototype chain from reassigning it instead of setting an own property
+                // (CodeQL js/prototype-pollution-utility).
+                if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+                    return;
+                }
                 var value = source[key];
                 if (value && typeof value === 'object' && !Array.isArray(value)) {
                     target[key] = merge(target[key] && typeof target[key] === 'object' ? target[key] : {}, value);
@@ -2636,6 +2654,14 @@
                 }
                 if ((frame.event === 'pusher_internal:member_added' || frame.event === 'pusher_internal:member_removed') && presence[frame.channel]) {
                     var who = String((data && data.user_id) || '');
+                    // A member id of __proto__/constructor/prototype would walk the prototype
+                    // chain instead of setting an own property on presence[frame.channel] —
+                    // the server names this id, but a channel's own members (whoever else is
+                    // in it) are what the realtime server echoes back as `user_id`, not a
+                    // value this client minted (CodeQL js/prototype-polluting-assignment).
+                    if (who === '__proto__' || who === 'constructor' || who === 'prototype') {
+                        return;
+                    }
                     if (frame.event === 'pusher_internal:member_added') {
                         presence[frame.channel][who] = (data && data.user_info) || {};
                     } else {

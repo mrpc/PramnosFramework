@@ -47,7 +47,7 @@ function page({ webmcp = true } = {}) {
         };
     }
     window.fetch = stubFetch({
-        'POST /admin/Invoices/move': '<div><h2>Moved</h2><script>x()</script><p>Invoice 7 &amp; its lines moved.</p></div>',
+        'POST /admin/Invoices/move': '<div><h2>Moved</h2><script>x()</script><p>Invoice 7 &amp; its lines moved. Wrote &amp;lt;b&amp;gt; to the notes field.</p></div>',
         '/admin/Invoices': (req) => '<p>found ' + req.path + '</p>',
     });
     const calls = [];
@@ -125,7 +125,17 @@ test('an agent\'s call fills the form, sends it as the page would, and answers w
     assert.equal(request.body, 'a'.repeat(64) + '=csrf&invoice=7&customer=C-12&notify=1&reason=merge', 'not sent as the form would be');
     assert.equal(result.ok, true);
     assert.equal(result.status, 200);
-    assert.equal(result.text, 'Moved Invoice 7 & its lines moved.', 'markup or a script reached the agent');
+    assert.equal(
+        result.text,
+        'Moved Invoice 7 & its lines moved. Wrote &lt;b&gt; to the notes field.',
+        // "&amp;lt;b&amp;gt;" is the page's own literal text "&lt;b&gt;" (a notes field that
+        // itself holds markup, shown as source): decoding entities one chained .replace() at
+        // a time would decode &amp; to & first, leaving &lt;/&gt; for the *next* .replace() to
+        // decode a second time, into a real <b> the response never had (CodeQL
+        // js/double-escaping) — markup an agent calling this tool would then read as a tag,
+        // not as the two words of text they are.
+        'a doubly-encoded entity must decode once, not twice into live markup'
+    );
     assert.equal(ui.calls.length, 1);
     assert.equal(ui.calls[0].by, 'agent');
     assert.equal(typeof ui.calls[0].ms, 'number');

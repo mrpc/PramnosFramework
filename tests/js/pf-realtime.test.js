@@ -225,6 +225,32 @@ test('a presence channel tells its listeners who is in it, who came and who went
     ], 'the members kept as the server tells them');
 });
 
+/**
+ * A member id of `__proto__` would, through `presence[channel][who] = ...`, walk the
+ * prototype chain instead of setting an own property — reassigning that one object's
+ * prototype rather than adding a member (CodeQL js/prototype-polluting-assignment). The
+ * server names channel members from whoever else is actually in the channel, so this guards
+ * a value this client did not mint, not one it fully controls either way.
+ */
+test('a member id of __proto__ is not set as a member, and pollutes nothing', async () => {
+    // Arrange
+    const ui = page();
+    const heard = [];
+    ui.window.pfRealtime.channel('presence-chat')
+        .listen('pusher:subscription_succeeded', (d) => heard.push(['here', Object.keys(d.members)]))
+        .listen('pusher:member_added', (d) => heard.push(['added', d.id]));
+    handshake(ui.sockets[0]);
+    await settle();
+    ui.sockets[0].receive('pusher_internal:subscription_succeeded', { presence: { hash: {} } }, 'presence-chat');
+
+    // Act
+    ui.sockets[0].receive('pusher_internal:member_added', { user_id: '__proto__', user_info: { polluted: true } }, 'presence-chat');
+
+    // Assert — no 'added' event for it, and the prototype of a plain object is untouched
+    assert.deepEqual(heard, [['here', []]], 'the __proto__ "member" is never added');
+    assert.equal(({}).polluted, undefined, 'Object.prototype was not polluted');
+});
+
 test('a whisper is a client- event on a confirmed private channel, and nothing before it is confirmed', async () => {
     // Arrange
     const ui = page();

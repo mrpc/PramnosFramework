@@ -210,6 +210,30 @@ test('the page\'s own Chart.js options win', () => {
 });
 
 /**
+ * `merge()` walks the figure's own options into the drawn config key by key — a chart config
+ * is server-rendered JSON today, but `merge()` is a general-purpose deep merge a scaffolded
+ * app can call with anything. A `__proto__` key must never be assigned, which would reassign
+ * the target's prototype rather than set an own property (CodeQL
+ * js/prototype-pollution-utility).
+ */
+test('a __proto__ key in the figure\'s own options pollutes nothing', () => {
+    // Arrange & Act — a computed key, not the `__proto__:` literal, so this really is an own
+    // property named "__proto__" once stringified into the figure's JSON, same as a real
+    // JSON.parse() would hand merge() — the literal form sets this object's own prototype
+    // immediately, before it ever reaches JSON.stringify, and would prove nothing.
+    const { charts, window } = page(Object.assign({}, BARS, { options: { ['__proto__']: { polluted: true } } }), {});
+
+    // Assert — pf-utils.js runs inside this jsdom window, a separate vm context with its own
+    // Object.prototype; a `{}` literal here is not a `{}` literal there, so pollution has to
+    // be checked on *that* Object.prototype, read out through the same context (window.Object
+    // is not itself reachable from outside a vm context — only what code run inside it hands
+    // back is).
+    loadScript('window.__objectProto = Object.prototype;', window, { source: true });
+    assert.equal(window.__objectProto.polluted, undefined, "the window's Object.prototype was not polluted");
+    assert.equal(charts.drawn[0].config.options.polluted, undefined, 'the drawn options carry no polluted key either');
+});
+
+/**
  * A figure inserted after the page loaded — a dashboard card fetched after a change — is drawn
  * as it arrives, and `pfCharts.draw(root)` draws one a page inserted itself; a figure already
  * drawn is not drawn twice.
