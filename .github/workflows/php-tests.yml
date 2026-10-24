@@ -1,0 +1,63 @@
+name: PHP Tests
+
+# The full PHPUnit suite (21,000+ tests, against MySQL/PostgreSQL/TimescaleDB/Redis via
+# docker-compose) had never run in CI — every push and pull request got no automated signal,
+# relying entirely on whoever pushed having run ./dockertest by hand first.
+#
+# ./dockertest already does everything a CI job needs: brings its own containers up, waits
+# for them, installs dependencies, runs phpunit, and exits with the real status (not the
+# status of whatever ran last — the script's own history has a bug fixed for exactly that).
+# --nocoverage, matching the project's own default: the coverage build instruments every line
+# with Xdebug, ~3.3x slower for a number this workflow never reads.
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "README.md"
+      - "brand/**"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "README.md"
+      - "brand/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: php-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # GitHub's runner images are moving off the standalone `docker-compose` (v1) binary
+      # dockertest calls, toward the `docker compose` (v2) plugin only. Shimmed rather than
+      # rewriting the script two ways: nothing here changes what a developer runs locally.
+      - name: Ensure docker-compose is callable
+        run: |
+          if ! command -v docker-compose >/dev/null 2>&1; then
+            printf '#!/usr/bin/env bash\nexec docker compose "$@"\n' | sudo tee /usr/local/bin/docker-compose >/dev/null
+            sudo chmod +x /usr/local/bin/docker-compose
+          fi
+
+      # Only the four services the suite actually needs. docker-compose.yml also has an
+      # unrelated `docs` service (the mkdocs-material image, for ./dockerdocs) with no
+      # profile gate of its own, so a bare `docker-compose up -d` would pull and start it
+      # here for nothing. dockertest only starts what is not already running, so naming
+      # these explicitly here keeps `docs` untouched without changing the script.
+      - name: Start the database and application containers
+        run: docker-compose up -d db timescaledb redis php-apache-environment
+
+      - name: Run the test suite
+        run: ./dockertest --nocoverage

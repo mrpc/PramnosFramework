@@ -1,6 +1,6 @@
 # Pramnos Framework v1.2
 
-[![Documentation](https://img.shields.io/badge/docs-live-2496ED?logo=readthedocs&logoColor=white)](https://mrpc.github.io/PramnosFramework/) [![Latest Release](https://img.shields.io/github/v/release/mrpc/PramnosFramework?color=success)](https://github.com/mrpc/PramnosFramework/releases/latest) [![PHP](https://img.shields.io/badge/php-%E2%89%A58.1-777bb4?logo=php&logoColor=white)](https://www.php.net/) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE.txt)
+[![PHP Tests](https://github.com/mrpc/PramnosFramework/actions/workflows/php-tests.yml/badge.svg)](https://github.com/mrpc/PramnosFramework/actions/workflows/php-tests.yml) [![Documentation](https://img.shields.io/badge/docs-live-2496ED?logo=readthedocs&logoColor=white)](https://mrpc.github.io/PramnosFramework/) [![Latest Release](https://img.shields.io/github/v/release/mrpc/PramnosFramework?color=success)](https://github.com/mrpc/PramnosFramework/releases/latest) [![PHP](https://img.shields.io/badge/php-%E2%89%A58.1-777bb4?logo=php&logoColor=white)](https://www.php.net/) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE.txt)
 
 Pramnos Framework is a comprehensive PHP MVC framework designed for building robust, scalable web applications. The **v1.2 release** brings major infrastructure improvements, a complete ORM layer, advanced API support, and enhanced developer experience.
 
