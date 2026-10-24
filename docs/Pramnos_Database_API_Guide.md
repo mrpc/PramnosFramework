@@ -717,6 +717,19 @@ by driver — know which one you are on:
 | `execute($sql, ...)` on **PostgreSQL** (prepared statements — the query builder and `preparedQuery()` run through here) | **Returns `false`** when the statement cannot be prepared (`pg_prepare` returns false) | Silent: a caller that ignores the return value swallows the error. |
 | `execute($sql, ...)` on **MySQL** | **Throws** `mysqli_sql_exception` | PHP 8.1+ `mysqli` defaults to `MYSQLI_REPORT_STRICT`; callers catching `\Exception` see it. |
 
+### A wrong argument count is rejected before it reaches the driver
+
+`execute($sql, ...$arguments)` counts the statement's own placeholders — `%i`/`%d`/`%s`/`%b`
+tokens on both drivers, or native `$1`/`$2`/… when the SQL was written with PostgreSQL's own
+placeholder syntax instead of the framework's — and compares that to `count($arguments)`
+before binding anything. A mismatch throws `QueryException` with a message naming both
+numbers (`"This statement takes 2 bound argument(s); 1 given."`), instead of reaching the
+driver and coming back as mysqli's own warning or PostgreSQL's `"bind message supplies N
+parameters, but prepared statement ... requires M"` — correct on the driver's part, but
+pointing at the framework's statement cache rather than the caller that built the wrong
+argument list. The most common cause is a stale `$arguments` array reused across two calls
+with different SQL.
+
 So on PostgreSQL a failed `execute()` returns `false` and code that does not check the
 return value proceeds as if a write succeeded. `Model::_load()` checks it: a load that fails
 throws a `QueryException` on PostgreSQL as it throws `mysqli_sql_exception` on MySQL, rather than

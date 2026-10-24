@@ -87,6 +87,35 @@ class MysqlDatabaseTest extends \PHPUnit\Framework\TestCase
         $this->assertSame(['literal', 42, true], [$row['label'], (int) $row['qty'], (bool) $row['active']]);
     }
 
+    /**
+     * Regression: a caller passing the wrong number of bound arguments for a statement — a
+     * stale $arguments array built for one query and reused for another, in practice — used to
+     * reach bind_param() unchecked, where mysqli raised its own "number of variables doesn't
+     * match number of parameters" warning. execute() now catches the mismatch itself first and
+     * names the statement, on both drivers.
+     */
+    public function testExecuteRejectsWrongArgumentCountWithAClearError(): void
+    {
+        $tooMany = null;
+        try {
+            self::$db->execute('SELECT 1 AS health_check', 99);
+        } catch (\Pramnos\Database\QueryException $e) {
+            $tooMany = $e;
+        }
+
+        $tooFew = null;
+        try {
+            self::$db->execute('SELECT 1 FROM ' . self::$table . ' WHERE code = %s');
+        } catch (\Pramnos\Database\QueryException $e) {
+            $tooFew = $e;
+        }
+
+        $this->assertNotNull($tooMany, 'a query with no placeholders given an argument is refused');
+        $this->assertStringContainsString('takes 0 bound argument(s); 1 given', $tooMany->getDriverMessage());
+        $this->assertNotNull($tooFew, 'a query with one placeholder given none is refused');
+        $this->assertStringContainsString('takes 1 bound argument(s); 0 given', $tooFew->getDriverMessage());
+    }
+
     public function testTableExistsMysqlReturnsTrueForExistingTable(): void
     {
         $this->assertTrue(self::$db->tableExists(self::$table));

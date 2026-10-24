@@ -111,4 +111,38 @@ class PostgreSQLPreparedStatementTest extends TestCase
         $row = $this->db->execute("SELECT val, active, label FROM {$this->table} WHERE val = %i", 42)->fields;
         $this->assertSame([42, true, 'literal'], [(int) $row['val'], (bool) $row['active'], $row['label']]);
     }
+
+    /**
+     * Regression: a caller passing the wrong number of bound arguments for a statement —
+     * a stale $arguments array built for one query and reused for another, in practice — used
+     * to reach pg_execute() unchecked and come back as a cryptic wire-protocol error naming the
+     * framework's internal plan ("bind message supplies N parameters, but prepared statement
+     * ... requires M"), pointing at the statement cache rather than the caller that built the
+     * wrong list. execute() now catches the mismatch itself and names the statement.
+     */
+    public function testWrongArgumentCountIsRejectedWithAClearError(): void
+    {
+        $this->db->execute("INSERT INTO {$this->table} (val) VALUES (1)");
+
+        $tooMany = null;
+        try {
+            // Zero placeholders, one argument given — as if a caller reused an
+            // $arguments array meant for a different, earlier query.
+            $this->db->execute("SELECT COUNT(*) AS cnt FROM {$this->table}", 99);
+        } catch (\Pramnos\Database\QueryException $e) {
+            $tooMany = $e;
+        }
+
+        $tooFew = null;
+        try {
+            $this->db->execute("SELECT val FROM {$this->table} WHERE val = %i");
+        } catch (\Pramnos\Database\QueryException $e) {
+            $tooFew = $e;
+        }
+
+        $this->assertNotNull($tooMany, 'a query with no placeholders given an argument is refused');
+        $this->assertStringContainsString('takes 0 bound argument(s); 1 given', $tooMany->getDriverMessage());
+        $this->assertNotNull($tooFew, 'a query with one placeholder given none is refused');
+        $this->assertStringContainsString('takes 1 bound argument(s); 0 given', $tooFew->getDriverMessage());
+    }
 }

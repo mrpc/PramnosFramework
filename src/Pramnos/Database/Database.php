@@ -2052,6 +2052,31 @@ class Database extends \Pramnos\Framework\Base
         // raised below quotes this statement rather than the last one prepared.
         $this->currentQuery = $stmtData['query'];
 
+        // A caller bound the wrong number of values — a stale $arguments array reused
+        // across calls with different SQL, most often. On MySQL this already failed
+        // inside bind_param() with mysqli's own message; on PostgreSQL it reached the
+        // server and came back as "bind message supplies N parameters, but prepared
+        // statement ... requires M" — correct, but pointing at the framework's
+        // statement cache rather than the caller that built the wrong argument list.
+        // One check here, where every caller routes through, attributes it at once.
+        //
+        // `types` (one char per %i/%d/%s/%b token) undercounts a PostgreSQL statement
+        // written with native $1/$2 placeholders instead of the framework's own tokens
+        // (SchemaBuilderPostgreSQLTest and others do this on purpose) — those never go
+        // through the %-counting regex at all. Count the query's own $N placeholders
+        // there instead; after %-rewriting they are the same number either way.
+        $expectedArguments = $this->type === 'postgresql'
+            ? (preg_match_all('/\$(\d+)/', $this->maskInertSql((string) $stmtData['query']), $m) ? max(array_map('intval', $m[1])) : 0)
+            : strlen((string) $stmtData['types']);
+        if (count($arguments) !== $expectedArguments) {
+            throw new QueryException(
+                'This statement takes ' . $expectedArguments . ' bound argument(s); ' . count($arguments) . ' given.',
+                $stmtData['query'],
+                null,
+                'The statement was executed with the wrong number of arguments.'
+            );
+        }
+
         if ($this->type != 'postgresql') {
             $arguments = array_merge(
                 array($stmtData['types']),
