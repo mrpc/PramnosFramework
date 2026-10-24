@@ -169,6 +169,18 @@ abstract class DaemonOrchestrator extends CommandBase
     }
 
     /**
+     * How long a stopped process is given to exit on its own before SIGTERM —
+     * {@see STOP_GRACE_SECONDS}, through late static binding so an application's own override
+     * is the number a caller outside this class (a console command deciding how long to wait
+     * on a service with no per-pool report of its own, FW-286) actually gets, not the base
+     * class's.
+     */
+    public static function stopGraceSeconds(): int
+    {
+        return static::STOP_GRACE_SECONDS;
+    }
+
+    /**
      * Write this cycle's pool readings, so the screen can show what the supervisor saw.
      *
      * Beside the state file and through a rename, so a reader never sees half of it.

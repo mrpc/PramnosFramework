@@ -248,6 +248,8 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\SchemaDiffCommand());
         // Moving an application's data from MySQL into the PostgreSQL its migrations built.
         $this->add(new \Pramnos\Console\Commands\DatabaseMigrateFromMysql());
+        // Resumes exactly what db:migrate-from-mysql --pause-daemons stopped, never on its own.
+        $this->add(new \Pramnos\Console\Commands\DatabaseResumeDaemons());
         $this->add(new \Pramnos\Console\Commands\DatabaseDialectLint());
         // The shared dashboard cards worked out ahead of anybody waiting for them, from cron.
         $this->add(new \Pramnos\Console\Commands\DashboardPrecompute());

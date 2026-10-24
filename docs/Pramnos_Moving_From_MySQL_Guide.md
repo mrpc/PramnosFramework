@@ -383,6 +383,51 @@ php bin/pramnos db:migrate-from-mysql --source=… --phase=backfill --tables=dev
 The progress is kept in the target, in `pramnos_migration_progress`: one row per table, phase
 and window. Moments there are Unix times.
 
+### `--pause-daemons`: stop this installation's own workers around the move
+
+An installation with an orchestrator (queue workers, a scheduler) running under
+{@see \Pramnos\Console\DaemonOrchestrator} has traffic the `operational`/`cutover` phases above
+do not account for by themselves: a payment, an email send, an SMS campaign — a worker started
+on MySQL and finishing on whichever connection the application has by the time it writes — is
+exactly the kind of error a production cutover should not risk. `--pause-daemons`, on
+`--phase=operational`, stops that traffic first:
+
+```bash
+php bin/pramnos db:migrate-from-mysql --source=… --phase=operational --pause-daemons --exclude-tables=devicedata,itemlogs
+# … cutover, same as above …
+php bin/pramnos db:resume-daemons
+```
+
+A production move's own order, with this flag: **stop this installation's own daemons, then
+the copy, then the operator's own confirmation that the application works on PostgreSQL, then
+the restart** — not automatic, on purpose:
+
+- Before `operational` runs, every enabled pool in `pramnos.worker_pools` is stopped
+  (`setPoolEnabled($name, false, 'migration')`), and so is the scheduler
+  (`stopService('schedule', 'migration')`). The command then waits for the orchestrator's own
+  next pools report ({@see \Pramnos\Console\DaemonOrchestrator::poolsFilePath()}) to show every
+  stopped pool at zero — not a report already on disk from before the stop, which would prove
+  nothing about what happened after it — up to `--pause-timeout` seconds (default 120). The
+  scheduler has no equivalent per-service report, so it gets a fixed grace wait instead
+  (`DaemonOrchestrator::stopGraceSeconds()`, 30s by default).
+- Timing out, or the control tables not being there at all, refuses `operational` outright — it
+  never runs with the pause only half-confirmed.
+- After a **successful** `cutover` (or `verify`), the pools and the scheduler stay stopped.
+  Nothing here resumes them: verify the application actually works on PostgreSQL first, the
+  same instinct `--verify` already has, then run `db:resume-daemons` yourself.
+- A failure anywhere in `operational`/`cutover` leaves them stopped too — the safer default,
+  for the operator to decide, not a decision this command makes by guessing.
+- `db:resume-daemons` resumes only a pool or service `--pause-daemons` itself stopped (marked
+  `'migration'`). One an operator had already stopped, before or during the move, for their own
+  reason, is left exactly as it was — this is not a blanket "start everything" command.
+
+**Not covered**: a pool declared only in an application's own orchestrator subclass, with no
+row yet in `pramnos.worker_pools` (nothing has touched it on the Services screen) — there is no
+name here to stop it by. And the orchestrator process itself needs restarting after the
+application's own connection moves from MySQL to PostgreSQL, the same restart every deploy
+already does on a `git HEAD` change — do that after repointing the application's settings,
+before relying on these controls to have "held."
+
 **Operational.** The same copy as `full`, in one snapshot, and the snapshot's moment (T0) and
 each table's highest integer id are recorded. Leave the large append-only tables (readings,
 logs, mail) to the backfill.

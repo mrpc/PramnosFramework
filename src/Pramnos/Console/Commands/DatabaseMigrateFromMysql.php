@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Pramnos\Console\Commands;
 
+use Pramnos\Console\DaemonControls;
+use Pramnos\Console\DaemonOrchestrator;
 use Pramnos\Database\Database;
 use Pramnos\Database\FromMysql\Migrator;
 use Symfony\Component\Console\Command\Command;
@@ -63,7 +65,9 @@ class DatabaseMigrateFromMysql extends Command
             ->addOption('until', null, InputOption::VALUE_REQUIRED, 'backfill: where the newest window ends (default: the cutover\'s moment)')
             ->addOption('restart', null, InputOption::VALUE_NONE, 'backfill: forget the windows done and start again; operational: copy again the tables an earlier run finished')
             ->addOption('transport', null, InputOption::VALUE_REQUIRED, 'php: rows through PHP; fdw: through mysql_fdw on the PostgreSQL server, where it is installed', 'php')
-            ->addOption('fdw-host', null, InputOption::VALUE_REQUIRED, 'fdw: the MySQL host as the PostgreSQL server reaches it (default: the --source host)');
+            ->addOption('fdw-host', null, InputOption::VALUE_REQUIRED, 'fdw: the MySQL host as the PostgreSQL server reaches it (default: the --source host)')
+            ->addOption('pause-daemons', null, InputOption::VALUE_NONE, 'operational: stop this installation\'s worker pools and scheduler first, and wait for the orchestrator to report them drained. Never resumed automatically — run db:resume-daemons once the application is verified on PostgreSQL')
+            ->addOption('pause-timeout', null, InputOption::VALUE_REQUIRED, '--pause-daemons: seconds to wait for the drain before refusing to run operational', '120');
     }
 
     /** The application the command runs for; a method, so a test can hand it one. */
@@ -72,6 +76,16 @@ class DatabaseMigrateFromMysql extends Command
         $console = $this->getApplication();
 
         return $console !== null && property_exists($console, 'internalApplication') ? $console->internalApplication : \Pramnos\Application\Application::currentInstance();
+    }
+
+    /**
+     * {@see DaemonOrchestrator::poolsFilePath()}, a method rather than the call inlined so a
+     * test can hand this command its own file instead of the one every other test process on
+     * the same machine shares.
+     */
+    protected function poolsFilePath(): string
+    {
+        return DaemonOrchestrator::poolsFilePath();
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -132,6 +146,12 @@ class DatabaseMigrateFromMysql extends Command
             return Command::SUCCESS;
         }
 
+        if ($phase === 'operational' && $input->getOption('pause-daemons')) {
+            if (!$this->pauseDaemons($output, $target, max(1, (int) $input->getOption('pause-timeout')))) {
+                return Command::FAILURE;
+            }
+        }
+
         if ((string) $input->getOption('transport') === 'fdw') {
             $fdw = \Pramnos\Database\FromMysql\FdwTransport::open($target, $source, $input->getOption('fdw-host') !== null ? (string) $input->getOption('fdw-host') : null);
             if ($fdw === null) {
@@ -174,7 +194,12 @@ class DatabaseMigrateFromMysql extends Command
                 return Command::FAILURE;
             }
 
-            return $this->reportVerify($output, $verified);
+            $code = $this->reportVerify($output, $verified);
+            if ($code === Command::SUCCESS && $input->getOption('pause-daemons')) {
+                $this->reportDaemonsStillPaused($output);
+            }
+
+            return $code;
         }
         if ($phase === 'backfill') {
             $until = $input->getOption('until') !== null ? strtotime((string) $input->getOption('until')) : null;
@@ -222,8 +247,135 @@ class DatabaseMigrateFromMysql extends Command
             $verified = $this->reportVerify($output, $migrator->verify($plan, $batch));
             $code     = $code === Command::SUCCESS ? $verified : $code;
         }
+        if ($phase === 'cutover' && $code === Command::SUCCESS && $input->getOption('pause-daemons')) {
+            $this->reportDaemonsStillPaused($output);
+        }
 
         return $code;
+    }
+
+    /**
+     * Stop every worker pool the Services screen knows about, and the scheduler, before an
+     * operational copy runs with the application's writes still live (FW-286).
+     *
+     * Marked `'migration'`, so {@see \Pramnos\Console\Commands\DatabaseResumeDaemons} resumes
+     * exactly what this stopped — never a pool or service an operator had already stopped for
+     * their own reason, which this leaves exactly as it was.
+     *
+     * A pool with no row in `pramnos.worker_pools` yet (declared only in code, never touched
+     * on the screen) is invisible here, the same way it is to the screen itself — there is
+     * nothing in this table to disable, and no name this command could guess at.
+     *
+     * Waited out against {@see DaemonOrchestrator::poolsFilePath()}: the orchestrator's own
+     * most recent reconcile, which this refuses to trust until its timestamp is at or after
+     * the moment the pools were told to stop — a report written before that proves nothing
+     * about what happened after it. The scheduler has no equivalent per-service report, so it
+     * gets a fixed grace wait instead of a verified one, long enough for its own stop sentinel
+     * to be noticed (the orchestrator's own {@see DaemonOrchestrator::STOP_GRACE_SECONDS}).
+     *
+     * Never reached for `--phase=full`: a first-time migration with no application traffic on
+     * the source yet has nothing here to protect.
+     */
+    /** The wait between polls of the pools report — a method, so a test can shorten it. */
+    protected function pollIntervalSeconds(): int
+    {
+        return 2;
+    }
+
+    /**
+     * {@see DaemonOrchestrator::stopGraceSeconds()}, a method rather than the call inlined so a
+     * test can shorten it instead of waiting out a real stop sentinel's grace period.
+     */
+    protected function schedulerGraceSeconds(): int
+    {
+        return DaemonOrchestrator::stopGraceSeconds();
+    }
+
+    private function pauseDaemons(OutputInterface $output, Database $target, int $timeoutSeconds): bool
+    {
+        $schema = $target->schema();
+        if (!$schema->hasTable(DaemonControls::POOLS_TABLE) && !$schema->hasTable(DaemonControls::STOPPED_TABLE)) {
+            $output->writeln('<error>--pause-daemons asked for the orchestrator\'s control tables, and neither is here:</error> '
+                . DaemonControls::POOLS_TABLE . ', ' . DaemonControls::STOPPED_TABLE . '. Run migrate first, or omit --pause-daemons.');
+
+            return false;
+        }
+
+        $controls = new DaemonControls($target);
+        $toStop   = [];
+        try {
+            foreach ($controls->pools() as $name => $pool) {
+                if ($pool['enabled']) {
+                    $toStop[] = $name;
+                }
+            }
+            foreach ($toStop as $name) {
+                $controls->setPoolEnabled($name, false, 'migration');
+            }
+            $scheduler = $controls->stoppedServices()['schedule'] ?? null;
+            $stoppedScheduler = $scheduler === null;
+            if ($stoppedScheduler) {
+                $controls->stopService('schedule', 'migration');
+            }
+        } catch (\Throwable $e) {
+            $output->writeln('<error>Could not stop the daemon pools/scheduler: ' . $e->getMessage() . '</error>');
+
+            return false;
+        }
+
+        if ($toStop === [] && !$stoppedScheduler) {
+            $output->writeln('No enabled pool and no running scheduler found to pause — nothing to wait for.');
+
+            return true;
+        }
+        $output->writeln('<info>Stopping daemon pool(s): ' . ($toStop === [] ? 'none' : implode(', ', $toStop))
+            . '; scheduler: ' . ($stoppedScheduler ? 'stopping' : 'already stopped') . '.</info> Waiting for the orchestrator to report them drained…');
+
+        $changedAt = time();
+        $poolsFile = $this->poolsFilePath();
+        $deadline  = $changedAt + $timeoutSeconds;
+        while (time() <= $deadline) {
+            $raw    = is_file($poolsFile) ? @file_get_contents($poolsFile) : false;
+            $report = $raw !== false ? json_decode($raw, true) : null;
+            if (is_array($report) && (int) ($report['at'] ?? 0) >= $changedAt) {
+                $byName = [];
+                foreach ($report['pools'] ?? [] as $entry) {
+                    if (is_array($entry) && isset($entry['name'])) {
+                        $byName[(string) $entry['name']] = $entry;
+                    }
+                }
+                $drained = true;
+                foreach ($toStop as $name) {
+                    if ((int) ($byName[$name]['size'] ?? -1) !== 0) {
+                        $drained = false;
+                        break;
+                    }
+                }
+                if ($drained) {
+                    $output->writeln('<info>The orchestrator reports every paused pool at zero.</info>');
+                    if ($stoppedScheduler) {
+                        $grace = $this->schedulerGraceSeconds();
+                        $output->writeln('Giving the scheduler ' . $grace
+                            . 's to notice its stop sentinel (no per-service report to wait on instead).');
+                        sleep($grace);
+                    }
+
+                    return true;
+                }
+            }
+            sleep($this->pollIntervalSeconds());
+        }
+        $output->writeln('<error>Timed out after ' . $timeoutSeconds . 's waiting for the orchestrator to drain the paused pool(s).</error>'
+            . ' Check the Services screen before running operational by hand, or raise --pause-timeout.');
+
+        return false;
+    }
+
+    /** What to run, and that nothing here does it automatically (FW-286). */
+    private function reportDaemonsStillPaused(OutputInterface $output): void
+    {
+        $output->writeln('<comment>The paused pool(s) and scheduler stay stopped.</comment> Verify the application on PostgreSQL,'
+            . ' then run <info>db:resume-daemons</info> to bring them back — nothing here does that for you.');
     }
 
     /** @param array<string, array<string, mixed>> $result */
