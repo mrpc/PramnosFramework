@@ -75,6 +75,24 @@ class LoggerTest extends TestCase
     }
 
     /**
+     * `getLogPath()` is the one place every reading/writing method in this class builds its
+     * path through — a path-traversal `$file` (or `$ext`) must never let a write escape the
+     * log directory, regardless of what a caller passes it (Psalm `TaintedFile`,
+     * taint-analysis).
+     */
+    public function testLogPathNeutralisesPathTraversal(): void
+    {
+        // Act
+        $path = Logger::getLogPath('../../../../etc/passwd', 'log');
+
+        // Assert — basename() strips every directory component, so the result still resolves
+        // under the log directory and can never climb out of it.
+        $logsDir = Logger::getLogPath('x');
+        $this->assertStringEndsWith(DIRECTORY_SEPARATOR . 'passwd.log', $path);
+        $this->assertSame(dirname($logsDir), dirname($path));
+    }
+
+    /**
      * log() with a JSON string must tag it with type=json in the context.
      */
     public function testLogDetectsJsonMessageAndTagsType(): void

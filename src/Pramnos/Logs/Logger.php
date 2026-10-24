@@ -222,7 +222,7 @@ class Logger
             return;
         }
 
-        $filepath = self::getDefaultLogPath() . DIRECTORY_SEPARATOR . $file . '.' . $ext;
+        $filepath = self::getLogPath($file, $ext);
         if (!is_file($filepath)) {
             return;
         }
@@ -373,7 +373,7 @@ class Logger
         if ($writeFile) {
             self::ensureLogDirectories();
             self::rotateIfNeeded($file, $ext);
-            $filepath = self::getDefaultLogPath() . DIRECTORY_SEPARATOR . $file . '.' . $ext;
+            $filepath = self::getLogPath($file, $ext);
 
             if ($startoffile && file_exists($filepath)) {
                 $content = @file_get_contents($filepath);
@@ -630,7 +630,7 @@ class Logger
         bool $rotate = true,
         int $maxBackups = 5
     ): bool {
-        $filepath = self::getDefaultLogPath() . DIRECTORY_SEPARATOR . $file . '.' . $ext;
+        $filepath = self::getLogPath($file, $ext);
         
         if (!file_exists($filepath)) {
             return false;
@@ -710,7 +710,7 @@ class Logger
      */
     public static function clearLog(string $file, string $ext = 'log'): bool
     {
-        $filepath = self::getDefaultLogPath() . DIRECTORY_SEPARATOR . $file . '.' . $ext;
+        $filepath = self::getLogPath($file, $ext);
         
         if (!file_exists($filepath)) {
             return false;
@@ -721,13 +721,21 @@ class Logger
     
     /**
      * Get the path to a log file
+     *
+     * `basename()` on both arguments: every current caller already names a fixed channel or
+     * an admin-screen-whitelisted file, but this method is public and static, and is now the
+     * one place every other method in this class builds its path through — a `$file` or
+     * `$ext` built from `../../etc/passwd` must never reach `file_get_contents()`/
+     * `file_put_contents()` regardless of what a future caller passes it (Psalm `TaintedFile`,
+     * taint-analysis).
+     *
      * @param string $file The log file name
      * @param string $ext The log file extension
      * @return string Full path to the log file
      */
     public static function getLogPath(string $file, string $ext = 'log'): string
     {
-        return self::getDefaultLogPath() . DIRECTORY_SEPARATOR . $file . '.' . $ext;
+        return self::getDefaultLogPath() . DIRECTORY_SEPARATOR . basename($file) . '.' . basename($ext);
     }
 
     /**
