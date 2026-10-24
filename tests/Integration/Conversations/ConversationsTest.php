@@ -638,4 +638,35 @@ class ConversationsTest extends TestCase
         $this->assertCount(1, $rows);
         $this->assertSame(['policy_compression'], array_column($jobs, 'proc_name'), 'compressed, and no retention');
     }
+
+    /**
+     * The very first message on a freshly-opened connection gets a correct, loadable id.
+     *
+     * `Messages::post()` used to read the new id back with `Database::getInsertId()`, which
+     * on PostgreSQL runs `currval()` on `messageid`'s own sequence — a second statement,
+     * after the INSERT. `conversation_messages` is a hypertable (see
+     * {@see testOnTimescaleTheMessagesAreAHypertable()}), and a row that opens a new chunk
+     * can leave `currval()` answering "not yet defined in this session" even though the
+     * INSERT that just ran defined it — reported against this exact code path (FW-280).
+     * `post()` now reads the id back with `RETURNING`, in the same statement as the INSERT,
+     * which has no such race. This boots a fresh probe connection and posts as the first
+     * write to the table — the shape of the report — rather than relying on an earlier
+     * insert in the same test to have already warmed up the session.
+     */
+    public function testTheFirstMessageOnAFreshConnectionGetsAUsableId(): void
+    {
+        // Arrange
+        $this->boot('postgresql', 'timescaledb', 5432, 'postgres');
+        $this->team();
+        $general = Conversations::create('channel', 'general', [$this->ids['maria']], $this->ids['eleni']);
+
+        // Act — the first write to conversation_messages on this connection
+        $id = Messages::post($general, $this->ids['eleni'], 'πρώτο μήνυμα');
+
+        // Assert — a real id, not 0 from a RETURNING clause that silently found nothing
+        $this->assertGreaterThan(0, $id);
+        $loaded = Messages::get($id);
+        $this->assertNotNull($loaded, 'the id RETURNING handed back must be the row that was just written');
+        $this->assertSame('πρώτο μήνυμα', $loaded['body'] ?? null);
+    }
 }

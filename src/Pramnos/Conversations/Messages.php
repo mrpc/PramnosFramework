@@ -160,14 +160,29 @@ final class Messages
         }
         $at   = (int) ($options['at'] ?? time());
         $refs = self::refs($body);
-        $db->queryBuilder()->table('#PREFIX#conversation_messages')->insert([
+        $insert = $db->queryBuilder()->table('#PREFIX#conversation_messages');
+        /*
+         * RETURNING, not getInsertId()'s currval(): `conversation_messages` is a
+         * TimescaleDB hypertable, and a row that opens a new chunk can leave this
+         * session's "last sequence touched" bookkeeping in a state where
+         * `currval()` on `messageid`'s own sequence answers "not yet defined in
+         * this session" even though the INSERT that just ran is what defined it
+         * (FW-280) — a chunk's own creation happens inside the same backend, but
+         * close enough to the INSERT's own nextval() that the two have raced on
+         * at least one report. RETURNING has no such window: the id comes back
+         * as part of the INSERT's own result, not a second query.
+         */
+        if ($db->type === 'postgresql') {
+            $insert->returning('messageid');
+        }
+        $result = $insert->insert([
             'conversationid' => $conversationId, 'authortype' => $author === null ? 'system' : 'user', 'authorid' => $author,
             'body' => $body, 'card' => $card === null ? null : (string) json_encode($card, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             'threadrootid' => $thread, 'broadcast' => $broadcast ? 1 : 0, 'source' => $options['source'] ?? null, 'externalid' => $options['externalid'] ?? null,
             'refs' => $refs === [] ? null : (string) json_encode($refs, JSON_UNESCAPED_UNICODE), 'created_at' => Instant::at($db, $at),
             'editedat' => isset($options['editedAt']) ? (int) $options['editedAt'] : null,
         ]);
-        $id = (int) $db->getInsertId();
+        $id = $db->type === 'postgresql' ? (int) ($result->fields['messageid'] ?? 0) : (int) $db->getInsertId();
         // History written into the past moves neither a root's newest reply nor the conversation's
         // newest message back: they stay the newest by when written.
         $notBefore = static fn (string $column) => static function ($q) use ($column, $at): void {
