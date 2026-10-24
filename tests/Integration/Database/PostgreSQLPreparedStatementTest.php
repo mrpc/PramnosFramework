@@ -87,4 +87,28 @@ class PostgreSQLPreparedStatementTest extends TestCase
         $r3 = $this->db->execute($sql, $t20);
         $this->assertEquals(1, $r3->numRows);
     }
+
+    /**
+     * Regression: execute()'s variadic used to be declared by reference (&...$arguments),
+     * which PHP refuses when the caller passes a literal rather than a variable — "Argument
+     * #2 could not be passed by reference". execute() never wrote back into its arguments for
+     * the caller to observe, so the "&" bought nothing and broke every literal-argument call
+     * on PHP 8.1+. Mixed types (bool, int, string), passed as literals, not pre-assigned to
+     * variables — the exact shape that used to be a fatal error.
+     */
+    public function testLiteralArgumentsDoNotNeedToBePreassignedToVariables(): void
+    {
+        $this->db->execute("ALTER TABLE {$this->table} ADD COLUMN active BOOLEAN, ADD COLUMN label TEXT");
+
+        $result = $this->db->execute(
+            "INSERT INTO {$this->table} (val, active, label) VALUES (%i, %b, %s)",
+            42,
+            true,
+            'literal'
+        );
+
+        $this->assertNotFalse($result);
+        $row = $this->db->execute("SELECT val, active, label FROM {$this->table} WHERE val = %i", 42)->fields;
+        $this->assertSame([42, true, 'literal'], [(int) $row['val'], (bool) $row['active'], $row['label']]);
+    }
 }

@@ -1992,7 +1992,7 @@ class Database extends \Pramnos\Framework\Base
         }
     }
 
-    public function execute($sql, &...$arguments)
+    public function execute($sql, ...$arguments)
     {
         $free = false;
         $statement = $sql;
@@ -2131,8 +2131,16 @@ class Database extends \Pramnos\Framework\Base
                                 $mysqlArgs[$ai] = $mysqlArgs[$ai]->bytes;
                             }
                         }
+                        // mysqli_stmt::bind_param() declares &...$vars, so
+                        // call_user_func_array() needs actual references, not
+                        // the values execute()'s own (no longer by-ref) variadic
+                        // collected — take a reference to each slot explicitly.
+                        $mysqlRefs = [];
+                        foreach ($mysqlArgs as $mysqlKey => $mysqlValue) {
+                            $mysqlRefs[$mysqlKey] = &$mysqlArgs[$mysqlKey];
+                        }
                         call_user_func_array(
-                            array($statement, 'bind_param'), $mysqlArgs
+                            array($statement, 'bind_param'), $mysqlRefs
                         );
                     }
                     /*

@@ -184,7 +184,7 @@ class FakeDatabase extends \Pramnos\Database\Database
 
     public function __construct() {}
 
-    public function execute($sql, &...$arguments)
+    public function execute($sql, ...$arguments)
     {
         $this->executedSql[] = $sql;
         foreach ($this->mockResults as $pattern => $result) {

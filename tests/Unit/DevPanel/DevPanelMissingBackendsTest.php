@@ -87,7 +87,7 @@ class DevPanelMissingBackendsTest extends TestCase
                 $this->connected = true;
             }
 
-            public function execute($sql, &...$arguments)
+            public function execute($sql, ...$arguments)
             {
                 throw new \Exception('the database is unavailable');
             }

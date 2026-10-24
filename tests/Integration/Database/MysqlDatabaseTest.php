@@ -65,6 +65,28 @@ class MysqlDatabaseTest extends \PHPUnit\Framework\TestCase
         $this->assertEquals(1, $result->fields['health_check']);
     }
 
+    /**
+     * Regression: execute()'s variadic used to be declared by reference (&...$arguments),
+     * which PHP refuses when the caller passes a literal rather than a variable — "Argument
+     * #2 could not be passed by reference". execute() never wrote back into its arguments for
+     * the caller to observe, so the "&" bought nothing and broke every literal-argument call
+     * on PHP 8.1+ on both drivers, not only PostgreSQL.
+     */
+    public function testExecuteAcceptsLiteralArgumentsNotPreassignedToVariables(): void
+    {
+        $result = self::$db->execute(
+            'INSERT INTO ' . self::$table . ' (label, qty, active, code) VALUES (%s, %i, %b, %s)',
+            'literal',
+            42,
+            true,
+            'lit-code'
+        );
+
+        $this->assertNotFalse($result);
+        $row = self::$db->execute('SELECT label, qty, active FROM ' . self::$table . ' WHERE code = %s', 'lit-code')->fields;
+        $this->assertSame(['literal', 42, true], [$row['label'], (int) $row['qty'], (bool) $row['active']]);
+    }
+
     public function testTableExistsMysqlReturnsTrueForExistingTable(): void
     {
         $this->assertTrue(self::$db->tableExists(self::$table));
@@ -695,9 +717,6 @@ class MysqlDatabaseTest extends \PHPUnit\Framework\TestCase
      * execute() with a string SQL (auto-prepare path) on MySQL runs the query
      * as a prepared statement and returns the result object.
      * This exercises the `if (is_string($sql))` path inside execute().
-     *
-     * The execute() method signature uses &...$arguments (variadic by reference),
-     * so arguments must be passed as variables, not literals.
      */
     public function testExecuteWithStringAutoPrepareMysql(): void
     {
@@ -708,11 +727,9 @@ class MysqlDatabaseTest extends \PHPUnit\Framework\TestCase
         );
 
         // Act — execute() with a string automatically prepares then executes.
-        // The &...$arguments signature requires variables, not literals.
-        $code   = 'EXEC-STR';
         $result = self::$db->execute(
             'SELECT qty FROM `' . self::$table . '` WHERE `code` = %s',
-            $code
+            'EXEC-STR'
         );
 
         // Assert

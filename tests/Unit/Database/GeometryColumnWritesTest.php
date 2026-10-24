@@ -40,7 +40,7 @@ class GeometryColumnWritesTest extends TestCase
 
             public function __construct() {}
 
-            public function execute($sql, &...$arguments)
+            public function execute($sql, ...$arguments)
             {
                 $this->sqlRun[] = (string) $sql;
 

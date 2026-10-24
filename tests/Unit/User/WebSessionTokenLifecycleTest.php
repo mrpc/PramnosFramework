@@ -202,7 +202,7 @@ class RecordingCleanupDatabase extends \Pramnos\Database\Database
 
     public function __construct() {}
 
-    public function execute($sql, &...$arguments)
+    public function execute($sql, ...$arguments)
     {
         $this->statementsRun[] = (string) $sql;
         $this->bindings[]   = $arguments;

@@ -260,7 +260,7 @@ class DbWipeLogicTest extends TestCase
                 };
             }
 
-            public function execute($sql, &...$arguments)
+            public function execute($sql, ...$arguments)
             {
                 $this->executed[] = $sql;
                 if ($this->failDrops && str_starts_with($sql, 'DROP TABLE')) {

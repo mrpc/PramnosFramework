@@ -79,7 +79,7 @@ class RecordingDatabase extends Database
 
     public function __construct() {}
 
-    public function execute($sql, &...$arguments)
+    public function execute($sql, ...$arguments)
     {
         $this->statementsRun[] = (string) $sql;
         $this->bindingsUsed[]  = $arguments;

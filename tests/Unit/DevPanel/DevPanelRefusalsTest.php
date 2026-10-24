@@ -150,7 +150,7 @@ class DevPanelRefusalsTest extends TestCase
                 $this->connected = true;
             }
 
-            public function execute($sql, &...$arguments)
+            public function execute($sql, ...$arguments)
             {
                 return new \Pramnos\Tests\Unit\DevPanel\RecordedResult([]);
             }
