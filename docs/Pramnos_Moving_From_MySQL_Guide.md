@@ -88,6 +88,18 @@ unique keys and foreign keys, with their `ON DELETE` / `ON UPDATE` rules:
   `pramnos_migration_progress`, as made by this tool. The next run finishes it, and the dry run
   says so. A table the migrations made carries no such mark and is never touched.
 
+**`schemaversion` never moves.** It is this database's own record of which migrations ran on
+*it* — step 1 above, not the source's history. Left out of every plan by default, even where
+the source has one with rows (a long-lived MySQL-origin install does); `--tables=schemaversion`
+names it explicitly for the rare case of wanting it by hand. Copying it in would make `migrate`
+believe history that happened on a different database — exactly the trap of running this command
+*before* step 1 instead of after: `migrate` on an empty target, finding a `schemaversion` table
+already seeded by your own flat copy, adopts every row in it as a legacy version already applied
+(see [Coming from the legacy version ledger](Pramnos_Migration_Guide.md#coming-from-the-legacy-version-ledger))
+and then does nothing — no `authserver`/`pramnos` schemas, no hypertables, everything still flat.
+Always run `migrate` to completion first; `db:migrate-from-mysql` then backfills data into the
+structure it already built correctly.
+
 | MySQL | PostgreSQL |
 |---|---|
 | `int unsigned` | `bigint`: the range fits |

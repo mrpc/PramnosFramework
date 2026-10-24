@@ -37,6 +37,12 @@ final class Migrator
     /** Most bind parameters one statement takes, kept under PostgreSQL's 65,535. */
     private const MAX_PARAMETERS = 60000;
 
+    /**
+     * `MigrationRunner`'s default ledger table — a fact about which migrations ran on *this*
+     * database, never one to import from another. Left out of the plan by default; {@see plan()}.
+     */
+    private const LEDGER_TABLE = 'schemaversion';
+
     /** @var array<string, array<string, mixed>>|null The source's tables, read once */
     private ?array $sourceShape = null;
 
@@ -170,7 +176,7 @@ final class Migrator
      * @param list<string> $only Source tables to move, all when empty
      * @param list<string> $skip Source tables to leave
      * @param string|null  $timeColumn The backfill's column: whether MySQL has an index that starts with it
-     * @return array{tables: array<string, array<string, mixed>>, order: list<string>, cycles: list<string>, replica: bool, zone: array{name: string, offset: int, serverOffset: int, columns: list<string>}}
+     * @return array{tables: array<string, array<string, mixed>>, order: list<string>, cycles: list<string>, replica: bool, ledger: list<string>, zone: array{name: string, offset: int, serverOffset: int, columns: list<string>}}
      */
     public function plan(array $only = [], array $skip = [], ?string $timeColumn = null): array
     {
@@ -186,7 +192,15 @@ final class Migrator
             ?? $this->targetPrefix . $this->comparable($source, (string) $this->sourcePrefix, false);
 
         $tables = [];
+        $ledger = [];
         foreach ($sources as $name => $shape) {
+            if ($only === [] && $this->comparable($name, (string) $this->sourcePrefix, false) === self::LEDGER_TABLE) {
+                // migrate's own record of what it has run here — copying another database's rows
+                // into it would make this one lie about its own history. --tables names it to
+                // override, for the rare case of actually wanting to inspect or move it by hand.
+                $ledger[] = $name;
+                continue;
+            }
             if (($only !== [] && !in_array($name, $only, true)) || in_array($name, $skip, true)) {
                 continue;
             }
@@ -271,7 +285,7 @@ final class Migrator
         $offset = intdiv((new \DateTimeImmutable('now', new \DateTimeZone($this->zone)))->getOffset(), 60);
 
         return ['tables' => $tables, 'order' => $sorted['order'], 'cycles' => $sorted['cycles'], 'replica' => $this->replicaAllowed(), 'timeColumn' => $timeColumn, 'objects' => $this->sourceObjects(),
-            'implicit' => $this->implicitDefaults($tables, $sources, $targets),
+            'implicit' => $this->implicitDefaults($tables, $sources, $targets), 'ledger' => $ledger,
             'zone' => ['name' => $this->zone, 'offset' => $offset, 'serverOffset' => $this->serverOffset, 'columns' => $wallClock]];
     }
 

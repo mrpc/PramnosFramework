@@ -278,6 +278,10 @@ class DatabaseMigrateFromMysql extends Command
     /** @param array<string, mixed> $plan */
     private function reportPlan(OutputInterface $output, array $plan): void
     {
+        if (($plan['ledger'] ?? []) !== []) {
+            $output->writeln('<comment>Left out, this database\'s own migration history, never another\'s:</comment> ' . implode(', ', $plan['ledger'])
+                . ' — name it in --tables to move it anyway.');
+        }
         $output->writeln('<info>' . count($plan['order']) . ' table(s)</info>, in this order. Load with keys off: ' . ($plan['replica'] ? 'yes' : 'no — the target user is not a superuser; rows are loaded parents first'));
         foreach ($plan['order'] as $name) {
             $t = $plan['tables'][$name];

@@ -117,6 +117,10 @@ class MigrateFromMysqlTest extends TestCase
             "INSERT INTO orders VALUES (1, 1, 12.50, 'first'), (2, 999, 3.00, 'orphan'), (3, 5, 0, '')",
             'CREATE TABLE authserver_things (id INT PRIMARY KEY, label VARCHAR(10)) ENGINE=InnoDB',
             "INSERT INTO authserver_things VALUES (1, 'thing')",
+            // This installation's own legacy migration ledger — never to be copied in: it is a
+            // fact about this database, not the target's.
+            "CREATE TABLE schemaversion (`when` INT, `key` VARCHAR(100) PRIMARY KEY, extra VARCHAR(255)) ENGINE=InnoDB",
+            "INSERT INTO schemaversion VALUES (1760000000, '0.010', '')",
             "CREATE TABLE only_mysql (id INT AUTO_INCREMENT PRIMARY KEY, v VARCHAR(5) NOT NULL, n INT UNSIGNED DEFAULT 7, meta JSON, at DATETIME DEFAULT CURRENT_TIMESTAMP, kind VARCHAR(10) NOT NULL DEFAULT 'it''s', made DATETIME DEFAULT '0000-00-00 00:00:00', status ENUM('new','it''s','done')) ENGINE=InnoDB",
             "INSERT INTO only_mysql (v, meta, status) VALUES ('a', '{\"k\": 1}', 'it''s'), ('b', NULL, 'nonsense')",
             'CREATE TABLE strict_t (id INT PRIMARY KEY) ENGINE=InnoDB',
@@ -214,7 +218,30 @@ class MigrateFromMysqlTest extends TestCase
         $this->assertStringContainsString('only_mysql → only_mysql (created: no migration makes it)', $display);
         $this->assertStringContainsString('not moved, the target has no such column: legacy_col', $display);
         $this->assertStringContainsString('the target requires, and the source has not: must_have', $display);
+        $this->assertStringContainsString('Left out, this database\'s own migration history, never another\'s: schemaversion', $display);
+        $this->assertStringNotContainsString('schemaversion →', $display, 'not planned as a table to move');
         $this->assertSame([], $this->rows('SELECT * FROM users'), 'nothing moved');
+    }
+
+    /**
+     * The migration ledger (`schemaversion`) is left out of a move by default — copying it would
+     * make the target's own migrate command believe history that happened on a different
+     * database. Naming it in --tables moves it anyway, for the rare case of wanting it by hand.
+     */
+    public function testTheMigrationLedgerIsLeftOutUnlessNamed(): void
+    {
+        // Arrange
+        $tester = $this->databases();
+
+        // Act
+        $tester->execute(['--source' => $this->dsn()]);
+        $skipped = $this->target->schema()->hasTable('schemaversion');
+        $tester->execute(['--source' => $this->dsn(), '--tables' => 'schemaversion']);
+        $overridden = $this->rows('SELECT "key" FROM schemaversion');
+
+        // Assert
+        $this->assertFalse($skipped, 'not even created, by default');
+        $this->assertSame(['0.010'], array_column($overridden, 'key'), '--tables names it, so it moves');
     }
 
     /**
