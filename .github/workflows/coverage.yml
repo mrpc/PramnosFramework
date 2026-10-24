@@ -1,0 +1,43 @@
+name: Coverage
+
+# A separate, slow workflow on purpose: ./dockertest --coverage instruments every line with
+# Xdebug, roughly 3.3x the plain run (see dockertest's own comment, and CLAUDE.md's rule 4) —
+# fine once a week, wrong to put in the way of every push and pull request's fast feedback.
+# Uploads to Codecov, tokenless (this repository is public), so the number the suite is
+# already passing at shows up as a badge instead of living only in a local coverage/ report.
+
+on:
+  schedule:
+    # 03:00 UTC every Sunday — low-traffic, and coverage on main does not need to be fresher
+    # than a week; a change worth checking sooner can be triggered by hand below.
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure docker-compose is callable
+        run: |
+          if ! command -v docker-compose >/dev/null 2>&1; then
+            printf '#!/usr/bin/env bash\nexec docker compose "$@"\n' | sudo tee /usr/local/bin/docker-compose >/dev/null
+            sudo chmod +x /usr/local/bin/docker-compose
+          fi
+
+      - name: Start the database and application containers
+        run: docker-compose up -d db timescaledb redis php-apache-environment
+
+      - name: Run the test suite with coverage
+        run: ./dockertest --coverage
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage/clover.xml
+          fail_ci_if_error: false
