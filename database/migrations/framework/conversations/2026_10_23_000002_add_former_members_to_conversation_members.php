@@ -17,33 +17,64 @@ class AddFormerMembersToConversationMembers extends Migration
     public int    $priority    = 16;
     public $description = 'Adds conversation_members.name and externalid, for a member with no account here';
 
-    /** Add the columns, where the table has none yet. */
+    /**
+     * Add whichever of the two columns the table does not have yet.
+     *
+     * Checked independently rather than one column standing in for both: the
+     * original guard returned on `hasColumn(..., 'name')` alone, so a
+     * `conversation_members` that already had a same-named `name` column for
+     * any other reason — an application's own migration, a hand-made ALTER —
+     * made this migration mark itself `Ran` without ever adding `externalid`,
+     * silently (FW-279). Neither column implies the other.
+     */
     public function up(): void
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('conversation_members') || $schema->hasColumn('conversation_members', 'name')) {
+        if (!$schema->hasTable('conversation_members')) {
             return;
         }
 
-        $schema->table('conversation_members', function ($table) {
-            $table->string('name', 150)->nullable()->comment('A former member\'s name; null for an account');
-            $table->string('externalid', 100)->nullable()->comment('A former member\'s id where it came from, e.g. slack:U123');
+        $hasName       = $schema->hasColumn('conversation_members', 'name');
+        $hasExternalId = $schema->hasColumn('conversation_members', 'externalid');
+
+        if ($hasName && $hasExternalId) {
+            return;
+        }
+
+        $schema->table('conversation_members', function ($table) use ($hasName, $hasExternalId) {
+            if (!$hasName) {
+                $table->string('name', 150)->nullable()->comment('A former member\'s name; null for an account');
+            }
+            if (!$hasExternalId) {
+                $table->string('externalid', 100)->nullable()->comment('A former member\'s id where it came from, e.g. slack:U123');
+            }
         });
     }
 
-    /** Remove them again. */
+    /** Remove whichever of the two columns this migration could have added. */
     public function down(): void
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('conversation_members') || !$schema->hasColumn('conversation_members', 'name')) {
+        if (!$schema->hasTable('conversation_members')) {
             return;
         }
 
-        $schema->table('conversation_members', function ($table) {
-            $table->dropColumn('externalid');
-            $table->dropColumn('name');
+        $hasName       = $schema->hasColumn('conversation_members', 'name');
+        $hasExternalId = $schema->hasColumn('conversation_members', 'externalid');
+
+        if (!$hasName && !$hasExternalId) {
+            return;
+        }
+
+        $schema->table('conversation_members', function ($table) use ($hasName, $hasExternalId) {
+            if ($hasExternalId) {
+                $table->dropColumn('externalid');
+            }
+            if ($hasName) {
+                $table->dropColumn('name');
+            }
         });
     }
 }
