@@ -1413,6 +1413,48 @@ class Database extends \Pramnos\Framework\Base
      * Close the database connection
      * @return boolean
      */
+    /**
+     * Every property except the ones that can hold a live connection, a query's result, a
+     * prepared plan or a file handle — none of which PHP's `serialize()` can walk.
+     *
+     * Defense in depth, not the fix for FW-287 itself: the actual path there was a `Model`
+     * holding `$controller`, which chains to the `Application` and from there to this
+     * instance — fixed at `Model::__sleep()`. This covers a Database instance landing in
+     * `$_SESSION` (or anywhere else `serialize()` reaches) by some other path, present or
+     * future, without this class's own "Serialization of '...' is not allowed" fatal being
+     * the first anyone hears of it.
+     *
+     * @return list<string>
+     */
+    public function __sleep(): array
+    {
+        return array_keys(array_diff_key(get_object_vars($this), [
+            '_dbConnection' => true, '_readConnection' => true, '_writeConnection' => true,
+            'statements' => true, 'queryResult' => true, 'dialect' => true,
+            '_queryLogHandler' => true, '_duplicateQueryLogHandler' => true, '_slowQueryLogHandler' => true,
+            // Base's own magic-setter bag: something outside this class reaching a protected
+            // property (queryResult, confirmed) through Base::__set() lands here instead,
+            // unprotected by the exclusions above that name the real property.
+            '_data' => true,
+        ]));
+    }
+
+    /**
+     * Reconnects lazily, the same way a freshly constructed instance does: nothing here was
+     * carried over by {@see __sleep()} to reconnect *from*.
+     */
+    public function __wakeup(): void
+    {
+        $this->connected        = false;
+        $this->_dbConnection     = null;
+        $this->_readConnection   = null;
+        $this->_writeConnection  = null;
+        $this->statements        = [];
+        $this->transactionActive = false;
+        $this->serverVersion     = null;
+        $this->isMariaDB         = null;
+    }
+
     public function close()
     {
         // A clone's links belong to the instance it was cloned from: drop them, close nothing.

@@ -820,6 +820,32 @@ class ModelTest extends TestCase
     }
 
     /**
+     * A model holding `$controller` — every model does, since the constructor sets it — chains
+     * to the Application and from there to the live database connection, which PHP cannot
+     * serialize. A model landing in `$_SESSION` (lazy-loaded relations are a common shape for
+     * this) must not throw "Serialization of '...' is not allowed" the moment anything calls
+     * `serialize()` on it, which is exactly what `session_write_close()` does at the end of
+     * every request holding one (FW-287).
+     */
+    public function testModelWithAConnectedControllerSerializesWithoutThrowing(): void
+    {
+        // Arrange — a real column value, so the test also proves the row survives the trip
+        $model = new TestProductModel($this->controller);
+        $model->name = 'Serializable Widget';
+        $model->price = 9.99;
+        $this->assertTrue($this->db->connected, 'the controller\'s database must actually be connected for this to prove anything');
+
+        // Act
+        $serialized = serialize($model);
+        $restored   = unserialize($serialized);
+
+        // Assert
+        $this->assertSame('Serializable Widget', $restored->name, 'the row\'s own data survives the round trip');
+        $this->assertEquals(9.99, $restored->price);
+        $this->assertFalse(property_exists($restored, 'controller') && $restored->controller !== null, 'no live controller came back with it');
+    }
+
+    /**
      * Tests getApiList with array filter, JSON fields/search, and datatables format.
      */
     public function testGetApiListAdvancedParameters(): void

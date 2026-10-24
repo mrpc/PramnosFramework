@@ -1779,6 +1779,51 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
     }
 
     /**
+     * Every property except the two that can hold a reference to anything: `$controller`
+     * (set in every model's constructor) and `Base::$_parentObject` (set by reference, to
+     * whatever {@see \Pramnos\Framework\Base::setParent()} was given).
+     *
+     * `$controller` chains to the Application and from there to the live database connection
+     * — neither serializable. A model with lazy-loaded relations (each one its own Model, each
+     * with its own `$controller`) landing in `$_SESSION` failed `session_write_close()` with
+     * "Serialization of '...' is not allowed" on *every* request that had touched one, not
+     * only the one that first noticed (FW-287) — PHP's native `serialize()` walks every
+     * property by default and does not go through `jsonSerialize()` at all, so the identical
+     * fix already made there for `$controller` never covered this path.
+     *
+     * Deliberately *not* {@see internalProperties()}'s full list: `_data` is where a column
+     * not declared as a public property actually lives, as a plain array of scalars with
+     * nothing unsafe in it — excluding it here would serialize a model with none of its own
+     * data, the exact silent, no-exception failure this is written to avoid.
+     *
+     * No `__wakeup()` restoring `$controller`: there is nothing to restore it *to* — a model
+     * read back out of a session is data, not a live, re-queryable instance, and that is the
+     * correct shape for it to come back as.
+     *
+     * Every property declared `private` on this class — `$_jsonactions`, `$_suppressChangeEmit`
+     * — is left out too, regardless of what it holds: PHP's own `__sleep()` cannot return a
+     * `private` property's plain name for a *subclass* instance (every model actually used is
+     * one) without a "returned as member variable from __sleep() but does not exist" warning —
+     * a documented engine quirk, not something this fix can serialize its way around. Both
+     * default back to their harmless starting value when a model comes back from
+     * `unserialize()`, which is the one difference from before this existed.
+     *
+     * @return list<string>
+     */
+    public function __sleep(): array
+    {
+        static $private = null;
+        if ($private === null) {
+            $private = [];
+            foreach ((new \ReflectionClass(self::class))->getProperties(\ReflectionProperty::IS_PRIVATE) as $property) {
+                $private[$property->getName()] = true;
+            }
+        }
+
+        return array_keys(array_diff_key(get_object_vars($this), $private, ['controller' => true, '_parentObject' => true]));
+    }
+
+    /**
      * Return all data as an array.
      *
      * @return array<string, mixed>
