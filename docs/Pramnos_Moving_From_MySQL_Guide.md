@@ -209,7 +209,13 @@ them that default; the rest — dates — need one chosen in the migration: user
 
 `--implicit-defaults` gives those columns MySQL's default: `''` for text, `0` for a number,
 `false` for a flag, an empty `bytea`. A date's default in MySQL is the zero date, which PostgreSQL
-has no value for, so it is named for the migration to decide.
+has no value for, so it is named for the migration to decide. It is applied after the tables are
+made, not before — one pass gives it to a table this same run creates too, not only one that was
+already there.
+
+A `--dry-run` against tables that do not exist on the target yet counts none of this: there is
+nothing there yet to compare the source's columns against, so the line above is silent until
+something — the real move, or an earlier dry run after it — has made the tables once.
 
 ### Text kept in a blob
 

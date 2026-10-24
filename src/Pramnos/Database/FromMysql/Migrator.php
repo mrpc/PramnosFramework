@@ -1673,12 +1673,17 @@ final class Migrator
      * Give the target the defaults MySQL filled in without being asked — those
      * {@see implicitDefaults()} found and PostgreSQL can say. Returns how many columns were given one.
      *
+     * Recomputes against the target's current columns rather than trusting `$plan['implicit']`:
+     * on a from-scratch target, `plan()` ran before `run()` made the tables, so the columns it
+     * saw there were none at all. Called after `run()`, the tables are there to see.
+     *
      * @param array<string, mixed> $plan
      */
     public function applyImplicitDefaults(array $plan): int
     {
-        $given = 0;
-        foreach ($plan['implicit']['columns'] ?? [] as $column) {
+        $implicit = $this->implicitDefaults($plan['tables'], $this->sourceTables(), $this->targetTables());
+        $given    = 0;
+        foreach ($implicit['columns'] as $column) {
             if ($column['default'] !== null && $this->quietly('ALTER TABLE ' . $this->quoted($column['table'])
                 . ' ALTER COLUMN "' . str_replace('"', '""', $column['column']) . '" SET DEFAULT ' . $column['default'])) {
                 $given++;

@@ -131,9 +131,6 @@ class DatabaseMigrateFromMysql extends Command
         if ($input->getOption('dry-run')) {
             return Command::SUCCESS;
         }
-        if ($input->getOption('implicit-defaults')) {
-            $output->writeln($migrator->applyImplicitDefaults($plan) . ' column(s) given the default MySQL filled in.');
-        }
 
         if ((string) $input->getOption('transport') === 'fdw') {
             $fdw = \Pramnos\Database\FromMysql\FdwTransport::open($target, $source, $input->getOption('fdw-host') !== null ? (string) $input->getOption('fdw-host') : null);
@@ -211,6 +208,11 @@ class DatabaseMigrateFromMysql extends Command
         } else {
             $result = $migrator->run($plan, $batch, !$input->getOption('keep-constraints'), (bool) $input->getOption('null-orphans'), $progress, $phase === 'operational',
                 !$input->getOption('no-snapshot'), (bool) $input->getOption('restart'), (bool) $input->getOption('defer-indexes'));
+            if ($input->getOption('implicit-defaults')) {
+                // After run(), not plan(): a table this run just created had no columns yet
+                // when the plan was drawn, so the implicit-default scan found nothing to give one.
+                $output->writeln($migrator->applyImplicitDefaults($plan) . ' column(s) given the default MySQL filled in.');
+            }
             if ($phase === 'operational') {
                 $output->writeln('The moment of the copy is recorded. Stop the application\'s writes, then run <info>--phase=cutover</info>.');
             }

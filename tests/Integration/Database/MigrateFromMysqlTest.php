@@ -560,6 +560,38 @@ class MigrateFromMysqlTest extends TestCase
     }
 
     /**
+     * `--implicit-defaults` on a table this very run creates — the target has none yet when
+     * `plan()` looks, only once `run()` has made it. One pass must still give it MySQL's
+     * defaults: applyImplicitDefaults() re-reads the target's columns rather than trusting the
+     * plan drawn before the table existed.
+     */
+    public function testImplicitDefaultsWorkInOnePassOnATableThisRunCreates(): void
+    {
+        // Arrange — "loose" exists only in MySQL: this run both creates it and backfills it
+        $tester = $this->databases();
+        $this->source->query('CREATE TABLE loose (id INT PRIMARY KEY, title VARCHAR(20) NOT NULL, n INT NOT NULL) ENGINE=InnoDB');
+        $only = ['--source' => $this->dsn(), '--tables' => 'loose'];
+        $mode = (string) ($this->mysql->query('SELECT @@GLOBAL.sql_mode AS m')->fields['m'] ?? '');
+
+        try {
+            // Act — one pass: full move with --implicit-defaults, no table pre-created
+            $this->mysql->query("SET GLOBAL sql_mode = ''");
+            $code    = $tester->execute($only + ['--implicit-defaults' => true]);
+            $display = $tester->getDisplay();
+        } finally {
+            $this->mysql->query("SET GLOBAL sql_mode = '" . $mode . "'");
+        }
+        $defaults = $this->rows("SELECT column_name AS c, column_default AS d FROM information_schema.columns WHERE table_name = 'loose' AND column_name IN ('title', 'n') ORDER BY column_name");
+        $accepted = @pg_query($this->target->getConnectionLink(), 'INSERT INTO loose (id) VALUES (1)');
+
+        // Assert
+        $this->assertSame(0, $code, $display);
+        $this->assertStringContainsString('2 column(s) given the default MySQL filled in', $display, 'not 0: the table this run just created is seen too');
+        $this->assertSame([['c' => 'n', 'd' => '0'], ['c' => 'title', 'd' => "''::character varying"]], $defaults);
+        $this->assertNotFalse($accepted, 'an insert that leaves out what MySQL filled in goes in, in the same run that created the table');
+    }
+
+    /**
      * A blob that holds text — UTF-8, or JSON — is named by the dry run, with the type the
      * migration would take it as; a blob of real bytes is not. A table made here gets such a
      * column as text with `--blob-as-text`, its values arriving as the text they are (FW-165 §5).
