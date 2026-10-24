@@ -1,0 +1,70 @@
+name: Bug report
+description: Something in the framework doesn't behave the way it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. The more of the fields below you can fill
+        in, the faster this can be reproduced and fixed.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: A clear description of the bug. What did you expect instead?
+      placeholder: |
+        Expected: ...
+        Actual: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: >
+        The smallest code or configuration that reproduces it — a minimal controller/model, a
+        migration, a console command and its output, or a failing test if you have one.
+      render: php
+    validations:
+      required: true
+
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database driver
+      multiple: true
+      options:
+        - MySQL
+        - MariaDB
+        - PostgreSQL
+        - TimescaleDB
+        - Not database-related
+    validations:
+      required: true
+
+  - type: input
+    id: php-version
+    attributes:
+      label: PHP version
+      placeholder: e.g. 8.5.2
+    validations:
+      required: true
+
+  - type: input
+    id: framework-version
+    attributes:
+      label: Framework version or commit
+      description: The `mrpc/pramnosframework` version from your `composer.lock`, or a commit hash if you're on `dev-main`.
+      placeholder: e.g. v1.2.3, or a0b1c2d
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Logs, stack traces, or context that might matter (an unusual `app.php` setting, a custom addon, etc.).
+    validations:
+      required: false

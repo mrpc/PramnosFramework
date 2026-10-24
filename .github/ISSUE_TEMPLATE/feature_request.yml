@@ -1,0 +1,39 @@
+name: Feature request
+description: Suggest something the framework doesn't do yet.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: >
+        Describe the situation you're in, not just the feature you want — the same problem
+        sometimes already has a solution that isn't obvious from the guides.
+      placeholder: "I'm trying to... and there's currently no way to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What you'd like the framework to do. An API sketch is welcome if you have one in mind.
+      render: php
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Other approaches, workarounds you're using now, or why they fall short.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Links, related issues, or context that might matter.
+    validations:
+      required: false
