@@ -353,12 +353,23 @@ class LogManager
 
     /**
      * Get path to a log file
+     *
+     * `basename()` on both arguments: every current caller already restricts `$filename` to
+     * an admin-screen whitelist built from a directory scan (`LogController::autoPopulateWhitelist()`)
+     * before it gets here, but this method is public and static, and the whitelist is the
+     * caller's discipline, not a constraint this method enforces itself — `$filename` built
+     * from `../../etc/passwd` would otherwise read or truncate anything the web server's user
+     * can reach (Psalm taint-analysis, FW-278's own class of finding). `basename()` neutralises
+     * a path-traversal sequence without touching any filename this is actually called with.
+     *
      * @param string $filename The log file name
      * @param string $ext The log file extension
      * @return string Full path to the log file
      */
     public static function getLogFilePath(string $filename, string $ext = 'log'): string
     {
+        $filename = basename($filename);
+        $ext      = basename($ext);
         if ($filename === 'GitDeploy' || $filename === 'GitWebhookDebug') {
             return ROOT . DS . 'www' . DS . 'api' . DS . $filename . ($ext ? '.' . $ext : '');
         } else {

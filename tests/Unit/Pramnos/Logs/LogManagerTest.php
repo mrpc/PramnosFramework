@@ -207,6 +207,24 @@ class LogManagerTest extends TestCase
         $this->assertStringContainsString('www/api/GitWebhookDebug.log', str_replace('\\', '/', $path2));
     }
 
+    /**
+     * `getLogFilePath()` is public and static, and is the one place every reading/writing
+     * method in this class builds its path through — a path-traversal `$filename` (or `$ext`)
+     * must never reach past it to `file_get_contents()`/`file_put_contents()` elsewhere,
+     * regardless of whether a future caller validates against the admin screen's own
+     * whitelist first (Psalm `TaintedFile`, taint-analysis).
+     */
+    #[Test]
+    public function testGetLogFilePathNeutralisesPathTraversal(): void
+    {
+        // Act
+        $path = LogManager::getLogFilePath('../../../../etc/passwd', 'log');
+
+        // Assert — basename() strips every directory component, so the result still resolves
+        // under the log directory and can never climb out of it.
+        $this->assertSame($this->testLogDir . DS . 'passwd.log', $path);
+    }
+
     #[Test]
     public function testGetLogAnalytics(): void
     {
