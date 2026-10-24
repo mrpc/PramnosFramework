@@ -19,7 +19,7 @@ namespace Pramnos\Database\Dialect;
  * | `` `name` `` | `"name"` |
  * | `IFNULL(a, b)` | `COALESCE(a, b)` |
  * | `RAND()` | `random()` |
- * | `LIMIT 10, 20` | `LIMIT 20 OFFSET 10` |
+ * | `LIMIT 10, 20` | `OFFSET 10 LIMIT 20` — the comma form's two arguments stay where they were, placeholder or not |
  * | `UNIX_TIMESTAMP()`, `UNIX_TIMESTAMP(x)` | `EXTRACT(EPOCH FROM …)::bigint` |
  * | `FROM_UNIXTIME(x)`, `FROM_UNIXTIME(x, fmt)` | `to_timestamp(x)`, `to_char(to_timestamp(x), …)` |
  * | `CURDATE()`, `CURTIME()` | `CURRENT_DATE`, `LOCALTIME` |
@@ -238,7 +238,15 @@ final class MysqlToPostgres
                 $comma = $a !== null ? self::next($tokens, $a) : null;
                 $b = $comma !== null && $tokens[$comma]['v'] === ',' ? self::next($tokens, $comma) : null;
                 if ($b !== null && in_array($tokens[$a]['t'], ['num', 'ph'], true) && in_array($tokens[$b]['t'], ['num', 'ph'], true)) {
-                    $out[] = ['t' => 'raw', 'v' => $token['v'] . ' ' . $tokens[$b]['v'] . ' OFFSET ' . $tokens[$a]['v']];
+                    // OFFSET a LIMIT b, not LIMIT b OFFSET a: PostgreSQL takes either order, and
+                    // this one leaves a and b exactly where they were. Swapping their *text*
+                    // positions (the alternative, and what this said until FW-288) is only half
+                    // the problem when either is a placeholder rather than a literal number —
+                    // prepareQuery()'s value substitution fills placeholders by where they fall
+                    // in the rewritten string, in the original argument order, so a swapped
+                    // placeholder got the other one's value. Writing it this way needs nothing
+                    // to know about where a value came from, because nothing moved.
+                    $out[] = ['t' => 'raw', 'v' => 'OFFSET ' . $tokens[$a]['v'] . ' ' . $token['v'] . ' ' . $tokens[$b]['v']];
                     $i     = $b;
                     continue;
                 }

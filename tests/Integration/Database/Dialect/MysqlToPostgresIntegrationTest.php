@@ -214,6 +214,35 @@ final class MysqlToPostgresIntegrationTest extends TestCase
     }
 
     /**
+     * `LIMIT a, b` with both `a` (the offset) and `b` (the count) as placeholders — not
+     * literal numbers — through `prepareQuery()`'s own value substitution, not just the SQL
+     * text (FW-288).
+     *
+     * The translation used to rewrite the *text* as `LIMIT b OFFSET a`, swapping where `a`
+     * and `b` fall in the string — but `prepareQuery()` fills placeholders by their position
+     * in the final text, with the arguments in the order they were given, so the value meant
+     * for `a` landed in `b`'s slot and the other way around. `offset=0, count=2` with the
+     * values swapped becomes `LIMIT 0 OFFSET 2` — no rows, not the first two — which is
+     * exactly the shape of the bug report this fixes: a count of 1 found, an empty list.
+     */
+    public function testPrepareQueryLimitOffsetPlaceholdersSubstituteInTheRightOrder(): void
+    {
+        // Arrange
+        $e = $this->t . '_events';
+
+        // Act — offset 0, count 2: the first two rows, ordered by id
+        $sql  = $this->db->prepareQuery("SELECT id FROM `{$e}` ORDER BY id LIMIT %d, %d", 0, 2);
+        $ids  = [];
+        $rows = $this->db->query($sql);
+        while ($rows->fetch()) {
+            $ids[] = (int) $rows->fields['id'];
+        }
+
+        // Assert
+        $this->assertSame([1, 2], $ids, 'offset 0, count 2 -- not an empty list from a swapped LIMIT 0');
+    }
+
+    /**
      * A backticked, prefixed name right after a word — ``insert into`t` ``, valid MySQL — keeps a
      * space before the schema put in front of it, through `prepareQuery()` and through
      * `prepare()`. It became `insert intopublic."t"`, a syntax error at "intopublic".
