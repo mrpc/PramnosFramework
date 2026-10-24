@@ -2336,7 +2336,11 @@
         var level = e.level || 'info';
         var at = e.time ? clockTime(new Date(Number(e.time) * 1000)) : '';
         return '<tr><td class="pdb-muted">' + esc(at) + '</td>'
-            + '<td class="pdb-level-' + esc(level) + '">' + esc(level) + '</td>'
+            // escAttr(), not esc(): level sits inside the class attribute's quotes here, not
+            // between tags — esc() leaves a literal `"` untouched, which esc()'s own callers
+            // elsewhere never put inside an attribute (CodeQL
+            // js/incomplete-html-attribute-sanitization).
+            + '<td class="pdb-level-' + escAttr(level) + '">' + esc(level) + '</td>'
             + '<td class="pdb-sql">' + esc(e.message || '') + '</td>'
             + (from ? '<td class="pdb-muted pdb-sql">' + esc(from.path) + '</td>' : '')
             + '</tr>';
@@ -2430,7 +2434,8 @@
             var rows = '';
             lines.forEach(function (line) {
                 rows += '<tr><td class="pdb-muted">' + esc(line.timestamp || '') + '</td>'
-                    + '<td class="pdb-level-' + esc(line.level || 'info') + '">' + esc(line.level || '') + '</td>'
+                    // escAttr(): see logRow()'s own note above — same attribute context.
+                    + '<td class="pdb-level-' + escAttr(line.level || 'info') + '">' + esc(line.level || '') + '</td>'
                     + '<td class="pdb-sql">' + logMessageHtml(line.message || '') + '</td>'
                     + '<td class="pdb-muted">' + esc(line.file || '') + '</td></tr>';
             });

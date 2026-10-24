@@ -1225,4 +1225,28 @@ describe('the server-rendered toolbar', () => {
         // Assert
         assert.match(dom.byId['pramnos-debugbar'].innerHTML, /pdb-devpanel/);
     });
+
+    /**
+     * A log entry's level sits inside `class="pdb-level-…"` — an HTML *attribute*, not between
+     * tags — so `"` has to be escaped there too, not just `<`/`>`. A level containing `"` must
+     * never break out of that attribute into a second one (CodeQL
+     * js/incomplete-html-attribute-sanitization).
+     */
+    test('a log level containing a double quote cannot break out of its class attribute', () => {
+        // Arrange & Act
+        const { dom } = loadToolbar({
+            payload: island({
+                logs: { count: 1, entries: [{ level: 'info" onmouseover="alert(1)', message: 'm', time: 1 }] },
+            }),
+        });
+        openTab(dom, 'logs');
+
+        // Assert — the quote inside the class attribute survives only as &quot;, never as a
+        // literal " that would close it early and open a second, real attribute; the same
+        // text in the next cell, in element content rather than an attribute, needs no such
+        // escaping and is expected to read exactly as given.
+        const panel = dom.byId['pdb-panel'].innerHTML;
+        assert.match(panel, /class="pdb-level-info&quot; onmouseover=&quot;alert\(1\)"/, 'the quote is escaped inside the attribute');
+        assert.doesNotMatch(panel, /<td class="pdb-level-info" onmouseover="/, 'no second, real attribute was opened');
+    });
 });
