@@ -1952,21 +1952,6 @@ class Database extends \Pramnos\Framework\Base
 
 
     /**
-     * Execute a query as prepared statement<br>
-     * Example: <br>
-     * <code>
-     * $userid = 2;<br>
-     * $database->execute(<br>
-     *     "select * from `#PREFIX#users` where `userid` = %i",<br>
-     *     $userid<br>
-     * );
-     * </code>
-     * @param string|\mysqli_stmt|\stdClass $sql An sql query, either as a string
-     *                                or as a prepared statement object
-     * @param mixed $arguments
-     * @return Result
-     */
-    /**
      * Write a line naming a statement that could not be prepared.
      *
      * Static and self-contained: this runs on a failure path where the connection
@@ -1992,6 +1977,34 @@ class Database extends \Pramnos\Framework\Base
         }
     }
 
+    /**
+     * Run a query as a real prepared statement and return a {@see Result}.
+     *
+     * This is the engine both {@see QueryBuilder} and {@see preparedQuery()} run on —
+     * pg_prepare/pg_execute or mysqli_stmt under the hood, with reconnect and
+     * deadlock retry. New application code should reach it through one of those
+     * two, not call it directly: {@see QueryBuilder} for anything the builder can
+     * express, {@see preparedQuery()} for raw SQL with PDO-style `:name`/`?`
+     * placeholders that the builder cannot express (a stored-function call, a
+     * driver-specific clause). It stays public for the one case neither covers —
+     * reusing a statement's cached plan across calls with different literal
+     * values, by passing {@see prepare()}'s returned handle here instead of a SQL
+     * string (see `RunsReusablePlans` in a consuming application) — and for
+     * existing direct callers.
+     *
+     * Example: <br>
+     * <code>
+     * $userid = 2;<br>
+     * $database->execute(<br>
+     *     "select * from `#PREFIX#users` where `userid` = %i",<br>
+     *     $userid<br>
+     * );
+     * </code>
+     * @param string|\mysqli_stmt|\stdClass $sql An sql query, either as a string
+     *                                or as a prepared statement object
+     * @param mixed $arguments
+     * @return Result
+     */
     public function execute($sql, ...$arguments)
     {
         $free = false;

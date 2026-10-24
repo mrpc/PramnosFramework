@@ -356,11 +356,15 @@ PostgreSQL takes a bound string as text: bytes that are not UTF-8 are refused, a
 read as an escape. At the moment of binding, nothing says the column is `bytea`, so the value
 says it:
 
+All three run on the same binding path and treat `Binary` the same way — the builder is the
+one to reach for in new code; `execute()` and `prepareQuery()`/`query()` are shown so the rest
+of this section can explain how each reads the value back:
+
 ```php
 use Pramnos\Database\Binary;
 
-$db->execute('INSERT INTO files (name, body) VALUES (%s, %s)', ...[$name, new Binary($bytes)]);
 $db->queryBuilder()->table('files')->insert(['name' => $name, 'body' => new Binary($bytes)]);
+$db->execute('INSERT INTO files (name, body) VALUES (%s, %s)', ...[$name, new Binary($bytes)]);
 $db->query($db->prepareQuery('INSERT INTO files (name, body) VALUES (%s, %s)', $name, new Binary($bytes)));
 ```
 
@@ -839,7 +843,7 @@ answers into exceptions, which is the point and also a deployment risk worth tak
 that just ran**. Read it immediately after the call that returned `false`:
 
 ```php
-if ($db->execute($sql) === false) {
+if ($db->queryBuilder()->table('files')->insert(['name' => $name]) === false) {
     \Pramnos\Logs\Logger::error('query failed: ' . $db->error_text);
 }
 ```

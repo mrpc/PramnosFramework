@@ -70,8 +70,9 @@ $db = \Pramnos\Database\Database::getInstance();
 // Automatically uses the READ connection
 $result = $db->query("SELECT * FROM #PREFIX#users WHERE active = 1");
 
-// Automatically uses the WRITE connection
-$db->execute("UPDATE #PREFIX#users SET last_login = NOW() WHERE userid = %i", 42);
+// Automatically uses the WRITE connection — the query builder routes the
+// same way, since it runs on the same execute() underneath.
+$db->queryBuilder()->table('users')->where('userid', 42)->update(['last_login' => date('Y-m-d H:i:s')]);
 ```
 
 #### API Reference
