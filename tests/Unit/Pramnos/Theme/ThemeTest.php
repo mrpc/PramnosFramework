@@ -172,6 +172,53 @@ class ThemeTest extends TestCase
         $this->assertCount(0, $this->theme->getWidgets('sidebar1'));
     }
 
+    /**
+     * `loadWidgets()`, `assignMenus()` and `assignBannerLocations()` never instantiate a class
+     * from the stored setting — `unserialize(..., ['allowed_classes' => false])`.
+     *
+     * Every write to these settings is `serialize()` of a plain array
+     * (`resetWidgets()`/`addWidget()`/`setMenu()`/`setBannerLocation()`), so restricting the
+     * read side costs nothing in the ordinary case. What it buys: the setting is reachable
+     * from an admin-only form with no allowlist on which key it writes
+     * (`SettingsController::save()`), so a crafted value here was a PHP object injection a
+     * compromised or CSRF'd admin session could reach — `allowed_classes: false` makes
+     * `unserialize()` hand back `__PHP_Incomplete_Class`, never the real class, so no
+     * constructor, `__wakeup()` or `__destruct()` of a gadget-chain class ever runs.
+     *
+     * Proven here by serializing a real object whose `__wakeup()` sets a flag: if the flag is
+     * never set, the class was never instantiated as itself.
+     */
+    public function testStoredWidgetsMenusAndBannerLocationsNeverUnserializeAnObject(): void
+    {
+        foreach (
+            [
+                ['theme_default_widgets', 'loadWidgets'],
+                ['theme_default_menus', 'assignMenus'],
+                ['theme_default_bannerLocations', 'assignBannerLocations'],
+            ] as [$settingKey, $method]
+        ) {
+            // Arrange — a serialized object of a class whose __wakeup() is detectable
+            ThemeUnserializeProbe::$wokeUp = false;
+            \Pramnos\Application\Settings::setSetting(
+                $settingKey,
+                serialize(new ThemeUnserializeProbe()),
+                false
+            );
+            $theme = new Theme('default', '', $this->createMock(\Pramnos\Application\Application::class));
+
+            // Act — the protected loader, via reflection; must not throw either
+            (new \ReflectionMethod($theme, $method))->invoke($theme);
+
+            // Assert — the class was never instantiated as itself. allowed_classes: false
+            // hands back __PHP_Incomplete_Class instead, so no constructor, __wakeup() or
+            // __destruct() of a gadget-chain class ever runs.
+            $this->assertFalse(
+                ThemeUnserializeProbe::$wokeUp,
+                "$method() must not instantiate a real class from the stored setting"
+            );
+        }
+    }
+
     public function testRenderWidgetArea(): void
     {
         $this->theme->registerWidgetArea('Test Sidebar', 'Desc', 'test_sidebar');
@@ -1337,5 +1384,20 @@ class ThemeTest extends TestCase
 
         // Assert (line 747)
         $this->assertFalse($result);
+    }
+}
+
+/**
+ * Stands in for a gadget-chain class: `__wakeup()` is where such a chain typically starts
+ * doing damage, so setting a flag there is the detectable proof that `unserialize()` really
+ * did instantiate this class as itself, rather than as `__PHP_Incomplete_Class`.
+ */
+class ThemeUnserializeProbe
+{
+    public static bool $wokeUp = false;
+
+    public function __wakeup(): void
+    {
+        self::$wokeUp = true;
     }
 }

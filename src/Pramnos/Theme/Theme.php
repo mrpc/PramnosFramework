@@ -898,6 +898,13 @@ class Theme extends \Pramnos\Framework\Base
      * for it — feeding that to `unserialize()` raises "Error at offset 0", a warning on every
      * page for a condition that is not an error.
      *
+     * `allowed_classes: false`: every write here is `serialize()` of a plain array (see
+     * `resetWidgets()`, `addWidget()`), so unserializing one back never needs to instantiate a
+     * class. Admin-only writes this setting (`SettingsController::save()`, behind an
+     * admin-floor permission check), but with no allowlist on which setting key it writes — a
+     * crafted value here was otherwise a PHP object injection a compromised or CSRF'd admin
+     * session could reach (Psalm taint-analysis).
+     *
      * @return void
      */
     protected function loadWidgets(): void
@@ -911,7 +918,7 @@ class Theme extends \Pramnos\Framework\Base
         $stored = \Pramnos\Application\Settings::getSetting(
             'theme_' . $this->theme . '_widgets'
         );
-        $data = (is_string($stored) && $stored !== '') ? @unserialize($stored) : false;
+        $data = (is_string($stored) && $stored !== '') ? @unserialize($stored, ['allowed_classes' => false]) : false;
 
         $this->widgets = is_array($data) ? $data : array();
     }
@@ -966,11 +973,14 @@ class Theme extends \Pramnos\Framework\Base
     /**
      * @param   boolean $force
      * Loads the assignedMenus from settings
+     *
+     * `allowed_classes: false` — see {@see loadWidgets()}'s docblock; the same setting, the
+     * same write path, the same reason.
      */
     protected function assignMenus($force = false)
     {
         if (count($this->menus) == 0 || $force === true) {
-            $this->menus = unserialize(\Pramnos\Application\Settings::getSetting('theme_' . $this->theme . '_menus'));
+            $this->menus = unserialize(\Pramnos\Application\Settings::getSetting('theme_' . $this->theme . '_menus'), ['allowed_classes' => false]);
             if (is_array($this->menus)) {
                 foreach ($this->menus as $location => $menuid) {
                     if (isset($this->menus[$location])) {
@@ -1436,12 +1446,16 @@ class Theme extends \Pramnos\Framework\Base
     /**
      * Loads the assignedBannerLocations from settings
      * @param boolean $force
+     *
+     * `allowed_classes: false` — see {@see loadWidgets()}'s docblock; the same setting, the
+     * same write path, the same reason.
      */
     protected function assignBannerLocations($force = false)
     {
         if (count($this->cmsBannerLocations) == 0 || $force === true) {
             $this->cmsBannerLocations = unserialize(
-                \Pramnos\Application\Settings::getSetting('theme_' . $this->theme . '_bannerLocations')
+                \Pramnos\Application\Settings::getSetting('theme_' . $this->theme . '_bannerLocations'),
+                ['allowed_classes' => false]
                     );
             if (is_array($this->cmsBannerLocations)) {
                 foreach ($this->cmsBannerLocations as $location => $locationid) {
