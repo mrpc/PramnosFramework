@@ -21,3 +21,7 @@ Building an application *with* the framework, rather than working on its own sou
 [Getting Started guide](https://mrpc.github.io/PramnosFramework/Getting_Started/) instead.
 
 Found a bug or have a feature request? [Open an issue](https://github.com/mrpc/PramnosFramework/issues).
+
+Found a security vulnerability? See [SECURITY.md](SECURITY.md) — please don't open a public
+issue for one. Everyone participating is expected to follow the
+[Code of Conduct](CODE_OF_CONDUCT.md).
