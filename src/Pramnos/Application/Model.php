@@ -603,16 +603,35 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 $database->cacheflush($this->_cacheKey);
                 
             } else {
-                try {
-                    $database->updateTableData(
-                        $this->getFullTableName(), $itemdata,
-                        "`" . $primarykey . "` = '" . $this->$primarykey . "'",
-                        $debug
+                $result = $database->updateTableData(
+                    $this->getFullTableName(), $itemdata,
+                    "`" . $primarykey . "` = '" . $this->$primarykey . "'",
+                    $debug
+                );
+                if ($result === false) {
+                    // `updateTableData()` already catches its own \Throwable and returns false
+                    // (the same shape `insertDataToTable()` has) — so the result, not an
+                    // exception, is the only thing that ever said this failed. Nothing here
+                    // looked at it: the INSERT branch above throws on exactly this return
+                    // value, the UPDATE branch fell through as if it had succeeded, with
+                    // `sqlError` never set either (FW-290). On PostgreSQL a failed statement
+                    // aborts whatever transaction it ran in; left standing, every later
+                    // statement on the connection fails with "current transaction is aborted",
+                    // far from here, until something rolls it back — rolling back immediately
+                    // (only if one is open; a plain, non-transactional update started none)
+                    // leaves the connection usable again regardless of what the caller does
+                    // next.
+                    $error          = $database->getError();
+                    $this->sqlError = $error['message'] ?? '';
+                    if ($database->inTransaction()) {
+                        $database->rollbackTransaction();
+                    }
+                    throw new \Pramnos\Database\QueryException(
+                        $this->sqlError,
+                        '',
+                        null,
+                        'Could not save ' . static::class . '.'
                     );
-                } catch (\Throwable $ex) {
-                    \Pramnos\Logs\Logger::logError("Error in _save update: " . $ex->getMessage(), $ex);
-                    $this->sqlError = $ex->getMessage();
-                    return $this;
                 }
 
                 /*

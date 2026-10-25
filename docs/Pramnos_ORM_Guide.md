@@ -4,6 +4,7 @@ use_cases:
   - Using scopes, accessors, mutators or model events
   - Enabling soft deletes or automatic timestamps
   - Scoping a model's rows to one tenant, account or organisation
+  - Handling a failed save() — catching or checking why an insert or update didn't happen
 ---
 
 # Pramnos ORM Guide
@@ -169,6 +170,25 @@ $db->queryBuilder()->table('#PREFIX#users')
     ->where('active', 0)
     ->update(['active' => 1]);
 ```
+
+### Error handling
+
+A failed `save()` — a constraint violation, a column that no longer exists, anything the
+driver refuses — throws `\Pramnos\Database\QueryException`, whether the object was new
+(an INSERT) or loaded (an UPDATE). `$model->sqlError` is also set, for code that reads it
+instead of catching:
+
+```php
+try {
+    $user->save();
+} catch (\Pramnos\Database\QueryException $ex) {
+    // $ex->getMessage() is safe to show; the driver detail is behind getDriverMessage().
+}
+```
+
+If `save()` ran inside a transaction the caller started, a failure rolls it back before the
+exception reaches the caller — the connection is usable again regardless of what the catch
+block does next.
 
 ### Delete
 

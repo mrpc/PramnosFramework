@@ -793,6 +793,44 @@ class ModelTest extends TestCase
     }
 
     /**
+     * A failed UPDATE throws, the same as a failed INSERT a few lines above it in `_save()` —
+     * the two had been handled asymmetrically: INSERT re-threw `QueryException`, UPDATE
+     * caught `\Throwable`, logged it, and returned `$this` as if nothing had gone wrong
+     * (FW-290). It also rolls back a transaction the caller had open, if there was one:
+     * on PostgreSQL a failed statement aborts the whole transaction, and every later
+     * statement on that connection fails with "current transaction is aborted" — far from
+     * here — until something issues a ROLLBACK.
+     */
+    public function testSaveWithAFailedUpdateThrowsAndRollsBackAnOpenTransaction(): void
+    {
+        // Arrange — a real row, saved while the table still exists; the table then renamed
+        // away is a genuine, driver-level UPDATE failure independent of SQL mode (unlike a
+        // NOT NULL violation, which a non-strict connection merely warns about and coerces).
+        $model = new TestProductModel($this->controller);
+        $model->name = 'Valid Item';
+        $model->price = 5.00;
+        $model->save();
+        $table = $model->getFullTableName();
+        // Defensive: a previous run that errored before its own rename-back would otherwise
+        // collide here.
+        $this->db->query('DROP TABLE IF EXISTS `' . $table . '_fw290probe`');
+        $this->db->startTransaction();
+        $this->db->query('RENAME TABLE `' . $table . '` TO `' . $table . '_fw290probe`');
+        $model->name = 'Changed';
+
+        // Act + Assert
+        try {
+            $this->expectException(\Pramnos\Database\QueryException::class);
+            $model->save();
+        } finally {
+            // The connection is usable again regardless of what the caller does next — not
+            // stuck mid-aborted-transaction.
+            $this->assertFalse($this->db->inTransaction(), 'rolled back, not left open');
+            $this->db->query('RENAME TABLE `' . $table . '_fw290probe` TO `' . $table . '`');
+        }
+    }
+
+    /**
      * save(..., $debug = true) echoes $_POST verbatim for a developer to read, which is
      * exactly what a raw var_dump() would write unescaped into the response — a value
      * containing markup would render as markup (Psalm taint-analysis, TaintedHtml). The
