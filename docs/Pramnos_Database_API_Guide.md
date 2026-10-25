@@ -880,6 +880,15 @@ if ($db->queryBuilder()->table('files')->insert(['name' => $name]) === false) {
 Every `prepare()` starts by clearing it, so an empty `error_text` means "nothing went wrong
 here" rather than "nothing has gone wrong yet".
 
+!!! danger "`prepare($sql)` takes one argument — it is not `prepareQuery()`"
+    `prepare($sql)` opens a prepared statement from `$sql` **as given**: no sprintf-style
+    substitution, no escaping. Calling it with extra arguments —
+    `prepare('… = %s', $value)`, the shape an application-level class of the same name may
+    take (sprintf-style escaping) — throws `ArgumentCountError` rather than silently
+    discarding them and running `$sql` with its `%s` left as literal text: a broken `WHERE`
+    clause that still runs, answering every row instead of one. Reach for `prepareQuery($sql,
+    ...$args)` for sprintf-style substitution, or bind through `execute()`/`queryBuilder()`.
+
 ### Handling errors in application code
 
 ```php

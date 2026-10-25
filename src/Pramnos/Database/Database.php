@@ -1793,6 +1793,25 @@ class Database extends \Pramnos\Framework\Base
      */
     public function prepare($sql)
     {
+        /*
+         * A caller reaching for sprintf-style escaping — `prepare('… = %s', $value)`, the
+         * shape a legacy app-level `Database::prepare($sql, ...$args)` takes — lands here
+         * instead on any application whose own class of that name was replaced by this one
+         * (FW-293: a mechanical find-and-replace of a database-accessor call did exactly
+         * this). PHP does not refuse the extra arguments; they are silently discarded, so
+         * `$sql` runs with its placeholders unfilled rather than failing loudly — a WHERE
+         * clause of literal `%s` text, which this method's own translation leaves as-is, not
+         * a syntax error, so the query runs and answers every row instead of one.
+         * `prepareQuery()` is this method's own sprintf-style sibling.
+         */
+        if (func_num_args() > 1) {
+            throw new \ArgumentCountError(
+                'Database::prepare() takes a single $sql argument and has no sprintf-style '
+                . 'substitution — ' . func_num_args() . ' given. Use prepareQuery($sql, ...$args) '
+                . 'for that, or bind parameters through execute()/queryBuilder() instead.'
+            );
+        }
+
         $isWrite = $this->isWriteQuery($sql);
         $connection = $this->getConnection($isWrite);
 

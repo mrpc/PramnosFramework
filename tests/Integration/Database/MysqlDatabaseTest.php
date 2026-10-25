@@ -1063,6 +1063,32 @@ class MysqlDatabaseTest extends \PHPUnit\Framework\TestCase
         $this->assertFalse($db->connected, 'connected must be false after close()');
     }
 
+    /**
+     * prepare() takes a single $sql argument and has no sprintf-style substitution.
+     * An application-level class of the same name that DOES take ...$args
+     * (prepare($sql, '%s', $value), legacy sprintf-style escaping) silently loses that
+     * substitution if a caller is ever pointed at this method instead: PHP discards the
+     * extra arguments rather than refusing them, so the query runs with its placeholders
+     * unfilled — not a syntax error, just the wrong rows (FW-293). Calling with more than
+     * one argument must throw loudly instead of silently dropping them.
+     */
+    public function testPrepareRefusesExtraArgumentsInsteadOfSilentlyDroppingThem(): void
+    {
+        // Arrange — any connected database; the guard runs before the SQL is touched
+        $db = new Database();
+        $db->type     = 'mysql';
+        $db->server   = 'db';
+        $db->user     = 'root';
+        $db->password = 'secret';
+        $db->database = TEST_DATABASE;
+        $db->port     = 3306;
+        $db->connect(true);
+
+        // Act + Assert — the sprintf-style call shape a legacy class of the same name takes
+        $this->expectException(\ArgumentCountError::class);
+        $db->prepare('SELECT 1 FROM qb_products WHERE name = %s', 'Apple');
+    }
+
     // =========================================================================
     // connect() — read/write replica config path
     // =========================================================================
