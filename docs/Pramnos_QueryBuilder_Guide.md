@@ -693,6 +693,12 @@ $email = $db->queryBuilder()->from('users')->where('userid', 42)->value('email')
 
 $emails = $db->queryBuilder()->from('users')->where('active', 1)->pluck('email');
 // → ['alice@example.com', 'bob@example.com', ...]
+
+// pluck() reads an alias a select() already projects, rather than overwriting it:
+$years = $db->queryBuilder()->from('users')
+    ->select($db->queryBuilder()->raw('YEAR(created_at) as year'))
+    ->groupBy('year')
+    ->pluck('year');
 ```
 
 #### `getAll()` and `pluck()` answer `[]` for a failed query too — and only on PostgreSQL

@@ -1713,12 +1713,28 @@ class QueryBuilder
      */
     public function pluck(string $col): array
     {
-        $clone  = clone $this;
-        $result = $clone->select([$col])->get();
+        $clone = clone $this;
+        $key   = str_contains($col, '.') ? substr(strrchr($col, '.'), 1) : $col;
+
+        // $col may already be the alias of a raw/computed expression a prior select()
+        // put there (SELECT YEAR(x) AS year, then pluck('year')) — select([$col]) would
+        // replace it with a literal column of that name, which does not exist, and the
+        // resulting failed query looks exactly like an empty result (FW-291).
+        $aliased = false;
+        foreach ($clone->getColumns() as $column) {
+            if (preg_match('/\bAS\s+`?' . preg_quote($key, '/') . '`?\s*$/i', trim((string) $column))) {
+                $aliased = true;
+                break;
+            }
+        }
+        if (!$aliased) {
+            $clone->select([$col]);
+        }
+
+        $result = $clone->get();
         if (!$result || $result->numRows === 0) {
             return [];
         }
-        $key  = str_contains($col, '.') ? substr(strrchr($col, '.'), 1) : $col;
         $rows = $result->fetchAll();
         return array_column($rows, $key);
     }

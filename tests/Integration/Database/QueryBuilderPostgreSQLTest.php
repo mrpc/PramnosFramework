@@ -1165,6 +1165,29 @@ class QueryBuilderPostgreSQLTest extends DatabaseTestCase
         $this->assertSame([], $names);
     }
 
+    /**
+     * pluck($alias) on a query whose select() already projects $alias as a raw/computed
+     * expression (e.g. `YEAR(x) AS alias`) must read that projection, not overwrite it
+     * with a literal column of the same name — there is no such column, and the resulting
+     * failed query used to look exactly like an empty result (FW-291).
+     */
+    public function testPluckReadsAnExistingAliasedExpressionInsteadOfOverwritingIt(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act — the select already aliases a computed expression to "upper_name"
+        $values = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->where('category', 'fruit')
+            ->select('name', $this->db->queryBuilder()->raw('UPPER(name) as upper_name'))
+            ->orderBy('name')
+            ->pluck('upper_name');
+
+        // Assert — the real, non-empty projection, not a silently-swallowed failure
+        $this->assertSame(['APPLE', 'BANANA', 'ELDERBERRY'], $values);
+    }
+
     // =========================================================================
     // increment() / decrement()
     // =========================================================================
