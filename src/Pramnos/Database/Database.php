@@ -2676,7 +2676,11 @@ class Database extends \Pramnos\Framework\Base
         }
 
         if ($debug) {
-            echo "\n\n" . $qb->insert($values) . "\n\n";
+            // $qb->insert() already ran it and returned a Result, not SQL text — string
+            // concatenation with it is a TypeError. var_dump() reads on any return shape.
+            echo "\n\n";
+            var_dump($qb->insert($values));
+            echo "\n\n";
             return $this->lastResult;
         }
 
@@ -2747,7 +2751,11 @@ class Database extends \Pramnos\Framework\Base
         }
 
         if ($debug) {
-            echo "\n\n" . $qb->update($values) . "\n\n";
+            // Same TypeError as insertDataToTable()'s debug branch, same fix: $qb->update()
+            // already ran it and returned a Result, not SQL text.
+            echo "\n\n";
+            var_dump($qb->update($values));
+            echo "\n\n";
             return $this->lastResult;
         }
 

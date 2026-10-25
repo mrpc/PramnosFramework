@@ -621,36 +621,42 @@ class MysqlDatabaseTest extends \PHPUnit\Framework\TestCase
     }
 
     // =========================================================================
-    // insertDataToTable / updateTableData — debug mode (TypeError path)
+    // insertDataToTable / updateTableData — debug mode
     // =========================================================================
 
     /**
-     * insertDataToTable() with $debug=true executes the `if ($debug)` branch
-     * (lines 1596-1598).  In the current implementation, $qb->insert() returns
-     * a Result object, which PHP cannot concatenate to a string — the code throws
-     * a TypeError.  We use expectException to document this known behaviour and
-     * cover the branch.
+     * insertDataToTable() with $debug=true used to concatenate $qb->insert()'s
+     * return value — a Result object, not SQL text — into a string and throw a
+     * TypeError on every debug call (FW-290's debug-branch sibling). Fixed to
+     * var_dump() the result instead, so this now proves the debug branch runs
+     * the real insert and returns normally, output included.
      */
-    public function testInsertDataToTableDebugModeEntersDebugBranchAndThrows(): void
+    public function testInsertDataToTableDebugModeEntersDebugBranchAndReturns(): void
     {
         // Arrange
+        $code = 'DBG-INS-' . bin2hex(random_bytes(6));
         $data = [
-            ['fieldName' => 'code',  'value' => 'DBG-INS-' . bin2hex(random_bytes(6)), 'type' => 'string'],
+            ['fieldName' => 'code',  'value' => $code, 'type' => 'string'],
             ['fieldName' => 'label', 'value' => 'debug',                          'type' => 'string'],
         ];
 
-        // Act + Assert — debug branch is entered; qb->insert() returns a Result
-        // object which PHP cannot concatenate to string → Error (PHP 8: TypeError/Error)
-        $this->expectException(\Error::class);
-        $this->expectExceptionMessageMatches('/could not be converted to string/');
-        self::$db->insertDataToTable(self::$table, $data, '', true);
+        // Act — debug branch is entered; no longer throws
+        ob_start();
+        $result = self::$db->insertDataToTable(self::$table, $data, '', true);
+        $output = ob_get_clean();
+
+        // Assert — the row was really written, and the debug branch echoed the result
+        $this->assertNotFalse($result);
+        $this->assertStringContainsString('object', $output);
+        $row = self::$db->query("SELECT label FROM " . self::$table . " WHERE code = '" . $code . "'");
+        $this->assertSame('debug', $row->fields['label']);
     }
 
     /**
-     * updateTableData() with $debug=true enters the debug branch (lines 1666-1668).
-     * Same behaviour as insertDataToTable debug mode — an Error is thrown.
+     * updateTableData() with $debug=true had the same bug and fix as insertDataToTable's
+     * debug mode above.
      */
-    public function testUpdateTableDataDebugModeEntersDebugBranchAndThrows(): void
+    public function testUpdateTableDataDebugModeEntersDebugBranchAndReturns(): void
     {
         // Arrange
         self::$db->query(
@@ -661,10 +667,16 @@ class MysqlDatabaseTest extends \PHPUnit\Framework\TestCase
             ['fieldName' => 'label', 'value' => 'debug-updated', 'type' => 'string'],
         ];
 
-        // Act + Assert — debug branch is entered → Error
-        $this->expectException(\Error::class);
-        $this->expectExceptionMessageMatches('/could not be converted to string/');
-        self::$db->updateTableData(self::$table, $data, "code = 'DBG-UPD'", true);
+        // Act — debug branch is entered; no longer throws
+        ob_start();
+        $result = self::$db->updateTableData(self::$table, $data, "code = 'DBG-UPD'", true);
+        $output = ob_get_clean();
+
+        // Assert — the row was really updated, and the debug branch echoed the result
+        $this->assertNotFalse($result);
+        $this->assertStringContainsString('object', $output);
+        $row = self::$db->query("SELECT label FROM " . self::$table . " WHERE code = 'DBG-UPD'");
+        $this->assertSame('debug-updated', $row->fields['label']);
     }
 
     // =========================================================================
