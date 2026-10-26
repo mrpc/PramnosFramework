@@ -216,6 +216,62 @@ test('the block toolbar is there only when asked for, over the text while it has
     assert.ok(withPlugin, 'a plugin\'s block button is not on the block toolbar');
 });
 
+test('the toolbar and its panel share one sticky wrapper, so a scrolled panel stays in view', () => {
+    // Arrange / Act
+    const ui = page({ value: '<p>one</p>' });
+    const head = ui.field.nextElementSibling.querySelector('.pf-rich-head');
+
+    // Assert — the toolbar and the (empty, for now) panels container are both inside it
+    assert.ok(head, 'no .pf-rich-head wrapper — the toolbar and its panel are no longer one sticky unit');
+    assert.ok(head.contains(ui.bar), 'the toolbar is not inside .pf-rich-head');
+    assert.ok(head.querySelector('.pf-rich-panels'), '.pf-rich-panels is not inside .pf-rich-head');
+});
+
+test('panels float under the selected block instead of docking, when asked for', () => {
+    // Arrange — the application's default is docked; one field asks for floating
+    const ui = page({ value: '<p>one</p>', attrs: 'data-pf-rich-panels="floating"' });
+    const area = ui.field.nextElementSibling.querySelector('.pf-rich-area');
+
+    // Act — open the link panel from the toolbar
+    ui.bar.querySelector('[data-button="link"]').click();
+    const floating = area.querySelector('.pf-rich-floating');
+    const docked = ui.field.nextElementSibling.querySelector('.pf-rich-panels .pf-rich-panel');
+
+    // Assert
+    assert.ok(floating, 'the link panel did not float under the text, with data-pf-rich-panels="floating"');
+    assert.equal(docked, null, 'the link panel was docked under the toolbar as well as floated');
+});
+
+test('a picture action runs with the picture\'s node, position, editor and upload function', () => {
+    // Arrange — a plain field, enhanced with a picture action of its own (JS-only, not an attribute)
+    const ui = page({ value: '<p>one</p>', before: (window) => { window.__upload = () => Promise.resolve('/x.jpg'); } });
+    const field = ui.window.document.createElement('textarea');
+    field.setAttribute('data-pf-editor', 'rich');
+    field.setAttribute('data-pf-rich-upload', '/upload');
+    ui.window.document.body.append(field);
+    let seen = null;
+    const instance = ui.window.pfRichEditor.enhance(field, {
+        pictureActions: [{ label: 'Crop', run: (args) => { seen = args; } }],
+    });
+    instance.editor.commands.setContent('<figure><img src="/a.jpg"></figure>');
+    instance.editor.commands.setNodeSelection(0);
+    // onTransaction (which draws the picture panel) only fires from a real transaction.
+    instance.editor.commands.focus();
+
+    // Act
+    const crop = instance.element.querySelector('.pf-rich-panel .pf-rich-button');
+    crop.click();
+
+    // Assert
+    assert.ok(crop, 'no picture action button was drawn');
+    assert.equal(crop.textContent, 'Crop');
+    assert.ok(seen, 'the picture action\'s run() was never called');
+    assert.equal(seen.node.type.name, 'picture');
+    assert.equal(seen.at, 0);
+    assert.equal(seen.editor, instance.editor);
+    assert.equal(typeof seen.upload, 'function');
+});
+
 test('a field inside its label gets its editor after the label, never inside it', () => {
     // Arrange — the common `<label>Text <textarea></label>`, with no `for`
     const ui = page();

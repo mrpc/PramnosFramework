@@ -110,12 +110,18 @@ class MessageEditorTest extends TestCase
         $this->assertStringNotContainsString('x=</script>', $scripts, 'the address can close the script it is printed in');
         $this->assertSame('Bold', $defaults['labels']['bold'] ?? null);
         $this->assertFalse($defaults['blockToolbar'] ?? null, 'the block toolbar is off unless asked for');
+        $this->assertArrayNotHasKey('panels', $defaults, 'docked is the default and needs no key at all');
 
         // Act & Assert — asked for in app.php
         $this->withConfig(['editor' => 'rich', 'rich' => ['block_toolbar' => true]]);
         preg_match('/window\.pfRichEditorDefaults = (\{.*?\});<\/script>/', MessageEditor::scripts(MessageEditor::RICH), $m);
         $this->assertTrue(json_decode($m[1] ?? 'null', true)['blockToolbar'] ?? null);
         $this->assertFileExists(dirname(__DIR__, 3) . '/scaffolding/assets/js/pf-rich-editor.js');
+
+        // Act & Assert — floating panels, asked for in app.php
+        $this->withConfig(['editor' => 'rich', 'rich' => ['panels' => 'floating']]);
+        preg_match('/window\.pfRichEditorDefaults = (\{.*?\});<\/script>/', MessageEditor::scripts(MessageEditor::RICH), $m);
+        $this->assertSame('floating', json_decode($m[1] ?? 'null', true)['panels'] ?? null);
     }
 
     /**

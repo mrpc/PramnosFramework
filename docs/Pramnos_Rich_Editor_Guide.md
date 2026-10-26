@@ -54,6 +54,16 @@ defaults — the controls' words through `t()`, and the `upload` and `links` add
 - **Embeds:** an address alone in a paragraph — YouTube, Vimeo, or a provider of the site's own —
   is previewed under it. The address is what is saved; how it is embedded on the published page
   is the site's business.
+- **Where the link and picture panels sit:** docked under the toolbar by default, in the same
+  sticky strip as the toolbar itself — a long article does not scroll the panel out from under it.
+  `'panels' => 'floating'` in `messaging.rich` (or `data-pf-rich-panels="floating"` for one field,
+  `panels` for `create()` and the Svelte component) puts them over the text instead, just under
+  the block they are about.
+- **A site's own actions on a picture**, alongside the alt text and caption fields — cropping,
+  filters, a swap for one already chosen elsewhere: `pictureActions` on `create()` (JS-only, no
+  field attribute), a list of `{ label, run({ node, at, editor, upload }) }`. `node` is the
+  picture's own ProseMirror node, `at` its position, `upload` the same function `options.upload`
+  is. See [Adding a site's own](#adding-a-sites-own).
 
 On a message form the editor is reached by the composer's tools — saved messages, placeholders,
 writing with AI, the signature — like the other editors; see the
@@ -68,6 +78,7 @@ writing with AI, the signature — like the other editors; see the
 | `data-pf-rich-plugins="embeds,mentions"` | only these plugins; every one registered without it. `embeds` is named like a plugin, so a field can leave previews out |
 | `data-pf-rich-labels='{"bold":"Έντονα"}'` | the controls' words |
 | `data-pf-rich-block-toolbar="1"` | the block toolbar for this field (`"0"`: none), whatever the application's default |
+| `data-pf-rich-panels="floating"` | the link/picture panel floats under its block for this field (`"docked"`, or left out: docked), whatever the application's default |
 | `data-pf-rich-header="#title"` | an element of the page moved into the text's column — under the toolbar, above the text — as an article's title sits; `header` in `create()` |
 | `readonly` / `disabled` | the text shown, not editable |
 
@@ -121,6 +132,25 @@ pfRichEditor.embeds.add({
 
 `match` answers `{ src, label, video }` for an address it embeds — `src` is drawn in a frame, a
 provider without one is shown by name — or `null`.
+
+A site's own action on a picture already in the text, beside the alt text and caption — a crop,
+a filter — is `pictureActions` on `create()`, not a plugin: it draws one button per action in the
+picture panel, after its address.
+
+```js
+pfRichEditor.create(host, {
+    upload: (file) => fetch('/admin/Media/upload', { method: 'POST', body: toFormData(file) })
+        .then((r) => r.json()).then((a) => a.url),
+    pictureActions: [{
+        label: 'Crop',
+        run({ node, at, editor, upload }) {
+            // node.attrs.src is the picture already there; fetch it, let the site's own
+            // cropping tool work on it, then replace the picture in place:
+            editor.chain().focus().setNodeSelection(at).updateAttributes('picture', { src: newSrc }).run();
+        },
+    }],
+});
+```
 
 ## In a Svelte SPA
 

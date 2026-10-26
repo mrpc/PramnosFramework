@@ -14,11 +14,16 @@
  *   data-pf-rich-plugins="embeds,mentions"      only these plugins; every one registered without it
  *   data-pf-rich-labels='{"bold":"Έντονα"}'     the controls' words
  *   data-pf-rich-block-toolbar="1"              a toolbar over the block at the cursor ("0": none)
+ *   data-pf-rich-panels="floating"               the link/picture panel floats under its block
+ *                                               instead of docking under the toolbar ("docked" or
+ *                                               left out: docked)
  *   data-pf-rich-header="#title"                an element moved into the text's column, above the
  *                                               text and under the toolbar — the title field
  *
- * `window.pfRichEditorDefaults = { labels, upload, links, blockToolbar }`, set before this file, is what a field
- * without its own attribute takes — `MessageEditor::scripts('rich')` prints the application's.
+ * `window.pfRichEditorDefaults = { labels, upload, links, blockToolbar, panels }`, set before this
+ * file, is what a field without its own attribute takes — `MessageEditor::scripts('rich')` prints
+ * the application's. `pictureActions` is JS-only — a page passes it to `pfRichEditor.create()` or
+ * `pfRichEditor.enhance(field, { pictureActions })` directly, not through an attribute.
  *
  * A site adds its own behaviour with a plugin, before the page has loaded:
  *
@@ -75,7 +80,7 @@ function pluginsFor(field) {
 }
 
 /** Turn a textarea into an editor, once. */
-function enhance(field) {
+function enhance(field, overrides = {}) {
     if (!field || editors.has(field)) {
         return editors.get(field) || null;
     }
@@ -107,10 +112,12 @@ function enhance(field) {
         blockToolbar: field.hasAttribute('data-pf-rich-block-toolbar')
             ? field.getAttribute('data-pf-rich-block-toolbar') !== '0'
             : !!defaults.blockToolbar,
+        panels: field.getAttribute('data-pf-rich-panels') || defaults.panels || 'docked',
         onChange: (html) => {
             field.value = html;
             field.dispatchEvent(new Event('input', { bubbles: true }));
         },
+        ...overrides,
     });
     // The label that named the textarea names the text now.
     const label = (field.id ? document.querySelector('label[for="' + field.id + '"]') : null) || enclosing;

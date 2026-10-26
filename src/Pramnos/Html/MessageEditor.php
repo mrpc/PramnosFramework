@@ -72,7 +72,8 @@ final class MessageEditor
      * preflight — would otherwise make a heading body text and take the bullets off a list.
      */
     public const RICH_CSS = '.pf-rich{border:1px solid rgba(128,128,128,.35);border-radius:.5rem}'
-        . '.pf-rich-toolbar{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;gap:4px;padding:6px;border-bottom:1px solid rgba(128,128,128,.25);background:inherit}'
+        . '.pf-rich-head{position:sticky;top:0;z-index:2;background:inherit}'
+        . '.pf-rich-toolbar{display:flex;flex-wrap:wrap;gap:4px;padding:6px;border-bottom:1px solid rgba(128,128,128,.25);background:inherit}'
         . '.pf-rich-button{border:1px solid rgba(128,128,128,.35);border-radius:.35rem;background:none;color:inherit;padding:2px 8px;font-size:.85rem;cursor:pointer}'
         . '.pf-rich-button.is-active{background:rgba(128,128,128,.2);font-weight:600}'
         . '.pf-rich-button:disabled{opacity:.5;cursor:default}'
@@ -82,10 +83,11 @@ final class MessageEditor
         . '.pf-rich-input{border:1px solid rgba(128,128,128,.35);border-radius:.35rem;padding:2px 6px;background:transparent;color:inherit;font:inherit}'
         . '.pf-rich-found{list-style:none;margin:0;padding:0;width:100%;max-height:12rem;overflow:auto}'
         . '.pf-rich-found button{background:none;border:0;color:inherit;cursor:pointer;text-align:left;padding:2px 4px;width:100%}'
-        . '.pf-rich-area{padding:12px 16px}'
-        . '.pf-rich-area.has-block-toolbar{position:relative;padding-top:40px}'
+        . '.pf-rich-area{position:relative;padding:12px 16px}'
+        . '.pf-rich-area.has-block-toolbar{padding-top:40px}'
         . '.pf-rich-block{position:absolute;left:16px;z-index:3;display:flex;gap:2px;padding:2px;border:1px solid rgba(128,128,128,.35);border-radius:.4rem;background:#fff;color:#111;box-shadow:0 4px 12px rgba(0,0,0,.15)}'
         . '.pf-rich-block[hidden]{display:none}'
+        . '.pf-rich-floating{position:absolute;left:16px;right:16px;z-index:3;border:1px solid rgba(128,128,128,.35);border-radius:.4rem;background:#fff;color:#111;box-shadow:0 4px 12px rgba(0,0,0,.15)}'
         . '.pf-rich-block-gap{width:1px;margin:0 2px;background:rgba(128,128,128,.35)}'
         . '.pf-rich-text{min-height:12rem;outline:none}'
         . '.pf-rich-text h2{font-size:1.5em;font-weight:600;line-height:1.3;margin:.6em 0 .3em}'
@@ -131,6 +133,9 @@ final class MessageEditor
                 }
             }
             $defaults['blockToolbar'] = (bool) ($rich['block_toolbar'] ?? false);
+            if (($rich['panels'] ?? null) === 'floating') {
+                $defaults['panels'] = 'floating';
+            }
 
             return '<style>' . self::RICH_CSS . '</style>'
                 . '<script>window.pfRichEditorDefaults = ' . json_encode($defaults, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) . ';</script>'

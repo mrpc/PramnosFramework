@@ -1,6 +1,10 @@
 /**
  * The rich editor's core: TipTap with a toolbar, a link panel and a picture panel, in plain DOM.
  *
+ * FRAMEWORK-OWNED, refreshed by every `project:resync`. Edit a copy under a project's own
+ * `lib/rich-editor/core.js` and the next resync overwrites it — a change belongs here, in the
+ * framework, or behind one of the options/hooks below, never in the copy.
+ *
  * One core, two ways in. Server-rendered pages get it bundled with TipTap as
  * `assets/js/pf-rich-editor.js` (see page.js), turning `<textarea data-pf-editor="rich">` into an
  * editor; a SPA imports it (the Svelte wrapper) with TipTap from its own dependencies.
@@ -114,6 +118,15 @@ function builtinButtons(l, ui) {
  * @param {boolean}  [options.blockToolbar] A small toolbar floating over the block at the cursor —
  *                                    move it, make it a paragraph or a heading, bold, italic, link;
  *                                    a plugin's button with `block: true` is on it too. Off by default
+ * @param {'docked'|'floating'} [options.panels] Where the link and picture panels sit — docked
+ *                                    under the sticky toolbar (default), or floating over the
+ *                                    text just under the block they are about, so a long article
+ *                                    does not put the panel a scroll away from what it edits.
+ * @param {Array}    [options.pictureActions] Extra buttons on the picture panel, after the
+ *                                    address: `[{ label, run({ node, at, editor, upload }) }]`.
+ *                                    `node` is the picture's ProseMirror node, `at` its position,
+ *                                    `upload` is `options.upload`. A site's own picture editing —
+ *                                    cropping, filters — hangs off this rather than the core.
  * @returns {{ editor: Editor, element: HTMLElement, getHTML: Function, setHTML: Function, setReadonly: Function, destroy: Function }}
  */
 export function createRichEditor(host, options = {}) {
@@ -131,11 +144,17 @@ export function createRichEditor(host, options = {}) {
     bar.addEventListener('mousedown', (event) => {
         if (!(event.target instanceof HTMLInputElement)) { event.preventDefault(); }
     });
+    // The toolbar and the panel under it (a link or picture's address) are one sticky unit —
+    // the toolbar alone was sticky, so scrolling an open panel out from under it put the
+    // Address bar off-screen the moment a link deep in a long article was edited.
+    const head = document.createElement('div');
+    head.className = 'pf-rich-head';
     const panels = document.createElement('div');
     panels.className = 'pf-rich-panels';
     const area = document.createElement('div');
     area.className = 'pf-rich-area';
-    wrap.append(bar, panels, area);
+    head.append(bar, panels);
+    wrap.append(head, area);
     host.append(wrap);
 
     const file = document.createElement('input');
@@ -255,6 +274,22 @@ export function createRichEditor(host, options = {}) {
         area.insertBefore(header, editor.view.dom);
     }
 
+    /** The DOM node of the block the selection is in — what a floating panel, or the block toolbar, anchors to. */
+    function selectedBlockDom() {
+        const { selection } = editor.state;
+        const at = selection.$from.depth === 0 ? selection.from : selection.$from.before(1);
+        return editor.view.nodeDOM(at);
+    }
+
+    /** A panel placed over the text, just under the block it is about, instead of docked under the toolbar. */
+    function floatBelow(box, dom) {
+        box.classList.add('pf-rich-floating');
+        area.append(box);
+        const top = dom && typeof dom.getBoundingClientRect === 'function'
+            ? dom.getBoundingClientRect().bottom - area.getBoundingClientRect().top + 4 : 0;
+        box.style.top = Math.max(0, top) + 'px';
+    }
+
     file.addEventListener('change', () => {
         const chosen = file.files && file.files[0];
         file.value = '';
@@ -287,6 +322,7 @@ export function createRichEditor(host, options = {}) {
         if (linkPanel.element) { linkPanel.element.remove(); linkPanel.element = null; }
         if (!show) { return; }
 
+        const anchor = options.panels === 'floating' ? selectedBlockDom() : null;
         const box = document.createElement('div');
         box.className = 'pf-rich-panel';
         box.setAttribute('role', 'group');
@@ -352,7 +388,7 @@ export function createRichEditor(host, options = {}) {
             });
             box.append(search, results);
         }
-        panels.append(box);
+        if (options.panels === 'floating') { floatBelow(box, anchor); } else { panels.append(box); }
         linkPanel.element = box;
         if (linkPanel.adding && !linkPanel.href) { input.focus(); }
     }
@@ -381,6 +417,14 @@ export function createRichEditor(host, options = {}) {
         where.textContent = node.attrs.src || '';
         where.className = 'pf-rich-src';
         box.append(where);
+        (options.pictureActions || []).forEach((action) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'pf-rich-button';
+            button.textContent = action.label;
+            button.addEventListener('click', () => action.run({ node, at, editor, upload: options.upload }));
+            box.append(button);
+        });
         [['alt', l.altText, l.altHint], ['caption', l.caption, l.captionHint]].forEach(([field, name, hint]) => {
             const label = document.createElement('label');
             label.textContent = name + ' ';
@@ -395,7 +439,7 @@ export function createRichEditor(host, options = {}) {
             label.append(input);
             box.append(label);
         });
-        panels.append(box);
+        if (options.panels === 'floating') { floatBelow(box, editor.view.nodeDOM(at)); } else { panels.append(box); }
         picturePanel = box;
     }
 
@@ -447,9 +491,7 @@ export function createRichEditor(host, options = {}) {
             const show = focused && editor.isEditable;
             blockBar.hidden = !show;
             if (!show) { return; }
-            const { selection } = editor.state;
-            const at = selection.$from.depth === 0 ? selection.from : selection.$from.before(1);
-            const dom = editor.view.nodeDOM(at);
+            const dom = selectedBlockDom();
             const top = dom && typeof dom.getBoundingClientRect === 'function'
                 ? dom.getBoundingClientRect().top - area.getBoundingClientRect().top : 0;
             blockBar.style.top = Math.max(0, top - blockBar.offsetHeight - 4) + 'px';
