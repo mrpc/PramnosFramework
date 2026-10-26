@@ -457,7 +457,7 @@ class QueryBuilder
         $type  = 'Like';
         $value = $pattern;
         $this->wheres[] = compact('type', 'column', 'value', 'boolean');
-        $this->addBinding($pattern, 'where');
+        $this->addBinding($this->grammar->prepareLikePattern($pattern), 'where');
 
         return $this;
     }

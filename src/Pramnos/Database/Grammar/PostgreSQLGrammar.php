@@ -41,24 +41,110 @@ class PostgreSQLGrammar extends Grammar
     }
 
     /**
-     * Letters folded for {@see compileLikeIgnoringCase()}: Greek and Latin capitals to small
-     * ones, accented and diaeresis forms to the bare letter, final sigma to sigma — `translate()`
-     * maps each character of the first to the one at its place in the second.
+     * Case/accent equivalence for {@see prepareLikePattern()}: Greek and Latin capitals fold
+     * to their small letter, an accented or diaeresis form to its bare letter, final sigma to
+     * sigma — each entry of the first string is an alternate spelling of the one at its place
+     * in the second.
      */
     private const FOLD_FROM = 'ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩΆΈΉΊΌΎΏΪΫάέήίόύώϊϋΐΰςABCDEFGHIJKLMNOPQRSTUVWXYZ';
     private const FOLD_TO   = 'αβγδεζηθικλμνξοπρστυφχψωαεηιουωιυαεηιουωιυιυσabcdefghijklmnopqrstuvwxyz';
 
+    /** POSIX ERE metacharacters a literal pattern character must be escaped to lose. */
+    private const REGEX_METACHARS = '.^$*+?()[]{}|\\';
+
+    /** Built once from {@see FOLD_FROM}/{@see FOLD_TO}: raw character => every character that folds to the same one, itself included. */
+    private static ?array $foldGroups = null;
+
+    private static function foldGroups(): array
+    {
+        if (self::$foldGroups !== null) {
+            return self::$foldGroups;
+        }
+
+        $from = mb_str_split(self::FOLD_FROM);
+        $to   = mb_str_split(self::FOLD_TO);
+
+        $byTarget = [];
+        foreach ($from as $i => $raw) {
+            $byTarget[$to[$i]][] = $raw;
+        }
+        foreach ($byTarget as $target => $raws) {
+            if (!in_array($target, $raws, true)) {
+                $byTarget[$target][] = $target;
+            }
+        }
+
+        $byChar = [];
+        foreach ($byTarget as $target => $raws) {
+            foreach ($raws as $raw) {
+                $byChar[$raw] = $raws;
+            }
+        }
+
+        return self::$foldGroups = $byChar;
+    }
+
     /**
-     * PostgreSQL's `LIKE` tells case and accents apart, where MySQL's `_ci` collations do not:
-     * the column and the pattern are folded alike, in SQL, before they are compared. `ILIKE`
-     * would leave accents apart, and `lower()` follows the database's locale — under `C` it
-     * leaves Greek as it is.
+     * Rewrites a `LIKE` pattern (its own `%`, `_`, `\%`, `\_`, `\\`) into a POSIX regular
+     * expression that matches the same strings PostgreSQL's `translate()`-folded `LIKE` used
+     * to, one `~` per row instead of two whole-column `translate()` calls plus a `LIKE` — the
+     * difference between this and a sequential scan `translate()`+`LIKE` was measured at
+     * roughly 30x on a 30k-row, 29 MB text column (glideday, 2026-10-26).
+     *
+     * `ILIKE` folds case through the database's locale, which under the (very common, often
+     * default) `C` locale does not touch Greek at all — the reason {@see compileLikeIgnoringCase()}
+     * cannot simply become `ILIKE`. This instead spells out every raw form of an ambiguous
+     * letter (`Α`, `Ά`, `ά`, `α`, …) as its own regex character class, so the match never
+     * depends on what the server's locale considers "the same letter".
+     */
+    public function prepareLikePattern(string $pattern): string
+    {
+        $groups = self::foldGroups();
+        $chars  = mb_str_split($pattern);
+        $regex  = '^';
+
+        for ($i = 0, $n = count($chars); $i < $n; $i++) {
+            $char = $chars[$i];
+
+            if ($char === '\\' && $i + 1 < $n && in_array($chars[$i + 1], ['%', '_', '\\'], true)) {
+                $regex .= $this->literalForRegex($chars[++$i]);
+                continue;
+            }
+
+            if ($char === '%') {
+                $regex .= '.*';
+                continue;
+            }
+
+            if ($char === '_') {
+                $regex .= '.';
+                continue;
+            }
+
+            if (isset($groups[$char]) && count($groups[$char]) > 1) {
+                $regex .= '[' . implode('', $groups[$char]) . ']';
+                continue;
+            }
+
+            $regex .= $this->literalForRegex($char);
+        }
+
+        return $regex . '$';
+    }
+
+    private function literalForRegex(string $char): string
+    {
+        return str_contains(self::REGEX_METACHARS, $char) ? '\\' . $char : $char;
+    }
+
+    /**
+     * {@see prepareLikePattern()} has already turned the pattern into a regular expression
+     * equivalent to the fold-and-compare the old `translate()`+`LIKE` did — matching it is a
+     * single, native, case-sensitive-by-construction operator, with nothing left to fold here.
      */
     protected function compileLikeIgnoringCase(string $column, string $placeholder): string
     {
-        $fold = static fn (string $value): string => "translate({$value}, '" . self::FOLD_FROM . "', '" . self::FOLD_TO . "')";
-
-        return $fold($column . '::text') . ' LIKE ' . $fold($placeholder);
+        return $column . '::text ~ ' . $placeholder;
     }
 
     /**

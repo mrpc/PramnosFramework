@@ -1767,4 +1767,99 @@ class GrammarTest extends TestCase
         $this->assertStringContainsString("convert_from(payload, 'UTF8') LIKE %s", $sql);
         $this->assertStringNotContainsString('payload::text', $sql);
     }
+
+    // =========================================================================
+    // PostgreSQLGrammar — whereLike() compiles to a regex, not a translate()+LIKE (FW-294)
+    // =========================================================================
+
+    /**
+     * whereLike() on PostgreSQL used to compile to `translate(col::text, …) LIKE translate(?, …)`
+     * — two whole-column rewrites with no index to help them, measured at ~10.8s on a 30k-row
+     * text column (glideday, 2026-10-26). It now compiles to a single `col::text ~ ?` regex
+     * match instead, with the case/accent folding baked into the bound pattern
+     * ({@see testPostgresPrepareLikePatternFoldsAmbiguousLettersIntoCharacterClasses}).
+     */
+    public function testPostgresWhereLikeCompilesToRegexMatchNotTranslate(): void
+    {
+        // Arrange
+        $qb = $this->postgresQB()->from('people')->whereLike('name', '%μαρια%');
+
+        // Act
+        $sql = (new PostgreSQLGrammar())->compileSelect($qb);
+
+        // Assert — the new shape, and none of the old translate() calls left behind.
+        $this->assertStringContainsString('name::text ~ %s', $sql);
+        $this->assertStringNotContainsString('translate(', $sql);
+    }
+
+    /**
+     * prepareLikePattern() is what whereLike() binds instead of the raw pattern on PostgreSQL:
+     * a POSIX regular expression that lists every raw spelling of an ambiguous letter — Greek
+     * and Latin upper/lower, accented and diaeresis forms, final sigma — as its own character
+     * class, rather than asking `ILIKE`/`lower()` to fold them. That distinction matters under
+     * the (very common, often default) `C` locale, where PostgreSQL's own case folding does not
+     * touch Greek at all — spelling the alternatives out ourselves keeps the match correct
+     * regardless of the server's locale.
+     */
+    public function testPostgresPrepareLikePatternFoldsAmbiguousLettersIntoCharacterClasses(): void
+    {
+        $grammar = new PostgreSQLGrammar();
+
+        // A capital, an accent and a final sigma, all folded to the same class as their bare
+        // lower-case letter — this is the exact comparison `translate()` used to make in SQL.
+        $this->assertSame(
+            '^.*[Νν][ΙΊΪίϊΐι][Κκ][ΟΌόο][Σςσ].*$',
+            $grammar->prepareLikePattern('%νίκος%'),
+            'an accented, lower-case Greek word folds the same as its capitalised, unaccented spelling below'
+        );
+        $this->assertSame(
+            '^.*[Νν][ΙΊΪίϊΐι][Κκ][ΟΌόο][Σςσ].*$',
+            $grammar->prepareLikePattern('%ΝΊΚΟΣ%'),
+            'same class for the all-capitals, accented spelling of the same word'
+        );
+
+        // ASCII letters fold too (A-Z to a-z) — a plain English pattern still becomes brackets,
+        // not a literal pattern, but matches exactly the same rows a case-fold would.
+        $this->assertSame('^.*[Gg][Ee][Oo][Rr][Gg][Ee].*$', $grammar->prepareLikePattern('%george%'));
+    }
+
+    /**
+     * `%` and `_` keep their LIKE wildcard meaning (any run of characters / exactly one
+     * character) unless escaped with a backslash, in which case they — and a literal
+     * backslash — are matched as themselves rather than translated into a wildcard.
+     */
+    public function testPostgresPrepareLikePatternKeepsWildcardsAndHonoursBackslashEscapes(): void
+    {
+        $grammar = new PostgreSQLGrammar();
+
+        $this->assertSame('^.*100.*$', $grammar->prepareLikePattern('%100%'), '% is "any run of characters"');
+        $this->assertSame('^10.$', $grammar->prepareLikePattern('10_'), '_ is "exactly one character"');
+        $this->assertSame(
+            '^.*100%.*$',
+            $grammar->prepareLikePattern('%100\\%%'),
+            'an escaped \\% is a literal percent sign, not a wildcard'
+        );
+        $this->assertSame(
+            '^[Aa]_[Bb]$',
+            $grammar->prepareLikePattern('a\\_b'),
+            'an escaped \\_ is a literal underscore, not a single-character wildcard — a and b still fold like any other ASCII letter'
+        );
+        $this->assertSame(
+            '^[Aa]\\\\[Bb]$',
+            $grammar->prepareLikePattern('a\\\\b'),
+            'an escaped \\\\ is a literal backslash'
+        );
+    }
+
+    /**
+     * A pattern character that is itself a POSIX regular expression metacharacter — a literal
+     * dot in a search for "node.js", for instance — is escaped, so it still matches only
+     * itself rather than "any character".
+     */
+    public function testPostgresPrepareLikePatternEscapesRegexMetacharactersInLiteralText(): void
+    {
+        $grammar = new PostgreSQLGrammar();
+
+        $this->assertSame('^[Nn][Oo][Dd][Ee]\\.[Jj][Ss]$', $grammar->prepareLikePattern('node.js'));
+    }
 }

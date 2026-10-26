@@ -413,16 +413,18 @@ $qb->whereNotNull('email');
 ```php
 $qb->whereLike('lastname', '%' . $term . '%');
 // MySQL:      WHERE lastname LIKE ?
-// PostgreSQL: WHERE translate(lastname::text, 'ΑΒΓ…ΆΈ…ςAB…', 'αβγ…αε…σab…')
-//                  LIKE translate(?, 'ΑΒΓ…ΆΈ…ςAB…', 'αβγ…αε…σab…')
+// PostgreSQL: WHERE lastname::text ~ ?     -- ? bound to '^.*[Μμ][ΑΆάα][Ρρ]…$'
 ```
 
 A `LIKE` that ignores case and accents on every database: `'%μαρια%'` finds `Μαρία`. MySQL
 already compares so under the `_ci` collations its text columns are in. PostgreSQL's `LIKE`
-tells both apart, so there the column and the pattern are folded alike: upper case to lower,
-an accented or diaeresis letter to its bare one, `ς` to `σ`, for Greek and Latin. `ILIKE` would
-leave accents apart, and `lower()` follows the database's locale, which under `C` leaves Greek
-alone.
+tells both apart, so there the pattern is compiled into a regular expression that spells out
+every raw form of an ambiguous letter as its own character class — upper case and lower, an
+accented or diaeresis letter and its bare one, `ς` and `σ`, for Greek and Latin — and matched
+with `~`. `ILIKE` would leave accents apart, and folds case through the database's locale,
+which under `C` leaves Greek alone; spelling the letters out keeps the match correct
+regardless of locale, and as a single native operator it runs far faster on a large column
+than folding the column and the pattern with `translate()` first.
 
 `where($column, 'LIKE', …)` stays the comparison as each database makes it. On PostgreSQL that
 is case- and accent-sensitive, which is what an exact code or a case-sensitive key wants.

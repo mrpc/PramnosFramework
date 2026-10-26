@@ -99,6 +99,17 @@ abstract class Grammar implements GrammarInterface
     }
 
     /**
+     * The value bound for {@see compileLikeIgnoringCase()} — the pattern as given, on a
+     * dialect whose `LIKE` already ignores case and accents. A dialect whose `LIKE` does not
+     * overrides this to bind something else (PostgreSQL binds a regular expression instead
+     * of the pattern itself; see {@see PostgreSQLGrammar::prepareLikePattern()}).
+     */
+    public function prepareLikePattern(string $pattern): string
+    {
+        return $pattern;
+    }
+
+    /**
      * `whereLikeText()`'s comparison: a `LIKE` against a column that holds text but is typed
      * for raw bytes (a MySQL `blob` moved to PostgreSQL `bytea` without `--blob-as-text`). A
      * `blob`'s bytes already compare as text under a plain `LIKE`, so the base is the same as
