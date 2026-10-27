@@ -1203,6 +1203,14 @@ Event::listen(MailingList::EVENT_CONFIRMED, function (string $list, string $emai
 
 It fires once per address. A second press of the button confirms nothing and fires nothing.
 
+### Hooks on this page
+
+| Name | Fires in |
+|---|---|
+| `mailinglist.confirmed` (`MailingList::EVENT_CONFIRMED`) | `Email/MailingList.php` |
+
+See [Extensibility Guide](Pramnos_Extensibility_Guide.md) for the full catalog.
+
 ### On the account screen and the preferences page
 
 **Account → Privacy** lists every opt-in type as a checkbox, **off** until the account joins —

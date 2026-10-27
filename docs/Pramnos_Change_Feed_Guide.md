@@ -181,6 +181,9 @@ authorized for is a publish into nothing, and it is silent.
 
 ## The event
 
+Listed, alongside every other extension point the framework fires, in the
+[Extensibility Guide](Pramnos_Extensibility_Guide.md)'s catalog.
+
 Everything is delivered under a single event name, carrying one value object:
 
 ```php

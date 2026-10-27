@@ -471,6 +471,9 @@ leaves no row behind.
 Each is a `QueueableEvent`: a queued listener — a notification, a rule, an integration — takes it
 in the queue or the event stream like any other.
 
+Listed, alongside every other extension point the framework fires, in the
+[Extensibility Guide](Pramnos_Extensibility_Guide.md)'s catalog.
+
 ## Live: what browsers are told
 
 A message is written first and told second, through Broadcasting:

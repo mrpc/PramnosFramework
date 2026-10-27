@@ -635,6 +635,14 @@ An addon can hook theme setup without subclassing, through the action `init()` f
 });
 ```
 
+### Hooks on this page
+
+| Name | Fires in |
+|---|---|
+| `after_setup_theme` (`Addon::doAction()`) | `Theme::init()` |
+
+See [Extensibility Guide](Pramnos_Extensibility_Guide.md) for the full catalog and how this compares to `Event`.
+
 ## Template System
 
 ### View Overrides

@@ -56,6 +56,14 @@ Moderation::restrictions('conversation:12');   // what is in force there, newest
   (`Events\Kicked`, with the subject, the scope and the reason), for the realtime layer to close
   what they have open there.
 
+### Hooks on this page
+
+| Name | Fires in |
+|---|---|
+| `moderation.kicked` (`Events\Kicked`, via `Event::dispatch()`) | `Moderation/Moderation.php` |
+
+See [Extensibility Guide](Pramnos_Extensibility_Guide.md) for the full catalog.
+
 ## A message on its way: the gate
 
 ```php

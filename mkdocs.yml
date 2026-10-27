@@ -86,6 +86,8 @@ nav:
       - Document Output: Pramnos_Document_Output_Guide.md
       - Environment Variables: Pramnos_Environment_Variables_Guide.md
       - API Guide: Pramnos_API_Guide.md
+      - Extensibility (Hooks & Events): Pramnos_Extensibility_Guide.md
+      - Addons: Pramnos_Addon_Guide.md
     - UI Widgets & Tools:
       - HTML Components: Pramnos_Html_Components_Guide.md
       - Rich Text Editor: Pramnos_Rich_Editor_Guide.md

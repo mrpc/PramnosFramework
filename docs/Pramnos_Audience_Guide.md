@@ -237,7 +237,8 @@ Segments::isMember($id, $userid);
   with `personId()`.
 - **Every change is an event.** `segment.entered` (`SegmentEntered`) and `segment.left`
   (`SegmentLeft`), dispatched as classes with `segmentId`, `personId` and `at`, so a queued listener
-  receives them again in the worker. **Except the first recomputation**, which records who is in
+  receives them again in the worker — listed in the
+  [Extensibility Guide](Pramnos_Extensibility_Guide.md)'s catalog. **Except the first recomputation**, which records who is in
   without announcing them: they did not just arrive, and a rule that greets new members must not
   greet everybody the moment a segment is made. Until then, a one-person recomputation skips the
   segment.

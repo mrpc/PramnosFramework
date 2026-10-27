@@ -1050,6 +1050,9 @@ Event::listen(ChangeFeed::EVENT_ROLLED_BACK, fn() => /* drop what you held */);
 | `ChangeFeed::EVENT_COMMITTED` | `database.transaction.committed` | after a **successful** `COMMIT` |
 | `ChangeFeed::EVENT_ROLLED_BACK` | `database.transaction.rolledback` | after `ROLLBACK`, **whether or not it succeeded** |
 
+Listed, alongside every other extension point the framework fires, in the
+[Extensibility Guide](Pramnos_Extensibility_Guide.md)'s catalog.
+
 The asymmetry is deliberate. A `COMMIT` that failed leaves rows that may not be
 there, so nothing is announced. A `ROLLBACK` that failed is still a reason to drop
 held work: "I could not undo that" is not grounds for announcing it, because a

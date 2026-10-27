@@ -507,6 +507,20 @@ other by construction.
 This table is appended to when a change lands, and becomes the `v1.2 → v1.3` section when
 the tag is cut — assembled as it happens rather than reconstructed from a month of posts.
 
+### Planned, not yet in effect
+
+Nothing below has shipped — these are advance notice of a deprecation timeline, so an application
+tracking `dev-main` sees it coming rather than after it happens:
+
+- **Three bundled addons will start emitting a runtime deprecation notice** (`Pramnos\Addon\System\Session`,
+  `Pramnos\Addon\User\User`, `Pramnos\Addon\Auth\UserDatabase`) in a future minor version — see
+  [Addon Guide](Pramnos_Addon_Guide.md#deprecated-bundled-addons) for the full three-stage policy
+  and their native replacements. Today each already carries a docblock `@deprecated` notice and
+  continues to work unchanged; only the *future* stage adds a visible runtime warning, and a
+  *further future* major version removes them. An application registering one of these three in
+  `app.php`'s `addons` list has no action to take now, and the addon-loading mechanism they use
+  (`Addon::load()`) is not itself deprecated or going anywhere.
+
 | Area | Change | Action required |
 |---|---|---|
 | **JSON request bodies** | `Request::decodeBody()` decodes associatively, arrays all the way down. It was `(array) json_decode($raw)`, which cast only the top level, so every element of a nested list arrived as an `stdClass`. | Any handler that reads an element of a JSON body with `->` — a nested list especially — now receives an array. Convert the access, or normalise at the boundary. |

@@ -2590,6 +2590,12 @@ this table alone.
 anything that is neither — a `null` or an empty string returns `false` before the name is used
 for anything. `isActive()` and `getAddon()` do the same.
 
+`Pramnos\Addon\Auth\UserDatabase` and `Pramnos\Addon\User\User` are deprecated — see
+[Addon Guide](Pramnos_Addon_Guide.md#deprecated-bundled-addons) for their native replacements and
+what the deprecation does and doesn't require. `Auth::auth()`/`Auth::logout()` already provide
+the equivalent behavior automatically when no such addon is registered; the subclassing example
+below remains the way to add custom logic to an addon that is still registered.
+
 That is not defensive coding for its own sake: the `addons` setting holds a serialized list,
 and an entry saved from an admin screen with no addon selected stores a null name — without the
 refusal, every request would ask an impossible question per such entry.
@@ -2661,6 +2667,20 @@ class LdapAuth extends \Pramnos\Addon\Addon
     }
 }
 ```
+
+### Hooks on this page
+
+| Name | Fires in |
+|---|---|
+| `auth.signin_risk` (`Event::fire()`) | `Auth/SignInRisk.php` |
+| `auth.signin_country` (`Event::fire()`) | `Auth/SignInRisk.php` |
+| `invitation.accepted` (`Event::fire()`) | `Auth/Invitations.php` |
+| `account.data_export` (`Event::fire()`) | `Auth/Controllers/Account.php` |
+| `account.data_erase` (`Event::fire()`) | `Auth/AccountErasure.php` |
+| `Login` / `Logout` / `AuthCheck` (`Addon::triger()`) | `Auth.php` |
+| `afterLogin()` / `afterLogout()` callback list | `Auth.php` — a third, pre-existing mechanism specific to this class; new code should prefer `Event` |
+
+See [Extensibility Guide](Pramnos_Extensibility_Guide.md) for the full catalog and how these mechanisms compare.
 
 ## Controller Authentication
 
