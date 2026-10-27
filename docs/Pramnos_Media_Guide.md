@@ -321,6 +321,14 @@ back, and acts on, instances of the subclass that called it — including a subc
 `publicUrl()`, `storageRoot()` or any other override those siblings run. Nothing needs
 overriding solely to keep the class right; only behaviour that actually needs to differ does.
 
+`createPath()`, `_checkFilePath()`, `_checkThumbPaths()`, `fixJpegOrientation()` and
+`protectUploadDirectory()` are `protected`, not `private`, for the same reason from the other
+direction: a method a subclass defines itself — its own `addImage()` override, say — can call
+`$this->createPath(...)` and reach the inherited implementation. A `private` method is invisible
+there regardless of whether the subclass overrides it: PHP resolves `$this->createPath()` in the
+*calling* method's own class scope, so an inherited-but-not-overridden private method fails with
+`Call to private method` rather than quietly running the parent's.
+
 ## Image Processing
 
 ### Automatic Processing

@@ -707,7 +707,7 @@ class MediaObject extends \Pramnos\Framework\Base
      * Check if main media file exists (and try to convert path from previous
      * installs)
      */
-    private function _checkFilePath()
+    protected function _checkFilePath()
     {
         if (!file_exists($this->filename)) {
             if (file_exists($this->fixStaticPath($this->filename))) {
@@ -723,7 +723,7 @@ class MediaObject extends \Pramnos\Framework\Base
     /**
      * Check all thumbnail filenames and fix them if needed
      */
-    private function _checkThumbPaths()
+    protected function _checkThumbPaths()
     {
         foreach ($this->thumbnails as $key=>$thumb) {
             if (!file_exists($thumb->filename)
@@ -1128,7 +1128,7 @@ class MediaObject extends \Pramnos\Framework\Base
         return ROOT . DS . ($private ? 'var' : 'www') . DS . 'uploads';
     }
 
-    private function createPath($module = '')
+    protected function createPath($module = '')
     {
         if ($module != '') {
             $this->module = $module;
@@ -1522,7 +1522,7 @@ class MediaObject extends \Pramnos\Framework\Base
      * Update a photo orientation based on exif data
      * @param string $filename
      */
-    private function fixJpegOrientation($filename)
+    protected function fixJpegOrientation($filename)
     {
         try {
             $exif = @exif_read_data($filename);
@@ -2864,7 +2864,7 @@ class MediaObject extends \Pramnos\Framework\Base
      * @param  string $path
      * @return void
      */
-    private static function protectUploadDirectory($path): void
+    protected static function protectUploadDirectory($path): void
     {
         $file = $path . DS . '.htaccess';
         if (file_exists($file) || !is_writable($path)) {

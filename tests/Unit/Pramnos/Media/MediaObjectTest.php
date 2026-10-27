@@ -3674,6 +3674,32 @@ class MediaObjectTest extends TestCase
         $this->assertTrue(MediaSubclass::$lastPublicUrlRanOnSubclass);
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // private → protected internals a subclass must be able to reach
+    // ────────────────────────────────────────────────────────────────────────
+
+    /**
+     * createPath() (and, by the same reasoning, _checkFilePath(), _checkThumbPaths(),
+     * fixJpegOrientation(), protectUploadDirectory()) must be callable from a method the
+     * subclass itself defines, not only from within MediaObject. A `private` method is
+     * never visible there — PHP resolves `$this->createPath()` in the *calling* method's
+     * own class scope, so even an inherited, non-overridden private method is unreachable
+     * and the call fails with "Call to private method" rather than running the parent's.
+     */
+    #[Test]
+    public function testCreatePathIsReachableFromAMethodDefinedInASubclass(): void
+    {
+        // Arrange
+        $media = new MediaSubclass();
+
+        // Act
+        $path = $media->createPathFromSubclass('lsb_private_access');
+
+        // Assert
+        $this->assertStringStartsWith(ROOT . DS . 'www' . DS . 'uploads', $path);
+        $this->removeTestDirectory($path);
+    }
+
 }
 
 /** Exposes `rotate()`, which is protected because callers rotate through the upload path. */
@@ -3709,6 +3735,17 @@ class MediaSubclass extends MediaObject
     {
         self::$lastPublicUrlRanOnSubclass = true;
         return parent::publicUrl($reason);
+    }
+
+    /**
+     * Calls the inherited (not overridden) createPath() from a method defined in this
+     * subclass -- exactly the shape that fails with "Call to private method" when the
+     * parent declares it `private`: PHP resolves `$this->createPath()` in the *child's*
+     * scope, and a private method is never visible there, overridden or not.
+     */
+    public function createPathFromSubclass(string $module = ''): string
+    {
+        return $this->createPath($module);
     }
 }
 
