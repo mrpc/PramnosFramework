@@ -79,6 +79,33 @@ class ApiCrudLegacyAclProbePostgreSQLTest extends TestCase
     }
 
     /**
+     * The second question about the same connection and table is answered from the cache,
+     * not by asking the schema builder again.
+     *
+     * Asserted by making the table exist only *after* the first question — the cached "no"
+     * from before it existed is what a query-every-time implementation could not produce.
+     */
+    public function testTheSameTableIsNotAskedAboutTwice(): void
+    {
+        // Arrange
+        $probe = new PresentLegacyAclProbe($this->db);
+        $this->db->statement('DROP TABLE IF EXISTS public.legacy_acl_probe_present');
+        $first = $probe->probe();
+
+        // Act — the table now exists, but the same controller already has its answer
+        $this->db->statement('CREATE TABLE public.legacy_acl_probe_present (id INT)');
+        try {
+            $second = $probe->probe();
+        } finally {
+            $this->db->statement('DROP TABLE IF EXISTS public.legacy_acl_probe_present');
+        }
+
+        // Assert
+        $this->assertFalse($first);
+        $this->assertFalse($second, 'a cached "no" must not be re-asked within the same request');
+    }
+
+    /**
      * One controller's answer about one table is not another's about another.
      *
      * The answer was a static inside the method, which PHP shares with every subclass: once any
