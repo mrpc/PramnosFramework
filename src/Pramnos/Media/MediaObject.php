@@ -2494,6 +2494,23 @@ class MediaObject extends \Pramnos\Framework\Base
     }
 
     /**
+     * Rewrite the thumbnails decoded by load(), before they are assigned.
+     *
+     * No-op by default. An application whose stored rows carry thumbnail filenames that are
+     * no longer accurate — an absolute path from a server migration, a storage-root split that
+     * postdates when the row was written — overrides this to fix them up on the way in, without
+     * needing its own copy of load() (or of {@see usableThumbnails()}'s JSON/legacy dual-format
+     * read, which that copy would otherwise have to duplicate as well).
+     *
+     * @param  array<int, Thumbnail> $thumbnails
+     * @return array<int, Thumbnail>
+     */
+    protected function afterLoadThumbnails(array $thumbnails): array
+    {
+        return $thumbnails;
+    }
+
+    /**
      * Load a media object from the database
      * @param int $mediaidToLoad
      * @return MediaObject
@@ -2505,16 +2522,16 @@ class MediaObject extends \Pramnos\Framework\Base
         $mediaid = $mediaIdArray[0];
         unset($mediaIdArray, $mediaidToLoad);
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepareQuery(
-            "select * from `#PREFIX#media` where `mediaid` = %d limit 1",
-            $mediaid
-        );
-        $result = $database->query($sql, true, 600, 'media');
+        $result = $database->queryBuilder()->table('#PREFIX#media')
+            ->where('mediaid', (int) $mediaid)
+            ->limit(1)->get(true, 600, 'media');
         if ($result->numRows != 0) {
             foreach (array_keys($result->fields) as $key) {
                 $this->$key = $result->fields[$key];
             }
-            $this->thumbnails = self::usableThumbnails($result->fields['thumbnails']);
+            $this->thumbnails = $this->afterLoadThumbnails(
+                self::usableThumbnails($result->fields['thumbnails'])
+            );
             $this->_isnew = false;
         }
         return $this;

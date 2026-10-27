@@ -329,6 +329,31 @@ there regardless of whether the subclass overrides it: PHP resolves `$this->crea
 *calling* method's own class scope, so an inherited-but-not-overridden private method fails with
 `Call to private method` rather than quietly running the parent's.
 
+`load()` decodes a row's stored thumbnails (JSON, or the legacy `serialize()` format — see
+[Thumbnails](#thumbnails)) and runs them through `afterLoadThumbnails()` before assigning them.
+No-op by default; override it to fix up what a row actually carries without needing a copy of
+`load()` itself:
+
+```php
+class Media extends \Pramnos\Media\MediaObject
+{
+    protected function afterLoadThumbnails(array $thumbnails): array
+    {
+        foreach ($thumbnails as $thumbnail) {
+            $thumbnail->filename = $this->fixStaticPath($thumbnail->filename);
+        }
+
+        return $thumbnails;
+    }
+}
+```
+
+The case this exists for: a row written before a storage-root split (see
+[Routing a Module's Uploads Outside the Document Root](#routing-a-modules-uploads-outside-the-document-root)
+above) or a server migration carries thumbnail filenames that are no longer accurate. The
+framework cannot know what an application's history looks like — only the application does — so
+this is a hook, not a built-in rewrite.
+
 ## Image Processing
 
 ### Automatic Processing

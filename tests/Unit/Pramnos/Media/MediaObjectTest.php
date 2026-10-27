@@ -3700,6 +3700,62 @@ class MediaObjectTest extends TestCase
         $this->removeTestDirectory($path);
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // afterLoadThumbnails() hook
+    // ────────────────────────────────────────────────────────────────────────
+
+    /**
+     * load() must run afterLoadThumbnails() on what usableThumbnails() decoded, before
+     * assigning $this->thumbnails -- the hook an application overrides to rewrite stale
+     * thumbnail filenames (a storage-root migration, a server move) without needing its
+     * own copy of load() or of the JSON/legacy dual-format read behind it.
+     */
+    #[Test]
+    public function testLoadRunsAfterLoadThumbnailsHookOnDecodedThumbnails(): void
+    {
+        // Arrange
+        $thumb = new Thumbnail();
+        $thumb->filename = '/old/server/www/uploads/thumb.jpg';
+        $thumb->reason   = 'thumb';
+
+        $media = new MediaSubclass();
+        $media->thumbnails = [$thumb];
+        $media->save();
+
+        // Act
+        $loaded = new MediaSubclass();
+        $loaded->load($media->mediaid);
+
+        // Assert -- the subclass's override ran, not the base no-op
+        $this->assertCount(1, $loaded->thumbnails);
+        $this->assertStringStartsWith('rewritten:', $loaded->thumbnails[0]->filename);
+    }
+
+    /**
+     * With no override, the hook is a no-op: load() on a plain MediaObject behaves exactly
+     * as it did before this hook existed.
+     */
+    #[Test]
+    public function testLoadWithNoOverrideLeavesThumbnailsUnchanged(): void
+    {
+        // Arrange
+        $thumb = new Thumbnail();
+        $thumb->filename = '/www/uploads/plain.jpg';
+        $thumb->reason   = 'thumb';
+
+        $media = new MediaObject();
+        $media->thumbnails = [$thumb];
+        $media->save();
+
+        // Act
+        $loaded = new MediaObject();
+        $loaded->load($media->mediaid);
+
+        // Assert
+        $this->assertCount(1, $loaded->thumbnails);
+        $this->assertSame('/www/uploads/plain.jpg', $loaded->thumbnails[0]->filename);
+    }
+
 }
 
 /** Exposes `rotate()`, which is protected because callers rotate through the upload path. */
@@ -3746,6 +3802,16 @@ class MediaSubclass extends MediaObject
     public function createPathFromSubclass(string $module = ''): string
     {
         return $this->createPath($module);
+    }
+
+    /** Rewrites every thumbnail's filename, proving load() actually calls this hook. */
+    protected function afterLoadThumbnails(array $thumbnails): array
+    {
+        foreach ($thumbnails as $thumbnail) {
+            $thumbnail->filename = 'rewritten:' . $thumbnail->filename;
+        }
+
+        return $thumbnails;
     }
 }
 
