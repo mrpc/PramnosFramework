@@ -1822,6 +1822,80 @@ class MediaObjectTest extends TestCase
         $this->assertStringContainsString(ROOT, $result);
     }
 
+    /**
+     * fixStaticPath() with no explicit `$root` must rebuild through storageRoot() — the same
+     * root createPath() actually writes new files under — not bare ROOT. Before this, a stale
+     * row only resolved for a module whose uploads happen to sit directly at
+     * ROOT/uploads/..., never ROOT/www/uploads/... where createPath() has always written.
+     *
+     * Unlike testFixStaticPathUsesDefaultRoot() (which only checks ROOT is a substring, true
+     * either way since ROOT prefixes both), this asserts the full www/uploads segment survives.
+     */
+    #[Test]
+    public function testFixStaticPathDefaultRootIncludesWwwUploadsSegment(): void
+    {
+        // Arrange
+        $media = new MediaObject();
+        $ref   = new \ReflectionMethod(MediaObject::class, 'fixStaticPath');
+
+        // Act
+        $result = $ref->invoke($media, '/old/server/root/uploads/gallery/img.jpg');
+
+        // Assert
+        $this->assertSame(
+            ROOT . DS . 'www' . DS . 'uploads' . DS . 'gallery' . DS . 'img.jpg',
+            $result
+        );
+    }
+
+    /**
+     * fixStaticPath() with no explicit `$root`, on an object whose module is listed in
+     * privateStorageModules(), rebuilds under var/uploads — the same root createPath() would
+     * have written that module's files under — not under www/uploads regardless of module.
+     */
+    #[Test]
+    public function testFixStaticPathDefaultRootHonoursPrivateStorageModules(): void
+    {
+        // Arrange — a subclass is the only way to override a protected static hook from a test
+        $media = new class() extends MediaObject {
+            protected static function privateStorageModules()
+            {
+                return ['verification_docs'];
+            }
+        };
+        $media->module = 'verification_docs';
+        $ref = new \ReflectionMethod(MediaObject::class, 'fixStaticPath');
+
+        // Act
+        $result = $ref->invoke($media, '/old/server/root/uploads/doc.pdf');
+
+        // Assert
+        $this->assertSame(
+            ROOT . DS . 'var' . DS . 'uploads' . DS . 'doc.pdf',
+            $result
+        );
+    }
+
+    /**
+     * A path with no 'uploads' segment at all is returned unchanged — the explicit guard this
+     * rewrite added. The old implementation reached PHP's str_replace('', ...) empty-needle
+     * quirk here instead (substr($original, 0, false) === ''), which inserts the replacement
+     * before every character rather than leaving the path alone.
+     */
+    #[Test]
+    public function testFixStaticPathLeavesAPathWithNoUploadsSegmentUnchanged(): void
+    {
+        // Arrange
+        $media = new MediaObject();
+        $ref   = new \ReflectionMethod(MediaObject::class, 'fixStaticPath');
+
+        // Act
+        $result = $ref->invoke($media, '/some/other/path/picture.jpg');
+
+        // Assert
+        $this->assertSame('/some/other/path/picture.jpg', $result);
+    }
+
     // ────────────────────────────────────────────────────────────────────────
     // _checkFilePath – path remapping branches (lines 270-274)
     // ────────────────────────────────────────────────────────────────────────

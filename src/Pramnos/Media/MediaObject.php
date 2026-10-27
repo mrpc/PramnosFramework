@@ -670,18 +670,32 @@ class MediaObject extends \Pramnos\Framework\Base
 
 
     /**
-     * Converts a static path to a newer version after a server change
+     * Converts a static path to a newer version after a server change.
+     *
+     * The database stores `filename` as an absolute path, so a row written on another server
+     * (or another install directory) carries that server's prefix. This strips everything up to
+     * `uploads` and rebuilds from the current one. With no explicit `$root` it rebuilds through
+     * {@see storageRoot()}, so a row predating {@see privateStorageModules()} still resolves to
+     * wherever this module's uploads actually live now (`var/` or `www/`) rather than always
+     * `www/`, which is what {@see createPath()} itself writes under.
+     *
      * @param string $original
+     * @param string $root Override the install root (tests); `uploads` is appended to it, same
+     *                      as the default does through `storageRoot()`.
      */
     protected function fixStaticPath($original, $root=NULL)
     {
-        if ($root===NULL) {
-            $root = ROOT;
+        $position = strpos($original, 'uploads');
+        if ($position === false) {
+            return $original;
         }
-        $converted = str_replace(
-            substr($original, 0, strpos($original, 'uploads')),
-            $root . DS, $original
-        );
+
+        $base = $root === NULL
+            ? static::storageRoot($this->module)
+            : $root . DS . 'uploads';
+
+        $converted = $base . substr($original, $position + strlen('uploads'));
+
         if (DS == "/") {
             return str_replace('\\', DS, $converted);
         } else {
