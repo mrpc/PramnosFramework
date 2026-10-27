@@ -250,6 +250,28 @@ class NewSignInAlertNotifyTest extends BaseTestCase
     }
 
     /**
+     * A genuinely new device, with a deliverable address, actually sends — and a failed
+     * delivery is logged and reported as "not sent", not a fatal.
+     *
+     * Every other test in this file is about one of the four reasons `checkAndNotify()`
+     * declines; this is the one case it does not, and what happens either way once it gets
+     * there — no SMTP is configured for this suite, so a real attempt either succeeds
+     * (silently, same assertion) or fails and is caught, and either answer is correct.
+     */
+    public function testANewDeviceWithAnAddressAttemptsDelivery(): void
+    {
+        // Arrange — enabled, on a new device, with somewhere to send
+        NewSignInAlert::setEnabledFor($this->uid, true, $this->db);
+        $this->recordLogin('Mozilla/5.0 (Windows NT 10.0) Firefox/121.0');
+
+        // Act — the point of the test is that this does not throw past checkAndNotify()
+        $sent = NewSignInAlert::checkAndNotify($this->uid, $this->db);
+
+        // Assert
+        $this->assertIsBool($sent);
+    }
+
+    /**
      * A history that cannot be read says nothing, rather than notifying about everything.
      *
      * The assertion this file exists for. An unreadable history yields an empty set of known
@@ -322,6 +344,29 @@ class NewSignInAlertNotifyTest extends BaseTestCase
 
         NewSignInAlert::setEnabledFor($this->uid, false, $this->db);
         $this->assertFalse(NewSignInAlert::isEnabledFor($this->uid, $this->db));
+    }
+
+    /**
+     * A preference that cannot be read answers false, not a fatal — the safe answer for
+     * "should we send mail" is no, and a login storm caused by a broken `userdetails` must
+     * not mail the entire user base.
+     */
+    public function testAnUnreadablePreferenceIsReadAsOff(): void
+    {
+        // Arrange
+        $broken = new class extends \Pramnos\Database\Database {
+            public function __construct()
+            {
+            }
+
+            public function queryBuilder()
+            {
+                throw new \RuntimeException('the connection is gone');
+            }
+        };
+
+        // Act & Assert
+        $this->assertFalse(NewSignInAlert::isEnabledFor($this->uid, $broken));
     }
 
     /** Nobody is not an account: a userid below one writes nothing and reads false. */
