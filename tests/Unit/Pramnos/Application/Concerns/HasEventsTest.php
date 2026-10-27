@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\Pramnos\Application\Orm\Concerns;
+namespace Tests\Unit\Pramnos\Application\Concerns;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Pramnos\Application\Orm\Concerns\HasEvents;
+use Pramnos\Application\Concerns\HasEvents;
 
 /**
- * Unit tests for Pramnos\Application\Orm\Concerns\HasEvents.
+ * Unit tests for Pramnos\Application\Concerns\HasEvents.
  *
  * HasEvents provides a lightweight observer/callback system keyed by model class.
  * All listener storage is static — tests must flush listeners after each test to

@@ -10,7 +10,7 @@ use Pramnos\Application\Application;
 use Pramnos\Application\Controller;
 use Pramnos\Application\Orm\Collection;
 use Pramnos\Application\Orm\Concerns\HasAttributes;
-use Pramnos\Application\Orm\Concerns\HasEvents;
+use Pramnos\Application\Concerns\HasEvents;
 use Pramnos\Application\Orm\Concerns\HasRelationships;
 use Pramnos\Application\Orm\Concerns\HasScopes;
 use Pramnos\Application\Orm\Concerns\HasSoftDeletes;

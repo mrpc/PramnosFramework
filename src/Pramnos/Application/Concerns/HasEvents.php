@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Pramnos\Application\Orm\Concerns;
+namespace Pramnos\Application\Concerns;
 
 /**
  * Model lifecycle events.
@@ -32,6 +32,10 @@ namespace Pramnos\Application\Orm\Concerns;
  * Post::on('created', function(Post $post) { ... });
  * ```
  *
+ * In `Pramnos\Application\Concerns` rather than `Orm\Concerns`: originally built for
+ * {@see \Pramnos\Application\OrmModel} only, it moved here so the base
+ * {@see \Pramnos\Application\Model} — and classes that predate `Model`, such as
+ * {@see \Pramnos\User\User} — can use it too, without pulling in the rest of the ORM layer.
  */
 trait HasEvents
 {

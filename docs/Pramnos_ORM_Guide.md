@@ -497,7 +497,11 @@ say about it.
 ## Model Events
 
 Hook into model lifecycle events with `on()` per event, or `observe()` with an object
-whose public methods are named after the events:
+whose public methods are named after the events. `User` below is a stand-in for any
+`OrmModel`-based class an application writes — not `\Pramnos\User\User`, the framework's
+own class, which predates `OrmModel` and wires the same events in by hand; see
+[`User` participates too](Pramnos_Change_Feed_Guide.md#user-participates-too) in the
+Change Feed Guide for that one specifically:
 
 ```php
 User::on('creating', function (User $model) {

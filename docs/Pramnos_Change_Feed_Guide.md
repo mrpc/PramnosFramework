@@ -87,6 +87,29 @@ Code that needs full data on delete loads the model before deleting.
     `old => null`. That is existing behaviour of a public method and is not changed
     here. Consequence: a forced save always passes the significance gate.
 
+### `User` participates too
+
+`Pramnos\User\User` predates `Model` and is not a subclass of it, so it cannot simply
+inherit this. It shares the same two traits (`EmitsModelChanges`, `HasEvents`) `Model`
+uses, with `User::_save()` wiring them in by hand — the same shape `OrmModel::_save()`
+already has for `Model`-based classes:
+
+```php
+class CustomUser extends \Pramnos\User\User
+{
+    protected $emitChanges = true;
+}
+```
+
+Every option above (`$changeEntity` defaults to `'user'`, `$changeIgnoreFields`,
+`$changeSignificantFields`, `$broadcastFields`, `$captureTrace`) works identically. An
+update reports only the fields that actually changed, by comparing against the row
+`load()` read — not every column on every save, which would make the feed useless as
+an audit trail. `creating`/`created`/`updating`/`updated` fire the same way they do for an
+`OrmModel`-based class — see [Model Events](Pramnos_ORM_Guide.md#model-events) in the ORM
+Guide for `on()`/`observe()`. `User` has no soft-delete concept, so `deleting`/`deleted`
+are available but nothing in the base class fires them.
+
 ### Soft deletes announce a delete
 
 `OrmModel`'s soft delete performs an `UPDATE`, but means a delete. The framework

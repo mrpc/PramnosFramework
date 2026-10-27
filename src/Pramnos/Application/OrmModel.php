@@ -6,7 +6,6 @@ namespace Pramnos\Application;
 
 use Pramnos\Application\Orm\Collection;
 use Pramnos\Application\Orm\Concerns\HasAttributes;
-use Pramnos\Application\Orm\Concerns\HasEvents;
 use Pramnos\Application\Orm\Concerns\HasRelationships;
 use Pramnos\Application\Orm\Concerns\HasScopes;
 use Pramnos\Application\Orm\Concerns\HasSoftDeletes;
@@ -25,7 +24,7 @@ use Pramnos\Application\Orm\Relations\Relation;
  * | Accessors / Mutators   | HasAttributes            |
  * | Timestamps             | HasTimestamps            |
  * | Soft Deletes           | HasSoftDeletes           |
- * | Model Events           | HasEvents                |
+ * | Model Events           | HasEvents (inherited from `Model`) |
  * | Scopes (local+global)  | HasScopes                |
  * | Relationships          | HasRelationships         |
  * | Eager Loading          | HasRelationships         |
@@ -71,7 +70,7 @@ abstract class OrmModel extends Model
     use HasAttributes;
     use HasTimestamps;
     use HasSoftDeletes;
-    use HasEvents;
+    // HasEvents: now used by Model itself, inherited from there.
     use HasScopes;
     use HasRelationships;
 

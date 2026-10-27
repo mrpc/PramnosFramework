@@ -12,6 +12,86 @@ class User extends \Pramnos\Framework\Base implements
     \Pramnos\Notification\NotifiableInterface
 {
     /**
+     * Announces saves on the model change feed, and fires `creating`/`created`/`updating`/
+     * `updated` — {@see \Pramnos\Application\Concerns\EmitsModelChanges},
+     * {@see \Pramnos\Application\Concerns\HasEvents}.
+     *
+     * `User` predates `Model` and was never rebuilt onto it, so it cannot simply inherit
+     * `Model::_save()`'s own wiring — these two traits are shared with `Model` instead,
+     * and `_save()` below wires them in by hand, the same shape `OrmModel::_save()`
+     * already does for `Model`-based classes.
+     */
+    use \Pramnos\Application\Concerns\EmitsModelChanges;
+    use \Pramnos\Application\Concerns\HasEvents;
+
+    /**
+     * {@see EmitsModelChanges::changeDefaultEntity()}.
+     */
+    protected function changeDefaultEntity(): string
+    {
+        return 'user';
+    }
+
+    /**
+     * {@see EmitsModelChanges::changeTable()}.
+     */
+    protected function changeTable(): string
+    {
+        return self::usersTable();
+    }
+
+    /**
+     * {@see EmitsModelChanges::changeKey()}.
+     */
+    protected function changeKey()
+    {
+        return $this->userid ?? null;
+    }
+
+    /**
+     * Snapshot of the savable column values as they were after the last {@see load()},
+     * so {@see _save()} can tell `emitChange()`/`creating`/`updating` what actually changed
+     * rather than reporting every field as new on every save — the same job
+     * `Model::$_initialData` does there. Empty for a user that has never been loaded (a
+     * brand new one): every field is then reported as new, which for a CREATE is correct.
+     *
+     * @var array<string, mixed>
+     */
+    protected $_initialUserData = array();
+
+    /**
+     * Builds the `field => ['old' => …, 'new' => …]` map {@see emitChange()} and the
+     * `creating`/`updating` listeners expect, by comparing what is about to be written
+     * ($itemdata, already through {@see _alterFields()}) against {@see $_initialUserData}.
+     * Only fields that actually changed are included — matching `getChanges()` on `Model`.
+     *
+     * @param  array $itemdata As built by {@see _save()}: list of ['fieldName'=>, 'value'=>, ...]
+     * @return array<string, array{old: mixed, new: mixed}>
+     */
+    private function buildChangeSet(array $itemdata): array
+    {
+        $changes = array();
+        foreach ($itemdata as $item) {
+            $field = $item['fieldName'];
+            $old   = array_key_exists($field, $this->_initialUserData)
+                ? $this->_initialUserData[$field]
+                : null;
+            $new = $item['value'];
+
+            // Same comparison Model::getChanges() uses: numeric-aware (int/float/numeric
+            // string that mean the same value do not count as a change), strict otherwise.
+            $changed = (is_numeric($old) && is_numeric($new))
+                ? (float) $old !== (float) $new
+                : $old !== $new;
+
+            if ($changed) {
+                $changes[$field] = array('old' => $old, 'new' => $new);
+            }
+        }
+        return $changes;
+    }
+
+    /**
      * Whether `apiListPaginate()` counts the matching rows.
      *
      * On, a page comes with its total — two queries, a `COUNT` and the page. Off, only the page:
@@ -780,6 +860,18 @@ class User extends \Pramnos\Framework\Base implements
         */
 
         $itemdata = $this->_alterFields($itemdata);
+
+        // _isnew is the authoritative flag for INSERT vs UPDATE, captured before the branch
+        // below sets it to 0 -- both the event name and the final emitChange() need to know
+        // which this save was.
+        $wasNew = ($this->_isnew === 1);
+
+        // Fire before-event; return $this (not false) to maintain BC -- the same contract
+        // OrmModel::_save() already has for Model-based classes.
+        if (!$this->fireEvent($wasNew ? 'creating' : 'updating')) {
+            return $this;
+        }
+
         // _isnew is the authoritative flag for INSERT vs UPDATE.
         // The old "|| $this->userid == 1" condition was wrong: after the first
         // INSERT, _isnew is set to 0 and userid becomes 1 (first auto-ID), so
@@ -852,6 +944,24 @@ class User extends \Pramnos\Framework\Base implements
                 return $this;
             }
         }
+
+        // Emitted after the row write succeeded -- $itemdata now reflects exactly what was
+        // written, userid included on a create. Guarded the same way Model's own _save() is:
+        // nothing here runs unless $emitChanges is turned on. An UPDATE that changed nothing
+        // (every field already held its new value) does not emit either -- matching Model,
+        // which never even reaches its own emitChange() call for a no-op save, via the
+        // getChanges()-gated early return near the top of its _save().
+        $changes = $this->buildChangeSet($itemdata);
+        if ($wasNew || $changes !== array()) {
+            $this->emitChange(
+                $wasNew ? \Pramnos\Event\ModelChange::CREATED : \Pramnos\Event\ModelChange::UPDATED,
+                $changes
+            );
+        }
+        foreach ($itemdata as $item) {
+            $this->_initialUserData[$item['fieldName']] = $item['value'];
+        }
+        $this->fireEvent($wasNew ? 'created' : 'updated');
 
         foreach (array_keys($this->otherinfo) as $fieldname) {
             $fixname = substr($fieldname, 3);
@@ -949,6 +1059,10 @@ class User extends \Pramnos\Framework\Base implements
             foreach (self::$_usercache[$uid] as $key => $value) {
                 $this->$key = $value;
             }
+            // The savable columns, from the same cached snapshot a fresh load() would have
+            // read from the row directly -- so a cache hit gives _save() the same diffing
+            // baseline a cache miss would.
+            $this->_initialUserData = self::$_usercache[$uid];
             return $this;
         }
         $database = \Pramnos\Framework\Factory::getDatabase();
@@ -963,6 +1077,7 @@ class User extends \Pramnos\Framework\Base implements
         foreach (array_keys($result->fields) as $key) {
             $this->$key = $result->fields[$key];
         }
+        $this->_initialUserData = $result->fields;
 
 
         // Cached alongside the users row, in the same category and for the same
@@ -2136,6 +2251,12 @@ class User extends \Pramnos\Framework\Base implements
         unset($data['_messages']);
         unset($data['_messages']);
         unset($data['_messages']);
+
+        // The change-feed's own switch, a string the type filter above would otherwise let
+        // through like any other column value — see EmitsModelChanges::$changeEntity and
+        // Model::INTERNAL_PROPERTIES, which excludes the same property there for the same
+        // reason.
+        unset($data['changeEntity']);
 
         ksort($data);
         return $data;
