@@ -231,6 +231,128 @@ class NewDeviceAuthLinkTest extends BaseTestCase
         $this->assertNull($link->consume("' OR 1=1 --"));
     }
 
+    /**
+     * A matching hash filed under an account that cannot be real — user 0 or 1 — is refused.
+     *
+     * Reaches a row no legitimate `store()` call could ever have written (it always stores
+     * under a real account's own id), so the only way there is a hand-crafted row — which is
+     * exactly what makes it worth asserting: the guard exists for a row nothing in this class
+     * writes, not dead code.
+     */
+    public function testAMatchingRowUnderTheSystemAccountIsRefused(): void
+    {
+        // Arrange
+        $token = bin2hex(random_bytes(32));
+        $this->db->queryBuilder()->table('#PREFIX#userdetails')->insert([
+            'userid'    => 1,
+            'fieldname' => NewDeviceAuthLink::FIELD_HASH,
+            'value'     => hash('sha256', $token),
+        ]);
+        $link = new NewDeviceAuthLink($this->db);
+
+        try {
+            // Act / Assert
+            $this->assertNull($link->consume($token));
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#userdetails')
+                ->where('userid', 1)->where('fieldname', NewDeviceAuthLink::FIELD_HASH)->delete();
+        }
+    }
+
+    /**
+     * A database that cannot write answers "not stored" rather than throwing — the point of
+     * every `catch` in this class: a reuse check or its bookkeeping failing must never surface
+     * as a fatal in the middle of a login.
+     *
+     * Through the class's own private `store()`, the same seam {@see issue()} uses for the
+     * happy path — `send()` itself first builds a real `User`, which reads `userdetails` too,
+     * so renaming the table out from under a full `send()` call would fail there instead and
+     * prove nothing about `store()` specifically.
+     */
+    public function testStoreAnswersFalseRatherThanThrowingWhenTheTableIsMissing(): void
+    {
+        // Arrange
+        $this->db->query('RENAME TABLE `' . $this->db->prefix . 'userdetails` TO `__moved_userdetails`');
+        $link  = new NewDeviceAuthLink($this->db);
+        $store = new \ReflectionMethod(NewDeviceAuthLink::class, 'store');
+
+        try {
+            // Act
+            $result = $store->invoke($link, $this->uid, hash('sha256', 'x'), time() + NewDeviceAuthLink::TTL);
+
+            // Assert
+            $this->assertFalse($result);
+        } finally {
+            $this->db->query('RENAME TABLE `__moved_userdetails` TO `' . $this->db->prefix . 'userdetails`');
+        }
+    }
+
+    /**
+     * `consume()`'s own lookup failing is read the same way a token nobody issued is: null,
+     * not a fatal — a half-migrated installation must not break the login page for everyone.
+     */
+    public function testConsumeAnswersNullRatherThanThrowingWhenTheTableIsMissing(): void
+    {
+        // Arrange
+        $this->db->query('RENAME TABLE `' . $this->db->prefix . 'userdetails` TO `__moved_userdetails`');
+        $link = new NewDeviceAuthLink($this->db);
+
+        try {
+            // Act / Assert
+            $this->assertNull($link->consume('whatever'));
+        } finally {
+            $this->db->query('RENAME TABLE `__moved_userdetails` TO `' . $this->db->prefix . 'userdetails`');
+        }
+    }
+
+    /** `detail()`'s own lookup failing answers '', the same as a value that was never stored. */
+    public function testDetailAnswersEmptyRatherThanThrowingWhenTheTableIsMissing(): void
+    {
+        // Arrange
+        $this->db->query('RENAME TABLE `' . $this->db->prefix . 'userdetails` TO `__moved_userdetails`');
+        $link   = new NewDeviceAuthLink($this->db);
+        $detail = new \ReflectionMethod(NewDeviceAuthLink::class, 'detail');
+
+        try {
+            // Act / Assert
+            $this->assertSame('', $detail->invoke($link, $this->uid, NewDeviceAuthLink::FIELD_EXPIRES));
+        } finally {
+            $this->db->query('RENAME TABLE `__moved_userdetails` TO `' . $this->db->prefix . 'userdetails`');
+        }
+    }
+
+    /** `forget()`'s own delete failing is logged, not thrown — there is nothing left to undo anyway. */
+    public function testForgetLogsRatherThanThrowsWhenTheTableIsMissing(): void
+    {
+        // Arrange
+        $this->db->query('RENAME TABLE `' . $this->db->prefix . 'userdetails` TO `__moved_userdetails`');
+        $link   = new NewDeviceAuthLink($this->db);
+        $forget = new \ReflectionMethod(NewDeviceAuthLink::class, 'forget');
+
+        try {
+            // Act — the point of the test is that this does not throw
+            $forget->invoke($link, $this->uid);
+            $this->addToAssertionCount(1);
+        } finally {
+            $this->db->query('RENAME TABLE `__moved_userdetails` TO `' . $this->db->prefix . 'userdetails`');
+        }
+    }
+
+    /**
+     * The real seam this class ships with: without a test replacing it, `notifier()` builds an
+     * actual `Notifier` — asserted directly, because every other test here goes through the
+     * overridden one, and an unexercised default is exactly how a seam rots unnoticed.
+     */
+    public function testNotifierBuildsARealNotifier(): void
+    {
+        // Arrange
+        $link   = new NewDeviceAuthLink($this->db);
+        $method = new \ReflectionMethod(NewDeviceAuthLink::class, 'notifier');
+
+        // Act / Assert
+        $this->assertInstanceOf(\Pramnos\Notification\Notifier::class, $method->invoke($link));
+    }
+
     // ── Who may be sent one ───────────────────────────────────────────────────
 
     /**
