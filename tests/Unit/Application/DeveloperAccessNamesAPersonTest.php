@@ -410,4 +410,23 @@ class DeveloperAccessNamesAPersonTest extends TestCase
             'an unregistered tool opened on the strength of a usertype floor'
         );
     }
+
+    /**
+     * The same refusal holds calling `floor()`/`usertypes()`/`userids()` directly, not only
+     * through `permits()` — each is its own public entry point into `value()`, and a caller
+     * that never routes through `permits()`'s own `isset()` guard must get the same
+     * "not configured" answer rather than reading an array key that does not exist.
+     */
+    public function testTheOtherPublicMethodsAlsoDefaultForAnUnregisteredTool(): void
+    {
+        // Arrange — no panel list to fall back to, so the unregistered tool's own
+        // "not configured" answer (not the panel's) is what reaches the caller
+        $app = Application::getInstance();
+        $app->applicationInfo['devpanel'] = [];
+
+        // Assert
+        $this->assertSame(42, DeveloperAccess::floor('nosuchtool', 42));
+        $this->assertSame([], DeveloperAccess::usertypes('nosuchtool'));
+        $this->assertSame([], DeveloperAccess::userids('nosuchtool'));
+    }
 }
