@@ -252,6 +252,43 @@ class MachineReadableTest extends TestCase
     }
 
     /**
+     * With a configured API prefix, the MCP endpoint is announced under it directly —
+     * the scaffolded-route fallback this file's other MCP test exercises is for an
+     * installation with no prefix configured at all.
+     */
+    public function testTheMcpEndpointHonoursAConfiguredApiPrefix(): void
+    {
+        // Arrange
+        $stub = new class extends \Pramnos\Application\Application {
+            public function __construct()
+            {
+            }
+        };
+        $stub->applicationInfo = ['api' => ['prefix' => '/custom-api/']];
+        $reflection = new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances');
+        $saved      = $reflection->getValue() ?? [];
+        $instances  = $saved;
+        $instances['default'] = $stub;
+        $reflection->setValue(null, $instances);
+
+        \Pramnos\Mcp\PublicRegistry::offer(
+            'ping', 'public', 'Answers.', ['type' => 'object'], static fn (): array => ['ok' => true]
+        );
+
+        try {
+            // Act
+            $llms = $this->render('llms');
+            $url  = rtrim(defined('sURL') ? (string) sURL : '', '/');
+
+            // Assert — the configured prefix, trimmed of its slashes, not the versioned fallback
+            $this->assertStringContainsString('MCP endpoint: `' . $url . '/custom-api/mcp`', $llms);
+        } finally {
+            \Pramnos\Mcp\PublicRegistry::reset();
+            $reflection->setValue(null, $saved);
+        }
+    }
+
+    /**
      * `llms.txt` carries the site's description when there is one.
      *
      * And omits the line entirely when there is not — the same absent-is-not-empty rule the head
