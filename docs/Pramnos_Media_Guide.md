@@ -243,6 +243,35 @@ A vector has no raster dimensions to read, so `$media->x`/`$media->y` are `0` af
 rather than null — see [Manual Image Processing](#manual-image-processing) for how `get()`
 treats a vector as already every size.
 
+### Normalizing an Upload to JPEG
+
+`MediaObject::uploadAsJpeg()` rewrites a `$_FILES` entry's content to a JPEG before it reaches
+`uploadFile()`/`uploadImage()` — useful where an application wants everything it stores to be one
+predictable format regardless of what a browser sent (a WebP photo is often smaller than the
+JPEG an older viewer expects, but not every consumer of a stored image handles WebP):
+
+```php
+$media = new MediaObject();
+$media->uploadImage(MediaObject::uploadAsJpeg($_FILES['photo']));
+```
+
+It rewrites the upload's temporary file **in place** — same path, so `uploadFile()`'s own
+`move_uploaded_file()` call needs no special handling — and updates `name`/`type`/`size` to
+match. The type is read from the file's own bytes, never trusted from its name or declared
+Content-Type, so a mislabelled upload is judged correctly either way.
+
+It leaves the file exactly as it came in, rather than converting it, when:
+
+- it is already a JPEG, or a GIF (a GIF may be animated; flattening it would always take the
+  first frame and lose the rest);
+- any of it is see-through — a logo on a template, flattened onto white it would stop being
+  see-through, which is worse than not converting it at all;
+- GD cannot decode the content, or there is no temporary file to read.
+
+This is a normalization an application opts into explicitly, not something `uploadFile()` does
+unconditionally — an application that already serves WebP on purpose would lose that the moment
+every upload got silently rewritten.
+
 ### Routing a Module's Uploads Outside the Document Root
 
 Every module's uploads land under `www/uploads/` — inside the document root, served back by the web

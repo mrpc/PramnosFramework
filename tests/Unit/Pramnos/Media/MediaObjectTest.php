@@ -344,6 +344,42 @@ class MediaObjectTest extends TestCase
         return $path;
     }
 
+    /** An opaque WebP image, for {@see testUploadAsJpegConvertsWebpToJpeg}. */
+    private function createDummyWebp(string $filename, int $width = 10, int $height = 10): string
+    {
+        $path = $this->scratchDir() . DS . $filename;
+        $img  = imagecreatetruecolor($width, $height);
+        imagefill($img, 0, 0, (int) imagecolorallocate($img, 10, 200, 50));
+        imagewebp($img, $path);
+        unset($img);
+        $this->createdFiles[] = $path;
+        return $path;
+    }
+
+    /** A fully transparent true-color PNG, for the "see-through stays as it is" case. */
+    private function createDummyTransparentPng(string $filename, int $width = 10, int $height = 10): string
+    {
+        $path = $this->scratchDir() . DS . $filename;
+        $img  = imagecreatetruecolor($width, $height);
+        imagesavealpha($img, true);
+        imagefill($img, 0, 0, (int) imagecolorallocatealpha($img, 0, 0, 0, 127));
+        imagepng($img, $path);
+        unset($img);
+        $this->createdFiles[] = $path;
+        return $path;
+    }
+
+    /** A single-frame GIF, for the "GIF may be animated, so it stays as it is" case. */
+    private function createDummyGif(string $filename, int $width = 10, int $height = 10): string
+    {
+        $path = $this->scratchDir() . DS . $filename;
+        $img  = imagecreatetruecolor($width, $height);
+        imagegif($img, $path);
+        unset($img);
+        $this->createdFiles[] = $path;
+        return $path;
+    }
+
     /**
      * Use Reflection to read the value of a protected or private property on any object.
      *
@@ -1008,6 +1044,153 @@ class MediaObjectTest extends TestCase
         $this->assertFalse($media->error);
         $this->assertGreaterThan(0, $media->mediaid);
         $this->createdFiles[] = $media->filename;
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // MediaObject::uploadAsJpeg() — WebP/PNG/etc. normalization
+    // ────────────────────────────────────────────────────────────────────────
+
+    /**
+     * An opaque WebP upload is converted to a JPEG in place: same tmp_name, so the normal
+     * uploadFile() move_uploaded_file() path still works unmodified, but updated name/type/size.
+     */
+    #[Test]
+    public function testUploadAsJpegConvertsWebpToJpeg(): void
+    {
+        // Arrange
+        $webp = $this->createDummyWebp('photo.webp', 20, 10);
+        $file = [
+            'name'     => 'photo.webp',
+            'type'     => 'image/webp',
+            'tmp_name' => $webp,
+            'error'    => UPLOAD_ERR_OK,
+            'size'     => filesize($webp),
+        ];
+
+        // Act
+        $result = MediaObject::uploadAsJpeg($file);
+
+        // Assert — same path, new name/type, and the bytes on disk are now a JPEG
+        $this->assertSame($webp, $result['tmp_name'], 'the file must be rewritten in place, not moved');
+        $this->assertSame('photo.jpg', $result['name']);
+        $this->assertSame('image/jpeg', $result['type']);
+        $this->assertSame(filesize($webp), $result['size']);
+        $this->assertStringStartsWith('image/jpeg', (string) mime_content_type($webp));
+    }
+
+    /**
+     * A see-through PNG (a logo on a template) is left exactly as it is: flattened onto white
+     * it would stop being see-through, which is a worse result than not converting it at all.
+     */
+    #[Test]
+    public function testUploadAsJpegKeepsATransparentImageUnchanged(): void
+    {
+        // Arrange
+        $png = $this->createDummyTransparentPng('logo.png', 20, 10);
+        $file = [
+            'name'     => 'logo.png',
+            'type'     => 'image/png',
+            'tmp_name' => $png,
+            'error'    => UPLOAD_ERR_OK,
+            'size'     => filesize($png),
+        ];
+
+        // Act
+        $result = MediaObject::uploadAsJpeg($file);
+
+        // Assert — the entry, and the file's own bytes, are untouched
+        $this->assertSame($file, $result);
+        $this->assertStringStartsWith('image/png', (string) mime_content_type($png));
+    }
+
+    /**
+     * A JPEG that is already a JPEG is left alone — there is nothing to normalize.
+     */
+    #[Test]
+    public function testUploadAsJpegKeepsAnExistingJpegUnchanged(): void
+    {
+        // Arrange
+        $jpg = $this->createDummyJpg('already.jpg', 10, 10);
+        $file = [
+            'name'     => 'already.jpg',
+            'type'     => 'image/jpeg',
+            'tmp_name' => $jpg,
+            'error'    => UPLOAD_ERR_OK,
+            'size'     => filesize($jpg),
+        ];
+
+        // Act / Assert
+        $this->assertSame($file, MediaObject::uploadAsJpeg($file));
+    }
+
+    /**
+     * A GIF is left alone even though it is a format uploadAsJpeg() could technically decode:
+     * a GIF may be animated, and flattening it would always take the first frame only.
+     */
+    #[Test]
+    public function testUploadAsJpegKeepsAGifUnchanged(): void
+    {
+        // Arrange
+        $gif = $this->createDummyGif('anim.gif', 10, 10);
+        $file = [
+            'name'     => 'anim.gif',
+            'type'     => 'image/gif',
+            'tmp_name' => $gif,
+            'error'    => UPLOAD_ERR_OK,
+            'size'     => filesize($gif),
+        ];
+
+        // Act / Assert
+        $this->assertSame($file, MediaObject::uploadAsJpeg($file));
+    }
+
+    /**
+     * Content GD cannot decode at all (or a missing tmp file) is handed back unchanged rather
+     * than erroring — this is a best-effort normalization, not a validator; uploadFile()'s own
+     * checks are what decide whether an upload is actually accepted.
+     */
+    #[Test]
+    public function testUploadAsJpegKeepsUnreadableContentUnchanged(): void
+    {
+        // Arrange
+        $notAnImage = $this->createDummyFile('not_an_image.webp', 'this is not image data');
+        $file = [
+            'name'     => 'not_an_image.webp',
+            'type'     => 'image/webp',
+            'tmp_name' => $notAnImage,
+            'error'    => UPLOAD_ERR_OK,
+            'size'     => filesize($notAnImage),
+        ];
+
+        // Act / Assert
+        $this->assertSame($file, MediaObject::uploadAsJpeg($file));
+    }
+
+    /**
+     * End to end: a WebP normalized by uploadAsJpeg() is then accepted by uploadFile() as an
+     * ordinary JPEG upload — the two are meant to be chained, not used in isolation.
+     */
+    #[Test]
+    public function testUploadFileAcceptsAWebpNormalizedToJpegFirst(): void
+    {
+        // Arrange
+        $webp = $this->createDummyWebp('chain.webp', 20, 10);
+        $file = [
+            'name'     => 'chain.webp',
+            'type'     => 'image/webp',
+            'tmp_name' => $webp,
+            'error'    => UPLOAD_ERR_OK,
+            'size'     => filesize($webp),
+        ];
+
+        // Act
+        $media = new MediaObject();
+        $media->uploadFile(MediaObject::uploadAsJpeg($file), 'test_media_module', 1);
+
+        // Assert
+        $this->assertFalse($media->error);
+        $this->assertGreaterThan(0, $media->mediaid);
+        $this->assertSame('jpg', strtolower((string) pathinfo($media->filename, PATHINFO_EXTENSION)));
     }
 
     // ────────────────────────────────────────────────────────────────────────

@@ -2993,6 +2993,128 @@ class MediaObject extends \Pramnos\Framework\Base
         return bin2hex(random_bytes(8));
     }
 
+    /** Formats {@see uploadAsJpeg()} leaves exactly as they are: a JPEG already, and a GIF, which may move. */
+    private const JPEG_KEPT_AS_IS = ['image/jpeg', 'image/gif'];
+
+    /** How much of a JPEG's quality is kept when another format becomes one, in {@see uploadAsJpeg()}. */
+    public const JPEG_QUALITY = 88;
+
+    /**
+     * A browser's upload as a JPEG, written **in place**: the same temporary path PHP
+     * populated for this request, so {@see uploadFile()}'s own `move_uploaded_file()` call still
+     * works unmodified — nothing about where the file lives or how it got there changes, only
+     * its bytes.
+     *
+     * An application calls this on a `$_FILES` entry before handing it to {@see uploadFile()} or
+     * {@see uploadImage()}:
+     *
+     * ```php
+     * $media->uploadImage(MediaObject::uploadAsJpeg($_FILES['photo']));
+     * ```
+     *
+     * Why ahead of `uploadFile()` rather than inside it: not every application wants every
+     * upload silently rewritten — one that already serves WebP (smaller files, every current
+     * browser supports it) would lose that the moment this ran unconditionally. Conversion is
+     * something an application opts into, upload by upload, not a framework-wide default.
+     *
+     * Left as it came in — an empty `$file` is returned unchanged, not an error, since this is
+     * a best-effort normalization, not a validator; {@see uploadFile()}'s own checks are what
+     * actually decide whether an upload is accepted — when any of:
+     *
+     *  - it is already a JPEG or a GIF (a GIF may be animated; flattening it to a single frame
+     *    would lose the animation);
+     *  - any of it is see-through (a logo on a template): flattened onto white it would be a
+     *    white box instead of what the upload actually looked like;
+     *  - the content is not something GD can decode at all.
+     *
+     * @param array $file An entry of `$_FILES` (or the same shape built by hand).
+     * @return array The same entry, with `name`/`type`/`size` updated when the content changed.
+     */
+    public static function uploadAsJpeg(array $file): array
+    {
+        $tmp = (string) ($file['tmp_name'] ?? '');
+        if ($tmp === '' || !is_file($tmp)) {
+            return $file;
+        }
+
+        $jpeg = self::toJpegBytes((string) file_get_contents($tmp));
+        if ($jpeg === null) {
+            return $file;
+        }
+
+        if (@file_put_contents($tmp, $jpeg) === false) {
+            return $file;
+        }
+
+        return array(
+            'name' => pathinfo((string) ($file['name'] ?? 'photo'), PATHINFO_FILENAME) . '.jpg',
+            'type' => 'image/jpeg',
+            'size' => strlen($jpeg),
+        ) + $file;
+    }
+
+    /**
+     * A picture's bytes as a JPEG's bytes — a PNG, a WebP, an AVIF, whatever GD can decode — or
+     * `null` when it should be kept exactly as it is (see {@see uploadAsJpeg()}'s list) or GD
+     * cannot read it at all. The type is read from the bytes, never trusted from a name or a
+     * declared Content-Type.
+     *
+     * @param string $bytes
+     * @return string|null The re-encoded JPEG, or null to mean "unchanged"
+     */
+    private static function toJpegBytes(string $bytes): ?string
+    {
+        $mime = (string) self::detectMimeTypeOfString($bytes);
+        if (!str_starts_with($mime, 'image/') || in_array($mime, self::JPEG_KEPT_AS_IS, true)) {
+            return null;
+        }
+
+        $image = @imagecreatefromstring($bytes);
+        if ($image === false || self::hasTransparency($image)) {
+            return null;
+        }
+
+        $canvas = imagecreatetruecolor(imagesx($image), imagesy($image));
+        imagefill($canvas, 0, 0, (int) imagecolorallocate($canvas, 255, 255, 255));
+        imagecopy($canvas, $image, 0, 0, 0, 0, imagesx($image), imagesy($image));
+
+        ob_start();
+        imagejpeg($canvas, null, self::JPEG_QUALITY);
+
+        return (string) ob_get_clean();
+    }
+
+    /**
+     * Whether any of a decoded image is see-through: a palette image with a transparent color
+     * entry, or a true-color one with alpha anywhere on a sampled grid of up to 64x64 points --
+     * enough to find a logo's transparent corners without reading every pixel of a photograph,
+     * which never has any.
+     *
+     * @param \GdImage $image
+     * @return bool
+     */
+    private static function hasTransparency(\GdImage $image): bool
+    {
+        if (!imageistruecolor($image)) {
+            return imagecolortransparent($image) >= 0;
+        }
+
+        $width  = imagesx($image);
+        $height = imagesy($image);
+        $stepX  = max(1, intdiv($width, 64));
+        $stepY  = max(1, intdiv($height, 64));
+
+        for ($y = 0; $y < $height; $y += $stepY) {
+            for ($x = 0; $x < $width; $x += $stepX) {
+                if (((imagecolorat($image, $x, $y) >> 24) & 0x7F) > 0) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     private function move_uploaded_file($filename, $destination)
     {
         if (defined('UNITTESTING') && UNITTESTING === true) {
