@@ -6,6 +6,7 @@ namespace Tests\Unit\Auth\OAuth2\Repositories;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use Pramnos\Application\Application;
 use Pramnos\Auth\OAuth2\Entities\AccessTokenEntity;
 use Pramnos\Auth\OAuth2\Entities\ClientEntity;
 use Pramnos\Auth\OAuth2\Entities\ScopeEntity;
@@ -54,6 +55,7 @@ class AccessTokenRepositoryTest extends TestCase
     {
         $db = &Database::getInstance();
         $db = $this->dbOriginal;
+        $this->restoreAppInstances();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -142,6 +144,35 @@ class AccessTokenRepositoryTest extends TestCase
         return new AccessTokenRepository($controller);
     }
 
+    /** @var array<string, mixed>|null snapshot of appInstances, restored in tearDown */
+    private ?array $savedAppInstances = null;
+
+    /** Register a real Application stub with the given `oauth.*` config. */
+    private function withOauthConfig(array $config): void
+    {
+        $stub = new class extends Application {
+            public function __construct()
+            {
+            }
+        };
+        $stub->applicationInfo = ['oauth' => $config];
+
+        $ref                     = new \ReflectionProperty(Application::class, 'appInstances');
+        $this->savedAppInstances = $ref->getValue() ?? [];
+        $instances               = $this->savedAppInstances;
+        $instances['default']    = $stub;
+        $ref->setValue(null, $instances);
+    }
+
+    private function restoreAppInstances(): void
+    {
+        if ($this->savedAppInstances !== null) {
+            (new \ReflectionProperty(Application::class, 'appInstances'))
+                ->setValue(null, $this->savedAppInstances);
+            $this->savedAppInstances = null;
+        }
+    }
+
     // =========================================================================
     // getNewToken()
     // =========================================================================
@@ -194,6 +225,65 @@ class AccessTokenRepositoryTest extends TestCase
         $this->assertSame([], $token->getScopes(), 'No scopes must be attached');
         $this->assertNull($token->getUserIdentifier(),
             'User identifier must remain null when not provided');
+    }
+
+    /**
+     * A scope this account's role may not grant throws `invalid_scope` by default —
+     * `userId` 1 has no loadable `User` row, which `ScopePolicy::user()` reads as "nobody to
+     * judge", refusing every scope that has a configured rule.
+     */
+    public function testGetNewTokenRefusesAScopeTheAccountMayNotGrant(): void
+    {
+        // Arrange
+        $this->withOauthConfig(['scopes' => ['admin:write' => ['min_role' => 'admin']]]);
+        $repo   = $this->buildRepo();
+        $client = $this->buildClient();
+        $scopes = [$this->buildScope('admin:write')];
+
+        // Act / Assert
+        $this->expectException(\League\OAuth2\Server\Exception\OAuthServerException::class);
+        $this->expectExceptionMessage('The requested scope is invalid, unknown, or malformed');
+        $repo->getNewToken($client, $scopes, 1);
+    }
+
+    /**
+     * With `scope_refusal = drop`, a scope the account may not grant is dropped rather than
+     * refusing the whole request — RFC 6749 §3.3 allows issuing fewer scopes than asked.
+     */
+    public function testGetNewTokenDropsARefusedScopeRatherThanRefusingWhenConfiguredTo(): void
+    {
+        // Arrange
+        $this->withOauthConfig([
+            'scope_refusal' => 'drop',
+            'scopes'        => ['admin:write' => ['min_role' => 'admin']],
+        ]);
+        $repo   = $this->buildRepo();
+        $client = $this->buildClient();
+        $scopes = [$this->buildScope('admin:write'), $this->buildScope('profile:read')];
+
+        // Act
+        $token = $repo->getNewToken($client, $scopes, 1);
+
+        // Assert — only the ungoverned scope survives
+        $attached = array_map(fn ($s) => $s->getIdentifier(), $token->getScopes());
+        $this->assertSame(['profile:read'], $attached);
+    }
+
+    /** A client-credentials request (no user identifier) is never judged by the scope policy. */
+    public function testGetNewTokenWithNoUserIdentifierSkipsThePolicyEntirely(): void
+    {
+        // Arrange — a rule that would refuse everything, if it were even consulted
+        $this->withOauthConfig(['scopes' => ['admin:write' => ['min_role' => 'admin']]]);
+        $repo   = $this->buildRepo();
+        $client = $this->buildClient();
+        $scopes = [$this->buildScope('admin:write')];
+
+        // Act
+        $token = $repo->getNewToken($client, $scopes);
+
+        // Assert — nothing was dropped or refused
+        $attached = array_map(fn ($s) => $s->getIdentifier(), $token->getScopes());
+        $this->assertSame(['admin:write'], $attached);
     }
 
     // =========================================================================
@@ -291,6 +381,126 @@ class AccessTokenRepositoryTest extends TestCase
         $this->assertCount(1, $this->insertedRows);
         $this->assertSame(0, $this->insertedRows[0]['applicationid'],
             'Empty client identifier must short-circuit to applicationid=0');
+    }
+
+    /**
+     * A client with its own access-token TTL has its expiry recomputed from that lifetime —
+     * so the JWT's `exp`, the response's `expires_in` and this row all agree, rather than
+     * trusting whatever League already set a moment earlier.
+     */
+    public function testPersistNewAccessTokenHonoursTheClientsOwnTtl(): void
+    {
+        // Arrange
+        $qb = $this->buildQueryBuilderStub([['appid' => '9']]);
+        $this->injectDb($this->buildDbMock($qb));
+
+        $repo   = $this->buildRepo();
+        $client = $this->buildClient('client-key-1');
+        $client->setTokenLifetimes(120, null);
+        $token = new AccessTokenEntity();
+        $token->setIdentifier('acc-ttl');
+        $token->setClient($client);
+        $token->setUserIdentifier(7);
+        // League's own, much longer, expiry -- must be overridden by the client's 120s.
+        $token->setExpiryDateTime(new \DateTimeImmutable('+1 day'));
+
+        $before = time();
+
+        // Act
+        $repo->persistNewAccessToken($token);
+
+        // Assert
+        $row = $this->insertedRows[0];
+        $this->assertGreaterThanOrEqual($before + 120, $row['expires']);
+        $this->assertLessThan($before + 130, $row['expires'], 'the client TTL must win over the day-long expiry');
+    }
+
+    /** With no expiry set at all, the stored row's expires is 0, not a fatal. */
+    public function testPersistNewAccessTokenWithNoExpiryStoresZero(): void
+    {
+        // Arrange
+        $qb = $this->buildQueryBuilderStub([['appid' => '9']]);
+        $this->injectDb($this->buildDbMock($qb));
+
+        $repo  = $this->buildRepo();
+        $token = new AccessTokenEntity();
+        $token->setIdentifier('acc-noexpiry');
+        $token->setClient($this->buildClient('client-key-1'));
+        $token->setUserIdentifier(7);
+
+        // Act
+        $repo->persistNewAccessToken($token);
+
+        // Assert
+        $this->assertSame(0, $this->insertedRows[0]['expires']);
+    }
+
+    /**
+     * A client-credentials token (no end user) is filed under the client's own system
+     * account, not under userid 0 — which is not a row in `users` and used to fail the
+     * insert outright.
+     */
+    public function testPersistNewAccessTokenWithNoUserFallsBackToTheSystemAccount(): void
+    {
+        // Arrange — the resolver seam, since resolveSystemUserId() itself needs a real
+        // Auth\Application/DB round trip that this mock-only test file does not set up.
+        $qb = $this->buildQueryBuilderStub([['appid' => '9']]);
+        $this->injectDb($this->buildDbMock($qb));
+
+        $repo = new class ($this->createMock(\Pramnos\Application\Controller::class)) extends AccessTokenRepository {
+            public ?string $resolvedFor = null;
+
+            protected function resolveSystemUserId(string $clientIdentifier): int
+            {
+                $this->resolvedFor = $clientIdentifier;
+
+                return 314;
+            }
+        };
+        $token = new AccessTokenEntity();
+        $token->setIdentifier('acc-clientcreds');
+        $token->setClient($this->buildClient('client-key-1'));
+        $token->setExpiryDateTime(new \DateTimeImmutable('+1 hour'));
+        // No setUserIdentifier() at all: League's own default for client_credentials.
+
+        // Act
+        $repo->persistNewAccessToken($token);
+
+        // Assert
+        $this->assertSame('client-key-1', $repo->resolvedFor);
+        $this->assertSame(314, $this->insertedRows[0]['userid']);
+    }
+
+    // =========================================================================
+    // resolveSystemUserId()
+    // =========================================================================
+
+    /** An empty client identifier short-circuits to 0 without touching the database. */
+    public function testResolveSystemUserIdWithEmptyClientIdentifierIsZero(): void
+    {
+        // Arrange
+        $repo   = $this->buildRepo();
+        $method = new \ReflectionMethod(AccessTokenRepository::class, 'resolveSystemUserId');
+
+        // Act / Assert
+        $this->assertSame(0, $method->invoke($repo, ''));
+    }
+
+    /**
+     * A client that cannot be loaded (an apikey nobody has, or a broken lookup) answers 0
+     * rather than throwing — an insert under an invented account is worse than the failure
+     * that already existed.
+     */
+    public function testResolveSystemUserIdAnswersZeroWhenTheClientCannotBeLoaded(): void
+    {
+        // Arrange — no real DB connection is configured for this mock-only test file, so the
+        // real Auth\Application's loadByApiKey() throws, which the method's own catch reads
+        // the same way it reads "not found".
+        $repo   = $this->buildRepo();
+        $method = new \ReflectionMethod(AccessTokenRepository::class, 'resolveSystemUserId');
+
+        // Act / Assert — the point is that this does not throw past resolveSystemUserId()
+        $this->assertSame(0, $method->invoke($repo, 'no-such-client'));
     }
 
     // =========================================================================
