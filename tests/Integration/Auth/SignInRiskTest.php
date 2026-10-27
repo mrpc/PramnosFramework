@@ -330,4 +330,259 @@ class SignInRiskTest extends BaseTestCase
         // Act & Assert
         $this->assertSame([], SignInRisk::assess(1));
     }
+
+    /**
+     * A listener that throws must not fail the login — the assessment proceeds without its
+     * vote, exactly as the method's own docblock promises for every other signal.
+     */
+    public function testAThrowingApplicationListenerDoesNotFailTheAssessment(): void
+    {
+        // Arrange
+        $this->seedLogin('GR', 86400);
+        \Pramnos\Event\Event::listen('auth.signin_risk', static function (): never {
+            throw new \RuntimeException('the application listener is unreachable');
+        });
+
+        try {
+            // Act
+            $signals = SignInRisk::assess($this->uid);
+
+            // Assert — reaching here at all is half of it
+            $this->assertNotContains(\Pramnos\Auth\SignInRisk::SIGNAL_APPLICATION, $signals);
+        } finally {
+            \Pramnos\Event\Event::forget('auth.signin_risk');
+        }
+    }
+
+    /**
+     * An application's own assessment can flag a sign-in the framework's own signals miss —
+     * a geolocation database or a device-reputation service, say.
+     */
+    public function testAnApplicationListenerCanFlagASignIn(): void
+    {
+        // Arrange
+        $this->seedLogin('GR', 86400);
+        \Pramnos\Event\Event::listen('auth.signin_risk', static fn (): bool => true);
+
+        try {
+            // Act
+            $signals = SignInRisk::assess($this->uid);
+
+            // Assert
+            $this->assertContains(SignInRisk::SIGNAL_APPLICATION, $signals);
+            $this->assertTrue(SignInRisk::isSuspicious($this->uid, $signals));
+        } finally {
+            \Pramnos\Event\Event::forget('auth.signin_risk');
+        }
+    }
+
+    /**
+     * With no Cloudflare header, an application's own `auth.signin_country` listener is
+     * asked — the hook for an installation with a real geolocation source.
+     */
+    public function testAListenerSupplyingACountryIsUsed(): void
+    {
+        // Arrange
+        unset($_SERVER['HTTP_CF_IPCOUNTRY']);
+        \Pramnos\Event\Event::listen('auth.signin_country', static fn (): string => 'jp');
+
+        try {
+            // Act & Assert — upper-cased, like the header's own answer
+            $this->assertSame('JP', SignInRisk::country());
+        } finally {
+            \Pramnos\Event\Event::forget('auth.signin_country');
+        }
+    }
+
+    /** A country listener that throws answers "unknown", not a fatal. */
+    public function testAThrowingCountryListenerAnswersUnknown(): void
+    {
+        // Arrange
+        unset($_SERVER['HTTP_CF_IPCOUNTRY']);
+        \Pramnos\Event\Event::listen('auth.signin_country', static function (): never {
+            throw new \RuntimeException('the geolocation service is down');
+        });
+
+        try {
+            // Act & Assert
+            $this->assertSame('', SignInRisk::country());
+        } finally {
+            \Pramnos\Event\Event::forget('auth.signin_country');
+        }
+    }
+
+    /**
+     * With no address for this request, there is nothing to compare a session against —
+     * a live session elsewhere is not reported as concurrent when "elsewhere" can't be
+     * distinguished from "here".
+     */
+    public function testWithNoAddressForThisRequestConcurrencyIsNotChecked(): void
+    {
+        // Arrange
+        $this->seedLogin('GR', 86400);
+        $savedAddr = $_SERVER['REMOTE_ADDR'] ?? null;
+        unset($_SERVER['REMOTE_ADDR']);
+        $this->db->queryBuilder()->table('#PREFIX#sessions')->insert([
+            'visitorid' => 'risk_' . bin2hex(random_bytes(6)),
+            'uname'     => 'risk',
+            'time'      => time() - 60,
+            'host_addr' => '203.0.113.9',
+            'guest'     => 0,
+            'agent'     => 'test',
+            'userid'    => $this->uid,
+            'url'       => '/',
+            'history'   => '',
+            'logout'    => 0,
+            'sid'       => md5('elsewhere'),
+        ]);
+
+        try {
+            // Act & Assert
+            $this->assertNotContains(
+                SignInRisk::SIGNAL_CONCURRENT_ELSEWHERE,
+                SignInRisk::assess($this->uid)
+            );
+        } finally {
+            if ($savedAddr !== null) {
+                $_SERVER['REMOTE_ADDR'] = $savedAddr;
+            }
+        }
+    }
+
+    /** The exact same address is the same place — the common case, not only the /16 match. */
+    public function testTheExactSameAddressIsTheSamePlace(): void
+    {
+        // Arrange
+        $this->seedLogin('GR', 86400);
+        $this->db->queryBuilder()->table('#PREFIX#sessions')->insert([
+            'visitorid' => 'risk_' . bin2hex(random_bytes(6)),
+            'uname'     => 'risk',
+            'time'      => time() - 60,
+            'host_addr' => $_SERVER['REMOTE_ADDR'],
+            'guest'     => 0,
+            'agent'     => 'test',
+            'userid'    => $this->uid,
+            'url'       => '/',
+            'history'   => '',
+            'logout'    => 0,
+            'sid'       => md5('exact'),
+        ]);
+
+        // Act & Assert
+        $this->assertNotContains(
+            SignInRisk::SIGNAL_CONCURRENT_ELSEWHERE,
+            SignInRisk::assess($this->uid)
+        );
+    }
+
+    /** IPv6 addresses are compared on their first three groups, the same crude-on-purpose rule. */
+    public function testIpv6AddressesAreComparedOnTheFirstThreeGroups(): void
+    {
+        // Arrange
+        $this->seedLogin('GR', 86400);
+        $_SERVER['REMOTE_ADDR'] = '2001:db8:1::1';
+        $this->db->queryBuilder()->table('#PREFIX#sessions')->insert([
+            'visitorid' => 'risk_' . bin2hex(random_bytes(6)),
+            'uname'     => 'risk',
+            'time'      => time() - 60,
+            'host_addr' => '2001:db8:1::ffff', // same first three groups
+            'guest'     => 0,
+            'agent'     => 'test',
+            'userid'    => $this->uid,
+            'url'       => '/',
+            'history'   => '',
+            'logout'    => 0,
+            'sid'       => md5('v6-same'),
+        ]);
+
+        // Act
+        $sameNetwork = SignInRisk::assess($this->uid);
+
+        // Assert — same network, not flagged
+        $this->assertNotContains(SignInRisk::SIGNAL_CONCURRENT_ELSEWHERE, $sameNetwork);
+
+        // And a different IPv6 network is
+        $this->db->queryBuilder()->table('#PREFIX#sessions')
+            ->where('sid', md5('v6-same'))->update(['host_addr' => '2001:db8:2::1']);
+        $this->assertContains(
+            SignInRisk::SIGNAL_CONCURRENT_ELSEWHERE,
+            SignInRisk::assess($this->uid)
+        );
+    }
+
+    /**
+     * A database that cannot be read answers every question with "nothing to report",
+     * never a fatal — a risk assessment that can break authentication is a worse problem
+     * than the one it solves.
+     */
+    public function testADatabaseThatCannotBeReadReportsNoSignals(): void
+    {
+        // Arrange — a connection whose queryBuilder() cannot be used at all
+        $broken = new class extends \Pramnos\Database\Database {
+            public function __construct()
+            {
+            }
+
+            public function queryBuilder()
+            {
+                throw new \RuntimeException('the connection is gone');
+            }
+        };
+
+        // Act / Assert — the point of the test is that this does not throw
+        $this->assertSame([], SignInRisk::assess($this->uid, $broken));
+    }
+
+    /**
+     * A query that answers `null` rather than a `Result` — a possible answer the query
+     * builder's own return type allows for — is read the same way a failed read is: nothing.
+     */
+    public function testANullQueryResultReportsNoSignals(): void
+    {
+        // Arrange — every terminal call (`get()`) answers null
+        $fake = new class {
+            public function table(string $table): self
+            {
+                return $this;
+            }
+
+            public function select($columns): self
+            {
+                return $this;
+            }
+
+            public function where(...$args): self
+            {
+                return $this;
+            }
+
+            public function orderBy(...$args): self
+            {
+                return $this;
+            }
+
+            public function limit(int $limit): self
+            {
+                return $this;
+            }
+
+            public function get(): ?object
+            {
+                return null;
+            }
+        };
+        $broken = new class ($fake) extends \Pramnos\Database\Database {
+            public function __construct(private object $fake)
+            {
+            }
+
+            public function queryBuilder()
+            {
+                return $this->fake;
+            }
+        };
+
+        // Act / Assert
+        $this->assertSame([], SignInRisk::assess($this->uid, $broken));
+    }
 }
