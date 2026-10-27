@@ -125,6 +125,51 @@ class UserRepositoryTest extends TestCase
     }
 
     /**
+     * A locked account is refused before the password is even checked, with a Retry-After
+     * telling the client when to try again — the lockout is the login form's, and the token
+     * endpoint must not be a way round it.
+     */
+    public function testALockedAccountIsRefusedBeforeThePasswordIsChecked(): void
+    {
+        // Arrange
+        $lockout = $this->createMock(\Pramnos\Auth\Loginlockout::class);
+        $lockout->method('getLockoutStatus')->willReturn(['locked' => true, 'remaining' => 42]);
+        $lockout->expects($this->never())->method('recordFailedAttempt');
+        $repo = new class ($lockout) extends UserRepository {
+            public function __construct(private \Pramnos\Auth\Loginlockout $store)
+            {
+            }
+
+            protected function lockout(): \Pramnos\Auth\Loginlockout
+            {
+                return $this->store;
+            }
+        };
+        $client = $this->createMock(ClientEntityInterface::class);
+
+        // Act / Assert
+        try {
+            $repo->getUserEntityByUserCredentials('someone', 'whatever', 'password', $client);
+            $this->fail('a locked account must refuse before answering');
+        } catch (\League\OAuth2\Server\Exception\OAuthServerException $exception) {
+            $this->assertSame('invalid_grant', $exception->getErrorType());
+            $this->assertArrayHasKey('Retry-After', $exception->getHttpHeaders());
+            $this->assertSame('42', $exception->getHttpHeaders()['Retry-After']);
+        }
+    }
+
+    /** The real seam: without a test replacing it, `lockout()` builds an actual `Loginlockout`. */
+    public function testLockoutBuildsARealLockoutStore(): void
+    {
+        // Arrange
+        $repo   = new UserRepository();
+        $method = new \ReflectionMethod(UserRepository::class, 'lockout');
+
+        // Act / Assert
+        $this->assertInstanceOf(\Pramnos\Auth\Loginlockout::class, $method->invoke($repo));
+    }
+
+    /**
      * A repository whose lockout store never locks, so these tests reach the credential check.
      */
     private function repository(): UserRepository
