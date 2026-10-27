@@ -1077,17 +1077,56 @@ class MediaObject extends \Pramnos\Framework\Base
      * @param string $module
      * @return string Path
      */
+    /**
+     * Upload modules whose files must not land under the public document root.
+     *
+     * Empty by default, so every existing application keeps writing everything under
+     * `www/uploads/` exactly as before. An application that stores something sensitive here
+     * — verification documents, anything else that must not be reachable by guessing or
+     * crawling a URL — overrides this to route those modules' uploads under {@see storageRoot()}'s
+     * `var/uploads/` instead, outside the document root. Nothing under `var/` is served by the
+     * web server, so a module listed here is unreachable by construction rather than by an
+     * `.htaccess` rule staying correct forever.
+     *
+     * An application that lists a module here is responsible for serving those files itself
+     * (reading the row, checking who is asking, streaming the bytes) — this hook only decides
+     * where {@see createPath()} writes to, not how a private file reaches anyone afterwards.
+     *
+     * @return string[] Module names
+     */
+    protected static function privateStorageModules()
+    {
+        return array();
+    }
+
+    /**
+     * Where a module's uploads live on disk: `var/uploads` for a module listed in
+     * {@see privateStorageModules()}, `www/uploads` (the document root, as every module has
+     * always used) for every other one.
+     *
+     * @param string $module
+     * @return string Absolute path, no trailing separator
+     */
+    protected static function storageRoot($module = '')
+    {
+        $private = in_array((string) $module, static::privateStorageModules(), true);
+
+        return ROOT . DS . ($private ? 'var' : 'www') . DS . 'uploads';
+    }
+
     private function createPath($module = '')
     {
-        if (!is_dir(ROOT . DS . 'www' . DS . 'uploads')) {
-            mkdir(ROOT . DS . 'www' . DS . 'uploads');
-        }
-        $path = ROOT . DS . 'www' . DS . 'uploads';
-        self::protectUploadDirectory($path);
-
         if ($module != '') {
             $this->module = $module;
         }
+
+        // Resolved after $this->module is set: which of the two storage roots this file
+        // belongs under depends on the module.
+        $path = static::storageRoot($this->module);
+        if (!is_dir($path)) {
+            mkdir($path, 0777, true);
+        }
+        self::protectUploadDirectory($path);
 
         if ($this->module != '') {
             if (!is_dir($path . DS . $this->module)) {

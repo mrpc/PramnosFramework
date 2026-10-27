@@ -3089,6 +3089,97 @@ class MediaObjectTest extends TestCase
         $this->assertFalse($result, 'a file with no image in it was not refused');
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // createPath() / privateStorageModules() — FW-295 follow-up
+    // ────────────────────────────────────────────────────────────────────────
+
+    /**
+     * With no override, createPath() still writes under the public www/uploads root — the
+     * BC guarantee the new hook exists to preserve (empty default, every existing
+     * application's uploads land exactly where they always did).
+     */
+    #[Test]
+    public function testCreatePathDefaultsToPublicWwwUploadsRoot(): void
+    {
+        // Arrange
+        $media = new MediaObject();
+        $ref   = new \ReflectionMethod(MediaObject::class, 'createPath');
+
+        // Act
+        $path = $ref->invoke($media, 'ordinary_module');
+
+        // Assert
+        $this->assertStringStartsWith(ROOT . DS . 'www' . DS . 'uploads', $path);
+        $this->removeTestDirectory($path);
+    }
+
+    /**
+     * A module an application lists in privateStorageModules() gets routed under
+     * var/uploads — outside the document root — instead of www/uploads.
+     *
+     * Verifies the hook end to end rather than just the array it returns: the point is where
+     * createPath() actually writes, not that the list contains the right string.
+     */
+    #[Test]
+    public function testCreatePathRoutesAPrivateModuleUnderVarUploads(): void
+    {
+        // Arrange — a subclass is the only way to override a protected static hook from a test
+        $media = new class() extends MediaObject {
+            protected static function privateStorageModules()
+            {
+                return ['verification_docs'];
+            }
+        };
+        $ref = new \ReflectionMethod(MediaObject::class, 'createPath');
+
+        // Act
+        $path = $ref->invoke($media, 'verification_docs');
+
+        // Assert — under var/uploads, not under the document root's www/uploads
+        $this->assertStringStartsWith(ROOT . DS . 'var' . DS . 'uploads', $path);
+        $this->assertStringNotContainsString(
+            DS . 'www' . DS . 'uploads',
+            $path,
+            'a module listed in privateStorageModules() must never land under the document root'
+        );
+        $this->removeTestDirectory($path);
+    }
+
+    /**
+     * A module NOT in privateStorageModules() still goes to www/uploads even when the
+     * application has overridden the hook for a different module — the check is per module,
+     * not a blanket switch once anything is overridden.
+     */
+    #[Test]
+    public function testCreatePathLeavesAnUnlistedModulePublicEvenWithAnOverride(): void
+    {
+        // Arrange
+        $media = new class() extends MediaObject {
+            protected static function privateStorageModules()
+            {
+                return ['verification_docs'];
+            }
+        };
+        $ref = new \ReflectionMethod(MediaObject::class, 'createPath');
+
+        // Act
+        $path = $ref->invoke($media, 'public_module');
+
+        // Assert
+        $this->assertStringStartsWith(ROOT . DS . 'www' . DS . 'uploads', $path);
+        $this->removeTestDirectory($path);
+    }
+
+    /** Removes a createPath()-style dated directory tree, down to and including its module directory. */
+    private function removeTestDirectory(string $path): void
+    {
+        $dir = rtrim($path, DS);
+        for ($i = 0; $i < 4 && is_dir($dir) && count((array) @scandir($dir)) <= 2; $i++) {
+            @rmdir($dir);
+            $dir = dirname($dir);
+        }
+    }
+
 }
 
 /** Exposes `rotate()`, which is protected because callers rotate through the upload path. */

@@ -211,6 +211,34 @@ $media->mediatype = 1; // Images only
 $result = $media->uploadFile($_FILES['file'], 'gallery');
 ```
 
+### Routing a Module's Uploads Outside the Document Root
+
+Every module's uploads land under `www/uploads/` — inside the document root, served back by the web
+server — because that is what a public media library needs. An application that also stores something
+through `MediaObject` that must *not* be reachable by guessing or crawling a URL (identity documents,
+anything else sensitive) overrides `privateStorageModules()`:
+
+```php
+class Media extends \Pramnos\Media\MediaObject
+{
+    protected static function privateStorageModules()
+    {
+        return ['verification_docs', 'invoices'];
+    }
+}
+```
+
+A module listed here is written under `var/uploads/` instead — outside the document root, so it is
+unreachable by construction rather than by an `.htaccess` rule staying correct forever. Every other
+module keeps landing under `www/uploads/`, exactly as before this hook existed: the default is an
+empty list, so an application that never overrides it sees no change at all.
+
+**This hook only decides where the file is written.** An application that lists a module here is
+responsible for serving those files itself — reading the row, checking who is allowed to see it,
+streaming the bytes from `$media->filename` — the same way it would for any other private data it
+owns. `MediaObject` does not ship a "private file" controller, because who may see a verification
+document is an authorization decision the framework cannot make on an application's behalf.
+
 ## Image Processing
 
 ### Automatic Processing
