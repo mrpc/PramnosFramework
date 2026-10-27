@@ -4186,6 +4186,81 @@ class Database extends \Pramnos\Framework\Base
         return $this->transactionActive;
     }
 
+    /** Session isolation levels `withIsolationLevel()` accepts, in SQL's own spelling. */
+    private const ISOLATION_LEVELS = [
+        'READ UNCOMMITTED', 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE',
+    ];
+
+    /**
+     * Run $callback with the session's transaction isolation level changed for its duration,
+     * restoring whatever it was before — even if $callback throws.
+     *
+     * ```php
+     * $database->withIsolationLevel('read uncommitted', function () use ($database) {
+     *     return $database->queryBuilder()->table('classifieds')->where('status', 1)->getAll();
+     * });
+     * ```
+     *
+     * **A no-op on PostgreSQL.** PostgreSQL has no true `READ UNCOMMITTED` — it silently
+     * accepts the level and runs as `READ COMMITTED` instead, which is documented PostgreSQL
+     * behaviour, not a bug to work around. That is also not a loss here: PostgreSQL's MVCC
+     * never blocks a reader on a writer at *any* isolation level, which is the actual problem
+     * `READ UNCOMMITTED` exists to sidestep on MySQL/InnoDB — a lock-contention concern
+     * PostgreSQL does not have in the first place. `SET TRANSACTION ISOLATION LEVEL` also only
+     * takes effect for the *next* transaction, so calling it here with no transaction open
+     * would change nothing anyway.
+     *
+     * @param  string   $level    One of `read uncommitted`, `read committed`,
+     *                            `repeatable read`, `serializable` (case-insensitive)
+     * @param  callable $callback Runs with the level set; its return value is this method's
+     * @return mixed Whatever $callback returns
+     * @throws \InvalidArgumentException When $level is not one of the four standard levels
+     */
+    public function withIsolationLevel(string $level, callable $callback)
+    {
+        $level = strtoupper(trim($level));
+        if (!in_array($level, self::ISOLATION_LEVELS, true)) {
+            throw new \InvalidArgumentException(
+                'Unknown transaction isolation level: ' . $level
+            );
+        }
+
+        if ($this->type === 'postgresql') {
+            return $callback();
+        }
+
+        if (!$this->connected) {
+            $this->connect();
+        }
+
+        // The session's own current level, read back rather than assumed (REPEATABLE READ is
+        // MySQL's factory default, but an application or a previous caller may have changed
+        // it) -- `@@transaction_isolation` reports it hyphenated ("REPEATABLE-READ"), which
+        // SET does not accept, so it is converted back to the spelling SET expects.
+        $previous = null;
+        try {
+            $result = $this->query('SELECT @@SESSION.transaction_isolation AS lvl');
+            if ($result && $result->numRows) {
+                $previous = str_replace('-', ' ', (string) $result->fields['lvl']);
+            }
+        } catch (\Throwable $ex) {
+            \Pramnos\Logs\Logger::logError(
+                'Could not read the current transaction isolation level: ' . $ex->getMessage(),
+                $ex
+            );
+        }
+
+        $this->runQuery('SET SESSION TRANSACTION ISOLATION LEVEL ' . $level);
+
+        try {
+            return $callback();
+        } finally {
+            $this->runQuery(
+                'SET SESSION TRANSACTION ISOLATION LEVEL ' . ($previous ?? 'REPEATABLE READ')
+            );
+        }
+    }
+
     /**
      * Get columns from a table
      * @param string $tableName Table name

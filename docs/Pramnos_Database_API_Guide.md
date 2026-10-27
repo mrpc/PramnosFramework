@@ -1074,6 +1074,30 @@ and cache invalidation or an outbox wants the same seam.
     event while the outer transaction is still open. And a raw `BEGIN` issued
     through `query()` is not tracked at all.
 
+### Running one block at a different isolation level
+
+```php
+$rows = $database->withIsolationLevel('read uncommitted', function () use ($database) {
+    return $database->queryBuilder()->table('classifieds')->where('status', 1)->getAll();
+});
+```
+
+Sets the session's transaction isolation level for the duration of `$callback`, restoring
+whatever it was before — even if `$callback` throws. This is a MySQL/InnoDB-specific tool for
+a MySQL/InnoDB-specific problem: a long-running or busy table where a plain `SELECT` would
+otherwise wait on a writer's locks, and the data does not have to be exact to be useful (a
+dashboard count, a report that will be re-run).
+
+**A deliberate no-op on PostgreSQL.** PostgreSQL has no true `READ UNCOMMITTED` — it silently
+runs as `READ COMMITTED` instead (documented PostgreSQL behaviour), and its MVCC never blocks
+a reader on a writer at *any* isolation level, which is the actual problem `READ UNCOMMITTED`
+exists to sidestep on MySQL/InnoDB. There is nothing here to change on PostgreSQL, so nothing
+is sent — `$callback` still runs and its return value still comes back.
+
+Accepts the four standard levels, case-insensitively: `read uncommitted`, `read committed`,
+`repeatable read`, `serializable`. An unrecognised string throws `\InvalidArgumentException`
+before anything touches the connection.
+
 ### A multi-step write
 
 ```php
