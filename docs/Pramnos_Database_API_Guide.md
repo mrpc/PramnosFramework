@@ -183,6 +183,20 @@ with no arguments reaches the database as `'%c'`.
 A `%s` or `%d` with no argument passes through to the database instead of raising, which is a
 malformed query rather than a fatal. If you write a placeholder, pass its value.
 
+### Seeing what actually ran: `getCurrentQuery()`
+
+`getCurrentQuery()` returns the SQL this connection last ran — after `prepareQuery()`'s
+substitution or the query builder's own assembly, not the caller's template:
+
+```php
+$db->query($db->prepareQuery("SELECT * FROM users WHERE email = %s", $email));
+$db->getCurrentQuery(); // "SELECT * FROM users WHERE email = 'someone@example.com'"
+```
+
+For a test asserting that a dynamically built `WHERE` clause escaped its arguments correctly,
+or any other after-the-fact check — it is not meant to be parsed or relied on for program logic.
+Empty string on a connection that has run nothing yet.
+
 ## Real prepared statements: `preparedQuery()`
 
 `preparedQuery()` runs the statement through the driver's own prepared-statement engine

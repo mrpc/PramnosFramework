@@ -1324,6 +1324,16 @@ class Database extends \Pramnos\Framework\Base
     }
 
     /**
+     * The SQL this connection last ran — as built, after prepare()/the query builder resolved
+     * it, not the caller's original template. For a test asserting that dynamic WHERE-clause
+     * building escaped correctly, and similar after-the-fact checks; not meant to be parsed.
+     */
+    public function getCurrentQuery(): string
+    {
+        return $this->currentQuery;
+    }
+
+    /**
      * Rewrite DELETE/UPDATE ... LIMIT N to PostgreSQL-compatible form.
      *
      * PostgreSQL does not support LIMIT in DELETE or UPDATE statements.
