@@ -302,7 +302,7 @@ class MediaObject extends \Pramnos\Framework\Base
      */
     public static function getInstance()
     {
-        return new MediaObject();
+        return new static();
     }
 
     /**
@@ -659,7 +659,7 @@ class MediaObject extends \Pramnos\Framework\Base
         }
         $return = array();
         foreach ($rows as $row) {
-            $media = new MediaObject();
+            $media = new static();
             $media->loadByUsage($row['usageid']);
             $return[] = $media;
             unset($media);
@@ -776,7 +776,7 @@ class MediaObject extends \Pramnos\Framework\Base
         }
         $return = array();
         foreach ($rows as $row) {
-            $media = new MediaObject();
+            $media = new static();
             $media->loadByUsage($row['usageid']);
             $return[] = $media;
             unset($media);
@@ -843,7 +843,7 @@ class MediaObject extends \Pramnos\Framework\Base
         }
         $return = array();
         foreach ($rows as $row) {
-            $media = new MediaObject();
+            $media = new static();
             $media->load($row['mediaid']);
             $return[] = $media;
         }
@@ -1229,7 +1229,7 @@ class MediaObject extends \Pramnos\Framework\Base
         if ($result && $result->numRows != 0) {
             $this->medialink = $result->fields['mediaid'];
             $this->url = $result->fields['url'];
-            $tmpMedia = new MediaObject();
+            $tmpMedia = new static();
             $tmpMedia->load($result->fields['mediaid']);
             if (!file_exists($tmpMedia->filename)
                 && $tmpMedia->filename != $file) { // Fixing missing original
@@ -1779,7 +1779,7 @@ class MediaObject extends \Pramnos\Framework\Base
         if ($result->numRows != 0) {
             $this->medialink = $result->fields['mediaid'];
             $this->url = $result->fields['url'];
-            $tmpMedia = new MediaObject();
+            $tmpMedia = new static();
             $tmpMedia->load($result->fields['mediaid']);
             if ($tmpMedia->filename != $this->filename) {
                 @unlink($this->filename);
@@ -1914,7 +1914,7 @@ class MediaObject extends \Pramnos\Framework\Base
                 $num = $database->queryBuilder()->table('#PREFIX#mediause')
                     ->where('mediaid', (int) $mediaid)->count();
                 if ($num == 0) {
-                    $temp = new MediaObject();
+                    $temp = new static();
                     $temp->load($mediaid);
                     $temp->delete();
                     unset($temp);
@@ -1937,14 +1937,14 @@ class MediaObject extends \Pramnos\Framework\Base
         if (!is_array($mediaList)) {
             $mediaList = explode(",", $mediaList);
         }
-        $temp = new MediaObject();
+        $temp = new static();
         $temp->clearUsage($module, $specific, true);
         unset($temp);
         $count = 0;
         foreach ($mediaList as $mediaid) {
             $mediaid = (int)$mediaid;
             if ($mediaid != 0) {
-                $themedia = new MediaObject();
+                $themedia = new static();
                 $themedia->load($mediaid);
                 $themedia->addUsage($module, $specific, '', '', '', $count);
                 $count+=1;
@@ -1967,7 +1967,7 @@ class MediaObject extends \Pramnos\Framework\Base
             ->where('module', $module)->where('specific', $specific)
             ->pluck('usageid');
         foreach ($usageIds as $usageId) {
-            $media = new MediaObject();
+            $media = new static();
             $media->removeUsage($usageId, $safe);
         }
         return $this;
@@ -2452,7 +2452,7 @@ class MediaObject extends \Pramnos\Framework\Base
             return '';
         }
 
-        $media = new self((int) $mediaid);
+        $media = new static((int) $mediaid);
 
         if ((int) $media->mediaid <= 0) {
             return '';

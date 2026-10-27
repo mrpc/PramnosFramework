@@ -3541,6 +3541,139 @@ class MediaObjectTest extends TestCase
         }
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // Late static binding — new static() instead of new MediaObject()/new self()
+    // ────────────────────────────────────────────────────────────────────────
+    //
+    // An application that extends MediaObject (rather than forking the file) needs every
+    // sibling object a method builds internally to be its own subclass, not the base class --
+    // otherwise an overridden method (a custom publicUrl(), a custom storesPrivately() check)
+    // silently never runs on objects these methods hand back or act on. Each test below builds
+    // a MediaSubclass row and confirms the sibling MediaObject() constructs is also a
+    // MediaSubclass, not a bare MediaObject.
+
+    #[Test]
+    public function testGetInstanceReturnsTheCalledSubclass(): void
+    {
+        $this->assertInstanceOf(MediaSubclass::class, MediaSubclass::getInstance());
+    }
+
+    #[Test]
+    public function testGetMediaUsagesReturnsSubclassInstances(): void
+    {
+        // Arrange
+        $media = new MediaSubclass();
+        $media->save();
+        $media->addUsage('lsb_module', 'lsb_spec');
+
+        // Act
+        $usages = $media->getMediaUsages();
+
+        // Assert
+        $this->assertCount(1, $usages);
+        $this->assertInstanceOf(MediaSubclass::class, $usages[0]);
+    }
+
+    #[Test]
+    public function testStaticGetUsagesReturnsSubclassInstances(): void
+    {
+        // Arrange
+        $media = new MediaSubclass();
+        $media->save();
+        $media->addUsage('lsb_static_module', 'lsb_spec');
+
+        // Act
+        $usages = MediaSubclass::staticGetUsages('lsb_static_module');
+
+        // Assert
+        $this->assertCount(1, $usages);
+        $this->assertInstanceOf(MediaSubclass::class, $usages[0]);
+    }
+
+    /** getUsages() forwards into staticGetUsages() via self:: -- a forwarding call, so late static binding still reaches it. */
+    #[Test]
+    public function testGetUsagesInstanceMethodReturnsSubclassInstances(): void
+    {
+        // Arrange
+        $media = new MediaSubclass();
+        $media->save();
+        $media->addUsage('lsb_getusages_module', 'lsb_spec');
+
+        // Act
+        $usages = $media->getUsages('lsb_getusages_module');
+
+        // Assert
+        $this->assertCount(1, $usages);
+        $this->assertInstanceOf(MediaSubclass::class, $usages[0]);
+    }
+
+    #[Test]
+    public function testGetListReturnsSubclassInstances(): void
+    {
+        // Arrange
+        $media = new MediaSubclass();
+        $media->module = 'lsb_list_module';
+        $media->save();
+
+        // Act
+        $probe = new MediaSubclass();
+        $result = $probe->getList(0, 'lsb_list_module');
+
+        // Assert
+        $this->assertCount(1, $result);
+        $this->assertInstanceOf(MediaSubclass::class, $result[0]);
+    }
+
+    #[Test]
+    public function testClearUsageBuildsSubclassInstancesInternally(): void
+    {
+        // Arrange -- clearUsage() builds a sibling to call removeUsage() on; a marker
+        // property set only by the subclass proves which class actually ran.
+        $media = new MediaSubclass();
+        $media->save();
+        $media->addUsage('lsb_clear_module', 'lsb_clear_spec');
+
+        // Act
+        $media->clearUsage('lsb_clear_module', 'lsb_clear_spec');
+
+        // Assert -- removeUsage() ran on a MediaSubclass instance, which recorded it
+        $this->assertTrue(MediaSubclass::$lastRemoveUsageRanOnSubclass);
+    }
+
+    #[Test]
+    public function testMultipleUsageUpdateBuildsSubclassInstancesInternally(): void
+    {
+        // Arrange
+        $media = new MediaSubclass();
+        $media->save();
+
+        // Act -- static::multipleUsageUpdate() builds its siblings via new static()
+        MediaSubclass::multipleUsageUpdate([$media->mediaid], 'lsb_batch_module');
+
+        // Assert
+        $usages = MediaSubclass::staticGetUsages('lsb_batch_module');
+        $this->assertCount(1, $usages);
+        $this->assertInstanceOf(MediaSubclass::class, $usages[0]);
+    }
+
+    #[Test]
+    public function testUrlForBuildsASubclassInstanceInternally(): void
+    {
+        // Arrange
+        $media = new MediaSubclass();
+        $media->filename = '/var/www/html/www/uploads/lsb.jpg';
+        $media->url      = 'uploads/lsb.jpg';
+        $media->save();
+
+        // Act -- calling it through the subclass must build a MediaSubclass internally;
+        // publicUrl()'s own override records which class actually ran
+        MediaSubclass::$lastPublicUrlRanOnSubclass = false;
+        MediaSubclass::urlFor($media->mediaid);
+
+        // Assert
+        $this->assertTrue(MediaSubclass::$lastPublicUrlRanOnSubclass);
+    }
+
 }
 
 /** Exposes `rotate()`, which is protected because callers rotate through the upload path. */
@@ -3549,6 +3682,33 @@ class RotatableMedia extends MediaObject
     public function rotateBy(int $degrees): mixed
     {
         return $this->rotate($degrees);
+    }
+}
+
+/**
+ * An application's own MediaObject extension, standing in for a real one — the subject of the
+ * late-static-binding tests above.
+ *
+ * Every method tested records, through an override, which class the framework code
+ * actually constructed internally. A sibling built as `new MediaObject()` instead of
+ * `new static()` would never run these overrides, and the test would find the marker
+ * still at its default.
+ */
+class MediaSubclass extends MediaObject
+{
+    public static bool $lastRemoveUsageRanOnSubclass = false;
+    public static bool $lastPublicUrlRanOnSubclass = false;
+
+    public function removeUsage($usageid, $safe = false)
+    {
+        self::$lastRemoveUsageRanOnSubclass = true;
+        return parent::removeUsage($usageid, $safe);
+    }
+
+    public function publicUrl(string $reason = ''): string
+    {
+        self::$lastPublicUrlRanOnSubclass = true;
+        return parent::publicUrl($reason);
     }
 }
 

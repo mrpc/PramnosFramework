@@ -300,6 +300,27 @@ streaming the bytes from `$media->filename` — the same way it would for any ot
 owns. `MediaObject` does not ship a "private file" controller, because who may see a verification
 document is an authorization decision the framework cannot make on an application's behalf.
 
+### Extending `MediaObject`
+
+An application that needs its own behaviour beyond what the hooks above offer — an additional
+field, a different thumbnail policy, extra validation — extends `MediaObject` directly rather
+than forking the file:
+
+```php
+class Media extends \Pramnos\Media\MediaObject
+{
+    // overrides, additional methods, ...
+}
+```
+
+Every place `MediaObject` builds a sibling object internally — `getMediaUsages()`,
+`staticGetUsages()`, `getList()`, `clearUsage()`, `removeUsage()`'s own sibling-promotion,
+`multipleUsageUpdate()`, `urlFor()`, the upload-time duplicate check — builds `new static()`,
+not a hardcoded `new MediaObject()`. So a method inherited without being overridden still hands
+back, and acts on, instances of the subclass that called it — including a subclass's own
+`publicUrl()`, `storageRoot()` or any other override those siblings run. Nothing needs
+overriding solely to keep the class right; only behaviour that actually needs to differ does.
+
 ## Image Processing
 
 ### Automatic Processing
