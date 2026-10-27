@@ -248,4 +248,56 @@ class ResultUnitTest extends TestCase
         $result->eof = false;
         $this->assertFalse($result->EOF, 'uppercase alias must track the lowercase property after mutation');
     }
+
+    // -------------------------------------------------------------------------
+    // Countable — count($result) reads numRows (FW-295)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Before implementing Countable, count($result) threw
+     * "TypeError: count(): Argument #1 ($value) must be of type Countable|array"
+     * instead of acting array-like. count() must read $numRows.
+     */
+    public function testCountReadsNumRows(): void
+    {
+        // Arrange
+        $result = $this->makeResult([['id' => 1], ['id' => 2], ['id' => 3]]);
+
+        // Act / Assert — native count() works because Result implements Countable
+        $this->assertSame(3, count($result));
+    }
+
+    public function testCountOnEmptyResultIsZero(): void
+    {
+        $result = $this->makeResult([]);
+        $this->assertSame(0, count($result));
+    }
+
+    // -------------------------------------------------------------------------
+    // getInsertId() delegates to Database::getInsertId() (FW-295)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Result::getInsertId() used to call pg_last_oid() directly on PostgreSQL,
+     * which depends on table OIDs — removed by default since PostgreSQL 8.1, so
+     * it always returned 0/false there. It must delegate to
+     * Database::getInsertId(), which already resolves the right sequence via
+     * currval() on PostgreSQL and mysqli_insert_id() on MySQL.
+     */
+    public function testGetInsertIdDelegatesToDatabase(): void
+    {
+        // Arrange — mock Database::getInsertId() directly; Result must not
+        // touch pg_last_oid()/mysqli_insert_id() itself any more.
+        $db = $this->getMockBuilder(Database::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getInsertId'])
+            ->getMock();
+        $db->type = 'postgresql';
+        $db->expects($this->once())->method('getInsertId')->willReturn(42);
+
+        $result = new Result($db);
+
+        // Act / Assert
+        $this->assertSame(42, $result->getInsertId());
+    }
 }

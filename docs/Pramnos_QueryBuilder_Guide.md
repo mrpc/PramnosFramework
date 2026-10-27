@@ -1032,10 +1032,13 @@ $rows = $qb->from('users')->get()->fetchAll();
 | `$result->eof` | `true` once all rows read |
 | `$result->getNumRows()` | Rows count (method form) |
 | `$result->getAffectedRows()` | Rows affected by UPDATE/DELETE |
-| `$result->getInsertId()` | Auto-increment ID from INSERT (MySQL) |
+| `$result->getInsertId()` | Auto-increment / sequence value from the last INSERT, on MySQL or PostgreSQL alike |
 | `$result->fetchAll()` | All rows as array |
 | `$result->fetch()` | Advance cursor |
 | `$result->free()` | Free resource |
+
+`Result` also implements `Countable`, so `count($result)` reads `$numRows` instead of
+throwing a `TypeError` — useful where code already treats a `Result` as array-like.
 
 ## Writing and reading a moment: `Instant`
 

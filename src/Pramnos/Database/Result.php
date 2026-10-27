@@ -8,7 +8,7 @@ namespace Pramnos\Database;
  * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros
  * @license    MIT
  */
-class Result implements \IteratorAggregate
+class Result implements \IteratorAggregate, \Countable
 {
     /**
      * Number of result rows
@@ -317,6 +317,13 @@ class Result implements \IteratorAggregate
 
     /**
      * Returns the auto generated id used in the latest query
+     *
+     * Delegates to {@see Database::getInsertId()}, which is dialect-aware
+     * ({@code currval()} on PostgreSQL, {@code mysqli_insert_id()} on MySQL) — this
+     * method used to call {@code pg_last_oid()} directly on PostgreSQL, which depends on
+     * table OIDs. PostgreSQL tables have had no OID by default since 8.1, so it always
+     * returned 0/false there (FW-295).
+     *
      * @return mixed The value of the AUTO_INCREMENT field that was updated by
      * the previous query. Returns zero if there was no previous query
      * on the connection or if the query did not update an AUTO_INCREMENT value.
@@ -324,12 +331,16 @@ class Result implements \IteratorAggregate
      */
     public function getInsertId()
     {
-        if ($this->database->type == 'postgresql' 
-            && (\is_resource($this->mysqlResult) || $this->mysqlResult instanceof \PgSql\Result)) {
-            return \pg_last_oid($this->mysqlResult);
-        } else {
-            return \mysqli_insert_id($this->database->getConnectionLink());
-        }
+        return $this->database->getInsertId();
+    }
+
+    /**
+     * Countable support: `count($result)` reads {@see $numRows} instead of throwing.
+     * @return int
+     */
+    public function count(): int
+    {
+        return (int) $this->numRows;
     }
 
     /**
