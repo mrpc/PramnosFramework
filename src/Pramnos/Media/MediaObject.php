@@ -650,23 +650,22 @@ class MediaObject extends \Pramnos\Framework\Base
         if ($mediaid == 0) {
             return array();
         }
-        $sql = $database->prepareQuery(
-            "select * from `#PREFIX#mediause` where `mediaid` = %d
-            order by `order`", $mediaid
-        );
-        $result = $database->query($sql, true, 60, 'media');
-        if ($result->numRows != 0) {
-            while ($result->fetch()) {
-                $media = new MediaObject();
-                $media->loadByUsage($result->fields['usageid']);
-                $return[] = $media;
-                unset($media);
-            }
-            $this->usages = count($return);
-            return $return;
+        $rows = $database->queryBuilder()->table('#PREFIX#mediause')
+            ->where('mediaid', (int) $mediaid)
+            ->orderBy('order')
+            ->getAll(true, 60, 'media');
+        if (empty($rows)) {
+            return array();
         }
-
-        return array();
+        $return = array();
+        foreach ($rows as $row) {
+            $media = new MediaObject();
+            $media->loadByUsage($row['usageid']);
+            $return[] = $media;
+            unset($media);
+        }
+        $this->usages = count($return);
+        return $return;
     }
 
 
@@ -749,54 +748,37 @@ class MediaObject extends \Pramnos\Framework\Base
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
 
-        if ($module == '' && $specific == '') {
-            $sql = $database->prepareQuery(
-                "select * from `#PREFIX#mediause`
-                order by `order`"
-            );
-        } elseif ($module == '' && $specific != '') {
-            $sql = $database->prepareQuery(
-                "select * from `#PREFIX#mediause`
-                where `specific` = %s
-                order by `order`", $specific
-            );
-        } else {
-            if ($specific == '') {
-                $sql = $database->prepareQuery(
-                    "select * from `#PREFIX#mediause`
-                    where `module` = %s
-                    order by `order`", $module
-                );
-            } else {
-                $sql = $database->prepareQuery(
-                    "select * from `#PREFIX#mediause`
-                    where `module` = %s and `specific` = %s
-                    order by `order`", $module, $specific
-                );
-            }
+        $query = $database->queryBuilder()->table('#PREFIX#mediause');
+        if ($module !== '') {
+            $query->where('module', $module);
         }
-        $result = $database->query($sql, true, 60, 'media');
-        if ($result->numRows != 0) {
-            while ($result->fetch()) {
-                $media = new MediaObject();
-                $media->loadByUsage($result->fields['usageid']);
-                $return[] = $media;
-                unset($media);
-            }
-            if ($removeDuplicates == true) {
-                $existingphotos=array();
-                foreach ($return as $key=>$p) {
-                    if (isset($existingphotos[$p->url])) {
-                        unset($return[$key]);
-                    } else {
-                        $existingphotos[$p->url]=$key;
-                    }
+        if ($specific !== '') {
+            $query->where('specific', $specific);
+        }
+        $rows = $query->orderBy('order')->getAll(true, 60, 'media');
+
+        if (empty($rows)) {
+            return array();
+        }
+        $return = array();
+        foreach ($rows as $row) {
+            $media = new MediaObject();
+            $media->loadByUsage($row['usageid']);
+            $return[] = $media;
+            unset($media);
+        }
+        if ($removeDuplicates == true) {
+            $existingphotos=array();
+            foreach ($return as $key=>$p) {
+                if (isset($existingphotos[$p->url])) {
+                    unset($return[$key]);
+                } else {
+                    $existingphotos[$p->url]=$key;
                 }
-                unset($existingphotos);
             }
-            return $return;
+            unset($existingphotos);
         }
-        return array();
+        return $return;
     }
 
 
@@ -810,60 +792,48 @@ class MediaObject extends \Pramnos\Framework\Base
     public function getList($type = 0, $module = '', $userid = '')
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $statement = "";
         if ($userid == '') {
             if (isset($_SESSION['uid'])) {
                 $userid = $_SESSION['uid'];
             }
         }
         $user = new \Pramnos\User\User($userid);
-        if ($user->usertype != 2) {
-            $statement = $database->prepareQuery(
-                " and (`userid` = %d or `otherusers` = 1) ",
-                $userid
-            );
-        }
+
+        $query = $database->queryBuilder()->table('#PREFIX#media');
+
         if ($type != 0) {
-            if ($module == '') {
-                $sql = $database->prepareQuery(
-                    "select * from `#PREFIX#media`
-                    where `mediatype` = %d $statement
-                    order by `order`", $type
-                );
-            } else {
-                $sql = $database->prepareQuery(
-                    "select * from `#PREFIX#media`
-                    where `mediatype` = %d
-                    and (`module` = %s or `module` = ''
-                    or `othermodules` = 1)  $statement
-                    order by `order`", $type, $module
-                );
-            }
-        } else {
-            if ($module == '') {
-                $sql = $database->prepareQuery(
-                    "select * from `#PREFIX#media`
-                    order by `order`"
-                );
-            } else {
-                $sql = $database->prepareQuery(
-                    "select * from `#PREFIX#media`
-                    where (`module` = %s or `module` = ''
-                    or `othermodules` = 1)   $statement
-                    order by `order`", $module
-                );
-            }
+            $query->where('mediatype', $type);
         }
-        $result = $database->query($sql, true, 60, 'media');
-        if ($result->numRows != 0) {
-            while ($result->fetch()) {
-                $media = new MediaObject();
-                $media->load($result->fields['mediaid']);
-                $return[] = $media;
-            }
-            return $return;
+
+        if ($module != '') {
+            $query->where(function ($q) use ($module) {
+                $q->where('module', $module)
+                    ->orWhere('module', '')
+                    ->orWhere('othermodules', 1);
+            });
         }
-        return array();
+
+        // Matches the original SQL exactly: the user restriction only applied
+        // when a type or a module filter was given — with neither, every
+        // user's media came back unfiltered.
+        if (($type != 0 || $module != '') && $user->usertype != 2) {
+            $query->where(function ($q) use ($userid) {
+                $q->where('userid', $userid)
+                    ->orWhere('otherusers', 1);
+            });
+        }
+
+        $rows = $query->orderBy('order')->getAll(true, 60, 'media');
+        if (empty($rows)) {
+            return array();
+        }
+        $return = array();
+        foreach ($rows as $row) {
+            $media = new MediaObject();
+            $media->load($row['mediaid']);
+            $return[] = $media;
+        }
+        return $return;
     }
 
     /**
@@ -1829,59 +1799,23 @@ class MediaObject extends \Pramnos\Framework\Base
             }
         }
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $itemdata = array(
-            array(
-                'fieldName' => 'mediaid',
-                'value' => $this->mediaid,
-                'type' => 'integer'
-            ),
-            array(
-                'fieldName' => 'module',
-                'value' => $module,
-                'type' => 'string'
-            ),
-            array(
-                'fieldName' => 'specific',
-                'value' => $specific,
-                'type' => 'string'
-            ),
-            array(
-                'fieldName' => 'date',
-                'value' => time(),
-                'type' => 'integer'
-            ),
-            array(
-                'fieldName' => 'title',
-                'value' => $title,
-                'type' => 'string'
-            ),
-            array(
-                'fieldName' => 'description',
-                'value' => $description,
-                'type' => 'string'
-            ),
-            array(
-                'fieldName' => 'tags',
-                'value' => $tags,
-                'type' => 'string'
-            ),
-            array(
-                'fieldName' => 'order',
-                'value' => $order,
-                'type' => 'integer'
-            )
-        );
         $database->cacheflush('media');
-        $database->insertDataToTable($database->prefix . "mediause", $itemdata);
-        $usageid = $database->getInsertId();
+        $database->queryBuilder()->table('#PREFIX#mediause')->insert([
+            'mediaid' => $this->mediaid,
+            'module' => $module,
+            'specific' => $specific,
+            'date' => time(),
+            'title' => $title,
+            'description' => $description,
+            'tags' => $tags,
+            'order' => $order,
+        ]);
+        $usageid = (int) $database->getInsertId();
         if ($this->mediaid != 0) {
             $this->usages = $this->usages + 1;
-            $sql = $database->prepareQuery(
-                "update `#PREFIX#media` set `usages` = %d "
-                . "where `mediaid` = %d",
-                $this->usages, $this->mediaid
-            );
-            $database->query($sql);
+            $database->queryBuilder()->table('#PREFIX#media')
+                ->where('mediaid', (int) $this->mediaid)
+                ->update(['usages' => $this->usages]);
         }
         return $usageid;
     }
@@ -1896,32 +1830,21 @@ class MediaObject extends \Pramnos\Framework\Base
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $database->cacheflush('media');
-        $sql = $database->prepareQuery(
-            "select * from `#PREFIX#mediause` where `usageid` = %d limit 1",
-            $usageid
-        );
-        $result = $database->query($sql);
-        if ($result->numRows != 0) {
-            $mediaid = $result->fields['mediaid'];
-            $sql = $database->prepareQuery(
-                "delete from `#PREFIX#mediause` where `usageid` = %d limit 1",
-                $usageid
-            );
-            $database->query($sql);
-            $database->query(
-                $database->prepareQuery(
-                    "update `#PREFIX#media` set `usages` = `usages` - 1 "
-                    . "where `mediaid` = %d", $mediaid
-                )
-            );
+        $mediaid = $database->queryBuilder()->table('#PREFIX#mediause')
+            ->where('usageid', (int) $usageid)
+            ->limit(1)->value('mediaid');
+        if ($mediaid !== null) {
+            $database->queryBuilder()->table('#PREFIX#mediause')
+                ->where('usageid', (int) $usageid)
+                ->delete();
+            $database->queryBuilder()->table('#PREFIX#media')
+                ->where('mediaid', (int) $mediaid)
+                ->decrement('usages');
 
             if ($safe === false) {
-                $sql = $database->prepareQuery(
-                    "select * from `#PREFIX#mediause` where `mediaid` = %d",
-                    $mediaid
-                );
-                $num = $database->query($sql);
-                if ($num->numRows == 0) {
+                $num = $database->queryBuilder()->table('#PREFIX#mediause')
+                    ->where('mediaid', (int) $mediaid)->count();
+                if ($num == 0) {
                     $temp = new MediaObject();
                     $temp->load($mediaid);
                     $temp->delete();
@@ -1971,17 +1894,12 @@ class MediaObject extends \Pramnos\Framework\Base
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $database->cacheflush('media');
-        $sql = $database->prepareQuery(
-            "select * from `#PREFIX#mediause` "
-            . "where `module` = %s and `specific` = %s",
-            $module, $specific
-        );
-        $result = $database->query($sql);
-        if ($result->numRows != 0) {
-            while ($result->fetch()) {
-                $media = new MediaObject();
-                $media->removeUsage($result->fields['usageid'], $safe);
-            }
+        $usageIds = $database->queryBuilder()->table('#PREFIX#mediause')
+            ->where('module', $module)->where('specific', $specific)
+            ->pluck('usageid');
+        foreach ($usageIds as $usageId) {
+            $media = new MediaObject();
+            $media->removeUsage($usageId, $safe);
         }
         return $this;
     }
@@ -1995,22 +1913,16 @@ class MediaObject extends \Pramnos\Framework\Base
     public function loadByUsage($usageid, $updateViews=false)
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepareQuery(
-            "select * from `#PREFIX#mediause` where `usageid` = %d limit 1",
-            $usageid
-        );
-        $result = $database->query($sql, true, 600, 'media');
+        $result = $database->queryBuilder()->table('#PREFIX#mediause')
+            ->where('usageid', (int) $usageid)
+            ->limit(1)->get(true, 600, 'media');
         if ($result->numRows != 0) {
             $this->load($result->fields['mediaid']);
             $this->views += 1;
             if ($updateViews == true) {
-                $database->query(
-                    $database->prepareQuery(
-                        "update `#PREFIX#media` set `views` = %d "
-                        . "where `mediaid` = %d limit 1",
-                        $this->views, $this->mediaid
-                    )
-                );
+                $database->queryBuilder()->table('#PREFIX#media')
+                    ->where('mediaid', (int) $this->mediaid)
+                    ->update(['views' => (int) $this->views]);
             }
             $this->usageid = $result->fields['usageid'];
             $this->usageTitle = $result->fields['title'];
@@ -2053,135 +1965,40 @@ class MediaObject extends \Pramnos\Framework\Base
             $this->date = time();
         }
 
-        $itemdata = array(
-            array(
-                'fieldName' => 'mediatype',
-                'value' => $this->mediatype,
-                'type' => 'integer'
-            ),
-            array(
-                'fieldName' => 'userid',
-                'value' => $this->userid,
-                'type' => 'integer'
-            ),
-            array(
-                'fieldName' => 'module',
-                'value' => $this->module,
-                'type' => 'string'
-            ),
-            array(
-                'fieldName' => 'views',
-                'value' => $this->views,
-                'type' => 'integer'
-            ),
-            array(
-                'fieldName' => 'thumbnails',
-                'value' => self::encodeThumbnails($this->thumbnails),
-                'type' => 'string'
-            ),
-            array(
-                'fieldName' => 'filesize',
-                'value' => $this->filesize,
-                'type' => 'integer'
-            ),
-            array(
-                'fieldName' => 'description',
-                'value' => $this->description,
-                'type' => 'string'
-            ),
-            array(
-                'fieldName' => 'x',
-                'value' => $this->x,
-                'type' => 'integer'
-            ),
-            array(
-                'fieldName' => 'y',
-                'value' => $this->y,
-                'type' => 'integer'
-            ),
-            array(
-                'fieldName' => 'usages',
-                'value' => $this->usages,
-                'type' => 'integer'
-            ),
-            array(
-                'fieldName' => 'md5',
-                'value' => $this->md5,
-                'type' => 'string'
-            ),
-            array(
-                'fieldName' => 'medialink',
-                'value' => $this->medialink,
-                'type' => 'integer'
-            ),
-            array(
-                'fieldName' => 'order',
-                'value' => $this->order,
-                'type' => 'integer'
-            ),
-            array(
-                'fieldName' => 'name',
-                'value' => $this->name,
-                'type' => 'string'
-            ),
-            array(
-                'fieldName' => 'filename',
-                'value' => $this->filename,
-                'type' => 'string'
-            ),
-            array(
-                'fieldName' => 'url',
-                'value' => $this->url,
-                'type' => 'string'
-            ),
-            array(
-                'fieldName' => 'shortcut',
-                'value' => $this->shortcut,
-                'type' => 'string'
-            ),
-            array(
-                'fieldName' => 'tags',
-                'value' => $this->tags,
-                'type' => 'string'
-            ),
-            array(
-                'fieldName' => 'date',
-                'value' => $this->date,
-                'type' => 'integer'
-            ),
-            array(
-                'fieldName' => 'otherusers',
-                'value' => $this->otherusers,
-                'type' => 'integer'
-            ),
-            array(
-                'fieldName' => 'othermodules',
-                'value' => $this->othermodules,
-                'type' => 'integer'
-            ),
-            array(
-                'fieldName' => 'extrainfo',
-                'value' => $this->extrainfo,
-                'type' => 'string'
-            ),
-            array(
-                'fieldName' => 'mimetype',
-                'value' => $this->mimetype,
-                'type' => 'string'
-            )
+        $fields = array(
+            'mediatype' => $this->mediatype,
+            'userid' => $this->userid,
+            'module' => $this->module,
+            'views' => $this->views,
+            'thumbnails' => self::encodeThumbnails($this->thumbnails),
+            'filesize' => $this->filesize,
+            'description' => $this->description,
+            'x' => $this->x,
+            'y' => $this->y,
+            'usages' => $this->usages,
+            'md5' => $this->md5,
+            'medialink' => $this->medialink,
+            'order' => $this->order,
+            'name' => $this->name,
+            'filename' => $this->filename,
+            'url' => $this->url,
+            'shortcut' => $this->shortcut,
+            'tags' => $this->tags,
+            'date' => $this->date,
+            'otherusers' => $this->otherusers,
+            'othermodules' => $this->othermodules,
+            'extrainfo' => $this->extrainfo,
+            'mimetype' => $this->mimetype,
         );
         $database->cacheflush('media');
         if ($this->_isnew == true) {
             $this->_isnew = false;
-            $database->insertDataToTable(
-                $database->prefix . "media", $itemdata
-            );
-            $this->mediaid = $database->getInsertId();
+            $database->queryBuilder()->table('#PREFIX#media')->insert($fields);
+            $this->mediaid = (int) $database->getInsertId();
         } else {
-            $database->updateTableData(
-                $database->prefix . "media", $itemdata,
-                "`mediaid` = '" . (int) $this->mediaid . "'", false
-            );
+            $database->queryBuilder()->table('#PREFIX#media')
+                ->where('mediaid', (int) $this->mediaid)
+                ->update($fields);
         }
         return $this;
     }
@@ -2202,33 +2019,15 @@ class MediaObject extends \Pramnos\Framework\Base
         if ($this->date == 0) {
             $this->date = time();
         }
-        $itemdata = array(
-            array(
-                'fieldName' => 'title',
-                'value' => $this->usageTitle,
-                'type' => 'string'
-            ),
-            array(
-                'fieldName' => 'description',
-                'value' => $this->usageDescription,
-                'type' => 'string'
-            ),
-            array(
-                'fieldName' => 'tags',
-                'value' => $this->usageTags,
-                'type' => 'string'
-            ),
-            array(
-                'fieldName' => 'order',
-                'value' => $this->usageOrder,
-                'type' => 'integer'
-            )
-        );
         $database->cacheflush('media');
-        $database->updateTableData(
-            $database->prefix . "mediause", $itemdata,
-            "`usageid` = '" . (int) $this->usageid . "'", false
-        );
+        $database->queryBuilder()->table('#PREFIX#mediause')
+            ->where('usageid', (int) $this->usageid)
+            ->update(array(
+                'title' => $this->usageTitle,
+                'description' => $this->usageDescription,
+                'tags' => $this->usageTags,
+                'order' => $this->usageOrder,
+            ));
         return $this;
     }
 
