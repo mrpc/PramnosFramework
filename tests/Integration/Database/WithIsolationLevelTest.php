@@ -137,14 +137,17 @@ class WithIsolationLevelTest extends TestCase
         $before = $this->currentLevel($db);
 
         // Act
+        $caught = null;
         try {
             $db->withIsolationLevel('read uncommitted', function (): void {
                 throw new \RuntimeException('boom');
             });
-            $this->fail('the exception must propagate');
         } catch (\RuntimeException $ex) {
-            $this->assertSame('boom', $ex->getMessage());
+            $caught = $ex;
         }
+
+        $this->assertNotNull($caught, 'the exception must propagate');
+        $this->assertSame('boom', $caught->getMessage());
 
         // Assert
         $this->assertSame($before, $this->currentLevel($db));
