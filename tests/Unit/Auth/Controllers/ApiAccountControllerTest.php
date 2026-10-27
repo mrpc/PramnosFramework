@@ -181,6 +181,19 @@ class ApiAccountControllerTest extends TestCase
         $this->assertSame([], $this->c->revoked);
     }
 
+    /**
+     * `userFor()`'s fallback path constructs a real `User`, which queries the database on the
+     * way in — ordinarily already connected by the time a real request reaches this
+     * controller, but not a given when this test runs alone.
+     */
+    private function ensureDbConnected(): void
+    {
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        if (!$db->connected) {
+            $db->connect();
+        }
+    }
+
     private function user(int $id, string $username, string $email): StubApiUser
     {
         $user = new StubApiUser();
@@ -471,6 +484,267 @@ class ApiAccountControllerTest extends TestCase
             $two['access_token'] ?? 'b',
             'two tokens minted in the same second must not be the same string'
         );
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // login()'s own isLocked()/STEP_UP_REQUIRED branches, userFor(), loginFlow()
+    //
+    // Every test above drives login() through TestableApiAccount, which overrides
+    // loginFlow() and userFor() to avoid the real ApiLoginFlow/Loginlockout/DB
+    // stack -- which also means neither the real loginFlow() nor the real userFor()
+    // had ever run, and login()'s own isLocked()/STEP_UP_REQUIRED bodies (as
+    // opposed to login2fa()'s, covered above via secondLeg()) had not either.
+    // ────────────────────────────────────────────────────────────────────────
+
+    /** login()'s own lockout response -- distinct from login2fa()'s, tested above via secondLeg(). */
+    public function testLoginLockedAccountIsToldHowLongToWait(): void
+    {
+        // Arrange
+        $controller = new class extends ApiAccount {
+            public function __construct()
+            {
+            }
+
+            protected function requestMethod(): string
+            {
+                return 'POST';
+            }
+
+            protected function input(string $key): mixed
+            {
+                return ['username' => 'alice', 'password' => 'pw'][$key] ?? null;
+            }
+
+            protected function loginFlow(): \Pramnos\Auth\ApiLoginFlow
+            {
+                return new class extends \Pramnos\Auth\ApiLoginFlow {
+                    public function __construct()
+                    {
+                    }
+
+                    public function attempt(string $username, string $password, bool $remember = true): \Pramnos\Auth\LoginFlowResult
+                    {
+                        return \Pramnos\Auth\LoginFlowResult::locked(120);
+                    }
+                };
+            }
+        };
+
+        // Act
+        [$status, $body] = $this->readJson($controller->login());
+
+        // Assert
+        $this->assertSame(429, $status);
+        $this->assertSame('too_many_attempts', $body['error'] ?? null);
+        $this->assertSame(120, $body['retry_after'] ?? null);
+    }
+
+    /** A password that is right but needs a second factor is told which methods, not a token. */
+    public function testLoginNeedingASecondFactorNamesTheMethods(): void
+    {
+        // Arrange
+        $controller = new class extends ApiAccount {
+            public function __construct()
+            {
+            }
+
+            protected function requestMethod(): string
+            {
+                return 'POST';
+            }
+
+            protected function input(string $key): mixed
+            {
+                return ['username' => 'alice', 'password' => 'pw'][$key] ?? null;
+            }
+
+            protected function loginFlow(): \Pramnos\Auth\ApiLoginFlow
+            {
+                return new class extends \Pramnos\Auth\ApiLoginFlow {
+                    public function __construct()
+                    {
+                    }
+
+                    public function attempt(string $username, string $password, bool $remember = true): \Pramnos\Auth\LoginFlowResult
+                    {
+                        return \Pramnos\Auth\LoginFlowResult::stepUpRequired(5, ['totp', 'email']);
+                    }
+                };
+            }
+        };
+
+        // Act
+        [$status, $body] = $this->readJson($controller->login());
+
+        // Assert
+        $this->assertSame(401, $status);
+        $this->assertSame('two_factor_required', $body['error'] ?? null);
+        $this->assertSame(['totp', 'email'], $body['methods'] ?? null);
+    }
+
+    /**
+     * `userFor()`, unreplaced: the first leg's resolved user is reused rather than reloaded,
+     * and a second leg with no such user loads one fresh.
+     *
+     * Every other test in this file overrides `userFor()` to avoid a real `User` load; this
+     * is the one place the production method itself runs.
+     */
+    public function testUserForReusesTheResolvedUserWhenTheIdMatches(): void
+    {
+        // Arrange
+        $controller = new class extends ApiAccount {
+            public function __construct()
+            {
+            }
+
+            public function setResolved(?User $user): void
+            {
+                (new \ReflectionProperty(ApiAccount::class, 'resolvedUser'))->setValue($this, $user);
+            }
+
+            public function expose(int $userId): User
+            {
+                return $this->userFor($userId);
+            }
+        };
+        $resolved = new StubApiUser();
+        $resolved->userid = 42;
+        $controller->setResolved($resolved);
+
+        // Act / Assert — same id, same object back
+        $this->assertSame($resolved, $controller->expose(42));
+    }
+
+    /** A different id than the one already resolved loads a fresh `User`, not the cached one. */
+    public function testUserForLoadsFreshWhenTheIdDoesNotMatch(): void
+    {
+        // Arrange
+        $this->ensureDbConnected();
+        $controller = new class extends ApiAccount {
+            public function __construct()
+            {
+            }
+
+            public function setResolved(?User $user): void
+            {
+                (new \ReflectionProperty(ApiAccount::class, 'resolvedUser'))->setValue($this, $user);
+            }
+
+            public function expose(int $userId): User
+            {
+                return $this->userFor($userId);
+            }
+        };
+        $resolved = new StubApiUser();
+        $resolved->userid = 42;
+        $controller->setResolved($resolved);
+
+        // Act
+        $fresh = $controller->expose(99);
+
+        // Assert
+        $this->assertNotSame($resolved, $fresh);
+        $this->assertInstanceOf(User::class, $fresh);
+    }
+
+    /** With nothing resolved yet (the second leg of a login), a fresh `User` is loaded. */
+    public function testUserForLoadsFreshWithNothingResolvedYet(): void
+    {
+        // Arrange
+        $this->ensureDbConnected();
+        $controller = new class extends ApiAccount {
+            public function __construct()
+            {
+            }
+
+            public function expose(int $userId): User
+            {
+                return $this->userFor($userId);
+            }
+        };
+
+        // Act / Assert
+        $this->assertInstanceOf(User::class, $controller->expose(99));
+    }
+
+    /**
+     * `loginFlow()`, unreplaced: it builds a real `ApiLoginFlow` whose credentials resolver is
+     * this closure. Invoked directly (via the flow's own private property) rather than through
+     * `attempt()`, which would also exercise `Loginlockout`/`TwoFactorAuthService` against a
+     * real database -- machinery this class does not own and that has its own tests.
+     */
+    public function testLoginFlowsResolverDelegatesToVerifyCredentialsAndRemembersTheUser(): void
+    {
+        // Arrange
+        $controller = new class extends ApiAccount {
+            public ?User $given = null;
+
+            public function __construct()
+            {
+            }
+
+            protected function verifyCredentials(string $username, string $password): ?User
+            {
+                if ($username !== 'alice' || $password !== 'pw') {
+                    return null;
+                }
+
+                return $this->given;
+            }
+
+            public function exposeLoginFlow(): \Pramnos\Auth\ApiLoginFlow
+            {
+                return $this->loginFlow();
+            }
+
+            public function exposeResolvedUser(): ?User
+            {
+                return (new \ReflectionProperty(ApiAccount::class, 'resolvedUser'))->getValue($this);
+            }
+        };
+        $user = new StubApiUser();
+        $user->userid = 7;
+        $controller->given = $user;
+
+        $flow     = $controller->exposeLoginFlow();
+        $resolver = (new \ReflectionProperty(\Pramnos\Auth\ApiLoginFlow::class, 'credentialsResolver'))->getValue($flow);
+
+        // Act — the right attempt, checked before the wrong one overwrites what it remembered
+        $right        = $resolver('alice', 'pw');
+        $afterRight   = $controller->exposeResolvedUser();
+        $controller->given = null;
+        $wrong        = $resolver('alice', 'wrong');
+        $afterWrong   = $controller->exposeResolvedUser();
+
+        // Assert
+        $this->assertSame(['status' => true, 'uid' => 7], $right);
+        $this->assertSame($user, $afterRight, 'the resolved user was not remembered for userFor() to reuse');
+        $this->assertFalse($wrong);
+        $this->assertNull($afterWrong, 'a failed attempt must not leave the previous user remembered');
+    }
+
+    /** `rawBody()`, unreplaced: it is `Request::rawBody()`, read once and cached there. */
+    public function testRawBodyReadsTheRealRequestBody(): void
+    {
+        // Arrange
+        \Pramnos\Http\Request::setRawInput('{"username":"alice"}');
+        $controller = new class extends ApiAccount {
+            public function __construct()
+            {
+            }
+
+            public function expose(): string
+            {
+                return $this->rawBody();
+            }
+        };
+
+        try {
+            // Act / Assert
+            $this->assertSame('{"username":"alice"}', $controller->expose());
+        } finally {
+            \Pramnos\Http\Request::setRawInput(null);
+        }
     }
 }
 
