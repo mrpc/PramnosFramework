@@ -211,6 +211,38 @@ $media->mediatype = 1; // Images only
 $result = $media->uploadFile($_FILES['file'], 'gallery');
 ```
 
+### SVG Uploads
+
+`uploadFile()` accepts `.svg` alongside the raster formats, but never writes the upload's own
+bytes to disk — SVG is XML, and XML can carry `<script>` and event-handler attributes (`onload`,
+`onclick`, ...) that run as same-origin JavaScript the moment the stored file is opened or
+embedded. Every SVG upload is sanitized first:
+
+```php
+$media = new MediaObject();
+$media->uploadFile($_FILES['logo'], 'logos'); // .svg is accepted like any other image
+
+$media->isVector(); // true
+```
+
+Sanitizing requires [`enshrined/svg-sanitize`](https://github.com/darylldoyle/svg-sanitizer),
+a `suggest`, not a `require` — an application that never accepts SVG uploads should not carry
+an XML-parsing dependency it will never use:
+
+```bash
+composer require enshrined/svg-sanitize
+```
+
+Without it installed, `uploadFile()` refuses every `.svg` with `$media->error` naming the
+missing package rather than silently falling back to storing the file unsanitized. The package
+is GPL-2.0-or-later — a different license than this framework's own MIT — which is why it stays
+optional rather than a hard dependency every consumer inherits regardless of whether they upload
+SVGs at all.
+
+A vector has no raster dimensions to read, so `$media->x`/`$media->y` are `0` after upload
+rather than null — see [Manual Image Processing](#manual-image-processing) for how `get()`
+treats a vector as already every size.
+
 ### Routing a Module's Uploads Outside the Document Root
 
 Every module's uploads land under `www/uploads/` — inside the document root, served back by the web

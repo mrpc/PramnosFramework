@@ -1170,9 +1170,12 @@ class MediaObject extends \Pramnos\Framework\Base
             $this->fixJpegOrientation($file);
         }
         $database = \Pramnos\Framework\Factory::getDatabase();
+        // getimagesize() reads raster headers; a vector (SVG) has none, and returns false.
+        // Falling through to 0 rather than null keeps `x`/`y` — NOT NULL columns — writable,
+        // the same fallback already used for a fetched image whose size could not be read.
         $size = @getimagesize($file);
-        $startWidth = $size[0];
-        $startHeight = $size[1];
+        $startWidth = is_array($size) ? $size[0] : 0;
+        $startHeight = is_array($size) ? $size[1] : 0;
         if ($this->derivesRenditions() && ($this->max != 0
             || $this->maxHeight != 0)) {
             if (($this->max != 0 && $startWidth > $this->max)
@@ -1191,8 +1194,8 @@ class MediaObject extends \Pramnos\Framework\Base
                     unlink($file . '.original');
                 }
                 $size = getimagesize($file);
-                $startWidth = $size[0];
-                $startHeight = $size[1];
+                $startWidth = is_array($size) ? $size[0] : 0;
+                $startHeight = is_array($size) ? $size[1] : 0;
             }
         }
         $this->url = str_replace(
@@ -1606,11 +1609,11 @@ class MediaObject extends \Pramnos\Framework\Base
         $thename = str_replace("." . $ext, "", $thename);
         if ($this->mediatype == 1 or $this->mediatype == 2) {
             $allowedExtentions = array(
-                'jpg', 'jpeg', 'gif', 'png', 'bmp', 'ico'
+                'jpg', 'jpeg', 'gif', 'png', 'bmp', 'ico', 'svg'
             );
         } else {
             $allowedExtentions = array(
-                'jpg', 'jpeg', 'gif', 'png', 'bmp', 'pdf', 'ico', 'xls', 'xlsx'
+                'jpg', 'jpeg', 'gif', 'png', 'bmp', 'pdf', 'ico', 'xls', 'xlsx', 'svg'
             );
         }
         if (array_search($ext, $allowedExtentions) === false) {
@@ -1638,6 +1641,8 @@ class MediaObject extends \Pramnos\Framework\Base
                     case "image/x-png":
                     case "image/x-icon":
                     case "image/vnd.microsoft.icon":
+                    case "image/svg+xml":
+                    case "image/svg": // older browsers
                         break;
                     default:
                         $this->error = "#2 Invalid MIME type: " . $file['type'];
@@ -1664,6 +1669,8 @@ class MediaObject extends \Pramnos\Framework\Base
                     case "image/vnd.wap.wbmp":
                     case "image/pjpeg":
                     case "image/x-png":
+                    case "image/svg+xml":
+                    case "image/svg": // older browsers
                         $this->mediatype = 1;
                         break;
                     case "application/pdf":
@@ -1712,7 +1719,16 @@ class MediaObject extends \Pramnos\Framework\Base
             $uploadfile = $path . self::randomToken() . $filename;
         }
 
-        if ($this->move_uploaded_file($file['tmp_name'], $uploadfile)) {
+        if ($ext === 'svg') {
+            // An SVG is XML, and XML can carry <script>/event-handler attributes that run as
+            // same-origin JavaScript the moment the stored file is opened or embedded -- the
+            // same reason addRemoteImage() refuses SVG outright for a fetched URL. Here the
+            // upload is accepted, but only after the markup itself has been cleaned: the raw
+            // bytes are never written to disk, only what sanitizeSvgUpload() returns.
+            if (!$this->sanitizeSvgUpload($file['tmp_name'], $uploadfile)) {
+                return $this;
+            }
+        } elseif ($this->move_uploaded_file($file['tmp_name'], $uploadfile)) {
             #chmod($uploadfile, 0777);
         } else {
             $this->error = "Cannot Move Files";
@@ -2931,6 +2947,11 @@ class MediaObject extends \Pramnos\Framework\Base
             'bmp'  => ['image/'],
             'ico'  => ['image/', 'application/octet-stream'],
             'pdf'  => ['application/pdf'],
+            // SVG is XML text, so `finfo` reports it as 'image/svg+xml' on most builds but
+            // sometimes as plain 'text/' or 'application/xml' — this check is only a first
+            // filter anyway; sanitizeSvgUpload() is what actually refuses anything that is
+            // not well-formed SVG.
+            'svg'  => ['image/', 'text/', 'application/xml'],
             // Spreadsheets are the loose family on purpose: plenty of tools
             // export CSV or HTML and name it .xls, and refusing those would
             // reject files that have always been accepted here. The check is
@@ -2979,6 +3000,73 @@ class MediaObject extends \Pramnos\Framework\Base
         } else {
             return move_uploaded_file($filename, $destination);
         }
+    }
+
+    /**
+     * Writes a sanitized copy of an uploaded SVG to its final destination.
+     *
+     * Reads the uploaded file itself (never `move_uploaded_file()`s it: the bytes on disk must
+     * never be the untouched upload) and runs it through `enshrined/svg-sanitize`, which strips
+     * `<script>`, event-handler attributes (`onload`, `onclick`, ...), `<foreignObject>` and
+     * external references -- the things that make an SVG able to run script when it is opened
+     * from this application's own origin. On any failure -- the package is not installed, the
+     * upload is not really an uploaded file, the content is not valid SVG at all -- nothing is
+     * written and {@see $error} explains why, the same contract every other branch of
+     * {@see uploadFile()} already has.
+     *
+     * The package is a `suggest`, not a `require` (see composer.json): an application that never
+     * accepts SVG uploads should not have to carry an XML-parsing dependency it will never use.
+     *
+     * @param string $tmpName The upload's PHP-managed temporary path
+     * @param string $destination Where to write the sanitized file
+     * @return bool True on success
+     */
+    private function sanitizeSvgUpload(string $tmpName, string $destination): bool
+    {
+        // @codeCoverageIgnoreStart
+        // Untestable in this suite: the package is a require-dev dependency here precisely so
+        // CI can exercise the rest of this method, which means class_exists() is always true
+        // while these tests run. An application without the package installed is what this
+        // guards, not anything this repository's own test run can simulate.
+        if (!class_exists(\enshrined\svgSanitize\Sanitizer::class)) {
+            $this->error = 'SVG uploads require the enshrined/svg-sanitize package '
+                . '(composer require enshrined/svg-sanitize).';
+            return false;
+        }
+        // @codeCoverageIgnoreEnd
+
+        $isRealUpload = defined('UNITTESTING') && UNITTESTING === true
+            ? is_file($tmpName)
+            : is_uploaded_file($tmpName);
+        if (!$isRealUpload) {
+            $this->error = 'Cannot Move Files';
+            return false;
+        }
+
+        $raw = @file_get_contents($tmpName);
+        if ($raw === false || $raw === '') {
+            $this->error = 'Cannot Move Files';
+            return false;
+        }
+
+        $sanitizer = new \enshrined\svgSanitize\Sanitizer();
+        $sanitizer->removeRemoteReferences(true);
+        $clean = $sanitizer->sanitize($raw);
+        if ($clean === false || trim($clean) === '') {
+            $this->error = 'Cannot sanitize SVG file: not valid SVG content.';
+            return false;
+        }
+
+        if (@file_put_contents($destination, $clean) === false) {
+            $this->error = 'Cannot Move Files';
+            return false;
+        }
+
+        if (!(defined('UNITTESTING') && UNITTESTING === true)) {
+            @unlink($tmpName);
+        }
+
+        return true;
     }
 
 }

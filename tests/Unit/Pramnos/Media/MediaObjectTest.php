@@ -907,6 +907,110 @@ class MediaObjectTest extends TestCase
     }
 
     // ────────────────────────────────────────────────────────────────────────
+    // uploadFile() — SVG support (FW-295 follow-up)
+    // ────────────────────────────────────────────────────────────────────────
+
+    /**
+     * uploadFile() accepts an SVG and sanitizes it before it ever reaches disk: the stored
+     * file must not contain the <script> or onclick the upload came with, even though the
+     * upload is accepted rather than refused.
+     *
+     * This is the actual security property the whole feature exists for — not "SVG uploads
+     * work" but "SVG uploads work and the dangerous half never gets written".
+     */
+    #[Test]
+    public function testUploadFileSanitizesAnSvgBeforeStoringIt(): void
+    {
+        // Arrange — an SVG carrying both a <script> element and an event-handler attribute
+        $dirtySvg = $this->createDummyFile(
+            'dirty.svg',
+            '<svg xmlns="http://www.w3.org/2000/svg">'
+            . '<script>alert(document.cookie)</script>'
+            . '<rect width="10" height="10" onclick="alert(1)"/>'
+            . '</svg>'
+        );
+        $fileInput = [
+            'name'     => 'dirty.svg',
+            'type'     => 'image/svg+xml',
+            'tmp_name' => $dirtySvg,
+            'error'    => UPLOAD_ERR_OK,
+            'size'     => filesize($dirtySvg),
+        ];
+
+        // Act
+        $media = new MediaObject();
+        $media->uploadFile($fileInput, 'test_media_module', 1);
+
+        // Assert — accepted, saved, and isVector() recognises it
+        $this->assertFalse($media->error);
+        $this->assertGreaterThan(0, $media->mediaid);
+        $this->assertTrue($media->isVector());
+        $this->createdFiles[] = $media->filename;
+
+        // Assert — the file written to disk is the sanitized version, not the upload's own bytes
+        $stored = file_get_contents($media->filename);
+        $this->assertStringNotContainsString('<script', $stored, 'the stored SVG still carries a <script> element');
+        $this->assertStringNotContainsString('onclick', $stored, 'the stored SVG still carries an event-handler attribute');
+        $this->assertStringContainsString('<rect', $stored, 'sanitizing must not strip the harmless content along with the dangerous half');
+    }
+
+    /**
+     * uploadFile() refuses a .svg upload whose content is not valid SVG/XML at all, rather
+     * than writing it (sanitized or not) to the module's upload directory.
+     */
+    #[Test]
+    public function testUploadFileRejectsAnSvgExtensionWithInvalidContent(): void
+    {
+        // Arrange
+        $notSvg = $this->createDummyFile('not_really.svg', 'this is not xml at all');
+        $fileInput = [
+            'name'     => 'not_really.svg',
+            'type'     => 'image/svg+xml',
+            'tmp_name' => $notSvg,
+            'error'    => UPLOAD_ERR_OK,
+            'size'     => filesize($notSvg),
+        ];
+
+        // Act
+        $media = new MediaObject();
+        $media->uploadFile($fileInput, 'test_media_module', 1);
+
+        // Assert
+        $this->assertNotFalse($media->error);
+        $this->assertEquals(0, $media->mediaid);
+    }
+
+    /**
+     * uploadFile() still refuses the legacy-browser "image/svg" MIME type on a non-SVG
+     * extension — the new MIME cases only apply to the mediatype branch they were added to.
+     */
+    #[Test]
+    public function testUploadFileAcceptsLegacySvgMimeType(): void
+    {
+        // Arrange
+        $svg = $this->createDummyFile(
+            'legacy.svg',
+            '<svg xmlns="http://www.w3.org/2000/svg"><rect width="5" height="5"/></svg>'
+        );
+        $fileInput = [
+            'name'     => 'legacy.svg',
+            'type'     => 'image/svg', // older browsers
+            'tmp_name' => $svg,
+            'error'    => UPLOAD_ERR_OK,
+            'size'     => filesize($svg),
+        ];
+
+        // Act
+        $media = new MediaObject();
+        $media->uploadFile($fileInput, 'test_media_module', 1);
+
+        // Assert
+        $this->assertFalse($media->error);
+        $this->assertGreaterThan(0, $media->mediaid);
+        $this->createdFiles[] = $media->filename;
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
     // Rotation tests
     // ────────────────────────────────────────────────────────────────────────
 

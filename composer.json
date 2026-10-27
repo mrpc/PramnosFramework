@@ -34,7 +34,8 @@
         "matomo/device-detector": "^6.5 \u2014 required for Helpers::getBrowser() to return a version, platform, OS version and engine. Without it only the browser name is filled in: PHP's own get_browser() needs a browscap.ini that a default installation does not have.",
         "vrana/adminer": "Serves Adminer at /adminer behind the application's own gate: root usertype on any deployment, or the DevPanel's gate in a development environment. A suggest rather than a require, because a framework that shipped a database browser into every application's vendor/ would enlarge the attack surface of applications that never asked for one.",
         "minishlink/web-push": "^11.0 \u2014 required by the PushChannel to encrypt a web-push payload (RFC 8291) and sign the VAPID JWT (RFC 8292). A suggest rather than a require, because a framework that pulled a push library into every application's vendor/ would impose it on every project that never sends a notification. Without it the channel logs why and sends nothing, which is a better failure than a message that silently never arrives.",
-        "jaybizzle/crawler-detect": "^1.2 \u2014 widens BotDetector from the framework's own ~35 patterns to about 1,500 maintained ones. Needed by anything counting visits: a counter that lets SemrushBot, GPTBot, ClaudeBot, headless Chrome and uptime monitors through reports crawlers as readers. A suggest rather than a require, because an application that never counts a visit should not carry a crawler list; without it BotDetector answers exactly as it always did."
+        "jaybizzle/crawler-detect": "^1.2 \u2014 widens BotDetector from the framework's own ~35 patterns to about 1,500 maintained ones. Needed by anything counting visits: a counter that lets SemrushBot, GPTBot, ClaudeBot, headless Chrome and uptime monitors through reports crawlers as readers. A suggest rather than a require, because an application that never counts a visit should not carry a crawler list; without it BotDetector answers exactly as it always did.",
+        "enshrined/svg-sanitize": "^1.1 \u2014 required for MediaObject::uploadFile() to accept SVG uploads. SVG is XML that can carry <script>/event-handler attributes, which run as same-origin JavaScript once the stored file is opened; this package strips those before anything reaches disk. A suggest rather than a require, because an application that never accepts SVG uploads should not carry an XML-parsing dependency it will never use, and because it is GPL-2.0-or-later \u2014 a different license than this framework's own MIT, which an application pulling it in should decide for itself. Without it, uploadFile() refuses every .svg with a clear error naming the missing package. Versions below 1.0 carry known security advisories \u2014 do not pin an older one."
     },
     "require-dev": {
         "php": ">=8.1",
@@ -46,7 +47,8 @@
         "matomo/device-detector": "^6.5",
         "jaybizzle/crawler-detect": "^1.2",
         "brianium/paratest": "^7.8",
-        "vimeo/psalm": "^6.20"
+        "vimeo/psalm": "^6.20",
+        "enshrined/svg-sanitize": "^1.1"
     },
     "autoload": {
         "files": [
