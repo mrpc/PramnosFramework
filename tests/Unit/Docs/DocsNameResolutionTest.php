@@ -64,6 +64,9 @@ class DocsNameResolutionTest extends TestCase
         'Pramnos\Testing\HttpTest' => 'quoted in the guide’s record of its own error',
         // Named in the ORM guide's note about the custom-cast interface that never existed.
         'Pramnos\Database\Casts\Castable' => 'quoted in the guide’s record of its own error',
+        // Named in the Upgrade Guide's BC row as the old FQCN a `use` statement must change
+        // away from — it no longer resolving is the point being documented, not an error.
+        'Pramnos\Application\Orm\Concerns\HasEvents' => 'the old FQCN an upgrading app must stop using',
     ];
 
     /**
