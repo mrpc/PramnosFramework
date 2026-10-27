@@ -227,7 +227,24 @@ class SecurityMailCopyTest extends BaseTestCase
             'factor removed'  => [SecurityChangeNotifier::FACTOR_REMOVED, 'second sign-in step was removed'],
             'passkey added'   => [SecurityChangeNotifier::PASSKEY_ADDED, 'passkey was added'],
             'passkey removed' => [SecurityChangeNotifier::PASSKEY_REMOVED, 'passkey was removed'],
+            'signin denied'   => [SecurityChangeNotifier::SIGNIN_DENIED, 'refused a sign-in'],
         ];
+    }
+
+    /**
+     * A refused sign-in is not a change anybody made: there is no "if you made this change".
+     * The password worked, so somebody else has it, and that is the one thing the mail has
+     * to say — distinct from the general "did you do this?" every other kind asks.
+     */
+    public function testARefusedSignInSaysThePasswordIsKnownRatherThanAskingIfItWasYou(): void
+    {
+        // Act
+        $mail = (new SecurityChangeNotification(SecurityChangeNotifier::SIGNIN_DENIED))
+            ->toMail($this->recipient());
+
+        // Assert
+        $this->assertStringContainsString('your password is known to them', $mail['body']);
+        $this->assertStringNotContainsString('If you made this change', $mail['body']);
     }
 
     /**
@@ -330,5 +347,44 @@ class SecurityMailCopyTest extends BaseTestCase
                 $which . ' no longer tells the reader to open the site themselves'
             );
         }
+    }
+
+    // ── Queued, and the operator-overridable templates ──────────────────────────
+
+    /** Neither alert holds up a request that has already succeeded. */
+    public function testBothAlertsAreQueueable(): void
+    {
+        $this->assertTrue((new NewSignInNotification('chrome|mac'))->queueable());
+        $this->assertTrue((new SecurityChangeNotification(SecurityChangeNotifier::PASSWORD))->queueable());
+    }
+
+    public function testTheSignInAlertsTemplateCarriesTheTimestampBothWays(): void
+    {
+        // Arrange
+        $notification = new NewSignInNotification('chrome|mac', self::WHEN, 'Example');
+
+        // Act
+        $template = $notification->storedMailTemplate();
+
+        // Assert
+        $this->assertSame('auth.new_signin', $template['category']);
+        $this->assertSame(self::WHEN, $template['vars']['timestamp']);
+        $this->assertSame(date('Y-m-d H:i', self::WHEN), $template['vars']['when']);
+        $this->assertSame('Example', $template['vars']['sitename']);
+    }
+
+    public function testTheChangeAlertsTemplateCarriesWhatAndDetail(): void
+    {
+        // Arrange
+        $notification = new SecurityChangeNotification(SecurityChangeNotifier::FACTOR_ADDED, 'totp');
+
+        // Act
+        $template = $notification->storedMailTemplate();
+
+        // Assert
+        $this->assertSame('auth.security_change', $template['category']);
+        $this->assertSame(SecurityChangeNotifier::FACTOR_ADDED, $template['vars']['what']);
+        $this->assertSame('totp', $template['vars']['detail']);
+        $this->assertArrayHasKey('timestamp', $template['vars']);
     }
 }
