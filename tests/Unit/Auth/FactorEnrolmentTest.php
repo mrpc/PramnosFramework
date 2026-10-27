@@ -130,6 +130,54 @@ class FactorEnrolmentTest extends TestCase
     }
 
     /**
+     * A factor double that is enrolled, but whose `strength()` cannot answer — unlike
+     * {@see factor()}'s double, which only ever returns plausible values.
+     */
+    private function throwingFactor(string $name): SecondFactorInterface
+    {
+        return new class ($name) implements SecondFactorInterface {
+            public function __construct(private string $factorName)
+            {
+            }
+
+            public function name(): string
+            {
+                return $this->factorName;
+            }
+
+            public function label(): string
+            {
+                return $this->factorName;
+            }
+
+            public function strength(): int
+            {
+                throw new \RuntimeException('cannot reach the gateway');
+            }
+
+            public function isEnrolledFor(int $userId): bool
+            {
+                return true;
+            }
+
+            public function needsSending(): bool
+            {
+                return false;
+            }
+
+            public function send(int $userId): bool
+            {
+                return true;
+            }
+
+            public function verify(int $userId, string $code): bool
+            {
+                return false;
+            }
+        };
+    }
+
+    /**
      * With no floor configured, nobody is asked for anything.
      *
      * The default on every installation that has not opted in, and the one that must be
@@ -393,5 +441,90 @@ class FactorEnrolmentTest extends TestCase
         // Assert
         $this->assertContains('twofactor (60)', $held);
         $this->assertContains('passkey', $held);
+    }
+
+    /** An account id that is not a real one (0, or negative) is never required to enrol. */
+    public function testAnAccountIdBelowOneIsNeverRequired(): void
+    {
+        // Arrange
+        $this->withFloor(80);
+        SecondFactorRegistry::reset();
+        $enrolment = new FactorEnrolment($this->passkeys(false));
+
+        // Act & Assert
+        $this->assertFalse($enrolment->isRequiredFor(0, 90));
+        $this->assertFalse($enrolment->isRequiredFor(-5, 90));
+    }
+
+    /**
+     * A registered factor that cannot report its strength is read as not strong — not a
+     * fatal — when asking about *any* method, not only its own: `SecondFactorRegistry::all()`
+     * sorts every registered factor by strength before `get()` can look anything up, so one
+     * broken adaptor poisons the whole list, not only questions about it.
+     */
+    public function testMethodIsStrongAnswersFalseRatherThanThrowing(): void
+    {
+        // Arrange
+        $this->withFloor(80);
+        SecondFactorRegistry::reset();
+        SecondFactorRegistry::register($this->throwingFactor('sms'));
+        SecondFactorRegistry::register($this->factor('twofactor', 60, true));
+
+        // Act & Assert
+        $this->assertFalse(FactorEnrolment::methodIsStrong('twofactor'));
+    }
+
+    /**
+     * A registered, enrolled factor that cannot report its own strength is treated as
+     * enrolled — the same "fails open" direction as a passkey store that cannot answer.
+     */
+    public function testAFactorThatCannotReportItsStrengthLetsThemThrough(): void
+    {
+        // Arrange
+        $this->withFloor(80);
+        SecondFactorRegistry::reset();
+        SecondFactorRegistry::register($this->throwingFactor('sms'));
+
+        // Act & Assert
+        $this->assertFalse(
+            (new FactorEnrolment($this->passkeys(false)))->isRequiredFor(7, 90)
+        );
+    }
+
+    /**
+     * `factorsFor()` reports nothing rather than throwing when the registry cannot be read —
+     * a support screen listing one account's factors must not blow up because one adaptor is
+     * unreachable. One broken adaptor spoils the whole registry read (`all()` sorts every
+     * registered factor by strength up front, before any of them can be reported one at a
+     * time), so "what it can read" here is nothing, not a partial list.
+     */
+    public function testFactorsForReportsNothingRatherThanThrowingWhenTheRegistryFails(): void
+    {
+        // Arrange
+        $this->withFloor(80);
+        SecondFactorRegistry::reset();
+        SecondFactorRegistry::register($this->throwingFactor('sms'));
+        SecondFactorRegistry::register($this->factor('twofactor', 60, true));
+
+        // Act
+        $held = (new FactorEnrolment($this->passkeys(false)))->factorsFor(7);
+
+        // Assert
+        $this->assertSame([], $held);
+    }
+
+    /** And the passkey half of the same method fails the same way, independently. */
+    public function testFactorsForReportsNothingRatherThanThrowingWhenPasskeysFail(): void
+    {
+        // Arrange
+        $this->withFloor(80);
+        SecondFactorRegistry::reset();
+        SecondFactorRegistry::register($this->factor('twofactor', 60, true));
+
+        // Act
+        $held = (new FactorEnrolment(new FakePasskeyService(false, true)))->factorsFor(7);
+
+        // Assert
+        $this->assertSame(['twofactor (60)'], $held);
     }
 }
