@@ -510,5 +510,109 @@ class EventTest extends TestCase
         // Assert
         $this->assertSame(['x', 'y'], Event::fire('dup.event'));
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // filter() — value-transform pipeline (the one thing fire()/dispatch() cannot do)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * With no listeners registered, filter() returns the value unchanged — the same
+     * "nothing to do" contract fire() has for an unlistened event.
+     */
+    public function testFilterWithNoListenersReturnsValueUnchanged(): void
+    {
+        // Act
+        $result = Event::filter('unfiltered.value', 'hello');
+
+        // Assert
+        $this->assertSame('hello', $result);
+    }
+
+    /**
+     * A single listener's return value replaces the input value.
+     */
+    public function testFilterAppliesASingleListenersTransform(): void
+    {
+        // Arrange
+        Event::listen('content.render', fn (string $value) => strtoupper($value));
+
+        // Act
+        $result = Event::filter('content.render', 'hello');
+
+        // Assert
+        $this->assertSame('HELLO', $result);
+    }
+
+    /**
+     * Multiple listeners chain in priority order: each one transforms what the previous
+     * one returned, not the original value — the defining property of a pipeline rather
+     * than fire()'s "everyone sees the same input, results collected separately."
+     */
+    public function testFilterChainsListenersInPriorityOrder(): void
+    {
+        // Arrange
+        Event::listen('content.render', fn (string $value) => $value . '-first', 20);
+        Event::listen('content.render', fn (string $value) => $value . '-second', 10);
+
+        // Act
+        $result = Event::filter('content.render', 'base');
+
+        // Assert — priority 10 (second-registered) runs first
+        $this->assertSame('base-second-first', $result);
+    }
+
+    /**
+     * Extra arguments after $value are passed to every listener alongside it, the value
+     * itself always first.
+     */
+    public function testFilterPassesExtraArgumentsToListeners(): void
+    {
+        // Arrange
+        $seen = null;
+        Event::listen('content.render', function (string $value, string $context) use (&$seen) {
+            $seen = $context;
+            return $value;
+        });
+
+        // Act
+        Event::filter('content.render', 'base', 'checkout-page');
+
+        // Assert
+        $this->assertSame('checkout-page', $seen);
+    }
+
+    /**
+     * A QueuedListener registered for the event is skipped entirely: it cannot return a
+     * value synchronously, so it is not called and does not interrupt the chain for the
+     * listeners around it.
+     */
+    public function testFilterSkipsAQueuedListener(): void
+    {
+        // Arrange
+        NeverCalledQueuedListener::$calls = [];
+        Event::listen('content.render', fn (string $value) => $value . '-before', 5);
+        Event::listen('content.render', NeverCalledQueuedListener::class, 10);
+        Event::listen('content.render', fn (string $value) => $value . '-after', 15);
+
+        // Act
+        $result = Event::filter('content.render', 'base');
+
+        // Assert — the queued listener never ran, and the chain continued around it
+        $this->assertSame('base-before-after', $result);
+        $this->assertSame([], NeverCalledQueuedListener::$calls);
+    }
+}
+
+/** A minimal QueuedListener double for {@see EventTest::testFilterSkipsAQueuedListener()}. */
+final class NeverCalledQueuedListener extends \Pramnos\Event\QueuedListener
+{
+    /** @var list<list<mixed>> */
+    public static array $calls = [];
+
+    public function handle(mixed ...$args): mixed
+    {
+        self::$calls[] = $args;
+        return null;
+    }
 }
 

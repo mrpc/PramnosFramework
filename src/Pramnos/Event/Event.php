@@ -142,6 +142,44 @@ class Event
     }
 
     /**
+     * Fire an event as a value-transform pipeline: each listener's return value becomes the next
+     * listener's input, and the final value is returned. The one thing {@see fire()}/{@see dispatch()}
+     * cannot do — they collect every listener's return value but never pipe a single value through
+     * the chain, which is exactly what `Addon::applyFilters()` offers and `Event` otherwise lacks.
+     *
+     * A {@see QueuedListener} is skipped: it cannot return a value synchronously, so it has nothing
+     * to contribute to the chain. Register a plain callable or {@see ListenerInterface} here instead.
+     *
+     * @param string $event The event/filter name
+     * @param mixed  $value The value to transform
+     * @param mixed  ...$args Extra arguments passed to every listener alongside $value
+     * @return mixed The value after every listener has had a chance to transform it
+     */
+    public static function filter(string $event, mixed $value, mixed ...$args): mixed
+    {
+        if (!isset(self::$listeners[$event])) {
+            return $value;
+        }
+
+        $priorities = self::$listeners[$event];
+        ksort($priorities);
+
+        foreach ($priorities as $bucket) {
+            foreach ($bucket as $listener) {
+                if ($listener instanceof QueuedListener
+                    || (is_string($listener) && is_a($listener, QueuedListener::class, true))
+                ) {
+                    continue;
+                }
+
+                $value = self::callListener($listener, [$value, ...$args]);
+            }
+        }
+
+        return $value;
+    }
+
+    /**
      * Fire an event that is an object: its class's `EVENT` constant is the name, and the object is
      * the one argument.
      *
