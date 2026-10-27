@@ -530,6 +530,35 @@ class MediaObjectTest extends TestCase
     }
 
     /**
+     * Test that load(null) does not raise a PHP 8.1+ explode() deprecation warning.
+     *
+     * A caller with no id to load (e.g. an admin edit action reached with no id in the
+     * request) may pass null straight through; explode() started deprecating a null
+     * $string argument in PHP 8.1, so the cast must happen before it, not rely on PHP's
+     * own implicit coercion.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testLoadWithNullDoesNotTriggerDeprecationWarning(): void
+    {
+        $media = new MediaObject();
+
+        set_error_handler(function (int $errno, string $errstr): bool {
+            $this->fail('load(null) raised a warning: ' . $errstr);
+        }, E_DEPRECATED | E_WARNING);
+
+        try {
+            $result = $media->load(null);
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertSame($media, $result);
+        $this->assertEquals(0, $media->mediaid);
+    }
+
+    /**
      * Test that save() auto-populates the `userid` property from the active session
      * when the field is not explicitly set.
      *

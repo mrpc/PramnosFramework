@@ -2518,7 +2518,7 @@ class MediaObject extends \Pramnos\Framework\Base
     public function load($mediaidToLoad)
     {
         //I don't even remeber why there is this array thing...
-        $mediaIdArray = explode(",", $mediaidToLoad);
+        $mediaIdArray = explode(",", (string) $mediaidToLoad);
         $mediaid = $mediaIdArray[0];
         unset($mediaIdArray, $mediaidToLoad);
         $database = \Pramnos\Framework\Factory::getDatabase();
