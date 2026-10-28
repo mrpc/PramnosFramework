@@ -443,7 +443,7 @@ class Routines
             $byEmail = $ok ? $this->emailSubscribers((int) $routine['routine_id']) : [];
             foreach ($audience as $userId) {
                 $this->tell($userId, $title, $ok, $why, $conversationId, $ok ? $policy->link($routine, $run) : null,
-                    (string) ($run['content'] ?? ''), in_array($userId, $byEmail, true));
+                    (string) ($run['content'] ?? ''), in_array($userId, $byEmail, true), self::runDay($policy->timezone($routine)));
             }
         } elseif ($routine['kind'] === self::REMINDER) {
             $this->remind($audience, (string) $routine['prompt'], $policy->link($routine, $run));
@@ -1028,6 +1028,7 @@ class Routines
                     'owner'  => ['type' => 'string', 'enum' => self::OWNERS, 'description' => 'report only: organization shares it with their organisation, '
                         . 'global with the installation — only when they ask to share it. Otherwise user.'],
                     'notify' => ['type' => 'string', 'enum' => ['always', 'relevant'], 'description' => 'report only: relevant tells its readers only when there is something new.'],
+                    'email'  => ['type' => 'boolean', 'description' => 'report only: also email each run to the person asking, when they ask for that.'],
                 ] + $when, 'required' => ['kind', 'title', 'prompt', 'cadence']],
                 'run' => function (array $a) use ($scope, $timezone, $conversationId): string {
                     // Required in the schema, and refused here too: a model that leaves it out must
@@ -1044,6 +1045,10 @@ class Routines
                     $made = $this->create($scope, $a + ['timezone' => $timezone, 'conversation_id' => $conversationId]);
                     if (is_array($made) && $conversationId === null) {
                         $this->madeUnlinked[] = (int) $made['routine_id'];
+                    }
+                    // A report emailed to its maker, asked for as it is made.
+                    if (is_array($made) && !empty($a['email']) && $made['kind'] === self::REPORT) {
+                        $this->subscribe($scope->userId, (int) $made['routine_id'], true);
                     }
 
                     return is_string($made)
@@ -1307,14 +1312,28 @@ class Routines
      * their subscription asks for it. An application's own notification class, written for the
      * first four arguments, is given the other two and may ignore them.
      */
-    private function tell(int $userId, string $title, bool $ok, string $says, ?int $conversationId, ?string $link = null, string $content = '', bool $email = false): void
+    /**
+     * The day a report ran, on its task's clock, as its email's subject shows it — so a mailbox of
+     * daily reports with the same title can tell them apart. `'llm' => ['chat' =>
+     * ['report_date_format' => 'd/m/Y']]` sets the format (`Y-m-d` by default); `''` leaves it out.
+     */
+    private static function runDay(string $timezone): string
+    {
+        $chat   = \Pramnos\Llm\Llm::config('chat', []);
+        $format = is_array($chat) && array_key_exists('report_date_format', $chat) ? (string) $chat['report_date_format'] : 'Y-m-d';
+
+        return $format === '' ? '' : (new \DateTimeImmutable('now', new \DateTimeZone($timezone)))->format($format);
+    }
+
+    private function tell(int $userId, string $title, bool $ok, string $says, ?int $conversationId, ?string $link = null, string $content = '', bool $email = false, string $day = ''): void
     {
         $chat  = \Pramnos\Llm\Llm::config('chat', []);
         $class = is_array($chat) && is_string($chat['routine_notification'] ?? null) && class_exists($chat['routine_notification'])
             ? $chat['routine_notification'] : RoutineReady::class;
 
         try {
-            $this->deliver($userId, new $class($title, $ok, $ok ? '' : $says, self::linkable($link ?? $this->chat->assistant()->conversationUrl($conversationId)), $content, $email));
+            // The day goes seventh: a notification class of the application's own, written for six, ignores it.
+            $this->deliver($userId, new $class($title, $ok, $ok ? '' : $says, self::linkable($link ?? $this->chat->assistant()->conversationUrl($conversationId)), $content, $email, $day));
         } catch (\Throwable $why) {
             // A dead push endpoint must not undo a report that was written.
             \Pramnos\Logs\Logger::log('llm routine notification: ' . $why->getMessage());

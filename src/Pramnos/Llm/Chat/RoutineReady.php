@@ -22,7 +22,8 @@ class RoutineReady implements NotificationInterface
         private readonly string $why,
         private readonly string $link,
         private readonly string $content = '',
-        private readonly bool $email = false
+        private readonly bool $email = false,
+        private readonly string $day = ''
     ) {
     }
 
@@ -44,7 +45,8 @@ class RoutineReady implements NotificationInterface
         $link = htmlspecialchars($this->link, ENT_QUOTES, 'UTF-8');
 
         return [
-            'subject' => $this->title,
+            // The day it ran, so a mailbox of daily reports with one title tells them apart.
+            'subject' => $this->title . ($this->day !== '' ? ' — ' . $this->day : ''),
             'body'    => Markdown::toHtml($this->content)
                 . ($this->link !== '' ? '<p><a href="' . $link . '">' . htmlspecialchars(self::t('Open it, and ask about it'), ENT_QUOTES, 'UTF-8') . '</a></p>' : ''),
         ];

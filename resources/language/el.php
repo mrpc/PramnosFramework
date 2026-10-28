@@ -1885,4 +1885,5 @@ return [
     'Your scheduled report is ready.' => 'Η προγραμματισμένη αναφορά σας είναι έτοιμη.',
     'It could not be made: %s' => 'Δεν ολοκληρώθηκε: %s',
     'Open it, and ask about it' => 'Ανοίξτε την και ρωτήστε σχετικά',
+    'Email the report to me too' => 'Στείλτε μου και την αναφορά με email',
 ];

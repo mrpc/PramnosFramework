@@ -113,6 +113,10 @@ trait SchedulesTasks
             $this->addError($made);
         } else {
             $this->addMessage(t('Scheduled. Next: %s.', (string) $made['next_run_local']));
+            // "Email the report to me too", ticked on the form: its maker is subscribed by email.
+            if (!empty($_POST['email']) && ($made['kind'] ?? '') === Routines::REPORT) {
+                $this->taskService()->subscribe($scope->userId, (int) $made['routine_id'], true);
+            }
             $this->afterScheduled($made, $_POST);
         }
         $this->redirect($this->scheduledUrl());

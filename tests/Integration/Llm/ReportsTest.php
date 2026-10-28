@@ -187,7 +187,7 @@ class ReportsTest extends LlmTestCase
         $this->assertNotContains('mail', $maker->via((object) ['userid' => 7]), 'the maker did not ask for email');
         $this->assertContains('mail', $reader->via((object) ['userid' => 8]));
         $mail = $reader->toMail(null);
-        $this->assertSame('Weekly — Villa 42', $mail['subject']);
+        $this->assertMatchesRegularExpression('/^Weekly — Villa 42 — \d{4}-\d\d-\d\d$/', $mail['subject'], 'the day it ran, so daily reports tell apart');
         $this->assertStringContainsString('<strong>12</strong>', $mail['body']);
         $this->assertStringNotContainsString('<script>', $mail['body'], 'escaped before it is drawn');
         $this->assertStringContainsString('chat/report/', $mail['body']);

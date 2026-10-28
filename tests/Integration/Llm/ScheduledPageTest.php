@@ -369,6 +369,35 @@ class ScheduledPageTest extends LlmTestCase
         $this->assertTrue($this->tasks()->mine(new Scope(8, 3))[0]['email']);
     }
 
+    /**
+     * A report made with "Email the report to me too" ticked — on the form or asked of the model —
+     * is emailed to its maker; one made without it is not; and the form shows the report's own
+     * fields only for a report, its readers only for a shared one.
+     */
+    #[DataProvider('databases')]
+    public function testAReportEmailedFromTheStart(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $html = (string) $this->page(new Scope(7, 3))->scheduled();
+
+        // Act — the form, ticked and not; the model's tool
+        $_POST = ['kind' => 'report', 'title' => 'Mailed', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00', 'email' => '1'];
+        $this->page(new Scope(7, 3))->schedule();
+        $_POST = ['kind' => 'report', 'title' => 'Not mailed', 'prompt' => 'q', 'cadence' => 'daily', 'at' => '09:00'];
+        $this->page(new Scope(7, 3))->schedule();
+        $_POST = [];
+        $tools = $this->tasks()->toolsFor(new Scope(7, 3), 'Europe/Athens', null);
+        $tools['schedule_task']['run'](['kind' => 'report', 'title' => 'Asked', 'prompt' => 'r', 'cadence' => 'daily', 'at' => '10:00', 'email' => true]);
+        $byTitle = array_column($this->tasks()->mine(new Scope(7, 3)), 'email', 'title');
+
+        // Assert
+        $this->assertSame(['Mailed' => true, 'Not mailed' => false, 'Asked' => true], $byTitle);
+        $this->assertStringContainsString('name="email" value="1" checked', $html);
+        $this->assertSame(3, substr_count($html, 'data-pf-show-when="kind:report"'), 'For, Tell readers, and the email box');
+        $this->assertStringContainsString('data-pf-show-when="owner:organization global"', $html);
+    }
+
     /** Nobody signed in is sent to sign in, back to this page. */
     #[DataProvider('databases')]
     public function testSignedOut(string $type, string $host, int $port): void

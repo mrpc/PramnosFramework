@@ -161,19 +161,20 @@ $readers = static function (?array $audience, array $names) use ($c, $e, $t, $ro
                 </select>
             </label>
             <?php if (count($owners) > 1): ?>
-            <label class="<?php echo $c['field']; ?>"><?php echo $e($t('For')); ?>
+            <label class="<?php echo $c['field']; ?>" data-pf-show-when="kind:report"><?php echo $e($t('For')); ?>
                 <select class="<?php echo $c['select']; ?>" name="owner">
                     <?php foreach ($owners as $owner): ?><option value="<?php echo $e($owner); ?>"><?php echo $e($t(['user' => 'Me', 'organization' => 'My organisation (a report)', 'global' => 'Everyone (a report)'][$owner] ?? $owner)); ?></option><?php endforeach; ?>
                 </select>
             </label>
-            <?php echo $readers(null, []); /* read only for a shared report */ ?>
+            <span data-pf-show-when="owner:organization global"><?php echo $readers(null, []); /* read only for a shared report */ ?></span>
             <?php endif; ?>
-            <label class="<?php echo $c['field']; ?>"><?php echo $e($t('Tell readers')); ?>
+            <label class="<?php echo $c['field']; ?>" data-pf-show-when="kind:report"><?php echo $e($t('Tell readers')); ?>
                 <select class="<?php echo $c['select']; ?>" name="notify">
                     <option value="always"><?php echo $e($t('Every time')); ?></option>
                     <option value="relevant"><?php echo $e($t('Only when there is something new (a report)')); ?></option>
                 </select>
             </label>
+            <label class="<?php echo $c['field']; ?>" data-pf-show-when="kind:report"><input type="checkbox" name="email" value="1" checked> <?php echo $e($t('Email the report to me too')); ?></label>
             <?php if (!empty($this->templates)): ?>
             <label class="<?php echo $c['field']; ?>"><?php echo $e($t('From a template')); ?>
                 <select class="<?php echo $c['select']; ?>" name="template">

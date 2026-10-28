@@ -663,13 +663,21 @@ the administrators' space it is never sent to — nor readable by — somebody b
 its audience names, and the form offers only roles at or above it. `TaskPolicy::readerFloor($task)`
 is where an application gated otherwise answers; Ask AI's own reports have no floor.
 
+**A report's email** carries the day it ran in its subject (`Weekly figures — 2026-10-28`), on
+the task's clock, so a mailbox of daily reports with one title tells them apart:
+`'llm' => ['chat' => ['report_date_format' => 'd/m/Y']]` sets the format, `''` leaves it out.
+The day reaches the notification class as its seventh argument; a class of the application's own
+written for six ignores it. A report can be emailed from the start: *Email the report to me too*
+on the form (ticked), or `email: true` to `schedule_task`.
+
 **One's own report by email.** The Scheduled page offers *Email it to me* / *Stop the email* on each
 of the person's own reports, as it offers *Receive it by email too* on a shared one (`mine()`
 carries `email` per task). Where an application shows no notifications — no bell — a run's
 database notification is never seen, and email is the only way its owner hears of it.
 
-The time fields of the schedule form are shown only for the cadence chosen (`data-pf-show-when`;
-all of them without JavaScript).
+The schedule form shows only what applies (`data-pf-show-when`; everything without JavaScript):
+the time fields for the cadence chosen, *For*, *Tell readers* and the email box for a report, the
+readers for a report shared with an organisation or everyone.
 
 **What the tasks cost** is read from `ai_task_runs.cost`, the price of each run's model calls
 recorded once however many people receive the report (`Chat\TaskCosts`). It shows in two
