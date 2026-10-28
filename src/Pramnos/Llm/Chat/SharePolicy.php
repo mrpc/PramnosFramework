@@ -45,11 +45,14 @@ class SharePolicy
         }
         $found  = [];
         $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#users')
-            ->select(['userid', 'username', 'email'])
+            ->select(['userid', 'username', 'email', 'usertype'])
             ->where(static fn ($q) => $q->whereIn('username', $names)->whereIn('email', $names, 'or'))
             ->get();
+        // The analyst's conversations go only to people who may open them: one below its floor
+        // would be told a conversation exists, and its title, and could not read it.
+        $floor = $by->space === Scope::ADMIN ? TaskPolicy::analystFloor() : 0;
         while (($row = $result->fetch()) !== null) {
-            if ((int) $row['userid'] === $by->userId) {
+            if ((int) $row['userid'] === $by->userId || (int) ($row['usertype'] ?? 0) < $floor) {
                 continue;
             }
             foreach ([(string) $row['username'], (string) $row['email']] as $name) {

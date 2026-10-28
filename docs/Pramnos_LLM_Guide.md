@@ -606,6 +606,10 @@ A person shares one of their conversations or artifacts with others by username 
 API. The recipient is told (the bell, and a push where they have one), and finds it under
 "Shared with you".
 
+The analyst's conversations and artifacts go only to people at or above the analyst's floor.
+Anybody below it is answered as somebody who does not exist ("Nobody here is called …"), so the
+share neither tells them a conversation exists nor names its title.
+
 **A conversation is shared as it stands.** The recipient sees the messages up to the moment it
 was shared, not what is said after; sharing it again with the same person moves that point on.
 

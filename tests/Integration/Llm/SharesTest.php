@@ -218,6 +218,34 @@ class SharesTest extends LlmTestCase
     }
 
     /**
+     * The analyst's conversations go only to people who may open them: a recipient below the
+     * analyst's floor is "nobody here" — told nothing, as one who does not exist — while a
+     * person's own Ask conversation goes to anybody named.
+     *
+     * Sent anyway, the notification told somebody without the analyst that a conversation existed,
+     * and its title, and led to a page that refused them.
+     */
+    #[DataProvider('databases')]
+    public function testTheAnalystsConversationsGoOnlyToThoseWhoMayOpenThem(string $type, string $host, int $port): void
+    {
+        // Arrange — maria at the analyst's floor, nikos below it
+        $this->connectDatabase($type, $host, $port);
+        $this->people();
+        $this->configure(['chat' => ['share_notification' => CapturedShare::class], 'analyst' => ['floor' => 50]]);
+        $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $this->users['maria'])->update(['usertype' => 50]);
+        $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $this->users['nikos'])->update(['usertype' => 10]);
+        $names = [$this->username('maria'), $this->username('nikos')];
+
+        // Act
+        $analysts = (new SharePolicy())->recipients(new Scope($this->users['owner'], 3, Scope::ADMIN), $names);
+        $own      = (new SharePolicy())->recipients(new Scope($this->users['owner'], 3), $names);
+
+        // Assert
+        $this->assertSame([$names[0] => $this->users['maria']], $analysts, 'only who may open it');
+        $this->assertSame([$names[0] => $this->users['maria'], $names[1] => $this->users['nikos']], $own, 'a person\'s own Ask: anybody');
+    }
+
+    /**
      * The API and the page's actions: share, list who has it, what is shared with me, open, and
      * withdraw — through the endpoints a screen calls.
      */
