@@ -126,8 +126,9 @@ const file = (name, size = 10, type = 'text/plain') => ({ name, size, type });
  *
  * @param {{waiting?: string, answers: Array<object|string|Error>, attributes?: object, parser?: boolean, now?: () => number}} options
  */
-function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, examples = [], before = [], clipboard = null, pfChat = undefined, states = null }) {
+function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, examples = [], before = [], clipboard = null, pfChat = undefined, states = null, pageClass = '' }) {
     const page = element('div', { 'data-pf-chat': '', 'data-asked': '/chat/asked/', 'data-question-class': 'bubble', ...attributes });
+    page.className = pageClass;
     examples.forEach((text) => page.appendChild(element('button', { type: 'button', 'data-pf-chat-suggestion': text })));
     before.forEach((one) => page.appendChild(one));
     const messages = page.appendChild(element('div', { 'data-pf-chat-messages': '' }));
@@ -158,6 +159,7 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
         setTimeout: (fn, ms) => { delays.push(ms); return timers.push(fn); },
         setInterval: (fn) => { intervals.push(fn); return intervals.length; },
         clearInterval: () => {},
+        clearTimeout: () => {},
         history: { replaceState: (s, t, url) => replaced.push(url) },
     };
     if (states) {
@@ -226,6 +228,115 @@ test('the answer shows while it is written, and is looked at more often', async 
     assert.equal(line.getAttribute('data-pf-chat-waiting'), '5', 'still the line a failure would be said in');
     assert.deepEqual(ui.delays.slice(0, 2), [700, 700], 'looked at again sooner than the silent 2 seconds');
     assert.equal(ui.page.innerHTML, '<div data-pf-chat>answered</div>');
+});
+
+/** The page's `/` commands, as ChatLook::commands() writes them. */
+const COMMANDS = JSON.stringify([
+    { name: 'new', says: 'Start a new conversation', url: '/chat' },
+    { name: 'scheduled', says: 'Your scheduled tasks', url: '/chat/scheduled' },
+    { name: 'attach', says: 'Attach a document', action: 'attach' },
+    { name: 'memory', says: 'What it remembers', action: 'memory' },
+    { name: 'week', says: 'This week', text: 'How did this week go?' },
+]);
+
+/** Type into the box as a person does: the value, then the input event. */
+const type = (ui, value) => { ui.box.value = value; ui.box.dispatch('input'); };
+
+/** Press a key in the box; the event says whether something took it. */
+const press = (ui, key) => ui.box.dispatch('keydown', { key });
+
+/**
+ * `/` at the start of the box opens a menu of the page's commands over the composer, narrowed as
+ * the name is typed; ↑↓ move the choice round, Enter or Tab runs it, Escape closes it, and while
+ * it is open Enter runs the command rather than sending "/sc" as a question. A command goes to
+ * its page, opens the file picker, opens what it remembers, or puts its text in the box.
+ *
+ * This is how a composer offers its tools without a row of buttons — and a person pressing Enter
+ * on a half-typed command must never have it sent to the model.
+ */
+test('/ opens the commands, narrowed as typed, run from the keyboard', () => {
+    // Arrange
+    const memory = element('details', { 'data-pf-chat-memory': '' });
+    const ui = run({ answers: [], attributes: { 'data-commands': COMMANDS }, before: [memory] });
+    const menu = ui.form.querySelector('[role]');
+
+    // Act / Assert — everything on "/", narrowed on "/s"
+    type(ui, '/');
+    assert.equal(menu.hidden, false);
+    assert.equal(menu.children.length, 5);
+    assert.equal(ui.box.getAttribute('aria-expanded'), 'true');
+    type(ui, '/s');
+    assert.deepEqual(menu.children.map((li) => li.children[0].textContent), ['/scheduled']);
+
+    // ↓ wraps round; Enter runs the chosen one, and is not a question sent
+    type(ui, '/');
+    press(ui, 'ArrowDown');
+    press(ui, 'ArrowUp');
+    press(ui, 'ArrowUp');
+    assert.equal(ui.box.getAttribute('aria-activedescendant'), menu.attributes.id + '-4', 'up from the first is the last');
+    const enter = press(ui, 'Enter');
+    assert.equal(enter.prevented, true);
+    assert.equal(ui.box.value, 'How did this week go?', 'its text, ready to send or change');
+    assert.equal(menu.hidden, true);
+    assert.equal(ui.requests.length, 0, 'nothing was sent');
+
+    // Tab runs too; a page command goes there, attach opens the picker, memory opens the panel
+    type(ui, '/sch');
+    press(ui, 'Tab');
+    assert.equal(ui.window.location.href, '/chat/scheduled');
+    type(ui, '/at');
+    press(ui, 'Enter');
+    assert.equal(ui.picker.clicked, 1);
+    type(ui, '/memory');
+    menu.children[0].dispatch('mousedown');
+    assert.equal(memory.open, true);
+
+    // Escape closes; a word that is no command closes it; so does a space after one
+    type(ui, '/n');
+    press(ui, 'Escape');
+    assert.equal(menu.hidden, true);
+    assert.equal(press(ui, 'ArrowDown').prevented, undefined, 'closed, the keys are the box\'s own');
+    type(ui, '/nothing');
+    assert.equal(menu.hidden, true);
+    type(ui, '/new please');
+    assert.equal(menu.hidden, true);
+});
+
+/**
+ * A page without commands has no menu, and `/` is just a character.
+ */
+test('without commands, / is only a character', () => {
+    // Arrange
+    const ui = run({ answers: [] });
+
+    // Act
+    type(ui, '/');
+
+    // Assert
+    assert.equal(ui.form.querySelector('[role]'), null);
+});
+
+/**
+ * An empty conversation is a greeting over the composer. Asked, the greeting goes and the page is
+ * no longer `pf-chat-empty`, so the composer moves under the conversation; refused, it is empty
+ * again, as the question goes back to the box.
+ */
+test('the greeting goes with the first question, and comes back with a refused one', async () => {
+    // Arrange
+    const hero = element('div', { 'data-pf-chat-hero': '' });
+    const ui = run({ pageClass: 'pf-chat pf-chat-empty px-4', before: [hero], answers: [{ status: 403, error: 'Agree first.' }] });
+    ui.box.value = 'Hi';
+
+    // Act
+    ui.form.dispatch('submit');
+    const during = ui.page.className;
+    const heroGone = hero.parentNode === null;
+    await settle();
+
+    // Assert
+    assert.equal(heroGone, true);
+    assert.equal(during, 'pf-chat px-4');
+    assert.equal(ui.page.className, 'pf-chat px-4 pf-chat-empty');
 });
 
 test('asking shows the question, follows it, and swaps the answered page in', async () => {

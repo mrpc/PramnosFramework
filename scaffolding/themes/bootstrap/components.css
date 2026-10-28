@@ -733,7 +733,7 @@ a.pf-stat-tile:hover { border-color: var(--bs-primary, #0d6efd); }
    sets its own type scale (titles 20/600, sections 16/600, labels 13/500, body 14), spacing
    (8/12/16/24) and 36px controls. The tokens are set on each of its roots, so a dark theme's
    colours reach them by inheritance. */
-.pf-ui, .pf-audience, .pf-rule-editor, .pf-rule-canvas, .pf-site-message, .pf-audience-panel-title, .pf-audience-panel-list, .pf-combo, .pf-menu, .pf-conv-dock, .pf-conv-basic {
+.pf-ui, .pf-audience, .pf-rule-editor, .pf-rule-canvas, .pf-site-message, .pf-audience-panel-title, .pf-audience-panel-list, .pf-combo, .pf-menu, .pf-conv-dock, .pf-conv-basic, .pf-chat, .pf-rating {
     --pf-assistant-size: 24px;
     --pf-assistant-color: var(--pf-accent);
     --pf-fg: var(--color-base-content, var(--bs-body-color, var(--text-main, #1f2937)));
@@ -2087,3 +2087,65 @@ a.pf-person:hover { background: var(--pf-subtle); }
 /* The analyst's living picture in the conversations: its own colours, not a person's hue. */
 .pf-conv-avatar-assistant { background: none; }
 .pf-conv-avatar-assistant .pf-assistant-avatar { width: 100%; height: 100%; }
+
+
+/* ── Ask: the conversations page and its composer ──────────────────────────────────────────────
+   Shape and layout only, on the shared tokens: the theme's own buttons, type and colours stay its
+   own. An application brands it with `--pf-chat-accent` (Llm config `chat.accent`), which falls
+   back on the theme's primary. Empty, the page is a greeting over one large composer, the
+   examples under it; with a conversation, the composer stays at the bottom of the view. */
+/* An application's accent, set on the page itself, wins over this. */
+.pf-chat { --pf-chat-accent: var(--pf-accent); --pf-chat-width: 820px; }
+.pf-chat .pf-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.pf-chat-main { display: flex; flex-direction: column; min-height: 70vh; }
+.pf-chat-messages { flex: 1 0 auto; }
+.pf-chat-empty .pf-chat-messages { flex: 0 0 auto; }
+.pf-chat-messages, .pf-chat-composer, .pf-chat-suggestions { width: 100%; max-width: var(--pf-chat-width); margin-left: auto; margin-right: auto; }
+.pf-chat-empty .pf-chat-main { justify-content: center; min-height: 60vh; }
+.pf-chat-hero { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-bottom: 24px; text-align: center; }
+.pf-chat-hero h1 { margin: 0; font-size: 1.75rem; font-weight: 600; line-height: 1.25; }
+.pf-chat-composer {
+    position: sticky; bottom: 12px; z-index: 5; margin-top: 8px; padding: 10px 12px 8px;
+    border: 1px solid var(--pf-line); border-radius: 1.5rem; background: var(--pf-surface); color: var(--pf-fg);
+    box-shadow: var(--pf-pop-shadow);
+}
+.pf-chat-composer:focus-within { border-color: var(--pf-chat-accent); box-shadow: var(--pf-pop-shadow), 0 0 0 3px color-mix(in oklab, var(--pf-chat-accent) 22%, transparent); }
+.pf-chat-empty .pf-chat-composer { position: relative; bottom: auto; }
+.pf-chat-input {
+    display: block; width: 100%; min-height: 1.5rem; max-height: 40vh; padding: 4px 2px; resize: none; overflow-y: auto;
+    border: 0 !important; outline: 0 !important; box-shadow: none !important; background: transparent !important; color: inherit; font: inherit;
+}
+.pf-chat-empty .pf-chat-input { min-height: 4.5rem; }
+.pf-chat-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.pf-chat-attach {
+    display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 999px;
+    cursor: pointer; color: var(--pf-muted);
+}
+.pf-chat-attach:hover, .pf-chat-attach:focus-within { background: var(--pf-subtle); color: var(--pf-fg); }
+.pf-chat-hint { margin-left: auto; font-size: 0.75rem; color: var(--pf-muted); }
+/* Over a theme's own `button[type=submit]`, which is more specific than one class. */
+.pf-chat .pf-chat-send {
+    display: inline-flex; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem; min-height: 0; padding: 0;
+    border: 0; border-radius: 999px; background: var(--pf-chat-accent); color: var(--pf-accent-fg); font-size: 1.1rem; cursor: pointer;
+}
+.pf-chat .pf-chat-send:hover { background: color-mix(in oklab, var(--pf-chat-accent) 88%, #000); transform: none; }
+.pf-chat .pf-chat-send:disabled { opacity: 0.4; cursor: default; }
+.pf-chat-suggestions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 16px; }
+.pf-chat-suggestions button { border-radius: 999px; }
+.pf-chat-commands {
+    position: absolute; left: 12px; right: 12px; bottom: 100%; z-index: 20; max-height: 260px; overflow: auto;
+    margin: 0 0 6px; padding: 6px; list-style: none; border: 1px solid var(--pf-line); border-radius: var(--pf-radius-lg);
+    background: var(--pf-surface); color: var(--pf-fg); box-shadow: var(--pf-pop-shadow);
+}
+.pf-chat-commands li { display: flex; gap: 10px; align-items: baseline; padding: 6px 10px; border-radius: var(--pf-radius); cursor: pointer; }
+.pf-chat-commands li[aria-selected="true"] { background: color-mix(in oklab, var(--pf-chat-accent) 14%, transparent); }
+.pf-chat-commands b { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
+.pf-chat-commands span { color: var(--pf-muted); font-size: 0.875rem; }
+.pf-chat-partial { white-space: pre-wrap; }
+
+/* 👍, the note and 👎 under an answer, on one line: a theme's input is a block a row wide. */
+.pf-rating { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
+.pf-rating form { display: inline-flex !important; align-items: center; gap: 0.25rem; }
+.pf-rating button { padding: 0.25rem 0.4rem; font-size: 1.15rem; line-height: 1; text-decoration: none; }
+.pf-rating button[aria-pressed="true"] { background: color-mix(in oklab, var(--pf-accent) 14%, transparent); border-radius: var(--pf-radius); }
+.pf-rating input[type="text"] { display: inline-block; width: 14rem; height: auto; min-height: 0; padding: 0.25rem 0.5rem; font-size: 0.85rem; }

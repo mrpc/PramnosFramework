@@ -1037,6 +1037,48 @@ Bootstrap the question's bubble also carries its colour inline, for an admin the
 Bootstrap 3, which has no `bg-body-tertiary`. A question asked in place is drawn
 the same way at once.
 
+#### How the page looks, as the application's own
+
+An empty conversation is a greeting over one large composer, with the example questions under
+it. Once a conversation is open, its title replaces the greeting and the composer stays at the
+bottom of the view. The composer has 📎, the files held, a hint and a round send button. Typing
+`/` at the start of the composer opens a menu of commands. ↑ and ↓ choose, Enter or Tab runs the
+chosen command, and Escape closes the menu. While the menu is open, Enter never sends the half-typed
+command as a question.
+
+The application brands the page in `'llm' => ['chat' => […]]`, and the analyst's page in
+`'analyst' => […]`:
+
+```php
+'chat' => [
+    'name'        => 'Naya',                                   // over each answer
+    'greeting'    => 'Hi, I am Naya. What shall we look at?',  // over the empty composer
+    'placeholder' => 'Ask Naya…',
+    'accent'      => '#7c3aed',                                // the send button, focus ring, chosen command
+    'suggestions' => ['How did this week go?'],
+    'commands'    => [
+        ['name' => 'week', 'says' => 'This week in numbers', 'text' => 'How did this week go, against last week?'],
+        ['name' => 'help', 'says' => 'How Naya works', 'url' => '/help/naya'],
+    ],
+],
+```
+
+Without a `greeting`, the page's heading says who it is ("Hi, I am …", from the analyst's name),
+or "How can I help?". Without an `accent`, the theme's primary colour is used.
+
+`Chat\Web\ChatLook::accent()` accepts only a CSS colour, so a stray `;` cannot add rules to the
+`style` attribute. `ChatLook::commands()` puts the page's own commands first: `/new`,
+`/scheduled` where the page has it, `/attach` and `/memory`. The application's follow, each with
+`text` to put into the composer or a `url` to go to. A command with a name already taken, or with
+neither `text` nor `url`, is left out.
+
+The styles are in the theme's `components.css`, under *Ask*. They set shape and layout only, on
+the same shared tokens as the other components, and the theme's own buttons, type and colours
+still apply. `--pf-chat-accent` on the page (set from `accent`) overrides the theme's primary for
+the page. An existing project picks the styles up with `./pramnos project:resync --css`, and the
+script with `--js`. Its `views/chat/` are its own copies: compare them with the theme's, because
+the composer, the greeting and the `/` menu need the new markup.
+
 #### The scheduled page
 
 `/chat/scheduled` (`ChatPageController::scheduled()`, linked from the conversations page, with a

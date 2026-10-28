@@ -18,6 +18,10 @@
  *   $this->headingAvatar — optional: HTML of the picture beside that title (the analyst's, Assist\AvatarSets::render())
  *   $this->suggestions   — optional: example questions, shown while no conversation is open
  *   $this->assistantName — optional: the name over an answer, "Assistant" by default
+ *   $this->greeting      — optional: the line over the empty page's composer
+ *   $this->placeholder   — optional: the composer's placeholder
+ *   $this->accent        — optional: the page's accent colour, over the theme's primary
+ *   $this->commands      — optional: the application's own `/` commands (ChatLook::commands())
  *
  * Answers are the model's words, drawn by Markdown::toHtml(), which escapes everything first.
  * A question is answered by the queue worker; pf-chat.js waits for it in place, and without
@@ -85,9 +89,16 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
 ];
 $pinned  = is_array($this->pinned ?? null) ? $this->pinned : [];
 $bulk    = is_array($this->bulkActions ?? null) ? $this->bulkActions : [];
+// Empty: a greeting over one large composer, the examples under it.
+$empty   = $open === null && !$waiting;
+$heading = (string) ($this->heading ?? '');
+$greeting = (string) ($this->greeting ?? '') !== '' ? (string) $this->greeting
+    : ($heading !== '' ? sprintf(t('Hi, I am %s. How can I help?'), $heading) : t('How can I help?'));
+$accent  = \Pramnos\Llm\Chat\Web\ChatLook::accent((string) ($this->accent ?? ''));
+$commands = \Pramnos\Llm\Chat\Web\ChatLook::commands($u, is_array($this->commands ?? null) ? $this->commands : []);
 ?>
 <?php if ($waiting): ?><noscript><meta http-equiv="refresh" content="4"></noscript><?php endif; ?>
-<div class="px-4 py-6" data-pf-chat data-page="<?php echo $e($u['page']); ?>" data-asked="<?php echo $e($u['asked']); ?>"<?php echo $sayAttr; ?> data-waiting-lines="<?php echo $e(json_encode($lines, JSON_UNESCAPED_UNICODE)); ?>" data-question-class="<?php echo $e($c['question']); ?>">
+<div class="pf-chat<?php echo $empty ? ' pf-chat-empty' : ''; ?> px-4 py-6"<?php echo $accent !== '' ? ' style="--pf-chat-accent:' . $e($accent) . '"' : ''; ?> data-commands="<?php echo $e(json_encode($commands, JSON_UNESCAPED_UNICODE)); ?>" data-pf-chat data-page="<?php echo $e($u['page']); ?>" data-asked="<?php echo $e($u['asked']); ?>"<?php echo $sayAttr; ?> data-waiting-lines="<?php echo $e(json_encode($lines, JSON_UNESCAPED_UNICODE)); ?>" data-question-class="<?php echo $e($c['question']); ?>">
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <nav class="<?php echo $c['card']; ?>" style="flex:0 0 240px;padding:12px" aria-label="<?php echo $e(t('Conversations')); ?>">
             <a href="<?php echo $e($u['page']); ?>" class="<?php echo $c['btn']; ?>"><?php echo $e(t('New conversation')); ?></a>
@@ -109,8 +120,15 @@ $bulk    = is_array($this->bulkActions ?? null) ? $this->bulkActions : [];
             <?php if ($u['shared'] !== ''): ?><?php echo \Pramnos\Llm\Chat\Web\ShareView::withMe(is_array($this->sharedWithMe ?? null) ? $this->sharedWithMe : [], $u['shared'], $c); ?><?php endif; ?>
         </nav>
 
-        <main style="flex:1 1 420px;min-width:0">
-            <h1><?php if (empty($open['title']) && !empty($this->headingAvatar)): ?><?php echo $this->headingAvatar; ?> <?php endif; ?><?php echo $e($open['title'] ?? ($this->heading ?? t('Ask AI'))); ?></h1>
+        <main class="pf-chat-main" style="flex:1 1 420px;min-width:0">
+            <?php if ($empty): ?>
+                <div class="pf-chat-hero" data-pf-chat-hero>
+                    <?php if (!empty($this->headingAvatar)): ?><?php echo $this->headingAvatar; ?><?php endif; ?>
+                    <h1><?php echo $e($greeting); ?></h1>
+                </div>
+            <?php else: ?>
+                <h1><?php if (empty($open['title']) && !empty($this->headingAvatar)): ?><?php echo $this->headingAvatar; ?> <?php endif; ?><?php echo $e($open['title'] ?? ($this->heading ?? t('Ask AI'))); ?></h1>
+            <?php endif; ?>
             <?php if ($open !== null && $u['share'] !== ''): /* share it as it stands now */ ?>
                 <?php echo \Pramnos\Llm\Chat\Web\ShareView::form($u['share'], 'conversation', $openId, $openId, $token(), $c); ?>
                 <?php echo \Pramnos\Llm\Chat\Web\ShareView::recipients(is_array($this->shares ?? null) ? $this->shares : [], $u['unshare'], $openId, $token(), $c); ?>
@@ -139,14 +157,6 @@ $bulk    = is_array($this->bulkActions ?? null) ? $this->bulkActions : [];
                 </section>
             <?php endif; ?>
 
-            <?php $examples = $open === null ? array_values(array_filter(is_array($this->suggestions ?? null) ? $this->suggestions : [], 'is_string')) : []; ?>
-            <?php if ($examples !== []): ?>
-                <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px" aria-label="<?php echo $e(t('Example questions')); ?>">
-                    <?php foreach ($examples as $example): ?>
-                        <button type="button" class="btn" data-pf-chat-suggestion="<?php echo $e($example); ?>"><?php echo $e($example); ?></button>
-                    <?php endforeach; ?>
-                </div>
-            <?php endif; ?>
             <div class="pf-chat-messages" data-pf-chat-messages>
                 <?php foreach ($open['messages'] ?? [] as $m): ?>
                     <?php $mine = $m['role'] === 'user'; $at = \Pramnos\Llm\Chat\Web\Stamp::iso((string) ($m['created_at'] ?? '')); ?>
@@ -205,20 +215,28 @@ $bulk    = is_array($this->bulkActions ?? null) ? $this->bulkActions : [];
                 <?php endif; ?>
             </div>
 
-            <form method="post" action="<?php echo $e($u['ask']); ?>" enctype="multipart/form-data" class="<?php echo $c['card']; ?>" style="padding:12px" data-pf-chat-form>
+            <form method="post" action="<?php echo $e($u['ask']); ?>" enctype="multipart/form-data" class="pf-chat-composer" data-pf-chat-form>
                 <?php echo $token(); ?>
                 <input type="hidden" name="conversation_id" value="<?php echo $openId; ?>">
                 <label for="chat-ask" class="pf-sr-only"><?php echo $e(t('Your question')); ?></label>
-                <textarea id="chat-ask" name="content" rows="3" class="<?php echo $c['input']; ?>" style="width:100%" placeholder="<?php echo $e(t('Ask a question…')); ?>"></textarea>
-                <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px">
-                    <label class="<?php echo $c['muted']; ?>">📎 <?php echo $e(t('Attach a document')); ?>
-                        <input type="file" name="files[]" multiple accept=".docx,.odt,.txt,.md,.eml,image/*" data-pf-chat-files>
+                <textarea id="chat-ask" name="content" rows="<?php echo $empty ? 3 : 1; ?>" class="pf-chat-input" placeholder="<?php echo $e((string) ($this->placeholder ?? '') !== '' ? $this->placeholder : t('Ask a question…')); ?>" aria-describedby="chat-ask-hint"></textarea>
+                <div class="pf-chat-bar">
+                    <label class="pf-chat-attach" title="<?php echo $e(t('Attach a document')); ?>">📎<span class="pf-sr-only"><?php echo $e(t('Attach a document')); ?></span>
+                        <input type="file" name="files[]" multiple accept=".docx,.odt,.txt,.md,.eml,image/*" class="pf-sr-only" data-pf-chat-files>
                     </label>
                     <span data-pf-chat-chips style="display:flex;flex-wrap:wrap;gap:4px"></span>
-                    <span class="<?php echo $c['muted']; ?>" style="margin-left:auto"><?php echo $e(t('Enter to send · Shift+Enter for a new line')); ?></span>
-                    <button type="submit" class="<?php echo $c['btn']; ?>"<?php echo !empty($consent['required']) && empty($consent['given']) ? ' disabled' : ''; ?>><?php echo $e(t('Ask')); ?></button>
+                    <span class="pf-chat-hint" id="chat-ask-hint"><?php echo $e(t('Enter to send · Shift+Enter for a new line · / for commands')); ?></span>
+                    <button type="submit" class="pf-chat-send" aria-label="<?php echo $e(t('Ask')); ?>" title="<?php echo $e(t('Ask')); ?>"<?php echo !empty($consent['required']) && empty($consent['given']) ? ' disabled' : ''; ?>>↑</button>
                 </div>
             </form>
+            <?php $examples = $empty ? array_values(array_filter(is_array($this->suggestions ?? null) ? $this->suggestions : [], 'is_string')) : []; ?>
+            <?php if ($examples !== []): ?>
+                <div class="pf-chat-suggestions" aria-label="<?php echo $e(t('Example questions')); ?>">
+                    <?php foreach ($examples as $example): ?>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-pf-chat-suggestion="<?php echo $e($example); ?>"><?php echo $e($example); ?></button>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
 
             <?php if ($context > 0 && $window > 0): ?>
                 <p class="<?php echo $c['muted']; ?>" style="display:flex;gap:8px;align-items:center">
@@ -238,7 +256,7 @@ $bulk    = is_array($this->bulkActions ?? null) ? $this->bulkActions : [];
 
         <aside class="<?php echo $c['card']; ?>" style="flex:0 0 260px;padding:12px">
 
-            <details>
+            <details data-pf-chat-memory>
 
             <summary aria-label="<?php echo $e(t('Model, limits and memory')); ?>">⚙ <?php echo $e(t('Model, limits and memory')); ?></summary>
             <h2><?php echo $e(t('Model')); ?></h2>

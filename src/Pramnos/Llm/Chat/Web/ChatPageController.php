@@ -74,6 +74,11 @@ class ChatPageController extends Controller
         $view->waitingLines  = is_array($chat['waiting_lines'] ?? null) ? $chat['waiting_lines'] : [];
         $view->suggestions   = is_array($chat['suggestions'] ?? null) ? $chat['suggestions'] : [];
         $view->assistantName = is_string($chat['name'] ?? null) ? $chat['name'] : '';
+        // How it looks as the application's own (ChatLook): its greeting, placeholder, colour, `/` commands.
+        foreach (['greeting', 'placeholder', 'accent'] as $key) {
+            $view->{$key} = is_string($chat[$key] ?? null) ? $chat[$key] : '';
+        }
+        $view->commands = is_array($chat['commands'] ?? null) ? $chat['commands'] : [];
         foreach ($this->sharing($scope, $open) as $name => $value) {
             $view->{$name} = $value;
         }

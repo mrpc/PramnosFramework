@@ -149,6 +149,64 @@ class ChatPageTest extends LlmTestCase
     }
 
     /**
+     * The page is the application's own: an empty one is its greeting over one large composer,
+     * with its placeholder, its accent colour and its `/` commands beside the page's, and the
+     * examples under the composer; an open conversation has its title instead, and no greeting.
+     * In every theme, the same hooks the shared stylesheet styles.
+     *
+     * Ask is "Naya" in one application and the analyst in another; a page that said "Ask AI" in
+     * the framework's blue over a list of buttons would be nobody's.
+     */
+    #[DataProvider('databases')]
+    public function testThePageLooksLikeTheApplications(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => [
+            'greeting'    => 'Hi, I am Naya.',
+            'placeholder' => 'Ask Naya…',
+            'accent'      => '#7c3aed',
+            'suggestions' => ['What did we spend this week?'],
+            'commands'    => [['name' => 'week', 'says' => 'This week', 'text' => 'How did this week go?']],
+        ]]);
+        $stamp = \Pramnos\Llm\CallLog::instant(time());
+        $this->db->queryBuilder()->table('chat_conversations')->insert(['organization_id' => null, 'userid' => 7, 'title' => 'Spend', 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $id = (int) $this->db->queryBuilder()->table('chat_conversations')->first()->fields['conversation_id'];
+
+        foreach (self::THEMES as $theme) {
+            // Act
+            $_GET = [];
+            \Pramnos\Http\Request::resetInstance();
+            $empty = (string) $this->page(theme: $theme)->display();
+            $_GET = ['c' => (string) $id];
+            \Pramnos\Http\Request::resetInstance();
+            $open = (string) $this->page(theme: $theme)->display();
+
+            // Assert — empty: the greeting, the brand, the commands, the examples after the composer
+            $this->assertMatchesRegularExpression('/<div class="pf-chat pf-chat-empty[^"]*" style="--pf-chat-accent:#7c3aed"/', $empty, $theme);
+            $this->assertStringContainsString('<h1>Hi, I am Naya.</h1>', $empty, $theme);
+            $this->assertStringContainsString('placeholder="Ask Naya…"', $empty, $theme);
+            $this->assertStringContainsString('&quot;name&quot;:&quot;week&quot;', $empty, $theme . ': the application\'s command');
+            $this->assertStringContainsString('&quot;name&quot;:&quot;scheduled&quot;', $empty, $theme . ': beside the page\'s');
+            $this->assertGreaterThan(strpos($empty, 'data-pf-chat-form'), strpos($empty, 'data-pf-chat-suggestion'), $theme . ': the examples under the composer');
+            $this->assertStringContainsString('rows="3" class="pf-chat-input"', $empty, $theme . ': a large box when empty');
+            // Open: its title, no greeting, no examples, a one-line box
+            $this->assertStringNotContainsString('pf-chat-empty', $open, $theme);
+            $this->assertStringNotContainsString('data-pf-chat-hero', $open, $theme);
+            $this->assertStringContainsString('Spend</h1>', $open, $theme);
+            $this->assertStringContainsString('rows="1" class="pf-chat-input"', $open, $theme);
+        }
+
+        // Without a greeting, the page's heading says who it is; without either, a plain line
+        $this->configure(['chat' => []]);
+        $_GET = [];
+        \Pramnos\Http\Request::resetInstance();
+        $plain = (string) $this->page()->display();
+        $this->assertStringContainsString('<h1>How can I help?</h1>', $plain);
+        $this->assertStringNotContainsString('--pf-chat-accent', $plain);
+    }
+
+    /**
      * Sharing from the page, in every theme: the open conversation and each artifact carry a Share
      * form; sharing says who it went to and who was nobody; the owner sees who has it and stops
      * it; the recipient sees it under "Shared with you" and opens it as a conversation of their

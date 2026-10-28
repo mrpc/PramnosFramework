@@ -25,8 +25,9 @@ final class RatingView
 
             return '<form method="post" action="' . $e($action . $id) . '" style="display:inline">' . $token
                 . '<input type="hidden" name="conversation_id" value="' . $returnTo . '">'
-                . '<input type="hidden" name="rating" value="' . ($pressed ? 0 : $value) . '">' . $extra
-                . '<button type="submit" class="' . $e($c['btnGhost'] ?? '') . '" aria-pressed="' . ($pressed ? 'true' : 'false') . '" aria-label="' . $aria . '">' . $label . '</button></form>';
+                . '<input type="hidden" name="rating" value="' . ($pressed ? 0 : $value) . '">'
+                // The note after its button: between 👍 and 👎 it read as belonging to either.
+                . '<button type="submit" class="' . $e($c['btnGhost'] ?? '') . '" aria-pressed="' . ($pressed ? 'true' : 'false') . '" aria-label="' . $aria . '">' . $label . '</button>' . $extra . '</form>';
         };
 
         return '<span class="pf-rating" data-pf-rating="' . $id . '">'

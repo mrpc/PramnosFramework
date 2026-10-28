@@ -28,6 +28,11 @@
  *   data-question-style            the inline style it falls back on
  *   data-pf-chat-embedded        — on the page: inside another page (the side panel), so the
  *                                  address bar is that page's and is left alone
+ *   data-commands="[…]"          — on the page: the `/` commands (ChatLook::commands()); typed
+ *                                  at the start of the box they open a menu over the composer
+ *   data-pf-chat-hero            — the greeting of an empty conversation, gone once one is asked;
+ *                                  the page's `pf-chat-empty` class goes with it
+ *   data-pf-chat-memory          — the <details> the `/memory` command opens
  *
  * `window.PfChat.init(element)` runs it over a conversation placed later — the side panel's
  * `pf-assist.js` does — and each run ends with a `pf-chat:ready` event on the element. It runs once
@@ -46,6 +51,8 @@
     var QUIET_MS = 8000;
     var PHRASE_MS = 4000;
     var LONG_MS = 60000;
+    /** How many `/` menus are on the page, for their ids: the side panel's and the page's own. */
+    var menus = 0;
     /** How often a question being answered is looked at while its text arrives. */
     var PARTIAL_MS = 700;
 
@@ -512,6 +519,124 @@
         }
 
         var box = form.querySelector('textarea');
+        var commands = [];
+
+        try {
+            commands = JSON.parse(root.getAttribute('data-commands') || '[]');
+        } catch (e) {
+            commands = [];
+        }
+
+        /** The box grows with what is written, up to the height the stylesheet allows. */
+        function fit() {
+            if (box && box.scrollHeight) {
+                box.style.height = 'auto';
+                box.style.height = box.scrollHeight + 'px';
+            }
+        }
+
+        /**
+         * The `/` commands: typed at the start of the box, a menu of them over the composer,
+         * narrowed as the name is typed. ↑ and ↓ choose, Enter or Tab runs, Escape closes. Returns
+         * the keydown handler, which says whether it took the key.
+         */
+        function slashMenu() {
+            var menu = document.createElement('ul');
+            var id = 'pf-chat-commands-' + (++menus);
+            var shown = [];
+            var at = 0;
+            menu.className = 'pf-chat-commands';
+            menu.setAttribute('role', 'listbox');
+            menu.setAttribute('id', id);
+            menu.hidden = true;
+            form.appendChild(menu);
+            box.setAttribute('aria-controls', id);
+            box.setAttribute('aria-autocomplete', 'list');
+            box.setAttribute('aria-expanded', 'false');
+
+            function close() {
+                shown = [];
+                menu.hidden = true;
+                box.setAttribute('aria-expanded', 'false');
+                box.removeAttribute('aria-activedescendant');
+            }
+
+            function show() {
+                var typed = /^\/([\w-]*)$/.exec(box.value || '');
+                shown = typed ? commands.filter(function (one) {
+                    return String(one.name).toLowerCase().indexOf(typed[1].toLowerCase()) === 0;
+                }) : [];
+                if (!shown.length) {
+                    close();
+
+                    return;
+                }
+                at = Math.min(at, shown.length - 1);
+                menu.textContent = '';
+                shown.forEach(function (one, i) {
+                    var item = document.createElement('li');
+                    var name = document.createElement('b');
+                    var says = document.createElement('span');
+                    item.setAttribute('role', 'option');
+                    item.setAttribute('id', id + '-' + i);
+                    item.setAttribute('aria-selected', i === at ? 'true' : 'false');
+                    name.textContent = '/' + one.name;
+                    says.textContent = one.says || '';
+                    item.appendChild(name);
+                    item.appendChild(says);
+                    // On mousedown, not click: the box keeps its focus.
+                    item.addEventListener('mousedown', function (event) {
+                        event.preventDefault();
+                        run(one);
+                    });
+                    menu.appendChild(item);
+                });
+                menu.hidden = false;
+                box.setAttribute('aria-expanded', 'true');
+                box.setAttribute('aria-activedescendant', id + '-' + at);
+            }
+
+            function run(one) {
+                close();
+                box.value = one.text || '';
+                fit();
+                if (one.url) {
+                    window.location.href = one.url;
+                } else if (one.action === 'attach' && picker) {
+                    picker.click();
+                } else if (one.action === 'memory') {
+                    var panel = root.querySelector('[data-pf-chat-memory]');
+                    if (panel) {
+                        panel.open = true;
+                    }
+                }
+                box.focus();
+            }
+
+            box.addEventListener('input', function () {
+                at = 0;
+                show();
+            });
+
+            return function (event) {
+                if (!shown.length) {
+                    return false;
+                }
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                    at = (at + (event.key === 'ArrowDown' ? 1 : shown.length - 1)) % shown.length;
+                    show();
+                } else if (event.key === 'Enter' || event.key === 'Tab') {
+                    run(shown[at]);
+                } else if (event.key === 'Escape') {
+                    close();
+                } else {
+                    return false;
+                }
+                event.preventDefault();
+
+                return true;
+            };
+        }
 
         // An example question fills the box, ready to send or to change first.
         Array.prototype.forEach.call(root.querySelectorAll('[data-pf-chat-suggestion]'), function (example) {
@@ -523,6 +648,7 @@
             });
         });
         var picker = form.querySelector('[data-pf-chat-files]');
+        var slash = box && commands.length ? slashMenu() : null;
         var attach = form.querySelector('[data-pf-chat-attach]');
         var chips = form.querySelector('[data-pf-chat-chips]');
 
@@ -611,7 +737,11 @@
                 });
             });
 
+            box.addEventListener('input', fit);
             box.addEventListener('keydown', function (event) {
+                if (slash && slash(event)) {
+                    return;
+                }
                 if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
                     event.preventDefault();
                     form.requestSubmit ? form.requestSubmit() : form.submit();
@@ -699,6 +829,13 @@
             // which `[hidden]` loses to.
             var examples = Array.prototype.map.call(root.querySelectorAll('[data-pf-chat-suggestion]'), function (one) { return one.parentNode; });
             examples.forEach(function (holder) { holder.style.display = 'none'; });
+            // No longer empty: the greeting goes, and the composer moves under the conversation.
+            var hero = root.querySelector('[data-pf-chat-hero]');
+            var wasEmpty = /(^| )pf-chat-empty( |$)/.test(root.className || '');
+            if (hero && hero.parentNode) {
+                hero.parentNode.removeChild(hero);
+            }
+            root.className = String(root.className || '').replace(/(^| )pf-chat-empty(?= |$)/, '');
 
             if (box) {
                 box.value = '';
@@ -720,6 +857,9 @@
                     button.disabled = false;
                 }
                 examples.forEach(function (holder) { holder.style.display = ''; });
+                if (wasEmpty) {
+                    root.className += ' pf-chat-empty';
+                }
                 say(reason, true);
             }
 
