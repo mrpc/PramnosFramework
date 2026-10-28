@@ -1133,6 +1133,10 @@ using it answers six hooks:
 - `scheduledExtras(?array $task): array`, optional: markup of the controller's own — `form`,
   printed inside the form before its button; `task`, on the open task's card. Printed as given, so
   escape what goes in.
+- `scheduledCrumbs(?array $task): void`, optional: the page's breadcrumbs. By default these are
+  the conversations, Scheduled (a link back to the list when a task is open) and the open task's
+  title, named by `taskChatName()` ("Ask AI", or the analyst's name on `AiController`). An
+  application whose shell draws its own trail overrides it to add nothing.
 - `afterScheduled(array $task, array $input): void`, optional: called with the task just made and
   the whole form, the controller's own fields among it, before the redirect. Not called when the
   form was refused.

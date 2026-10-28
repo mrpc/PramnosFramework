@@ -1002,4 +1002,10 @@ class AiController extends Controller
     {
         Settings::setSetting($name, $value);
     }
+
+    /** The analyst's conversations, by its name, in the scheduled page's breadcrumbs. */
+    protected function taskChatName(): string
+    {
+        return \Pramnos\Llm\Analyst\Analyst::name();
+    }
 }

@@ -154,6 +154,38 @@ class ScheduledPageTest extends LlmTestCase
     }
 
     /**
+     * The page's breadcrumbs reach the open task: the conversations, Scheduled — a link back to the
+     * list — and the task's title; on the list itself, Scheduled is where the reader is.
+     *
+     * Without the task, a reader on one task's page saw the trail end a level short.
+     */
+    #[DataProvider('databases')]
+    public function testTheBreadcrumbsReachTheTask(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $made = $this->tasks()->create(new Scope(7, 3), ['kind' => 'ask', 'title' => 'Team week', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00']);
+        $app  = \Pramnos\Application\Application::getInstance();
+        // A fresh trail for each drawing: the property is the application's own.
+        $fresh = static fn () => (new \ReflectionProperty($app, 'breadcrumbs'))->setValue($app, new \Pramnos\Html\Breadcrumb());
+
+        // Act
+        $fresh();
+        $_GET = ['task' => (string) $made['routine_id']];
+        $this->page()->scheduled();
+        $onTask = $app->renderBreadcrumbs();
+        $fresh();
+        $_GET = [];
+        $this->page()->scheduled();
+        $onList = $app->renderBreadcrumbs();
+
+        // Assert
+        $this->assertMatchesRegularExpression('~Ask AI.*Scheduled.*Team week~s', strip_tags($onTask));
+        $this->assertStringContainsString('chat/scheduled"', $onTask, 'Scheduled leads back to the list');
+        $this->assertStringNotContainsString('Team week', $onList);
+    }
+
+    /**
      * Scheduling from the form: a template fills what was left empty; a monthly task takes the
      * day of the month, a weekly one the weekday; a moment on the clock as a datetime field sends
      * it, and one too far ahead is refused rather than failing the insert; and a refusal is said.

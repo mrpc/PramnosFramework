@@ -63,6 +63,7 @@ trait SchedulesTasks
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = 'Scheduled';
+        $this->scheduledCrumbs($task);
 
         $view            = $this->getView('chat');
         $view->tasks     = $tasks->mine($scope);
@@ -91,6 +92,31 @@ trait SchedulesTasks
         ];
 
         return $view->display('scheduled');
+    }
+
+    /**
+     * The scheduled page's breadcrumbs: the conversations, Scheduled, and the open task's title.
+     * An application with breadcrumbs of its own overrides it, and may add none.
+     *
+     * @param array<string, mixed>|null $task The open task, or null
+     */
+    protected function scheduledCrumbs(?array $task): void
+    {
+        $app = $this->application ?? \Pramnos\Application\Application::currentInstance();
+        if (!$app instanceof \Pramnos\Application\Application) {
+            return;
+        }
+        $app->addbreadcrumb($this->taskChatName(), $this->taskChatUrl());
+        $app->addbreadcrumb(t('Scheduled'), $task === null ? '' : $this->scheduledUrl());
+        if ($task !== null) {
+            $app->addbreadcrumb((string) ($task['title'] ?? ''), '');
+        }
+    }
+
+    /** What the conversations are called in the breadcrumbs: "Ask AI", or the analyst's name. */
+    protected function taskChatName(): string
+    {
+        return t('Ask AI');
     }
 
     /** Schedule a task from the form: kind, title, prompt, cadence and its fields, owner, notify. */
