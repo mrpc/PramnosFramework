@@ -32,6 +32,8 @@ final class Routes
         'reports'  => '/chat/reports',
         'consent'  => '/chat/consent',
         'artifacts' => '/chat/artifacts',
+        'shared'   => '/chat/shared',
+        'shares'   => '/chat/shares',
     ];
 
     /**
@@ -62,6 +64,11 @@ final class Routes
         $r->get($p['artifacts'], static fn () => $make()->artifacts());
         $r->get($p['artifacts'] . '/{artifact_id}', static fn ($artifact_id) => $make()->readArtifact($artifact_id));
         $r->delete($p['artifacts'] . '/{artifact_id}', static fn ($artifact_id) => $make()->deleteArtifact($artifact_id));
+        $r->post($p['artifacts'] . '/{artifact_id}/share', static fn ($artifact_id) => $make()->shareArtifact($artifact_id));
+        $r->get($p['artifacts'] . '/{artifact_id}/shares', static fn ($artifact_id) => $make()->artifactShares($artifact_id));
+        $r->get($p['shared'], static fn () => $make()->sharedWithMe());
+        $r->post($p['shared'] . '/{share_id}/open', static fn ($share_id) => $make()->openShared($share_id));
+        $r->delete($p['shares'] . '/{share_id}', static fn ($share_id) => $make()->revokeShare($share_id));
 
         $r->get($p['consent'], static fn () => $make()->consent());
         $r->post($p['consent'], static fn () => $make()->giveConsent());
@@ -71,5 +78,7 @@ final class Routes
         $r->post($p['chat'], static fn () => $make()->ask());
         $r->get($p['chat'] . '/{conversation_id}', static fn ($conversation_id) => $make()->read($conversation_id));
         $r->delete($p['chat'] . '/{conversation_id}', static fn ($conversation_id) => $make()->forget($conversation_id));
+        $r->post($p['chat'] . '/{conversation_id}/share', static fn ($conversation_id) => $make()->shareConversation($conversation_id));
+        $r->get($p['chat'] . '/{conversation_id}/shares', static fn ($conversation_id) => $make()->conversationShares($conversation_id));
     }
 }

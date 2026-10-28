@@ -24,14 +24,15 @@ class ChatPageController extends Controller
 {
     use \Pramnos\Llm\Chat\Concerns\TakesQuestions;
     use SchedulesTasks;
+    use SharesConversations;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction(['display', 'ask', 'asked', 'delete', 'forget', 'consent', 'report',
-            'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe']);
+            'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'shared']);
         // POST with the session's token: each of these spends, forgets or changes a schedule.
         $this->addWriteAction(['ask', 'delete', 'forget', 'consent',
-            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe']);
+            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare']);
         parent::__construct($application);
     }
 
@@ -71,6 +72,9 @@ class ChatPageController extends Controller
         $view->waitingLines  = is_array($chat['waiting_lines'] ?? null) ? $chat['waiting_lines'] : [];
         $view->suggestions   = is_array($chat['suggestions'] ?? null) ? $chat['suggestions'] : [];
         $view->assistantName = is_string($chat['name'] ?? null) ? $chat['name'] : '';
+        foreach ($this->sharing($scope, $open) as $name => $value) {
+            $view->{$name} = $value;
+        }
 
         return $view->display();
     }
@@ -202,6 +206,11 @@ class ChatPageController extends Controller
     }
 
     /** The page's address, open at a conversation and following a question. */
+    protected function shareReturnUrl(int $conversationId): string
+    {
+        return $this->pageUrl($conversationId);
+    }
+
     protected function pageUrl(int $conversationId = 0, int $askId = 0): string
     {
         $query = array_filter(['c' => $conversationId, 'ask' => $askId]);

@@ -30,6 +30,7 @@ class LlmTablesCheck implements HealthCheck
         'ai_task_runs'       => false,
         'ai_task_subscriptions' => false,
         'chat_artifacts'     => true,
+        'chat_shares'        => true,
     ];
 
     /** Columns added to a table after it was first written, which the code reads. */

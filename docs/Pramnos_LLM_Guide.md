@@ -10,6 +10,7 @@ use_cases:
   - Sending an organisation a scheduled AI report its members subscribe to, by email too
   - Seeing what each scheduled AI task or report costs
   - Keeping a table or list an AI answer produced, to open or act on later
+  - Sharing an AI conversation or one of its results with a colleague
   - Giving people a page to see, pause and receive their scheduled AI tasks and reports
   - Handing a leaving member's scheduled AI tasks to someone else
   - Asking users' agreement before their data goes to a provider
@@ -390,6 +391,49 @@ entries and how many more, a text as Markdown — each with `data-pf-artifact` a
 escaped, for a view of an application's own. Without the table (migrations not run) there is no
 tool and nothing to read, and the health check names it.
 
+### Sharing a conversation or an artifact
+
+A person shares one of their conversations or artifacts with others by username or email —
+`Share` on the conversation page, under the open conversation and under each artifact, or the
+API. The recipient is told (the bell, and a push where they have one), and finds it under
+"Shared with you".
+
+**A conversation is shared as it stands.** The recipient sees the messages up to the moment it
+was shared, not what is said after; sharing it again with the same person moves that point on.
+
+**The recipient opens it by taking a copy.** The snapshot becomes a conversation of their own —
+carrying the original's data tags, so a provider that may not receive that data is still not
+asked about it, and each answer's artifacts — which they read on the ordinary screens and can go
+on asking in, with their own rights. An artifact arrives the same way, inside a conversation of
+its own. Opening it again returns to that copy. Withdrawing a share, or deleting what was
+shared, stops it; a copy already taken stays the recipient's.
+
+What a conversation shows was read with the rights of the person who asked, and the person
+sharing chooses who sees it. `Chat\SharePolicy`, or the class `chat.share_policy` names, is where
+an application narrows that:
+
+| Method | Default |
+|---|---|
+| `refusal($scope)` | null: anybody signed in may share |
+| `recipients($scope, $names)` | `name => userid` for each username or email that is somebody, never the person sharing |
+| `link($share)` | `chat/shared/{id}`, or `Ai/shared/{id}` in the administration area for the analyst's |
+
+`chat.share_notification` names a notification class of the application's own, constructed with
+the words and the link. `Chat\Shares` is the same in code:
+
+```php
+$shares = new \Pramnos\Llm\Chat\Shares();
+$shares->share($scope, Shares::CONVERSATION, $conversationId, ['maria', 'nikos@example.com']);
+// ['shared' => ['maria'], 'unknown' => ['nikos@example.com']], or why not
+$shares->sharesOf($scope, Shares::ARTIFACT, $artifactId);   // who has it
+$shares->revoke($scope, $shareId);
+$shares->withMe($userId);                                   // what others shared
+$conversationId = $shares->open($shareId, $conversations->as($viewerScope));
+```
+
+A page of an application's own gets the actions with `Chat\Web\SharesConversations`
+(`share/{id}`, `unshare/{share}`, `shared/{share}`) and the markup with `Chat\Web\ShareView`.
+
 ### Asking in the background
 
 An answer with tools can take a minute. `Chat\Asks::start($scope, $conversationId, $question,
@@ -674,6 +718,11 @@ One line in the application's API routes mounts every endpoint:
 | `GET /chat/{id}`, `DELETE /chat/{id}` | one conversation with its messages; forget it |
 | `GET /chat/artifacts` | this person's artifacts, newest first, without content |
 | `GET /chat/artifacts/{id}`, `DELETE /chat/artifacts/{id}` | one artifact with its content; remove it |
+| `POST /chat/{id}/share`, `POST /chat/artifacts/{id}/share` | share with `names` (a list, or one string of usernames/emails); `shared` and `unknown` |
+| `GET /chat/{id}/shares`, `GET /chat/artifacts/{id}/shares` | who it is shared with |
+| `DELETE /chat/shares/{id}` | stop one share |
+| `GET /chat/shared` | what others shared with this person |
+| `POST /chat/shared/{id}/open` | open it: the `conversation_id` of this person's own copy |
 | `GET /chat/asks/{id}` | a queued question: `waiting`, `answered` with its `conversation_id`, or `failed` with `says` |
 | `GET /chat/memory`, `DELETE /chat/memory/{id}` | what it remembers; forget one |
 | `GET`/`POST /chat/routines`, `PUT`/`DELETE /chat/routines/{id}`, `POST /chat/routines/{id}/run` | scheduled tasks, with the templates, cadences, `kinds`, and the `owners` this person may use; `active` in a `PUT` pauses or resumes |

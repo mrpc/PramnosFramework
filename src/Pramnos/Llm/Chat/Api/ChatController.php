@@ -117,6 +117,94 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             : self::error(404, 'There is no such artifact.');
     }
 
+    /** Share one of this person's conversations, as it stands, with `names` (usernames or emails). */
+    public function shareConversation($conversation_id): array
+    {
+        return $this->shareOne(\Pramnos\Llm\Chat\Shares::CONVERSATION, (int) $conversation_id);
+    }
+
+    /** Share one of this person's artifacts with `names`. */
+    public function shareArtifact($artifact_id): array
+    {
+        return $this->shareOne(\Pramnos\Llm\Chat\Shares::ARTIFACT, (int) $artifact_id);
+    }
+
+    /** Who one of this person's conversations is shared with. */
+    public function conversationShares($conversation_id): array
+    {
+        return $this->sharesOfOne(\Pramnos\Llm\Chat\Shares::CONVERSATION, (int) $conversation_id);
+    }
+
+    /** Who one of this person's artifacts is shared with. */
+    public function artifactShares($artifact_id): array
+    {
+        return $this->sharesOfOne(\Pramnos\Llm\Chat\Shares::ARTIFACT, (int) $artifact_id);
+    }
+
+    /** Stop one of this person's shares. */
+    public function revokeShare($share_id): array
+    {
+        if (($stop = $this->refusal('delete')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+
+        return $scope !== null && (new \Pramnos\Llm\Chat\Shares())->revoke($scope, (int) $share_id)
+            ? ['status' => 200, 'data' => ['deleted' => true]]
+            : self::error(404, 'There is no such share.');
+    }
+
+    /** What others shared with this person. */
+    public function sharedWithMe(): array
+    {
+        if (($stop = $this->refusal('list')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+
+        return ['status' => 200, 'data' => ['shared' => $scope === null ? [] : (new \Pramnos\Llm\Chat\Shares())->withMe($scope->userId)]];
+    }
+
+    /** Open something shared with this person: the conversation of their own that holds it. */
+    public function openShared($share_id): array
+    {
+        if (($stop = $this->refusal('read')) !== null) {
+            return $stop;
+        }
+        $made = (new \Pramnos\Llm\Chat\Shares())->open((int) $share_id, $this->conversations());
+
+        return $made === null ? self::error(404, 'There is nothing shared with you here.') : ['status' => 200, 'data' => ['conversation_id' => $made]];
+    }
+
+    /** @return array<string, mixed> */
+    private function shareOne(string $kind, int $targetId): array
+    {
+        if (($stop = $this->refusal('share')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        $names = $this->input()['names'] ?? [];
+        $names = is_array($names) ? array_map('strval', $names) : (preg_split('/[\s,;]+/', (string) $names, -1, PREG_SPLIT_NO_EMPTY) ?: []);
+        $done  = $scope === null ? 'This needs somebody signed in.' : (new \Pramnos\Llm\Chat\Shares())->share($scope, $kind, $targetId, $names);
+
+        if (is_string($done)) {
+            return self::error(str_starts_with($done, 'There is no such') ? 404 : 422, $done);
+        }
+
+        return ['status' => 200, 'data' => $done];
+    }
+
+    /** @return array<string, mixed> */
+    private function sharesOfOne(string $kind, int $targetId): array
+    {
+        if (($stop = $this->refusal('read')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+
+        return ['status' => 200, 'data' => ['shares' => $scope === null ? [] : (new \Pramnos\Llm\Chat\Shares())->sharesOf($scope, $kind, $targetId)]];
+    }
+
     /**
      * Ask, starting or continuing a conversation.
      *
@@ -429,7 +517,7 @@ class ChatController extends \Pramnos\Application\ApiCrudController
      */
     protected function refusal(string $action): ?array
     {
-        return $this->guard(in_array($action, ['ask', 'routines', 'consent'], true) ? 'create' : ($action === 'delete' ? 'delete' : 'list'));
+        return $this->guard(in_array($action, ['ask', 'routines', 'consent', 'share'], true) ? 'create' : ($action === 'delete' ? 'delete' : 'list'));
     }
 
     /** @return array<string, mixed> The limits a screen shows */

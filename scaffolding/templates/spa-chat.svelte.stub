@@ -97,6 +97,12 @@
     }
 
     let conversations = $state([]);
+    /** What others shared with this person. */
+    let sharedList = $state([]);
+    /** What is being shared — `{kind, id}` — while its form is open. */
+    let sharing = $state(null);
+    let shareNames = $state('');
+    let shareSaid = $state('');
     let memories = $state([]);
     let limits = $state(null);
     let consent = $state({ loaded: false, required: false, given: false, provider: '', label: '', place: '' });
@@ -119,6 +125,7 @@
     $effect(() => {
         list();
         remembered();
+        loadShared();
     });
 
     $effect(() => {
@@ -158,6 +165,44 @@
             limits = found.data?.limits ?? null;
         } catch {
             conversations = [];
+        }
+    }
+
+    async function loadShared() {
+        try {
+            sharedList = (await chat.sharedWithMe()).data?.shared ?? [];
+        } catch {
+            sharedList = [];
+        }
+    }
+
+    /** Open something shared with this person: a conversation of their own, made the first time. */
+    async function openShare(id) {
+        try {
+            const made = (await chat.openShared(id)).data?.conversation_id;
+            await list();
+            await loadShared();
+            if (made) opened(made);
+        } catch (err) {
+            error = failure(err, t('That could not be opened.'));
+        }
+    }
+
+    /** Share what `sharing` names with the people typed, by username or email. */
+    async function shareNow(event) {
+        event.preventDefault();
+        const names = shareNames.split(/[\s,;]+/).filter(Boolean);
+        try {
+            const done = (sharing.kind === 'artifact'
+                ? await chat.shareArtifact(sharing.id, names)
+                : await chat.shareConversation(sharing.id, names)).data ?? {};
+            shareSaid = [
+                done.shared?.length ? t('Shared with %s.', done.shared.join(', ')) : '',
+                done.unknown?.length ? t('Nobody here is called %s.', done.unknown.join(', ')) : '',
+            ].filter(Boolean).join(' ');
+            if (done.shared?.length) shareNames = '';
+        } catch (err) {
+            shareSaid = failure(err, t('It could not be shared.'));
         }
     }
 
@@ -490,6 +535,14 @@
                     <li class="px-3 py-2 text-sm opacity-60">{t('Nothing asked yet.')}</li>
                 {/each}
             </ul>
+            {#if sharedList.length}
+                <h2 class="mt-2 text-sm font-medium opacity-70">{t('Shared with you')}</h2>
+                <ul class="w-full space-y-0.5" data-pf-shared-with-me>
+                    {#each sharedList as one (one.share_id)}
+                        <li><button type="button" class="block w-full truncate rounded-field px-3 py-1 text-left text-sm hover:bg-base-200" onclick={() => openShare(one.share_id)}>{one.kind === 'artifact' ? '▦ ' : ''}{one.title} <span class="text-xs opacity-60">{one.from}</span></button></li>
+                    {/each}
+                </ul>
+            {/if}
         </nav>
 
         <div class="flex min-w-0 flex-col gap-4">
@@ -511,6 +564,23 @@
 
                 {#if loading}
                     <span class="loading loading-spinner loading-md" aria-label={t('Loading')}></span>
+                {/if}
+
+                {#if shown}
+                    <div class="flex items-center gap-2">
+                        <button type="button" class={ui('btn.ghost.sm')} onclick={() => { sharing = { kind: 'conversation', id: shown }; shareSaid = ''; }}>{t('Share')}</button>
+                    </div>
+                {/if}
+                {#if sharing}
+                    <form class="flex flex-wrap items-center gap-2" data-pf-share-form onsubmit={shareNow}>
+                        <label class="text-sm">{sharing.kind === 'artifact' ? t('Share the artifact with') : t('Share the conversation with')}
+                            <input class="input input-sm ml-1" bind:value={shareNames} placeholder={t('usernames or emails')} required />
+                        </label>
+                        <button type="submit" class={ui('btn.sm')}>{t('Share')}</button>
+                        <button type="button" class={ui('btn.ghost.sm')} onclick={() => { sharing = null; }}>{t('Close')}</button>
+                        <p class="w-full text-xs opacity-60">{t('They get a copy of it as it is now, and what it shows was read with your rights.')}</p>
+                        {#if shareSaid}<p class="w-full text-sm" role="status">{shareSaid}</p>{/if}
+                    </form>
                 {/if}
 
                 <div bind:this={thread} class="space-y-2" aria-live="polite">
@@ -552,6 +622,7 @@
                                         {:else}
                                             <div class="markdown">{@html markdown(artifact.content?.text ?? '')}</div>
                                         {/if}
+                                        <button type="button" class="{ui('btn.ghost.sm')} mt-1 self-start" onclick={() => { sharing = { kind: 'artifact', id: artifact.artifact_id }; shareSaid = ''; }}>{t('Share')}</button>
                                     </section>
                                 {/each}
                                 {#if messageExtra}

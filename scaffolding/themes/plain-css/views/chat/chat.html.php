@@ -9,7 +9,9 @@
  *   $this->memories      — what it remembers: memory_id, kind, content
  *   $this->limits        — provider, model, turns, rounds, memory
  *   $this->consent       — provider, label, place, required, given
- *   $this->urls          — optional: page, ask, asked, consent, delete, forget, scheduled, all (the analyst's)
+ *   $this->urls          — optional: page, ask, asked, consent, delete, forget, scheduled, all (the analyst's), share, unshare, shared
+ *   $this->sharedWithMe  — optional: what others shared with the reader (Shares::withMe())
+ *   $this->shares        — optional: who the open conversation is shared with (Shares::sharesOf())
  *   $this->heading       — optional: the title when no conversation is open
  *   $this->headingAvatar — optional: HTML of the picture beside that title (the analyst's, Assist\AvatarSets::render())
  *   $this->suggestions   — optional: example questions, shown while no conversation is open
@@ -62,6 +64,10 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
     'scheduled' => is_array($this->urls ?? null) ? '' : $url('chat/scheduled'),
     // Other people's Ask conversations, read only — the analyst's, for whoever reads them all.
     'all' => '',
+    // Sharing a conversation or an artifact; a page that names its own addresses names these too, or has none.
+    'share' => is_array($this->urls ?? null) ? '' : $url('chat/share/'),
+    'unshare' => is_array($this->urls ?? null) ? '' : $url('chat/unshare/'),
+    'shared' => is_array($this->urls ?? null) ? '' : $url('chat/shared/'),
 ];
 ?>
 <?php if ($waiting): ?><noscript><meta http-equiv="refresh" content="4"></noscript><?php endif; ?>
@@ -84,10 +90,15 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
                     </li>
                 <?php endforeach; ?>
             </ul>
+            <?php if ($u['shared'] !== ''): ?><?php echo \Pramnos\Llm\Chat\Web\ShareView::withMe(is_array($this->sharedWithMe ?? null) ? $this->sharedWithMe : [], $u['shared'], $c); ?><?php endif; ?>
         </nav>
 
         <main style="flex:1 1 420px;min-width:0">
             <h1><?php if (empty($open['title']) && !empty($this->headingAvatar)): ?><?php echo $this->headingAvatar; ?> <?php endif; ?><?php echo $e($open['title'] ?? ($this->heading ?? t('Ask AI'))); ?></h1>
+            <?php if ($open !== null && $u['share'] !== ''): /* share it as it stands now */ ?>
+                <?php echo \Pramnos\Llm\Chat\Web\ShareView::form($u['share'], 'conversation', $openId, $openId, $token(), $c); ?>
+                <?php echo \Pramnos\Llm\Chat\Web\ShareView::recipients(is_array($this->shares ?? null) ? $this->shares : [], $u['unshare'], $openId, $token(), $c); ?>
+            <?php endif; ?>
             <?php // The page's own tools, out of the way: a gear with whichever of them the reader has. ?>
             <?php if (!empty($this->settingsUrl) || $u['all'] !== ''): ?>
                 <details class="pf-ask-gear" style="display:inline-block;position:relative;margin-bottom:12px">
@@ -135,6 +146,7 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
                             <div class="pf-chat-answer"><?php echo \Pramnos\Llm\Chat\Markdown::toHtml((string) $m['content']); ?></div>
                             <?php foreach ((array) ($m['artifacts'] ?? []) as $artifact): /* kept results: a table, a list, a text */ ?>
                                 <?php echo \Pramnos\Llm\Chat\Web\ArtifactView::html($artifact, $c['card'], 'pf-table', $c['muted']); ?>
+                                <?php if ($u['share'] !== ''): ?><?php echo \Pramnos\Llm\Chat\Web\ShareView::form($u['share'], 'artifact', (int) $artifact['artifact_id'], $openId, $token(), $c); ?><?php endif; ?>
                             <?php endforeach; ?>
                             <?php $steps = array_values(array_filter((array) (($m['extra'] ?? [])['steps'] ?? []), 'is_string')); ?>
                             <?php if ($steps !== []): ?>

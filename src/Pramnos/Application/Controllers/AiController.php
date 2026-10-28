@@ -42,6 +42,7 @@ class AiController extends Controller
     // The analyst's scheduled tasks and reports, at `Ai/scheduled`, where the application lets
     // the analyst schedule (its routineRefusal()).
     use \Pramnos\Llm\Chat\Web\SchedulesTasks;
+    use \Pramnos\Llm\Chat\Web\SharesConversations;
 
     /** The administration ability that opens this screen — its menu item's id. */
     protected string $adminAbility = 'admin.ai';
@@ -55,11 +56,12 @@ class AiController extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction(['display', 'all', 'settings', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'delete', 'forget', 'consent', 'api', 'export',
-            'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'report']);
+            'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'report',
+            'share', 'unshare', 'shared']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
         // `api` checks its own token, from the X-CSRF-Token header, since it also answers GET and DELETE.
         $this->addWriteAction(['save', 'check', 'ask', 'delete', 'forget', 'consent',
-            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe']);
+            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare']);
         parent::__construct($application);
     }
 
@@ -113,8 +115,14 @@ class AiController extends Controller
             'scheduled' => $this->analystSchedules() ? adminUrl('Ai/scheduled') : '',
             // Everybody's conversations, read only, for whoever reads them all.
             'all'       => $this->readsAll($this->reader()) ? adminUrl('Ai/all') : '',
+            'share'     => adminUrl('Ai/share/'),
+            'unshare'   => adminUrl('Ai/unshare/'),
+            'shared'    => adminUrl('Ai/shared/'),
         ];
         foreach ($page as $name => $value) {
+            $view->{$name} = $value;
+        }
+        foreach ($this->sharing($this->taskScope(), (int) $request->get('c', 0, 'get', 'int')) as $name => $value) {
             $view->{$name} = $value;
         }
 
@@ -543,6 +551,11 @@ class AiController extends Controller
         }
 
         return false;
+    }
+
+    protected function shareReturnUrl(int $conversationId): string
+    {
+        return $this->analystUrl($conversationId);
     }
 
     private function analystUrl(int $conversationId = 0, int $askId = 0): string

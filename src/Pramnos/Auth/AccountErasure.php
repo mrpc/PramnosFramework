@@ -231,6 +231,12 @@ class AccountErasure
             $qb('chat_artifacts')->where('userid', $userId)->delete();
         }
 
+        // What they shared and what was shared with them; copies others already took are theirs.
+        if ($schema->hasTable('chat_shares')) {
+            $qb('chat_shares')->where('userid', $userId)->delete();
+            $qb('chat_shares')->where('recipient', $userId)->delete();
+        }
+
         if ($schema->hasTable('ai_routines')) {
             $tasks = $ids($qb('ai_routines')->select(['routine_id'])->where('userid', $userId)->get(), 'routine_id');
             foreach (['ai_task_runs', 'ai_task_subscriptions'] as $table) {

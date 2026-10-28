@@ -95,6 +95,39 @@ describe('Chat', () => {
     });
 
     /**
+     * Sharing: the open conversation is shared with the names typed, and the
+     * screen says who got it and who was nobody; what others shared is listed
+     * and opens as a conversation of this person's own.
+     */
+    it('shares a conversation and opens what was shared', async () => {
+        // Arrange
+        const client = fakeClient({
+            shareConversation: vi.fn(async () => ({ data: { shared: ['maria'], unknown: ['nobody'] } })),
+            sharedWithMe: vi.fn(async () => ({ data: { shared: [{ share_id: 4, kind: 'conversation', title: 'Their week', from: 'Nikos' }] } })),
+            openShared: vi.fn(async () => ({ data: { conversation_id: 12 } })),
+        });
+        const onopen = vi.fn();
+        const { container } = render(Chat, { client, conversationId: 9, onopen });
+        await screen.findByText('How is it?');
+
+        // Act — share the open conversation
+        await fireEvent.click(screen.getByRole('button', { name: 'Share' }));
+        await fireEvent.input(container.querySelector('[data-pf-share-form] input'), { target: { value: 'maria, nobody' } });
+        await fireEvent.submit(container.querySelector('[data-pf-share-form]'));
+
+        // Assert
+        await waitFor(() => expect(client.shareConversation).toHaveBeenCalledWith(9, ['maria', 'nobody']));
+        expect(await screen.findByText('Shared with maria. Nobody here is called nobody.')).toBeTruthy();
+
+        // Act — open what was shared
+        await fireEvent.click(await screen.findByText('Their week'));
+
+        // Assert
+        await waitFor(() => expect(client.openShared).toHaveBeenCalledWith(4));
+        await waitFor(() => expect(onopen).toHaveBeenCalledWith(12));
+    });
+
+    /**
      * Asking: sent with the application's `extra`, followed until answered,
      * then the conversation it went into is shown and handed to the application.
      */

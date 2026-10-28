@@ -146,6 +146,88 @@ class ChatPageTest extends LlmTestCase
     }
 
     /**
+     * Sharing from the page, in every theme: the open conversation and each artifact carry a Share
+     * form; sharing says who it went to and who was nobody; the owner sees who has it and stops
+     * it; the recipient sees it under "Shared with you" and opens it as a conversation of their
+     * own; what is not there says so.
+     */
+    #[DataProvider('databases')]
+    public function testSharingFromThePage(string $type, string $host, int $port): void
+    {
+        // Arrange — an owner and a recipient, a conversation with an artifact
+        $this->connectDatabase($type, $host, $port);
+        $mark = 'pg' . bin2hex(random_bytes(3));
+        $ids  = [];
+        foreach (['owner', 'maria'] as $who) {
+            $this->db->queryBuilder()->table('#PREFIX#users')->insert(['username' => $mark . $who, 'email' => $mark . $who . '@example.com', 'password' => 'x', 'regdate' => time()]);
+            $ids[$who] = (int) $this->db->getInsertId();
+        }
+        $owner = new Scope($ids['owner'], null);
+        $maria = new Scope($ids['maria'], null);
+        $chat  = $this->page($owner)->exposed();
+        $id    = (int) $chat->seed('Spend', [['role' => 'user', 'content' => 'How much?'], ['role' => 'assistant', 'content' => 'This much.']]);
+        $made  = (new \Pramnos\Llm\Chat\Artifacts($owner))->create(['kind' => 'text', 'title' => 'Memo', 'text' => 'x']);
+        $answer = (int) $chat->find($id)['messages'][1]['message_id'];
+        $this->db->queryBuilder()->table('chat_artifacts')->where('artifact_id', $made['artifact_id'])->update(['conversation_id' => $id, 'message_id' => $answer]);
+
+        try {
+            // Act — shared from the page
+            $_POST   = ['kind' => 'conversation', 'names' => $mark . 'maria, nobody-' . $mark, 'conversation_id' => (string) $id];
+            $sharing = $this->page($owner);
+            $sharing->share($id);
+            $shareId = (new \Pramnos\Llm\Chat\Shares())->withMe($ids['maria'])[0]['share_id'];
+
+            // Assert — said, and back to the conversation
+            $this->assertSame(['Shared with ' . $mark . 'maria.'], $sharing->messages);
+            $this->assertSame(['Nobody here is called nobody-' . $mark . '.'], $sharing->errors);
+            $this->assertStringEndsWith('chat?c=' . $id, $sharing->redirectedTo[0]);
+
+            foreach (self::THEMES as $theme) {
+                // Act — drawn for the owner and for the recipient
+                $_GET = ['c' => (string) $id];
+                \Pramnos\Http\Request::resetInstance();
+                $mine = (string) $this->page($owner, $theme)->display();
+                $_GET = [];
+                \Pramnos\Http\Request::resetInstance();
+                $hers = (string) $this->page($maria, $theme)->display();
+
+                // Assert
+                $this->assertStringContainsString('data-pf-share="conversation-' . $id . '"', $mine, $theme);
+                $this->assertStringContainsString('data-pf-share="artifact-' . $made['artifact_id'] . '"', $mine, $theme . ': the artifact can be shared too');
+                $this->assertStringContainsString('chat/unshare/' . $shareId, $mine, $theme . ': who has it, with a way to stop');
+                $this->assertStringContainsString('chat/shared/' . $shareId, $hers, $theme . ': under Shared with you');
+            }
+
+            // Act — the recipient opens it; the owner stops it; what is not there
+            $opening = $this->page($maria);
+            $opening->shared($shareId);
+            $copy    = (int) preg_replace('/^.*c=/', '', $opening->redirectedTo[0]);
+            $_POST   = ['conversation_id' => (string) $id];
+            $stop    = $this->page($owner);
+            $stop->unshare($shareId);
+            $again   = $this->page($owner);
+            $again->unshare($shareId);
+            $gone    = $this->page($maria);
+            $gone->shared(999999);
+            $_POST   = ['names' => $mark . 'maria'];
+            $missing = $this->page($owner);
+            $missing->share(999999);
+            $signedOut = $this->page(null);
+            $signedOut->share($id);
+
+            // Assert
+            $this->assertSame(['How much?', 'This much.'], array_column($this->page($maria)->exposed()->find($copy)['messages'], 'content'));
+            $this->assertSame(['No longer shared.'], $stop->messages);
+            $this->assertSame(['There is no such share.'], $again->errors);
+            $this->assertSame(['There is nothing shared with you here.'], $gone->errors);
+            $this->assertSame(['There is no such conversation.'], $missing->errors);
+            $this->assertSame(['This needs somebody signed in.'], $signedOut->errors);
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#users')->whereIn('userid', array_values($ids))->delete();
+        }
+    }
+
+    /**
      * Asked through pf-chat.js: JSON, with the same refusals; the question followed as JSON.
      */
     #[DataProvider('databases')]

@@ -156,6 +156,7 @@ class Conversations
 
         $this->table('#PREFIX#chat_messages')->where('conversation_id', $conversationId)->delete();
         (new Artifacts($this->scope))->deleteConversation($conversationId);
+        Shares::forget(Shares::CONVERSATION, $conversationId);
         $this->scope->apply($this->table('#PREFIX#chat_conversations'))->where('conversation_id', $conversationId)->delete();
 
         return true;

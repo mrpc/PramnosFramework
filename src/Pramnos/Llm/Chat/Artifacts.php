@@ -229,6 +229,7 @@ final class Artifacts
             return false;
         }
         $this->scope->apply($this->table())->where('artifact_id', $artifactId)->delete();
+        Shares::forget(Shares::ARTIFACT, $artifactId);
 
         return true;
     }
@@ -236,9 +237,14 @@ final class Artifacts
     /** Remove what a conversation made, as the conversation goes. */
     public function deleteConversation(int $conversationId): void
     {
-        if (self::available()) {
-            $this->scope->apply($this->table())->where('conversation_id', $conversationId)->delete();
+        if (!self::available()) {
+            return;
         }
+        $result = $this->scope->apply($this->table())->select(['artifact_id'])->where('conversation_id', $conversationId)->get();
+        while (($row = $result->fetch()) !== null) {
+            Shares::forget(Shares::ARTIFACT, (int) $row['artifact_id']);
+        }
+        $this->scope->apply($this->table())->where('conversation_id', $conversationId)->delete();
     }
 
     /**
