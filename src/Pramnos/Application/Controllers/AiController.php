@@ -43,6 +43,7 @@ class AiController extends Controller
     // the analyst schedule (its routineRefusal()).
     use \Pramnos\Llm\Chat\Web\SchedulesTasks;
     use \Pramnos\Llm\Chat\Web\SharesConversations;
+    use \Pramnos\Llm\Chat\Web\ActsOnLists;
 
     /** The administration ability that opens this screen — its menu item's id. */
     protected string $adminAbility = 'admin.ai';
@@ -57,11 +58,11 @@ class AiController extends Controller
     {
         $this->addAuthAction(['display', 'all', 'settings', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'delete', 'forget', 'consent', 'api', 'export',
             'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'report',
-            'share', 'unshare', 'shared']);
+            'share', 'unshare', 'shared', 'act']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
         // `api` checks its own token, from the X-CSRF-Token header, since it also answers GET and DELETE.
         $this->addWriteAction(['save', 'check', 'ask', 'delete', 'forget', 'consent',
-            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare']);
+            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act']);
         parent::__construct($application);
     }
 
@@ -118,6 +119,7 @@ class AiController extends Controller
             'share'     => adminUrl('Ai/share/'),
             'unshare'   => adminUrl('Ai/unshare/'),
             'shared'    => adminUrl('Ai/shared/'),
+            'act'       => adminUrl('Ai/act/'),
         ];
         foreach ($page as $name => $value) {
             $view->{$name} = $value;
@@ -125,6 +127,7 @@ class AiController extends Controller
         foreach ($this->sharing($this->taskScope(), (int) $request->get('c', 0, 'get', 'int')) as $name => $value) {
             $view->{$name} = $value;
         }
+        $view->bulkActions = $this->listActions($this->taskScope(), is_array($page['conversation'] ?? null) ? $page['conversation'] : null);
 
         return $view->display('ask');
     }

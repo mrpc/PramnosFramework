@@ -66,6 +66,8 @@ final class Routes
         $r->delete($p['artifacts'] . '/{artifact_id}', static fn ($artifact_id) => $make()->deleteArtifact($artifact_id));
         $r->post($p['artifacts'] . '/{artifact_id}/share', static fn ($artifact_id) => $make()->shareArtifact($artifact_id));
         $r->get($p['artifacts'] . '/{artifact_id}/shares', static fn ($artifact_id) => $make()->artifactShares($artifact_id));
+        $r->get($p['artifacts'] . '/{artifact_id}/actions', static fn ($artifact_id) => $make()->artifactActions($artifact_id));
+        $r->post($p['artifacts'] . '/{artifact_id}/actions/{action}', static fn ($artifact_id, $action) => $make()->runArtifactAction($artifact_id, $action));
         $r->get($p['shared'], static fn () => $make()->sharedWithMe());
         $r->post($p['shared'] . '/{share_id}/open', static fn ($share_id) => $make()->openShared($share_id));
         $r->delete($p['shares'] . '/{share_id}', static fn ($share_id) => $make()->revokeShare($share_id));

@@ -103,6 +103,8 @@
     let sharing = $state(null);
     let shareNames = $state('');
     let shareSaid = $state('');
+    /** The list whose bulk actions are open: `{id, count, actions, chosen, params, said}`. */
+    let acting = $state(null);
     let memories = $state([]);
     let limits = $state(null);
     let consent = $state({ loaded: false, required: false, given: false, provider: '', label: '', place: '' });
@@ -203,6 +205,27 @@
             if (done.shared?.length) shareNames = '';
         } catch (err) {
             shareSaid = failure(err, t('It could not be shared.'));
+        }
+    }
+
+    /** Open a list's bulk actions: what this person may do with its kind of record. */
+    async function openActions(artifact) {
+        try {
+            const actions = (await chat.artifactActions(artifact.artifact_id)).data?.actions ?? {};
+            acting = { id: artifact.artifact_id, count: artifact.content?.ids?.length ?? 0, actions, chosen: Object.keys(actions)[0] ?? '', params: {}, said: '' };
+        } catch (err) {
+            error = failure(err, t('The actions could not be read.'));
+        }
+    }
+
+    /** Run the chosen action on the list. */
+    async function runAction(event) {
+        event.preventDefault();
+        try {
+            const done = (await chat.runArtifactAction(acting.id, acting.chosen, acting.params)).data ?? {};
+            acting.said = done.queued ? t('%s queued; they will be done shortly.', done.queued) : (done.says || t('Done for %s.', done.done ?? 0));
+        } catch (err) {
+            acting.said = failure(err, t('It could not be done.'));
         }
     }
 
@@ -623,6 +646,34 @@
                                             <div class="markdown">{@html markdown(artifact.content?.text ?? '')}</div>
                                         {/if}
                                         <button type="button" class="{ui('btn.ghost.sm')} mt-1 self-start" onclick={() => { sharing = { kind: 'artifact', id: artifact.artifact_id }; shareSaid = ''; }}>{t('Share')}</button>
+                                        {#if artifact.kind === 'list'}
+                                            <button type="button" class="{ui('btn.ghost.sm')} mt-1 self-start" onclick={() => openActions(artifact)}>{t('Act on these')}</button>
+                                            {#if acting?.id === artifact.artifact_id}
+                                                <form class="mt-2 flex flex-wrap items-end gap-2" data-pf-bulk-form onsubmit={runAction}>
+                                                    {#if Object.keys(acting.actions).length === 0}
+                                                        <p class="text-sm opacity-60">{t('Nothing can be done with these here.')}</p>
+                                                    {:else}
+                                                        <select class="select select-sm" bind:value={acting.chosen} aria-label={t('Action')}>
+                                                            {#each Object.entries(acting.actions) as [key, one]}<option value={key}>{one.label}</option>{/each}
+                                                        </select>
+                                                        {#each Object.entries(acting.actions[acting.chosen]?.params ?? {}) as [name, param] (name)}
+                                                            <label class="text-sm">{param.label}
+                                                                {#if param.type === 'select'}
+                                                                    <select class="select select-sm ml-1" bind:value={acting.params[name]} required={param.required}>
+                                                                        <option value=""></option>
+                                                                        {#each Object.entries(param.options ?? {}) as [value, label]}<option {value}>{label}</option>{/each}
+                                                                    </select>
+                                                                {:else}
+                                                                    <input class="input input-sm ml-1" type={param.type === 'number' ? 'number' : 'text'} bind:value={acting.params[name]} required={param.required} />
+                                                                {/if}
+                                                            </label>
+                                                        {/each}
+                                                        <button type="submit" class={ui('btn.sm')}>{t('Do it for %s', acting.count)}</button>
+                                                    {/if}
+                                                    {#if acting.said}<p class="w-full text-sm" role="status">{acting.said}</p>{/if}
+                                                </form>
+                                            {/if}
+                                        {/if}
                                     </section>
                                 {/each}
                                 {#if messageExtra}

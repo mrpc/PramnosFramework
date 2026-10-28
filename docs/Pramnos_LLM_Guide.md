@@ -391,6 +391,12 @@ entries and how many more, a text as Markdown — each with `data-pf-artifact` a
 escaped, for a view of an application's own. Without the table (migrations not run) there is no
 tool and nothing to read, and the health check names it.
 
+**Acting on a list.** A list's records can be acted on in bulk — put the people in a user group,
+or whatever the application declared for that kind of record — from under the list on the page
+and in the SPA component, or `GET /chat/artifacts/{id}/actions` and
+`POST /chat/artifacts/{id}/actions/{key}` with `params`. What is offered, and who may run it, is
+[Bulk actions](Pramnos_Bulk_Actions_Guide.md).
+
 ### Sharing a conversation or an artifact
 
 A person shares one of their conversations or artifacts with others by username or email —
@@ -721,6 +727,7 @@ One line in the application's API routes mounts every endpoint:
 | `POST /chat/{id}/share`, `POST /chat/artifacts/{id}/share` | share with `names` (a list, or one string of usernames/emails); `shared` and `unknown` |
 | `GET /chat/{id}/shares`, `GET /chat/artifacts/{id}/shares` | who it is shared with |
 | `DELETE /chat/shares/{id}` | stop one share |
+| `GET /chat/artifacts/{id}/actions`, `POST /chat/artifacts/{id}/actions/{key}` | a list's bulk actions; run one with `params` — `done`, or `queued` for a long list |
 | `GET /chat/shared` | what others shared with this person |
 | `POST /chat/shared/{id}/open` | open it: the `conversation_id` of this person's own copy |
 | `GET /chat/asks/{id}` | a queued question: `waiting`, `answered` with its `conversation_id`, or `failed` with `says` |

@@ -25,14 +25,15 @@ class ChatPageController extends Controller
     use \Pramnos\Llm\Chat\Concerns\TakesQuestions;
     use SchedulesTasks;
     use SharesConversations;
+    use ActsOnLists;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction(['display', 'ask', 'asked', 'delete', 'forget', 'consent', 'report',
-            'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'shared']);
+            'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'shared', 'act']);
         // POST with the session's token: each of these spends, forgets or changes a schedule.
         $this->addWriteAction(['ask', 'delete', 'forget', 'consent',
-            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare']);
+            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act']);
         parent::__construct($application);
     }
 
@@ -75,6 +76,7 @@ class ChatPageController extends Controller
         foreach ($this->sharing($scope, $open) as $name => $value) {
             $view->{$name} = $value;
         }
+        $view->bulkActions = $this->listActions($scope, $view->conversation);
 
         return $view->display();
     }

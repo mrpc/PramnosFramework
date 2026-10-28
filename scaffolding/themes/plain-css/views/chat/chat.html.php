@@ -12,6 +12,7 @@
  *   $this->urls          — optional: page, ask, asked, consent, delete, forget, scheduled, all (the analyst's), share, unshare, shared
  *   $this->sharedWithMe  — optional: what others shared with the reader (Shares::withMe())
  *   $this->shares        — optional: who the open conversation is shared with (Shares::sharesOf())
+ *   $this->bulkActions   — optional: by a list's kind of record, the bulk actions it offers (BulkActions::available())
  *   $this->heading       — optional: the title when no conversation is open
  *   $this->headingAvatar — optional: HTML of the picture beside that title (the analyst's, Assist\AvatarSets::render())
  *   $this->suggestions   — optional: example questions, shown while no conversation is open
@@ -68,7 +69,10 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
     'share' => is_array($this->urls ?? null) ? '' : $url('chat/share/'),
     'unshare' => is_array($this->urls ?? null) ? '' : $url('chat/unshare/'),
     'shared' => is_array($this->urls ?? null) ? '' : $url('chat/shared/'),
+    // Bulk actions on a list's records (Pramnos\Bulk\BulkActions).
+    'act' => is_array($this->urls ?? null) ? '' : $url('chat/act/'),
 ];
+$bulk    = is_array($this->bulkActions ?? null) ? $this->bulkActions : [];
 ?>
 <?php if ($waiting): ?><noscript><meta http-equiv="refresh" content="4"></noscript><?php endif; ?>
 <div class="px-4 py-6" data-pf-chat data-page="<?php echo $e($u['page']); ?>" data-asked="<?php echo $e($u['asked']); ?>"<?php echo $sayAttr; ?> data-waiting-lines="<?php echo $e(json_encode($lines, JSON_UNESCAPED_UNICODE)); ?>" data-question-class="<?php echo $e($c['question']); ?>">
@@ -147,6 +151,7 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
                             <?php foreach ((array) ($m['artifacts'] ?? []) as $artifact): /* kept results: a table, a list, a text */ ?>
                                 <?php echo \Pramnos\Llm\Chat\Web\ArtifactView::html($artifact, $c['card'], 'pf-table', $c['muted']); ?>
                                 <?php if ($u['share'] !== ''): ?><?php echo \Pramnos\Llm\Chat\Web\ShareView::form($u['share'], 'artifact', (int) $artifact['artifact_id'], $openId, $token(), $c); ?><?php endif; ?>
+                                <?php if ($u['act'] !== '' && $artifact['kind'] === 'list'): ?><?php echo \Pramnos\Llm\Chat\Web\BulkView::forms($bulk[(string) $artifact['entity']] ?? [], $u['act'], (int) $artifact['artifact_id'], count((array) ($artifact['content']['ids'] ?? [])), $openId, $token(), $c); ?><?php endif; ?>
                             <?php endforeach; ?>
                             <?php $steps = array_values(array_filter((array) (($m['extra'] ?? [])['steps'] ?? []), 'is_string')); ?>
                             <?php if ($steps !== []): ?>

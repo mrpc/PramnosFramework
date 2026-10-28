@@ -30,6 +30,7 @@ require_once __DIR__ . '/ConversationsTest.php';
 #[CoversClass(Artifacts::class)]
 #[CoversClass(ArtifactView::class)]
 #[CoversClass(ChatController::class)]
+#[CoversClass(\Pramnos\Llm\Chat\Web\BulkView::class)]
 class ArtifactsTest extends LlmTestCase
 {
     use ChatDatabase;
@@ -184,6 +185,24 @@ class ArtifactsTest extends LlmTestCase
             $this->assertSame(403, $refused['status']);
         }
         $this->assertSame([], (new Artifacts(new Scope(7, 3)))->link(1, 1), 'nothing made this turn, nothing linked');
+
+        // A list's bulk actions through the API: what it offers, running one, a refusal said
+        \Pramnos\Bulk\BulkActions::reset();
+        \Pramnos\Bulk\BulkActions::forget('user', 'group_add');
+        \Pramnos\Bulk\BulkActions::define('user', 'count', 'Count', ['why' => ['label' => 'Why', 'required' => true]],
+            static fn (array $ids): array => ['done' => count($ids)], allowed: static fn (): bool => true);
+        $list = (new Artifacts(new Scope(7, 3)))->create(['kind' => 'list', 'title' => 'L', 'entity' => 'user', 'ids' => [4, 5]]);
+        $text = (new Artifacts(new Scope(7, 3)))->create(['kind' => 'text', 'title' => 'T', 'text' => 'x']);
+        $body = new ArtifactsApi(new Scope(7, 3), false, ['params' => ['why' => 'Because']]);
+        $this->assertSame(['count'], array_keys($api->artifactActions($list['artifact_id'])['data']['actions']));
+        $this->assertSame(404, $api->artifactActions($text['artifact_id'])['status'], 'a text has no records to act on');
+        $this->assertSame(404, $none->artifactActions($list['artifact_id'])['status']);
+        $this->assertSame(['done' => 2, 'queued' => 0, 'says' => ''], $body->runArtifactAction($list['artifact_id'], 'count')['data']);
+        $this->assertSame(422, $api->runArtifactAction($list['artifact_id'], 'count')['status'], 'its required field');
+        $this->assertSame(404, $none->runArtifactAction($list['artifact_id'], 'count')['status']);
+        $this->assertSame(403, $denied->artifactActions($list['artifact_id'])['status']);
+        $this->assertSame(403, $denied->runArtifactAction($list['artifact_id'], 'count')['status']);
+        \Pramnos\Bulk\BulkActions::reset();
     }
 
     /**
@@ -215,6 +234,27 @@ class ArtifactsTest extends LlmTestCase
         $this->assertStringNotContainsString('<script>', $text);
     }
 
+    /** A list's bulk actions as forms: each kind of field, the count on the button, nothing when there are none. */
+    public function testTheBulkForms(): void
+    {
+        // Act
+        $html = \Pramnos\Llm\Chat\Web\BulkView::forms(['go' => ['label' => '<Go>', 'params' => [
+            'group' => ['label' => 'Group', 'type' => 'select', 'options' => [3 => '<Press>'], 'required' => true],
+            'times' => ['label' => 'Times', 'type' => 'number'],
+            'name'  => ['label' => 'Name'],
+        ]]], '/chat/act/', 5, 12, 9, '<input name="t">', ['btn' => 'b', 'input' => 'i']);
+
+        // Assert
+        $this->assertStringContainsString('<summary>&lt;Go&gt;</summary>', $html);
+        $this->assertStringContainsString('action="/chat/act/5"', $html);
+        $this->assertStringContainsString('<select name="params[group]" class="i" required>', $html);
+        $this->assertStringContainsString('<option value="3">&lt;Press&gt;</option>', $html);
+        $this->assertStringContainsString('<input type="number" name="params[times]"', $html);
+        $this->assertStringContainsString('<input type="text" name="params[name]"', $html);
+        $this->assertStringContainsString('Do it for 12', $html);
+        $this->assertSame('', \Pramnos\Llm\Chat\Web\BulkView::forms([], '/chat/act/', 5, 12, 9, ''));
+    }
+
     /** Without the table, there is no tool, and reading finds nothing. */
     public function testWithoutTheTableThereIsNoTool(): void
     {
@@ -233,8 +273,14 @@ class ArtifactsTest extends LlmTestCase
 /** The chat API as a given person, without a request. */
 final class ArtifactsApi extends ChatController
 {
-    public function __construct(private readonly ?Scope $as, private readonly bool $deny = false)
+    /** @param array<string, mixed> $body */
+    public function __construct(private readonly ?Scope $as, private readonly bool $deny = false, private readonly array $body = [])
     {
+    }
+
+    protected function input(): array
+    {
+        return $this->body;
     }
 
     protected function scope(): ?Scope

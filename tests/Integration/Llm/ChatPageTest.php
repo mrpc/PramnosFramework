@@ -20,6 +20,7 @@ use Pramnos\Tests\Unit\Llm\LlmTestCase;
 #[CoversClass(ChatPageController::class)]
 #[CoversClass(\Pramnos\Llm\Chat\Concerns\TakesQuestions::class)]
 #[CoversClass(\Pramnos\Llm\Chat\Attachments::class)]
+#[CoversClass(\Pramnos\Llm\Chat\Web\BulkView::class)]
 class ChatPageTest extends LlmTestCase
 {
     use ChatDatabase;
@@ -224,6 +225,75 @@ class ChatPageTest extends LlmTestCase
             $this->assertSame(['This needs somebody signed in.'], $signedOut->errors);
         } finally {
             $this->db->queryBuilder()->table('#PREFIX#users')->whereIn('userid', array_values($ids))->delete();
+        }
+    }
+
+    /**
+     * Bulk actions on a list from the page, in every theme: a list artifact offers what
+     * BulkActions allows for its kind of record, with a button that says how many; running one
+     * says what it did, or that it was queued; a list that is not the reader's is not there.
+     */
+    #[DataProvider('databases')]
+    public function testActingOnAListFromThePage(string $type, string $host, int $port): void
+    {
+        // Arrange — an action on people any signed-in person may take, and a list of three
+        $this->connectDatabase($type, $host, $port);
+        \Pramnos\Bulk\BulkActions::reset();
+        $ran = [];
+        \Pramnos\Bulk\BulkActions::define('user', 'thank', 'Thank them', ['note' => ['label' => 'Note', 'type' => 'textarea']],
+            function (array $ids, array $params, int $by) use (&$ran): array {
+                $ran[] = [$ids, $params, $by];
+
+                return ['done' => count($ids)];
+            }, allowed: static fn (int $user): bool => true);
+        \Pramnos\Bulk\BulkActions::forget('user', 'group_add');
+        $owner = new Scope(7, null);
+        $chat  = $this->page($owner)->exposed();
+        $id    = (int) $chat->seed('People', [['role' => 'user', 'content' => 'Who?'], ['role' => 'assistant', 'content' => 'These.']]);
+        $made  = (new \Pramnos\Llm\Chat\Artifacts($owner))->create(['kind' => 'list', 'title' => 'Three', 'entity' => 'user', 'ids' => [4, 5, 6]]);
+        $this->db->queryBuilder()->table('chat_artifacts')->where('artifact_id', $made['artifact_id'])
+            ->update(['conversation_id' => $id, 'message_id' => (int) $chat->find($id)['messages'][1]['message_id']]);
+
+        try {
+            foreach (self::THEMES as $theme) {
+                // Act
+                $_GET = ['c' => (string) $id];
+                \Pramnos\Http\Request::resetInstance();
+                $html = (string) $this->page($owner, $theme)->display();
+
+                // Assert
+                $this->assertStringContainsString('data-pf-bulk="' . $made['artifact_id'] . '"', $html, $theme);
+                $this->assertStringContainsString('<summary>Thank them</summary>', $html, $theme);
+                $this->assertStringContainsString('chat/act/' . $made['artifact_id'], $html, $theme);
+                $this->assertStringContainsString('Do it for 3', $html, $theme);
+                $this->assertStringContainsString('name="params[note]"', $html, $theme);
+            }
+
+            // Act — run from the page; a list that is not theirs
+            $_POST  = ['action' => 'thank', 'params' => ['note' => 'Well done'], 'conversation_id' => (string) $id];
+            $acting = $this->page($owner);
+            $acting->act($made['artifact_id']);
+            $other  = $this->page(new Scope(8, null));
+            $other->act($made['artifact_id']);
+            \Pramnos\Bulk\BulkActions::useQueue($queue = new RecordingQueue());
+            $long   = (new \Pramnos\Llm\Chat\Artifacts($owner))->create(['kind' => 'list', 'title' => 'Many', 'entity' => 'user', 'ids' => range(10, 10 + \Pramnos\Bulk\BulkActions::INLINE)]);
+            $queued = $this->page($owner);
+            $queued->act($long['artifact_id']);
+            $_POST  = ['action' => 'thank', 'params' => [], 'conversation_id' => (string) $id];
+            \Pramnos\Bulk\BulkActions::define('user', 'shout', 'Shout', [], static fn (): array => ['done' => 3, 'says' => 'Shouted.'], allowed: static fn (): bool => true);
+            $_POST['action'] = 'shout';
+            $said   = $this->page($owner);
+            $said->act($made['artifact_id']);
+
+            // Assert
+            $this->assertSame([[[4, 5, 6], ['note' => 'Well done'], 7]], $ran);
+            $this->assertSame(['Done for 3.'], $acting->messages);
+            $this->assertStringEndsWith('chat?c=' . $id, $acting->redirectedTo[0]);
+            $this->assertSame(['There is no such list.'], $other->errors);
+            $this->assertSame([(\Pramnos\Bulk\BulkActions::INLINE + 1) . ' queued; they will be done shortly.'], $queued->messages);
+            $this->assertSame(['Shouted.'], $said->messages);
+        } finally {
+            \Pramnos\Bulk\BulkActions::reset();
         }
     }
 

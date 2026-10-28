@@ -176,6 +176,38 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return $made === null ? self::error(404, 'There is nothing shared with you here.') : ['status' => 200, 'data' => ['conversation_id' => $made]];
     }
 
+    /** The bulk actions a list artifact offers this person, for its kind of record. */
+    public function artifactActions($artifact_id): array
+    {
+        if (($stop = $this->refusal('read')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        $found = $scope === null ? null : (new \Pramnos\Llm\Chat\Artifacts($scope))->find((int) $artifact_id);
+        if ($found === null || $found['kind'] !== 'list') {
+            return self::error(404, 'There is no such list.');
+        }
+
+        return ['status' => 200, 'data' => ['actions' => \Pramnos\Bulk\BulkActions::available((string) $found['entity'], $scope->userId)]];
+    }
+
+    /** Run a bulk action on a list artifact's records, with `params`: done now, or queued for a long list. */
+    public function runArtifactAction($artifact_id, $action): array
+    {
+        if (($stop = $this->refusal('share')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        $found = $scope === null ? null : (new \Pramnos\Llm\Chat\Artifacts($scope))->find((int) $artifact_id);
+        if ($found === null || $found['kind'] !== 'list') {
+            return self::error(404, 'There is no such list.');
+        }
+        $params = $this->input()['params'] ?? [];
+        $done   = \Pramnos\Bulk\BulkActions::run((string) $found['entity'], (string) $action, (array) ($found['content']['ids'] ?? []), is_array($params) ? $params : [], $scope->userId);
+
+        return is_string($done) ? self::error(422, $done) : ['status' => 200, 'data' => $done];
+    }
+
     /** @return array<string, mixed> */
     private function shareOne(string $kind, int $targetId): array
     {
