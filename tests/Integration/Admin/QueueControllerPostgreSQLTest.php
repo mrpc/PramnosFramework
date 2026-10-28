@@ -121,6 +121,48 @@ class QueueControllerPostgreSQLTest extends QueueControllerMySQLTest
         $this->assertSame(1, (int) $type->fields['n'], 'the queue_status type did not learn `stopped`');
     }
 
+    /**
+     * A table moved over from MySQL whose `status` is *of* the `queue_status` enum, with only
+     * the labels its application used — no `deleted`, no `stopped`, no CHECK.
+     *
+     * A CHECK naming a label the enum lacks is a cast error that stopped the whole bootstrap.
+     * Here the migration teaches the enum every missing status instead, runs a second time
+     * without harm, adds no constraint, and its down() leaves the column alone, because
+     * PostgreSQL cannot take a label out of an enum.
+     */
+    public function testTheStoppedStatusMigrationTeachesAnEnumStatusColumnInsteadOfConstrainingIt(): void
+    {
+        // Arrange — the shape a converted installation has
+        $this->dropQueueTable();
+        $this->db->query("CREATE TYPE queue_status AS ENUM ('pending','processing','completed','failed','warning')");
+        $this->db->query('CREATE TABLE "queueitems" (id serial PRIMARY KEY, type varchar(50), payload text, status queue_status NOT NULL DEFAULT \'pending\')');
+        $migration = new \Pramnos\Framework\Migrations\Queue\AddStoppedToQueueitemsStatus($this->makeApp());
+
+        // Act — twice, as a re-run would; then down()
+        $migration->up();
+        $migration->up();
+        $migration->down();
+        foreach (['deleted', 'stopped'] as $status) {
+            $this->db->queryBuilder()->table('queueitems')->insert(['type' => 'job', 'payload' => '{}', 'status' => $status]);
+        }
+        $labels = [];
+        $result = $this->db->query("SELECT e.enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = 'queue_status' ORDER BY e.enumsortorder");
+        while ($result->fetch()) {
+            $labels[] = $result->fields['enumlabel'];
+        }
+        $check = $this->db->query("SELECT COUNT(*) AS n FROM pg_constraint WHERE conname = 'chk_queueitems_status'");
+
+        // Assert
+        $this->assertSame(
+            ['pending', 'processing', 'completed', 'failed', 'warning', 'deleted', 'stopped'],
+            $labels,
+            'each missing status added once, in order, and kept by down()'
+        );
+        // Both statuses the framework writes are now accepted by the column itself
+        $this->assertSame(2, (int) $this->db->queryBuilder()->table('queueitems')->count());
+        $this->assertSame(0, (int) $check->fields['n'], 'no CHECK beside an enum that already constrains');
+    }
+
     protected function dropQueueTable(): void
     {
         $this->db->query('DROP TABLE IF EXISTS "queueitems" CASCADE');
