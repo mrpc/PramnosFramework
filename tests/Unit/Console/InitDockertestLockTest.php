@@ -125,7 +125,8 @@ class InitDockertestLockTest extends TestCase
      *
      * flock released itself when the process ended; a directory does not. Without
      * the trap the first run would leave a lock behind and the second would refuse
-     * to start — trading one platform's failure for every platform's.
+     * to start — trading one platform's failure for every platform's. The trap runs
+     * `_finish`, which stops the containers the run started and then releases the lock.
      */
     public function testTheLockIsReleasedOnExit(): void
     {
@@ -133,7 +134,9 @@ class InitDockertestLockTest extends TestCase
         $script = $this->scaffoldDockertest();
 
         // Assert
-        $this->assertStringContainsString("trap '_release_lock' EXIT", $script);
+        $this->assertStringContainsString("trap '_finish' EXIT", $script);
+        // _finish ends by releasing the lock, whatever it stopped before that
+        $this->assertMatchesRegularExpression('/_finish\(\) \{.*\n    _release_lock\n\}/s', $script);
         $this->assertStringContainsString('_release_lock() { rm -rf "$LOCK_DIR"; }', $script);
     }
 
