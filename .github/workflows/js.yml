@@ -37,9 +37,9 @@ jobs:
   lint-and-test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           # The version the php-apache-environment container ships, so a failure here is
           # reproducible with ./lintjs and ./testjs rather than being a CI-only surprise.

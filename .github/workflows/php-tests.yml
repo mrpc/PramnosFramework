@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # GitHub's runner images are moving off the standalone `docker-compose` (v1) binary
       # dockertest calls, toward the `docker compose` (v2) plugin only. Shimmed rather than
