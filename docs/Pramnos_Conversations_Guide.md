@@ -190,8 +190,8 @@ Messages::post($jira, null, 'Ανατέθηκε στην <@' . $assignee . '>', 
 
 ```php
 Messages::post($jira, null, '', ['source' => 'jira', 'externalid' => $webhookId, 'card' => [
-    'title'  => 'NAN-6212 · Το link πληρωμής δεν ανοίγει σε iOS',
-    'url'    => 'https://example.atlassian.net/browse/NAN-6212',   // the title links here
+    'title'  => 'TICKET-6212 · Το link πληρωμής δεν ανοίγει σε iOS',
+    'url'    => 'https://example.atlassian.net/browse/TICKET-6212',   // the title links here
     'text'   => 'Κατάσταση: In Progress → Code review',
     'color'  => 'warning',                                          // info, warning, success, error, neutral: the left border
     'fields' => ['Κατάσταση' => 'Code review', 'Ανάθεση' => 'Λέλα Δ.'],   // label → value
@@ -219,9 +219,9 @@ SystemPost::post('#administration-log', "Νέα επιστροφή:\n**29,90 €
     'text'       => 'Premium · διπλή χρέωση',
     'color'      => '#D00000',                 // good, warning, danger, or a hex: its tone by hue
     'image_url'  => 'https://cdn.example/receipt.png',
-]], ['username' => 'Nannuka Bot', 'source' => 'billing', 'externalid' => 'refund-2291']);
+]], ['username' => 'Support Bot', 'source' => 'billing', 'externalid' => 'refund-2291']);
 
-SystemPost::post($userId, 'Σου ανατέθηκε το NAN-6212', [], ['username' => 'Nannuka Bot']);   // one person
+SystemPost::post($userId, 'Σου ανατέθηκε το TICKET-6212', [], ['username' => 'Support Bot']);   // one person
 ```
 
 - **`#name`** is the system channel of that name, made the first time something is posted to it;
