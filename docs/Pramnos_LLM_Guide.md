@@ -12,6 +12,7 @@ use_cases:
   - Keeping a table or list an AI answer produced, to open or act on later
   - Sharing an AI conversation or one of its results with a colleague
   - Letting the AI propose changes to records that a person approves before they happen
+  - Collecting feedback on AI answers and reviewing the bad ones
   - Giving people a page to see, pause and receive their scheduled AI tasks and reports
   - Handing a leaving member's scheduled AI tasks to someone else
   - Asking users' agreement before their data goes to a provider
@@ -398,6 +399,19 @@ and in the SPA component, or `GET /chat/artifacts/{id}/actions` and
 `POST /chat/artifacts/{id}/actions/{key}` with `params`. What is offered, and who may run it, is
 [Bulk actions](Pramnos_Bulk_Actions_Guide.md).
 
+### Rating answers, and the queue of bad ones
+
+Under every answer, on the page and in the SPA component, the person rates it 👍 or 👎 — a bad one
+with a note of what was wrong — and pressing the chosen one again takes it back. Rating again
+replaces it. The rating comes back on each message as `rating` (1, -1 or null).
+
+A bad answer waits in **Answers to review** (`/admin/Ai/reviews`, linked from the analyst's ⚙
+menu) with the question it answered and the note, until a reviewer marks it reviewed — recorded in
+the audit log as `ai.answer_reviewed`. A new verdict puts it back. The screen is for whoever reads
+everybody's Ask conversations (`admin.ai.all`), since it shows their questions, and opens an
+analyst conversation read only. `Chat\Ratings` is the same in code: `rate($scope, $messageId,
+$rating, $note)`, `queue()`, `reviewed($messageId, $reviewer)`, `summary($days)`.
+
 ### Changes the model proposes, and a person approves
 
 **Off by default.** `'llm' => ['chat' => ['propose_actions' => true]]` turns it on. Then the model
@@ -752,6 +766,7 @@ One line in the application's API routes mounts every endpoint:
 | `DELETE /chat/shares/{id}` | stop one share |
 | `GET /chat/artifacts/{id}/actions`, `POST /chat/artifacts/{id}/actions/{key}` | a list's bulk actions; run one with `params` — `done`, or `queued` for a long list |
 | `POST /chat/artifacts/{id}/approve`, `POST /chat/artifacts/{id}/reject` | settle a change the model proposed; approving runs it |
+| `POST /chat/messages/{id}/rating` | rate an answer: `rating` 1, -1 or 0, and `note` |
 | `GET /chat/shared` | what others shared with this person |
 | `POST /chat/shared/{id}/open` | open it: the `conversation_id` of this person's own copy |
 | `GET /chat/asks/{id}` | a queued question: `waiting`, `answered` with its `conversation_id`, or `failed` with `says` |

@@ -232,6 +232,20 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return $why === null ? ['status' => 200, 'data' => ['rejected' => true]] : self::error(str_starts_with($why, 'There is no such') ? 404 : 422, $why);
     }
 
+    /** Rate an answer in one of this person's conversations: `rating` 1, -1, or 0 to take it back; `note`. */
+    public function rate($message_id): array
+    {
+        if (($stop = $this->refusal('share')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        $input = $this->input();
+        $why   = $scope === null ? 'There is no such answer.'
+            : (new \Pramnos\Llm\Chat\Ratings())->rate($scope, (int) $message_id, (int) ($input['rating'] ?? 0), (string) ($input['note'] ?? ''));
+
+        return $why === null ? ['status' => 200, 'data' => ['rated' => true]] : self::error(str_starts_with($why, 'There is no such') ? 404 : 422, $why);
+    }
+
     /** @return array<string, mixed> */
     private function shareOne(string $kind, int $targetId): array
     {

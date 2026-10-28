@@ -36,6 +36,7 @@ class LlmTablesCheck implements HealthCheck
     /** Columns added to a table after it was first written, which the code reads. */
     private const ADDED = [
         'ai_routines' => ['kind', 'locked_until'],
+        'chat_messages' => ['rating'],
     ];
 
     public function getName(): string

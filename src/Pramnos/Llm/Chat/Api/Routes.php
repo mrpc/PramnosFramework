@@ -70,6 +70,7 @@ final class Routes
         $r->post($p['artifacts'] . '/{artifact_id}/actions/{action}', static fn ($artifact_id, $action) => $make()->runArtifactAction($artifact_id, $action));
         $r->post($p['artifacts'] . '/{artifact_id}/approve', static fn ($artifact_id) => $make()->approveProposal($artifact_id));
         $r->post($p['artifacts'] . '/{artifact_id}/reject', static fn ($artifact_id) => $make()->rejectProposal($artifact_id));
+        $r->post($p['chat'] . '/messages/{message_id}/rating', static fn ($message_id) => $make()->rate($message_id));
         $r->get($p['shared'], static fn () => $make()->sharedWithMe());
         $r->post($p['shared'] . '/{share_id}/open', static fn ($share_id) => $make()->openShared($share_id));
         $r->delete($p['shares'] . '/{share_id}', static fn ($share_id) => $make()->revokeShare($share_id));

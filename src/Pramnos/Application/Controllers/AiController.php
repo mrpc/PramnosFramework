@@ -44,6 +44,7 @@ class AiController extends Controller
     use \Pramnos\Llm\Chat\Web\SchedulesTasks;
     use \Pramnos\Llm\Chat\Web\SharesConversations;
     use \Pramnos\Llm\Chat\Web\ActsOnLists;
+    use \Pramnos\Llm\Chat\Web\RatesAnswers;
 
     /** The administration ability that opens this screen — its menu item's id. */
     protected string $adminAbility = 'admin.ai';
@@ -58,11 +59,11 @@ class AiController extends Controller
     {
         $this->addAuthAction(['display', 'all', 'settings', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'delete', 'forget', 'consent', 'api', 'export',
             'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'report',
-            'share', 'unshare', 'shared', 'act', 'approve', 'reject']);
+            'share', 'unshare', 'shared', 'act', 'approve', 'reject', 'rate', 'reviews', 'reviewed']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
         // `api` checks its own token, from the X-CSRF-Token header, since it also answers GET and DELETE.
         $this->addWriteAction(['save', 'check', 'ask', 'delete', 'forget', 'consent',
-            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject']);
+            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'reviewed']);
         parent::__construct($application);
     }
 
@@ -122,6 +123,9 @@ class AiController extends Controller
             'act'       => adminUrl('Ai/act/'),
             'approve'   => adminUrl('Ai/approve/'),
             'reject'    => adminUrl('Ai/reject/'),
+            'rate'      => adminUrl('Ai/rate/'),
+            // The bad answers to look at, for whoever reads everybody's.
+            'reviews'   => $this->readsAll($this->reader()) ? adminUrl('Ai/reviews') : '',
         ];
         foreach ($page as $name => $value) {
             $view->{$name} = $value;
@@ -180,6 +184,45 @@ class AiController extends Controller
         $view->urls    = ['all' => adminUrl('Ai/all'), 'call' => adminUrl('Ai/call/'), 'ask' => adminUrl('Ai')];
 
         return $view->display('review');
+    }
+
+    /**
+     * `Ai/reviews` — the bad answers nobody has looked at yet, for whoever reads everybody's Ask
+     * conversations (it shows their questions). A 404 to anybody else.
+     */
+    public function reviews(): mixed
+    {
+        $me = $this->reader();
+        if (!$this->readsAll($me)) {
+            ($this->application ?? \Pramnos\Application\Application::currentInstance())?->notFound();
+
+            return null;
+        }
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = t('Answers to review');
+        $ratings       = new \Pramnos\Llm\Chat\Ratings();
+        $view          = $this->getView('ai');
+        $view->queue   = $ratings->queue();
+        $view->summary = $ratings->summary();
+        $view->urls    = ['reviewed' => adminUrl('Ai/reviewed/'), 'open' => adminUrl('Ai/all') . '?c=', 'back' => adminUrl('Ai')];
+
+        return $view->display('reviews');
+    }
+
+    /** `Ai/reviewed/{message}` — take a bad answer out of the queue, as looked at. */
+    public function reviewed(mixed $id = null): mixed
+    {
+        $me = $this->reader();
+        if (!$this->readsAll($me)) {
+            ($this->application ?? \Pramnos\Application\Application::currentInstance())?->notFound();
+
+            return null;
+        }
+        (new \Pramnos\Llm\Chat\Ratings())->reviewed((int) ($id ?: \Pramnos\Http\Request::staticGetOption()), (int) $me->userid)
+            ? $this->addMessage('Marked reviewed.') : $this->addError('That answer is not waiting to be reviewed.');
+        $this->redirect(adminUrl('Ai/reviews'));
+
+        return null;
     }
 
     /** Who is signed in, or null. A seam for tests. */

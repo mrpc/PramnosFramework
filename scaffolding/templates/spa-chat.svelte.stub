@@ -241,6 +241,18 @@
         }
     }
 
+    /** Rate an answer: pressing the chosen one again takes it back. A bad one asks what was wrong. */
+    async function rateAnswer(one, rating) {
+        const value = one.rating === rating ? 0 : rating;
+        const note = value === -1 ? (window.prompt?.(t('What was wrong? (optional)')) ?? '') : '';
+        try {
+            await chat.rate(one.message_id, value, note);
+            one.rating = value === 0 ? null : value;
+        } catch (err) {
+            error = failure(err, t('It could not be noted.'));
+        }
+    }
+
     /** What it remembers — read again after each answer, which may have added to it. */
     async function remembered() {
         try {
@@ -702,6 +714,12 @@
                                 {/each}
                                 {#if messageExtra}
                                     {@render messageExtra(one, (patch) => change(one, patch))}
+                                {/if}
+                                {#if one.message_id}
+                                    <div class="mt-1 flex gap-1" data-pf-rating={one.message_id}>
+                                        <button type="button" class="{ui('btn.ghost.sm')}" aria-pressed={one.rating === 1} aria-label={t('A good answer')} onclick={() => rateAnswer(one, 1)}>👍</button>
+                                        <button type="button" class="{ui('btn.ghost.sm')}" aria-pressed={one.rating === -1} aria-label={t('A bad answer')} onclick={() => rateAnswer(one, -1)}>👎</button>
+                                    </div>
                                 {/if}
                                 <div class="chat-footer mt-1 text-xs opacity-60">
                                     {#if one.extra?.steps?.length}

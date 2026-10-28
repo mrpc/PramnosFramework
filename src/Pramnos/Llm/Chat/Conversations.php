@@ -538,6 +538,8 @@ class Conversations
             'cost'       => ($fields['cost'] ?? null) === null ? null : (float) $fields['cost'],
             'context'    => ($fields['context_tokens'] ?? null) === null ? null : (int) $fields['context_tokens'],
             'extra'      => is_array($extra) ? $extra : [],
+            // What the person thought of it: 1, -1, or null — null, too, before the columns exist.
+            'rating'     => ($fields['rating'] ?? null) === null ? null : (int) $fields['rating'],
             'created_at' => (string) $fields['created_at'],
         ];
     }

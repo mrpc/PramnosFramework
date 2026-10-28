@@ -74,6 +74,9 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
     // A change the model proposed, approved or rejected by the reader (Llm\Chat\Proposals).
     'approve' => is_array($this->urls ?? null) ? '' : $url('chat/approve/'),
     'reject' => is_array($this->urls ?? null) ? '' : $url('chat/reject/'),
+    // Good or bad, under each answer; and the queue of bad ones, for whoever reads everybody's.
+    'rate' => is_array($this->urls ?? null) ? '' : $url('chat/rate/'),
+    'reviews' => '',
 ];
 $bulk    = is_array($this->bulkActions ?? null) ? $this->bulkActions : [];
 ?>
@@ -107,12 +110,13 @@ $bulk    = is_array($this->bulkActions ?? null) ? $this->bulkActions : [];
                 <?php echo \Pramnos\Llm\Chat\Web\ShareView::recipients(is_array($this->shares ?? null) ? $this->shares : [], $u['unshare'], $openId, $token(), $c); ?>
             <?php endif; ?>
             <?php // The page's own tools, out of the way: a gear with whichever of them the reader has. ?>
-            <?php if (!empty($this->settingsUrl) || $u['all'] !== ''): ?>
+            <?php if (!empty($this->settingsUrl) || $u['all'] !== '' || $u['reviews'] !== ''): ?>
                 <details class="pf-ask-gear" style="display:inline-block;position:relative;margin-bottom:12px">
                     <summary aria-label="<?php echo $e(t('Ask page tools')); ?>" title="<?php echo $e(t('Ask page tools')); ?>" style="list-style:none;cursor:pointer">⚙</summary>
                     <ul class="<?php echo $c['card']; ?>" style="position:absolute;z-index:10;list-style:none;margin:4px 0 0;padding:8px 12px;white-space:nowrap">
                         <?php if (!empty($this->settingsUrl)): ?><li><a href="<?php echo $e($this->settingsUrl); ?>"><?php echo $e(t('Settings')); ?></a></li><?php endif; ?>
                         <?php if ($u['all'] !== ''): ?><li><a href="<?php echo $e($u['all']); ?>"><?php echo $e(t('Other people\'s Ask conversations')); ?></a></li><?php endif; ?>
+                        <?php if ($u['reviews'] !== ''): ?><li><a href="<?php echo $e($u['reviews']); ?>"><?php echo $e(t('Answers to review')); ?></a></li><?php endif; ?>
                     </ul>
                 </details>
             <?php endif; ?>
@@ -182,6 +186,7 @@ $bulk    = is_array($this->bulkActions ?? null) ? $this->bulkActions : [];
                         </div>
                         <?php if (!$mine): ?>
                             <button type="button" class="<?php echo $c['btnGhost']; ?>" data-pf-chat-copy="<?php echo $e($m['content']); ?>" aria-label="<?php echo $e(t('Copy the answer')); ?>">⧉ <?php echo $e(t('Copy')); ?></button>
+                            <?php if ($u['rate'] !== '' && !empty($m['message_id'])): ?><?php echo \Pramnos\Llm\Chat\Web\RatingView::buttons($m, $u['rate'], $openId, $token(), $c); ?><?php endif; ?>
                         <?php endif; ?>
                     </article>
                 <?php endforeach; ?>
