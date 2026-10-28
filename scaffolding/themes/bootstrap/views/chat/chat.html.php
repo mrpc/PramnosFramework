@@ -6,7 +6,7 @@
  *   $this->conversations — this person's, latest first: conversation_id, title, updated_at
  *   $this->conversation  — the open one, or null: title, messages (role, content, tools, …)
  *   $this->ask           — a question being answered, or null: status (waiting, answered, failed), says
- *   $this->memories      — what it remembers: memory_id, kind, content
+ *   $this->memories      — what it remembers: memory_id, kind, content, source (`learned` when picked up after an answer)
  *   $this->limits        — provider, model, turns, rounds, memory
  *   $this->consent       — provider, label, place, required, given
  *   $this->urls          — optional: page, ask, asked, consent, delete, forget, scheduled, all (the analyst's), share, unshare, shared
@@ -249,7 +249,7 @@ $bulk    = is_array($this->bulkActions ?? null) ? $this->bulkActions : [];
             <ul style="list-style:none;padding:0">
                 <?php foreach ($memory as $one): ?>
                     <li style="margin-bottom:6px">
-                        <?php echo $e($one['content']); ?> <span class="<?php echo $c['muted']; ?>"><?php echo $e(t($one['kind'])); ?></span>
+                        <?php echo $e($one['content']); ?> <span class="<?php echo $c['muted']; ?>"><?php echo $e(t($one['kind'])); ?><?php if (($one['source'] ?? null) === 'learned'): ?> · <?php echo $e(t('learned from what you said')); ?><?php endif; ?></span>
                         <form method="post" action="<?php echo $e($u['forget'] . (int) $one['memory_id']); ?>" style="display:inline">
                             <?php echo $token(); ?>
                             <input type="hidden" name="conversation_id" value="<?php echo $openId; ?>">

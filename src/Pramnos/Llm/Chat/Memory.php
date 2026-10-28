@@ -11,10 +11,25 @@ use Pramnos\Llm\CallLog;
  *
  * ## Written by the model, kept by the person
  *
- * Nothing extracts memories behind anybody's back with a second call after every turn: the
- * model has a `remember` tool and is told to use it when somebody says something worth keeping.
- * It is cheaper, and it happens where it can be seen — every call is listed under the answer
- * that made it — and the person can see and delete every memory.
+ * The model has a `remember` tool and is told to use it when somebody says something worth
+ * keeping — or to correct a memory that no longer holds, by its id, so the latest word wins rather
+ * than two memories disagreeing. It happens where it can be seen — every call is listed under the
+ * answer that made it — and the person can see and delete every memory.
+ *
+ * ## Learned after an answer, where the application wants it
+ *
+ * With `'memory' => ['learn' => true]`, after each answer a second, short call reads what the
+ * person just said beside what is remembered, and keeps what they stated about themselves or their
+ * work, corrects what changed, and forgets what they took back ({@see learn()}). Off by default:
+ * it costs a call per answer, and it picks things up without being asked. What it keeps is marked
+ * `learned`, shown to the person like any other memory, and forgotten the same way.
+ *
+ * ## The organisation's, beside the person's
+ *
+ * With `'memory' => ['organization' => true]`, a conversation inside an organisation also
+ * remembers what everybody there has told it about their shared work (`about: organization`):
+ * kept with `userid` 0, read by everybody in the organisation, at most
+ * `organization_max` entries (40).
  *
  * ## Bounded, because it goes into every prompt
  *
@@ -29,6 +44,12 @@ use Pramnos\Llm\CallLog;
 class Memory
 {
     public const KINDS = ['fact', 'preference'];
+
+    /** How a memory came to be: the `remember` tool in a conversation, or learned after one. */
+    public const SOURCES = ['model', 'learned'];
+
+    /** The `userid` of what an organisation shares. */
+    public const SHARED = 0;
 
     /** How many messages a search returns, and how much of each. */
     public const HITS = 12;
@@ -51,12 +72,158 @@ class Memory
         return max(1, (int) (self::config()['chars'] ?? 300));
     }
 
+    /** Whether the application turned learning after each answer on. */
+    public static function learns(): bool
+    {
+        return !empty(self::config()['learn']);
+    }
+
+    /** Whether the application keeps memories an organisation shares. */
+    public static function shares(): bool
+    {
+        return !empty(self::config()['organization']);
+    }
+
+    /** The most memories an organisation may share. */
+    public static function sharedMax(): int
+    {
+        return max(1, (int) (self::config()['organization_max'] ?? 40));
+    }
+
     /** @return list<array{memory_id: int, kind: string, content: string, created_at: string}> */
     public function all(): array
     {
+        return $this->read($this->scope->apply($this->table('#PREFIX#chat_memory')));
+    }
+
+    /**
+     * What this person's organisation shares, when the application keeps it and they are in one.
+     *
+     * @return list<array{memory_id: int, kind: string, content: string, created_at: string}>
+     */
+    public function shared(): array
+    {
+        if (!self::shares() || $this->scope->organizationId === null) {
+            return [];
+        }
+
+        return $this->read($this->sharedQuery());
+    }
+
+    /**
+     * Keep one thing — about this person, or what their organisation shares — or correct a memory
+     * that no longer holds (`$replaces`, its id): the latest word wins. Returns what the model is told.
+     */
+    public function keep(string $kind, string $content, ?int $replaces = null, string $about = 'me', string $source = 'model'): string
+    {
+        $content = trim((string) preg_replace('/\s+/u', ' ', $content));
+        if ($content === '') {
+            return 'Error: there is nothing to remember.';
+        }
+        $shared = $about === 'organization';
+        if ($shared && ($this->scope->organizationId === null || !self::shares())) {
+            return 'Error: nothing is kept for an organisation here; remember it for this person.';
+        }
+        $query = $shared ? $this->sharedQuery() : $this->scope->apply($this->table('#PREFIX#chat_memory'));
+        $stamp = CallLog::instant(time());
+        $row   = [
+            'kind'       => in_array($kind, self::KINDS, true) ? $kind : 'fact',
+            'content'    => mb_substr($content, 0, self::chars()),
+            'updated_at' => $stamp,
+        ] + ($this->hasSource() ? ['source' => in_array($source, self::SOURCES, true) ? $source : 'model'] : []);
+
+        if ($replaces !== null) {
+            if ((clone $query)->where('memory_id', $replaces)->count() === 0) {
+                return 'Error: there is no such memory to correct.';
+            }
+            (clone $query)->where('memory_id', $replaces)->update($row);
+
+            return 'Corrected memory ' . $replaces . '.';
+        }
+        if ((clone $query)->count() >= ($shared ? self::sharedMax() : self::max())) {
+            return 'Error: the memory is full (' . ($shared ? self::sharedMax() : self::max()) . ' entries). Forget one that no longer holds, then remember this.';
+        }
+        $this->table('#PREFIX#chat_memory')->insert(($shared ? ['userid' => self::SHARED] + $this->scope->columns() : $this->scope->columns()) + $row + ['created_at' => $stamp]);
+
+        return 'Remembered as memory ' . (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId() . '.';
+    }
+
+    /**
+     * After an answer: keep what the person stated about themselves or their work, correct what
+     * changed and forget what they took back — one short call, its answer a list of changes,
+     * applied within the limits. Never throws: a memory that could not be learned is no reason for
+     * an answer to fail.
+     *
+     * @return array{kept: int, corrected: int, forgotten: int}
+     */
+    public function learn(\Pramnos\Llm\Client $client, string $said): array
+    {
+        $done = ['kept' => 0, 'corrected' => 0, 'forgotten' => 0];
+        if (trim($said) === '') {
+            return $done;
+        }
+        $known = [];
+        foreach ($this->all() as $one) {
+            $known[] = ['id' => $one['memory_id'], 'about' => 'me', 'kind' => $one['kind'], 'memory' => $one['content'], 'since' => $one['created_at']];
+        }
+        foreach ($this->shared() as $one) {
+            $known[] = ['id' => $one['memory_id'], 'about' => 'organization', 'kind' => $one['kind'], 'memory' => $one['content'], 'since' => $one['created_at']];
+        }
+        $prompt = 'You keep the memory of an assistant. Read what the person just said, beside what is remembered. '
+            . 'Keep only durable facts they STATED about themselves, their role or their work, and preferences about how they want answers — '
+            . 'not questions, not data the assistant can look up, not guesses. If something they said changes a memory, correct it (the latest word wins). '
+            . 'If they took something back, forget it. Usually there is nothing to change: then answer {"changes": []}. '
+            . (self::shares() && $this->scope->organizationId !== null ? 'A fact about the whole team or company is about "organization"; about the person, "me". ' : 'Everything is about "me". ')
+            . 'Answer JSON only: {"changes": [{"op": "keep", "about": "me", "kind": "fact|preference", "memory": "one sentence"}, '
+            . '{"op": "correct", "id": 3, "memory": "one sentence"}, {"op": "forget", "id": 4}]}.';
         try {
-            $result = $this->scope->apply($this->table('#PREFIX#chat_memory'))
-                ->select(['memory_id', 'kind', 'content', 'created_at'])->orderBy('memory_id')->get();
+            $answer = $client->ask($prompt, [['role' => 'user', 'content' => json_encode(['remembered' => $known, 'said' => mb_substr($said, 0, 4000)], JSON_UNESCAPED_UNICODE)]]);
+            $reply  = (string) ($answer['reply'] ?? '');
+            $json   = json_decode((string) (preg_match('/\{.*\}/s', $reply, $m) === 1 ? $m[0] : $reply), true);
+            $ids    = array_column($known, 'about', 'id');
+            foreach (array_slice((array) ($json['changes'] ?? []), 0, 10) as $change) {
+                $op = (string) ($change['op'] ?? '');
+                $id = (int) ($change['id'] ?? 0);
+                if ($op === 'keep' && str_starts_with($this->keep((string) ($change['kind'] ?? 'fact'), (string) ($change['memory'] ?? ''), null, (string) ($change['about'] ?? 'me'), 'learned'), 'Remembered')) {
+                    $done['kept']++;
+                } elseif ($op === 'correct' && isset($ids[$id]) && str_starts_with($this->keep('fact', (string) ($change['memory'] ?? ''), $id, $ids[$id], 'learned'), 'Corrected')) {
+                    $done['corrected']++;
+                } elseif ($op === 'forget' && isset($ids[$id]) && ($ids[$id] === 'organization' ? $this->forgetShared($id) : $this->forget($id))) {
+                    $done['forgotten']++;
+                }
+            }
+        } catch (\Throwable $why) {
+            \Pramnos\Logs\Logger::log('llm memory learn: ' . $why->getMessage(), 'llm');
+        }
+
+        return $done;
+    }
+
+    /** Forget one thing the organisation shares. False when there was none by that id. */
+    public function forgetShared(int $memoryId): bool
+    {
+        if ($this->shared() === []) {
+            return false;
+        }
+        $query = $this->sharedQuery()->where('memory_id', $memoryId);
+        if ((clone $query)->count() === 0) {
+            return false;
+        }
+        $query->delete();
+
+        return true;
+    }
+
+    /**
+     * Rows of a query on chat_memory, as the screens read them.
+     *
+     * @return list<array{memory_id: int, kind: string, content: string, created_at: string, source: ?string}>
+     */
+    private function read(\Pramnos\Database\QueryBuilder $query): array
+    {
+        try {
+            $result = $query->select(array_merge(['memory_id', 'kind', 'content', 'created_at', 'updated_at'], $this->hasSource() ? ['source'] : []))
+                ->orderBy('memory_id')->get();
         } catch (\Throwable) {
             return [];
         }
@@ -70,34 +237,17 @@ class Memory
 
         while (($row = $result->fetch()) !== null) {
             $list[] = ['memory_id' => (int) $row['memory_id'], 'kind' => (string) $row['kind'],
-                'content' => (string) $row['content'], 'created_at' => (string) $row['created_at']];
+                'content' => (string) $row['content'], 'created_at' => (string) ($row['updated_at'] ?? $row['created_at']),
+                'source' => ($row['source'] ?? null) === null ? null : (string) $row['source']];
         }
 
         return $list;
     }
 
-    /** Keep one thing. Returns what the model is told. */
+    /** Keep one thing about this person. Returns what the model is told. {@see keep()} also corrects, and keeps for an organisation. */
     public function remember(string $kind, string $content): string
     {
-        $content = trim((string) preg_replace('/\s+/u', ' ', $content));
-
-        if ($content === '') {
-            return 'Error: there is nothing to remember.';
-        }
-
-        if (count($this->all()) >= self::max()) {
-            return 'Error: the memory is full (' . self::max() . ' entries). Forget one that no longer holds, then remember this.';
-        }
-
-        $stamp = CallLog::instant(time());
-        $this->table('#PREFIX#chat_memory')->insert($this->scope->columns() + [
-            'kind'       => in_array($kind, self::KINDS, true) ? $kind : 'fact',
-            'content'    => mb_substr($content, 0, self::chars()),
-            'created_at' => $stamp,
-            'updated_at' => $stamp,
-        ]);
-
-        return 'Remembered as memory ' . (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId() . '.';
+        return $this->keep($kind, $content);
     }
 
     /** Forget one thing. False when there was none of this person's by that id. */
@@ -177,17 +327,23 @@ class Memory
             'remember' => [
                 'description' => 'Keep a fact about this person or their work, or a preference about how they want answers, '
                     . 'for future conversations. Use it when they state something durable. One short sentence each. '
-                    . 'Not for numbers the tools can read again.',
+                    . 'Not for numbers the tools can read again. When what they say changes a memory, pass its id as replaces '
+                    . 'instead of keeping a second one — the latest word wins.'
+                    . (self::shares() && $this->scope->organizationId !== null ? ' A fact about the whole team or company: about = organization.' : ''),
                 'parameters'  => ['type' => 'object', 'properties' => [
-                    'kind'    => ['type' => 'string', 'enum' => self::KINDS],
-                    'content' => ['type' => 'string', 'description' => 'One sentence, under ' . self::chars() . ' characters.'],
-                ], 'required' => ['kind', 'content']],
-                'run' => fn (array $a): string => $this->remember((string) ($a['kind'] ?? 'fact'), (string) ($a['content'] ?? '')),
+                    'kind'     => ['type' => 'string', 'enum' => self::KINDS],
+                    'content'  => ['type' => 'string', 'description' => 'One sentence, under ' . self::chars() . ' characters.'],
+                    'replaces' => ['type' => 'integer', 'description' => 'The id of the memory this corrects. Optional.'],
+                ] + (self::shares() && $this->scope->organizationId !== null ? ['about' => ['type' => 'string', 'enum' => ['me', 'organization']]] : []),
+                    'required' => ['kind', 'content']],
+                'run' => fn (array $a): string => $this->keep((string) ($a['kind'] ?? 'fact'), (string) ($a['content'] ?? ''),
+                    isset($a['replaces']) ? (int) $a['replaces'] : null, (string) ($a['about'] ?? 'me')),
             ],
             'forget' => [
                 'description' => 'Forget a memory by its id, when it no longer holds or the person asks.',
                 'parameters'  => ['type' => 'object', 'properties' => ['memory_id' => ['type' => 'integer']], 'required' => ['memory_id']],
-                'run' => fn (array $a): string => $this->forget((int) ($a['memory_id'] ?? 0)) ? 'Forgotten.' : 'Error: there is no such memory.',
+                'run' => fn (array $a): string => $this->forget((int) ($a['memory_id'] ?? 0)) || $this->forgetShared((int) ($a['memory_id'] ?? 0))
+                    ? 'Forgotten.' : 'Error: there is no such memory.',
             ],
             'search_conversations' => [
                 'description' => 'Search this person\'s earlier conversations for words, newest first — for "yesterday you told '
@@ -216,6 +372,23 @@ class Memory
                 },
             ],
         ];
+    }
+
+    /** What the organisation shares: its rows, in this space. */
+    private function sharedQuery(): \Pramnos\Database\QueryBuilder
+    {
+        return $this->table('#PREFIX#chat_memory')->where('organization_id', $this->scope->organizationId)
+            ->where('space', $this->scope->space)->where('userid', self::SHARED);
+    }
+
+    /** Whether chat_memory has `source` yet. */
+    private function hasSource(): bool
+    {
+        try {
+            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('chat_memory', 'source');
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /** @return array<string, mixed> */

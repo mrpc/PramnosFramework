@@ -526,7 +526,7 @@
                             {#each memories as one (one.memory_id)}
                                 <li class="flex items-start gap-1">
                                     <span class="min-w-0 flex-1">
-                                        {one.content}
+                                        {one.content}{#if one.source === 'learned'} <span class="opacity-60">· {t('learned from what you said')}</span>{/if}
                                         {#if one.kind === 'preference'}<span class={ui('badge.muted')}>{t('preference')}</span>{/if}
                                     </span>
                                     <button type="button" class="{ui('btn.ghost', 'size.xs', 'btn.square')} opacity-60 hover:opacity-100"

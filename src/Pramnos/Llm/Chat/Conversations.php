@@ -326,6 +326,11 @@ class Conversations
             $steps === [] ? [] : ['steps' => $steps]);
         $message['artifacts'] = $artifacts->link($conversationId, (int) $message['message_id'], $turn->tags);
 
+        // Learned after the answer, where the application wants it: what the person stated, kept.
+        if (Memory::learns() && !$turn->shared() && !$this->scheduled) {
+            $memory->learn($client, $asked);
+        }
+
         return ['ok' => true, 'says' => '', 'why' => '', 'conversation_id' => $conversationId,
             'message' => $this->assistant->answered($turn, $message)];
     }
@@ -474,10 +479,20 @@ class Conversations
         $lines      = [trim($this->assistant->context($turn)), ''];
         $lines[]    = $remembered === []
             ? 'You remember nothing about this person yet.'
-            : 'What you remember about this person from earlier conversations (id, kind):';
+            : 'What you remember about this person from earlier conversations (id, kind, as of):';
 
+        // Dated, so a newer word is known to be newer: the latest wins.
         foreach ($remembered as $one) {
-            $lines[] = '- [' . $one['memory_id'] . ', ' . $one['kind'] . '] ' . $one['content'];
+            $lines[] = '- [' . $one['memory_id'] . ', ' . $one['kind'] . ', ' . substr($one['created_at'], 0, 10) . '] ' . $one['content'];
+        }
+
+        $shared = $memory->shared();
+        if ($shared !== []) {
+            $lines[] = '';
+            $lines[] = 'What people in this organisation have told you about their shared work (id, kind, as of):';
+            foreach ($shared as $one) {
+                $lines[] = '- [' . $one['memory_id'] . ', ' . $one['kind'] . ', ' . substr($one['created_at'], 0, 10) . '] ' . $one['content'];
+            }
         }
 
         return trim(implode("\n", $lines));

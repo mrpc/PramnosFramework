@@ -13,6 +13,7 @@ use_cases:
   - Sharing an AI conversation or one of its results with a colleague
   - Letting the AI propose changes to records that a person approves before they happen
   - Collecting feedback on AI answers and reviewing the bad ones
+  - Making the AI remember and update what each user, or the whole team, tells it
   - Giving people a page to see, pause and receive their scheduled AI tasks and reports
   - Handing a leaving member's scheduled AI tasks to someone else
   - Asking users' agreement before their data goes to a provider
@@ -354,9 +355,29 @@ their addresses after the words.
 ### Memory
 
 The model is given `remember`, `forget`, `search_conversations` and `read_conversation`, and told
-what it remembers in every prompt. It remembers only when asked to by the conversation — nothing
-extracts memories behind the person's back — and at most `memory.max` entries of `memory.chars`
-characters. `Chat\Memory` lists and forgets them for a screen. Searching is case-insensitive; on
+what it remembers in every prompt, each memory dated. At most `memory.max` entries of
+`memory.chars` characters. `Chat\Memory` lists and forgets them for a screen.
+
+**A memory is corrected, not doubled.** When what the person says changes something remembered,
+the model passes its id as `replaces` and the memory is rewritten — the latest word wins, rather
+than two memories disagreeing. In code, `Memory::keep($kind, $content, $replaces, $about,
+$source)`; `remember()` is the same for a new one.
+
+**Learning after an answer** — `'llm' => ['chat' => ['memory' => ['learn' => true]]]`, off by
+default. After each answer a short second call reads what the person just said beside what is
+remembered, and answers a list of changes: keep what they *stated* about themselves, their role
+or their work, or how they want answers; correct what changed; forget what they took back. At most
+ten changes a turn, within the limits; what it cannot read changes nothing, and a failure never
+fails the answer. What it keeps is marked `learned` and shown so on the memory list, where the
+person forgets it like any other. Off by default because it costs a call per answer and picks
+things up without being asked; with it off, the model still keeps what is worth keeping through
+`remember`, where the call is listed under the answer.
+
+**An organisation's memory** — `'memory' => ['organization' => true]` (and `organization_max`,
+40). Inside an organisation, the model also keeps what people there tell it about their shared
+work (`remember` with `about: organization`): read by everybody in that organisation and space,
+shown in the prompt apart from the person's own, forgotten with `forget`. Outside an organisation
+there is nobody to share with, and the option has no effect. Searching is case-insensitive; on
 MySQL it also ignores accents, as its collation does, and on PostgreSQL it does not.
 
 ### Artifacts: tables, lists and texts kept from an answer

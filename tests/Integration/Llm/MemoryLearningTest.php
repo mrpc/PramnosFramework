@@ -1,0 +1,177 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Pramnos\Tests\Integration\Llm;
+
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
+use Pramnos\Llm\Chat\Conversations;
+use Pramnos\Llm\Chat\Memory;
+use Pramnos\Llm\Chat\Scope;
+use Pramnos\Llm\Client;
+use Pramnos\Llm\Llm;
+use Pramnos\Tests\Unit\Llm\LlmTestCase;
+
+require_once __DIR__ . '/ConversationsTest.php';
+
+/**
+ * A memory that corrects itself, an organisation's shared memory, and learning after an answer —
+ * on MySQL and PostgreSQL.
+ *
+ * What holds: a memory is corrected in place, the latest word winning, never doubled; an
+ * organisation's memory is kept and read only where the application turned it on and the person is
+ * in one, within its own limit; learning — off unless turned on — keeps what the person stated,
+ * corrects and forgets by id, marks what it kept, ignores what it cannot read and never fails an
+ * answer; and the prompt carries both memories, dated.
+ */
+#[CoversClass(Memory::class)]
+class MemoryLearningTest extends LlmTestCase
+{
+    use ChatDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->setting('llm_openai_api_key', 'sk-test');
+    }
+
+    protected function tearDown(): void
+    {
+        $this->disconnectDatabase();
+        parent::tearDown();
+    }
+
+    /**
+     * Correcting in place; the organisation's memory only where it is on and the person is in one;
+     * its own limit; forgetting it.
+     */
+    #[DataProvider('databases')]
+    public function testCorrectingAndTheOrganisationsMemory(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $memory = new Memory(new Scope(7, 3));
+        $alone  = new Memory(new Scope(7, null));
+
+        // Act — the person's, corrected
+        $memory->keep('fact', 'Works in sales.');
+        $id        = $memory->all()[0]['memory_id'];
+        $corrected = $memory->keep('fact', 'Works in marketing now.', $id);
+        $missing   = $memory->keep('fact', 'x', 999999);
+        $off       = $memory->keep('fact', 'We sell water meters.', null, 'organization');
+
+        // Assert
+        $this->assertSame('Corrected memory ' . $id . '.', $corrected);
+        $this->assertSame(['Works in marketing now.'], array_column($memory->all(), 'content'), 'corrected, not doubled');
+        $this->assertSame('model', $memory->all()[0]['source']);
+        $this->assertSame('Error: there is no such memory to correct.', $missing);
+        $this->assertStringStartsWith('Error: nothing is kept for an organisation', $off, 'off unless turned on');
+        $this->assertSame([], $memory->shared());
+
+        // Act — turned on
+        $this->configure(['chat' => ['memory' => ['organization' => true, 'organization_max' => 2]]]);
+        $kept      = $memory->keep('fact', 'We sell water meters.', null, 'organization');
+        $memory->keep('preference', 'Reports in euros.', null, 'organization');
+        $full      = $memory->keep('fact', 'A third.', null, 'organization');
+        $noOrg     = $alone->keep('fact', 'x', null, 'organization');
+        $colleague = (new Memory(new Scope(8, 3)))->shared();
+        $elsewhere = (new Memory(new Scope(8, 4)))->shared();
+        $sharedId  = $colleague[0]['memory_id'];
+        $notMine   = $memory->forget($sharedId);
+        $forgot    = (new Memory(new Scope(8, 3)))->forgetShared($sharedId);
+        $again     = (new Memory(new Scope(8, 3)))->forgetShared($sharedId);
+
+        // Assert
+        $this->assertStringStartsWith('Remembered as memory ', $kept);
+        $this->assertSame('Error: the memory is full (2 entries). Forget one that no longer holds, then remember this.', $full);
+        $this->assertStringStartsWith('Error: nothing is kept for an organisation', $noOrg, 'nobody to share with outside one');
+        $this->assertSame(['We sell water meters.', 'Reports in euros.'], array_column($colleague, 'content'), 'a colleague reads it');
+        $this->assertSame([], $elsewhere, 'another organisation does not');
+        $this->assertSame(['Works in marketing now.'], array_column($memory->all(), 'content'), 'the person\'s stay apart');
+        $this->assertFalse($notMine, 'forget() reaches only the person\'s own');
+        $this->assertTrue($forgot);
+        $this->assertFalse($again);
+        $this->assertFalse($alone->forgetShared(1));
+    }
+
+    /**
+     * Learning: keeps, corrects and forgets as the model answers, marks what it kept, and leaves
+     * alone what it cannot read or what names a memory it does not have.
+     */
+    #[DataProvider('databases')]
+    public function testLearningFromWhatThePersonSaid(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => ['memory' => ['learn' => true, 'organization' => true]]]);
+        $memory = new Memory(new Scope(7, 3));
+        $memory->keep('fact', 'Lives in Patras.');
+        $memory->keep('fact', 'Has two children.');
+        [$patras, $children] = array_column($memory->all(), 'memory_id');
+        $this->answer([
+            [200, self::says('Sure. {"changes": [{"op": "keep", "about": "me", "kind": "preference", "memory": "Wants short answers."},'
+                . ' {"op": "keep", "about": "organization", "kind": "fact", "memory": "The company has 40 staff."},'
+                . ' {"op": "correct", "id": ' . $patras . ', "memory": "Lives in Athens."}, {"op": "forget", "id": ' . $children . '},'
+                . ' {"op": "forget", "id": 999999}, {"op": "explode"}]}')],
+            [200, self::says('not json at all')],
+            [200, self::says('{"changes": []}')],
+        ]);
+        $client = new Client();
+
+        // Act
+        $done    = $memory->learn($client, 'I moved to Athens, we are 40 people now; keep answers short. Forget the kids thing.');
+        $garbled = $memory->learn($client, 'Something');
+        $nothing = $memory->learn($client, 'How many orders today?');
+        $silent  = $memory->learn($client, '   ');
+
+        // Assert
+        $this->assertSame(['kept' => 2, 'corrected' => 1, 'forgotten' => 1], $done);
+        $this->assertSame(['Lives in Athens.', 'Wants short answers.'], array_column($memory->all(), 'content'));
+        $this->assertSame(['learned', 'learned'], array_column($memory->all(), 'source'), 'what it kept or corrected is marked');
+        $this->assertSame(['The company has 40 staff.'], array_column($memory->shared(), 'content'));
+        $this->assertSame(['kept' => 0, 'corrected' => 0, 'forgotten' => 0], $garbled);
+        $this->assertSame(['kept' => 0, 'corrected' => 0, 'forgotten' => 0], $nothing);
+        $this->assertSame(['kept' => 0, 'corrected' => 0, 'forgotten' => 0], $silent, 'nothing said, no call');
+        $this->assertCount(3, $this->sent, 'one call each, none for silence');
+        $this->assertStringContainsString('Lives in Patras.', $this->sent[0]['body']['messages'][1]['content'], 'it saw what is remembered');
+    }
+
+    /**
+     * In a conversation: learning, when on, follows the answer; the prompt carries the person's and
+     * the organisation's memories, dated; and with learning off there is no second call.
+     */
+    #[DataProvider('databases')]
+    public function testInAConversation(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        Llm::use('rules', [new AcceptsEverything()]);
+        $this->configure(['chat' => ['memory' => ['learn' => true, 'organization' => true]]]);
+        (new Memory(new Scope(7, 3)))->keep('fact', 'We sell water meters.', null, 'organization');
+        $this->answer([
+            [200, self::says('Noted, Maria.')],
+            [200, self::says('{"changes": [{"op": "keep", "about": "me", "kind": "fact", "memory": "Is called Maria."}]}')],
+            [200, self::says('Fine.')],
+        ]);
+        $chat = (new Conversations(new RecordingAssistant()))->as(new Scope(7, 3));
+
+        // Act
+        $answer = $chat->ask(null, 'I am Maria, by the way.');
+        $this->configure(['chat' => ['memory' => ['organization' => true]]]);
+        $chat->ask((int) $answer['conversation_id'], 'And now?');
+
+        // Assert
+        $this->assertTrue($answer['ok'], $answer['says']);
+        $this->assertSame(['Is called Maria.'], array_column((new Memory(new Scope(7, 3)))->all(), 'content'));
+        $system = (string) $this->sent[2]['body']['messages'][0]['content'];
+        $this->assertMatchesRegularExpression('/- \[\d+, fact, \d{4}-\d\d-\d\d\] Is called Maria\./', $system, 'dated');
+        $this->assertStringContainsString('What people in this organisation have told you', $system);
+        $this->assertStringContainsString('We sell water meters.', $system);
+        $this->assertCount(3, $this->sent, 'learning off: no call after the second answer');
+        $names = array_column(array_column($this->sent[0]['body']['tools'], 'function'), 'name');
+        $remember = $this->sent[0]['body']['tools'][array_search('remember', $names, true)]['function'];
+        $this->assertArrayHasKey('about', $remember['parameters']['properties'], 'the model may keep for the organisation');
+        $this->assertArrayHasKey('replaces', $remember['parameters']['properties']);
+    }
+}
