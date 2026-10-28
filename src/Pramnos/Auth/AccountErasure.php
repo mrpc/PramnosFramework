@@ -227,6 +227,10 @@ class AccountErasure
             $qb('chat_conversations')->where('userid', $userId)->delete();
         }
 
+        if ($schema->hasTable('chat_artifacts')) {
+            $qb('chat_artifacts')->where('userid', $userId)->delete();
+        }
+
         if ($schema->hasTable('ai_routines')) {
             $tasks = $ids($qb('ai_routines')->select(['routine_id'])->where('userid', $userId)->get(), 'routine_id');
             foreach (['ai_task_runs', 'ai_task_subscriptions'] as $table) {

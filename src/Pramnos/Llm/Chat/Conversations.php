@@ -134,8 +134,9 @@ class Conversations
         $result = $this->table('#PREFIX#chat_messages')->where('conversation_id', $conversationId)->orderBy('message_id')->get();
         $messages = [];
 
+        $made = (new Artifacts($this->scope))->forConversation($conversationId);
         while (($row = $result->fetch()) !== null) {
-            $messages[] = self::message($row);
+            $messages[] = self::message($row) + ['artifacts' => $made[(int) $row['message_id']] ?? []];
         }
 
         return [
@@ -154,6 +155,7 @@ class Conversations
         }
 
         $this->table('#PREFIX#chat_messages')->where('conversation_id', $conversationId)->delete();
+        (new Artifacts($this->scope))->deleteConversation($conversationId);
         $this->scope->apply($this->table('#PREFIX#chat_conversations'))->where('conversation_id', $conversationId)->delete();
 
         return true;
@@ -267,13 +269,16 @@ class Conversations
             }
         }
 
-        $memory   = new Memory($this->scope);
-        $routines = new Routines($this);
+        $memory    = new Memory($this->scope);
+        $routines  = new Routines($this);
+        $artifacts = new Artifacts($this->scope);
         // An answer others read too carries nothing of the asker's own: not what was remembered
         // about them, not their tasks.
         $tools    = $this->assistant->tools($turn) + ($turn->shared() ? [] : $memory->tools($this, $conversationId)
             // Not from a scheduled run: a task that schedules tasks has no end.
-            + ($this->scheduled ? [] : $routines->toolsFor($this->scope, $this->assistant->timezone($this->scope), $conversationId)));
+            + ($this->scheduled ? [] : $routines->toolsFor($this->scope, $this->assistant->timezone($this->scope), $conversationId)
+                // Kept with a conversation the person can open: a scheduled run has none yet.
+                + $artifacts->tools()));
 
         $answer = $client->askWithTools(
             $this->assistant->systemPrompt($turn) . "\n\n" . ($turn->shared() ? trim($this->assistant->context($turn)) : $this->context($turn, $memory)),
@@ -316,6 +321,7 @@ class Conversations
         $message = $this->store($conversationId, 'assistant', self::withoutMark((string) ($answer['final'] ?? $answer['reply'])),
             (array) ($answer['calls'] ?? []), $answer['cost'], $stamp, $answer['context'] ?? null,
             $steps === [] ? [] : ['steps' => $steps]);
+        $message['artifacts'] = $artifacts->link($conversationId, (int) $message['message_id'], $turn->tags);
 
         return ['ok' => true, 'says' => '', 'why' => '', 'conversation_id' => $conversationId,
             'message' => $this->assistant->answered($turn, $message)];

@@ -65,6 +65,36 @@ describe('Chat', () => {
     });
 
     /**
+     * An answer's artifacts are drawn under it: a table with its cells, a list
+     * with its first entries and how many more, a text as sanitised Markdown.
+     */
+    it('draws the artifacts an answer kept', async () => {
+        // Arrange
+        const ids = Array.from({ length: 25 }, (_, i) => i + 1);
+        const artifacts = [
+            { artifact_id: 1, kind: 'table', title: 'Bookings', content: { columns: ['Day', 'Count'], rows: [['Mon', 3], ['Tue', true]] } },
+            { artifact_id: 2, kind: 'list', title: 'Dormant', entity: 'user', content: { ids, labels: ['Maria'] } },
+            { artifact_id: 3, kind: 'text', title: 'Memo', content: { text: '**Kept**<script>window.bad = 1</script>' } },
+        ];
+        const client = fakeClient({ read: vi.fn(async () => ({ data: { messages: [{ ...ANSWER, artifacts }] } })) });
+
+        // Act
+        const { container } = render(Chat, { client, conversationId: 9 });
+        await screen.findByText('Bookings');
+
+        // Assert
+        expect(container.querySelectorAll('[data-pf-artifact]').length).toBe(3);
+        expect(container.querySelector('[data-pf-artifact="1"] tbody').textContent).toContain('Mon3Tue✓');
+        expect(screen.getByText('List · 25 user')).toBeTruthy();
+        expect(screen.getByText('Maria (#1)')).toBeTruthy();
+        // Only the first twenty are drawn; the rest are counted
+        expect(container.querySelectorAll('[data-pf-artifact="2"] li').length).toBe(20);
+        expect(screen.getByText('and 5 more')).toBeTruthy();
+        expect(container.querySelector('[data-pf-artifact="3"] strong').textContent).toBe('Kept');
+        expect(container.querySelector('[data-pf-artifact="3"] script')).toBeNull();
+    });
+
+    /**
      * Asking: sent with the application's `extra`, followed until answered,
      * then the conversation it went into is shown and handed to the application.
      */

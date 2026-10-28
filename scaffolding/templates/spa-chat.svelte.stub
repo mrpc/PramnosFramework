@@ -86,6 +86,15 @@
     const FILES = 10;
     const MAX_BYTES = 5_000_000;
     const LONG_MS = 60000;
+    /** List entries drawn before "and N more", as the server-rendered page. */
+    const LIST_PREVIEW = 20;
+
+    /** What an artifact is, in a few words: its kind and how much it holds. */
+    function artifactLabel(artifact) {
+        if (artifact.kind === 'table') return t('Table · %s rows', artifact.content?.rows?.length ?? 0);
+        if (artifact.kind === 'list') return t('List · %s %s', artifact.content?.ids?.length ?? 0, artifact.entity ?? '');
+        return t('Text');
+    }
 
     let conversations = $state([]);
     let memories = $state([]);
@@ -520,6 +529,31 @@
                                 </div>
                             {:else}
                                 <div class="chat-bubble markdown max-w-full text-sm">{@html markdown(one.content)}</div>
+                                {#each one.artifacts ?? [] as artifact (artifact.artifact_id)}
+                                    <!-- A kept result: a table, a list of records, a text. -->
+                                    <section class="card border border-base-300 bg-base-100 mt-2 w-full p-3 text-sm" data-pf-artifact={artifact.artifact_id} data-pf-artifact-kind={artifact.kind}>
+                                        <header class="mb-2"><strong>{artifact.title}</strong> <span class="opacity-60">{artifactLabel(artifact)}</span></header>
+                                        {#if artifact.kind === 'table'}
+                                            <div class="max-h-96 overflow-auto">
+                                                <table class="table table-sm">
+                                                    <thead><tr>{#each artifact.content?.columns ?? [] as column}<th>{column}</th>{/each}</tr></thead>
+                                                    <tbody>{#each artifact.content?.rows ?? [] as row}<tr>{#each row as cell}<td>{cell === true ? '✓' : cell === false ? '✗' : (cell ?? '')}</td>{/each}</tr>{/each}</tbody>
+                                                </table>
+                                            </div>
+                                        {:else if artifact.kind === 'list'}
+                                            <ul class="list-disc pl-5">
+                                                {#each (artifact.content?.ids ?? []).slice(0, LIST_PREVIEW) as id, i}
+                                                    <li>{artifact.content?.labels?.[i] ? `${artifact.content.labels[i]} (#${id})` : `#${id}`}</li>
+                                                {/each}
+                                            </ul>
+                                            {#if (artifact.content?.ids?.length ?? 0) > LIST_PREVIEW}
+                                                <p class="opacity-60">{t('and %s more', artifact.content.ids.length - LIST_PREVIEW)}</p>
+                                            {/if}
+                                        {:else}
+                                            <div class="markdown">{@html markdown(artifact.content?.text ?? '')}</div>
+                                        {/if}
+                                    </section>
+                                {/each}
                                 {#if messageExtra}
                                     {@render messageExtra(one, (patch) => change(one, patch))}
                                 {/if}

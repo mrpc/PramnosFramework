@@ -81,6 +81,42 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             : self::error(404, 'There is no such conversation.');
     }
 
+    /** This person's artifacts — the tables, lists and texts kept from their conversations — without their content. */
+    public function artifacts(): array
+    {
+        if (($stop = $this->refusal('list')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+
+        return ['status' => 200, 'data' => ['artifacts' => $scope === null ? [] : (new \Pramnos\Llm\Chat\Artifacts($scope))->list()]];
+    }
+
+    /** One artifact, with its content. */
+    public function readArtifact($artifact_id): array
+    {
+        if (($stop = $this->refusal('read')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        $found = $scope === null ? null : (new \Pramnos\Llm\Chat\Artifacts($scope))->find((int) $artifact_id);
+
+        return $found === null ? self::error(404, 'There is no such artifact.') : ['status' => 200, 'data' => $found];
+    }
+
+    /** Remove one of this person's artifacts. */
+    public function deleteArtifact($artifact_id): array
+    {
+        if (($stop = $this->refusal('delete')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+
+        return $scope !== null && (new \Pramnos\Llm\Chat\Artifacts($scope))->delete((int) $artifact_id)
+            ? ['status' => 200, 'data' => ['deleted' => true]]
+            : self::error(404, 'There is no such artifact.');
+    }
+
     /**
      * Ask, starting or continuing a conversation.
      *

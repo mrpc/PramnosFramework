@@ -31,6 +31,7 @@ final class Routes
         'runs'     => '/chat/runs',
         'reports'  => '/chat/reports',
         'consent'  => '/chat/consent',
+        'artifacts' => '/chat/artifacts',
     ];
 
     /**
@@ -57,6 +58,10 @@ final class Routes
         $r->get($p['reports'], static fn () => $make()->reports());
         $r->put($p['routines'] . '/{routine_id}', static fn ($routine_id) => $make()->updateRoutine($routine_id));
         $r->delete($p['routines'] . '/{routine_id}', static fn ($routine_id) => $make()->deleteRoutine($routine_id));
+
+        $r->get($p['artifacts'], static fn () => $make()->artifacts());
+        $r->get($p['artifacts'] . '/{artifact_id}', static fn ($artifact_id) => $make()->readArtifact($artifact_id));
+        $r->delete($p['artifacts'] . '/{artifact_id}', static fn ($artifact_id) => $make()->deleteArtifact($artifact_id));
 
         $r->get($p['consent'], static fn () => $make()->consent());
         $r->post($p['consent'], static fn () => $make()->giveConsent());

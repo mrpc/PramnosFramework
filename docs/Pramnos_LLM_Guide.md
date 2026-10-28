@@ -9,6 +9,7 @@ use_cases:
   - Scheduling a question to a model every morning, as its owner
   - Sending an organisation a scheduled AI report its members subscribe to, by email too
   - Seeing what each scheduled AI task or report costs
+  - Keeping a table or list an AI answer produced, to open or act on later
   - Giving people a page to see, pause and receive their scheduled AI tasks and reports
   - Handing a leaving member's scheduled AI tasks to someone else
   - Asking users' agreement before their data goes to a provider
@@ -355,6 +356,40 @@ extracts memories behind the person's back — and at most `memory.max` entries 
 characters. `Chat\Memory` lists and forgets them for a screen. Searching is case-insensitive; on
 MySQL it also ignores accents, as its collation does, and on PostgreSQL it does not.
 
+### Artifacts: tables, lists and texts kept from an answer
+
+The model is given `save_artifact`, and uses it when an answer is a table of more than a few
+rows, a list of records the person may want to act on, or a document they asked for. It gives
+the data itself, not Markdown to be read back out of its answer:
+
+| kind | fields | |
+|---|---|---|
+| `table` | `columns`, `rows` | up to 50 columns and 1,000 rows; a short row is padded, an object cell kept as JSON |
+| `list` | `entity`, `ids`, `labels` | what the ids are (`user`, `device`…), up to 10,000 of them, each once; a label per id or none |
+| `text` | `text` | Markdown, up to 50,000 characters |
+
+What does not fit is refused with the reason, so the model can correct itself. An artifact is
+kept in `chat_artifacts`, linked to the conversation and the answer it came with, carrying the
+data tags the conversation held; the answer comes back with it as `artifacts`, on `ask()` and on
+`find()`. It goes with its conversation, and with its owner's account on erasure. A scheduled
+run is offered no such tool: it has no conversation to keep one in.
+
+`Chat\Artifacts` is the same in code, within a `Scope` — a person reaches only their own:
+
+```php
+$artifacts = new \Pramnos\Llm\Chat\Artifacts($scope);
+$made = $artifacts->create(['kind' => 'list', 'title' => 'Dormant buyers', 'entity' => 'user', 'ids' => [4, 9]]);
+$artifacts->find($made['artifact_id']);   // with its content, or null when not theirs
+$artifacts->list();                        // newest first, without content
+$artifacts->delete($made['artifact_id']);
+```
+
+The page and the SPA component draw each one under its answer — a table, a list's first twenty
+entries and how many more, a text as Markdown — each with `data-pf-artifact` and its id.
+`Chat\Web\ArtifactView::html($artifact, $frameClass, $tableClass, $mutedClass)` is that markup,
+escaped, for a view of an application's own. Without the table (migrations not run) there is no
+tool and nothing to read, and the health check names it.
+
 ### Asking in the background
 
 An answer with tools can take a minute. `Chat\Asks::start($scope, $conversationId, $question,
@@ -637,6 +672,8 @@ One line in the application's API routes mounts every endpoint:
 | `GET /chat` | this person's conversations, and the limits a screen shows |
 | `POST /chat` | ask — `content`, `conversation_id`, `attachments: [{name, data}]` with the bytes in base64; 202 with `ask_id`, or 200 with the answer under `answer_in_request` |
 | `GET /chat/{id}`, `DELETE /chat/{id}` | one conversation with its messages; forget it |
+| `GET /chat/artifacts` | this person's artifacts, newest first, without content |
+| `GET /chat/artifacts/{id}`, `DELETE /chat/artifacts/{id}` | one artifact with its content; remove it |
 | `GET /chat/asks/{id}` | a queued question: `waiting`, `answered` with its `conversation_id`, or `failed` with `says` |
 | `GET /chat/memory`, `DELETE /chat/memory/{id}` | what it remembers; forget one |
 | `GET`/`POST /chat/routines`, `PUT`/`DELETE /chat/routines/{id}`, `POST /chat/routines/{id}/run` | scheduled tasks, with the templates, cadences, `kinds`, and the `owners` this person may use; `active` in a `PUT` pauses or resumes |

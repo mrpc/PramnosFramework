@@ -133,6 +133,9 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
                             <?php endif; ?>
                         <?php else: ?>
                             <div class="pf-chat-answer"><?php echo \Pramnos\Llm\Chat\Markdown::toHtml((string) $m['content']); ?></div>
+                            <?php foreach ((array) ($m['artifacts'] ?? []) as $artifact): /* kept results: a table, a list, a text */ ?>
+                                <?php echo \Pramnos\Llm\Chat\Web\ArtifactView::html($artifact, $c['card'], 'pf-table', $c['muted']); ?>
+                            <?php endforeach; ?>
                             <?php $steps = array_values(array_filter((array) (($m['extra'] ?? [])['steps'] ?? []), 'is_string')); ?>
                             <?php if ($steps !== []): ?>
                                 <details class="<?php echo $c['muted']; ?>">
