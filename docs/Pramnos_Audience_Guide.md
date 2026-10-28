@@ -630,6 +630,16 @@ The framework's: `email` (a mail template, in the person's language, into the ou
 attribute), `notify_admin`, `webhook` (POSTs the person and the origin), and — with the
 `conversations` feature — `conversation_post` (tells the team in a channel, or one administrator;
 see the [Conversations Guide](Pramnos_Conversations_Guide.md#references-and-commands-what-the-application-adds)).
+
+With the `llm` feature there is also `ai` — **ask the AI about them**: a question filled for the
+person (`{firstname}`, `{userid}` and the rest), with what started the run beside it, answered by
+the analyst as the administrator the step names (`to`) — with that administrator's rights, reading
+only. `then: notify` sends the answer to that administrator, linked to the person; `then:
+attribute` keeps it in a column `attribute`, which is how a step classifies ("one word: warm or
+cold") for a later branch to read. In shadow mode, with no provider, no administrator or no
+question it asks nothing. Each run is a model call: a rule that fires for everybody asks for
+everybody, so put it behind the conditions that narrow it.
+
 An application adds its own:
 
 ```php

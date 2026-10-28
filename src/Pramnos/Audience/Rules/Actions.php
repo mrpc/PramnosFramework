@@ -205,7 +205,14 @@ final class Actions
             ], 'run' => self::notifyAdmin(...)],
             'webhook' => ['label' => t('Call a webhook'), 'channel' => null, 'params' => ['url' => $text(t('Address'))],
                 'run' => self::webhook(...)],
-        ] + (self::hasConversations() ? [
+        ] + (\Pramnos\Application\FeatureRegistry::isEnabled('llm') ? [
+            'ai' => ['label' => t('Ask the AI about them'), 'channel' => null, 'params' => [
+                'to'        => $text(t('As administrator (account id)'), 'number'),
+                'prompt'    => $text(t('What to ask — {firstname}, {userid} and the rest are filled in'), 'textarea'),
+                'then'      => ['label' => t('Then'), 'type' => 'select', 'options' => ['notify' => t('Send the answer to that administrator'), 'attribute' => t('Keep the answer in an attribute')]],
+                'attribute' => $text(t('Attribute (for keeping the answer)'), 'attribute'),
+            ], 'run' => self::askAi(...)],
+        ] : []) + (self::hasConversations() ? [
             'conversation_post' => ['label' => t('Tell the team in a conversation'), 'channel' => null, 'params' => [
                 'to' => $text(t('Channel (#name) or account id')), 'text' => $text(t('Message'), 'textarea'),
             ], 'run' => self::conversationPost(...)],
@@ -376,6 +383,51 @@ final class Actions
         ))->to('database', 'mail')->link(\Pramnos\Html\AudienceBuilder::personUrl($person)));
 
         return ['status' => 'done', 'detail' => ['to' => (int) $admin->userid]];
+    }
+
+    /**
+     * Ask the analyst about the person, as an administrator — the question filled for them, with
+     * the rule's trigger beside it — and send the answer to that administrator or keep it in an
+     * attribute (one word, for a classification, is the question's to ask for). The analyst reads
+     * with that administrator's rights and never writes. In shadow mode, and with no provider, it
+     * asks nothing: a rule being tried must not spend.
+     *
+     * @param array<string, mixed> $params to, prompt, then (notify|attribute), attribute
+     * @return array{status: string, detail: array<string, mixed>}
+     */
+    private static function askAi(int $person, array $params, Context $context): array
+    {
+        if ($context->shadow) {
+            return ['status' => 'skipped', 'detail' => ['reason' => 'shadow']];
+        }
+        $admin = self::user((int) ($params['to'] ?? 0));
+        if ($admin === null) {
+            return ['status' => 'error', 'detail' => ['reason' => 'no administrator ' . ($params['to'] ?? '')]];
+        }
+        if (!\Pramnos\Llm\Analyst\Analyst::available()) {
+            return ['status' => 'skipped', 'detail' => ['reason' => 'no provider']];
+        }
+        $question = trim(self::fill((string) ($params['prompt'] ?? ''), $person));
+        if ($question === '') {
+            return ['status' => 'error', 'detail' => ['reason' => 'nothing to ask']];
+        }
+        $question .= "\n\n(About account " . $person . ($context->trigger !== [] ? '; what started this: ' . json_encode($context->trigger, JSON_UNESCAPED_UNICODE) : '') . '.)';
+        $answer = (new \Pramnos\Llm\Chat\Conversations(\Pramnos\Llm\Analyst\Analyst::assistant()))
+            ->as(new \Pramnos\Llm\Chat\Scope((int) $admin->userid, null, \Pramnos\Llm\Chat\Scope::ADMIN), true)
+            ->report($question, ['rule' => $context->origin()]);
+        if (!$answer['ok']) {
+            return ['status' => 'error', 'detail' => ['reason' => (string) $answer['says']]];
+        }
+        $said = trim((string) $answer['content']);
+        if (($params['then'] ?? 'notify') === 'attribute') {
+            $kept = self::attribute($person, ['attribute' => $params['attribute'] ?? '', 'value' => mb_substr($said, 0, 255)], $context);
+
+            return ['status' => $kept['status'], 'detail' => $kept['detail'] + ['cost' => $answer['cost']]];
+        }
+        $admin->notify((new \Pramnos\Notification\Message($context->ruleName, mb_substr($said, 0, 4000)))
+            ->to('database', 'mail')->link(\Pramnos\Html\AudienceBuilder::personUrl($person)));
+
+        return ['status' => 'done', 'detail' => ['to' => (int) $admin->userid, 'answer' => mb_substr($said, 0, 500), 'cost' => $answer['cost']]];
     }
 
     /**
