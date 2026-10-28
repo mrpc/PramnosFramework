@@ -435,10 +435,14 @@ Athens", "forget that": the model calls `remember` or `forget` in the same answe
 wait for and no second call.
 
 **An organisation's memory** — on by default (`'memory' => ['organization' => false]` turns it
-off; `organization_max`, 40). Inside an organisation, the model also keeps what people there tell it about their shared
-work (`remember` with `about: organization`): read by everybody in that organisation and space,
-shown in the prompt apart from the person's own, forgotten with `forget`. Outside an organisation
-there is nobody to share with, and the option has no effect. Searching is case-insensitive; on
+off; `organization_max`, 40). Inside an organisation, the prompt also carries what the organisation
+keeps about its shared work, read by everybody in that organisation and space and shown apart from
+the person's own. **Read by all, written by few:** only an account that `Memory::mayShare()` — a
+root account, or one given the `admin.ai.memory` ability — keeps, corrects or forgets it, and only
+when it asks to (`remember` with `about: organization`, which is not even offered to anybody else).
+Learning never writes it: one person's words, picked up without being asked, would otherwise reach
+every prompt in the organisation. Outside an organisation there is nobody to share with, and the
+option has no effect. Searching is case-insensitive; on
 MySQL it also ignores accents, as its collation does, and on PostgreSQL it does not.
 
 ### Artifacts: tables, lists and texts kept from an answer

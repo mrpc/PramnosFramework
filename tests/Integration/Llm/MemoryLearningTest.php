@@ -36,21 +36,41 @@ class MemoryLearningTest extends LlmTestCase
         $this->setting('llm_openai_api_key', 'sk-test');
     }
 
+    /** @var list<int> The accounts this test made */
+    private array $accounts = [];
+
+    /**
+     * An account: 7 is root, the rest are simple users.
+     */
+    private function account(int $id, int $usertype): void
+    {
+        $this->accounts[] = $id;
+        $this->db->queryBuilder()->table('users')->where('userid', $id)->delete();
+        $this->db->queryBuilder()->table('users')->insert(['userid' => $id, 'username' => 'u' . $id, 'email' => 'u' . $id . '@example.com',
+            'lastname' => 'U', 'password' => 'x', 'usertype' => $usertype, 'active' => 1]);
+    }
+
     protected function tearDown(): void
     {
+        // The accounts made here are not other classes' to find: 7 has no standing elsewhere.
+        if ($this->accounts !== []) {
+            $this->db->queryBuilder()->table('users')->whereIn('userid', $this->accounts)->delete();
+        }
         $this->disconnectDatabase();
         parent::tearDown();
     }
 
     /**
      * Correcting in place; the organisation's memory only where it is on and the person is in one;
-     * its own limit; forgetting it.
+     * its own limit; written and forgotten by a root account only, read by everybody in it.
      */
     #[DataProvider('databases')]
     public function testCorrectingAndTheOrganisationsMemory(string $type, string $host, int $port): void
     {
         // Arrange
         $this->connectDatabase($type, $host, $port);
+        $this->account(7, 99);
+        $this->account(8, 1);
         $memory = new Memory(new Scope(7, 3));
         $alone  = new Memory(new Scope(7, null));
 
@@ -80,8 +100,11 @@ class MemoryLearningTest extends LlmTestCase
         $elsewhere = (new Memory(new Scope(8, 4)))->shared();
         $sharedId  = $colleague[0]['memory_id'];
         $notMine   = $memory->forget($sharedId);
-        $forgot    = (new Memory(new Scope(8, 3)))->forgetShared($sharedId);
-        $again     = (new Memory(new Scope(8, 3)))->forgetShared($sharedId);
+        $member    = new Memory(new Scope(8, 3));
+        $byMember  = $member->keep('fact', 'We moved offices.', null, 'organization');
+        $unshared  = $member->forgetShared($sharedId);
+        $forgot    = $memory->forgetShared($sharedId);
+        $again     = $memory->forgetShared($sharedId);
 
         // Assert
         $this->assertStringStartsWith('Remembered as memory ', $kept);
@@ -91,6 +114,10 @@ class MemoryLearningTest extends LlmTestCase
         $this->assertSame([], $elsewhere, 'another organisation does not');
         $this->assertSame(['Works in marketing now.'], array_column($memory->all(), 'content'), 'the person\'s stay apart');
         $this->assertFalse($notMine, 'forget() reaches only the person\'s own');
+        $this->assertStringStartsWith('Error: only an administrator changes what the whole organisation shares', $byMember, 'a member reads it, never writes it');
+        $this->assertFalse($unshared, 'nor forgets it');
+        $this->assertTrue($member->mayShare() === false && $memory->mayShare(), 'root may, a simple user may not');
+        $this->assertFalse((new Memory(new Scope(999999, 3)))->mayShare(), 'nor an account that does not exist');
         $this->assertTrue($forgot);
         $this->assertFalse($again);
         $this->assertFalse($alone->forgetShared(1));
@@ -127,10 +154,11 @@ class MemoryLearningTest extends LlmTestCase
         $silent  = $memory->learn($client, '   ');
 
         // Assert
-        $this->assertSame(['kept' => 2, 'corrected' => 1, 'forgotten' => 1], $done);
+        $this->assertSame(['kept' => 1, 'corrected' => 1, 'forgotten' => 1], $done, 'the organisation\'s fact is not learned');
         $this->assertSame(['Lives in Athens.', 'Wants short answers.'], array_column($memory->all(), 'content'));
         $this->assertSame(['learned', 'learned'], array_column($memory->all(), 'source'), 'what it kept or corrected is marked');
-        $this->assertSame(['The company has 40 staff.'], array_column($memory->shared(), 'content'));
+        $this->assertSame([], $memory->shared(), 'learning never writes what the organisation shares');
+        $this->assertStringContainsString('Everything is about \"me\"', json_encode($this->sent[0]['body']['messages'][0]['content']));
         $this->assertSame(['kept' => 0, 'corrected' => 0, 'forgotten' => 0], $garbled);
         $this->assertSame(['kept' => 0, 'corrected' => 0, 'forgotten' => 0], $nothing);
         $this->assertSame(['kept' => 0, 'corrected' => 0, 'forgotten' => 0], $silent, 'nothing said, no call');
@@ -140,7 +168,8 @@ class MemoryLearningTest extends LlmTestCase
 
     /**
      * In a conversation: learning, when on and every message counts, follows the answer; the prompt carries the person's and
-     * the organisation's memories, dated; and with learning off there is no second call.
+     * the organisation's memories, dated; with learning off there is no second call; and keeping for
+     * the organisation is offered to a root account only.
      */
     #[DataProvider('databases')]
     public function testInAConversation(string $type, string $host, int $port): void
@@ -149,6 +178,8 @@ class MemoryLearningTest extends LlmTestCase
         $this->connectDatabase($type, $host, $port);
         Llm::use('rules', [new AcceptsEverything()]);
         $this->configure(['chat' => ['memory' => ['learn' => true, 'learn_every' => 1, 'organization' => true]]]);
+        $this->account(7, 99);
+        $this->account(8, 1);
         (new Memory(new Scope(7, 3)))->keep('fact', 'We sell water meters.', null, 'organization');
         $this->answer([
             [200, self::says('Noted, Maria.')],
@@ -167,12 +198,14 @@ class MemoryLearningTest extends LlmTestCase
         $this->assertSame(['Is called Maria.'], array_column((new Memory(new Scope(7, 3)))->all(), 'content'));
         $system = (string) $this->sent[2]['body']['messages'][0]['content'];
         $this->assertMatchesRegularExpression('/- \[\d+, fact, \d{4}-\d\d-\d\d\] Is called Maria\./', $system, 'dated');
-        $this->assertStringContainsString('What people in this organisation have told you', $system);
+        $this->assertStringContainsString('What this organisation keeps about its shared work', $system);
         $this->assertStringContainsString('We sell water meters.', $system);
         $this->assertCount(3, $this->sent, 'learning off: no call after the second answer');
         $names = array_column(array_column($this->sent[0]['body']['tools'], 'function'), 'name');
         $remember = $this->sent[0]['body']['tools'][array_search('remember', $names, true)]['function'];
-        $this->assertArrayHasKey('about', $remember['parameters']['properties'], 'the model may keep for the organisation');
+        $this->assertArrayHasKey('about', $remember['parameters']['properties'], 'for a root account the model may keep for the organisation');
+        $members = (new Memory(new Scope(8, 3)))->tools($chat, null)['remember'];
+        $this->assertArrayNotHasKey('about', $members['parameters']['properties'], 'for a member it is not even offered');
         $this->assertArrayHasKey('replaces', $remember['parameters']['properties']);
     }
 

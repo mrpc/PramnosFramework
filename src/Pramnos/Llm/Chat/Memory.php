@@ -29,9 +29,11 @@ use Pramnos\Llm\CallLog;
  * ## The organisation's, beside the person's
  *
  * Unless `'memory' => ['organization' => false]`, a conversation inside an organisation also
- * remembers what everybody there has told it about their shared work (`about: organization`):
- * kept with `userid` 0, read by everybody in the organisation, at most
- * `organization_max` entries (40).
+ * reads what the organisation keeps about its shared work: kept with `userid` 0, read by everybody
+ * in the organisation, at most `organization_max` entries (40). Read by all, written by few: only
+ * an account {@see mayShare()} keeps, corrects or forgets it, and only when it asks to
+ * (`remember` with `about: organization`) — never by learning, because one person's words would
+ * otherwise reach every prompt in the organisation.
  *
  * ## Bounded, because it goes into every prompt
  *
@@ -53,13 +55,41 @@ class Memory
     /** The `userid` of what an organisation shares. */
     public const SHARED = 0;
 
+    /** The ability that changes what an organisation shares; root by default. */
+    public const SHARE_ABILITY = 'admin.ai.memory';
+
     /** How many messages a search returns, and how much of each. */
     public const HITS = 12;
 
     public const SNIPPET = 400;
 
+    private ?bool $mayShare = null;
+
     public function __construct(private readonly Scope $scope)
     {
+    }
+
+    /**
+     * Whether this person may change what their organisation shares: a root account, or one the
+     * application gave {@see SHARE_ABILITY}.
+     */
+    public function mayShare(): bool
+    {
+        if ($this->mayShare !== null) {
+            return $this->mayShare;
+        }
+        // The row alone: a whole User loads its details too, which a role check does not need.
+        try {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table(defined('DB_USERSTABLE') ? DB_USERSTABLE : '#PREFIX#users')
+                ->select(['userid', 'usertype', 'active'])->where('userid', $this->scope->userId)->first();
+        } catch (\Throwable) {
+            $result = null;
+        }
+        $user = $result && (int) $result->numRows > 0 ? (object) $result->fields : null;
+
+        return $this->mayShare = $user !== null && (int) ($user->active ?? 0) === 1
+            && \Pramnos\Auth\AdminAccess::allows($user, self::SHARE_ABILITY, \Pramnos\User\Roles::level(\Pramnos\User\Roles::ROOT));
     }
 
     /** The most memories a person may have. */
@@ -138,6 +168,9 @@ class Memory
         if ($shared && ($this->scope->organizationId === null || !self::shares())) {
             return 'Error: nothing is kept for an organisation here; remember it for this person.';
         }
+        if ($shared && !$this->mayShare()) {
+            return 'Error: only an administrator changes what the whole organisation shares; remember it for this person.';
+        }
         $query = $shared ? $this->sharedQuery() : $this->scope->apply($this->table('#PREFIX#chat_memory'));
         $stamp = CallLog::instant(time());
         $row   = [
@@ -180,14 +213,12 @@ class Memory
         foreach ($this->all() as $one) {
             $known[] = ['id' => $one['memory_id'], 'about' => 'me', 'kind' => $one['kind'], 'memory' => $one['content'], 'since' => $one['created_at']];
         }
-        foreach ($this->shared() as $one) {
-            $known[] = ['id' => $one['memory_id'], 'about' => 'organization', 'kind' => $one['kind'], 'memory' => $one['content'], 'since' => $one['created_at']];
-        }
+        // What the organisation shares is not learned into, corrected or forgotten here: see mayShare().
         $prompt = 'You keep the memory of an assistant. Read what the person just said, beside what is remembered. '
             . 'Keep only durable facts they STATED about themselves, their role or their work, and preferences about how they want answers — '
             . 'not questions, not data the assistant can look up, not guesses. If something they said changes a memory, correct it (the latest word wins). '
             . 'If they took something back, forget it. Usually there is nothing to change: then answer {"changes": []}. '
-            . (self::shares() && $this->scope->organizationId !== null ? 'A fact about the whole team or company is about "organization"; about the person, "me". ' : 'Everything is about "me". ')
+            . 'Everything is about "me". '
             . 'Answer JSON only: {"changes": [{"op": "keep", "about": "me", "kind": "fact|preference", "memory": "one sentence"}, '
             . '{"op": "correct", "id": 3, "memory": "one sentence"}, {"op": "forget", "id": 4}]}.';
         try {
@@ -198,11 +229,15 @@ class Memory
             foreach (array_slice((array) ($json['changes'] ?? []), 0, 10) as $change) {
                 $op = (string) ($change['op'] ?? '');
                 $id = (int) ($change['id'] ?? 0);
-                if ($op === 'keep' && str_starts_with($this->keep((string) ($change['kind'] ?? 'fact'), (string) ($change['memory'] ?? ''), null, (string) ($change['about'] ?? 'me'), 'learned'), 'Remembered')) {
+                // Something about everybody is not one person's to keep, nor learning's to share.
+                if (($change['about'] ?? 'me') !== 'me') {
+                    continue;
+                }
+                if ($op === 'keep' && str_starts_with($this->keep((string) ($change['kind'] ?? 'fact'), (string) ($change['memory'] ?? ''), null, 'me', 'learned'), 'Remembered')) {
                     $done['kept']++;
                 } elseif ($op === 'correct' && isset($ids[$id]) && str_starts_with($this->keep('fact', (string) ($change['memory'] ?? ''), $id, $ids[$id], 'learned'), 'Corrected')) {
                     $done['corrected']++;
-                } elseif ($op === 'forget' && isset($ids[$id]) && ($ids[$id] === 'organization' ? $this->forgetShared($id) : $this->forget($id))) {
+                } elseif ($op === 'forget' && isset($ids[$id]) && $this->forget($id)) {
                     $done['forgotten']++;
                 }
             }
@@ -213,10 +248,10 @@ class Memory
         return $done;
     }
 
-    /** Forget one thing the organisation shares. False when there was none by that id. */
+    /** Forget one thing the organisation shares. False when there was none by that id, or this person may not ({@see mayShare()}). */
     public function forgetShared(int $memoryId): bool
     {
-        if ($this->shared() === []) {
+        if ($this->shared() === [] || !$this->mayShare()) {
             return false;
         }
         $query = $this->sharedQuery()->where('memory_id', $memoryId);
@@ -343,12 +378,12 @@ class Memory
                     . 'for future conversations. Use it when they state something durable. One short sentence each. '
                     . 'Not for numbers the tools can read again. When what they say changes a memory, pass its id as replaces '
                     . 'instead of keeping a second one — the latest word wins.'
-                    . (self::shares() && $this->scope->organizationId !== null ? ' A fact about the whole team or company: about = organization.' : ''),
+                    . (self::shares() && $this->scope->organizationId !== null && $this->mayShare() ? ' A fact about the whole team or company, only when this person asks for it to be kept for everybody: about = organization.' : ''),
                 'parameters'  => ['type' => 'object', 'properties' => [
                     'kind'     => ['type' => 'string', 'enum' => self::KINDS],
                     'content'  => ['type' => 'string', 'description' => 'One sentence, under ' . self::chars() . ' characters.'],
                     'replaces' => ['type' => 'integer', 'description' => 'The id of the memory this corrects. Optional.'],
-                ] + (self::shares() && $this->scope->organizationId !== null ? ['about' => ['type' => 'string', 'enum' => ['me', 'organization']]] : []),
+                ] + (self::shares() && $this->scope->organizationId !== null && $this->mayShare() ? ['about' => ['type' => 'string', 'enum' => ['me', 'organization']]] : []),
                     'required' => ['kind', 'content']],
                 'run' => fn (array $a): string => $this->keep((string) ($a['kind'] ?? 'fact'), (string) ($a['content'] ?? ''),
                     isset($a['replaces']) ? (int) $a['replaces'] : null, (string) ($a['about'] ?? 'me')),

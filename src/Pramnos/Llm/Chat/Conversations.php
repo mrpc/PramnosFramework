@@ -662,7 +662,7 @@ class Conversations
         $shared = $memory->shared();
         if ($shared !== []) {
             $lines[] = '';
-            $lines[] = 'What people in this organisation have told you about their shared work (id, kind, as of):';
+            $lines[] = 'What this organisation keeps about its shared work, for everybody in it (id, kind, as of):';
             foreach ($shared as $one) {
                 $lines[] = '- [' . $one['memory_id'] . ', ' . $one['kind'] . ', ' . substr($one['created_at'], 0, 10) . '] ' . $one['content'];
             }
