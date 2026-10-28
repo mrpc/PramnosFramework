@@ -6653,6 +6653,7 @@ coverage=false
 nocoverage=false
 testdox=false
 force=false
+keep=false
 passthrough=()
 for arg in "\$@"; do
     if [[ "\$arg" == "--nobrowser" ]]; then
@@ -6669,6 +6670,11 @@ for arg in "\$@"; do
         testdox=true
     elif [[ "\$arg" == "--force" ]]; then
         force=true
+    elif [[ "\$arg" == "--keep" ]]; then
+        # Leave up the containers this run had to start. Without it they are stopped on
+        # exit, so a test run does not leave a database stack holding memory for days
+        # afterwards. Containers that were already up are never touched.
+        keep=true
     else
         passthrough+=("\$arg")
     fi
@@ -6711,8 +6717,17 @@ fi
 
 # flock released itself when the process exited; a directory does not, so the
 # release is explicit. Every early exit below goes through _release_lock, and
-# this catches the rest.
-trap '_release_lock' EXIT
+# this catches the rest — after stopping what this run started, so the next run
+# cannot start containers this one is stopping.
+started_here=false
+_finish() {
+    if [[ "\$started_here" == true && "\$keep" == false ]]; then
+        echo "Stopping the containers this run started (--keep to leave them up)..."
+        timeout -k 5 "\${DOCKERTEST_DOCKER_TIMEOUT:-45}" docker-compose stop >/dev/null 2>&1
+    fi
+    _release_lock
+}
+trap '_finish' EXIT
 
 # Portable `timeout`. The daemon-hang guards below rely on GNU coreutils
 # `timeout`, which is absent on macOS by default (there was no `timeout` and no
@@ -6809,6 +6824,7 @@ ps_out=\$(timeout -k 5 "\$DOCKER_CTL_TIMEOUT" docker-compose ps 2>/dev/null)
 [[ \$? -eq 124 ]] && _die_docker_wedged "docker-compose ps"
 if ! grep -q "app.*Up" <<<"\$ps_out"; then
     echo "Containers not running. Starting them..."
+    started_here=true
     if ! timeout -k 10 300 docker-compose up -d; then
         rc=\$?
         [[ \$rc -eq 124 ]] && _die_docker_wedged "docker-compose up -d"

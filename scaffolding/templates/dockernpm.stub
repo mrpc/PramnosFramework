@@ -10,9 +10,17 @@ set -euo pipefail
 
 SERVICE="app"
 
-if ! docker-compose ps "$SERVICE" 2>/dev/null | grep -q "Up"; then
-    echo "The $SERVICE container is not running. Start it with: docker-compose up -d" >&2
-    exit 1
+# A container that is down is started for this command and stopped when it ends —
+# everything, when nothing of the project was running; otherwise only this service.
+running=$(docker-compose ps --services --filter status=running 2>/dev/null || true)
+if ! grep -qx "$SERVICE" <<<"$running"; then
+    echo "Starting the $SERVICE container for this command..."
+    docker-compose up -d "$SERVICE"
+    if [[ -z "$running" ]]; then
+        trap 'docker-compose stop >/dev/null 2>&1' EXIT
+    else
+        trap 'docker-compose stop "$SERVICE" >/dev/null 2>&1' EXIT
+    fi
 fi
 
 # Self-heal: anything created before the image mapped www-data to the host user
@@ -28,4 +36,5 @@ docker-compose exec -T -u root "$SERVICE" sh -lc \
 # -u www-data: the image remaps that user to the host user's ids (see .env), so
 # node_modules/ and the build output belong to you rather than to root.
 # HOME must be writable for npm's cache; www-data's home is not.
-exec docker-compose exec -u www-data -e HOME=/tmp "$SERVICE" sh -lc "cd /var/www/html && npm $*"
+# No `exec`: it would replace this shell and skip the trap that stops the container.
+docker-compose exec -u www-data -e HOME=/tmp "$SERVICE" sh -lc "cd /var/www/html && npm $*"

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Run the {{ appName }} front-end tests.
 #
-# Prefers the app container (which is built with Node), so the toolchain does
-# not have to exist on the host; falls back to the host's node/npm when Docker
-# is not running — the same shape as ./dockertest for PHP.
+# Runs in the app container (which is built with Node), so the toolchain does
+# not have to exist on the host. A container that is down is started for the run
+# and stopped afterwards, like ./dockertest; the host's node/npm is used only
+# where there is no Docker at all.
 #
 # Usage:
 #   ./testjs              # run once
@@ -12,31 +13,50 @@ set -euo pipefail
 
 SERVICE="app"
 COMMAND="{{ testCommand }}"
+NO_CONTAINER=200   # run_in_container's "not available here", distinct from the test runner's codes
 
+# Returns the test run's exit status, or NO_CONTAINER when Docker cannot run it.
 run_in_container() {
-    if ! command -v docker-compose &>/dev/null; then
-        return 1
+    command -v docker-compose &>/dev/null || return $NO_CONTAINER
+    timeout 15 docker version &>/dev/null || return $NO_CONTAINER
+
+    local running
+    running=$(docker-compose ps --services --filter status=running 2>/dev/null || true)
+    if ! grep -qx "$SERVICE" <<<"$running"; then
+        echo "Starting the $SERVICE container for this run..."
+        docker-compose up -d "$SERVICE" >/dev/null 2>&1 || return $NO_CONTAINER
+        # Stop what this run brought up: everything when nothing of the project
+        # was running, otherwise only this service.
+        if [[ -z "$running" ]]; then
+            trap 'docker-compose stop >/dev/null 2>&1' EXIT
+        else
+            trap 'docker-compose stop "$SERVICE" >/dev/null 2>&1' EXIT
+        fi
     fi
-    if ! docker-compose ps "$SERVICE" 2>/dev/null | grep -q "Up"; then
-        return 1
-    fi
+
     if ! docker-compose exec -T "$SERVICE" sh -lc 'command -v node' &>/dev/null; then
         echo "Warning: the $SERVICE container has no node binary." >&2
         echo "  Rebuild it with:  docker-compose build $SERVICE" >&2
-        return 1
+        return $NO_CONTAINER
     fi
     echo "Running front-end tests in the $SERVICE container..."
     # -u www-data + a writable HOME: the user is mapped to the host user, so any
     # cache or coverage output the run leaves behind is owned by you.
+    # The status is returned explicitly: called from `||`, errexit is off in here.
     docker-compose exec -T -u www-data -e HOME=/tmp "$SERVICE" sh -lc "cd /var/www/html && $COMMAND $*"
+    return $?
 }
 
-if ! run_in_container "$@"; then
-    echo "Falling back to the host toolchain..."
-    if ! command -v node &>/dev/null; then
-        echo "Error: 'node' not found on the host either." >&2
-        exit 1
-    fi
-    cd "$(dirname "$0")"
-    sh -lc "$COMMAND $*"
+rc=0
+run_in_container "$@" || rc=$?
+if [[ $rc -ne $NO_CONTAINER ]]; then
+    exit $rc
 fi
+
+echo "Falling back to the host toolchain..."
+if ! command -v node &>/dev/null; then
+    echo "Error: 'node' not found on the host either." >&2
+    exit 1
+fi
+cd "$(dirname "$0")"
+sh -lc "$COMMAND $*"

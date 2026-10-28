@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Run JavaScript tests (Phase 17 adapters + any future tests/js/**/*.test.js).
 #
-# Runs inside the php-apache-environment Docker container when available
-# (requires the container to be built with nodejs — see Dockerfile).
-# Falls back to the host's node binary so the command also works in CI
-# environments that don't have Docker.
+# Runs inside the php-apache-environment Docker container (requires the container
+# to be built with nodejs — see Dockerfile). A container that is down is started
+# for the run and stopped afterwards. Falls back to the host's node binary only
+# where there is no Docker at all, so the command also works in CI.
 #
 # Usage:
 #   ./testjs                  # all tests/js/**/*.test.js
@@ -14,32 +14,53 @@ set -euo pipefail
 CONTAINER="php-apache-environment"
 TEST_DIR="/var/www/html/tests/js"
 HOST_TEST_DIR="$(cd "$(dirname "$0")" && pwd)/tests/js"
+NO_CONTAINER=200   # run_in_container's "not available here", distinct from node's own exit codes
 
+# Returns the test run's exit status, or NO_CONTAINER when Docker cannot run it.
 run_in_container() {
-    if docker-compose ps "$CONTAINER" 2>/dev/null | grep -q "Up"; then
-        if docker-compose exec -T "$CONTAINER" which node &>/dev/null; then
-            echo "Running JS tests in Docker container..."
-            # The glob must be expanded by the container's shell, not this one:
-            # TEST_DIR is a path inside the container, so the host cannot match
-            # it and passes the pattern through literally — which node then
-            # reports as "Could not find '/var/www/html/tests/js/*.test.js'".
-            docker-compose exec -T "$CONTAINER" \
-                sh -c 'node --test "$0"/*.test.js "$@"' "$TEST_DIR" "$@"
-            return 0
+    command -v docker-compose &>/dev/null || return $NO_CONTAINER
+    timeout 15 docker version &>/dev/null || return $NO_CONTAINER
+
+    local running
+    running=$(docker-compose ps --services --filter status=running 2>/dev/null || true)
+    if ! grep -qx "$CONTAINER" <<<"$running"; then
+        echo "Starting the $CONTAINER container for this run..."
+        docker-compose up -d "$CONTAINER" >/dev/null 2>&1 || return $NO_CONTAINER
+        # Stop what this run brought up: everything when nothing of the project was
+        # running, otherwise only the container itself.
+        if [[ -z "$running" ]]; then
+            trap 'docker-compose stop >/dev/null 2>&1' EXIT
         else
-            echo "Warning: Container is running but has no 'node' binary." >&2
-            echo "  Rebuild with:  docker-compose build $CONTAINER" >&2
-            return 1
+            trap 'docker-compose stop "$CONTAINER" >/dev/null 2>&1' EXIT
         fi
     fi
-    return 1
+
+    if ! docker-compose exec -T "$CONTAINER" which node &>/dev/null; then
+        echo "Warning: the container has no 'node' binary." >&2
+        echo "  Rebuild with:  docker-compose build $CONTAINER" >&2
+        return $NO_CONTAINER
+    fi
+
+    echo "Running JS tests in Docker container..."
+    # The glob must be expanded by the container's shell, not this one:
+    # TEST_DIR is a path inside the container, so the host cannot match
+    # it and passes the pattern through literally — which node then
+    # reports as "Could not find '/var/www/html/tests/js/*.test.js'".
+    # The status is returned explicitly: called from `||`, errexit is off in here.
+    docker-compose exec -T "$CONTAINER" \
+        sh -c 'node --test "$0"/*.test.js "$@"' "$TEST_DIR" "$@"
+    return $?
 }
 
-if ! run_in_container "$@"; then
-    echo "Falling back to host node..."
-    if ! command -v node &>/dev/null; then
-        echo "Error: 'node' not found on host either." >&2
-        exit 1
-    fi
-    node --test "$HOST_TEST_DIR"/*.test.js "$@"
+rc=0
+run_in_container "$@" || rc=$?
+if [[ $rc -ne $NO_CONTAINER ]]; then
+    exit $rc
 fi
+
+echo "Falling back to host node..."
+if ! command -v node &>/dev/null; then
+    echo "Error: 'node' not found on host either." >&2
+    exit 1
+fi
+node --test "$HOST_TEST_DIR"/*.test.js "$@"

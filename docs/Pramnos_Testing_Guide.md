@@ -1978,6 +1978,27 @@ A project's `dockertest` is its own copy, and updating the framework does not up
 it — the same caveat as the lock block below. Check the last lines of yours; if there is
 no `exit $phpunit_status`, add the two pieces above.
 
+## `./dockertest` stops the containers it started
+
+A run that finds the project's containers down starts them, and stops them again when it
+exits — pass or fail, before it releases the lock. A run that finds them already up leaves
+them as they were. A test run therefore never leaves a database stack holding memory on the
+machine afterwards.
+
+```bash
+./dockertest --nocoverage           # starts what is down, stops it on exit
+./dockertest --nocoverage --keep    # leaves up what it started, for a series of runs
+```
+
+`./testjs` and `./dockernpm` behave the same way: a container that is down is started for
+the command and stopped when it ends — the whole stack when nothing of the project was
+running, otherwise only the service they started. `./testjs` falls back to the host's
+`node` only where there is no Docker at all.
+
+A project scaffolded before this keeps its own scripts; copy the `started_here` / `_finish`
+block from a freshly scaffolded `dockertest` (and `scaffolding/templates/dockernpm.stub`,
+`spa-testjs.stub`) to get it.
+
 ## `./dockertest` says a run is already in progress
 
 Two runs against the same Docker databases corrupt each other, so `dockertest`
