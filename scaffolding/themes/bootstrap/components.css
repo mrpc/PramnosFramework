@@ -2147,5 +2147,8 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-rating { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
 .pf-rating form { display: inline-flex !important; align-items: center; gap: 0.25rem; }
 .pf-rating button { padding: 0.25rem 0.4rem; font-size: 1.15rem; line-height: 1; text-decoration: none; }
-.pf-rating button[aria-pressed="true"] { background: color-mix(in oklab, var(--pf-accent) 14%, transparent); border-radius: var(--pf-radius); }
+/* A theme's link-button hover (`.btn.btn-link:hover`, three classes) underlines and fills 👎: not here. */
+.pf-rating button, .pf-rating button:hover, .pf-rating button:focus, .pf-rating button:active { text-decoration: none !important; box-shadow: none !important; background: transparent !important; }
+.pf-rating button:focus-visible { outline: 2px solid var(--pf-accent) !important; outline-offset: 2px; }
+.pf-rating button[aria-pressed="true"] { background: color-mix(in oklab, var(--pf-accent) 14%, transparent) !important; border-radius: var(--pf-radius); }
 .pf-rating input[type="text"] { display: inline-block; width: 14rem; height: auto; min-height: 0; padding: 0.25rem 0.5rem; font-size: 0.85rem; }
