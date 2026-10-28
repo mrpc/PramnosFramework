@@ -139,7 +139,7 @@ class MemoryLearningTest extends LlmTestCase
     }
 
     /**
-     * In a conversation: learning, when on, follows the answer; the prompt carries the person's and
+     * In a conversation: learning, when on and every message counts, follows the answer; the prompt carries the person's and
      * the organisation's memories, dated; and with learning off there is no second call.
      */
     #[DataProvider('databases')]
@@ -148,7 +148,7 @@ class MemoryLearningTest extends LlmTestCase
         // Arrange
         $this->connectDatabase($type, $host, $port);
         Llm::use('rules', [new AcceptsEverything()]);
-        $this->configure(['chat' => ['memory' => ['learn' => true, 'organization' => true]]]);
+        $this->configure(['chat' => ['memory' => ['learn' => true, 'learn_every' => 1, 'organization' => true]]]);
         (new Memory(new Scope(7, 3)))->keep('fact', 'We sell water meters.', null, 'organization');
         $this->answer([
             [200, self::says('Noted, Maria.')],
@@ -174,5 +174,88 @@ class MemoryLearningTest extends LlmTestCase
         $remember = $this->sent[0]['body']['tools'][array_search('remember', $names, true)]['function'];
         $this->assertArrayHasKey('about', $remember['parameters']['properties'], 'the model may keep for the organisation');
         $this->assertArrayHasKey('replaces', $remember['parameters']['properties']);
+    }
+
+    /**
+     * Learning waits for several of the person's messages: none after the first answer, one call
+     * reading both after the second, and the conversation marked learned up to its last message. A
+     * scheduled run is nothing of the person's: it is marked, not learned from.
+     */
+    #[DataProvider('databases')]
+    public function testLearningWaitsForSeveralMessages(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        Llm::use('rules', [new AcceptsEverything()]);
+        $this->configure(['chat' => ['memory' => ['learn' => true, 'learn_every' => 2]]]);
+        $this->answer([
+            [200, self::says('Hello, Maria.')],
+            [200, self::says('Patras, noted.')],
+            [200, self::says('{"changes": [{"op": "keep", "about": "me", "kind": "fact", "memory": "Is called Maria, lives in Patras."}]}')],
+            [200, self::says('Ran.')],
+        ]);
+        $chat = (new Conversations(new RecordingAssistant()))->as(new Scope(7, 3));
+
+        // Act
+        $first = $chat->ask(null, 'I am Maria.');
+        $id    = (int) $first['conversation_id'];
+        $after = count($this->sent);
+        $chat->ask($id, 'I live in Patras.');
+        $learnedUpto = (int) $this->rows('chat_conversations')[0]['learned_upto'];
+        $lastBefore  = max(array_map('intval', array_column($this->rows('chat_messages'), 'message_id')));
+        (new Conversations(new RecordingAssistant()))->as(new Scope(7, 3), true)->ask($id, 'The morning report.');
+
+        // Assert
+        $this->assertSame(1, $after, 'the first answer alone: no learning call yet');
+        $this->assertCount(4, $this->sent, 'answer, answer, one learning call, the scheduled answer');
+        $learning = (string) $this->sent[2]['body']['messages'][1]['content'];
+        $this->assertStringContainsString('I am Maria.', $learning, 'the batch carries both messages');
+        $this->assertStringContainsString('I live in Patras.', $learning);
+        $this->assertStringNotContainsString('Hello, Maria.', $learning, 'what the person said, not the answers');
+        $this->assertSame(['Is called Maria, lives in Patras.'], array_column((new Memory(new Scope(7, 3)))->all(), 'content'));
+        $this->assertSame($lastBefore, $learnedUpto, 'learned up to the last message');
+        $last = max(array_map('intval', array_column($this->rows('chat_messages'), 'message_id')));
+        $this->assertSame($last, (int) $this->rows('chat_conversations')[0]['learned_upto'], 'a scheduled run is marked, not learned from');
+    }
+
+    /**
+     * A conversation that went quiet with fewer messages than a batch is learned from by
+     * `learnQuiet()` — not before it is quiet, once, and not where its data may go nowhere or
+     * learning is off.
+     */
+    #[DataProvider('databases')]
+    public function testQuietConversationsAreLearnedFrom(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => ['memory' => ['learn' => true, 'learn_every' => 5, 'learn_idle' => 60]]]);
+        $this->answer([
+            [200, self::says('Sales, then.')],
+            [200, self::says('Fine.')],
+            [200, self::says('{"changes": [{"op": "keep", "about": "me", "kind": "fact", "memory": "Works in sales."}]}')],
+        ]);
+        $chat  = (new Conversations(new RecordingAssistant()))->as(new Scope(7, null));
+        $sales = (int) $chat->ask(null, 'I work in sales.')['conversation_id'];
+        $held  = (int) $chat->ask(null, 'Something private.')['conversation_id'];
+        // The second holds data of a kind no connection may take.
+        $this->db->queryBuilder()->table('chat_conversations')->where('conversation_id', $held)->update(['tags' => '["google"]']);
+        Llm::use('rules', [new AcceptsNothing()]);
+        $worker = new Conversations(new RecordingAssistant());
+
+        // Act
+        $early = $worker->learnQuiet(time());
+        $quiet = $worker->learnQuiet(time() + 120);
+        $again = $worker->learnQuiet(time() + 120);
+        $this->configure(['chat' => ['memory' => ['learn' => false]]]);
+        $off   = $worker->learnQuiet(time() + 120);
+
+        // Assert
+        $this->assertSame([0, 1, 0, 0], [$early, $quiet, $again, $off], 'not before it is quiet, once, never with learning off');
+        $this->assertCount(3, $this->sent, 'two answers and one learning call — none for the conversation held back');
+        $this->assertStringContainsString('I work in sales.', (string) $this->sent[2]['body']['messages'][1]['content']);
+        $this->assertSame(['Works in sales.'], array_column((new Memory(new Scope(7, null)))->all(), 'content'));
+        $marks = array_column($this->rows('chat_conversations'), 'learned_upto', 'conversation_id');
+        $this->assertGreaterThan(0, (int) $marks[$held], 'held back, but marked read so it is not looked at every minute');
+        $this->assertGreaterThan(0, (int) $marks[$sales]);
     }
 }

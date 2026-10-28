@@ -74,6 +74,8 @@ abstract class LlmTestCase extends TestCase
             $config['chat'] = (is_array($config['chat'] ?? null) ? $config['chat'] : []);
             $config['chat']['memory'] = (is_array($config['chat']['memory'] ?? null) ? $config['chat']['memory'] : []) + ['learn' => false];
         }
+        // Summaries, like learning, are a call a test asks for: off unless it does.
+        $config['chat'] = (is_array($config['chat'] ?? null) ? $config['chat'] : []) + ['summarize' => false];
         Application::getInstance()->applicationInfo['llm'] = $config;
         Llm::reset();
     }

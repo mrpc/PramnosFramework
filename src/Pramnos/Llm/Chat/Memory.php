@@ -16,13 +16,15 @@ use Pramnos\Llm\CallLog;
  * than two memories disagreeing. It happens where it can be seen — every call is listed under the
  * answer that made it — and the person can see and delete every memory.
  *
- * ## Learned after an answer, where the application wants it
+ * ## Learned from what was said, in batches
  *
- * After each answer a second, short call reads what the person just said beside what is
- * remembered, and keeps what they stated about themselves or their work, corrects what changed,
- * and forgets what they took back ({@see learn()}). On by default; `'memory' => ['learn' => false]`
- * turns it off — it costs a call per answer. What it keeps is marked `learned`, shown to the person
- * like any other memory, and forgotten the same way.
+ * A short call reads what the person said beside what is remembered, and keeps what they stated
+ * about themselves or their work, corrects what changed, and forgets what they took back
+ * ({@see learn()}). Not after every answer: once {@see every()} of their messages have gathered in
+ * a conversation, or when it has been quiet for {@see idle()} seconds (`llm:routines` looks). On by
+ * default; `'memory' => ['learn' => false]` turns it off. What it keeps is marked `learned`, shown
+ * to the person like any other memory, and forgotten the same way. Something the person asks to be
+ * remembered or forgotten is done at once, by the model's own `remember` and `forget`.
  *
  * ## The organisation's, beside the person's
  *
@@ -72,10 +74,22 @@ class Memory
         return max(1, (int) (self::config()['chars'] ?? 300));
     }
 
-    /** Whether the application turned learning after each answer on. */
+    /** Whether the application turned learning on. */
     public static function learns(): bool
     {
         return (bool) (self::config()['learn'] ?? true);
+    }
+
+    /** How many of the person's messages a learning pass waits for. */
+    public static function every(): int
+    {
+        return max(1, (int) (self::config()['learn_every'] ?? 5));
+    }
+
+    /** How long a conversation is quiet before what it has not learned is learned anyway. */
+    public static function idle(): int
+    {
+        return max(60, (int) (self::config()['learn_idle'] ?? 900));
     }
 
     /** Whether the application keeps memories an organisation shares. */
@@ -149,8 +163,8 @@ class Memory
     }
 
     /**
-     * After an answer: keep what the person stated about themselves or their work, correct what
-     * changed and forget what they took back — one short call, its answer a list of changes,
+     * Keep what the person stated about themselves or their work, correct what changed and forget
+     * what they took back — one short call, its answer a list of changes,
      * applied within the limits. Never throws: a memory that could not be learned is no reason for
      * an answer to fail.
      *
@@ -177,7 +191,7 @@ class Memory
             . 'Answer JSON only: {"changes": [{"op": "keep", "about": "me", "kind": "fact|preference", "memory": "one sentence"}, '
             . '{"op": "correct", "id": 3, "memory": "one sentence"}, {"op": "forget", "id": 4}]}.';
         try {
-            $answer = $client->ask($prompt, [['role' => 'user', 'content' => json_encode(['remembered' => $known, 'said' => mb_substr($said, 0, 4000)], JSON_UNESCAPED_UNICODE)]]);
+            $answer = $client->askCheaply($prompt, [['role' => 'user', 'content' => json_encode(['remembered' => $known, 'said' => mb_substr($said, 0, 4000)], JSON_UNESCAPED_UNICODE)]]);
             $reply  = (string) ($answer['reply'] ?? '');
             $json   = json_decode((string) (preg_match('/\{.*\}/s', $reply, $m) === 1 ? $m[0] : $reply), true);
             $ids    = array_column($known, 'about', 'id');

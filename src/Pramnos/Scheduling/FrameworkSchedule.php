@@ -351,7 +351,7 @@ class FrameworkSchedule
             // is set for a time on somebody's clock. A no-op without the `llm` feature's table.
             'llm:routines' => [
                 'cadence'     => [['everyMinute']],
-                'description' => 'Ask the scheduled AI questions that are due',
+                'description' => 'Ask the scheduled AI questions that are due; learn from quiet conversations',
             ],
 
             // Mass messages: the pending recipients of whatever is due. Not in the

@@ -119,6 +119,41 @@ class Client
     }
 
     /**
+     * Ask on the cheapest priced model this provider lists — for the housekeeping beside an answer
+     * (learning a memory, folding a summary), which needs no more. Where that model fails — a key
+     * that cannot reach it, say — asked again on this connection's own.
+     *
+     * @param list<array<string, mixed>> $messages `role` and `content` each
+     * @return array<string, mixed>
+     */
+    public function askCheaply(string $systemPrompt, array $messages): array
+    {
+        $prices = new Pricing();
+        $cost   = static fn (string $model): ?float => ($price = $prices->forModel($model)) === null
+            ? null : (float) ($price['cache_miss'] ?? 0) + (float) ($price['output'] ?? 0);
+        $own    = $this->connection->model();
+        [$best, $least] = [$own, $cost($own)];
+
+        foreach (array_keys((array) ($this->connection->config()['models'] ?? [])) as $model) {
+            $price = $cost((string) $model);
+            if ($price !== null && ($least === null || $price < $least)) {
+                [$best, $least] = [(string) $model, $price];
+            }
+        }
+
+        if ($best !== $own) {
+            $cheap             = clone $this;
+            $cheap->connection = $this->connection->with(['model' => $best]);
+            $answer            = $cheap->ask($systemPrompt, $messages);
+            if ($answer['ok'] ?? false) {
+                return $answer;
+            }
+        }
+
+        return $this->ask($systemPrompt, $messages);
+    }
+
+    /**
      * Ask, letting the model call tools until it answers.
      *
      * `$due` names the tools a task must end with, each with a test over the calls so far:

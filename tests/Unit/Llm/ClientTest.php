@@ -60,6 +60,33 @@ class ClientTest extends LlmTestCase
     }
 
     /**
+     * askCheaply() stays on the connection's model when it is already the cheapest priced one the
+     * provider lists, and leaves a model nobody priced for the cheapest that is — housekeeping
+     * calls cost what they must and no more.
+     */
+    public function testAskingCheaplyPicksTheCheapestPricedModel(): void
+    {
+        // Arrange
+        $this->answer([[200, self::says('Fine')]]);
+        $deepseek = new Client();
+        $this->setting('llm_provider', 'openai');
+        $this->setting('llm_openai_model', 'gpt-5');
+        $openai = new Client();
+
+        // Act
+        $stays = $deepseek->askCheaply('Be brief.', [['role' => 'user', 'content' => 'Hi']]);
+        $moves = $openai->askCheaply('Be brief.', [['role' => 'user', 'content' => 'Hi']]);
+
+        // Assert
+        $this->assertTrue($stays['ok'] && $moves['ok']);
+        // deepseek-chat costs less than deepseek-reasoner: one call, on it.
+        $this->assertSame('deepseek-chat', $this->sent[0]['body']['model']);
+        // gpt-5 has no price; gpt-6-luna is the cheapest OpenAI model priced.
+        $this->assertSame('gpt-6-luna', $this->sent[1]['body']['model']);
+        $this->assertCount(2, $this->sent);
+    }
+
+    /**
      * Without a key nothing is sent, and the answer says where to put one.
      */
     public function testWithoutAKeyNothingIsSent(): void

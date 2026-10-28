@@ -65,6 +65,12 @@ class Routines
     {
     }
 
+    /** The conversations these routines ask in. */
+    public function conversations(): Conversations
+    {
+        return $this->chat;
+    }
+
     /** The rules around tasks — {@see TaskPolicy}, or the application's. */
     public function policy(): TaskPolicy
     {

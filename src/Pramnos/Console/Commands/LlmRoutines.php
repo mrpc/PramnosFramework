@@ -12,7 +12,8 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
- * llm:routines — ask the scheduled questions that are due, each as its owner.
+ * llm:routines — ask the scheduled questions that are due, each as its owner, then learn from the
+ * conversations that went quiet with something of the person's not yet learned from.
  *
  * Scheduled every minute by the framework. An installation without the `llm` feature has no
  * table, and the command says so and succeeds.
@@ -33,8 +34,14 @@ class LlmRoutines extends Command
             return Command::SUCCESS;
         }
 
-        $ran = $this->routines()->runDue(time());
+        $routines = $this->routines();
+        $ran      = $routines->runDue(time());
         $output->writeln($ran === 0 ? 'Nothing was due.' : 'Asked ' . $ran . ' scheduled question' . ($ran === 1 ? '' : 's') . '.');
+
+        $learned = $routines->conversations()->learnQuiet(time());
+        if ($learned > 0) {
+            $output->writeln('Learned from ' . $learned . ' quiet conversation' . ($learned === 1 ? '' : 's') . '.');
+        }
 
         return Command::SUCCESS;
     }

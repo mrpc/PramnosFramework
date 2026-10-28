@@ -379,12 +379,25 @@ A `Chat\Turn` carries the scope, the conversation, whether it is a scheduled run
 the documents attached in the conversation, the caller's `extra`, and `bag` — the application's,
 for the length of the turn: what `question()` puts in it reaches `tools()` and `answered()`.
 
-A turn sends back the last `turns()` turns, never starting on an answer, each earlier answer
+A turn sends back the conversation, never starting on an answer, each earlier answer
 followed by a note of the tools that wrote in it; without the note, a later answer sees no result
 for a change it made and says it changed nothing. A note the model copies into its reply is taken
 out. A conversation whose earlier answers carried data of a tag (`tags`, see
 [Data rules](#data-rules)) is moved to a connection that may take it before anything is asked,
 or refused with `heldRefusal()`. Only an answered turn is stored — question and answer together.
+
+**A long conversation is summarised, not cut.** Once it passes `turns()` turns and half as many
+again, its older part — whole exchanges, never an answer without its question — is folded into a
+summary by one short call, kept on the conversation (`summary`, up to `summary_upto`), and sent
+with the system prompt; what came after is sent as it was said. So a summary costs one call every
+few turns, not every turn. A summary that cannot be written marks nothing: that turn sends the last
+`turns()` only, and the next one tries again. `'llm' => ['chat' => ['summarize' => false]]` sends
+the last `turns()` and leaves the start out.
+
+**Housekeeping runs on the cheapest model.** The summary and memory learning go through
+`Client::askCheaply()`: the cheapest model in the provider's list that has prices
+([the call log and costs](#the-call-log-and-costs)), on the same provider and key; where that model fails, the call is asked again
+on the connection's own.
 
 An attachment is a document's words: `ask(…, attachment: ['name' => 'release.docx', 'text' => …])`.
 `Pramnos\Llm\DocumentText::from($name, $bytes)` reads `.docx`, `.odt`, `.txt`, `.md` and `.eml`
@@ -404,14 +417,22 @@ the model passes its id as `replaces` and the memory is rewritten — the latest
 than two memories disagreeing. In code, `Memory::keep($kind, $content, $replaces, $about,
 $source)`; `remember()` is the same for a new one.
 
-**Learning after an answer** — on by default; `'llm' => ['chat' => ['memory' => ['learn' =>
-false]]]` turns it off. After each answer a short second call reads what the person just said
-beside what is remembered, and answers a list of changes: keep what they *stated* about themselves,
-their role or their work, or how they want answers; correct what changed; forget what they took
-back. At most ten changes a turn, within the limits; what it cannot read changes nothing, and a
-failure never fails the answer. What it keeps is marked `learned` and shown so on the memory list,
-where the person forgets it like any other. It costs one call per answer; with it off, the model
-still keeps what is worth keeping through `remember`.
+**Learning, in batches** — on by default; `'llm' => ['chat' => ['memory' => ['learn' => false]]]`
+turns it off. A short call reads what the person said beside what is remembered, and answers a list
+of changes: keep what they *stated* about themselves, their role or their work, or how they want
+answers; correct what changed; forget what they took back. Not after every answer: once
+`learn_every` (5) of the person's messages have gathered in a conversation, or when it has been
+quiet for `learn_idle` seconds (900) — `llm:routines`, every minute, looks for those
+(`Conversations::learnQuiet()`). The conversation remembers how far it was read (`learned_upto`);
+an answer others read, a scheduled run and a conversation opened from a report are marked read, not
+learned from, and so is one whose data no connection may take. At most ten changes a pass, within
+the limits; what it cannot read changes nothing, and a failure never fails the answer. What it
+keeps is marked `learned` and shown so on the memory list, where the person forgets it like any
+other.
+
+**What the person asks to be remembered is remembered at once.** "Remember that I moved to
+Athens", "forget that": the model calls `remember` or `forget` in the same answer, with no batch to
+wait for and no second call.
 
 **An organisation's memory** — on by default (`'memory' => ['organization' => false]` turns it
 off; `organization_max`, 40). Inside an organisation, the model also keeps what people there tell it about their shared

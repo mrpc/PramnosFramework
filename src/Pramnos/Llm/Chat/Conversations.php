@@ -24,9 +24,13 @@ use Pramnos\Llm\Llm;
  *
  * The question is capped at {@see CHARS} and an attached document's words at
  * {@see ATTACHMENT_CHARS}, after a `---` line and its name, so later answers can find it again
- * ({@see documents()}). The last {@see Assistant::turns()} turns are sent, never starting on an
- * answer, each earlier answer followed by a note of the tools that wrote in it — without which a
- * later answer sees no result for a change it made and says it changed nothing. A conversation
+ * ({@see documents()}). The conversation is sent never starting on an answer, each earlier answer
+ * followed by a note of the tools that wrote in it — without which a later answer sees no result
+ * for a change it made and says it changed nothing. Past {@see Assistant::turns()} turns and half
+ * as many again, the older part is folded into a summary (`summary`, up to `summary_upto`) sent
+ * with the system prompt, so a long conversation costs one summary call every few turns rather
+ * than losing its start; `'llm' => ['chat' => ['summarize' => false]]` sends the last `turns()`
+ * only. A conversation
  * that holds data of a tag moves first to a connection that may take it, or is refused.
  *
  * Only a successful answer is stored, question and answer together, with the union of the tags
@@ -47,6 +51,8 @@ class Conversations
     public const MARK = '⟦Tools that wrote in this answer: ';
 
     private ?Scope $scope = null;
+
+    private ?bool $tracks = null;
 
     private bool $scheduled = false;
 
@@ -228,7 +234,9 @@ class Conversations
         }
 
         $history = [];
+        $ids     = [];
         $held    = [];
+        $summary = '';
 
         if ($conversationId !== null) {
             $found = $this->find($conversationId);
@@ -237,10 +245,43 @@ class Conversations
                 return self::refusal('missing', 'There is no such conversation.');
             }
 
-            $held = $found['tags'];
+            $held    = $found['tags'];
+            $row     = (array) $this->conversation($conversationId);
+            $summary = trim((string) ($row['summary'] ?? ''));
 
             foreach ($found['messages'] as $turn) {
+                // What the summary already holds is not sent again.
+                if ((int) $turn['message_id'] <= (int) ($row['summary_upto'] ?? 0)) {
+                    continue;
+                }
                 $history[] = ['role' => $turn['role'], 'content' => $turn['content'] . $this->whatItDid($turn['tools'] ?? [])];
+                $ids[]     = (int) $turn['message_id'];
+            }
+        }
+
+        $client = $this->client($this->scope);
+
+        // A conversation already holding data of a kind is asked only where that kind may go —
+        // its summary too.
+        foreach ($held as $tag) {
+            if (!$client->moveFor($tag)) {
+                return self::refusal('tags', $this->assistant->heldRefusal($tag));
+            }
+        }
+
+        // A long conversation folds its older part into the summary — a few messages at a time,
+        // not a call every turn — and sends the rest as it was said.
+        // Without a summary to keep it, what does not fit is left out.
+        $keep  = max(1, $this->assistant->turns());
+        $slice = !self::summarizes() || !$this->tracks();
+        if (!$slice && count($history) + 1 > $keep + max(2, intdiv($keep, 2))) {
+            $cut = count($history) + 1 - $keep;
+            // An answer goes with its question: what is sent never starts on one.
+            $cut   += ($history[$cut]['role'] ?? '') === 'assistant' ? 1 : 0;
+            $folded = $this->fold((int) $conversationId, $client, $summary, array_slice($history, 0, $cut), $ids[$cut - 1]);
+            $slice  = $folded === null;
+            if ($folded !== null) {
+                [$summary, $history] = [$folded, array_slice($history, $cut)];
             }
         }
 
@@ -250,7 +291,10 @@ class Conversations
         $asking  = new Turn($this->scope, $conversationId, $this->scheduled, $preview, self::documents($preview), $extra, $this);
         $question = $this->assistant->question($asking, $question);
 
-        $messages = array_slice([...$history, ['role' => 'user', 'content' => $question]], -max(1, $this->assistant->turns()));
+        $messages = [...$history, ['role' => 'user', 'content' => $question]];
+        if ($slice) {
+            $messages = array_slice($messages, -$keep);
+        }
 
         // A cut that starts on an answer would show the model a reply to nothing.
         if ($messages[0]['role'] === 'assistant') {
@@ -260,15 +304,6 @@ class Conversations
         $turn   = new Turn($this->scope, $conversationId, $this->scheduled, $messages, self::documents($messages), $extra, $this);
         // What question() kept for the answer — a draft it named — is the answer's too.
         $turn->bag = $asking->bag;
-        $client = ($this->client ?? new Client($this->assistant->connection($this->scope)))
-            ->about(['purpose' => $this->scope->purpose()] + $this->scope->context() + $this->about);
-
-        // A conversation already holding data of a kind is asked only where that kind may go.
-        foreach ($held as $tag) {
-            if (!$client->moveFor($tag)) {
-                return self::refusal('tags', $this->assistant->heldRefusal($tag));
-            }
-        }
 
         $memory    = new Memory($this->scope);
         $routines  = new Routines($this);
@@ -284,7 +319,8 @@ class Conversations
                 + (new Proposals($this->scope))->tools($artifacts)));
 
         $answer = $client->askWithTools(
-            $this->assistant->systemPrompt($turn) . "\n\n" . ($turn->shared() ? trim($this->assistant->context($turn)) : $this->context($turn, $memory)),
+            $this->assistant->systemPrompt($turn) . "\n\n" . ($turn->shared() ? trim($this->assistant->context($turn)) : $this->context($turn, $memory))
+                . ($summary === '' ? '' : "\n\nEarlier in this conversation, in short (those messages are not shown again):\n" . $summary),
             $messages,
             $tools,
             $this->assistant->rounds(),
@@ -326,9 +362,12 @@ class Conversations
             $steps === [] ? [] : ['steps' => $steps]);
         $message['artifacts'] = $artifacts->link($conversationId, (int) $message['message_id'], $turn->tags);
 
-        // Learned after the answer, where the application wants it: what the person stated, kept.
+        // What the person stated, kept — once several of their messages have gathered. An answer
+        // others read, or a scheduled run, is nothing of the person's to learn from.
         if (Memory::learns() && !$turn->shared() && !$this->scheduled) {
-            $memory->learn($client, $asked);
+            $this->tracks() ? $this->learnFrom($conversationId, $memory, $client, false) : $memory->learn($client, $asked);
+        } elseif ($this->tracks()) {
+            $this->mark($conversationId, ['learned_upto' => (int) $message['message_id']]);
         }
 
         return ['ok' => true, 'says' => '', 'why' => '', 'conversation_id' => $conversationId,
@@ -353,8 +392,13 @@ class Conversations
         ]);
         $conversationId = (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId();
 
+        $last = 0;
         foreach ($messages as $message) {
-            $this->store($conversationId, $message['role'] === 'assistant' ? 'assistant' : 'user', (string) $message['content'], [], null, $stamp);
+            $last = (int) $this->store($conversationId, $message['role'] === 'assistant' ? 'assistant' : 'user', (string) $message['content'], [], null, $stamp)['message_id'];
+        }
+        // What was put here, not said: nothing to learn from.
+        if ($this->tracks()) {
+            $this->mark($conversationId, ['learned_upto' => $last]);
         }
 
         return $conversationId;
@@ -468,6 +512,135 @@ class Conversations
     public static function withoutMark(string $reply): string
     {
         return trim((string) preg_replace('/\s*⟦[^⟧]*⟧/u', '', $reply));
+    }
+
+    /**
+     * Learn from the conversations that went quiet with something of the person's not yet learned
+     * from — each as its owner. Run by `llm:routines`. Returns how many were read.
+     */
+    public function learnQuiet(int $now, int $limit = 20): int
+    {
+        if (!Memory::learns() || !$this->tracks()) {
+            return 0;
+        }
+
+        $result = $this->table('#PREFIX#chat_conversations c')
+            ->join('#PREFIX#chat_messages m', static fn (\Pramnos\Database\JoinClause $on) => $on
+                ->on('m.conversation_id', '=', 'c.conversation_id')->on('m.message_id', '>', 'c.learned_upto'))
+            ->select(['c.conversation_id', 'c.organization_id', 'c.userid', 'c.space'])->distinct()
+            ->where('m.role', 'user')
+            ->where('c.updated_at', '<', CallLog::instant($now - Memory::idle()))
+            ->orderBy('c.conversation_id')->limit(max(1, $limit))->get();
+        $read = 0;
+
+        while ($result && ($row = $result->fetch()) !== null) {
+            $scope  = new Scope((int) $row['userid'], $row['organization_id'] === null ? null : (int) $row['organization_id'], (string) $row['space']);
+            $chat   = $this->as($scope);
+            $client = $this->client($scope);
+            // Data of a kind goes only where that kind may go; where nothing may take it, it is not learned from.
+            $barred = array_filter(self::tagsOf((array) $chat->conversation((int) $row['conversation_id'])), static fn (string $tag): bool => !$client->moveFor($tag));
+            $read  += (int) $chat->learnFrom((int) $row['conversation_id'], new Memory($scope), $barred === [] ? $client : null, true);
+        }
+
+        return $read;
+    }
+
+    /**
+     * Learn from what the person said since the last pass: once {@see Memory::every()} of their
+     * messages have gathered, or at once (`$now`). Without a client, only marks them read.
+     * Returns whether it learned.
+     */
+    private function learnFrom(int $conversationId, Memory $memory, ?Client $client, bool $now): bool
+    {
+        $since  = (int) ($this->conversation($conversationId)['learned_upto'] ?? 0);
+        $result = $this->table('#PREFIX#chat_messages')->select(['message_id', 'role', 'content'])
+            ->where('conversation_id', $conversationId)->where('message_id', '>', $since)->orderBy('message_id')->get();
+        $said = [];
+        $last = $since;
+
+        while ($result && ($row = $result->fetch()) !== null) {
+            $last = (int) $row['message_id'];
+            if ($row['role'] === 'user') {
+                // An attached document is most of a long message, and not what the person said.
+                $said[] = mb_substr((string) $row['content'], 0, 800);
+            }
+        }
+
+        if ($said === [] || (!$now && count($said) < Memory::every())) {
+            return false;
+        }
+
+        if ($client !== null) {
+            $memory->learn($client, implode("\n\n", $said));
+        }
+        $this->mark($conversationId, ['learned_upto' => $last]);
+
+        return $client !== null;
+    }
+
+    /**
+     * Fold older messages into the conversation's summary, up to message `$upto`. The new summary,
+     * or null when it could not be written — then nothing is marked folded and they are left out
+     * this turn, as without a summary.
+     *
+     * @param list<array{role: string, content: string}> $older
+     */
+    private function fold(int $conversationId, Client $client, string $summary, array $older, int $upto): ?string
+    {
+        // ponytail: the newest 40 only, each cut to 2000 characters — a conversation from before
+        // summaries, folded for the first time, would otherwise be one enormous call.
+        $lines = array_map(static fn (array $one): string => $one['role'] . ': ' . mb_substr($one['content'], 0, 2000), array_slice($older, -40));
+
+        try {
+            $answer = $client->askCheaply('You keep the running summary of a conversation between a person and an assistant, so that it can go on '
+                . 'without its older messages. Rewrite the summary to take in the messages given: what was asked, what was found or decided, '
+                . 'names, figures and ids that may be referred to again, and what is still open. Plain sentences in the conversation\'s '
+                . 'language, at most 300 words. Answer with the summary only.', [['role' => 'user', 'content' =>
+                    ($summary === '' ? '' : "Summary so far:\n" . $summary . "\n\n") . "Messages to take in:\n\n" . implode("\n\n", $lines)]]);
+        } catch (\Throwable $why) {
+            \Pramnos\Logs\Logger::log('llm conversation summary: ' . $why->getMessage(), 'llm');
+
+            return null;
+        }
+
+        $folded = trim((string) ($answer['reply'] ?? ''));
+        if (!($answer['ok'] ?? false) || $folded === '') {
+            return null;
+        }
+        $this->mark($conversationId, ['summary' => $folded, 'summary_upto' => $upto]);
+
+        return $folded;
+    }
+
+    /** @param array<string, mixed> $values A conversation's columns, written as they are */
+    private function mark(int $conversationId, array $values): void
+    {
+        $this->table('#PREFIX#chat_conversations')->where('conversation_id', $conversationId)->update($values);
+    }
+
+    /** Whether chat_conversations has its summary and watermarks yet — asked once per instance. */
+    private function tracks(): bool
+    {
+        try {
+            return $this->tracks ??= \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('chat_conversations', 'learned_upto');
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /** Whether the application folds a long conversation into a summary, rather than leaving its start out. */
+    public static function summarizes(): bool
+    {
+        $chat = \Pramnos\Llm\Llm::config('chat', []);
+
+        return (bool) ($chat['summarize'] ?? true);
+    }
+
+    /** The client a call in this scope is made with. */
+    private function client(Scope $scope): Client
+    {
+        return ($this->client ?? new Client($this->assistant->connection($scope)))
+            ->about(['purpose' => $scope->purpose()] + $scope->context() + $this->about);
     }
 
     /**
