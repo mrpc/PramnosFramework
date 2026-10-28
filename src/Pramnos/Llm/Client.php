@@ -58,6 +58,16 @@ class Client
     /** A tool's result is cut here: a model does not read more, and a provider bills it. */
     public const RESULT_LIMIT = 20_000;
 
+    /** How many times an answer cut off at the length limit is asked to go on. */
+    public const CONTINUATIONS = 2;
+
+    /** Said to ask for the rest of an answer that was cut off. */
+    public const CONTINUE = 'Your answer was cut off at the length limit. Continue exactly where it stopped — '
+        . 'mid-word if need be — without repeating anything or starting again.';
+
+    /** Put under an answer still cut off after asking for the rest. */
+    public const CUT_OFF = 'The answer was cut off at the model\'s length limit; raise the token budget in the AI settings for longer answers.';
+
     private Connection $connection;
 
     /** @var array<string, mixed> What the call is for, and who it is for */
@@ -205,6 +215,8 @@ class Client
         // What the model wrote in rounds that also called tools. Part of the answer: a model
         // can write the whole of it and call once more, and its last round is then a postscript.
         $said     = [];
+        // An answer cut off at the length limit, asked to go on: the parts so far.
+        $parts    = [];
 
         for ($round = 1; $round <= $rounds; $round++) {
             $payload['messages'] = array_merge([['role' => 'system', 'content' => $systemPrompt]], $messages);
@@ -345,6 +357,25 @@ class Client
 
             $this->write($entry + ['http_status' => $status, 'finish_reason' => $finish, 'reply' => $reply, 'usage' => $spent, 'duration_ms' => $took], $context);
 
+            /*
+             * Cut off at the length limit, with something said: asked for the rest, a few times,
+             * rather than kept as though it were whole — a report emailed stopping mid-link is what
+             * that did. Still cut off after that, it is said so under the answer.
+             */
+            // Untrimmed where the parts meet: a continuation that starts with a space keeps it.
+            $raw = (string) ($message['content'] ?? '');
+            if ($finish === 'length' && count($parts) < self::CONTINUATIONS) {
+                $parts[]    = $parts === [] ? ltrim($raw) : $raw;
+                $messages[] = ['role' => 'assistant', 'content' => $reply];
+                $messages[] = ['role' => 'user', 'content' => self::CONTINUE];
+                $rounds     = max($rounds, $round + 1);
+
+                continue;
+            }
+            $truncated = $finish === 'length';
+            $reply     = ($parts === [] ? $reply : rtrim(implode('', [...$parts, $raw]))) . ($truncated ? "\n\n_" . self::CUT_OFF . '_' : '');
+            $parts     = [];
+
             $answer = implode("\n\n", [...$said, $reply]);
 
             $correction = $verify !== null && !$verified && $tools !== [] ? $verify($answer, $calls) : null;
@@ -377,6 +408,8 @@ class Client
                 'calls'    => $calls,
                 'context'  => $seen,
                 'finish'   => $finish,
+                // Still cut off after asking for the rest: the answer says so too.
+                'truncated' => $truncated,
                 'tags'     => $this->tags(),
                 'provider' => $this->connection->provider(),
             ];

@@ -237,6 +237,33 @@ class ClientTest extends LlmTestCase
     }
 
     /**
+     * An answer cut off at the length limit is asked to go on, and the parts are joined; still cut
+     * off after asking twice, it is kept with a line saying so and marked truncated — never sent on
+     * as though it were whole.
+     */
+    public function testAnAnswerCutOffIsAskedToGoOnAndOtherwiseSaysSo(): void
+    {
+        // Arrange — cut once, then finished
+        $this->answer([[200, self::says('The report: https://exa', finish: 'length')], [200, self::says('mple.test/r is ready.')]]);
+
+        // Act
+        $joined = (new Client(null, self::memoryLog()))->ask('', [['role' => 'user', 'content' => 'Report']]);
+        $asked  = end($this->sent[1]['body']['messages']);
+        $this->answer([[200, self::says('One', finish: 'length')], [200, self::says(' two', finish: 'length')], [200, self::says(' three', finish: 'length')]]);
+        $cut    = (new Client(null, self::memoryLog()))->ask('', [['role' => 'user', 'content' => 'Long']]);
+
+        // Assert
+        $this->assertTrue($joined['ok']);
+        $this->assertSame('The report: https://example.test/r is ready.', $joined['reply'], 'the parts joined where they stopped');
+        $this->assertFalse($joined['truncated']);
+        $this->assertSame(Client::CONTINUE, $asked['content'], 'asked to go on from where it stopped');
+        $this->assertTrue($cut['truncated']);
+        $this->assertStringStartsWith('One two three', $cut['reply']);
+        $this->assertStringEndsWith('_' . Client::CUT_OFF . '_', $cut['reply'], 'still cut off: the answer says so');
+        $this->assertSame(30, $joined['usage']['total_tokens'], 'what both calls spent');
+    }
+
+    /**
      * Tools are offered, run, their results returned, and the last round forbids tools.
      */
     public function testToolsAreRunAndTheLastRoundForbidsThem(): void

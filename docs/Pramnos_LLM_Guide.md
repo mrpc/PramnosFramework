@@ -109,6 +109,14 @@ A file is read for its text by `DocumentText` (docx, odt, txt, md, eml); a PDF w
 document goes to the provider the client is connected to: pass a `Client` of a feature and
 connection that may receive it.
 
+### An answer cut off at the length limit
+
+When a model stops at its token budget with text already written (`finish_reason: length`), the
+client asks it to continue where it stopped, up to twice (`Client::CONTINUATIONS`), and joins the
+parts. Still cut off after that, the answer is kept with a line under it saying so and returned
+with `truncated: true` — a scheduled report is never emailed stopping mid-sentence as though it
+were whole. Raise the budget in the AI settings for longer answers.
+
 ## Providers and connections
 
 Four are built in, all through the OpenAI-compatible `/chat/completions`: `openai`, `deepseek`,
@@ -1078,6 +1086,13 @@ provider in use asks for it; its `consent` is bindable. `kind` names the feature
 - It opens a routine's conversation with `onopen(id)`.
 
 ## The administrators' analyst
+
+**Where its screen is.** Its links — a report's notification, a conversation, a share — lead into
+the administration area where the application has one, and otherwise to `admin/` under the
+site's address. An application whose whole site is the administration (`/Ai`, `/Users`) says so
+with `'llm' => ['analyst' => ['area' => '']]`, or names another place with `'area' => 'backoffice'`;
+every link follows (`AnalystAssistant::areaUrl()`).
+
 
 `/admin/Ai` — *Ask*, the AI item in the admin menu — answers questions about the installation
 itself — how many signed up last month, which emails were opened, what failed in the queue, what

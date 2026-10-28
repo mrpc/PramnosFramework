@@ -218,6 +218,16 @@ class AnalystTasksTest extends LlmTestCase
         $inArea = AnalystAssistant::areaUrl('Ai/report/' . $runId);
         \Pramnos\Http\AdminArea::reset();
         $this->assertStringEndsWith('manage/Ai/report/' . $runId, $inArea);
+        // An application whose whole site is the administration says so, and every link follows:
+        // the report's, a conversation's, a share's.
+        $this->configure(['analyst' => ['area' => '']]);
+        $root = AnalystAssistant::areaUrl('Ai/report/' . $runId);
+        $this->assertStringEndsWith('Ai/report/' . $runId, $root);
+        $this->assertStringNotContainsString('admin/', $root);
+        $this->assertStringNotContainsString('admin/', (new \Pramnos\Llm\Chat\SharePolicy())->link(['share_id' => 3, 'space' => Scope::ADMIN]));
+        $this->configure(['analyst' => ['area' => 'backoffice/']]);
+        $this->assertStringEndsWith('backoffice/Ai/analyst?c=4', (new SchedulingAnalyst())->conversationUrl(4), 'or another place of its own');
+        $this->configure([]);
     }
 
     /**

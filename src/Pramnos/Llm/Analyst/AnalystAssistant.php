@@ -191,12 +191,20 @@ class AnalystAssistant extends BaseAssistant
     /**
      * An address on the analyst's screen, the same from a page and from a cron run: the area's,
      * where this application has one; otherwise `admin/` under the site's address — a site's cron
-     * has no area of its own, and its links still lead to the administration's.
+     * has no area of its own, and its links still lead to the administration's — or what
+     * `analyst.area` says, `''` for a site that is the administration throughout.
      */
     public static function areaUrl(string $path): string
     {
-        return \Pramnos\Http\AdminArea::prefix() !== ''
-            ? \Pramnos\Http\AdminArea::url($path)
-            : \Pramnos\Http\SiteUrl::to('admin/' . ltrim($path, '/'));
+        if (\Pramnos\Http\AdminArea::prefix() !== '') {
+            return \Pramnos\Http\AdminArea::url($path);
+        }
+        // Where the analyst's screen is when there is no area to ask: `admin/` by default, and
+        // `'llm' => ['analyst' => ['area' => '']]` for an application whose whole site is the
+        // administration — its screens at `/Ai`, `/Users`.
+        $analyst = \Pramnos\Llm\Llm::config('analyst', []);
+        $area    = is_array($analyst) && is_string($analyst['area'] ?? null) ? trim($analyst['area'], '/') : 'admin';
+
+        return \Pramnos\Http\SiteUrl::to(($area === '' ? '' : $area . '/') . ltrim($path, '/'));
     }
 }
