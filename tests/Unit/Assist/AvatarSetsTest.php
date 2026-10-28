@@ -52,10 +52,14 @@ final class AvatarSetsTest extends TestCase
         $offline = AvatarSets::render('offline');
 
         // Assert
-        $this->assertStringStartsWith('<span class="pf-assistant-avatar pf-assistant--idle" data-state="idle" data-durations="{&quot;success&quot;:1800,&quot;greeting&quot;:2400,&quot;notify&quot;:4000}" role="img" aria-label="Ask">', $idle, 'the stylesheet\'s size: no style');
+        $this->assertStringStartsWith('<span class="pf-assistant-avatar pf-assistant--idle" data-state="idle" data-durations="{&quot;success&quot;:1800,&quot;greeting&quot;:2400,&quot;notify&quot;:4000}" style="display:inline-block;vertical-align:middle;width:var(--pf-assistant-size,24px);height:var(--pf-assistant-size,24px)" role="img" aria-label="Ask">', $idle, 'its size inline, through the variable a theme sets');
+        // Without the theme's stylesheet: sized, and drawn in the text's colour and white, not a page-wide black shape
+        $this->assertStringContainsString('width="100%" height="100%"', $idle);
+        $this->assertStringContainsString('class="pf-assistant-body" fill="currentColor"', $idle);
         $this->assertStringContainsString('<svg class="pf-assistant-pf"', $idle, 'the framework\'s drop');
         $this->assertStringContainsString('class="pf-assistant-avatar pf-assistant--idle mine" data-state="idle"', $odd, 'not a state: idle');
-        $this->assertStringContainsString('--pf-assistant-size:40px', $odd);
+        $this->assertStringContainsString('--pf-assistant-size:40px;', $odd);
+        $this->assertStringContainsString('width:var(--pf-assistant-size,40px)', $odd, 'and its fallback is the size asked for');
         $this->assertStringContainsString(' data-offline ', $offline, 'offline is the server\'s word');
         $this->assertSame(['idle', 'listening', 'thinking', 'talking', 'success', 'error', 'offline', 'greeting', 'notify'], AvatarSets::STATES);
     }

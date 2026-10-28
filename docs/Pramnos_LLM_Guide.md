@@ -1425,6 +1425,12 @@ so a parent sizes or colours the picture: `.pf-ask { --pf-assistant-size: 20px; 
 A set's stylesheet is outside any `@layer`, so it outranks layered utility classes; colouring
 through the property avoids a fight.
 
+The element carries its width and height inline as `var(--pf-assistant-size, 24px)`, with the size
+asked for as the fallback. A page whose theme does not load `components.css` still draws the
+picture at its size and not the width of the page, while a parent can still size it through the
+property. The framework's own drop also carries its colours as SVG attributes: the text's colour
+with white eyes. The stylesheet overrides both.
+
 The set's stylesheet reaches a page once. `render()` puts its `<link>` before the first picture the
 page draws. Where the picture is drawn inside a button or a link, `AvatarSets::stylesheet()` gives
 the `<link>` to put before it; the side panel does so. A picture that is data rather than the

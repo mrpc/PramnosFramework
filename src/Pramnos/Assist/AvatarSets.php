@@ -118,8 +118,10 @@ final class AvatarSets
             . ' data-durations="' . $e((string) json_encode(array_intersect_key($durations, array_flip(self::STATES)))) . '"'
             // Offline is the server's word: the page's own states do not wake it.
             . ($state === 'offline' ? ' data-offline' : '')
-            // The size the stylesheet gives it unless asked otherwise: a themed page carries no style.
-            . ($size !== 24 ? ' style="--pf-assistant-size:' . max(8, $size) . 'px"' : '')
+            // Its size inline, so a page without the theme's components.css does not draw it the
+            // width of the page; through the variable, so a theme can still size it where it sits.
+            . ' style="' . ($size !== 24 ? '--pf-assistant-size:' . max(8, $size) . 'px;' : '')
+            . 'display:inline-block;vertical-align:middle;width:var(--pf-assistant-size,' . max(8, $size) . 'px);height:var(--pf-assistant-size,' . max(8, $size) . 'px)"'
             . ' role="img" aria-label="' . $e($name) . '">' . $inner . '</span>';
     }
 
@@ -176,12 +178,13 @@ final class AvatarSets
     /**
      * The framework's set: a drop with two eyes and a mouth, coloured by the theme's accent
      * (`currentColor` under `.pf-assistant-avatar`). Its movement is in every theme's
-     * components.css.
+     * components.css. Its colours are attributes too, which the stylesheet overrides: without it,
+     * the drop is the text's colour with white eyes, not a black shape.
      */
-    private const DEFAULT_MARKUP = '<svg class="pf-assistant-pf" viewBox="0 0 32 32" aria-hidden="true" focusable="false">'
-        . '<path class="pf-assistant-body" d="M16 2C9 9 5 14 5 19a11 11 0 0 0 22 0c0-5-4-10-11-17z"/>'
-        . '<g class="pf-assistant-eyes"><circle cx="12" cy="19" r="2"/><circle cx="20" cy="19" r="2"/></g>'
-        . '<path class="pf-assistant-mouth" d="M13 24q3 2 6 0"/>'
-        . '<g class="pf-assistant-dots"><circle cx="11" cy="12" r="1.3"/><circle cx="16" cy="12" r="1.3"/><circle cx="21" cy="12" r="1.3"/></g>'
+    private const DEFAULT_MARKUP = '<svg class="pf-assistant-pf" viewBox="0 0 32 32" width="100%" height="100%" aria-hidden="true" focusable="false">'
+        . '<path class="pf-assistant-body" fill="currentColor" d="M16 2C9 9 5 14 5 19a11 11 0 0 0 22 0c0-5-4-10-11-17z"/>'
+        . '<g class="pf-assistant-eyes" fill="#fff"><circle cx="12" cy="19" r="2"/><circle cx="20" cy="19" r="2"/></g>'
+        . '<path class="pf-assistant-mouth" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round" d="M13 24q3 2 6 0"/>'
+        . '<g class="pf-assistant-dots" fill="#fff" opacity="0"><circle cx="11" cy="12" r="1.3"/><circle cx="16" cy="12" r="1.3"/><circle cx="21" cy="12" r="1.3"/></g>'
         . '</svg>';
 }

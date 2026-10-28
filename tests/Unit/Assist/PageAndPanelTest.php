@@ -408,7 +408,9 @@ class PageAndPanelTest extends LlmTestCase
         foreach (['pf-assist-header', 'pf-assist-title', 'pf-assist-button', 'pf-assist-tabs', 'pf-assist-tab', 'pf-assist-pane'] as $hook) {
             $this->assertStringContainsString($hook, $themed, $hook);
         }
-        $this->assertStringNotContainsString(' style="', $themed);
+        // Only the picture's size, through the variable the theme sets: without it, a page without the
+        // theme's stylesheet drew the picture the width of the page.
+        $this->assertStringNotContainsString(' style="', (string) preg_replace('/(<span class="pf-assistant-avatar[^>]*?) style="[^"]*"/', '$1', $themed));
         $this->assertStringContainsString(' style="', $own);
         // Every scaffolded stylesheet has the rules a themed panel relies on.
         foreach (glob(ROOT . '/scaffolding/themes/*/style.css') ?: [] as $css) {
