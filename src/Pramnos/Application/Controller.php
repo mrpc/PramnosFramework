@@ -518,23 +518,30 @@ class Controller extends \Pramnos\Framework\Base
     {
         $session = \Pramnos\Http\Session::getInstance();
         if (!$session->isLogged() && defined('sURL')) {
-            // Inside an administration area: the area's sign-in, and back to the whole path —
-            // `Request::$requestUri` has the area's prefix taken off, so it would return the
-            // guest to the site's page of the same name.
-            if (\Pramnos\Http\AdminArea::isActive()) {
-                throw new \Pramnos\Http\RedirectException(
-                    \Pramnos\Http\AdminArea::loginRedirect((string) ($_SERVER['REQUEST_URI'] ?? ''))
-                );
-            }
-
-            $loginUrl = sURL . 'login';
-            $current  = \Pramnos\Http\Request::$requestUri ?? '';
-            if ($current !== '' && $current !== '/') {
-                $loginUrl .= '?return=' . urlencode($current);
-            }
-            throw new \Pramnos\Http\RedirectException($loginUrl);
+            throw new \Pramnos\Http\RedirectException(self::signInAndBack());
         }
         throw new \Exception('Not authenticated users cannot do that.', 403);
+    }
+
+    /**
+     * Where a guest goes to sign in, and come back to the page they asked for.
+     *
+     * Inside an administration area: the area's sign-in, and back to the whole path —
+     * `Request::$requestUri` has the area's prefix taken off, so it would return the guest to the
+     * site's page of the same name.
+     */
+    private static function signInAndBack(): string
+    {
+        if (\Pramnos\Http\AdminArea::isActive()) {
+            return \Pramnos\Http\AdminArea::loginRedirect((string) ($_SERVER['REQUEST_URI'] ?? ''));
+        }
+        $loginUrl = sURL . 'login';
+        $current  = \Pramnos\Http\Request::$requestUri ?? '';
+        if ($current !== '' && $current !== '/') {
+            $loginUrl .= '?return=' . urlencode($current);
+        }
+
+        return $loginUrl;
     }
 
     /**
@@ -1051,13 +1058,15 @@ class Controller extends \Pramnos\Framework\Base
                     $this->addError('You do not have access to that screen.');
                 }
             }
-            $this->redirect($landing ?? (defined('sURL') ? \sURL : '/'));
+            $this->redirect($landing ?? ($user === null && defined('sURL') ? self::signInAndBack() : (defined('sURL') ? \sURL : '/')));
 
             return true;
         }
 
         if ($user === null || (int) $user->usertype < $minType) {
-            $this->redirect(defined('sURL') ? \sURL : '/');
+            // A guest — somebody who opened a report's link from an email, say — signs in and
+            // comes back; somebody signed in without the standing goes to the site.
+            $this->redirect($user === null && defined('sURL') ? self::signInAndBack() : (defined('sURL') ? \sURL : '/'));
 
             return true;
         }

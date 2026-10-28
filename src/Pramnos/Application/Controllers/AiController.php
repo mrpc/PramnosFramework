@@ -229,6 +229,24 @@ class AiController extends Controller
         return null;
     }
 
+    /**
+     * The screen's floor: `analyst.floor` where the application sets it, else the administration's.
+     * Reports are offered, and sent, to nobody below it.
+     */
+    protected function adminFloor(): int
+    {
+        $analyst = Llm::config('analyst', []);
+        $floor   = is_array($analyst) ? (int) ($analyst['floor'] ?? 0) : 0;
+
+        return $floor > 0 ? $floor : parent::adminFloor();
+    }
+
+    /** Shared reports are offered only to roles that may open this screen. */
+    protected function audienceFloor(): int
+    {
+        return $this->adminFloor();
+    }
+
     /** Who is signed in, or null. A seam for tests. */
     protected function reader(): ?object
     {

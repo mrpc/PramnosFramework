@@ -79,7 +79,8 @@ trait SchedulesTasks
         // What the open task cost is the framework's own; an application's `task` markup replaces it.
         $view->extras    = $this->scheduledExtras($task) + ['form' => '', 'task' => $task === null ? '' : \Pramnos\Llm\Chat\TaskCosts::forTask($task, $view->runs)];
         // Who may receive a shared report: the roles to choose from, and the open one's readers by name.
-        $view->audienceRoles = static::audienceRoles();
+        // Only roles that may open the space's screen: a report is not offered to those it is closed to.
+        $view->audienceRoles = array_filter(static::audienceRoles(), fn (int $level): bool => $level >= $this->audienceFloor());
         $view->audienceUsers = is_array($task['audience'] ?? null) ? $policy->audienceNames($task['audience']['users']) : [];
         $view->mayEdit       = $task !== null && (int) $task['userid'] === $scope->userId;
         $view->urls      = [
@@ -222,6 +223,12 @@ trait SchedulesTasks
         asort($roles);
 
         return $roles;
+    }
+
+    /** The lowest role a shared report may be offered to: nobody's, by default; the analyst's screen, its floor. */
+    protected function audienceFloor(): int
+    {
+        return 0;
     }
 
     /** The scheduled tasks, over this person's conversations. */

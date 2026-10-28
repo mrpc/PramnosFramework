@@ -657,6 +657,12 @@ After each run:
 
 The question a run asks carries the day on the owner's clock.
 
+**Who may read a shared report.** A report carries what was read with its maker's rights, so in
+the administrators' space it is never sent to — nor readable by — somebody below the analyst's floor
+(`'llm' => ['analyst' => ['floor' => 98]]`, else the administration's default usertype), whatever
+its audience names, and the form offers only roles at or above it. `TaskPolicy::readerFloor($task)`
+is where an application gated otherwise answers; Ask AI's own reports have no floor.
+
 **One's own report by email.** The Scheduled page offers *Email it to me* / *Stop the email* on each
 of the person's own reports, as it offers *Receive it by email too* on a shared one (`mine()`
 carries `email` per task). Where an application shows no notifications — no bell — a run's

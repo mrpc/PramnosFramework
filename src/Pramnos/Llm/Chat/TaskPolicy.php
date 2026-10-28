@@ -132,6 +132,11 @@ class TaskPolicy
         if ((int) $task['userid'] === $userId) {
             return true;
         }
+        // A report carries what was read with its maker's rights: never to somebody the space's
+        // screen is closed to, whatever its audience says.
+        if ($this->usertype($userId) < $this->readerFloor($task)) {
+            return false;
+        }
         if (($task['owner'] ?? Routines::OWNER_USER) === Routines::OWNER_USER) {
             return false;
         }
@@ -147,6 +152,28 @@ class TaskPolicy
         }
 
         return $this->usertype($userId) >= $this->usertype((int) $task['userid']);
+    }
+
+    /**
+     * The lowest usertype that may read a task someone else made: the analyst's floor in the
+     * administrators' space — `'llm' => ['analyst' => ['floor' => …]]`, or the administration's
+     * default — and nobody's in Ask AI. An application whose screens are gated otherwise answers
+     * here.
+     *
+     * @param array<string, mixed> $task
+     */
+    public function readerFloor(array $task): int
+    {
+        return ($task['space'] ?? Scope::CHAT) === Scope::ADMIN ? self::analystFloor() : 0;
+    }
+
+    /** The analyst's floor: `analyst.floor` where the application sets it, else the administration's default. */
+    public static function analystFloor(): int
+    {
+        $analyst = \Pramnos\Llm\Llm::config('analyst', []);
+        $floor   = is_array($analyst) ? (int) ($analyst['floor'] ?? 0) : 0;
+
+        return $floor > 0 ? $floor : \Pramnos\Auth\AdminAccess::defaultUsertype();
     }
 
     /**

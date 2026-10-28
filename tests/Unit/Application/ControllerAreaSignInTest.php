@@ -82,6 +82,43 @@ class ControllerAreaSignInTest extends TestCase
         $this->assertSame(\sURL . 'login?return=' . urlencode('/admin/Ai'), $url);
     }
 
+    /**
+     * A screen behind a usertype floor sends a guest to sign in and back too — somebody opening a
+     * scheduled report's link from an email — rather than to the site's home page; somebody signed
+     * in without the standing still goes to the site.
+     */
+    public function testAGuestAtAFlooredScreenSignsInAndComesBack(): void
+    {
+        // Arrange
+        $controller = new class (null) extends Controller {
+            /** @var list<string> */
+            public array $went = [];
+
+            public function __construct($app)
+            {
+                parent::__construct($app);
+            }
+
+            public function guard(int $floor): bool
+            {
+                return $this->requireMinUserType($floor);
+            }
+
+            public function redirect($url = null, $quit = true, $code = '302')
+            {
+                $this->went[] = (string) $url;
+            }
+        };
+        AdminArea::detect('admin');
+
+        // Act
+        $refused = $controller->guard(90);
+
+        // Assert
+        $this->assertTrue($refused);
+        $this->assertSame([\sURL . 'login?return=' . urlencode('/admin/Ai')], $controller->went);
+    }
+
     /** The area's own sign-in, when it has one. */
     public function testTheAreasOwnSignIn(): void
     {
