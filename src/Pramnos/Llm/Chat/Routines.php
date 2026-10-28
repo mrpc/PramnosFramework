@@ -443,7 +443,7 @@ class Routines
             $byEmail = $ok ? $this->emailSubscribers((int) $routine['routine_id']) : [];
             foreach ($audience as $userId) {
                 $this->tell($userId, $title, $ok, $why, $conversationId, $ok ? $policy->link($routine, $run) : null,
-                    (string) ($run['content'] ?? ''), in_array($userId, $byEmail, true), self::runDay($policy->timezone($routine)));
+                    (string) ($run['content'] ?? ''), in_array($userId, $byEmail, true), self::runDay($policy->timezone($routine)), (int) $routine['routine_id']);
             }
         } elseif ($routine['kind'] === self::REMINDER) {
             $this->remind($audience, (string) $routine['prompt'], $policy->link($routine, $run));
@@ -1325,15 +1325,15 @@ class Routines
         return $format === '' ? '' : (new \DateTimeImmutable('now', new \DateTimeZone($timezone)))->format($format);
     }
 
-    private function tell(int $userId, string $title, bool $ok, string $says, ?int $conversationId, ?string $link = null, string $content = '', bool $email = false, string $day = ''): void
+    private function tell(int $userId, string $title, bool $ok, string $says, ?int $conversationId, ?string $link = null, string $content = '', bool $email = false, string $day = '', int $routineId = 0): void
     {
         $chat  = \Pramnos\Llm\Llm::config('chat', []);
         $class = is_array($chat) && is_string($chat['routine_notification'] ?? null) && class_exists($chat['routine_notification'])
             ? $chat['routine_notification'] : RoutineReady::class;
 
         try {
-            // The day goes seventh: a notification class of the application's own, written for six, ignores it.
-            $this->deliver($userId, new $class($title, $ok, $ok ? '' : $says, self::linkable($link ?? $this->chat->assistant()->conversationUrl($conversationId)), $content, $email, $day));
+            // The day and the task go seventh and eighth: a notification class of the application's own, written for six, ignores them.
+            $this->deliver($userId, new $class($title, $ok, $ok ? '' : $says, self::linkable($link ?? $this->chat->assistant()->conversationUrl($conversationId)), $content, $email, $day, $routineId));
         } catch (\Throwable $why) {
             // A dead push endpoint must not undo a report that was written.
             \Pramnos\Logs\Logger::log('llm routine notification: ' . $why->getMessage());

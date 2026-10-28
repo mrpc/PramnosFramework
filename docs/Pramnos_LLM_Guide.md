@@ -676,6 +676,10 @@ The day reaches the notification class as its seventh argument; a class of the a
 written for six ignores it. A report can be emailed from the start: *Email the report to me too*
 on the form (ticked), or `email: true` to `schedule_task`.
 
+Each report's email has its own unsubscribe list, `askreport-{id}`: the link in it stops that
+report's email and no other, and is the same switch as *Stop the email* on the page — turning the
+email back on from the page, the form or Ask works at once.
+
 **One's own report by email.** The Scheduled page offers *Email it to me* / *Stop the email* on each
 of the person's own reports, as it offers *Receive it by email too* on a shared one (`mine()`
 carries `email` per task). Where an application shows no notifications — no bell — a run's

@@ -45,7 +45,11 @@ class Application extends \Symfony\Component\Console\Application
                 ?? 'pramnos';
         }
         if (!defined('sURL')) {
-            define('sURL', 'https://pramnosframework.test'); //MainURL
+            // The site's own address where the application says it (APP_URL), so a link a cron
+            // run builds — an unsubscribe link, a report's — leads to the site; the placeholder only
+            // where nothing says otherwise.
+            $site = trim((string) (getenv('APP_URL') ?: ($_ENV['APP_URL'] ?? '')));
+            define('sURL', $site !== '' ? rtrim($site, '/') . '/' : 'https://pramnosframework.test');
         }
         /*
          * Tell the application it is being built by the console.

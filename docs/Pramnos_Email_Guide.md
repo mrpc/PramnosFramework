@@ -1019,6 +1019,16 @@ For a list backed by a preference somebody can see, say what unsubscribing means
 Otherwise a row the profile screen knows nothing about stops the mail while the checkbox still
 says it is on — a switch that lies to the person holding it.
 
+A name ending in `*` handles a whole family of lists — `'invoices-*'` for one list per customer —
+unless one of them has a handler of its own. The framework's own families: `newsignin` turns the
+account's alert off, and `askreport-{id}` — a scheduled report's email — stops that report's email
+for the accounts with the address and clears the opt-out again, so the report's subscription is
+the one switch (see the [LLM guide](Pramnos_LLM_Guide.md#scheduled-tasks-questions-reminders-reports)).
+
+The unsubscribe link, like the wrapper's `$siteurl` where no `site_url` setting is set, is built on
+the site's configured address (`APP_URL`), so mail a cron run sends leads to the site; the console
+also defines `sURL` from `APP_URL` before falling back to a placeholder.
+
 ### `isOptedOut()` fails closed
 
 Alone among this framework's reads, it answers **true** when it cannot tell. Sending to

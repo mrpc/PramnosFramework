@@ -23,8 +23,19 @@ class RoutineReady implements NotificationInterface
         private readonly string $link,
         private readonly string $content = '',
         private readonly bool $email = false,
-        private readonly string $day = ''
+        private readonly string $day = '',
+        private readonly int $routineId = 0
     ) {
+    }
+
+    /**
+     * The report's own unsubscribe list, `askreport-{id}`: the email's unsubscribe link stops this
+     * report's email and nothing else — the same switch as "Stop the email" on the Scheduled page
+     * ({@see \Pramnos\Email\Unsubscribe}). None for a notification that is not a report's.
+     */
+    public function unsubscribeList(): string
+    {
+        return $this->routineId > 0 ? \Pramnos\Email\Unsubscribe::REPORT_PREFIX . $this->routineId : '';
     }
 
     /** @return list<string> */

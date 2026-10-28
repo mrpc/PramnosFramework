@@ -171,7 +171,8 @@ class EmailTheme
         $variables = array_merge([
             'subject'  => '',
             'sitename' => (string) (Settings::getSetting('sitename') ?? ''),
-            'siteurl'  => (string) (Settings::getSetting('site_url') ?? ''),
+            // The `site_url` setting, or the site's address (APP_URL) where there is none.
+            'siteurl'  => (string) (Settings::getSetting('site_url') ?: \Pramnos\Http\SiteUrl::get()),
             'year'     => date('Y'),
         ], $tokens);
 

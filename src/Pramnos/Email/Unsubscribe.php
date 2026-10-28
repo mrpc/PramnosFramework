@@ -61,6 +61,9 @@ class Unsubscribe
      */
     protected static array $handlers = [];
 
+    /** A scheduled report's own list: `askreport-{routine id}`. */
+    public const REPORT_PREFIX = 'askreport-';
+
     /**
      * Register what "unsubscribe from this list" should do.
      *
@@ -73,6 +76,9 @@ class Unsubscribe
      *     Digest::disableFor($email);
      * });
      * ```
+     *
+     * A name ending in `*` handles every list that starts with what comes before it —
+     * `'invoices-*'` for one list per customer — unless a list has a handler of its own.
      *
      * @param string $list
      * @param callable(string, string): void $handler Receives the address and the list name
@@ -152,7 +158,11 @@ class Unsubscribe
      */
     public static function url(string $token): string
     {
-        $base = defined('sURL') ? (string) sURL : '';
+        // The site's configured address first — a cron run's sURL may be a placeholder.
+        $base = \Pramnos\Http\SiteUrl::get();
+        if ($base === '') {
+            $base = defined('sURL') ? (string) sURL : '';
+        }
 
         return rtrim($base, '/') . '/unsubscribe?u=' . urlencode($token);
     }
@@ -400,9 +410,16 @@ class Unsubscribe
      */
     protected static function applyOptOut(string $email, string $list): void
     {
-        if (isset(static::$handlers[$list])) {
+        $handler = static::$handlers[$list] ?? null;
+        foreach ($handler === null ? static::$handlers : [] as $name => $candidate) {
+            if (str_ends_with((string) $name, '*') && str_starts_with($list, substr((string) $name, 0, -1))) {
+                $handler = $candidate;
+                break;
+            }
+        }
+        if ($handler !== null) {
             try {
-                (static::$handlers[$list])($email, $list);
+                $handler($email, $list);
             } catch (\Throwable $exception) {
                 \Pramnos\Logs\Logger::log(
                     'An unsubscribe handler for "' . $list . '" failed: '
@@ -416,6 +433,33 @@ class Unsubscribe
 
         if ($list === 'newsignin' || $list === self::LIST_ALL) {
             static::disableNewSignInAlerts($email);
+        }
+        if (str_starts_with($list, self::REPORT_PREFIX)) {
+            static::stopReportEmail($email, (int) substr($list, strlen(self::REPORT_PREFIX)));
+        }
+    }
+
+    /**
+     * A report's unsubscribe link: its email stops for the accounts with this address, as "Stop
+     * the email" on the Scheduled page does — the subscription's flag, not a row here, is what
+     * says whether it is emailed, so the opt-out just recorded is cleared again. Turning the email
+     * back on from the page, the form or Ask then works at once.
+     */
+    protected static function stopReportEmail(string $email, int $routineId): void
+    {
+        try {
+            $db    = \Pramnos\Framework\Factory::getDatabase();
+            $users = [];
+            $found = $db->queryBuilder()->table('#PREFIX#users')->select(['userid'])->whereRaw('LOWER(email) = ?', [$email])->get();
+            while ($found && ($row = $found->fetch()) !== null) {
+                $users[] = (int) $row['userid'];
+            }
+            if ($users !== [] && $routineId > 0 && $db->schema()->hasTable('ai_task_subscriptions')) {
+                $db->queryBuilder()->table('#PREFIX#ai_task_subscriptions')->where('routine_id', $routineId)->whereIn('userid', $users)->update(['email' => false]);
+            }
+            static::clearOptOut($email, self::REPORT_PREFIX . $routineId);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Could not stop the email of report ' . $routineId . ' for ' . $email . ': ' . $e->getMessage(), 'email');
         }
     }
 
