@@ -93,11 +93,11 @@ class InitDaemonSupervisorTest extends TestCase
     /**
      * With the queue enabled, docker-compose runs the supervisor beside the app.
      *
-     * `restart: unless-stopped` is asserted with the rest, because this container's worst
-     * failure is a *clean* exit: a machine that comes back before the database accepts
-     * connections boots the framework into its maintenance page and returns 0. `on-failure`
-     * looks at that and correctly does nothing — leaving the supervisor gone, with every other
-     * container up and healthy beside it, which is exactly how it is not noticed.
+     * It carries no restart policy: a development container with `unless-stopped` comes back,
+     * with the database it depends on, on every boot of the developer's machine. The race a
+     * restart policy used to paper over — started before the database accepts connections,
+     * the framework boots into maintenance and exits 0 — is closed by waiting for the
+     * database's healthcheck instead, so both halves are asserted.
      */
     public function testTheComposeFileRunsTheSupervisorWhenFeaturesNeedIt(): void
     {
@@ -108,7 +108,14 @@ class InitDaemonSupervisorTest extends TestCase
         $compose = $this->read('docker-compose.yml');
         $this->assertStringContainsString('daemons:', $compose);
         $this->assertStringContainsString('daemons:start', $compose);
-        $this->assertStringContainsString('restart: unless-stopped', $compose);
+        // Nothing in the dev compose file restarts on its own, so nothing starts at boot
+        $this->assertStringNotContainsString('restart:', $compose);
+        // The supervisor waits for a database that answers, not one that merely started
+        $this->assertStringContainsString("pg_isready -U \$\${POSTGRES_USER}", $compose);
+        $this->assertMatchesRegularExpression(
+            '/^  daemons:\n(?:    .*\n|      .*\n|        .*\n)*?      db:\n        condition: service_healthy\n/m',
+            $compose
+        );
     }
 
     /**

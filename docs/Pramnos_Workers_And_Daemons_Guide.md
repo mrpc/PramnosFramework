@@ -1285,8 +1285,20 @@ runs the code the site is running:
       - db
 ```
 
-`pramnos init` writes exactly that for an application whose features have background work —
-the queue, messaging, broadcasting, or the periodic jobs `auth` and `authserver` schedule.
+That is the shape for a server. The development `docker-compose.yml` that `pramnos init`
+writes for an application whose features have background work — the queue, messaging,
+broadcasting, or the periodic jobs `auth` and `authserver` schedule — differs in one place: it
+has **no restart policy**, so the project's containers do not come up on every boot of the
+developer's machine. It closes the clean-exit race the other way, by giving the database a
+healthcheck and starting the supervisor only once it answers:
+
+```yaml
+    depends_on:
+      db:
+        condition: service_healthy
+```
+
+After a reboot, `docker compose up -d` (or the first `./dockertest`) brings the project back.
 
 `user: www-data` is the Docker form of the `var/` problem above. Without it the supervisor runs
 as root, is usually the first process to touch `var/` on a fresh clone, and leaves it

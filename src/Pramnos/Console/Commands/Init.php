@@ -6406,6 +6406,15 @@ PHP;
             $this->writeFile('docker/mysql-init/init.sql', "GRANT ALL PRIVILEGES ON *.* TO '$dbUser'@'%';\nFLUSH PRIVILEGES;\n");
         }
 
+        // A healthcheck, so the supervisor below can wait for a database that accepts
+        // connections rather than one whose container has merely started. 127.0.0.1 for
+        // MySQL: the image's first-run init server listens on the socket only, so a TCP ping
+        // does not pass before the real server is up.
+        $compose .= $isPostgres
+            ? "    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U \$\${POSTGRES_USER} -d \$\${POSTGRES_DB}\"]\n"
+            : "    healthcheck:\n      test: [\"CMD\", \"mysqladmin\", \"ping\", \"-h\", \"127.0.0.1\", \"--silent\"]\n";
+        $compose .= "      interval: 5s\n      timeout: 5s\n      retries: 30\n";
+
         if ($cacheSystem !== 'none') {
             $compose .= "  cache:\n    container_name: {$slug}_cache\n    image: $cacheSystem:latest\n";
         }
@@ -6422,11 +6431,13 @@ PHP;
          * It shares the app image and the app's volume, so it runs the code the site is
          * running rather than a copy that drifts.
          *
-         * `restart: unless-stopped`, not `on-failure`: this container's worst failure is a
-         * *clean* exit. A machine that comes back before the database is accepting connections
-         * boots the framework into its maintenance page and returns 0, which `on-failure`
-         * looks at and correctly does nothing about — leaving the supervisor gone, and every
-         * other container up and healthy beside it.
+         * No restart policy. This is a development compose file, and `unless-stopped` brought
+         * the supervisor — and with it the database and cache it depends on — back up on every
+         * boot of the developer's machine, whether or not they were working on this project.
+         * The container's worst failure is a *clean* exit: started before the database accepts
+         * connections, the framework boots into its maintenance page and returns 0, so no
+         * restart policy would bring it back anyway. `condition: service_healthy` removes that
+         * race instead: the supervisor starts only once the database answers.
          *
          * `user: www-data`, like every `exec` the wrappers run: the image maps that user to the
          * host's ids. As root, this container is usually the first thing to touch `var/` on a
@@ -6437,14 +6448,13 @@ PHP;
             $compose .= "  daemons:\n    container_name: {$slug}_daemons\n"
                 . "    build:\n      context: .\n      args:\n"
                 . "        UID: \${UID:-1000}\n        GID: \${GID:-1000}\n"
-                . "    restart: unless-stopped\n"
                 . "    user: www-data\n"
                 . "    command: php /var/www/html/$cliName.php daemons:start\n"
                 . "    volumes:\n      - .:/var/www/html\n$extraVolumes"
-                . "    depends_on:\n      - db\n";
+                . "    depends_on:\n      db:\n        condition: service_healthy\n";
 
             if ($cacheSystem !== 'none') {
-                $compose .= "      - cache\n";
+                $compose .= "      cache:\n        condition: service_started\n";
             }
         }
 
