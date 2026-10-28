@@ -294,7 +294,9 @@ class SharesTest extends LlmTestCase
         $this->assertSame([], $own, 'a person\'s own Ask offers nobody');
         $this->assertSame(['status' => 200, 'data' => ['people' => [['value' => $this->username('maria'), 'label' => 'Maria Test']]]], $api);
         $this->assertSame(403, $refused['status']);
-        $this->assertStringContainsString('data-pf-people', ShareView::form('/chat/share/', 'conversation', 5, 5, '', []));
+        // The field carries the attribute whole: a stray quote after it once ended the attribute,
+        // and the field asked nobody
+        $this->assertStringContainsString('<input type="text" name="names" required autocomplete="off" data-pf-people class="i">', ShareView::form('/chat/share/', 'conversation', 5, 5, '', ['input' => 'i']));
     }
 
     /**

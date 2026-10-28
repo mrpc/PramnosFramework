@@ -26,7 +26,7 @@ final class ShareView
             . '<input type="hidden" name="kind" value="' . $e($kind) . '">'
             . '<input type="hidden" name="conversation_id" value="' . $returnTo . '">'
             . '<label>' . $t('With (usernames or emails, comma-separated)')
-            . ' <input type="text" name="names" required autocomplete="off" data-pf-people" class="' . $e($c['input'] ?? '') . '"></label> '
+            . ' <input type="text" name="names" required autocomplete="off" data-pf-people class="' . $e($c['input'] ?? '') . '"></label> '
             . '<button type="submit" class="' . $e($c['btn'] ?? '') . '">' . $t('Share') . '</button>'
             . '<p class="' . $e($c['muted'] ?? '') . '">' . $t('They get a copy of it as it is now, and what it shows was read with your rights.') . '</p>'
             . '</form></details>';
