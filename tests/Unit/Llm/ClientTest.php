@@ -369,6 +369,74 @@ class ClientTest extends LlmTestCase
     }
 
     /**
+     * A provider that is busy or briefly down is asked again after a wait — twice, 2 then 5
+     * seconds — and an answer it gives meanwhile is the answer; one that is wrong (a 400) is not
+     * asked again, as asking again would get the same.
+     */
+    public function testABusyProviderIsAskedAgain(): void
+    {
+        // Arrange
+        $waited = [];
+        Client::$sleep = static function (int $seconds) use (&$waited): void {
+            $waited[] = $seconds;
+        };
+        $this->answer([[503, ['error' => ['message' => 'Busy']]], [200, self::says('Fine')]]);
+
+        // Act
+        $recovered = (new Client(null, self::memoryLog()))->ask('', [['role' => 'user', 'content' => 'Hi']]);
+        $this->answer([[429, ['error' => ['message' => 'Slow down']]]]);
+        $gaveUp = (new Client(null, self::memoryLog()))->ask('', [['role' => 'user', 'content' => 'Hi']]);
+        $this->answer([[400, ['error' => ['message' => 'Bad']]]]);
+        $wrong = (new Client(null, self::memoryLog()))->ask('', [['role' => 'user', 'content' => 'Hi']]);
+
+        // Assert
+        $this->assertSame('Fine', $recovered['reply']);
+        $this->assertFalse($gaveUp['ok']);
+        $this->assertFalse($wrong['ok']);
+        $this->assertSame([2, 2, 5], $waited, 'one wait to recover; both waits before giving up; none for a 400');
+        $this->assertCount(2 + 3 + 1, $this->sent);
+    }
+
+    /**
+     * Still failing after its waits, the answer goes to the application's fallback provider — on
+     * that provider's own payload — where it may: configured, and accepted by the rule of every
+     * tag the conversation holds. Otherwise the failure stands.
+     */
+    public function testAFailingProviderFallsBack(): void
+    {
+        // Arrange — DeepSeek is down; Mistral is the fallback
+        $this->configure(['fallback' => 'mistral']);
+        $this->setting('llm_mistral_api_key', 'sk-mistral');
+        $this->answer([[503, []], [503, []], [503, []], [200, self::says('From Mistral')]]);
+
+        // Act
+        $moved = (new Client(null, self::memoryLog()))->ask('', [['role' => 'user', 'content' => 'Hi']]);
+
+        // Assert
+        $this->assertTrue($moved['ok']);
+        $this->assertSame(['From Mistral', 'mistral'], [$moved['reply'], $moved['provider']]);
+        $this->assertSame('https://api.mistral.ai/v1/chat/completions', $this->sent[3]['url']);
+        $this->assertSame('mistral-small-2603', $this->sent[3]['body']['model'], 'its own model, not DeepSeek\'s');
+        $this->assertArrayNotHasKey('thinking', $this->sent[3]['body'], 'nor DeepSeek\'s own fields');
+
+        // Act — a conversation holding data its rule keeps off Mistral
+        \Pramnos\Llm\Llm::use('rules', [new OnlyDeepSeek()]);
+        $this->answer([[503, []]]);
+        $held = new Client(null, self::memoryLog());
+        $held->moveFor('google');
+        $kept = $held->ask('', [['role' => 'user', 'content' => 'Hi']]);
+        // And without a key for the fallback
+        \Pramnos\Llm\Llm::use('rules', []);
+        $this->setting('llm_mistral_api_key', '');
+        $noKey = (new Client(null, self::memoryLog()))->ask('', [['role' => 'user', 'content' => 'Hi']]);
+
+        // Assert
+        $this->assertFalse($kept['ok'], 'the data rule decides, not the outage');
+        $this->assertFalse($noKey['ok']);
+        $this->assertSame([], array_filter(array_slice($this->sent, 4), static fn (array $r): bool => str_contains($r['url'], 'mistral')));
+    }
+
+    /**
      * Near the window, an answer goes on without the oldest of its own tool results: past
      * {@see Client::ROOM} of the window, every result but the last two is replaced by a note
      * naming its tool — the calls stay, as the protocol needs each one answered — and below it
@@ -738,5 +806,29 @@ final class DeadTransport implements \Pramnos\Llm\Transport\Transport
     public function get(Connection $connection, string $path): array
     {
         return [0, null];
+    }
+}
+
+/** A rule for `google` that takes DeepSeek only. */
+final class OnlyDeepSeek implements \Pramnos\Llm\Policy\DataRule
+{
+    public function tag(): string
+    {
+        return 'google';
+    }
+
+    public function accepts(\Pramnos\Llm\Connection $connection): bool
+    {
+        return $connection->provider() === 'deepseek';
+    }
+
+    public function alternative(array $context, \Pramnos\Llm\Connection $current): ?\Pramnos\Llm\Connection
+    {
+        return null;
+    }
+
+    public function refusalResult(): string
+    {
+        return 'no';
     }
 }

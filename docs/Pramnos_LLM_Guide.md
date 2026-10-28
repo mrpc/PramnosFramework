@@ -161,6 +161,23 @@ $theirs = (new Connection('openai'))->with(['api_key' => $key, 'own' => true]);
 `models()` reads the provider's catalogue (falling back to the curated list); `balance()` and
 `hasCredit()` read the balance where a provider publishes one (DeepSeek does).
 
+### When a provider is busy or down
+
+A request answered with a timeout, 429, 500, 502, 503, 504, 529 or no answer at all
+(`Client::PASSING`) is asked again after 2 seconds, then 5 (`Client::RETRIES`). An error the
+request itself caused, such as a 400, is not asked again, because the same request gets the same
+answer. Still failing, the answer goes to the application's fallback provider:
+
+```php
+'llm' => ['fallback' => 'mistral'],
+```
+
+It goes there only where that provider may take it: it has a key, it is agreed to where agreement
+is asked for, it is within the limits, and the rule of every data tag the answer read or its
+conversation holds accepts it. The payload is rebuilt for that provider (its model, its token
+parameter, none of the first provider's own fields), and the answer goes on and is logged there.
+Without a fallback, or where it may not, the failure is returned as before, with its reason.
+
 ### Features
 
 An application names its uses of a model, and each can have its own provider, model, temperature,

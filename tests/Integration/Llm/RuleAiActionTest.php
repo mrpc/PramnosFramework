@@ -98,7 +98,8 @@ class RuleAiActionTest extends LlmTestCase
         $this->assertSame('error', $nobody['status']);
         $this->assertSame(['status' => 'error', 'detail' => ['reason' => 'nothing to ask']], $empty);
         $this->assertSame('error', $failed['status']);
-        $this->assertCount(2, $this->sent, 'only the two that asked');
+        // The answered one, and the failed one asked three times: a 500 is asked again twice (Client::RETRIES)
+        $this->assertCount(1 + 1 + count(\Pramnos\Llm\Client::RETRIES), $this->sent, 'only the two that asked');
     }
 
     /** The answer kept in an attribute, for a classification. */

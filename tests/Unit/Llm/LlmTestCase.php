@@ -34,6 +34,8 @@ abstract class LlmTestCase extends TestCase
         $this->savedKey = getenv('APP_KEY');
         putenv('APP_KEY=test-key-for-the-llm-module');
         $_ENV['APP_KEY'] = 'test-key-for-the-llm-module';
+        // A provider's busy answer is asked again after a wait: no test waits for it.
+        \Pramnos\Llm\Client::$sleep = static fn (int $seconds) => null;
         Settings::clearSettings();
         Llm::reset();
         Http::resetFakes();
@@ -45,6 +47,7 @@ abstract class LlmTestCase extends TestCase
 
     protected function tearDown(): void
     {
+        \Pramnos\Llm\Client::$sleep = null;
         $app = Application::getInstance();
         if ($this->llmConfig === null) {
             unset($app->applicationInfo['llm']);

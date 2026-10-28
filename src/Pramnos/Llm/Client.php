@@ -83,6 +83,15 @@ class Client
     /** In place of a tool result set aside to make room. */
     public const SET_ASIDE = '[This result of %s was set aside to make room. Call the tool again if you need it.]';
 
+    /** Seconds before each new try of a provider that is busy or briefly down. */
+    public const RETRIES = [2, 5];
+
+    /** Answers worth asking again: a timeout, too many requests, the provider down or overloaded, or no answer at all. */
+    public const PASSING = [0, 408, 429, 500, 502, 503, 504, 529];
+
+    /** How a wait is waited — replaced by a test, which has none to spare. */
+    public static ?\Closure $sleep = null;
+
     /** A tool's result is cut here: a model does not read more, and a provider bills it. */
     public const RESULT_LIMIT = 20_000;
 
@@ -106,6 +115,9 @@ class Client
 
     /** @var array<string, true> Tags whose data reached the model in the last answer */
     private array $tags = [];
+
+    /** @var array<string, true> Tags whose data a conversation already holds: checked by moveFor(), and by any fallback */
+    private array $held = [];
 
     public function __construct(?Connection $connection = null, private readonly ?CallLog $log = null)
     {
@@ -223,6 +235,7 @@ class Client
      */
     public function moveFor(string $tag): bool
     {
+        $this->held[$tag] = true;
         $rule = Llm::rules()[$tag] ?? null;
 
         if ($rule === null || $rule->accepts($this->connection)) {
@@ -320,12 +333,12 @@ class Client
             $entry = $this->entry($systemPrompt, $messages, (string) $payload['model'], $context);
 
             $startedAt       = microtime(true);
-            [$status, $body] = $this->connection->transport()->chat($this->connection, $payload);
+            [$status, $body] = $this->send($payload, $tools, $systemPrompt, $context);
 
             // A provider that does not take a required call answers 400: ask again, free to call or not.
             if ($status === 400 && ($payload['tool_choice'] ?? null) === 'required') {
                 $payload['tool_choice'] = 'auto';
-                [$status, $body]        = $this->connection->transport()->chat($this->connection, $payload);
+                [$status, $body]        = $this->send($payload, $tools, $systemPrompt, $context);
             }
 
             $took = (int) round((microtime(true) - $startedAt) * 1000);
@@ -584,6 +597,73 @@ class Client
         }
 
         return $messages;
+    }
+
+    /**
+     * One request, asked again a moment later while the provider is busy or briefly down
+     * ({@see PASSING}, {@see RETRIES}) — and, still failing, of the application's fallback provider
+     * (`'llm' => ['fallback' => 'mistral']`) where it may take this answer: configured, agreed to,
+     * within the limits, and accepted by the rule of every tag the answer or its conversation
+     * carries. The payload is rebuilt for it, and the answer goes on there.
+     *
+     * ponytail: fixed waits — a provider's Retry-After is not read, as the transport passes no
+     * headers on; read it if one asks for longer.
+     *
+     * @param array<string, mixed>                $payload
+     * @param array<string, array<string, mixed>> $tools
+     * @param array<string, mixed>                $context
+     * @return array{0: int, 1: mixed}
+     */
+    private function send(array &$payload, array $tools, string $systemPrompt, array $context): array
+    {
+        $answer = $this->connection->transport()->chat($this->connection, $payload);
+        foreach (self::RETRIES as $wait) {
+            if (!in_array($answer[0], self::PASSING, true)) {
+                return $answer;
+            }
+            (self::$sleep ?? static fn (int $seconds) => sleep($seconds))($wait);
+            $answer = $this->connection->transport()->chat($this->connection, $payload);
+        }
+
+        $fallback = in_array($answer[0], self::PASSING, true) ? $this->fallback($context) : null;
+        if ($fallback === null) {
+            return $answer;
+        }
+
+        \Pramnos\Logs\Logger::log('llm: ' . $this->connection->provider() . ' answered ' . $answer[0] . ' ' . (count(self::RETRIES) + 1)
+            . ' times; asking ' . $fallback->provider(), 'llm');
+        $this->moveTo($fallback);
+        // Another provider's own fields mean nothing to the next one.
+        $messages = array_map(static function ($m) {
+            unset($m['reasoning_content']);
+
+            return $m;
+        }, (array) $payload['messages']);
+        $payload = ['messages' => $messages] + array_intersect_key($payload, ['tool_choice' => true]) + $this->basePayload($tools, $systemPrompt);
+
+        return $this->connection->transport()->chat($this->connection, $payload);
+    }
+
+    /** The application's fallback provider, where it may take this answer; null otherwise. @param array<string, mixed> $context */
+    private function fallback(array $context): ?Connection
+    {
+        $provider = (string) Llm::config('fallback', '');
+        if (!Providers::isKnown($provider) || $provider === $this->connection->provider()) {
+            return null;
+        }
+        $candidate = $this->connection->onProvider($provider);
+        if (!$candidate->isConfigured() || Llm::consent()->refusal($context, $candidate->provider()) !== null
+            || Llm::limits()->refusal($context, $candidate) !== null) {
+            return null;
+        }
+        foreach (array_keys($this->tags + $this->held) as $tag) {
+            $rule = Llm::rules()[$tag] ?? null;
+            if ($rule !== null && !$rule->accepts($candidate)) {
+                return null;
+            }
+        }
+
+        return $candidate;
     }
 
     /** Continue on another connection, keeping the budget the answer started with. */
