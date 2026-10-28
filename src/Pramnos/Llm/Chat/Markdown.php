@@ -43,6 +43,46 @@ final class Markdown
      *        headings are sections under the conversation's own `<h1>`; 0 for a whole page whose
      *        `#`, `##` and `###` are the levels they say.
      */
+    /**
+     * The same as {@see toHtml()}, for an email: a mail client runs no script, so a chart becomes a
+     * small table of its labels and numbers instead of the JSON a page would draw it from — whose
+     * single long line also widened the message past its width.
+     *
+     * @param array<string, mixed> $options As toHtml()
+     */
+    public static function forEmail(string $text, array $options = []): string
+    {
+        return (string) preg_replace_callback(
+            '#<div class="pf-chart" data-pf-chart="([^"]*)"[^>]*>.*?</code></pre></div>#s',
+            static function (array $m): string {
+                $spec = json_decode(html_entity_decode($m[1], ENT_QUOTES | ENT_HTML5, 'UTF-8'), true);
+                if (!is_array($spec)) {
+                    return '';
+                }
+                $series = array_values(array_filter((array) ($spec['series'] ?? []), 'is_array'));
+                $cell   = 'style="border:1px solid #ddd;padding:4px 8px;text-align:left"';
+                $html   = '<table style="border-collapse:collapse;margin:8px 0">'
+                    . (($spec['title'] ?? '') !== '' ? '<caption style="text-align:left;font-weight:bold">' . self::escape((string) $spec['title']) . '</caption>' : '')
+                    . '<thead><tr><th ' . $cell . '></th>';
+                foreach ($series as $one) {
+                    $html .= '<th ' . $cell . '>' . self::escape((string) ($one['name'] ?? $one['label'] ?? '')) . '</th>';
+                }
+                $html .= '</tr></thead><tbody>';
+                foreach (array_values((array) ($spec['labels'] ?? [])) as $i => $label) {
+                    $html .= '<tr><td ' . $cell . '>' . self::escape((string) $label) . '</td>';
+                    foreach ($series as $one) {
+                        $value = $one['data'][$i] ?? null;
+                        $html .= '<td ' . $cell . '>' . ($value === null ? '' : self::escape((string) $value)) . '</td>';
+                    }
+                    $html .= '</tr>';
+                }
+
+                return $html . '</tbody></table>';
+            },
+            self::toHtml($text, $options)
+        );
+    }
+
     public static function toHtml(string $text, array $options = []): string
     {
         $previous      = self::$resolve;

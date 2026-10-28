@@ -58,7 +58,8 @@ class RoutineReady implements NotificationInterface
         return [
             // The day it ran, so a mailbox of daily reports with one title tells them apart.
             'subject' => $this->title . ($this->day !== '' ? ' — ' . $this->day : ''),
-            'body'    => Markdown::toHtml($this->content)
+            // A mail client draws no chart: each becomes a table of its numbers.
+            'body'    => Markdown::forEmail($this->content)
                 . ($this->link !== '' ? '<p><a href="' . $link . '">' . htmlspecialchars(self::t('Open it, and ask about it'), ENT_QUOTES, 'UTF-8') . '</a></p>' : ''),
         ];
     }

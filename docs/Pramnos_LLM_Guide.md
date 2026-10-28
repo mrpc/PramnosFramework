@@ -676,6 +676,9 @@ The day reaches the notification class as its seventh argument; a class of the a
 written for six ignores it. A report can be emailed from the start: *Email the report to me too*
 on the form (ticked), or `email: true` to `schedule_task`.
 
+A chart in a report reaches the email as a small table of its labels and numbers
+(`Markdown::forEmail()`): a mail client runs no script to draw it.
+
 Each report's email has its own unsubscribe list, `askreport-{id}`: the link in it stops that
 report's email and no other, and is the same switch as *Stop the email* on the page — turning the
 email back on from the page, the form or Ask works at once.

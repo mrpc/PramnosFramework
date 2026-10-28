@@ -80,6 +80,8 @@ $lang = trim((string) ($language ?? '')) ?: 'en';
 <title><?php echo $esc($subject ?? $name); ?></title>
 <style>
 :root { color-scheme: light dark; supported-color-schemes: light dark; }
+/* A long line — a link, a block of code — wraps rather than widening the card. */
+pre { white-space: pre-wrap; }
 @media (prefers-color-scheme: dark) {
     .pf-page   { background-color: #111827 !important; }
     .pf-card   { background-color: #1f2937 !important; border-color: #374151 !important; }
@@ -101,7 +103,7 @@ $lang = trim((string) ($language ?? '')) ?: 'en';
 <table role="presentation" class="pf-page" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f5f7;">
     <tr>
         <td align="center" style="padding:24px 12px;">
-            <table role="presentation" class="pf-card" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:100%;background-color:#ffffff;border-radius:8px;border:1px solid #e5e7eb;">
+            <table role="presentation" class="pf-card" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:100%;table-layout:fixed;background-color:#ffffff;border-radius:8px;border:1px solid #e5e7eb;">
                 <?php if ($name !== ''): ?>
                 <tr>
                     <td class="pf-head" style="padding:20px 28px;border-bottom:1px solid #e5e7eb;font-family:Helvetica,Arial,sans-serif;font-size:16px;font-weight:bold;color:#111827;">
@@ -114,7 +116,7 @@ $lang = trim((string) ($language ?? '')) ?: 'en';
                 </tr>
                 <?php endif; ?>
                 <tr>
-                    <td class="pf-body" style="padding:28px;font-family:Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;color:#1f2937;">
+                    <td class="pf-body" style="padding:28px;font-family:Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;color:#1f2937;word-wrap:break-word;overflow-wrap:break-word;">
                         <?php echo $content; ?>
                     </td>
                 </tr>
