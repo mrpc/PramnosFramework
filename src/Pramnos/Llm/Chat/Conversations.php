@@ -318,8 +318,17 @@ class Conversations
                 // And changes to approve, where the application turned them on: nobody approves in a run.
                 + (new Proposals($this->scope))->tools($artifacts)));
 
+        // A change is made only on the person's word: after reading what somebody else wrote, the
+        // client holds these back (Client::HELD_WRITE).
+        foreach ($this->assistant->writes() as $name) {
+            if (isset($tools[$name])) {
+                $tools[$name]['writes'] = true;
+            }
+        }
+
         $answer = $client->askWithTools(
             $this->assistant->systemPrompt($turn) . "\n\n" . ($turn->shared() ? trim($this->assistant->context($turn)) : $this->context($turn, $memory))
+                . ($turn->documents === [] ? '' : "\n\n" . Client::DATA_NOTICE)
                 . ($summary === '' ? '' : "\n\nEarlier in this conversation, in short (those messages are not shown again):\n" . $summary),
             $messages,
             $tools,
@@ -561,8 +570,9 @@ class Conversations
         while ($result && ($row = $result->fetch()) !== null) {
             $last = (int) $row['message_id'];
             if ($row['role'] === 'user') {
-                // An attached document is most of a long message, and not what the person said.
-                $said[] = mb_substr((string) $row['content'], 0, 800);
+                // An attached document is not what the person said — and somebody else's words
+                // must not become this person's memory.
+                $said[] = mb_substr((string) preg_split('/(?:^|\n\n)---\n📎/u', (string) $row['content'])[0], 0, 800);
             }
         }
 
