@@ -11,6 +11,7 @@ use_cases:
   - Seeing what each scheduled AI task or report costs
   - Keeping a table or list an AI answer produced, to open or act on later
   - Exporting an AI result to CSV or PDF, or pinning a chart to the dashboard
+  - Reading the fields of an invoice or form with a model, checked before saving
   - Sharing an AI conversation or one of its results with a colleague
   - Letting the AI propose changes to records that a person approves before they happen
   - Collecting feedback on AI answers and reviewing the bad ones
@@ -77,6 +78,36 @@ spent the whole output budget thinking (`finish_reason: length`).
 
 `about()` sets what lands on the log row: `purpose` (so the log can answer *what is costing
 this*), `userid` (the signed-in user when not given), `organization_id`, and anything else.
+
+### Reading fields out of a document
+
+`Pramnos\Llm\Extractor` reads named fields out of a document — an invoice, an order, a form — and
+checks them before anybody uses them. It never writes: the application shows what was read for a
+person to confirm, or hands it to an [approved change](#changes-the-model-proposes-and-a-person-approves).
+
+```php
+$fields = [
+    'supplier' => ['type' => 'text', 'required' => true],
+    'issued'   => ['type' => 'date', 'required' => true],
+    'total'    => ['type' => 'number', 'required' => true, 'description' => 'Including VAT'],
+    'currency' => ['type' => 'enum', 'options' => ['EUR', 'USD']],
+    'vat'      => ['type' => 'text', 'pattern' => '/^EL\d{9}$/'],
+];
+$read = (new \Pramnos\Llm\Extractor($client))->fromFile('invoice.docx', $bytes, $fields, 'a supplier invoice');
+// ['ok' => true, 'data' => [...], 'missing' => [], 'invalid' => [], 'says' => '']
+```
+
+The model answers through one tool whose arguments are the fields — not prose to be parsed — told to
+leave out what the document does not say rather than guess. Each field is then checked: a required
+one is there; a `number` is a number as people write it (`1.240,50` and `1,240.50` both read); a
+`date` is a real date written `YYYY-MM-DD`; an `enum` is one of its options; a `pattern` matches.
+What fails is reported by field in `missing` / `invalid` and kept out of `data`.
+`Extractor::check($values, $fields)` runs the same checks on what a person corrected.
+
+A file is read for its text by `DocumentText` (docx, odt, txt, md, eml); a PDF where `pdftotext`
+(poppler-utils) is installed on the server, and otherwise the answer says that is what it needs. The
+document goes to the provider the client is connected to: pass a `Client` of a feature and
+connection that may receive it.
 
 ## Providers and connections
 

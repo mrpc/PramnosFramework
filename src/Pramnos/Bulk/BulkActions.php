@@ -148,8 +148,19 @@ final class BulkActions
             return 'You may not do that.';
         }
         foreach ($action['params'] as $name => $param) {
-            if (!empty($param['required']) && trim((string) ($params[$name] ?? '')) === '') {
+            $value = trim((string) ($params[$name] ?? ''));
+            if (!empty($param['required']) && $value === '') {
                 return sprintf('%s is required.', (string) ($param['label'] ?? $name));
+            }
+            // What was given is what the field takes: a number, or one of a select's options.
+            if ($value !== '' && ($param['type'] ?? '') === 'number' && !is_numeric($value)) {
+                return sprintf('%s must be a number.', (string) ($param['label'] ?? $name));
+            }
+            if ($value !== '' && ($param['type'] ?? '') === 'select' && isset($param['options'])) {
+                $options = is_callable($param['options']) ? (array) ($param['options'])($by) : (array) $param['options'];
+                if (!in_array($value, array_map('strval', array_keys($options)), true)) {
+                    return sprintf('%s must be one of the choices.', (string) ($param['label'] ?? $name));
+                }
             }
         }
         $ids = array_values(array_unique(array_filter($ids, static fn ($id): bool => is_int($id) || (is_string($id) && $id !== '')), SORT_REGULAR));

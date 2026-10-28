@@ -51,7 +51,8 @@ BulkActions::run('device', 'disable', $ids, ['reason' => 'Audit'], $userId);
 
 - **Who may is asked when it runs**, not only when it is offered, and again for each queued
   chunk — a person whose rights were taken away in between does nothing.
-- **Required fields are required**; the answer names the one missing.
+- **Required fields are required**, a `number` field takes a number and a `select` one of its
+  options; the answer names the field that is wrong.
 - **Up to 200 records run in the request**; above that the ids go to the queue in chunks of
   500 (`bulk.action`, which every worker handles) and the answer says how many were queued. One
   run names at most 10,000.

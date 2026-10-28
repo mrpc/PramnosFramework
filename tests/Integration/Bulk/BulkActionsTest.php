@@ -93,6 +93,12 @@ class BulkActionsTest extends LlmTestCase
         $notOffered = BulkActions::available('device', 13);
         $refused   = BulkActions::run('device', 'disable', ['A-1'], ['reason' => 'x'], 13);
         $missing   = BulkActions::run('device', 'disable', ['A-1'], [], 12);
+        // What was given is what the field takes
+        $notChoice = BulkActions::run('device', 'disable', ['A-1'], ['reason' => 'x', 'kind' => 'z'], 12);
+        BulkActions::define('device', 'count', 'Count', ['n' => ['label' => 'N', 'type' => 'number']], static fn (): int => 1, allowed: static fn (): bool => true);
+        $notNumber = BulkActions::run('device', 'count', ['A-1'], ['n' => 'ten'], 12);
+        $number    = BulkActions::run('device', 'count', ['A-1'], ['n' => '10'], 12);
+        BulkActions::forget('device', 'count');
         $unknown   = BulkActions::run('device', 'explode', ['A-1'], [], 12);
         $empty     = BulkActions::run('device', 'disable', ['C-3', ''], ['reason' => 'x'], 12);
         $tooMany   = BulkActions::run('device', 'disable', range(1, BulkActions::MAX + 1), ['reason' => 'x'], 12);
@@ -109,6 +115,9 @@ class BulkActionsTest extends LlmTestCase
         $this->assertSame([], $guest, 'nobody signed in may do anything');
         $this->assertSame('You may not do that.', $refused);
         $this->assertSame('Why is required.', $missing);
+        $this->assertSame('Kind must be one of the choices.', $notChoice);
+        $this->assertSame('N must be a number.', $notNumber);
+        $this->assertSame(1, $number['done']);
         $this->assertSame('There is no such action.', $unknown);
         $this->assertSame('There is nothing here to do that to.', $empty, 'the filter took the only id');
         $this->assertSame('Up to ' . BulkActions::MAX . ' at a time.', $tooMany);
