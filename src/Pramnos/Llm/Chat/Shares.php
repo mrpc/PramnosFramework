@@ -200,6 +200,57 @@ final class Shares
     }
 
     /**
+     * What a share holds, for a recipient who reads it without taking a copy — somebody who cannot
+     * open Ask: its title, and the messages up to the share with their artifacts (or the shared
+     * artifact under a line saying who sent it). Null when it is not theirs, or what it shared is
+     * gone.
+     *
+     * @return array{title: string, from: string, messages: list<array<string, mixed>>}|null
+     */
+    public function snapshot(int $shareId, int $userId): ?array
+    {
+        if (!self::available()) {
+            return null;
+        }
+        $found = $this->table()->where('share_id', $shareId)->where('recipient', $userId)->first();
+        if (!$found || (int) $found->numRows === 0) {
+            return null;
+        }
+        $share = $found->fields;
+        $db    = \Pramnos\Framework\Factory::getDatabase();
+        $from  = self::nameOf((int) $share['userid']);
+        if ((string) $share['kind'] === self::ARTIFACT) {
+            $artifact = Artifacts::available() ? $db->queryBuilder()->table('#PREFIX#chat_artifacts')->where('artifact_id', (int) $share['target_id'])->first() : null;
+            if (!$artifact || (int) $artifact->numRows === 0) {
+                return null;
+            }
+
+            return ['title' => (string) $share['title'], 'from' => $from, 'messages' => [[
+                'role' => 'assistant', 'content' => sprintf(\Pramnos\Translator\Language::getInstance()->_('%s shared this with you.'), $from),
+                'artifacts' => [Artifacts::shape($artifact->fields)],
+            ]]];
+        }
+        $query = $db->queryBuilder()->table('#PREFIX#chat_messages')->where('conversation_id', (int) $share['target_id']);
+        if ($share['up_to_message_id'] !== null) {
+            $query->where('message_id', '<=', (int) $share['up_to_message_id']);
+        }
+        $made = [];
+        if (Artifacts::available()) {
+            $rows = $db->queryBuilder()->table('#PREFIX#chat_artifacts')->where('conversation_id', (int) $share['target_id'])->orderBy('artifact_id')->get();
+            while (($row = $rows->fetch()) !== null) {
+                $made[(int) $row['message_id']][] = Artifacts::shape($row);
+            }
+        }
+        $result   = $query->orderBy('message_id')->get();
+        $messages = [];
+        while (($row = $result->fetch()) !== null) {
+            $messages[] = ['role' => (string) $row['role'], 'content' => (string) $row['content'], 'artifacts' => $made[(int) $row['message_id']] ?? []];
+        }
+
+        return $messages === [] ? null : ['title' => (string) $share['title'], 'from' => $from, 'messages' => $messages];
+    }
+
+    /**
      * The shared conversation's messages up to the share, and their artifacts, as the recipient's
      * own conversation.
      *

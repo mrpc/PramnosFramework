@@ -663,6 +663,12 @@ the administrators' space it is never sent to — nor readable by — somebody b
 its audience names, and the form offers only roles at or above it. `TaskPolicy::readerFloor($task)`
 is where an application gated otherwise answers; Ask AI's own reports have no floor.
 
+`'llm' => ['analyst' => ['reports_below_floor' => true]]` lets an application send analyst reports
+lower: the form then offers every role, and a reader below the floor — somebody who cannot open
+Ask — reads each run **read only**: its link opens the report as it was written, with nothing to
+ask and nothing copied into an Ask they cannot use. A conversation or artifact shared with such a
+person reads the same way (`Shares::snapshot()`), instead of becoming a conversation of their own.
+
 **A report's email** carries the day it ran in its subject (`Weekly figures — 2026-10-28`), on
 the task's clock, so a mailbox of daily reports with one title tells them apart:
 `'llm' => ['chat' => ['report_date_format' => 'd/m/Y']]` sets the format, `''` leaves it out.

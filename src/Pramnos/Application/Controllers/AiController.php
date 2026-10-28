@@ -42,7 +42,9 @@ class AiController extends Controller
     // The analyst's scheduled tasks and reports, at `Ai/scheduled`, where the application lets
     // the analyst schedule (its routineRefusal()).
     use \Pramnos\Llm\Chat\Web\SchedulesTasks;
-    use \Pramnos\Llm\Chat\Web\SharesConversations;
+    use \Pramnos\Llm\Chat\Web\SharesConversations {
+        shared as protected sharedInAsk;
+    }
     use \Pramnos\Llm\Chat\Web\ActsOnLists;
     use \Pramnos\Llm\Chat\Web\RatesAnswers;
 
@@ -241,10 +243,57 @@ class AiController extends Controller
         return $floor > 0 ? $floor : parent::adminFloor();
     }
 
-    /** Shared reports are offered only to roles that may open this screen. */
+    /**
+     * `Ai/shared/{share}` — where a share's notification leads: opened as a conversation of one's
+     * own in Ask, or, for somebody who cannot open Ask, read here as it was shared.
+     */
+    public function shared(mixed $id = null): mixed
+    {
+        if (!$this->readsOnly()) {
+            return $this->sharedInAsk($id);
+        }
+        $found = (new \Pramnos\Llm\Chat\Shares())->snapshot((int) ($id ?: \Pramnos\Http\Request::staticGetOption()), (int) $this->reader()->userid);
+        if ($found === null) {
+            ($this->application ?? \Pramnos\Application\Application::currentInstance())?->notFound();
+
+            return null;
+        }
+
+        return $this->readOnlyPage($found['title'], $found['messages'], sprintf(t('Shared with you by %s'), $found['from']));
+    }
+
+    /** Shared reports are offered only to roles that may open this screen — unless the application lets them go lower. */
     protected function audienceFloor(): int
     {
-        return $this->adminFloor();
+        return \Pramnos\Llm\Chat\TaskPolicy::reportsBelowFloor() ? 0 : $this->adminFloor();
+    }
+
+    /**
+     * Whether whoever is signed in is below this screen's floor: they read a report or a share sent
+     * to them read only, since they cannot open Ask.
+     */
+    protected function readsOnly(): bool
+    {
+        $user = $this->reader();
+
+        return $user !== null && (int) ($user->userid ?? 0) > 1 && (int) ($user->usertype ?? 0) < $this->adminFloor();
+    }
+
+    /**
+     * A page that only shows: a report's run, or what was shared, for somebody who cannot open Ask.
+     *
+     * @param list<array<string, mixed>> $messages
+     */
+    protected function readOnlyPage(string $title, array $messages, string $note): mixed
+    {
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = $title;
+        $view           = $this->getView('ai');
+        $view->title    = $title;
+        $view->messages = $messages;
+        $view->note     = $note;
+
+        return $view->display('readonly');
     }
 
     /** Who is signed in, or null. A seam for tests. */
@@ -512,6 +561,19 @@ class AiController extends Controller
      */
     public function report(mixed $id = null): mixed
     {
+        // Somebody below the floor the report reached: read it here, without Ask.
+        if ($this->readsOnly()) {
+            $tasks = new \Pramnos\Llm\Chat\Routines($this->taskConversations());
+            $run   = $tasks->runById((int) ($id ?: \Pramnos\Http\Request::staticGetOption()));
+            if ($run === null || $run['status'] !== 'ok' || !$tasks->policy()->canSee((int) $this->reader()->userid, $run['task'])) {
+                ($this->application ?? \Pramnos\Application\Application::currentInstance())?->notFound();
+
+                return null;
+            }
+
+            return $this->readOnlyPage((string) $run['task']['title'], [['role' => 'assistant', 'content' => (string) $run['content'], 'artifacts' => []]],
+                (string) ($run['finished_at'] ?? ''));
+        }
         if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }

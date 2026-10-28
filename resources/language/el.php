@@ -1886,4 +1886,6 @@ return [
     'It could not be made: %s' => 'Δεν ολοκληρώθηκε: %s',
     'Open it, and ask about it' => 'Ανοίξτε την και ρωτήστε σχετικά',
     'Email the report to me too' => 'Στείλτε μου και την αναφορά με email',
+    'Read only.' => 'Μόνο για ανάγνωση.',
+    'Shared with you by %s' => 'Το κοινοποίησε σε εσάς: %s',
 ];

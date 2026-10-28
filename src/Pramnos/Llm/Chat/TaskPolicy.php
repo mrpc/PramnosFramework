@@ -164,7 +164,19 @@ class TaskPolicy
      */
     public function readerFloor(array $task): int
     {
-        return ($task['space'] ?? Scope::CHAT) === Scope::ADMIN ? self::analystFloor() : 0;
+        return ($task['space'] ?? Scope::CHAT) === Scope::ADMIN && !self::reportsBelowFloor() ? self::analystFloor() : 0;
+    }
+
+    /**
+     * Whether the application lets analyst reports reach people below the analyst's floor —
+     * `'llm' => ['analyst' => ['reports_below_floor' => true]]`, off by default. They read them
+     * read only: they cannot open Ask to ask about them.
+     */
+    public static function reportsBelowFloor(): bool
+    {
+        $analyst = \Pramnos\Llm\Llm::config('analyst', []);
+
+        return is_array($analyst) && !empty($analyst['reports_below_floor']);
     }
 
     /** The analyst's floor: `analyst.floor` where the application sets it, else the administration's default. */
