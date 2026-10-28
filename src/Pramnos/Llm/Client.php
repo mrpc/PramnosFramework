@@ -74,6 +74,15 @@ class Client
     /** Said with a forced tool, on the round before the last. */
     public const DUE = 'Only two rounds are left. Stop researching: call %s now, with what you have.';
 
+    /**
+     * How full the context may get within one answer, as a share of the connection's window,
+     * before the older tool results of that answer are set aside ({@see makeRoom()}).
+     */
+    public const ROOM = 0.7;
+
+    /** In place of a tool result set aside to make room. */
+    public const SET_ASIDE = '[This result of %s was set aside to make room. Call the tool again if you need it.]';
+
     /** A tool's result is cut here: a model does not read more, and a provider bills it. */
     public const RESULT_LIMIT = 20_000;
 
@@ -395,6 +404,12 @@ class Client
                     ];
                 }
 
+                // Near the window: the answer goes on, without the oldest of its own results.
+                $window = (int) ($this->connection->config()['context_window'] ?? 0);
+                if ($window > 0 && $seen > $window * self::ROOM) {
+                    $messages = self::makeRoom($messages);
+                }
+
                 $this->write($entry + [
                     'http_status'   => $status,
                     'finish_reason' => $finish,
@@ -540,6 +555,35 @@ class Client
         }
 
         return [$result, $moved];
+    }
+
+    /**
+     * The messages with every tool result but the last `$keep` set aside: a short note naming the
+     * tool takes each one's place, so the model knows it was there and can ask for it again. The
+     * calls themselves stay, as the protocol needs every call answered.
+     *
+     * @param list<array<string, mixed>> $messages
+     * @return list<array<string, mixed>>
+     */
+    public static function makeRoom(array $messages, int $keep = 2): array
+    {
+        // Named by the calls of the turn just before each result: an id is unique within a turn,
+        // not always across them.
+        $names = [];
+        $calls = [];
+        foreach ($messages as $i => $message) {
+            if (($message['role'] ?? '') === 'assistant') {
+                $calls = array_column(array_map(static fn ($call): array => ['id' => (string) ($call['id'] ?? ''),
+                    'name' => (string) ($call['function']['name'] ?? 'a tool')], (array) ($message['tool_calls'] ?? [])), 'name', 'id');
+            } elseif (($message['role'] ?? '') === 'tool') {
+                $names[$i] = $calls[(string) ($message['tool_call_id'] ?? '')] ?? 'a tool';
+            }
+        }
+        foreach (array_slice(array_keys($names), 0, max(0, count($names) - $keep)) as $i) {
+            $messages[$i]['content'] = sprintf(self::SET_ASIDE, $names[$i]);
+        }
+
+        return $messages;
     }
 
     /** Continue on another connection, keeping the budget the answer started with. */

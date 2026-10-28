@@ -191,6 +191,12 @@ A tool is a plain array — `name => ['description', 'parameters' => JSON schema
 result that is not a string is JSON-encoded; what it throws is told to the model as an error
 rather than ending the answer. Results are cut at 20,000 characters.
 
+**A long answer makes room for itself.** Each round's prompt is counted by the provider
+(`prompt_tokens`). Past `Client::ROOM` (70%) of the connection's `context_window`, the answer's
+tool results before the last two are replaced with a note naming their tool
+(`Client::SET_ASIDE`). The calls stay, and the model can call a tool again if it needs that result.
+An answer that reads a lot therefore goes on rather than failing at the window.
+
 The loop: the model answers `tool_calls`, each is run, its result goes back, until it answers in
 words. **Text the model writes in a round that also calls a tool is part of the reply**: the
 reply is every such text, in order, then the last round's, a blank line apart. A model can write
@@ -415,7 +421,9 @@ or refused with `heldRefusal()`. Only an answered turn is stored — question an
 again, its older part — whole exchanges, never an answer without its question — is folded into a
 summary by one short call, kept on the conversation (`summary`, up to `summary_upto`), and sent
 with the system prompt; what came after is sent as it was said. So a summary costs one call every
-few turns, not every turn. A summary that cannot be written marks nothing: that turn sends the last
+few turns, not every turn. **Or by size:** when the last answer left the window more than
+`Conversations::FULL` (60%) full, all but the last exchange are folded, however few the messages,
+because a handful of long ones fill it as surely as many short ones. A summary that cannot be written marks nothing: that turn sends the last
 `turns()` only, and the next one tries again. `'llm' => ['chat' => ['summarize' => false]]` sends
 the last `turns()` and leaves the start out.
 

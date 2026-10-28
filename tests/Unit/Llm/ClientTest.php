@@ -369,6 +369,53 @@ class ClientTest extends LlmTestCase
     }
 
     /**
+     * Near the window, an answer goes on without the oldest of its own tool results: past
+     * {@see Client::ROOM} of the window, every result but the last two is replaced by a note
+     * naming its tool — the calls stay, as the protocol needs each one answered — and below it
+     * nothing is touched.
+     */
+    public function testAnAnswerNearTheWindowSetsItsOldResultsAside(): void
+    {
+        // Arrange — three reads; the third round's prompt fills 100k of a 128k window
+        $full = static fn (array $r): array => ['usage' => ['prompt_tokens' => 100_000, 'completion_tokens' => 4, 'total_tokens' => 100_004]] + $r;
+        $this->answer([
+            [200, self::calls([['first', []]])],
+            [200, self::calls([['second', []]])],
+            [200, $full(self::calls([['third', []]]))],
+            [200, self::says('Done.')],
+        ]);
+        $tools = [];
+        foreach (['first', 'second', 'third'] as $name) {
+            $tools[$name] = ['description' => '', 'parameters' => [], 'run' => static fn (): string => 'all of ' . $name];
+        }
+
+        // Act
+        $answer = (new Client(null, self::memoryLog()))->askWithTools('', [['role' => 'user', 'content' => 'Go']], $tools, 6);
+
+        // Assert
+        $this->assertTrue($answer['ok']);
+        $results = array_values(array_filter($this->sent[3]['body']['messages'], static fn (array $m): bool => $m['role'] === 'tool'));
+        $this->assertSame([sprintf(Client::SET_ASIDE, 'first'), 'all of second', 'all of third'], array_column($results, 'content'));
+        $before = array_values(array_filter($this->sent[2]['body']['messages'], static fn (array $m): bool => $m['role'] === 'tool'));
+        $this->assertSame(['all of first', 'all of second'], array_column($before, 'content'), 'below the line nothing is set aside');
+        $this->assertCount(3, array_filter($this->sent[3]['body']['messages'], static fn (array $m): bool => !empty($m['tool_calls'])), 'every call stays');
+    }
+
+    /**
+     * makeRoom() alone: nothing to do with two results or fewer; a call it cannot name is "a tool".
+     */
+    public function testMakingRoom(): void
+    {
+        // Arrange
+        $two     = [['role' => 'tool', 'tool_call_id' => 'a', 'content' => 'A'], ['role' => 'tool', 'tool_call_id' => 'b', 'content' => 'B']];
+        $unnamed = [['role' => 'tool', 'tool_call_id' => 'x', 'content' => 'X'], ...$two];
+
+        // Act & Assert
+        $this->assertSame($two, Client::makeRoom($two));
+        $this->assertSame(sprintf(Client::SET_ASIDE, 'a tool'), Client::makeRoom($unnamed)[0]['content']);
+    }
+
+    /**
      * What somebody else wrote reaches the model as data: between boundary lines with a token the
      * text cannot know — so an email that writes "END UNTRUSTED DATA" closes nothing — under a
      * prompt that says so. A write before any such read runs; after one, in the same answer, it

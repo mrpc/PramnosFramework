@@ -88,6 +88,40 @@ class ConversationSummaryTest extends LlmTestCase
     }
 
     /**
+     * A conversation of few but long messages is folded too: when the last answer left the window
+     * more than {@see Conversations::FULL} full, all but the last exchange go into the summary,
+     * however many turns() would allow.
+     */
+    #[DataProvider('databases')]
+    public function testAFullWindowFoldsEvenAFewMessages(string $type, string $host, int $port): void
+    {
+        // Arrange — thirty turns allowed; the second answer filled 100k of a 128k window
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => ['summarize' => true]]);
+        $this->answer([
+            [200, self::says('A1')],
+            [200, self::says('A2')],
+            [200, self::says('They asked Q1.')],
+            [200, self::says('A3')],
+        ]);
+        $chat = (new Conversations(new RecordingAssistant()))->as(new Scope(7, null));
+        $id   = (int) $chat->ask(null, 'Q1')['conversation_id'];
+        $chat->ask($id, 'Q2');
+        $this->db->queryBuilder()->table('chat_messages')->where('conversation_id', $id)->where('content', 'A2')
+            ->update(['context_tokens' => 100_000]);
+
+        // Act
+        $third = $chat->ask($id, 'Q3');
+
+        // Assert
+        $this->assertTrue($third['ok']);
+        $this->assertStringContainsString("user: Q1\n\nassistant: A1", (string) $this->sent[2]['body']['messages'][1]['content']);
+        $this->assertStringNotContainsString('Q2', (string) $this->sent[2]['body']['messages'][1]['content'], 'the last exchange is not folded');
+        $this->assertSame(['Q2', 'A2', 'Q3'], self::said($this->sent[3]));
+        $this->assertSame('They asked Q1.', $this->rows('chat_conversations')[0]['summary']);
+    }
+
+    /**
      * A conversation from before the watermarks counts as learned up to its last message, so the
      * first learning pass after upgrading does not read every old conversation again; nothing in it
      * is folded yet.

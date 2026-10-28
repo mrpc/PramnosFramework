@@ -41,6 +41,9 @@ class Conversations
     /** One question's length, so a pasted spreadsheet is not a bill. */
     public const CHARS = 8000;
 
+    /** Past this share of the window on the last answer, the conversation's older part is folded, however few its messages. */
+    public const FULL = 0.6;
+
     /** An attached document's characters, beside the question's own. */
     public const ATTACHMENT_CHARS = 20_000;
 
@@ -235,6 +238,8 @@ class Conversations
 
         $history = [];
         $ids     = [];
+        // How full the window was on the last answer, as the provider counted it.
+        $lastContext = 0;
         $held    = [];
         $summary = '';
 
@@ -256,6 +261,7 @@ class Conversations
                 }
                 $history[] = ['role' => $turn['role'], 'content' => $turn['content'] . $this->whatItDid($turn['tools'] ?? [])];
                 $ids[]     = (int) $turn['message_id'];
+                $lastContext = $turn['role'] === 'assistant' ? (int) ($turn['context'] ?? 0) : $lastContext;
             }
         }
 
@@ -274,8 +280,12 @@ class Conversations
         // Without a summary to keep it, what does not fit is left out.
         $keep  = max(1, $this->assistant->turns());
         $slice = !self::summarizes() || !$this->tracks();
-        if (!$slice && count($history) + 1 > $keep + max(2, intdiv($keep, 2))) {
-            $cut = count($history) + 1 - $keep;
+        // Or by how full the last answer left the window: a few long messages fill it as surely as many.
+        $window = (int) ($client->connection()->config()['context_window'] ?? 0);
+        $full   = $window > 0 && $lastContext > $window * self::FULL && count($history) > 2;
+        if (!$slice && ($full || count($history) + 1 > $keep + max(2, intdiv($keep, 2)))) {
+            // Too full: all but the last exchange; too many: all but the last turns().
+            $cut = max($full ? count($history) - 2 : 0, count($history) + 1 - $keep);
             // An answer goes with its question: what is sent never starts on one.
             $cut   += ($history[$cut]['role'] ?? '') === 'assistant' ? 1 : 0;
             $folded = $this->fold((int) $conversationId, $client, $summary, array_slice($history, 0, $cut), $ids[$cut - 1]);
