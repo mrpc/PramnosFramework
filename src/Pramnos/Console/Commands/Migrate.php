@@ -69,6 +69,12 @@ class Migrate extends Command
                 'Path to migrations directory (default: app/Migrations)'
             )
             ->addOption(
+                'pretend',
+                null,
+                InputOption::VALUE_NONE,
+                'Show the SQL the pending migrations would run, and run none of it'
+            )
+            ->addOption(
                 'adopt-baseline',
                 null,
                 InputOption::VALUE_NONE,
@@ -180,6 +186,9 @@ class Migrate extends Command
         if (method_exists($app, 'frameworkMigrationPool')) {
             $runner->setDependencyPool(fn(): array => $app->frameworkMigrationPool());
         }
+        if ($input->getOption('pretend')) {
+            return $this->printPretended($output, $runner->pretend($migrations, $options));
+        }
         $result = $runner->run($migrations, $options, function (string $event, string $slug, string $error) use ($output): void {
             if ($event === 'ran') {
                 $output->writeln('<info>Migrated:</info>   ' . $slug);
@@ -216,6 +225,38 @@ class Migrate extends Command
         $this->printSummary($output, $db, $input, $dirs, $result, $migrationScope['cutoff']);
 
         return empty($result['failed']) ? 0 : 1;
+    }
+
+    /**
+     * Print what `--pretend` recorded: each pending migration and the statements it would run.
+     *
+     * @param array{planned: array<string, list<string>>, failed: array<string, string>, declined: array<string, string>} $result
+     */
+    private function printPretended(OutputInterface $output, array $result): int
+    {
+        if ($result['planned'] === []) {
+            $output->writeln('<info>Nothing to migrate.</info>');
+            return 0;
+        }
+        $output->writeln('<comment>Pretending: nothing below was run.</comment>');
+        foreach ($result['planned'] as $slug => $statements) {
+            $output->writeln('');
+            $output->writeln('<info>' . $slug . '</info>');
+            foreach ($statements as $sql) {
+                $output->writeln('  ' . str_replace("\n", "\n  ", $sql) . (str_ends_with($sql, ';') ? '' : ';'));
+            }
+            if ($statements === [] && !isset($result['failed'][$slug])) {
+                $output->writeln('  <comment>(no statements)</comment>');
+            }
+            if (isset($result['declined'][$slug])) {
+                $output->writeln('  <comment>Would decline: ' . strtok(trim($result['declined'][$slug]), "\n") . '</comment>');
+            }
+            if (isset($result['failed'][$slug])) {
+                $output->writeln('  <error>Would fail:</error> ' . strtok(trim($result['failed'][$slug]), "\n"));
+            }
+        }
+
+        return $result['failed'] === [] ? 0 : 1;
     }
 
     /**

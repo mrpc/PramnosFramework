@@ -753,6 +753,113 @@ class Database extends \Pramnos\Framework\Base
     }
 
     /**
+     * Statements recorded instead of run, while pretending; null when not pretending.
+     *
+     * @var list<string>|null
+     */
+    private ?array $pretendLog = null;
+
+    /**
+     * Functions a statement may call and still be run while pretending: reads of the catalogue,
+     * aggregates, string and date functions — and the SQL keywords the `name(` pattern also
+     * matches. Anything else might write (`create_hypertable()`, `setval()`, a user function),
+     * so a statement calling it is recorded rather than run.
+     */
+    private const PRETEND_SAFE_CALLS = [
+        'select', 'from', 'where', 'and', 'or', 'not', 'in', 'exists', 'any', 'all', 'as', 'on',
+        'join', 'using', 'over', 'filter', 'values', 'when', 'then', 'else', 'case', 'by', 'is',
+        'like', 'ilike', 'between', 'union', 'with', 'having', 'limit', 'offset', 'distinct',
+        'count', 'sum', 'min', 'max', 'avg', 'coalesce', 'nullif', 'greatest', 'least', 'cast',
+        'lower', 'upper', 'length', 'char_length', 'octet_length', 'concat', 'concat_ws',
+        'substring', 'substr', 'trim', 'ltrim', 'rtrim', 'replace', 'position', 'split_part',
+        'regexp_replace', 'left', 'right', 'format', 'quote_ident', 'quote_literal', 'abs',
+        'round', 'floor', 'ceil', 'now', 'current_timestamp', 'extract', 'date_trunc',
+        'row_number', 'string_agg', 'array_agg', 'array_to_string', 'array_length', 'unnest',
+        'json_agg', 'jsonb_agg', 'group_concat', 'if', 'ifnull', 'database', 'schema', 'version',
+        'current_schema', 'current_database', 'current_user', 'to_regclass', 'to_regtype',
+        'format_type', 'pg_get_indexdef', 'pg_get_constraintdef', 'pg_get_expr', 'pg_get_viewdef',
+        'pg_get_serial_sequence', 'pg_table_is_visible', 'pg_relation_size',
+        'pg_total_relation_size', 'pg_typeof', 'obj_description', 'col_description',
+        'has_table_privilege', 'has_schema_privilege', 'has_column_privilege',
+    ];
+
+    /**
+     * Record the statements that would change the database instead of running them.
+     *
+     * Until {@see stopPretending()}, every statement through {@see query()}, {@see execute()}
+     * and {@see upsert()} that might write — DDL, DML, `SET`, a `SELECT` calling a function
+     * that is not known to be read-only — is recorded and answered with an empty result, and
+     * never reaches the server. Reads that cannot change anything still run, so code that asks
+     * `hasTable()` before acting gets the true answer about the database as it is now.
+     */
+    public function startPretending(): void
+    {
+        $this->pretendLog = [];
+    }
+
+    /**
+     * Stop pretending and return what was recorded, in order.
+     *
+     * @return list<string>
+     */
+    public function stopPretending(): array
+    {
+        $log = $this->pretendLog ?? [];
+        $this->pretendLog = null;
+
+        return $log;
+    }
+
+    /**
+     * Whether a statement is a read that may run while pretending.
+     *
+     * Fails safe: anything not recognisably a plain read — including a read that locks rows,
+     * creates a table (`SELECT … INTO`), executes (`EXPLAIN ANALYZE`) or calls a function not in
+     * {@see PRETEND_SAFE_CALLS} — is recorded instead.
+     */
+    private function mayRunWhilePretending(string $sql): bool
+    {
+        // String literals cannot call anything, and may contain a parenthesis.
+        $bare = (string) preg_replace("/'(?:[^']|'')*'/", "''", $sql);
+        $first = strtoupper((string) (preg_split('/\s+/', ltrim($bare), 2)[0] ?? ''));
+        if (!in_array($first, ['SELECT', 'SHOW', 'EXPLAIN', 'DESC', 'DESCRIBE', 'WITH'], true)) {
+            return false;
+        }
+        if (preg_match('/\b(?:INSERT|UPDATE|DELETE|MERGE|INTO|ANALYZE|LOCK)\b|\bFOR\s+(?:UPDATE|SHARE|NO\s+KEY|KEY)\b/i', $bare) === 1) {
+            return false;
+        }
+        preg_match_all('/([A-Za-z_][A-Za-z0-9_.]*)\s*\(/', $bare, $calls);
+        foreach ($calls[1] as $call) {
+            $name = strtolower((string) substr((string) strrchr('.' . $call, '.'), 1));
+            if (!in_array($name, self::PRETEND_SAFE_CALLS, true)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * While pretending: record a statement that may write and return the empty result that
+     * stands in for it; null when the statement is to run.
+     */
+    private function pretendResult(string $sql): ?Result
+    {
+        if ($this->pretendLog === null || $this->mayRunWhilePretending($sql)) {
+            return null;
+        }
+        $this->pretendLog[] = trim($sql);
+        $result = new Result($this);
+        $result->isCached = true;
+        $result->result   = [];
+        $result->cursor   = -1;
+        $result->numRows  = 0;
+        $result->eof      = true;
+
+        return $result;
+    }
+
+    /**
      * Determine if a query is a write query.
      *
      * @param string $sql
@@ -2078,6 +2185,21 @@ class Database extends \Pramnos\Framework\Base
      */
     public function execute($sql, ...$arguments)
     {
+        if ($this->pretendLog !== null) {
+            $text = is_string($sql) ? $sql : (string) ($this->statements[$sql->id ?? '']['query'] ?? '');
+            $shown = $text;
+            if (is_string($sql) && $arguments !== []) {
+                try {
+                    $shown = (string) $this->prepareQuery($sql, ...$arguments);
+                } catch (\Throwable) {
+                    $shown = $text . ' -- bindings: ' . json_encode($arguments);
+                }
+            }
+            if (!$this->mayRunWhilePretending($text)) {
+                return $this->pretendResult($shown);
+            }
+        }
+
         $free = false;
         $statement = $sql;
 
@@ -3671,6 +3793,10 @@ class Database extends \Pramnos\Framework\Base
     public function upsert($table, $data, $conflictTarget)
     {
         $table = str_replace('#PREFIX#', $this->prefix, $table);
+        if ($this->pretendLog !== null) {
+            return $this->pretendResult('UPSERT INTO ' . $table . ' ' . json_encode($data)
+                . ' ON CONFLICT (' . implode(', ', (array) $conflictTarget) . ')');
+        }
         
         if ($this->type == 'postgresql') {
             $fields = [];
@@ -3772,6 +3898,9 @@ class Database extends \Pramnos\Framework\Base
         // A table dropped, altered or renamed by hand: what the schema builder found is stale.
         if (preg_match('/^\s*(?:DROP|ALTER|RENAME)\s/i', $sql) === 1) {
             SchemaBuilder::forgetWhatExists($this);
+        }
+        if (($pretended = $this->pretendResult($sql)) !== null) {
+            return $pretended;
         }
         $cacheData = false;
         $cacheInstance = null;

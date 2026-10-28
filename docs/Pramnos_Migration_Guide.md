@@ -10,6 +10,7 @@ use_cases:
   - Stopping the framework from creating or altering a table the application manages itself
   - Finding out whether a migration's statements actually succeeded
   - Reading a Ran with errors row, or deciding a migration's outcome in its own code
+  - Seeing the SQL pending migrations would run before running them on production
   - Writing a migration that alters a table which may hold data it cannot accept
   - Backfilling a new column without running the deploy out of memory
   - Adopting a single framework migration without running the rest
@@ -139,7 +140,41 @@ php vendor/bin/pramnos migrate:reset
 
 # Run a single migration, by slug or class name
 php vendor/bin/pramnos migrate create_users_table
+
+# Show the SQL the pending migrations would run, and run none of it
+php vendor/bin/pramnos migrate --pretend
 ```
+
+### Seeing the SQL first: `--pretend`
+
+`migrate --pretend` selects the pending migrations exactly as `migrate` would — exclusions,
+cutoff, dependency order, the legacy ledger — calls each one's `up()`, and prints every
+statement it would have sent, under its slug. **Nothing that could change the database
+reaches the server**: no DDL, no DML, no `SET`, no history row, no lock, no maintenance
+mode. A migration whose `up()` throws is listed with `Would fail:` and the statements it
+had reached; the command then exits 1.
+
+How it decides what to hold back, from the connection's side
+(`Database::startPretending()` / `stopPretending()`, usable on their own):
+
+- **Writes are recorded and answered with an empty result.** Everything through `query()`,
+  `execute()` (the query builder's path) and `upsert()`.
+- **Reads still run**, so a migration that asks `hasTable()` or reads a column's type gets
+  the true answer and prints the branch it would really take. A read is a `SELECT`, `SHOW`,
+  `DESCRIBE`, `EXPLAIN` or `WITH` that calls only known read-only functions (aggregates,
+  string and date functions, catalogue readers). One that locks (`FOR UPDATE`), creates
+  (`SELECT … INTO`), executes (`EXPLAIN ANALYZE`) or calls anything else — `nextval()`,
+  `create_hypertable()`, an application's own function — is recorded instead. Unknown means
+  held back.
+
+What it cannot show:
+
+- **The database as earlier migrations in the same run would leave it.** They did not run,
+  so a later migration that checks for a table an earlier one creates sees it missing.
+- **Values a write would have returned.** An inserted row's id, the rows an `UPDATE`
+  touched: a pretended write answers with an empty result, so code that branches on it
+  takes the "nothing happened" branch.
+- **Side effects outside the database**: files, cache, settings a migration writes itself.
 
 ### The CLI and the request lifecycle answer the same question
 

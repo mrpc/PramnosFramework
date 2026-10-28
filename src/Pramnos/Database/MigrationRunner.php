@@ -444,6 +444,77 @@ class MigrationRunner
     // =========================================================================
 
     /**
+     * What the pending migrations would run, without running any of it.
+     *
+     * The same selection as {@see run()} — exclusions, the legacy ledger, dependency order,
+     * autorun, cutoff — and then each pending migration's `up()` with the connection
+     * pretending ({@see Database::startPretending()}): every statement that might change the
+     * database is recorded instead of sent, and reads still run. Nothing is recorded in the
+     * history, no lock is taken, maintenance mode is not entered.
+     *
+     * A migration that decides by reading the database sees it as it is *now*, before the
+     * migrations listed ahead of it, since those did not run.
+     *
+     * @param Migration[] $migrations
+     * @param array{force?: bool, cutoff?: string, exclude?: string[]} $options as for run()
+     * @return array{planned: array<string, list<string>>, failed: array<string, string>, declined: array<string, string>}
+     *   planned = slug → its statements in order; failed = slug → the error up() raised (its
+     *   statements up to that point are still in `planned`); declined = slug → its reason.
+     */
+    public function pretend(array $migrations, array $options = []): array
+    {
+        $db      = $this->requireDb();
+        $exclude = array_values(array_map('strval', (array) ($options[self::OPTION_EXCLUDE] ?? [])));
+
+        $migrations = $this->filterExcluded($migrations, $exclude);
+
+        // Reading the ledger can mean bringing its shape up to date; pretending, that is
+        // recorded and dropped rather than done.
+        $alreadyRan = [];
+        if ($db->schema()->hasTable($this->historyTableName())) {
+            $db->startPretending();
+            try {
+                $alreadyRan = array_merge(
+                    $this->getRanSlugs(),
+                    array_keys($this->adoptLegacyVersions($migrations, true))
+                );
+            } finally {
+                $db->stopPretending();
+            }
+        }
+
+        $candidates = $this->sort($migrations, array_merge($alreadyRan, $exclude));
+        $candidates = $this->filterAutorun($candidates, (bool) ($options['force'] ?? false));
+        if (isset($options['cutoff'])) {
+            $candidates = $this->filterCutoff($candidates, $options['cutoff']);
+        }
+
+        $planned  = [];
+        $failed   = [];
+        $declined = [];
+        foreach ($this->filterAlreadyRan($candidates, $alreadyRan) as $migration) {
+            $slug = $migration->getSlug();
+            \Pramnos\Database\SchemaBuilder::resetDeferredCapabilities();
+            \Pramnos\Database\SchemaBuilder::forgetWhatExists();
+            $db->startPretending();
+            try {
+                $migration->up();
+                $migration->runQueuedQueries();
+            } catch (\Throwable $e) {
+                $failed[$slug] = $e->getMessage();
+            } finally {
+                $planned[$slug] = $db->stopPretending();
+                \Pramnos\Database\SchemaBuilder::forgetWhatExists();
+            }
+            if (!isset($failed[$slug]) && $migration->hasDeclined()) {
+                $declined[$slug] = $migration->declinedReason();
+            }
+        }
+
+        return ['planned' => $planned, 'failed' => $failed, 'declined' => $declined];
+    }
+
+    /**
      * Runs all pending migrations from the provided list (minus already-ran ones).
      *
      * All migrations executed in one run() call share the same batch number so
