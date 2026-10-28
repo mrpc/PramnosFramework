@@ -148,6 +148,9 @@ class GroupsScreenTest extends TestCase
         $this->previous = Factory::getDatabase();
         $singleton      = &Factory::getDatabase();
         $singleton      = $this->db;
+        // What Groups remembered about the last database is not this one's: a class before this one
+        // left `keepsHistory()` false, and the first test here read every membership as undated.
+        \Pramnos\Audience\Groups::reset();
 
         $enabled             = new \ReflectionProperty(FeatureRegistry::class, 'enabled');
         $this->savedFeatures = (array) $enabled->getValue();

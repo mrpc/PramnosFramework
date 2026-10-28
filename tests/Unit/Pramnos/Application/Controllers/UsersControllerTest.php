@@ -166,6 +166,10 @@ class UsersControllerTest extends TestCase
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ');
         $db->query('SET FOREIGN_KEY_CHECKS = 1');
+
+        // Loading an account reads `userdetails` beside `users`. Without this the class passed
+        // only when an earlier one had left the table behind, and failed after one that dropped it.
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class], $db);
     }
 
     /**

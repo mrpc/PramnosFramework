@@ -68,8 +68,12 @@ trait ChatDatabase
         $singleton               = $this->db;
 
         // `users` too: a task's policy loads the account it runs for, and a class that ran
-        // earlier may have left the shared database without it.
-        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Auth\CreateUsersTable::class], $this->db);
+        // earlier may have left the shared database without it. And `userdetails`, which loading
+        // an account reads beside it (the page's pinned artifacts load the reader).
+        \Pramnos\Framework\Testing\Schema::ensure([
+            \Pramnos\Framework\Migrations\Auth\CreateUsersTable::class,
+            \Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class,
+        ], $this->db);
 
         $key = static::class . '|' . $type;
         if (isset(self::$llmBuilt[$key])) {
