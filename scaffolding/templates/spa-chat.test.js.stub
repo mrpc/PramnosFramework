@@ -90,8 +90,9 @@ describe('Chat', () => {
         // Only the first twenty are drawn; the rest are counted
         expect(container.querySelectorAll('[data-pf-artifact="2"] li').length).toBe(20);
         expect(screen.getByText('and 5 more')).toBeTruthy();
-        expect(container.querySelector('[data-pf-artifact="3"] strong').textContent).toBe('Kept');
-        expect(container.querySelector('[data-pf-artifact="3"] script')).toBeNull();
+        // The text's own markdown, not the header's title, which is bold too
+        expect(container.querySelector('[data-pf-artifact="3"] .markdown strong').textContent).toBe('Kept');
+        expect(container.querySelector('[data-pf-artifact="3"] .markdown script')).toBeNull();
     });
 
     /**
