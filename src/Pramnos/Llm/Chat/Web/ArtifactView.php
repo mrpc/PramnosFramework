@@ -32,6 +32,7 @@ final class ArtifactView
         $kind    = (string) ($artifact['kind'] ?? '');
         $label   = match ($kind) {
             'table' => sprintf(\Pramnos\Translator\Language::getInstance()->_('Table · %d rows'), count((array) ($content['rows'] ?? []))),
+            'chart' => \Pramnos\Translator\Language::getInstance()->_('Chart'),
             'list'  => sprintf(\Pramnos\Translator\Language::getInstance()->_('List · %d %s'), count((array) ($content['ids'] ?? [])), (string) ($artifact['entity'] ?? '')),
             'proposal' => \Pramnos\Translator\Language::getInstance()->_(match ((string) ($content['status'] ?? 'pending')) {
                 'approved' => 'Proposed change · approved', 'rejected' => 'Proposed change · rejected', default => 'Proposed change · waiting for you',
@@ -67,6 +68,11 @@ final class ArtifactView
             if (count($ids) > self::LIST_PREVIEW) {
                 $html .= '<p class="' . $e($muted) . '">' . $e(sprintf(\Pramnos\Translator\Language::getInstance()->_('and %d more'), count($ids) - self::LIST_PREVIEW)) . '</p>';
             }
+        } elseif ($kind === 'chart') {
+            // Drawn by the page's Chart.js, with a table of the same numbers under it.
+            $html .= \Pramnos\Html\Chart::render((string) ($content['chart'] ?? 'bar'), (array) ($content['labels'] ?? []),
+                array_map(static fn (array $s): array => ['label' => (string) ($s['label'] ?? ''), 'data' => (array) ($s['data'] ?? [])], (array) ($content['series'] ?? [])),
+                ['title' => (string) ($artifact['title'] ?? '')]);
         } elseif ($kind === 'proposal') {
             // What it would do, in full: the person approves exactly this.
             $html .= '<p>' . $e(sprintf(\Pramnos\Translator\Language::getInstance()->_('%s, on %d %s'), (string) ($content['label'] ?? ''),

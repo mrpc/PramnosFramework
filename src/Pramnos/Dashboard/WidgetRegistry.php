@@ -34,6 +34,7 @@ final class WidgetRegistry
         Widgets\EmailActivity::class,
         Widgets\Messages::class,
         Widgets\AiSpend::class,
+        Widgets\PinnedArtifacts::class,
         Widgets\HealthChecks::class,
         Widgets\RecentErrors::class,
         Widgets\WebVitals::class,

@@ -31,10 +31,10 @@ class ChatPageController extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction(['display', 'ask', 'asked', 'delete', 'forget', 'consent', 'report',
-            'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'shared', 'act', 'approve', 'reject', 'rate']);
+            'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'shared', 'act', 'approve', 'reject', 'rate', 'download', 'printable', 'pin']);
         // POST with the session's token: each of these spends, forgets or changes a schedule.
         $this->addWriteAction(['ask', 'delete', 'forget', 'consent',
-            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate']);
+            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'pin']);
         parent::__construct($application);
     }
 
@@ -78,6 +78,7 @@ class ChatPageController extends Controller
             $view->{$name} = $value;
         }
         $view->bulkActions = $this->listActions($scope, $view->conversation);
+        $view->pinned      = \Pramnos\Llm\Chat\Artifacts::pinnedIds(new \Pramnos\User\User($scope->userId));
 
         return $view->display();
     }

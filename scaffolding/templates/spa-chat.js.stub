@@ -64,6 +64,9 @@ export function chatClient(api = defaultApi, paths = {}) {
         runArtifactAction: (id, action, params) => api.post(`${p.artifacts}/${id}/actions/${action}`, { params }),
         // A change the model proposed: approving runs it, as this person.
         approveProposal: (id) => api.post(`${p.artifacts}/${id}/approve`, {}),
+        // An artifact's rows as CSV ({filename, csv}), and pinning it to the dashboard.
+        artifactCsv: (id) => api.get(`${p.artifacts}/${id}/csv`),
+        pinArtifact: (id, pinned = true) => api.post(`${p.artifacts}/${id}/pin`, { pinned }),
         rejectProposal: (id) => api.post(`${p.artifacts}/${id}/reject`, {}),
         // Good (1) or bad (-1) for an answer, 0 to take it back, with an optional note.
         rate: (messageId, rating, note = '') => api.post(`${p.chat}/messages/${messageId}/rating`, { rating, note }),

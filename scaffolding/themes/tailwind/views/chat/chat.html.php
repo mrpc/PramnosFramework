@@ -13,6 +13,7 @@
  *   $this->sharedWithMe  — optional: what others shared with the reader (Shares::withMe())
  *   $this->shares        — optional: who the open conversation is shared with (Shares::sharesOf())
  *   $this->bulkActions   — optional: by a list's kind of record, the bulk actions it offers (BulkActions::available())
+ *   $this->pinned        — optional: the ids of the artifacts the reader pinned to their dashboard
  *   $this->heading       — optional: the title when no conversation is open
  *   $this->headingAvatar — optional: HTML of the picture beside that title (the analyst's, Assist\AvatarSets::render())
  *   $this->suggestions   — optional: example questions, shown while no conversation is open
@@ -77,7 +78,12 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
     // Good or bad, under each answer; and the queue of bad ones, for whoever reads everybody's.
     'rate' => is_array($this->urls ?? null) ? '' : $url('chat/rate/'),
     'reviews' => '',
+    // An artifact's CSV, its page to print or save as PDF, and pinning it to the dashboard.
+    'download' => is_array($this->urls ?? null) ? '' : $url('chat/download/'),
+    'print' => is_array($this->urls ?? null) ? '' : $url('chat/printable/'),
+    'pin' => is_array($this->urls ?? null) ? '' : $url('chat/pin/'),
 ];
+$pinned  = is_array($this->pinned ?? null) ? $this->pinned : [];
 $bulk    = is_array($this->bulkActions ?? null) ? $this->bulkActions : [];
 ?>
 <?php if ($waiting): ?><noscript><meta http-equiv="refresh" content="4"></noscript><?php endif; ?>
@@ -158,6 +164,7 @@ $bulk    = is_array($this->bulkActions ?? null) ? $this->bulkActions : [];
                             <?php foreach ((array) ($m['artifacts'] ?? []) as $artifact): /* kept results: a table, a list, a text */ ?>
                                 <?php echo \Pramnos\Llm\Chat\Web\ArtifactView::html($artifact, $c['card'], 'table table-sm', $c['muted']); ?>
                                 <?php if ($u['share'] !== ''): ?><?php echo \Pramnos\Llm\Chat\Web\ShareView::form($u['share'], 'artifact', (int) $artifact['artifact_id'], $openId, $token(), $c); ?><?php endif; ?>
+                                <?php echo \Pramnos\Llm\Chat\Web\ArtifactTools::buttons($artifact, ['download' => $u['download'], 'print' => $u['print'], 'pin' => $u['pin']], $pinned, $openId, $token(), $c); ?>
                                 <?php if ($u['act'] !== '' && $artifact['kind'] === 'list'): ?><?php echo \Pramnos\Llm\Chat\Web\BulkView::forms($bulk[(string) $artifact['entity']] ?? [], $u['act'], (int) $artifact['artifact_id'], count((array) ($artifact['content']['ids'] ?? [])), $openId, $token(), $c); ?><?php endif; ?>
                                 <?php if ($u['approve'] !== ''): ?><?php echo \Pramnos\Llm\Chat\Web\BulkView::decision($artifact, $u['approve'], $u['reject'], $openId, $token(), $c); ?><?php endif; ?>
                             <?php endforeach; ?>

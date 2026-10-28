@@ -28,7 +28,21 @@ use Pramnos\Llm\CallLog;
 final class Artifacts
 {
     /** What an artifact can be. */
-    public const KINDS = ['table', 'list', 'text'];
+    public const KINDS = ['table', 'list', 'text', 'chart'];
+
+    /** How a chart may be drawn. */
+    public const CHARTS = ['bar', 'line', 'pie', 'doughnut'];
+
+    /** Labels, and series, a chart may hold. */
+    public const CHART_LABELS = 100;
+
+    public const CHART_SERIES = 10;
+
+    /** Artifacts a person may pin to their dashboard. */
+    public const PINS = 12;
+
+    /** The user setting the pins are kept under. */
+    public const PIN_SETTING = 'ai.pinned';
 
     /** Rows a table may hold. */
     public const ROWS = 1000;
@@ -85,8 +99,11 @@ final class Artifacts
                 'rows'    => ['type' => 'array', 'items' => ['type' => 'array', 'items' => ['type' => ['string', 'number', 'boolean', 'null']]], 'description' => 'table: the rows, each a list of cells in column order.'],
                 'entity'  => ['type' => 'string', 'description' => 'list: what the ids are, singular and lower case, e.g. "user".'],
                 'ids'     => ['type' => 'array', 'items' => ['type' => ['integer', 'string']], 'description' => 'list: the records\' ids, exactly as the tools gave them.'],
-                'labels'  => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'list: a readable name per id, in the same order. Optional.'],
                 'text'    => ['type' => 'string', 'description' => 'text: the document, in Markdown.'],
+                'chart_type' => ['type' => 'string', 'enum' => self::CHARTS, 'description' => 'chart: how it is drawn.'],
+                'labels'  => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'chart: the categories along the axis (or the slices). list: a readable name per id.'],
+                'series'  => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => ['label' => ['type' => 'string'], 'data' => ['type' => 'array', 'items' => ['type' => 'number']]]],
+                    'description' => 'chart: each series, its numbers in the order of labels.'],
             ], 'required' => ['kind', 'title']],
             'run' => function (array $a): string {
                 $made = $this->create($a);
@@ -116,6 +133,7 @@ final class Artifacts
         $content = match ($kind) {
             'table' => self::tableContent($input),
             'list'  => self::listContent($input),
+            'chart' => self::chartContent($input),
             default => self::textContent($input),
         };
         if (is_string($content)) {
@@ -343,6 +361,145 @@ final class Artifacts
         }
 
         return ['ids' => $ids, 'labels' => $labels];
+    }
+
+    /**
+     * A chart's content, or why it cannot be one: its kind, the labels, and each series' numbers
+     * in the labels' order — what `Html\Chart` draws.
+     *
+     * @param array<string, mixed> $input
+     * @return array{chart: string, labels: list<string>, series: list<array{label: string, data: list<float|int>}>}|string
+     */
+    private static function chartContent(array $input): array|string
+    {
+        $chart  = (string) ($input['chart_type'] ?? 'bar');
+        $labels = array_values(array_map(static fn ($l): string => mb_substr((string) $l, 0, 100), (array) ($input['labels'] ?? [])));
+        if (!in_array($chart, self::CHARTS, true)) {
+            return 'A chart is one of: ' . implode(', ', self::CHARTS) . '.';
+        }
+        if ($labels === [] || count($labels) > self::CHART_LABELS) {
+            return 'A chart needs between 1 and ' . self::CHART_LABELS . ' labels.';
+        }
+        $series = [];
+        foreach (array_slice(array_values((array) ($input['series'] ?? [])), 0, self::CHART_SERIES + 1) as $one) {
+            $data = array_values((array) ($one['data'] ?? []));
+            if (count($data) !== count($labels) || array_filter($data, static fn ($v): bool => !is_int($v) && !is_float($v)) !== []) {
+                return 'Each series gives one number per label.';
+            }
+            $series[] = ['label' => mb_substr((string) ($one['label'] ?? ''), 0, 100), 'data' => $data];
+        }
+        if ($series === [] || count($series) > self::CHART_SERIES) {
+            return 'A chart needs between 1 and ' . self::CHART_SERIES . ' series.';
+        }
+
+        return ['chart' => $chart, 'labels' => $labels, 'series' => $series];
+    }
+
+    /**
+     * An artifact as CSV — a table's rows, a list's ids and labels, a chart's numbers — or null for
+     * one that is not rows. Spreadsheet programs open it; a cell that starts like a formula is
+     * written as text, so a value somebody typed cannot run in the program that opens it.
+     *
+     * @param array<string, mixed> $artifact As {@see shape()} answers
+     */
+    public static function csv(array $artifact): ?string
+    {
+        $content = (array) ($artifact['content'] ?? []);
+        $rows    = match ((string) ($artifact['kind'] ?? '')) {
+            'table' => [(array) ($content['columns'] ?? []), ...array_map(static fn ($r): array => (array) $r, (array) ($content['rows'] ?? []))],
+            'list'  => [['id', 'label'], ...array_map(static fn ($id, $i): array => [$id, ((array) ($content['labels'] ?? []))[$i] ?? ''],
+                (array) ($content['ids'] ?? []), array_keys((array) ($content['ids'] ?? [])))],
+            'chart' => [['', ...array_map(static fn (array $s): string => (string) $s['label'], (array) ($content['series'] ?? []))],
+                ...array_map(static fn ($label, $i): array => [$label, ...array_map(static fn (array $s) => $s['data'][$i] ?? '', (array) ($content['series'] ?? []))],
+                    (array) ($content['labels'] ?? []), array_keys((array) ($content['labels'] ?? [])))],
+            default => null,
+        };
+        if ($rows === null) {
+            return null;
+        }
+        $out = fopen('php://temp', 'r+');
+        fwrite($out, "\xEF\xBB\xBF");
+        foreach ($rows as $row) {
+            fputcsv($out, array_map(static function ($cell): string {
+                $text = is_bool($cell) ? ($cell ? 'true' : 'false') : (string) $cell;
+
+                return $text !== '' && in_array($text[0], ['=', '+', '-', '@', "\t", "\r"], true) && !is_numeric($text) ? "'" . $text : $text;
+            }, $row), ',', '"', '\\');
+        }
+        rewind($out);
+        $csv = (string) stream_get_contents($out);
+        fclose($out);
+
+        return $csv;
+    }
+
+    /** A file name for an artifact's export: its title, made safe, and the extension. */
+    public static function filename(array $artifact, string $extension): string
+    {
+        $base = trim((string) preg_replace('/[^\p{L}\p{N}]+/u', '-', (string) ($artifact['title'] ?? 'artifact')), '-');
+
+        return ($base !== '' ? mb_substr($base, 0, 60) : 'artifact') . '-' . (int) ($artifact['artifact_id'] ?? 0) . '.' . $extension;
+    }
+
+    /**
+     * Pin one of this person's artifacts to their dashboard, or take it off. Answers null, or why not.
+     */
+    public function pin(int $artifactId, bool $pinned = true): ?string
+    {
+        $user = new \Pramnos\User\User($this->scope->userId);
+        if ((int) ($user->userid ?? 0) !== $this->scope->userId) {
+            return 'There is nobody to pin it for.';
+        }
+        $pins = self::pins($user);
+        $key  = $artifactId . '@' . $this->scope->space . '@' . ($this->scope->organizationId ?? '');
+        if ($pinned) {
+            if ($this->find($artifactId) === null) {
+                return 'There is no such artifact.';
+            }
+            if (!in_array($key, $pins, true) && count($pins) >= self::PINS) {
+                return 'Up to ' . self::PINS . ' pinned at a time; take one off first.';
+            }
+            $pins = array_values(array_unique([...$pins, $key]));
+        } else {
+            $pins = array_values(array_filter($pins, static fn (string $one): bool => $one !== $key));
+        }
+        $user->setSetting(self::PIN_SETTING, json_encode($pins));
+
+        return null;
+    }
+
+    /**
+     * What a person pinned, each still there, newest pin last.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function pinned(object $user): array
+    {
+        $out = [];
+        foreach (self::pins($user) as $key) {
+            [$id, $space, $organization] = array_pad(explode('@', $key), 3, '');
+            $found = (new self(new Scope((int) $user->userid, $organization === '' ? null : (int) $organization, $space !== '' ? $space : Scope::CHAT)))->find((int) $id);
+            if ($found !== null) {
+                $out[] = $found;
+            }
+        }
+
+        return $out;
+    }
+
+    /** @return list<int> The ids of what a person pinned — for a page that marks them. */
+    public static function pinnedIds(object $user): array
+    {
+        return array_map(static fn (string $key): int => (int) strtok($key, '@'), self::pins($user));
+    }
+
+    /** @return list<string> A person's pins as kept: `id@space@organisation` */
+    private static function pins(object $user): array
+    {
+        $raw  = method_exists($user, 'getSetting') ? $user->getSetting(self::PIN_SETTING, '[]') : '[]';
+        $pins = json_decode(is_string($raw) ? $raw : (string) json_encode($raw), true);
+
+        return is_array($pins) ? array_values(array_filter($pins, 'is_string')) : [];
     }
 
     /**

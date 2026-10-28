@@ -92,6 +92,7 @@
     /** What an artifact is, in a few words: its kind and how much it holds. */
     function artifactLabel(artifact) {
         if (artifact.kind === 'table') return t('Table · %s rows', artifact.content?.rows?.length ?? 0);
+        if (artifact.kind === 'chart') return t('Chart');
         if (artifact.kind === 'list') return t('List · %s %s', artifact.content?.ids?.length ?? 0, artifact.entity ?? '');
         if (artifact.kind === 'proposal') return artifact.content?.status === 'approved' ? t('Proposed change · approved')
             : artifact.content?.status === 'rejected' ? t('Proposed change · rejected') : t('Proposed change · waiting for you');
@@ -250,6 +251,28 @@
             one.rating = value === 0 ? null : value;
         } catch (err) {
             error = failure(err, t('It could not be noted.'));
+        }
+    }
+
+    /** Save an artifact's rows as a CSV file. */
+    async function downloadCsv(artifact) {
+        try {
+            const { filename, csv } = (await chat.artifactCsv(artifact.artifact_id)).data ?? {};
+            const link = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })), download: filename });
+            link.click();
+            URL.revokeObjectURL(link.href);
+        } catch (err) {
+            error = failure(err, t('It could not be downloaded.'));
+        }
+    }
+
+    /** Pin an artifact to the dashboard. */
+    async function pin(artifact) {
+        try {
+            await chat.pinArtifact(artifact.artifact_id, true);
+            artifact.pinned = true;
+        } catch (err) {
+            error = failure(err, t('It could not be pinned.'));
         }
     }
 
@@ -666,6 +689,14 @@
                                             {#if (artifact.content?.ids?.length ?? 0) > LIST_PREVIEW}
                                                 <p class="opacity-60">{t('and %s more', artifact.content.ids.length - LIST_PREVIEW)}</p>
                                             {/if}
+                                        {:else if artifact.kind === 'chart'}
+                                            <!-- The numbers, as a table: the page's Chart.js draws the server-rendered chart; here they are read as they are. -->
+                                            <div class="max-h-96 overflow-auto">
+                                                <table class="table table-sm">
+                                                    <thead><tr><th></th>{#each artifact.content?.series ?? [] as series}<th>{series.label}</th>{/each}</tr></thead>
+                                                    <tbody>{#each artifact.content?.labels ?? [] as label, i}<tr><td>{label}</td>{#each artifact.content?.series ?? [] as series}<td>{series.data?.[i]}</td>{/each}</tr>{/each}</tbody>
+                                                </table>
+                                            </div>
                                         {:else if artifact.kind === 'proposal'}
                                             <p>{t('%s, on %s %s', artifact.content?.label ?? '', artifact.content?.ids?.length ?? 0, artifact.entity ?? '')}</p>
                                             {#if artifact.content?.reason}<p class="opacity-60">{artifact.content.reason}</p>{/if}
@@ -682,6 +713,10 @@
                                             <div class="markdown">{@html markdown(artifact.content?.text ?? '')}</div>
                                         {/if}
                                         <button type="button" class="{ui('btn.ghost.sm')} mt-1 self-start" onclick={() => { sharing = { kind: 'artifact', id: artifact.artifact_id }; shareSaid = ''; }}>{t('Share')}</button>
+                                        {#if ['table', 'list', 'chart'].includes(artifact.kind)}
+                                            <button type="button" class="{ui('btn.ghost.sm')} mt-1 self-start" onclick={() => downloadCsv(artifact)}>{t('Download CSV')}</button>
+                                        {/if}
+                                        <button type="button" class="{ui('btn.ghost.sm')} mt-1 self-start" disabled={artifact.pinned} onclick={() => pin(artifact)}>{artifact.pinned ? t('Pinned') : t('Pin to dashboard')}</button>
                                         {#if artifact.kind === 'list'}
                                             <button type="button" class="{ui('btn.ghost.sm')} mt-1 self-start" onclick={() => openActions(artifact)}>{t('Act on these')}</button>
                                             {#if acting?.id === artifact.artifact_id}

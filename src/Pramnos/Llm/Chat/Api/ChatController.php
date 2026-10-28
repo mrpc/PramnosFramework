@@ -246,6 +246,33 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return $why === null ? ['status' => 200, 'data' => ['rated' => true]] : self::error(str_starts_with($why, 'There is no such') ? 404 : 422, $why);
     }
 
+    /** An artifact's rows as CSV — `filename` and `csv` — for a screen to save. */
+    public function artifactCsv($artifact_id): array
+    {
+        if (($stop = $this->refusal('read')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        $found = $scope === null ? null : (new \Pramnos\Llm\Chat\Artifacts($scope))->find((int) $artifact_id);
+        $csv   = $found === null ? null : \Pramnos\Llm\Chat\Artifacts::csv($found);
+
+        return $csv === null ? self::error(404, 'There is nothing to download here.')
+            : ['status' => 200, 'data' => ['filename' => \Pramnos\Llm\Chat\Artifacts::filename($found, 'csv'), 'csv' => $csv]];
+    }
+
+    /** Pin an artifact to this person's dashboard, or take it off with `pinned: false`. */
+    public function pinArtifact($artifact_id): array
+    {
+        if (($stop = $this->refusal('share')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        $on    = filter_var($this->input()['pinned'] ?? true, FILTER_VALIDATE_BOOLEAN);
+        $why   = $scope === null ? 'There is no such artifact.' : (new \Pramnos\Llm\Chat\Artifacts($scope))->pin((int) $artifact_id, $on);
+
+        return $why === null ? ['status' => 200, 'data' => ['pinned' => $on]] : self::error(str_starts_with($why, 'There is no such') ? 404 : 422, $why);
+    }
+
     /** @return array<string, mixed> */
     private function shareOne(string $kind, int $targetId): array
     {

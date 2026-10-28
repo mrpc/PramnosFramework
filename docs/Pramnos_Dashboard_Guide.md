@@ -287,6 +287,7 @@ The framework's widgets, in the order a new dashboard shows them:
 | `email` | Email in the period (7 days by default) from the send history (`mails`): sent, failed (with the failure rate), queued; the share opened only where tracked mail was sent in it; opens the email screen | who may open `admin.emails` |
 | `messages` | Every channel messages go out by, a row each, for the period: email from the send history, then the application's own (`MessageChannel`); sent, failed, queued, delivered, cost, people reached — full width, **not on a new dashboard** | who may open `admin.emails`, where there is a channel |
 | `ai.spend` | Model calls in the period (30 days by default): cost, calls, failed; opens the AI settings | who may open `admin.ai`, where the `llm` feature is on and a key is set |
+| `ai.pinned` | Pinned from Ask | The tables, charts and lists the person pinned from their Ask answers, each as it was kept | any signed-in person, where the `llm` feature is on | – |
 | `health` | Every health check, with its message when not ok — full width | the dashboard's role |
 | `logs.errors` | Errors in the logs in 24 hours and the commonest five; **not on a new dashboard** — it reads the log files — but in the catalogue | who may open `admin.logs` |
 | `vitals` | Core Web Vitals from real visitors over 7 days: the 75th percentile of LCP, INP, CLS and TTFB per page group and device, coloured by web.dev's thresholds; **not on a new dashboard** — see the Logging Guide | who may open `admin.logs`, where `vitals.sample` is set |

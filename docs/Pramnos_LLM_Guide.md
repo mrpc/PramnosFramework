@@ -10,6 +10,7 @@ use_cases:
   - Sending an organisation a scheduled AI report its members subscribe to, by email too
   - Seeing what each scheduled AI task or report costs
   - Keeping a table or list an AI answer produced, to open or act on later
+  - Exporting an AI result to CSV or PDF, or pinning a chart to the dashboard
   - Sharing an AI conversation or one of its results with a colleague
   - Letting the AI propose changes to records that a person approves before they happen
   - Collecting feedback on AI answers and reviewing the bad ones
@@ -391,6 +392,7 @@ the data itself, not Markdown to be read back out of its answer:
 | `table` | `columns`, `rows` | up to 50 columns and 1,000 rows; a short row is padded, an object cell kept as JSON |
 | `list` | `entity`, `ids`, `labels` | what the ids are (`user`, `device`…), up to 10,000 of them, each once; a label per id or none |
 | `text` | `text` | Markdown, up to 50,000 characters |
+| `chart` | `chart_type` (bar, line, pie, doughnut), `labels`, `series` (`label`, `data`) | up to 100 labels and 10 series, one number per label; drawn with `Html\Chart` and a table of the numbers |
 
 What does not fit is refused with the reason, so the model can correct itself. An artifact is
 kept in `chat_artifacts`, linked to the conversation and the answer it came with, carrying the
@@ -413,6 +415,15 @@ entries and how many more, a text as Markdown — each with `data-pf-artifact` a
 `Chat\Web\ArtifactView::html($artifact, $frameClass, $tableClass, $mutedClass)` is that markup,
 escaped, for a view of an application's own. Without the table (migrations not run) there is no
 tool and nothing to read, and the health check names it.
+
+**Download, print, pin.** Under each artifact: *Download CSV* for a table, a list or a chart's
+numbers — UTF-8 with a byte-order mark, so a spreadsheet opens it as it is, and a cell that starts
+like a formula written as text, so a value somebody typed cannot run in the program that opens it;
+*Print or save as PDF*, the artifact on a page of its own for the browser's print dialog; and *Pin
+to dashboard*, which puts it on the person's **Pinned from Ask** card (`ai.pinned`), up to twelve,
+as it was kept. `Artifacts::csv()`, `Artifacts::filename()`, `->pin($id, $on)`,
+`Artifacts::pinned($user)` are the same in code. A pinned artifact is the result as it stood, not a
+query run again: a figure that should stay current is a scheduled report.
 
 **Acting on a list.** A list's records can be acted on in bulk — put the people in a user group,
 or whatever the application declared for that kind of record — from under the list on the page
@@ -788,6 +799,7 @@ One line in the application's API routes mounts every endpoint:
 | `GET /chat/artifacts/{id}/actions`, `POST /chat/artifacts/{id}/actions/{key}` | a list's bulk actions; run one with `params` — `done`, or `queued` for a long list |
 | `POST /chat/artifacts/{id}/approve`, `POST /chat/artifacts/{id}/reject` | settle a change the model proposed; approving runs it |
 | `POST /chat/messages/{id}/rating` | rate an answer: `rating` 1, -1 or 0, and `note` |
+| `GET /chat/artifacts/{id}/csv`, `POST /chat/artifacts/{id}/pin` | an artifact's rows as CSV (`filename`, `csv`); pin it, or `pinned: false` |
 | `GET /chat/shared` | what others shared with this person |
 | `POST /chat/shared/{id}/open` | open it: the `conversation_id` of this person's own copy |
 | `GET /chat/asks/{id}` | a queued question: `waiting`, `answered` with its `conversation_id`, or `failed` with `says` |

@@ -139,7 +139,7 @@ class WidgetRegistryTest extends TestCase
         $own = array_keys(WidgetRegistry::all());
 
         // Assert
-        $this->assertSame(['users.active', 'api.performance', 'database', 'queue', 'scheduler', 'email', 'messages', 'ai.spend', 'health', 'logs.errors', 'vitals', 'help.news', 'sessions.online', 'orders'], $all, 'a class that is not a widget is left out');
+        $this->assertSame(['users.active', 'api.performance', 'database', 'queue', 'scheduler', 'email', 'messages', 'ai.spend', 'ai.pinned', 'health', 'logs.errors', 'vitals', 'help.news', 'sessions.online', 'orders'], $all, 'a class that is not a widget is left out');
         $this->assertSame(['orders'], $own);
         $this->assertInstanceOf(OrdersWidget::class, WidgetRegistry::get('orders'));
         $this->assertNull(WidgetRegistry::get('nope'));

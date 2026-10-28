@@ -59,11 +59,11 @@ class AiController extends Controller
     {
         $this->addAuthAction(['display', 'all', 'settings', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'delete', 'forget', 'consent', 'api', 'export',
             'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'report',
-            'share', 'unshare', 'shared', 'act', 'approve', 'reject', 'rate', 'reviews', 'reviewed']);
+            'share', 'unshare', 'shared', 'act', 'approve', 'reject', 'rate', 'reviews', 'reviewed', 'download', 'printable', 'pin']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
         // `api` checks its own token, from the X-CSRF-Token header, since it also answers GET and DELETE.
         $this->addWriteAction(['save', 'check', 'ask', 'delete', 'forget', 'consent',
-            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'reviewed']);
+            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'reviewed', 'pin']);
         parent::__construct($application);
     }
 
@@ -124,6 +124,9 @@ class AiController extends Controller
             'approve'   => adminUrl('Ai/approve/'),
             'reject'    => adminUrl('Ai/reject/'),
             'rate'      => adminUrl('Ai/rate/'),
+            'download'  => adminUrl('Ai/download/'),
+            'print'     => adminUrl('Ai/printable/'),
+            'pin'       => adminUrl('Ai/pin/'),
             // The bad answers to look at, for whoever reads everybody's.
             'reviews'   => $this->readsAll($this->reader()) ? adminUrl('Ai/reviews') : '',
         ];
@@ -134,6 +137,7 @@ class AiController extends Controller
             $view->{$name} = $value;
         }
         $view->bulkActions = $this->listActions($this->taskScope(), is_array($page['conversation'] ?? null) ? $page['conversation'] : null);
+        $view->pinned      = \Pramnos\Llm\Chat\Artifacts::pinnedIds(new \Pramnos\User\User($this->taskScope()->userId));
 
         return $view->display('ask');
     }

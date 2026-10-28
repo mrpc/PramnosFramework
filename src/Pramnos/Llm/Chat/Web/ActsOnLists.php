@@ -43,6 +43,76 @@ trait ActsOnLists
         return null;
     }
 
+    /** Download artifact `{id}` as CSV — a table, a list or a chart's numbers. */
+    public function download(mixed $id = null): mixed
+    {
+        if ($this->taskDenied()) {
+            return null;
+        }
+        $scope    = $this->taskScope();
+        $artifact = $scope === null ? null : (new Artifacts($scope))->find((int) ($id ?: \Pramnos\Http\Request::staticGetOption()));
+        $csv      = $artifact === null ? null : Artifacts::csv($artifact);
+        if ($csv === null) {
+            $this->addError('There is nothing to download here.');
+            $this->redirect($this->shareReturnUrl(0));
+
+            return null;
+        }
+
+        return $this->sendFile(Artifacts::filename($artifact, 'csv'), 'text/csv; charset=utf-8', $csv);
+    }
+
+    /** Artifact `{id}` on a page of its own, to print or save as PDF. */
+    public function printable(mixed $id = null): mixed
+    {
+        if ($this->taskDenied()) {
+            return null;
+        }
+        $scope    = $this->taskScope();
+        $artifact = $scope === null ? null : (new Artifacts($scope))->find((int) ($id ?: \Pramnos\Http\Request::staticGetOption()));
+        if ($artifact === null) {
+            $this->addError('There is no such artifact.');
+            $this->redirect($this->shareReturnUrl(0));
+
+            return null;
+        }
+
+        return $this->sendFile('', 'text/html; charset=utf-8', ArtifactTools::printable($artifact));
+    }
+
+    /** Pin artifact `{id}` to the dashboard, or take it off with `pinned=0`. */
+    public function pin(mixed $id = null): mixed
+    {
+        if ($this->taskDenied()) {
+            return null;
+        }
+        $scope = $this->taskScope();
+        $on    = (string) ($_POST['pinned'] ?? '1') !== '0';
+        $why   = $scope === null ? 'There is no such artifact.' : (new Artifacts($scope))->pin((int) ($id ?: \Pramnos\Http\Request::staticGetOption()), $on);
+        $why === null ? $this->addMessage($on ? 'Pinned to your dashboard.' : 'Taken off your dashboard.') : $this->addError($why);
+        $this->redirect($this->shareReturnUrl((int) ($_POST['conversation_id'] ?? 0)));
+
+        return null;
+    }
+
+    /**
+     * Send a file, or a page, and stop: a CSV as an attachment, a printable page as it is. A seam
+     * for tests, which read what would have been sent.
+     */
+    protected function sendFile(string $name, string $type, string $body): mixed
+    {
+        \Pramnos\Framework\Factory::getDocument('raw');
+        if (!headers_sent()) {
+            header('Content-Type: ' . $type);
+            if ($name !== '') {
+                header('Content-Disposition: attachment; filename="' . str_replace('"', '', $name) . '"');
+            }
+            header('X-Content-Type-Options: nosniff');
+        }
+
+        return $body;
+    }
+
     /** Approve proposal `{id}`: the change runs now, as the person approving. */
     public function approve(mixed $id = null): mixed
     {
