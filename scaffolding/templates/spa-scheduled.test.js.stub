@@ -107,6 +107,38 @@ describe('Scheduled', () => {
         expect(client.runRoutine).toHaveBeenCalledWith(1);
     });
 
+    /**
+     * A run under way in the worker: the task says so, offers no second run,
+     * and the list is read again until it has finished.
+     */
+    it('says a task is running and looks again until it is done', async () => {
+        // Arrange — running on the first read, done on the second
+        vi.useFakeTimers();
+        const routines = vi.fn()
+            .mockResolvedValueOnce({ data: { routines: [{ ...WEEKLY, running: true }] } })
+            .mockResolvedValue({ data: { routines: [WEEKLY] } });
+        const client = fakeClient({ routines });
+
+        try {
+            // Act
+            render(Scheduled, { client });
+            await vi.waitFor(() => expect(screen.getByText('Running…')).toBeTruthy());
+            const offered = screen.queryByRole('button', { name: 'Run now' });
+            await vi.advanceTimersByTimeAsync(15000);
+
+            // Assert
+            expect(offered).toBeNull();
+            await vi.waitFor(() => expect(screen.queryByText('Running…')).toBeNull());
+            expect(routines).toHaveBeenCalledTimes(2);
+            expect(screen.getByRole('button', { name: 'Run now' })).toBeTruthy();
+            // Done: no further reading
+            await vi.advanceTimersByTimeAsync(30000);
+            expect(routines).toHaveBeenCalledTimes(2);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     /** A refusal stays on screen. */
     it('says a refusal', async () => {
         // Arrange

@@ -97,6 +97,21 @@ class ScheduledPageTest extends LlmTestCase
             $this->assertStringContainsString('name="_csrf_token"', $html . \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(), $theme);
             $this->assertStringNotContainsString('name="owner"', $lower, $theme . ': 9 may not');
             $this->assertStringNotContainsString('Team week', $lower, $theme . ': nor read a report made above them');
+            $this->assertStringNotContainsString('Running…', $html, $theme . ': nothing is running yet');
+            $this->assertStringNotContainsString('http-equiv="refresh"', $html, $theme);
+        }
+
+        // Act — the daily one handed to the worker
+        $this->db->queryBuilder()->table('ai_routines')->where('routine_id', $paused['routine_id'])
+            ->update(['locked_until' => \Pramnos\Llm\CallLog::instant(time() + 600)]);
+
+        foreach (self::THEMES as $theme) {
+            $html = (string) $this->page(new Scope(7, 3), $theme)->scheduled();
+
+            // Assert — said, not offered again, and looked at again until it has run
+            $this->assertStringContainsString('data-pf-scheduled-running', $html, $theme);
+            $this->assertStringContainsString('<meta http-equiv="refresh" content="15">', $html, $theme);
+            $this->assertSame(1, substr_count($html, 'Run now'), $theme . ': only the reminder that is not running offers it');
         }
     }
 
@@ -217,7 +232,8 @@ class ScheduledPageTest extends LlmTestCase
         // Assert
         $this->assertSame(['Paused.'], $paused->messages);
         $this->assertSame(['Resumed.'], $resumed->messages);
-        $this->assertSame(['It ran.'], $ran->messages);
+        $this->assertSame(['It is running: its result will be under its runs, and the bell will tell you when it is ready.'], $ran->messages, 'to the worker');
+        $this->assertCount(1, $ran->queue->tasks);
         $this->assertStringEndsWith('chat/scheduled?task=' . $mine['routine_id'], $ran->redirectedTo[0], 'to its runs');
         $this->assertSame(['There is no such task.'], $notMine->errors);
         $this->assertSame(['You will receive it.'], $on->messages);
@@ -432,6 +448,12 @@ final class ScheduledPage extends PageFixture
 {
     /** @var array{form?: string, task?: string} The controller's own markup */
     public array $extras = [];
+
+    /** The tasks, with the fixture's recorded queue: "Run now" hands its run there, so nothing depends on a worker. */
+    protected function taskService(): Routines
+    {
+        return new Routines($this->taskConversations(), $this->queue);
+    }
 
     /** @var list<array{0: string, 1: array<string, mixed>}> Tasks made, by title, with the form */
     public array $scheduledWith = [];

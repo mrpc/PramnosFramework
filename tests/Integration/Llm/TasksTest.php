@@ -47,7 +47,7 @@ class TasksTest extends LlmTestCase
     }
 
     /** Tasks over a conversation service, with deliveries recorded rather than sent. */
-    private function tasks(?BaseAssistant $assistant = null, ?RecordingQueue $queue = null): RecordingTasks
+    private function tasks(?BaseAssistant $assistant = null, ?\Pramnos\Queue\QueueManager $queue = null): RecordingTasks
     {
         return new RecordingTasks(new Conversations($assistant ?? new BaseAssistant()), $queue);
     }
@@ -468,6 +468,59 @@ class TasksTest extends LlmTestCase
             $this->assertTrue($schema->hasColumn('ai_routines', $column), $column);
         }
     }
+
+    /**
+     * "Run now" goes to the worker, as a question in Ask does: the task is held and says
+     * `running` until that run lets go of it, and a second press meanwhile is refused rather than
+     * queued again. Without a worker (`answer_in_request`), or where the queue will not take it,
+     * it runs in the request instead of not at all.
+     */
+    #[DataProvider('databases')]
+    public function testRunningNowGoesToTheWorker(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->answer([[200, self::says('Done.')]]);
+        $queue = new RecordingQueue();
+        $tasks = $this->tasks(null, $queue);
+        $made  = $tasks->create(new Scope(7, null), ['title' => 'Morning', 'prompt' => 'Report', 'cadence' => 'daily', 'at' => '08:00']);
+        $task  = $tasks->byId($made['routine_id']);
+
+        // Act — queued, then pressed again while it waits
+        $queued  = $tasks->runNow($task, time());
+        $waiting = $tasks->byId($made['routine_id']);
+        $again   = $tasks->runNow($task, time());
+
+        // Assert
+        $this->assertSame(['ok' => true, 'says' => '', 'queued' => true], $queued);
+        $this->assertCount(1, $queue->tasks, 'one run handed to the worker');
+        $this->assertSame([Routines::TASK, $made['routine_id'], null], [$queue->tasks[0][0], $queue->tasks[0][1]['routine_id'], $queue->tasks[0][1]['due_at']]);
+        $this->assertTrue($waiting['running'], 'the page says it is running');
+        $this->assertSame(['ok' => false, 'says' => 'It is already running.', 'queued' => false], $again);
+        $this->assertSame([], $this->sent, 'nothing ran in the request');
+
+        // Act — the worker's run lets go of it
+        $tasks->run($task, time());
+
+        // Assert
+        $this->assertFalse($tasks->byId($made['routine_id'])['running']);
+
+        // Act — no worker here: in the request
+        $this->configure(['chat' => ['answer_in_request' => true]]);
+        $here = $tasks->runNow($task, time());
+
+        // Assert
+        $this->assertTrue($here['ok'] && $here['queued'] === false);
+        $this->assertCount(1, $queue->tasks, 'not queued again');
+
+        // Act — a queue that will not take it
+        $this->configure([]);
+        $broken = $this->tasks(null, new RefusingQueue())->runNow($task, time());
+
+        // Assert — run in the request, and let go of
+        $this->assertTrue($broken['ok'] && $broken['queued'] === false, $broken['says']);
+        $this->assertFalse($tasks->byId($made['routine_id'])['running']);
+    }
 }
 
 /** Tasks whose notifications are recorded rather than sent, and whose queue is the test's. */
@@ -476,7 +529,7 @@ final class RecordingTasks extends Routines
     /** @var list<array{0: int, 1: object}> */
     public array $delivered = [];
 
-    public function __construct(Conversations $chat, private readonly ?RecordingQueue $recording = null)
+    public function __construct(Conversations $chat, private readonly ?\Pramnos\Queue\QueueManager $recording = null)
     {
         parent::__construct($chat, $recording);
     }
@@ -508,5 +561,19 @@ final class RanPolicy extends TaskPolicy
         self::$ran[] = $run;
 
         throw new \RuntimeException('a Discord that is down');
+    }
+}
+
+/** A queue that refuses every task, as one without its table does. */
+final class RefusingQueue extends \Pramnos\Queue\QueueManager
+{
+    public function __construct()
+    {
+    }
+
+    /** Refuse. */
+    public function addTask(string $taskType, mixed $data, int $priority = 10, int $maxAttempts = 3, bool $unique = false): ?int
+    {
+        throw new \RuntimeException('No queue here.');
     }
 }

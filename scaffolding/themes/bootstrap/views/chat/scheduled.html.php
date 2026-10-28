@@ -110,6 +110,10 @@ $readers = static function (?array $audience, array $names) use ($c, $e, $t, $ro
     </section>
     <?php endif; ?>
 
+    <?php if (array_filter($tasks, static fn (array $one): bool => !empty($one['running'])) !== []): ?>
+    <!-- A run is under way in the worker: look again until it has finished, as Ask's page waits for an answer. -->
+    <meta http-equiv="refresh" content="15">
+    <?php endif; ?>
     <section class="<?php echo $c['card']; ?>">
         <h2 class="<?php echo $c['h2']; ?>"><?php echo $e($t('Yours')); ?></h2>
         <?php foreach ($tasks as $one): ?>
@@ -118,6 +122,7 @@ $readers = static function (?array $audience, array $names) use ($c, $e, $t, $ro
                 <strong><?php echo $e($one['title']); ?></strong>
                 <span class="<?php echo $c['badge']; ?>"><?php echo $e($t($kinds[$one['kind']] ?? $one['kind'])); ?></span>
                 <?php if (!$one['active']): ?><span class="<?php echo $c['badge']; ?>"><?php echo $e($t('Paused')); ?></span><?php endif; ?>
+                <?php if (!empty($one['running'])): ?><span class="<?php echo $c['badge']; ?>" data-pf-scheduled-running><?php echo $e($t('Running…')); ?></span><?php endif; ?>
                 <?php if (($one['owner'] ?? 'user') !== 'user'): ?><span class="<?php echo $c['badge']; ?>"><?php echo $e($t($one['owner'] === 'global' ? 'Everyone' : 'Organisation')); ?></span><?php endif; ?>
                 <div class="<?php echo $c['muted']; ?>"><?php echo $e($when($one)); ?><?php echo $one['active'] && $one['next_run_local'] ? ' · ' . $e($t('next: %s', (string) $one['next_run_local'])) : ''; ?></div>
                 <?php if ($one['last_error']): ?><div class="<?php echo $c['bad']; ?>"><?php echo $e($one['last_error']); ?></div><?php endif; ?>
@@ -126,7 +131,9 @@ $readers = static function (?array $audience, array $names) use ($c, $e, $t, $ro
             <?php if ($one['kind'] === 'report'): /* one's own report, by email too: the only way to hear of it where there is no bell */ ?>
             <?php echo $button('scheduledsubscribe', ['routine_id' => $one['routine_id'], 'on' => '1', 'email' => empty($one['email']) ? '1' : ''], $t(empty($one['email']) ? 'Email it to me' : 'Stop the email'), $c['btnGhost']); ?>
             <?php endif; ?>
-            <?php echo $button('scheduledrun', ['routine_id' => $one['routine_id']], $t('Run now'), $c['btnGhost']); ?>
+            <?php if (empty($one['running'])): ?>
+                <?php echo $button('scheduledrun', ['routine_id' => $one['routine_id']], $t('Run now'), $c['btnGhost']); ?>
+            <?php endif; ?>
             <?php echo $button('scheduledupdate', ['routine_id' => $one['routine_id'], 'active' => $one['active'] ? '' : '1'], $t($one['active'] ? 'Pause' : 'Resume'), $c['btnGhost']); ?>
             <?php echo $button('scheduleddelete', ['routine_id' => $one['routine_id']], $t('Delete'), $c['danger'], $t('Delete this scheduled task?')); ?>
         </div>

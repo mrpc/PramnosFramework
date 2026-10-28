@@ -49,8 +49,14 @@
         return { template: '', kind: 'ask', owner: 'user', notify: 'always', title: '', prompt: '', cadence: 'weekly', at: '08:00', day: 1, nth: 1, run_at: '' };
     }
 
+    /** While a run is under way in the worker, the list is read again until it has finished. */
+    const RECHECK_MS = 15000;
+    let recheck = null;
+
     $effect(() => {
         load();
+
+        return () => clearTimeout(recheck);
     });
 
     async function load() {
@@ -63,6 +69,8 @@
             owners = found.owners ?? owners;
             // Shared reports are a later addition: a server without them is not an error.
             reports = chat.reports ? ((await chat.reports().catch(() => null))?.data?.reports ?? []) : [];
+            clearTimeout(recheck);
+            recheck = routines.some((one) => one.running) ? setTimeout(load, RECHECK_MS) : null;
         } catch (err) {
             error = failure(err, t('Scheduled tasks could not be read.'));
         } finally {
@@ -183,6 +191,7 @@
                             </h2>
                             <p class="text-sm opacity-70">{when(one)}{one.active && one.next_run_local ? ' · ' + t('next: %s', one.next_run_local) : ''}</p>
                             {#if !one.active}<span class={ui('badge.muted')}>{t('Paused')}</span>{/if}
+                            {#if one.running}<span class={ui('badge.muted')} data-pf-scheduled-running>{t('Running…')}</span>{/if}
                             {#if one.last_error}<p class="text-sm text-error">{one.last_error}</p>{/if}
                         </div>
                         <div class="flex flex-wrap gap-1">
@@ -192,8 +201,10 @@
                             {#if chat.routineRuns}
                                 <button type="button" class={ui('btn.ghost.sm')} aria-expanded={open === one.routine_id} onclick={() => showRuns(one)}>{t('Runs')}</button>
                             {/if}
-                            <button type="button" class={ui('btn.ghost.sm')} disabled={busy !== null}
-                                onclick={() => act(one.routine_id, () => chat.runRoutine(one.routine_id), t('It could not be run.'))}>{t('Run now')}</button>
+                            {#if !one.running}
+                                <button type="button" class={ui('btn.ghost.sm')} disabled={busy !== null}
+                                    onclick={() => act(one.routine_id, () => chat.runRoutine(one.routine_id), t('It could not be run.'))}>{t('Run now')}</button>
+                            {/if}
                             <button type="button" class={ui('btn.ghost.sm')} disabled={busy !== null}
                                 onclick={() => act(one.routine_id, () => chat.updateRoutine(one.routine_id, { active: !one.active }), t('It could not be changed.'))}>
                                 {one.active ? t('Pause') : t('Resume')}

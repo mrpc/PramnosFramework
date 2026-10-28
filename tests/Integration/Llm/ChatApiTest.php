@@ -237,7 +237,32 @@ class ChatApiTest extends LlmTestCase
 
         // Assert
         $this->assertSame([409, 'No room.'], [$resumed['status'], $resumed['error']]);
-        $this->assertSame([409, 'No room.'], [$ran['status'], $ran['error']]);
+        $this->assertSame([409, 'No room.'], [$ran['status'], $ran['error']], 'refused at once, not queued');
+    }
+
+    /**
+     * "Run now" through the API is accepted, as a question is (202): the run waits in the queue,
+     * the task says `running`, and a second press meanwhile is a 409.
+     */
+    #[DataProvider('databases')]
+    public function testRunningNowIsQueued(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        ApiFixture::$queue = new RecordingQueue();
+        $made = $this->call('POST', '/chat/routines', ['title' => 'Daily', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00'])['data'];
+
+        // Act
+        $ran   = $this->call('POST', '/chat/routines/' . $made['routine_id'] . '/run');
+        $list  = $this->call('GET', '/chat/routines')['data']['routines'];
+        $again = $this->call('POST', '/chat/routines/' . $made['routine_id'] . '/run');
+
+        // Assert
+        $this->assertSame([202, true], [$ran['status'], $ran['data']['queued']]);
+        $this->assertTrue($list[0]['running'], 'the list says so while it waits');
+        $this->assertSame([409, 'It is already running.'], [$again['status'], $again['error']]);
+        $this->assertCount(1, ApiFixture::$queue->tasks, 'one run waits, not two');
+        $this->assertSame([], $this->sent, 'nothing ran in the request');
     }
 
     /**
@@ -442,6 +467,14 @@ class ApiFixture extends ChatController
         self::$queue ??= new RecordingQueue();
 
         return new \Pramnos\Llm\Chat\Asks($this->conversations(), self::$queue);
+    }
+
+    /** The tasks, with the same recorded queue: "Run now" hands its run there. */
+    protected function routineService(): \Pramnos\Llm\Chat\Routines
+    {
+        self::$queue ??= new RecordingQueue();
+
+        return new \Pramnos\Llm\Chat\Routines($this->conversations(), self::$queue);
     }
 }
 

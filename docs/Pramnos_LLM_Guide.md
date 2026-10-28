@@ -650,6 +650,16 @@ was built with.
    queues each one instead, and a worker runs it, so a report that reads for a minute holds up no
    other.
 
+**"Run now"** — the scheduled page's button, or `POST /chat/routines/{id}/run` — goes to the
+worker, as a question in Ask does, whatever `task_queue` says (`Routines::runNow()`). The API
+answers 202. The task is held as a claimed run is (`locked_until`), and says `running` until that
+run has finished: the page shows "Running…" and offers no second run. The server-rendered page
+reloads every 15 seconds while one is running, and the SPA reads the list again. A second press
+meanwhile is refused ("It is already running."), and so is a run the policy would refuse, at once
+rather than from the worker. Without a queue worker, `'llm' => ['chat' => ['answer_in_request' =>
+true]]` runs it in the request. A queue that will not take it also gets the run in the request,
+rather than none.
+
 After each run:
 
 - The run is recorded in `ai_task_runs` and the owner is told.
@@ -903,7 +913,7 @@ One line in the application's API routes mounts every endpoint:
 | `POST /chat/shared/{id}/open` | open it: the `conversation_id` of this person's own copy |
 | `GET /chat/asks/{id}` | a queued question: `waiting`, `answered` with its `conversation_id`, or `failed` with `says` |
 | `GET /chat/memory`, `DELETE /chat/memory/{id}` | what it remembers; forget one |
-| `GET`/`POST /chat/routines`, `PUT`/`DELETE /chat/routines/{id}`, `POST /chat/routines/{id}/run` | scheduled tasks, with the templates, cadences, `kinds`, and the `owners` this person may use; `active` in a `PUT` pauses or resumes |
+| `GET`/`POST /chat/routines`, `PUT`/`DELETE /chat/routines/{id}`, `POST /chat/routines/{id}/run` | scheduled tasks, with the templates, cadences, `kinds`, and the `owners` this person may use; `active` in a `PUT` pauses or resumes; `running` while a run waits or is under way; `run` queues one (202) |
 | `GET /chat/routines/{id}/runs?limit=` | a task's runs, newest first: its own, or a shared report the person may read |
 | `GET /chat/runs/{id}`, `POST /chat/runs/{id}/continue` | one run with its task; open it as a conversation of the person's own (`conversation_id`) |
 | `GET /chat/reports` | the shared reports here the person may receive, with `subscribed` and `latest_run` |

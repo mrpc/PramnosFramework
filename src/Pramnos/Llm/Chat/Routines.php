@@ -336,6 +336,51 @@ class Routines
         return $this->spaces[$space] ??= new static(new Conversations(Chat::assistant($space)), $this->queue);
     }
 
+    /**
+     * Run one now, at its owner's asking — in the worker, like a question in Ask, so a report that
+     * reads for a minute does not hold the page that asked. Held as a due run is
+     * (`locked_until`), so a second press, or the tick, does not run it beside the worker, and
+     * {@see shape()} says `running` until it has run.
+     *
+     * In the request where the application has no worker (`'llm' => ['chat' =>
+     * ['answer_in_request' => true]]`), or where nothing takes the task.
+     *
+     * @param array<string, mixed> $routine As {@see find()} answers
+     * @return array{ok: bool, says: string, queued: bool, conversation_id?: int|null}
+     */
+    public function runNow(array $routine, int $now): array
+    {
+        $chat = \Pramnos\Llm\Llm::config('chat', []);
+        if (is_array($chat) && !empty($chat['answer_in_request'])) {
+            return $this->run($routine, $now) + ['queued' => false];
+        }
+        // Refused now, as a question in Ask is before it is queued — not "running" and then not.
+        $policy = $this->policy();
+        if ($routine['kind'] !== self::REMINDER && ($why = $policy->refusal($policy->scope($routine), (string) $routine['kind'])) !== null) {
+            return ['ok' => false, 'says' => $why, 'queued' => false];
+        }
+
+        $held = $this->table()->where('routine_id', (int) $routine['routine_id'])
+            ->where(static function ($q) use ($now): void {
+                $q->whereNull('locked_until')->orWhere('locked_until', '<', CallLog::instant($now));
+            })
+            ->update(['locked_until' => CallLog::instant($now + self::LEASE), 'updated_at' => CallLog::instant(time())]);
+        if (!is_object($held) || (int) $held->getAffectedRows() !== 1) {
+            return ['ok' => false, 'says' => 'It is already running.', 'queued' => false];
+        }
+
+        try {
+            $this->queue()->addTask(self::TASK, ['routine_id' => $routine['routine_id'], 'space' => $routine['space'], 'due_at' => null], 5, 1);
+        } catch (\Throwable $why) {
+            // No queue to take it: run it here rather than not at all. run() lets go of the hold.
+            \Pramnos\Logs\Logger::log('llm task run not queued, run in the request: ' . $why->getMessage(), 'llm');
+
+            return $this->run($routine, $now) + ['queued' => false];
+        }
+
+        return ['ok' => true, 'says' => '', 'queued' => true];
+    }
+
     /** Whether runs go to the queue: `'llm' => ['chat' => ['task_queue' => true]]`. */
     private function queued(): bool
     {
@@ -1425,6 +1470,8 @@ class Routines
             'last_error'      => $f['last_error'] === null ? null : (string) $f['last_error'],
             'conversation_id' => $f['conversation_id'] === null ? null : (int) $f['conversation_id'],
             'audience'        => self::audienceOf($f['audience'] ?? null),
+            // Held for a run — queued or under way — until that run lets go of it.
+            'running'         => ($f['locked_until'] ?? null) !== null && (int) self::utc((string) $f['locked_until']) > time(),
         ];
     }
 

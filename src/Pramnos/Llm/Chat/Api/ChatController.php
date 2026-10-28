@@ -461,9 +461,10 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             return self::error(404, 'There is no such scheduled task.');
         }
 
-        $ran = $this->routineService()->run($found, time());
+        $ran = $this->routineService()->runNow($found, time());
 
-        return $ran['ok'] ? ['status' => 200, 'data' => $ran] : ['status' => 409, 'error' => $ran['says'], 'data' => $ran];
+        // Queued: accepted, as a question is — the task says `running` until it has run.
+        return $ran['ok'] ? ['status' => $ran['queued'] ? 202 : 200, 'data' => $ran] : ['status' => 409, 'error' => $ran['says'], 'data' => $ran];
     }
 
     /** A task's runs, the newest first — one of this person's, or a shared report they may read. */

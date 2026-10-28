@@ -184,8 +184,12 @@ trait SchedulesTasks
 
             return null;
         }
-        $ran = $this->taskService()->run($found, time());
-        $ran['ok'] ? $this->addMessage('It ran.') : $this->addError((string) $ran['says']);
+        $ran = $this->taskService()->runNow($found, time());
+        if (!$ran['ok']) {
+            $this->addError((string) $ran['says']);
+        } else {
+            $this->addMessage($ran['queued'] ? 'It is running: its result will be under its runs, and the bell will tell you when it is ready.' : 'It ran.');
+        }
         $this->redirect($this->scheduledUrl() . '?task=' . $id);
 
         return null;
