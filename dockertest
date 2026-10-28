@@ -223,6 +223,17 @@ _wait_php_ready() {
     return 1
 }
 
+# Run a command until it succeeds, for at most the given number of seconds. Each attempt
+# is bounded and gets /dev/null as stdin, for the reasons given above _wait_php_ready.
+_wait_until() {
+    local deadline=$((SECONDS + $1)); shift
+    while (( SECONDS < deadline )); do
+        timeout -k 3 10 "$@" </dev/null >/dev/null 2>&1 && return 0
+        sleep 1
+    done
+    return 1
+}
+
 # Preflight: fail fast if the daemon is unresponsive or not running.
 if ! timeout 15 docker version >/dev/null 2>&1; then
     echo "" >&2
@@ -251,6 +262,16 @@ if ! grep -q "pramnos_php.*Up" <<<"$ps_out"; then
     echo "Waiting for services to be ready..."
     if ! _wait_php_ready; then
         _die_docker_wedged "waiting for the php container to accept 'exec' after 'up -d'"
+    fi
+    # A database container that is up is not yet a database that answers, and the first
+    # integration test then fails with "Connection refused". 127.0.0.1 for MySQL: the
+    # image's first-run init server listens on the socket only, so a TCP ping does not
+    # pass before the real server is up.
+    if ! _wait_until 120 docker-compose exec -T db mysqladmin ping -h 127.0.0.1 -uroot -psecret --silent; then
+        echo "WARNING: MySQL did not answer within 120s; its tests will fail." >&2
+    fi
+    if ! _wait_until 120 docker-compose exec -T timescaledb pg_isready -h 127.0.0.1 -U postgres; then
+        echo "WARNING: PostgreSQL did not answer within 120s; its tests will fail." >&2
     fi
 fi
 

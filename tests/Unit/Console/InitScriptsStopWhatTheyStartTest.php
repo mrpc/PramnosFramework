@@ -142,6 +142,9 @@ class InitScriptsStopWhatTheyStartTest extends TestCase
 
         // Assert
         $this->assertStopsWhatItStarted($script);
+        // Every run that starts the stack is a cold start: it waits for the database's
+        // healthcheck rather than a fixed sleep, or the first test meets "Connection refused"
+        $this->assertStringContainsString('.State.Health.Status', $script);
     }
 
     /**
@@ -154,6 +157,9 @@ class InitScriptsStopWhatTheyStartTest extends TestCase
 
         // Assert
         $this->assertStopsWhatItStarted($script);
+        // ...and waits for both databases to answer after a cold start
+        $this->assertStringContainsString('_wait_until 120 docker-compose exec -T db mysqladmin ping', $script);
+        $this->assertStringContainsString('_wait_until 120 docker-compose exec -T timescaledb pg_isready', $script);
     }
 
     /**

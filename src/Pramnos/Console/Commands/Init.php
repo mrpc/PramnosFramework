@@ -6832,7 +6832,17 @@ if ! grep -q "app.*Up" <<<"\$ps_out"; then
         _release_lock
         exit 1
     fi
-    sleep 5
+    # A database container that is up is not yet a database that answers. Wait for its
+    # healthcheck; a compose file written before it had one reports none, and is given
+    # the few seconds this used to sleep.
+    echo "Waiting for the database..."
+    db_id=\$(docker-compose ps -q db 2>/dev/null)
+    for _ in \$(seq 1 120); do
+        health=\$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "\$db_id" 2>/dev/null)
+        [[ "\$health" == "healthy" ]] && break
+        [[ "\$health" == "none" || -z "\$health" ]] && { sleep 5; break; }
+        sleep 1
+    done
 fi
 
 if [ ! -f "vendor/bin/phpunit" ]; then
