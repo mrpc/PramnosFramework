@@ -101,15 +101,20 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  *
  * The first look comes soon, for a short answer; then every few seconds, for
  * ten minutes. A look that fails is a look that found nothing — the next one
- * tries again.
+ * tries again. While the answer is being written, `onpartial` is told its text
+ * so far and the next look comes after `partialMs` instead; the ten minutes
+ * stay ten minutes.
  *
  * @returns {Promise<{status: 'answered', conversation_id: number}|{status: 'failed', says: string}|{status: 'timeout'}>}
  */
-export async function waitForAnswer(client, askId, { tries = 120, firstMs = 300, waitMs = 5000, sleep = pause, onwaiting = null } = {}) {
-    for (let tick = 0; tick < tries; tick++) {
+export async function waitForAnswer(client, askId, { tries = 120, firstMs = 300, waitMs = 5000, partialMs = 700, sleep = pause, onwaiting = null, onpartial = null } = {}) {
+    let asked = null;
+
+    // A quicker look while the text arrives counts as that share of a try: the ten minutes hold.
+    for (let tick = 0; tick < tries; tick += asked?.partial ? partialMs / Math.max(waitMs, partialMs) : 1) {
         onwaiting?.(tick > 0);
-        await sleep(tick === 0 ? firstMs : waitMs);
-        const asked = (await client.asked(askId).catch(() => null))?.data;
+        await sleep(tick === 0 ? firstMs : asked?.partial ? partialMs : waitMs);
+        asked = (await client.asked(askId).catch(() => null))?.data;
 
         if (asked?.status === 'failed') {
             return { status: 'failed', says: asked.says || '' };
@@ -117,6 +122,10 @@ export async function waitForAnswer(client, askId, { tries = 120, firstMs = 300,
 
         if (asked?.status === 'answered') {
             return { status: 'answered', conversation_id: asked.conversation_id };
+        }
+
+        if (asked?.partial) {
+            onpartial?.(asked.partial);
         }
     }
 

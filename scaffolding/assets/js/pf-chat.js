@@ -46,6 +46,8 @@
     var QUIET_MS = 8000;
     var PHRASE_MS = 4000;
     var LONG_MS = 60000;
+    /** How often a question being answered is looked at while its text arrives. */
+    var PARTIAL_MS = 700;
 
     /** Series colours, in order: told apart, and readable on light and dark. */
     var COLOURS = ['#4e79a7', '#f28e2b', '#e15759', '#59a14f', '#76b7b2', '#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac'];
@@ -426,6 +428,16 @@
                         open(data.conversation_id);
                     } else if (data.status === 'failed') {
                         say(data.says || words('failed', 'The AI could not answer.'), true);
+                    } else if (data.partial) {
+                        // The answer as far as it is written: shown as it arrives, looked at more often.
+                        var line = say(data.partial, false);
+                        line.setAttribute('data-pf-chat-waiting', askId);
+                        line.className = 'pf-chat-answer pf-chat-partial';
+                        line.style.whiteSpace = 'pre-wrap';
+                        // Read once it is whole, not at every piece.
+                        line.setAttribute('aria-busy', 'true');
+                        assistant('talking');
+                        window.setTimeout(function () { follow(askId); }, PARTIAL_MS);
                     } else {
                         window.setTimeout(function () { follow(askId); }, 2000);
                     }

@@ -147,6 +147,7 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
 
     const requests = [];
     const timers = [];
+    const delays = [];
     const intervals = [];
     const sent = [];
     const replaced = [];
@@ -154,7 +155,7 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
         PfChat: pfChat,
         navigator: clipboard ? { clipboard } : {},
         location: { href: '/chat' },
-        setTimeout: (fn) => timers.push(fn),
+        setTimeout: (fn, ms) => { delays.push(ms); return timers.push(fn); },
         setInterval: (fn) => { intervals.push(fn); return intervals.length; },
         clearInterval: () => {},
         history: { replaceState: (s, t, url) => replaced.push(url) },
@@ -189,7 +190,7 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
 
     const suggestions = page.querySelectorAll('[data-pf-chat-suggestion]');
 
-    return { page, messages, form, box, picker, attach, chips, button, requests, timers, intervals, window, sent, replaced, suggestions };
+    return { page, messages, form, box, picker, attach, chips, button, requests, timers, delays, intervals, window, sent, replaced, suggestions };
 }
 
 /** Let every pending promise settle: a few turns, for a fetch that leads to another. */
@@ -198,6 +199,34 @@ const settle = async () => {
         await new Promise((resolve) => setImmediate(resolve));
     }
 };
+
+/**
+ * While the worker writes the answer, the ask carries its text so far: it replaces the thinking
+ * line as it grows, is looked at more often than a silent wait, and is marked busy so a screen
+ * reader reads it once it is whole. Answered, the page swaps in as before.
+ */
+test('the answer shows while it is written, and is looked at more often', async () => {
+    // Arrange — a page already following question 5
+    const ui = run({ waiting: '5', answers: [{ data: { status: 'waiting', partial: 'The first' } }, { data: { status: 'waiting', partial: 'The first half' } }, { data: { status: 'answered', conversation_id: 9 } }, '<div data-pf-chat>answered</div>'] });
+    await settle();
+    const line = ui.messages.children[0];
+    const first = line.textContent;
+
+    // Act — the next look
+    ui.timers.shift()();
+    await settle();
+    const grown = line.textContent;
+    ui.timers.shift()();
+    await settle();
+
+    // Assert
+    assert.equal(first, 'The first');
+    assert.equal(grown, 'The first half', 'the same line grows; no second one');
+    assert.equal(line.getAttribute('aria-busy'), 'true');
+    assert.equal(line.getAttribute('data-pf-chat-waiting'), '5', 'still the line a failure would be said in');
+    assert.deepEqual(ui.delays.slice(0, 2), [700, 700], 'looked at again sooner than the silent 2 seconds');
+    assert.equal(ui.page.innerHTML, '<div data-pf-chat>answered</div>');
+});
 
 test('asking shows the question, follows it, and swaps the answered page in', async () => {
     // Arrange

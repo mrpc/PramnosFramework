@@ -119,6 +119,12 @@ class Client
     /** @var array<string, true> Tags whose data a conversation already holds: checked by moveFor(), and by any fallback */
     private array $held = [];
 
+    /** @var (callable(string): void)|null Told the answer's text so far, as it is written */
+    private $onText = null;
+
+    /** What an answer cut off and continued has said already: the streamed text goes on from it. */
+    private string $shown = '';
+
     public function __construct(?Connection $connection = null, private readonly ?CallLog $log = null)
     {
         $this->connection = $connection ?? new Connection();
@@ -133,6 +139,22 @@ class Client
     public function about(array $context): static
     {
         $this->context = $context;
+
+        return $this;
+    }
+
+    /**
+     * Be told the answer's text so far while the model writes it — each time more arrives, the
+     * whole of it, from the start of the round being written. A round that calls tools starts
+     * again from nothing; the answer returned is still the whole of it. Null stops it.
+     *
+     * Only a transport that streams tells it (`chatStream()`); another answers as before, at once.
+     *
+     * @param (callable(string): void)|null $listener
+     */
+    public function onText(?callable $listener): static
+    {
+        $this->onText = $listener;
 
         return $this;
     }
@@ -332,6 +354,7 @@ class Client
 
             $entry = $this->entry($systemPrompt, $messages, (string) $payload['model'], $context);
 
+            $this->shown     = implode('', $parts);
             $startedAt       = microtime(true);
             [$status, $body] = $this->send($payload, $tools, $systemPrompt, $context);
 
@@ -616,13 +639,13 @@ class Client
      */
     private function send(array &$payload, array $tools, string $systemPrompt, array $context): array
     {
-        $answer = $this->connection->transport()->chat($this->connection, $payload);
+        $answer = $this->chat($payload);
         foreach (self::RETRIES as $wait) {
             if (!in_array($answer[0], self::PASSING, true)) {
                 return $answer;
             }
             (self::$sleep ?? static fn (int $seconds) => sleep($seconds))($wait);
-            $answer = $this->connection->transport()->chat($this->connection, $payload);
+            $answer = $this->chat($payload);
         }
 
         $fallback = in_array($answer[0], self::PASSING, true) ? $this->fallback($context) : null;
@@ -641,7 +664,30 @@ class Client
         }, (array) $payload['messages']);
         $payload = ['messages' => $messages] + array_intersect_key($payload, ['tool_choice' => true]) + $this->basePayload($tools, $systemPrompt);
 
-        return $this->connection->transport()->chat($this->connection, $payload);
+        return $this->chat($payload);
+    }
+
+    /**
+     * One request to the connection in use: streamed where somebody listens ({@see onText()}) and
+     * the transport can.
+     *
+     * @param array<string, mixed> $payload
+     * @return array{0: int, 1: mixed}
+     */
+    private function chat(array $payload): array
+    {
+        $transport = $this->connection->transport();
+        if ($this->onText === null || !method_exists($transport, 'chatStream')) {
+            return $transport->chat($this->connection, $payload);
+        }
+
+        $text     = $this->shown;
+        $listener = $this->onText;
+
+        return $transport->chatStream($this->connection, $payload, static function (string $piece) use (&$text, $listener): void {
+            $text .= $piece;
+            $listener(ltrim($text));
+        });
     }
 
     /** The application's fallback provider, where it may take this answer; null otherwise. @param array<string, mixed> $context */

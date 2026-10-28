@@ -116,6 +116,8 @@
     let attachments = $state([]);
     let asking = $state(false);
     let waiting = $state(false);
+    /** The answer's text so far, while the worker writes it. */
+    let partial = $state('');
     let waitedMs = $state(0);
     let loading = $state(false);
     let error = $state(null);
@@ -416,7 +418,7 @@
             extraUsed?.();
 
             if (queued.data?.ask_id) {
-                const done = await waitForAnswer(chat, queued.data.ask_id, { ...timing, onwaiting: (still) => (waiting = still) });
+                const done = await waitForAnswer(chat, queued.data.ask_id, { ...timing, onwaiting: (still) => (waiting = still), onpartial: (text) => (partial = text) });
                 outcome = done.status === 'answered' ? done.conversation_id
                     : done.status === 'failed' ? (done.says || t('The AI could not answer.'))
                     : false;
@@ -441,6 +443,7 @@
         } finally {
             asking = false;
             waiting = false;
+            partial = '';
         }
 
         if (typeof outcome === 'number') {
@@ -785,8 +788,12 @@
                     {#if asking}
                         <div class="chat chat-start">
                             <div class="chat-bubble">
-                                <span class="loading loading-dots loading-sm" aria-label={t('Thinking')}></span>
-                                {#if line}
+                                {#if partial}
+                                    <div class="whitespace-pre-wrap" aria-busy="true">{partial}</div>
+                                {:else}
+                                    <span class="loading loading-dots loading-sm" aria-label={t('Thinking')}></span>
+                                {/if}
+                                {#if line && !partial}
                                     <span class="ml-2 text-sm opacity-70" role="status">{line}</span>
                                 {/if}
                             </div>

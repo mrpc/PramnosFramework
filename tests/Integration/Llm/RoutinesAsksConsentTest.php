@@ -23,6 +23,7 @@ use Pramnos\Tests\Unit\Llm\LlmTestCase;
 #[CoversClass(Routines::class)]
 #[CoversClass(RoutineReady::class)]
 #[CoversClass(Asks::class)]
+#[CoversClass(Conversations::class)]
 #[CoversClass(AskTask::class)]
 #[CoversClass(Chat::class)]
 #[CoversClass(StoredConsent::class)]
@@ -239,6 +240,71 @@ class RoutinesAsksConsentTest extends LlmTestCase
         $failed   = $asks->run($queue->tasks[1][1]);
         $this->assertSame(['ok' => false, 'why' => 'missing', 'says' => 'There is no such conversation.'], $failed);
         $this->assertSame('failed', $asks->find($scope, $failedId)['status']);
+    }
+
+    /**
+     * The worker writes the answer's text so far on the ask while the model writes it, for the
+     * screen following the question, and empties it once the ask is answered.
+     *
+     * Followed without it, a long answer is a minute of "thinking" and then a wall of text; with
+     * it, the person reads as it arrives. Left behind after the answer, it would be a second copy
+     * of the answer kept beside the conversation.
+     */
+    #[DataProvider('databases')]
+    public function testAQueuedAnswerIsSeenWhileItIsWritten(string $type, string $host, int $port): void
+    {
+        // Arrange — a transport that writes half the answer and looks at the ask before the rest
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['providers' => ['openai' => ['transport' => PeekingTransport::class]]]);
+        $queue = new RecordingQueue();
+        $asks  = new Asks(new Conversations(new BaseAssistant()), $queue);
+        $scope = new Scope(7, 3);
+        $askId = $asks->start($scope, null, 'Tell me slowly');
+        PeekingTransport::$peek = static fn (): ?array => $asks->find($scope, $askId);
+
+        // Act
+        $result = $asks->run($queue->tasks[0][1]);
+
+        // Assert
+        $this->assertTrue($result['ok']);
+        $this->assertSame(['waiting', 'The first half'], [PeekingTransport::$seen['status'], PeekingTransport::$seen['partial']], 'seen while written');
+        $done = $asks->find($scope, $askId);
+        $this->assertSame(['answered', null], [$done['status'], $done['partial']], 'emptied once answered');
+    }
+
+    /**
+     * An installation that has not run the migration adding `partial` still gets its answers:
+     * the text so far is not written, and the ask is answered whole, as before.
+     *
+     * Streaming is for the screen; a missing column must cost the screen its preview, never the
+     * person their answer.
+     */
+    #[DataProvider('databases')]
+    public function testAQueuedAnswerWithoutThePartialColumnStillComes(string $type, string $host, int $port): void
+    {
+        // Arrange — the column taken away for this test, and put back after
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['providers' => ['openai' => ['transport' => PeekingTransport::class]]]);
+        $this->db->schema()->alterTable('chat_asks', static function ($table): void {
+            $table->dropColumn('partial');
+        });
+        $queue = new RecordingQueue();
+        $asks  = new Asks(new Conversations(new BaseAssistant()), $queue);
+        $scope = new Scope(7, 3);
+        $askId = $asks->start($scope, null, 'Tell me slowly');
+        PeekingTransport::$peek = static fn (): ?array => $asks->find($scope, $askId);
+
+        try {
+            // Act
+            $result = $asks->run($queue->tasks[0][1]);
+
+            // Assert
+            $this->assertTrue($result['ok']);
+            $this->assertNull(PeekingTransport::$seen['partial'], 'not streamed, and find() reads the absent column as nothing');
+            $this->assertSame('answered', $asks->find($scope, $askId)['status']);
+        } finally {
+            $this->migration(\Pramnos\Framework\Migrations\Llm\AddPartialToChatAsks::class)->up();
+        }
     }
 
     /**
@@ -462,5 +528,50 @@ final class RecordingQueue extends \Pramnos\Queue\QueueManager
         $this->tasks[] = [$taskType, $data, $priority, $maxAttempts];
 
         return count($this->tasks);
+    }
+}
+
+/** A transport that streams half an answer, looks at the ask, then finishes it — or, unstreamed, looks and answers. */
+final class PeekingTransport implements \Pramnos\Llm\Transport\Transport
+{
+    /** @var (callable(): ?array<string, mixed>)|null What to look at between the halves */
+    public static $peek = null;
+
+    /** @var array<string, mixed>|null What it saw */
+    public static ?array $seen = null;
+
+    /**
+     * Unstreamed — nobody listening: a look, and the answer whole.
+     *
+     * @param array<string, mixed> $payload
+     * @return array{0: int, 1: array<string, mixed>}
+     */
+    public function chat(\Pramnos\Llm\Connection $connection, array $payload): array
+    {
+        self::$seen = (self::$peek)();
+
+        return [200, ['choices' => [['message' => ['role' => 'assistant', 'content' => 'Whole at once.'], 'finish_reason' => 'stop']]]];
+    }
+
+    /**
+     * Half the text, a look, the rest.
+     *
+     * @param array<string, mixed>   $payload
+     * @param callable(string): void $onText
+     * @return array{0: int, 1: array<string, mixed>}
+     */
+    public function chatStream(\Pramnos\Llm\Connection $connection, array $payload, callable $onText): array
+    {
+        $onText('The first half');
+        self::$seen = (self::$peek)();
+        $onText(', and the rest.');
+
+        return [200, ['choices' => [['message' => ['role' => 'assistant', 'content' => 'The first half, and the rest.'], 'finish_reason' => 'stop']]]];
+    }
+
+    /** Not used. */
+    public function get(\Pramnos\Llm\Connection $connection, string $path): array
+    {
+        return [404, null];
     }
 }

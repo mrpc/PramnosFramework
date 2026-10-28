@@ -239,6 +239,28 @@ describe('Chat', () => {
         expect(slow).toEqual({ status: 'timeout' });
     });
 
+    /**
+     * While the worker writes the answer, its text so far shows in the waiting bubble and is
+     * looked at sooner; the quicker looks count as a share of a try, so the wait stays as long.
+     */
+    it('shows the answer while it is written', async () => {
+        // Arrange — two looks with text, then the answer
+        let look = 0;
+        const asked = vi.fn(async () => ({ data: ++look < 3 ? { status: 'waiting', partial: look === 1 ? 'The first' : 'The first half' } : { status: 'answered', conversation_id: 9 } }));
+        const slept = [];
+        const told = [];
+
+        // Act
+        const done = await waitForAnswer({ asked }, 1, { firstMs: 1, waitMs: 5000, partialMs: 700, sleep: async (ms) => slept.push(ms), onpartial: (text) => told.push(text) });
+        const still = await waitForAnswer({ asked: async () => ({ data: { status: 'waiting', partial: 'stuck' } }) }, 1, { tries: 2, firstMs: 0, waitMs: 1000, partialMs: 500, sleep: async () => {} });
+
+        // Assert
+        expect(done).toEqual({ status: 'answered', conversation_id: 9 });
+        expect(told).toEqual(['The first', 'The first half']);
+        expect(slept).toEqual([1, 700, 700]);
+        expect(still).toEqual({ status: 'timeout' });
+    });
+
     /** A document dropped on the box goes with the question, as base64. */
     it('sends a dropped document with the question', async () => {
         // Arrange

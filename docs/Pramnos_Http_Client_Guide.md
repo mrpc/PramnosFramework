@@ -10,6 +10,7 @@ use_cases:
   - Fetching a URL that a user supplied, without opening an SSRF hole
   - Diagnosing a request that times out or exhausts memory
   - Downloading a large file, or a .gz one, straight to disk
+  - Reading a server-sent event stream while it is still being written
   - Measuring outbound bandwidth or per-request timing
 ---
 
@@ -341,6 +342,34 @@ if ($response->successful() && self::looksLikeADatabase($target . '.part')) {
   above: only the caller knows what "checked" means.
 - A faked response (`Client::fake()`) is written to the file the same way, inflated if asked,
   so a download command can be tested without the network.
+
+## Reading a stream as it arrives: `onChunk()`
+
+A server-sent event stream (a model writing its answer, say) is read while it is still being
+written:
+
+```php
+$buffer = '';
+$response = Client::post($url)
+    ->json($payload)
+    ->onChunk(function (string $chunk) use (&$buffer): void {
+        $buffer .= $chunk;
+        while (($end = strpos($buffer, "\n")) !== false) {
+            handleLine(substr($buffer, 0, $end));
+            $buffer = substr($buffer, $end + 1);
+        }
+    })
+    ->send();
+```
+
+- Only a 2xx body is passed to the listener. The body of an error is not a stream, so it is kept
+  only as `body()`.
+- The body is still kept whole for `body()`.
+- Under `maxResponseBytes()`, the listener gets only what the ceiling kept.
+- A body going to a `sink()` is not passed to the listener.
+- A piece ends wherever the network split it, not on a line, so the listener keeps the remainder
+  for the next piece, as above.
+- A faked response (`Client::fake()`) is passed to the listener in one piece.
 
 ## Redirects
 

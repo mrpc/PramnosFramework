@@ -673,4 +673,44 @@ class ClientTransportTest extends TestCase
         $this->assertTrue($response->truncated(), 'the ceiling counted the wire size');
         $this->assertLessThanOrEqual(5000, strlen($response->body()));
     }
+
+    // ── Streaming ───────────────────────────────────────────────────────────
+
+    /**
+     * onChunk() is told a 2xx body as it arrives, and the body is still kept whole for body();
+     * an error's body is not told, as it is no stream; and the listener sits on top of a body
+     * ceiling, told only what the ceiling kept.
+     *
+     * A streamed model answer is read this way while it is still being written — the screen
+     * shows the text as it comes. A listener that saw a 401's JSON as if it were the answer, or
+     * that replaced the ceiling, would be a second, unguarded way in.
+     */
+    public function testOnChunkIsToldASuccessfulBodyAsItArrives(): void
+    {
+        // Arrange — three answers: a stream, an error, and a body bigger than its ceiling
+        $base = $this->serve(static function (int $i): string {
+            return match ($i) {
+                0       => self::response(200, "data: one\n\ndata: two\n\n", ['Content-Type' => 'text/event-stream']),
+                1       => self::response(401, '{"error":"no key"}'),
+                default => self::response(200, str_repeat('y', 100)),
+            };
+        }, 3);
+        $told = [[], [], []];
+
+        // Act
+        $stream = (new Client())->make('POST', $base . '/chat')
+            ->onChunk(static function (string $chunk) use (&$told): void { $told[0][] = $chunk; })->send();
+        $error = (new Client())->make('POST', $base . '/chat')
+            ->onChunk(static function (string $chunk) use (&$told): void { $told[1][] = $chunk; })->send();
+        $capped = (new Client())->make('GET', $base . '/big')->maxResponseBytes(10)
+            ->onChunk(static function (string $chunk) use (&$told): void { $told[2][] = $chunk; })->send();
+
+        // Assert
+        $this->assertSame("data: one\n\ndata: two\n\n", implode('', $told[0]), 'every piece, in order');
+        $this->assertSame("data: one\n\ndata: two\n\n", $stream->body(), 'and the body whole');
+        $this->assertSame([], $told[1], 'an error is not a stream');
+        $this->assertSame('{"error":"no key"}', $error->body());
+        $this->assertSame(str_repeat('y', 10), implode('', $told[2]), 'only what the ceiling kept');
+        $this->assertTrue($capped->truncated());
+    }
 }

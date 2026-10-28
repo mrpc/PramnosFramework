@@ -62,6 +62,9 @@ class Conversations
     /** @var array<string, int> What every call is marked with besides the scope: the scheduled task */
     private array $about = [];
 
+    /** @var (callable(string): void)|null Told the answer's text so far, as it is written */
+    private $onText = null;
+
     public function __construct(private readonly Assistant $assistant, private readonly ?Client $client = null)
     {
     }
@@ -89,6 +92,20 @@ class Conversations
     {
         $chat        = clone $this;
         $chat->about = ['routine_id' => $routineId];
+
+        return $chat;
+    }
+
+    /**
+     * These conversations, telling `$listener` an answer's text so far while it is written — see
+     * `Client::onText()`. The answer only: not a summary folded or a memory learned beside it.
+     *
+     * @param callable(string): void $listener
+     */
+    public function streaming(callable $listener): static
+    {
+        $chat         = clone $this;
+        $chat->onText = $listener;
 
         return $chat;
     }
@@ -336,7 +353,7 @@ class Conversations
             }
         }
 
-        $answer = $client->askWithTools(
+        $answer = $client->onText($this->onText)->askWithTools(
             $this->assistant->systemPrompt($turn) . "\n\n" . ($turn->shared() ? trim($this->assistant->context($turn)) : $this->context($turn, $memory))
                 . ($turn->documents === [] ? '' : "\n\n" . Client::DATA_NOTICE)
                 . ($summary === '' ? '' : "\n\nEarlier in this conversation, in short (those messages are not shown again):\n" . $summary),
@@ -346,6 +363,7 @@ class Conversations
             $this->assistant->due($turn),
             $this->assistant->verify($turn)
         );
+        $client->onText(null);
 
         if (!$answer['ok']) {
             return self::refusal(isset($answer['consent']) ? 'consent' : (isset($answer['limited']) ? 'limit' : 'provider'), (string) $answer['says']);

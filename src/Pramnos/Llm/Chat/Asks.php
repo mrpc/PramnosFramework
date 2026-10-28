@@ -22,6 +22,9 @@ class Asks
     /** The queue task type. */
     public const TASK = 'chat_ask';
 
+    /** How often, at most, the answer's text so far is written for the screen: seconds. */
+    public const PARTIAL_EVERY = 0.5;
+
     /** @var list<callable(array<string, mixed>, array<string, mixed>): void> */
     private static array $listeners = [];
 
@@ -71,7 +74,18 @@ class Asks
     {
         $org   = $job['organization_id'] ?? null;
         $scope = new Scope((int) ($job['userid'] ?? 0), $org === null ? null : (int) $org, (string) ($job['space'] ?? Scope::CHAT));
-        $chat  = $this->chat->as($scope);
+        // The answer's text so far, for the screen following it — not more often than PARTIAL_EVERY.
+        // Without the column (its migration not run yet) nothing is written, and the answer still comes whole.
+        $streamed = false;
+        $last     = 0.0;
+        $partial  = function (string $text) use ($scope, $job, &$streamed, &$last): void {
+            if (microtime(true) - $last >= self::PARTIAL_EVERY) {
+                $scope->apply($this->table())->where('ask_id', (int) ($job['ask_id'] ?? 0))->update(['partial' => $text]);
+                [$streamed, $last] = [true, microtime(true)];
+            }
+        };
+        $chat  = \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('chat_asks', 'partial')
+            ? $this->chat->as($scope)->streaming($partial) : $this->chat->as($scope);
         // An ask from the conversations: the people there are told the analyst is on it.
         if (isset($job['extra']['conversations'])) {
             try {
@@ -98,7 +112,7 @@ class Asks
                 'says' => (string) ($answer['says'] ?? '') ?: 'The AI could not answer.'];
 
         $scope->apply($this->table())->where('ask_id', (int) ($job['ask_id'] ?? 0))
-            ->update($outcome + ['updated_at' => CallLog::instant(time())]);
+            ->update($outcome + ($streamed ? ['partial' => null] : []) + ['updated_at' => CallLog::instant(time())]);
 
         // An ask from the conversations is posted back from here, not by a listener a provider
         // registers: the worker answering it may be an application that boots no providers.
@@ -117,9 +131,10 @@ class Asks
     }
 
     /**
-     * One of this person's asks: its status, and the conversation once answered.
+     * One of this person's asks: its status, the answer's text so far while it is written, and the
+     * conversation once answered.
      *
-     * @return array{ask_id: int, status: string, conversation_id: int|null, why: string|null, says: string|null}|null
+     * @return array{ask_id: int, status: string, conversation_id: int|null, why: string|null, says: string|null, partial: string|null}|null
      */
     public function find(Scope $scope, int $askId): ?array
     {
@@ -137,6 +152,7 @@ class Asks
             'conversation_id' => $f['conversation_id'] === null ? null : (int) $f['conversation_id'],
             'why'             => $f['why'] === null ? null : (string) $f['why'],
             'says'            => $f['says'] === null ? null : (string) $f['says'],
+            'partial'         => ($f['partial'] ?? null) === null ? null : (string) $f['partial'],
         ];
     }
 

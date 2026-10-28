@@ -178,6 +178,20 @@ conversation holds accepts it. The payload is rebuilt for that provider (its mod
 parameter, none of the first provider's own fields), and the answer goes on and is logged there.
 Without a fallback, or where it may not, the failure is returned as before, with its reason.
 
+### Streaming an answer
+
+`$client->onText(fn (string $soFar) => …)` is told the answer's text while the model writes it:
+each time more arrives, the whole of it so far. A round that calls tools starts again from
+nothing. An answer cut off at the length limit and continued goes on from where it was. The
+answer `ask()` and `askWithTools()` return is the same as without streaming: its tool calls and
+usage are put together from the stream's pieces. `onText(null)` stops it.
+
+Only a transport with a `chatStream()` method streams. `OpenAiCompatible` has one: it sends
+`stream: true` with `stream_options.include_usage` and reads the server-sent events. A provider
+that refuses that request with a 400 or 422 is asked again the ordinary way, and one that answers
+with a plain body is read as one. A transport of the application's own without `chatStream()`
+answers as before, all at once.
+
 ### Features
 
 An application names its uses of a model, and each can have its own provider, model, temperature,
@@ -633,6 +647,15 @@ each answer with the job, `extra` included — where else the answer should go. 
 registered in the process that answers, so one a provider registers is missing from a worker that
 boots no providers. An ask with `extra['conversations']` needs none: `run()` posts it back to its
 conversation itself, once per ask.
+
+While the worker writes the answer, `run()` streams it (`Conversations::streaming()`) and writes
+the text so far to `chat_asks.partial`, at most every `Asks::PARTIAL_EVERY` seconds (0.5).
+`find()` returns it as `partial`, and both screens show it as it grows: `pf-chat.js` and the SPA
+look at the ask every 700 ms while there is text, instead of every few seconds. Once the ask is
+answered or fails, the column is emptied, because the answer is kept with the conversation.
+Without the column (migration `2026_10_29_000001_add_partial_to_chat_asks` not run), nothing is
+streamed, and the answer arrives whole, as before. A summary folded or a memory learned beside the
+answer is never streamed.
 
 ### Scheduled tasks: questions, reminders, reports
 

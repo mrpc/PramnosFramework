@@ -95,6 +95,9 @@ class Client
         /** `host:port:ip` for `CURLOPT_RESOLVE`, set by the guard before each hop. */
     private string  $pinnedAddress  = '';
 
+    /** @var (callable(string): void)|null Told each piece of a 2xx body as it arrives. */
+    private $onChunk = null;
+
     // =========================================================================
     // Fake registry (used in tests to avoid real network calls)
     // =========================================================================
@@ -579,6 +582,23 @@ class Client
     }
 
     /**
+     * Be told each piece of a successful body as it arrives — a streamed answer
+     * (`text/event-stream`) read while it is still being written.
+     *
+     * Only a 2xx body is told; an error's body is not a stream. The body is still
+     * kept whole for `body()`, and under {@see maxResponseBytes()} only what the
+     * ceiling kept is told. A body going to a {@see sink()} is not told. A faked
+     * response is told in one piece.
+     *
+     * @param callable(string): void $listener
+     */
+    public function onChunk(callable $listener): static
+    {
+        $this->onChunk = $listener;
+        return $this;
+    }
+
+    /**
      * Follow at most `$times` redirects. `0` refuses them outright.
      *
      * @param int $times Negative is treated as 0.
@@ -937,6 +957,9 @@ class Client
         foreach (static::$fakes as $pattern => $fake) {
             if ($this->matchesPattern($url, $pattern)) {
                 $response = is_callable($fake) ? $fake($this) : $fake;
+                if ($this->onChunk !== null && $response->successful() && $response->body() !== '') {
+                    ($this->onChunk)($response->body());
+                }
 
                 return $this->sinkPath !== '' ? $this->sinkFake($response) : $response;
             }
@@ -1150,6 +1173,26 @@ class Client
         // A probe that wants no body at all keeps its own writer; a sink has nothing to write.
         if ($this->sinkPath !== '' && !$this->headersOnly) {
             $writer = $this->sinkWriter($state);
+        }
+
+        if ($this->onChunk !== null) {
+            $inner   = $writer ?? null;
+            $onChunk = $this->onChunk;
+            $writer  = function ($ch, string $chunk) use (&$state, $inner, $onChunk): int {
+                // What was kept is what is told: under a ceiling, the part it took.
+                $before = strlen($state['received']);
+                if ($inner === null) {
+                    $state['received'] .= $chunk;
+                }
+                $written = $inner === null ? strlen($chunk) : $inner($ch, $chunk);
+                $kept    = substr($state['received'], $before);
+                $status  = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                if ($kept !== '' && $status >= 200 && $status < 300) {
+                    $onChunk($kept);
+                }
+
+                return $written;
+            };
         }
 
         $curlHeaders = [];
