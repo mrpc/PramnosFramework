@@ -108,7 +108,8 @@ class AiController extends Controller
         $view->waitingLines = is_array($analyst['waiting_lines'] ?? null) ? $analyst['waiting_lines'] : [];
         $view->suggestions  = is_array($analyst['suggestions'] ?? null) ? $analyst['suggestions'] : [];
         $view->assistantName = is_string($analyst['name'] ?? null) ? $analyst['name'] : t('Analyst');
-        foreach (['greeting', 'placeholder', 'accent'] as $key) {
+        $view->greeting = \Pramnos\Llm\Chat\Web\ChatLook::greeting(is_array($analyst) ? $analyst : []);
+        foreach (['placeholder', 'accent'] as $key) {
             $view->{$key} = is_string($analyst[$key] ?? null) ? $analyst[$key] : '';
         }
         $view->commands = is_array($analyst['commands'] ?? null) ? $analyst['commands'] : [];

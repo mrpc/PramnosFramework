@@ -70,4 +70,26 @@ final class ChatLookTest extends TestCase
         $this->assertSame(['name' => 'both', 'says' => '', 'text' => 'Text wins'], $withTasks[6]);
         $this->assertSame(['new', 'attach', 'memory'], array_column($withoutTasks, 'name'), 'no scheduled tasks on a page without them');
     }
+
+    /**
+     * The greeting is the application's own line; without one, an assistant the application named
+     * introduces itself by that name; without a name either, the line introduces nobody.
+     *
+     * The framework's default names ("Ask", "Analyst") are a feature's, not a persona's: "Hi, I am
+     * Ask" read as a mistake on a screen called Ask.
+     */
+    public function testTheGreetingIntroducesOnlyANamedAssistant(): void
+    {
+        // Arrange / Act
+        $own      = ChatLook::greeting(['greeting' => ' Πώς μπορώ να βοηθήσω; ', 'name' => 'Naya']);
+        $named    = ChatLook::greeting(['name' => 'Naya']);
+        $unnamed  = ChatLook::greeting(['name' => '  ']);
+        $nothing  = ChatLook::greeting([]);
+
+        // Assert
+        $this->assertSame('Πώς μπορώ να βοηθήσω;', $own, 'the application\'s line wins');
+        $this->assertSame('Hi, I am Naya. How can I help?', $named);
+        $this->assertSame('', $unnamed, 'a blank name is no name');
+        $this->assertSame('', $nothing, 'the page then says its plain line');
+    }
 }

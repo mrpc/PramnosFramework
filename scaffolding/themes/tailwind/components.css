@@ -2102,7 +2102,11 @@ a.pf-person:hover { background: var(--pf-subtle); }
 /* An application's accent, set on the page itself, wins over this. */
 .pf-chat { --pf-chat-accent: var(--pf-accent); --pf-chat-width: 820px; }
 .pf-chat .pf-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-.pf-chat-main { display: flex; flex-direction: column; min-height: 70vh; }
+.pf-chat-main { position: relative; display: flex; flex-direction: column; min-height: 70vh; }
+/* The page's own tools (⚙) in the column's top corner, their menu opening towards the edge. */
+.pf-ask-gear { position: absolute; top: 0; right: 0; z-index: 10; }
+.pf-ask-gear > summary { list-style: none; cursor: pointer; }
+.pf-ask-gear > ul { position: absolute; right: 0; left: auto; margin: 4px 0 0; padding: 8px 12px; list-style: none; white-space: nowrap; }
 .pf-chat-messages { flex: 1 0 auto; }
 .pf-chat-empty .pf-chat-messages { flex: 0 0 auto; }
 .pf-chat-messages, .pf-chat-composer, .pf-chat-suggestions { width: 100%; max-width: var(--pf-chat-width); margin-left: auto; margin-right: auto; }

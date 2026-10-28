@@ -38,6 +38,21 @@ final class ChatLook
     }
 
     /**
+     * The line over an empty conversation: the application's `greeting`; else, where it named the
+     * assistant (`name`), an introduction by that name; else a plain "How can I help?" — the
+     * framework's own names ("Ask", "Analyst") are a feature's, and "Hi, I am Ask" introduces nobody.
+     *
+     * @param array<string, mixed> $config The `chat` or `analyst` section
+     */
+    public static function greeting(array $config): string
+    {
+        $greeting = is_string($config['greeting'] ?? null) ? trim($config['greeting']) : '';
+        $name     = is_string($config['name'] ?? null) ? trim($config['name']) : '';
+
+        return $greeting !== '' ? $greeting : ($name !== '' ? sprintf(t('Hi, I am %s. How can I help?'), $name) : '');
+    }
+
+    /**
      * The commands typed after `/` in the composer: the page's own (a new conversation, the
      * scheduled tasks where the page has them, attaching a document, what it remembers), then the
      * application's.

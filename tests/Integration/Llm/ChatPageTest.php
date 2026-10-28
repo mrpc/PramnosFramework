@@ -197,11 +197,15 @@ class ChatPageTest extends LlmTestCase
             $this->assertStringContainsString('rows="1" class="pf-chat-input"', $open, $theme);
         }
 
-        // Without a greeting, the page's heading says who it is; without either, a plain line
-        $this->configure(['chat' => []]);
+        // Without a greeting, an assistant the application named introduces itself; one it did
+        // not name (the framework's own "Ask") does not, and the line is a plain one
         $_GET = [];
         \Pramnos\Http\Request::resetInstance();
+        $this->configure(['chat' => ['name' => 'Naya']]);
+        $named = (string) $this->page()->display();
+        $this->configure(['chat' => []]);
         $plain = (string) $this->page()->display();
+        $this->assertStringContainsString('<h1>Hi, I am Naya. How can I help?</h1>', $named);
         $this->assertStringContainsString('<h1>How can I help?</h1>', $plain);
         $this->assertStringNotContainsString('--pf-chat-accent', $plain);
     }

@@ -75,7 +75,8 @@ class ChatPageController extends Controller
         $view->suggestions   = is_array($chat['suggestions'] ?? null) ? $chat['suggestions'] : [];
         $view->assistantName = is_string($chat['name'] ?? null) ? $chat['name'] : '';
         // How it looks as the application's own (ChatLook): its greeting, placeholder, colour, `/` commands.
-        foreach (['greeting', 'placeholder', 'accent'] as $key) {
+        $view->greeting = \Pramnos\Llm\Chat\Web\ChatLook::greeting(is_array($chat) ? $chat : []);
+        foreach (['placeholder', 'accent'] as $key) {
             $view->{$key} = is_string($chat[$key] ?? null) ? $chat[$key] : '';
         }
         $view->commands = is_array($chat['commands'] ?? null) ? $chat['commands'] : [];

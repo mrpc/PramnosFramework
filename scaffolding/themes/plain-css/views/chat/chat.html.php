@@ -18,7 +18,7 @@
  *   $this->headingAvatar — optional: HTML of the picture beside that title (the analyst's, Assist\AvatarSets::render())
  *   $this->suggestions   — optional: example questions, shown while no conversation is open
  *   $this->assistantName — optional: the name over an answer, "Assistant" by default
- *   $this->greeting      — optional: the line over the empty page's composer
+ *   $this->greeting      — optional: the line over the empty page's composer (ChatLook::greeting())
  *   $this->placeholder   — optional: the composer's placeholder
  *   $this->accent        — optional: the page's accent colour, over the theme's primary
  *   $this->commands      — optional: the application's own `/` commands (ChatLook::commands())
@@ -91,9 +91,7 @@ $pinned  = is_array($this->pinned ?? null) ? $this->pinned : [];
 $bulk    = is_array($this->bulkActions ?? null) ? $this->bulkActions : [];
 // Empty: a greeting over one large composer, the examples under it.
 $empty   = $open === null && !$waiting;
-$heading = (string) ($this->heading ?? '');
-$greeting = (string) ($this->greeting ?? '') !== '' ? (string) $this->greeting
-    : ($heading !== '' ? sprintf(t('Hi, I am %s. How can I help?'), $heading) : t('How can I help?'));
+$greeting = (string) ($this->greeting ?? '') !== '' ? (string) $this->greeting : t('How can I help?');
 $accent  = \Pramnos\Llm\Chat\Web\ChatLook::accent((string) ($this->accent ?? ''));
 $commands = \Pramnos\Llm\Chat\Web\ChatLook::commands($u, is_array($this->commands ?? null) ? $this->commands : []);
 ?>
@@ -135,9 +133,9 @@ $commands = \Pramnos\Llm\Chat\Web\ChatLook::commands($u, is_array($this->command
             <?php endif; ?>
             <?php // The page's own tools, out of the way: a gear with whichever of them the reader has. ?>
             <?php if (!empty($this->settingsUrl) || $u['all'] !== '' || $u['reviews'] !== ''): ?>
-                <details class="pf-ask-gear" style="display:inline-block;position:relative;margin-bottom:12px">
+                <details class="pf-ask-gear">
                     <summary aria-label="<?php echo $e(t('Ask page tools')); ?>" title="<?php echo $e(t('Ask page tools')); ?>" style="list-style:none;cursor:pointer">⚙</summary>
-                    <ul class="<?php echo $c['card']; ?>" style="position:absolute;z-index:10;list-style:none;margin:4px 0 0;padding:8px 12px;white-space:nowrap">
+                    <ul class="<?php echo $c['card']; ?>">
                         <?php if (!empty($this->settingsUrl)): ?><li><a href="<?php echo $e($this->settingsUrl); ?>"><?php echo $e(t('Settings')); ?></a></li><?php endif; ?>
                         <?php if ($u['all'] !== ''): ?><li><a href="<?php echo $e($u['all']); ?>"><?php echo $e(t('Other people\'s Ask conversations')); ?></a></li><?php endif; ?>
                         <?php if ($u['reviews'] !== ''): ?><li><a href="<?php echo $e($u['reviews']); ?>"><?php echo $e(t('Answers to review')); ?></a></li><?php endif; ?>
