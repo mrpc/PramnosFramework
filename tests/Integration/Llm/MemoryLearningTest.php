@@ -59,6 +59,7 @@ class MemoryLearningTest extends LlmTestCase
         $id        = $memory->all()[0]['memory_id'];
         $corrected = $memory->keep('fact', 'Works in marketing now.', $id);
         $missing   = $memory->keep('fact', 'x', 999999);
+        $this->configure(['chat' => ['memory' => ['organization' => false]]]);
         $off       = $memory->keep('fact', 'We sell water meters.', null, 'organization');
 
         // Assert
@@ -66,11 +67,11 @@ class MemoryLearningTest extends LlmTestCase
         $this->assertSame(['Works in marketing now.'], array_column($memory->all(), 'content'), 'corrected, not doubled');
         $this->assertSame('model', $memory->all()[0]['source']);
         $this->assertSame('Error: there is no such memory to correct.', $missing);
-        $this->assertStringStartsWith('Error: nothing is kept for an organisation', $off, 'off unless turned on');
+        $this->assertStringStartsWith('Error: nothing is kept for an organisation', $off, 'off where the application turns it off');
         $this->assertSame([], $memory->shared());
 
-        // Act — turned on
-        $this->configure(['chat' => ['memory' => ['organization' => true, 'organization_max' => 2]]]);
+        // Act — on, as by default
+        $this->configure(['chat' => ['memory' => ['organization_max' => 2]]]);
         $kept      = $memory->keep('fact', 'We sell water meters.', null, 'organization');
         $memory->keep('preference', 'Reports in euros.', null, 'organization');
         $full      = $memory->keep('fact', 'A third.', null, 'organization');
@@ -158,7 +159,7 @@ class MemoryLearningTest extends LlmTestCase
 
         // Act
         $answer = $chat->ask(null, 'I am Maria, by the way.');
-        $this->configure(['chat' => ['memory' => ['organization' => true]]]);
+        $this->configure(['chat' => ['memory' => ['learn' => false]]]);
         $chat->ask((int) $answer['conversation_id'], 'And now?');
 
         // Assert

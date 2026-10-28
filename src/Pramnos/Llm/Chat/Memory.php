@@ -18,15 +18,15 @@ use Pramnos\Llm\CallLog;
  *
  * ## Learned after an answer, where the application wants it
  *
- * With `'memory' => ['learn' => true]`, after each answer a second, short call reads what the
- * person just said beside what is remembered, and keeps what they stated about themselves or their
- * work, corrects what changed, and forgets what they took back ({@see learn()}). Off by default:
- * it costs a call per answer, and it picks things up without being asked. What it keeps is marked
- * `learned`, shown to the person like any other memory, and forgotten the same way.
+ * After each answer a second, short call reads what the person just said beside what is
+ * remembered, and keeps what they stated about themselves or their work, corrects what changed,
+ * and forgets what they took back ({@see learn()}). On by default; `'memory' => ['learn' => false]`
+ * turns it off — it costs a call per answer. What it keeps is marked `learned`, shown to the person
+ * like any other memory, and forgotten the same way.
  *
  * ## The organisation's, beside the person's
  *
- * With `'memory' => ['organization' => true]`, a conversation inside an organisation also
+ * Unless `'memory' => ['organization' => false]`, a conversation inside an organisation also
  * remembers what everybody there has told it about their shared work (`about: organization`):
  * kept with `userid` 0, read by everybody in the organisation, at most
  * `organization_max` entries (40).
@@ -75,13 +75,13 @@ class Memory
     /** Whether the application turned learning after each answer on. */
     public static function learns(): bool
     {
-        return !empty(self::config()['learn']);
+        return (bool) (self::config()['learn'] ?? true);
     }
 
     /** Whether the application keeps memories an organisation shares. */
     public static function shares(): bool
     {
-        return !empty(self::config()['organization']);
+        return (bool) (self::config()['organization'] ?? true);
     }
 
     /** The most memories an organisation may share. */

@@ -38,6 +38,9 @@ abstract class LlmTestCase extends TestCase
         Llm::reset();
         Http::resetFakes();
         $this->sent = [];
+        // Learning after each answer is on by default and costs a call; a test that counts the
+        // calls an answer makes turns it on itself (MemoryLearningTest).
+        $this->configure([]);
     }
 
     protected function tearDown(): void
@@ -67,6 +70,10 @@ abstract class LlmTestCase extends TestCase
      */
     protected function configure(array $config): void
     {
+        if (!isset($config['chat']['memory']['learn'])) {
+            $config['chat'] = (is_array($config['chat'] ?? null) ? $config['chat'] : []);
+            $config['chat']['memory'] = (is_array($config['chat']['memory'] ?? null) ? $config['chat']['memory'] : []) + ['learn' => false];
+        }
         Application::getInstance()->applicationInfo['llm'] = $config;
         Llm::reset();
     }

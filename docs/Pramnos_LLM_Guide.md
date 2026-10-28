@@ -403,18 +403,17 @@ the model passes its id as `replaces` and the memory is rewritten — the latest
 than two memories disagreeing. In code, `Memory::keep($kind, $content, $replaces, $about,
 $source)`; `remember()` is the same for a new one.
 
-**Learning after an answer** — `'llm' => ['chat' => ['memory' => ['learn' => true]]]`, off by
-default. After each answer a short second call reads what the person just said beside what is
-remembered, and answers a list of changes: keep what they *stated* about themselves, their role
-or their work, or how they want answers; correct what changed; forget what they took back. At most
-ten changes a turn, within the limits; what it cannot read changes nothing, and a failure never
-fails the answer. What it keeps is marked `learned` and shown so on the memory list, where the
-person forgets it like any other. Off by default because it costs a call per answer and picks
-things up without being asked; with it off, the model still keeps what is worth keeping through
-`remember`, where the call is listed under the answer.
+**Learning after an answer** — on by default; `'llm' => ['chat' => ['memory' => ['learn' =>
+false]]]` turns it off. After each answer a short second call reads what the person just said
+beside what is remembered, and answers a list of changes: keep what they *stated* about themselves,
+their role or their work, or how they want answers; correct what changed; forget what they took
+back. At most ten changes a turn, within the limits; what it cannot read changes nothing, and a
+failure never fails the answer. What it keeps is marked `learned` and shown so on the memory list,
+where the person forgets it like any other. It costs one call per answer; with it off, the model
+still keeps what is worth keeping through `remember`.
 
-**An organisation's memory** — `'memory' => ['organization' => true]` (and `organization_max`,
-40). Inside an organisation, the model also keeps what people there tell it about their shared
+**An organisation's memory** — on by default (`'memory' => ['organization' => false]` turns it
+off; `organization_max`, 40). Inside an organisation, the model also keeps what people there tell it about their shared
 work (`remember` with `about: organization`): read by everybody in that organisation and space,
 shown in the prompt apart from the person's own, forgotten with `forget`. Outside an organisation
 there is nobody to share with, and the option has no effect. Searching is case-insensitive; on
