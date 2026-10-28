@@ -253,6 +253,9 @@ class UploadContentChecksTest extends TestCase
 
         $rules = (string) file_get_contents($htaccess);
         $this->assertStringContainsString('engine off', $rules);
+        // Bare, php_flag is "Invalid command" to Apache under php-fpm, on every request in here
+        $this->assertDoesNotMatchRegularExpression('/^php_flag/m', $rules, 'php_flag outside <IfModule mod_php…>');
+        $this->assertStringContainsString("<IfModule mod_php.c>\n    php_flag engine off\n</IfModule>", $rules);
         $this->assertStringContainsString('RewriteRule', $rules, 'no protection without mod_php');
         foreach (['php', 'phtml', 'phar'] as $extension) {
             $this->assertStringContainsString($extension, $rules, $extension . ' is not refused');
@@ -285,6 +288,37 @@ class UploadContentChecksTest extends TestCase
             (string) file_get_contents($htaccess),
             "the installation's own rules were replaced"
         );
+    }
+
+    /**
+     * The file an earlier version wrote — `php_flag` bare, refused by Apache under php-fpm — is the
+     * framework's own and is brought up to date; anything else stays, as above.
+     *
+     * Without this, every directory already protected keeps logging "Invalid command 'php_flag'"
+     * for good: the file is written once and never again.
+     */
+    public function testTheFrameworksOwnOlderHtaccessIsReplaced(): void
+    {
+        // Arrange — exactly what the earlier version wrote
+        $dir = $this->tmp . DIRECTORY_SEPARATOR . 'uploads-older';
+        mkdir($dir, 0777, true);
+        $this->made[] = $dir;
+        $htaccess = $dir . DIRECTORY_SEPARATOR . '.htaccess';
+        file_put_contents($htaccess, "# Uploaded files are data, never code.\n"
+            . "php_flag engine off\n"
+            . "<IfModule mod_rewrite.c>\n"
+            . "    RewriteEngine On\n"
+            . "    RewriteRule \\.(php[0-9]?|phtml|phar)$ - [F,L,NC]\n"
+            . "</IfModule>\n");
+
+        // Act
+        (new \ReflectionMethod(MediaObject::class, 'protectUploadDirectory'))->invoke(null, $dir);
+
+        // Assert
+        $rules = (string) file_get_contents($htaccess);
+        $this->assertDoesNotMatchRegularExpression('/^php_flag/m', $rules, 'the bare directive is gone');
+        $this->assertStringContainsString('<IfModule mod_php.c>', $rules);
+        $this->assertStringContainsString('RewriteRule', $rules, 'the rewrite still refuses scripts');
     }
 
     /**

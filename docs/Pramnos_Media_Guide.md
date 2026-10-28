@@ -211,6 +211,15 @@ $media->mediatype = 1; // Images only
 $result = $media->uploadFile($_FILES['file'], 'gallery');
 ```
 
+**The upload directory refuses to run scripts.** Its first upload gives it an `.htaccess`
+that turns the PHP engine off and refuses `.php`, `.phtml` and `.phar` with a rewrite. The
+`php_flag` line sits inside `<IfModule mod_php.c>` (and `mod_php7.c`), because only mod_php
+knows the directive: under php-fpm a bare `php_flag` makes Apache log
+`Invalid command 'php_flag'` on every request into the directory. There the rewrite is what
+holds. An `.htaccess` the application has changed is never overwritten. The only file that is
+replaced is one exactly matching the framework's earlier version, which had the line bare.
+On nginx the file is not read, and the same rule belongs in the site config.
+
 ### SVG Uploads
 
 `uploadFile()` accepts `.svg` alongside the raster formats, but never writes the upload's own

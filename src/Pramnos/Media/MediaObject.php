@@ -12,6 +12,27 @@ namespace Pramnos\Media;
  */
 class MediaObject extends \Pramnos\Framework\Base
 {
+    /** The `.htaccess` an upload directory is given: no script runs there. */
+    private const UPLOAD_HTACCESS = "# Uploaded files are data, never code.\n"
+        . "<IfModule mod_php.c>\n"
+        . "    php_flag engine off\n"
+        . "</IfModule>\n"
+        . "<IfModule mod_php7.c>\n"
+        . "    php_flag engine off\n"
+        . "</IfModule>\n"
+        . "<IfModule mod_rewrite.c>\n"
+        . "    RewriteEngine On\n"
+        . "    RewriteRule \\.(php[0-9]?|phtml|phar)$ - [F,L,NC]\n"
+        . "</IfModule>\n";
+
+    /** What an earlier version wrote, `php_flag` bare: refused by Apache under php-fpm, so replaced. */
+    private const UPLOAD_HTACCESS_BARE = "# Uploaded files are data, never code.\n"
+        . "php_flag engine off\n"
+        . "<IfModule mod_rewrite.c>\n"
+        . "    RewriteEngine On\n"
+        . "    RewriteRule \\.(php[0-9]?|phtml|phar)$ - [F,L,NC]\n"
+        . "</IfModule>\n";
+
     /**
      * Primary key in database
      * @var int
@@ -2874,9 +2895,15 @@ class MediaObject extends \Pramnos\Framework\Base
      * server misconfigured to run PHP by content rather than extension, or an
      * allow-list widened in a hurry, is all it takes.
      *
+     * `php_flag` is a directive of mod_php alone: under php-fpm Apache refuses
+     * it ("Invalid command 'php_flag'") on every request into the directory, so
+     * it sits inside `<IfModule>`; the rewrite is what holds everywhere.
+     *
      * Written once, never overwritten — an application that has tuned this file
-     * keeps its version. No-op on nginx, which does not read it; there the same
-     * rule belongs in the site config.
+     * keeps its version. The one exception is a file that is exactly what an
+     * earlier version wrote, with `php_flag` bare: that one is the framework's,
+     * and is brought up to date. No-op on nginx, which does not read it; there
+     * the same rule belongs in the site config.
      *
      * @param  string $path
      * @return void
@@ -2884,19 +2911,14 @@ class MediaObject extends \Pramnos\Framework\Base
     protected static function protectUploadDirectory($path): void
     {
         $file = $path . DS . '.htaccess';
-        if (file_exists($file) || !is_writable($path)) {
+        if (file_exists($file) && @file_get_contents($file) !== self::UPLOAD_HTACCESS_BARE) {
+            return;
+        }
+        if (!is_writable(file_exists($file) ? $file : $path)) {
             return;
         }
 
-        @file_put_contents(
-            $file,
-            "# Uploaded files are data, never code.\n"
-            . "php_flag engine off\n"
-            . "<IfModule mod_rewrite.c>\n"
-            . "    RewriteEngine On\n"
-            . "    RewriteRule \\.(php[0-9]?|phtml|phar)$ - [F,L,NC]\n"
-            . "</IfModule>\n"
-        );
+        @file_put_contents($file, self::UPLOAD_HTACCESS);
     }
 
     /**
