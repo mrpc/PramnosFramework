@@ -649,6 +649,14 @@ After each run:
 
 The question a run asks carries the day on the owner's clock.
 
+**One's own report by email.** The Scheduled page offers *Email it to me* / *Stop the email* on each
+of the person's own reports, as it offers *Receive it by email too* on a shared one (`mine()`
+carries `email` per task). Where an application shows no notifications — no bell — a run's
+database notification is never seen, and email is the only way its owner hears of it.
+
+The time fields of the schedule form are shown only for the cadence chosen (`data-pf-show-when`;
+all of them without JavaScript).
+
 **What the tasks cost** is read from `ai_task_runs.cost`, the price of each run's model calls
 recorded once however many people receive the report (`Chat\TaskCosts`). It shows in two
 places with nothing to configure:

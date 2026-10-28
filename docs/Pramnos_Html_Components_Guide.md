@@ -397,6 +397,20 @@ what it needs.
 
 ---
 
+### A field shown only while another says so — `data-pf-show-when`
+
+Inside a form, `data-pf-show-when="cadence:weekly monthly_weekday"` on an element shows it only
+while the form's `cadence` field holds one of those values, and follows the field as it changes
+(`pf-utils.js`). It depends on no class, so a theme's or an application's own markup takes it as
+it is. Without the script everything stays shown, and a hidden field is still sent — the server
+reads what it uses, so the form works either way.
+
+```html
+<select name="cadence">…</select>
+<label data-pf-show-when="cadence:weekly monthly_weekday">Weekday <select name="weekday">…</select></label>
+<label data-pf-show-when="cadence:once">When <input type="datetime-local" name="run_at"></label>
+```
+
 ## PasswordToggle
 
 The «show password» control that sits beside a password field. First recommendation of

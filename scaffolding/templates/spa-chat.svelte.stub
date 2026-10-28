@@ -644,7 +644,7 @@
                 {#if sharing}
                     <form class="flex flex-wrap items-center gap-2" data-pf-share-form onsubmit={shareNow}>
                         <label class="text-sm">{sharing.kind === 'artifact' ? t('Share the artifact with') : t('Share the conversation with')}
-                            <input class="input input-sm ml-1" bind:value={shareNames} placeholder={t('usernames or emails')} required />
+                            <input class="{ui('input.sm')} ml-1" bind:value={shareNames} placeholder={t('usernames or emails')} required />
                         </label>
                         <button type="submit" class={ui('btn.sm')}>{t('Share')}</button>
                         <button type="button" class={ui('btn.ghost.sm')} onclick={() => { sharing = null; }}>{t('Close')}</button>
@@ -671,11 +671,11 @@
                                 <div class="chat-bubble markdown max-w-full text-sm">{@html markdown(one.content)}</div>
                                 {#each one.artifacts ?? [] as artifact (artifact.artifact_id)}
                                     <!-- A kept result: a table, a list of records, a text. -->
-                                    <section class="card border border-base-300 bg-base-100 mt-2 w-full p-3 text-sm" data-pf-artifact={artifact.artifact_id} data-pf-artifact-kind={artifact.kind}>
+                                    <section class="{ui('card')} mt-2 w-full p-3 text-sm" data-pf-artifact={artifact.artifact_id} data-pf-artifact-kind={artifact.kind}>
                                         <header class="mb-2"><strong>{artifact.title}</strong> <span class="opacity-60">{artifactLabel(artifact)}</span></header>
                                         {#if artifact.kind === 'table'}
                                             <div class="max-h-96 overflow-auto">
-                                                <table class="table table-sm">
+                                                <table class={ui('table')}>
                                                     <thead><tr>{#each artifact.content?.columns ?? [] as column}<th>{column}</th>{/each}</tr></thead>
                                                     <tbody>{#each artifact.content?.rows ?? [] as row}<tr>{#each row as cell}<td>{cell === true ? '✓' : cell === false ? '✗' : (cell ?? '')}</td>{/each}</tr>{/each}</tbody>
                                                 </table>
@@ -692,7 +692,7 @@
                                         {:else if artifact.kind === 'chart'}
                                             <!-- The numbers, as a table: the page's Chart.js draws the server-rendered chart; here they are read as they are. -->
                                             <div class="max-h-96 overflow-auto">
-                                                <table class="table table-sm">
+                                                <table class={ui('table')}>
                                                     <thead><tr><th></th>{#each artifact.content?.series ?? [] as series}<th>{series.label}</th>{/each}</tr></thead>
                                                     <tbody>{#each artifact.content?.labels ?? [] as label, i}<tr><td>{label}</td>{#each artifact.content?.series ?? [] as series}<td>{series.data?.[i]}</td>{/each}</tr>{/each}</tbody>
                                                 </table>
@@ -724,18 +724,18 @@
                                                     {#if Object.keys(acting.actions).length === 0}
                                                         <p class="text-sm opacity-60">{t('Nothing can be done with these here.')}</p>
                                                     {:else}
-                                                        <select class="select select-sm" bind:value={acting.chosen} aria-label={t('Action')}>
+                                                        <select class={ui('select')} bind:value={acting.chosen} aria-label={t('Action')}>
                                                             {#each Object.entries(acting.actions) as [key, one]}<option value={key}>{one.label}</option>{/each}
                                                         </select>
                                                         {#each Object.entries(acting.actions[acting.chosen]?.params ?? {}) as [name, param] (name)}
                                                             <label class="text-sm">{param.label}
                                                                 {#if param.type === 'select'}
-                                                                    <select class="select select-sm ml-1" bind:value={acting.params[name]} required={param.required}>
+                                                                    <select class="{ui('select')} ml-1" bind:value={acting.params[name]} required={param.required}>
                                                                         <option value=""></option>
                                                                         {#each Object.entries(param.options ?? {}) as [value, label]}<option {value}>{label}</option>{/each}
                                                                     </select>
                                                                 {:else}
-                                                                    <input class="input input-sm ml-1" type={param.type === 'number' ? 'number' : 'text'} bind:value={acting.params[name]} required={param.required} />
+                                                                    <input class="{ui('input.sm')} ml-1" type={param.type === 'number' ? 'number' : 'text'} bind:value={acting.params[name]} required={param.required} />
                                                                 {/if}
                                                             </label>
                                                         {/each}

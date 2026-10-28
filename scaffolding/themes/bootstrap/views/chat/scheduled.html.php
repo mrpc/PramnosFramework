@@ -5,7 +5,7 @@
  * `?task=`, one task's runs, each opened in Ask.
  *
  * Variables:
- *   $this->tasks     — this person's: routine_id, kind, title, prompt, cadence, at, day, nth, run_at,
+ *   $this->tasks     — this person's: routine_id, kind, title, prompt, cadence, at, day, nth, run_at, email (a report emailed to them),
  *                      timezone, active, next_run_local, last_error, owner
  *   $this->reports   — shared reports they may receive: the same, with subscribed and latest_run
  *   $this->task      — the task whose runs are open, or null
@@ -123,6 +123,9 @@ $readers = static function (?array $audience, array $names) use ($c, $e, $t, $ro
                 <?php if ($one['last_error']): ?><div class="<?php echo $c['bad']; ?>"><?php echo $e($one['last_error']); ?></div><?php endif; ?>
             </div>
             <a class="<?php echo $c['btnGhost']; ?>" href="<?php echo $e($u['page'] . '?task=' . (int) $one['routine_id']); ?>"><?php echo $e($t('Runs')); ?></a>
+            <?php if ($one['kind'] === 'report'): /* one's own report, by email too: the only way to hear of it where there is no bell */ ?>
+            <?php echo $button('scheduledsubscribe', ['routine_id' => $one['routine_id'], 'on' => '1', 'email' => empty($one['email']) ? '1' : ''], $t(empty($one['email']) ? 'Email it to me' : 'Stop the email'), $c['btnGhost']); ?>
+            <?php endif; ?>
             <?php echo $button('scheduledrun', ['routine_id' => $one['routine_id']], $t('Run now'), $c['btnGhost']); ?>
             <?php echo $button('scheduledupdate', ['routine_id' => $one['routine_id'], 'active' => $one['active'] ? '' : '1'], $t($one['active'] ? 'Pause' : 'Resume'), $c['btnGhost']); ?>
             <?php echo $button('scheduleddelete', ['routine_id' => $one['routine_id']], $t('Delete'), $c['danger'], $t('Delete this scheduled task?')); ?>
@@ -192,23 +195,23 @@ $readers = static function (?array $audience, array $names) use ($c, $e, $t, $ro
                     <?php foreach ((array) ($this->cadences ?? []) as $cadence): ?><option value="<?php echo $e($cadence); ?>"<?php echo $cadence === 'daily' ? ' selected' : ''; ?>><?php echo $e($t(['daily' => 'Every day', 'weekly' => 'Every week', 'monthly' => 'Every month', 'once' => 'Once', 'monthly_weekday' => 'A weekday of each month'][$cadence] ?? $cadence)); ?></option><?php endforeach; ?>
                 </select>
             </label>
-            <label class="<?php echo $c['field']; ?>"><?php echo $e($t('At')); ?>
+            <label class="<?php echo $c['field']; ?>" data-pf-show-when="cadence:daily weekly monthly monthly_weekday"><?php echo $e($t('At')); ?>
                 <input class="<?php echo $c['input']; ?>" type="time" name="at" value="08:00">
             </label>
-            <label class="<?php echo $c['field']; ?>"><?php echo $e($t('Weekday (weekly, a weekday of the month)')); ?>
+            <label class="<?php echo $c['field']; ?>" data-pf-show-when="cadence:weekly monthly_weekday"><?php echo $e($t('Weekday')); ?>
                 <select class="<?php echo $c['select']; ?>" name="weekday">
                     <?php foreach ($days as $number => $day): ?><option value="<?php echo $number; ?>"><?php echo $e($t($day)); ?></option><?php endforeach; ?>
                 </select>
             </label>
-            <label class="<?php echo $c['field']; ?>"><?php echo $e($t('Day of the month (monthly)')); ?>
+            <label class="<?php echo $c['field']; ?>" data-pf-show-when="cadence:monthly"><?php echo $e($t('Day of the month')); ?>
                 <input class="<?php echo $c['input']; ?>" type="number" name="monthday" min="1" max="28" value="1">
             </label>
-            <label class="<?php echo $c['field']; ?>"><?php echo $e($t('Which (a weekday of the month)')); ?>
+            <label class="<?php echo $c['field']; ?>" data-pf-show-when="cadence:monthly_weekday"><?php echo $e($t('Which')); ?>
                 <select class="<?php echo $c['select']; ?>" name="nth">
                     <?php foreach ($nths as $number => $nth): ?><option value="<?php echo $number; ?>"><?php echo $e($t($nth)); ?></option><?php endforeach; ?>
                 </select>
             </label>
-            <label class="<?php echo $c['field']; ?>"><?php echo $e($t('When (once), on your clock')); ?>
+            <label class="<?php echo $c['field']; ?>" data-pf-show-when="cadence:once"><?php echo $e($t('When, on your clock')); ?>
                 <input class="<?php echo $c['input']; ?>" type="datetime-local" name="run_at">
             </label>
         </div>

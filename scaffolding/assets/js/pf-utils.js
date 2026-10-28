@@ -55,6 +55,7 @@
  *                                 move, resize, hide, add, drag; each change saved at once
  *   data-pf-chart-figure        — a chart (see Html\Chart): drawn with Chart.js in the
  *                                 theme's colours, again when the theme changes
+ *   data-pf-show-when="f:a b"   — inside a form, shown only while its field `f` is `a` or `b`
  *
  * Stats modal markup contract (rendered by the view, styled by the theme):
  *   #pf-stats-overlay  — the full-screen overlay (toggled via style.display)
@@ -383,6 +384,27 @@
             var text = (row.getAttribute('data-pf-row-text') || row.textContent || '').toLowerCase();
             row.hidden = !words.every(function (w) { return text.indexOf(w) !== -1; });
         });
+    });
+
+    // ── data-pf-show-when: a field shown only while another says so ──────────
+    // `data-pf-show-when="cadence:weekly monthly_weekday"` on an element inside a form shows
+    // it only while the form's `cadence` field holds one of those values. Without the script,
+    // everything stays shown; a hidden field is still sent, and the server reads what it uses.
+    var showWhen = function (form) {
+        Array.prototype.forEach.call(form.querySelectorAll('[data-pf-show-when]'), function (el) {
+            var spec  = String(el.getAttribute('data-pf-show-when') || '');
+            var at    = spec.indexOf(':');
+            var field = at > 0 ? form.querySelector('[name="' + spec.slice(0, at) + '"]') : null;
+            if (!field) { return; }
+            el.hidden = spec.slice(at + 1).trim().split(/\s+/).indexOf(String(field.value)) === -1;
+        });
+    };
+    Array.prototype.forEach.call(document.querySelectorAll('form'), function (form) {
+        if (form.querySelector('[data-pf-show-when]')) { showWhen(form); }
+    });
+    document.addEventListener('change', function (e) {
+        var form = e.target && (e.target.form || (e.target.closest && e.target.closest('form')));
+        if (form && form.querySelector && form.querySelector('[data-pf-show-when]')) { showWhen(form); }
     });
 
     // Close the stats modal with the Escape key for keyboard accessibility.

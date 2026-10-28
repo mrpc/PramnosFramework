@@ -129,6 +129,9 @@ class ScheduledPageTest extends LlmTestCase
             $this->assertStringContainsString('chat/report/' . $runId, $html, $theme . ': ask about it');
             $this->assertStringContainsString('Failed', $html, $theme);
             $this->assertStringNotContainsString('data-pf-scheduled-runs', $other, $theme . ': not theirs to read');
+            // Only the fields the cadence uses, where the script runs; one's own report can be emailed
+            $this->assertStringContainsString('data-pf-show-when="cadence:weekly monthly_weekday"', $html, $theme);
+            $this->assertStringContainsString('data-pf-show-when="cadence:once"', $html, $theme);
             // What it cost, the framework's own: both runs counted, each run listed
             $this->assertStringContainsString('data-pf-task-cost="' . $made['routine_id'] . '">Runs: 2', $html, $theme);
             $this->assertStringContainsString('data-pf-run-cost="' . $runId . '"', $html, $theme);
@@ -354,6 +357,16 @@ class ScheduledPageTest extends LlmTestCase
         $this->assertSame(['You will receive it, by email too.'], $page->messages);
         $this->assertSame([7], $this->tasks()->emailSubscribers($report['routine_id']));
         $this->assertStringNotContainsString('Receive it by email too', $after, 'received: only stop is offered');
+
+        // One's own report: emailed on asking, and the button says so either way
+        $mine     = (string) $this->page(new Scope(8, 3))->scheduled();
+        $_POST    = ['routine_id' => $report['routine_id'], 'on' => '1', 'email' => '1'];
+        $this->page(new Scope(8, 3))->scheduledsubscribe();
+        $_POST    = [];
+        $emailed  = (string) $this->page(new Scope(8, 3))->scheduled();
+        $this->assertStringContainsString('Email it to me', $mine);
+        $this->assertStringContainsString('Stop the email', $emailed);
+        $this->assertTrue($this->tasks()->mine(new Scope(8, 3))[0]['email']);
     }
 
     /** Nobody signed in is sent to sign in, back to this page. */

@@ -99,6 +99,8 @@ class Routines
 
         foreach ($list as $i => $routine) {
             $list[$i]['latest'] = $this->latest($routine['conversation_id']);
+            // Whether this person has their own report emailed: the page offers to start or stop it.
+            $list[$i]['email'] = $routine['kind'] === self::REPORT && in_array($scope->userId, $this->emailSubscribers((int) $routine['routine_id']), true);
         }
 
         return $list;
