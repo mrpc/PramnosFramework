@@ -43,7 +43,7 @@ class TwoFactorAuth extends Controller
         $currentUser = \Pramnos\User\User::getCurrentUser();
         if ($currentUser === false) {
             $this->addError(t('Please sign in to continue.'));
-            $this->redirect(sURL . 'login');
+            $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl());
             return null;
         }
         $view        = $this->getView('twofactor');
@@ -71,7 +71,7 @@ class TwoFactorAuth extends Controller
         $currentUser = \Pramnos\User\User::getCurrentUser();
         if ($currentUser === false) {
             $this->addError(t('Please sign in to continue.'));
-            $this->redirect(sURL . 'login');
+            $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl());
             return null;
         }
 
@@ -141,7 +141,7 @@ class TwoFactorAuth extends Controller
         $currentUser = \Pramnos\User\User::getCurrentUser();
         if ($currentUser === false) {
             $this->addError(t('Please sign in to continue.'));
-            $this->redirect(sURL . 'login');
+            $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl());
             return;
         }
         $request     = new \Pramnos\Http\Request();
@@ -171,7 +171,7 @@ class TwoFactorAuth extends Controller
         $currentUser = \Pramnos\User\User::getCurrentUser();
         if ($currentUser === false) {
             $this->addError(t('Please sign in to continue.'));
-            $this->redirect(sURL . 'login');
+            $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl());
             return;
         }
         $request     = new \Pramnos\Http\Request();
@@ -204,7 +204,7 @@ class TwoFactorAuth extends Controller
         $currentUser = \Pramnos\User\User::getCurrentUser();
         if ($currentUser === false) {
             $this->addError(t('Please sign in to continue.'));
-            $this->redirect(sURL . 'login');
+            $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl());
             return null;
         }
 
@@ -259,7 +259,7 @@ class TwoFactorAuth extends Controller
         $currentUser = \Pramnos\User\User::getCurrentUser();
         if ($currentUser === false) {
             $this->addError(t('Please sign in to continue.'));
-            $this->redirect(sURL . 'login');
+            $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl());
             return;
         }
 

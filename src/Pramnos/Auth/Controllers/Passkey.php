@@ -61,7 +61,7 @@ class Passkey extends Controller
     {
         $user = $this->currentUserId();
         if ($user === null) {
-            $this->redirect(sURL . 'login');
+            $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl());
             return null;
         }
         return $this->renderManage();

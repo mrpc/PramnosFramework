@@ -80,7 +80,7 @@ class MessagesController extends Controller
         $userId = $this->currentUserId();
 
         if ($userId < 1) {
-            $this->redirect(sURL . 'login');
+            $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl());
 
             return null;
         }
@@ -103,7 +103,7 @@ class MessagesController extends Controller
         $userId = $this->currentUserId();
 
         if ($userId < 1) {
-            $this->redirect(sURL . 'login');
+            $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl());
 
             return null;
         }
@@ -143,7 +143,7 @@ class MessagesController extends Controller
         $userId = $this->currentUserId();
 
         if ($userId < 1) {
-            $this->redirect(sURL . 'login');
+            $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl());
 
             return null;
         }

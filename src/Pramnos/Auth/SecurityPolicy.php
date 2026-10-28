@@ -279,6 +279,24 @@ class SecurityPolicy
     }
 
     /**
+     * Where a guest signs in: `'auth' => ['login_url' => 'account/login']`, or the site's `login`.
+     * A path is under the site; one starting with `/`, or a whole URL, is taken as it is. With
+     * `$return`, the page to come back to after signing in, as `?return=`.
+     *
+     * Every place that sends a guest to sign in asks here, so an application whose sign-in is
+     * elsewhere names it once, rather than meeting a 404 behind each one.
+     */
+    public static function loginUrl(string $return = ''): string
+    {
+        $application = \Pramnos\Application\Application::currentInstance();
+        $page        = is_object($application) ? (string) ($application->applicationInfo['auth']['login_url'] ?? '') : '';
+        $page        = $page !== '' ? $page : 'login';
+        $url         = preg_match('~^(/|[a-z][a-z0-9+.-]*:)~i', $page) === 1 ? $page : (defined('sURL') ? (string) \sURL : '/') . $page;
+
+        return $return === '' || $return === '/' ? $url : $url . (str_contains($url, '?') ? '&' : '?') . 'return=' . urlencode($return);
+    }
+
+    /**
      * Whether a login lockout that cannot reach its table refuses the sign-in rather than going
      * on without it and logging: `'auth' => ['security' => ['lockout_fails_closed' => true]]`.
      */

@@ -79,6 +79,22 @@ if ($result) {
 }
 ```
 
+### Where a guest is sent to sign in
+
+A guest who reaches a protected action is sent to the site's `login`, with `?return=` naming the
+page they wanted. The guest may come from `addAuthAction()`, from a screen behind
+`requireMinUserType()`, or from the Ask, messages, passkey, second-factor or OAuth pages. An
+application whose sign-in is somewhere else names it once:
+
+```php
+'auth' => ['login_url' => 'account/login'],   // under the site; '/sso/login' or a whole URL as written
+```
+
+`SecurityPolicy::loginUrl($return)` builds the address every one of those places uses. If
+`login_url` already has a query string, the return is added with `&`. An administration area
+with its own sign-in (`AdminArea::useLogin()`) keeps it. The framework's own sign-in follows
+`return` only to a page on the same site (`Account::sanitizeReturnUrl()`).
+
 ### Remember me
 
 `auth($username, $password = '', $remember = true, …)` — the third parameter **defaults to

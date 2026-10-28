@@ -44,7 +44,7 @@ class ChatPageController extends Controller
         $scope = $this->scope();
 
         if ($scope === null) {
-            $this->redirect(sURL . 'login?return=' . rawurlencode('chat'));
+            $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl('chat'));
 
             return null;
         }
@@ -211,7 +211,7 @@ class ChatPageController extends Controller
     /** Sign in, and come back to the scheduled page. */
     protected function taskSignInUrl(): string
     {
-        return sURL . 'login?return=' . rawurlencode('chat/scheduled');
+        return \Pramnos\Auth\SecurityPolicy::loginUrl('chat/scheduled');
     }
 
     /** The page's address, open at a conversation and following a question. */

@@ -836,8 +836,8 @@ they retype their password rather than understanding they lack the privilege.
 
 The `return=` is the **whole path, prefix included** — `/admin/Users`, not `Users`, which
 would land the guest on the site's page of that name. The same holds for a controller's own
-`addAuthAction()` refusal inside the area. The sign-in page is the site's `login` unless the
-area has its own:
+`addAuthAction()` refusal inside the area. The sign-in page is the site's (`login`, or the
+application's `'auth' => ['login_url' => …]`) unless the area has its own:
 
 ```php
 \Pramnos\Http\AdminArea::useLogin(sURL . 'admin/login');   // e.g. in Application::init()

@@ -444,7 +444,7 @@ class Account extends Controller
         $this->authService()->logout();
 
         $next = $this->sanitizeReturnUrl(trim((string) ($params['redirect_uri'] ?? '')));
-        $this->redirect($answer['redirect'] ?? (sURL . 'login' . ($next !== '' ? '?return=' . rawurlencode($next) : '')));
+        $this->redirect($answer['redirect'] ?? \Pramnos\Auth\SecurityPolicy::loginUrl($next));
     }
 
     /** The end-session decisions (seam so tests can give it their own key). */
@@ -544,7 +544,7 @@ class Account extends Controller
         \Pramnos\Auth\ActivityLog::record($userId, 'password_reset_completed');
 
         $this->addMessage(t('Your password has been reset. Please sign in with your new password.'));
-        $this->redirect(sURL . 'login');
+        $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl());
         return null;
     }
 
@@ -642,7 +642,7 @@ class Account extends Controller
         } else {
             $this->addMessage(t('Your account has been created. Please sign in.'));
         }
-        $this->redirect(sURL . 'login');
+        $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl());
         return null;
     }
 
@@ -658,7 +658,7 @@ class Account extends Controller
         } else {
             $this->addMessage(t('Your email address is confirmed. You can sign in now.'));
         }
-        $this->redirect(sURL . 'login');
+        $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl());
         return null;
     }
 
@@ -1540,7 +1540,7 @@ class Account extends Controller
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
         if ($currentUser === null || !isset($currentUser->userid)) {
-            $this->redirect(sURL . 'login');
+            $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl());
             return;
         }
 
@@ -1581,7 +1581,7 @@ class Account extends Controller
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
         if (!is_object($currentUser) || (int) ($currentUser->userid ?? 0) < 2) {
-            $this->redirect(sURL . 'login');
+            $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl());
             return;
         }
 
@@ -1616,7 +1616,7 @@ class Account extends Controller
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
         if ($currentUser === null || !isset($currentUser->userid)) {
-            $this->redirect(sURL . 'login');
+            $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl());
             return;
         }
 
@@ -2169,7 +2169,7 @@ class Account extends Controller
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
         if ($currentUser === null || (int) $currentUser->userid < 2) {
-            $this->redirect(sURL . 'login');
+            $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl());
 
             return;
         }

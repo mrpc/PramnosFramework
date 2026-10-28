@@ -535,13 +535,7 @@ class Controller extends \Pramnos\Framework\Base
         if (\Pramnos\Http\AdminArea::isActive()) {
             return \Pramnos\Http\AdminArea::loginRedirect((string) ($_SERVER['REQUEST_URI'] ?? ''));
         }
-        $loginUrl = sURL . 'login';
-        $current  = \Pramnos\Http\Request::$requestUri ?? '';
-        if ($current !== '' && $current !== '/') {
-            $loginUrl .= '?return=' . urlencode($current);
-        }
-
-        return $loginUrl;
+        return \Pramnos\Auth\SecurityPolicy::loginUrl((string) (\Pramnos\Http\Request::$requestUri ?? ''));
     }
 
     /**

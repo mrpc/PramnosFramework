@@ -310,7 +310,7 @@ final class AdminArea
     /** Where a guest in this area signs in: the area's own page, or the site's `login`. */
     public static function loginUrl(): string
     {
-        return self::$loginUrl !== '' ? self::$loginUrl : (defined('sURL') ? \sURL : '/') . 'login';
+        return self::$loginUrl !== '' ? self::$loginUrl : \Pramnos\Auth\SecurityPolicy::loginUrl();
     }
 
     /**

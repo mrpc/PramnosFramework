@@ -19,6 +19,7 @@ use Pramnos\Http\RedirectException;
  */
 #[CoversClass(Controller::class)]
 #[CoversClass(AdminArea::class)]
+#[CoversClass(\Pramnos\Auth\SecurityPolicy::class)]
 class ControllerAreaSignInTest extends TestCase
 {
     protected function setUp(): void
@@ -30,6 +31,7 @@ class ControllerAreaSignInTest extends TestCase
 
     protected function tearDown(): void
     {
+        unset(\Pramnos\Application\Application::getInstance()->applicationInfo['auth']['login_url']);
         AdminArea::reset();
         $_GET = [];
         unset($_SERVER['REQUEST_URI']);
@@ -130,5 +132,57 @@ class ControllerAreaSignInTest extends TestCase
 
         // Assert
         $this->assertSame($login . '?return=' . urlencode('/admin/Ai'), $url);
+    }
+
+    /**
+     * An application whose sign-in is elsewhere names it once — `'auth' => ['login_url' =>
+     * 'account/login']` — and a guest goes there, with the page to come back to: from inside an
+     * area without a sign-in of its own, from a screen behind a floor, and from any other page.
+     *
+     * Every one of these sent guests to the site's `login`, which such an application does not
+     * have: a link to a report in an email ended on a 404.
+     */
+    public function testTheApplicationsOwnSignIn(): void
+    {
+        // Arrange
+        \Pramnos\Application\Application::getInstance()->applicationInfo['auth']['login_url'] = 'account/login';
+
+        // Act — in the area; then outside it, from a page and from the site's root
+        $inArea = $this->refusal();
+        AdminArea::reset();
+        \Pramnos\Http\Request::$requestUri = 'reports/7';
+        $outside = \Pramnos\Auth\SecurityPolicy::loginUrl('reports/7');
+        $root    = \Pramnos\Auth\SecurityPolicy::loginUrl('/');
+
+        // Assert
+        $this->assertSame(\sURL . 'account/login?return=' . urlencode('/admin/Ai'), $inArea);
+        $this->assertSame(\sURL . 'account/login?return=reports%2F7', $outside);
+        $this->assertSame(\sURL . 'account/login', $root, 'nothing to come back to from the root');
+    }
+
+    /**
+     * A path is under the site; one starting with `/`, or a whole URL, is used as written; and a
+     * sign-in address that already has a query string gets `&return=`, not a second `?`.
+     *
+     * An application on another host's sign-in (a single sign-on server) gives its whole URL; one
+     * mounted at the root of a subfolder install gives a path.
+     */
+    public function testTheSignInAddressAsWritten(): void
+    {
+        // Arrange
+        $config = &\Pramnos\Application\Application::getInstance()->applicationInfo['auth'];
+
+        // Act
+        $config['login_url'] = '/sso/login?app=uw';
+        $absolute = \Pramnos\Auth\SecurityPolicy::loginUrl('chat');
+        $config['login_url'] = 'https://id.example.com/login';
+        $elsewhere = \Pramnos\Auth\SecurityPolicy::loginUrl();
+        $config['login_url'] = '';
+        $default = \Pramnos\Auth\SecurityPolicy::loginUrl();
+
+        // Assert
+        $this->assertSame('/sso/login?app=uw&return=chat', $absolute);
+        $this->assertSame('https://id.example.com/login', $elsewhere);
+        $this->assertSame(\sURL . 'login', $default, 'unset, the site\'s own');
     }
 }

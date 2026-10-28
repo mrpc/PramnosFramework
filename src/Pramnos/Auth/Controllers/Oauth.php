@@ -180,7 +180,7 @@ class Oauth extends Controller
                 // arrived, was ignored, and a user who signed in here landed on the
                 // dashboard instead of back at the authorization request — the flow
                 // completed and lost its purpose on the way.
-                $this->redirect(sURL . 'login?' . http_build_query(['return' => $returnUrl]));
+                $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl($returnUrl));
                 return;
             }
 
