@@ -512,6 +512,16 @@ the tag is cut — assembled as it happens rather than reconstructed from a mont
 Nothing below has shipped — these are advance notice of a deprecation timeline, so an application
 tracking `dev-main` sees it coming rather than after it happens:
 
+- **The minimum PHP version will rise to 8.4** in the release after this one. `composer.json`
+  still says `>=8.1` today — nothing changes until that tag. The floor is moving because PHP 8.1
+  and 8.2 no longer receive security patches at all (support ended November 2024 and December
+  2025), and 8.3's own security window closes in November 2026; this framework's CI has tested
+  only PHP 8.5 for some time regardless of what `composer.json` claimed. From the release that
+  raises the floor onward, a framework version is expected to track roughly which PHP versions
+  PHP itself still supports, rather than drifting to whatever floor was set years earlier.
+  **An application that cannot move off PHP 8.1–8.3 yet stays on the last tagged release before
+  the bump** — pin `"mrpc/pramnosframework"` to that version (not `dev-main`) in `composer.json`,
+  which stops `composer update` from pulling in a requirement its runtime cannot satisfy.
 - **Three bundled addons will start emitting a runtime deprecation notice** (`Pramnos\Addon\System\Session`,
   `Pramnos\Addon\User\User`, `Pramnos\Addon\Auth\UserDatabase`) in a future minor version — see
   [Addon Guide](Pramnos_Addon_Guide.md#deprecated-bundled-addons) for the full three-stage policy

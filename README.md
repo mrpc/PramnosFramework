@@ -178,7 +178,9 @@ test (`DocsRetrievabilityTest`) enforces every guide is actually listed in — l
 ## Requirements
 
 - Docker and Docker Compose (Recommended for development)
-- PHP 8.1 or higher (if running natively). Development and CI run PHP 8.5.
+- PHP 8.1 or higher (if running natively). Development and CI run PHP 8.5. **Planned:** the
+  next release after the current one raises this floor to PHP 8.4 — see the
+  [Upgrade Guide](docs/Pramnos_Upgrade_Guide.md#planned-not-yet-in-effect).
 - ext-mbstring
 - ext-mysqli (MySQL) and/or ext-pgsql (PostgreSQL / TimescaleDB)
 - ext-sodium, for encrypting stored credentials (bundled with PHP 8 and enabled by
@@ -626,7 +628,8 @@ The framework includes a fully containerized development and testing environment
 ### Guidelines
 
 - Core framework code (`src/Pramnos/`) targets **PHP 8.1** (`composer.json`'s floor)
-  and is developed and tested on **PHP 8.5**.
+  and is developed and tested on **PHP 8.5**. That floor is rising to **PHP 8.4** in the next
+  release — see the [Upgrade Guide](docs/Pramnos_Upgrade_Guide.md#planned-not-yet-in-effect).
 - Tests (`tests/`) run on the same **PHP 8.5** and use modern PHP features freely.
 - Follow PSR-4 autoloading standards.
 - Write tests for new features using PHPUnit 11 with native attributes.
