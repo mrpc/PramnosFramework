@@ -2918,62 +2918,86 @@
 })();
 
 /*
- * data-pf-people="<datalist id>" — a field of names, comma-separated (who to share with, a
- * report's readers). Once something is typed after the last comma, the people of that list whose
- * username or name holds it are offered, without those already written; on an empty field, or
- * right after a comma, nothing is. Filtered here from the list the page carries: no request is
- * made as the person types.
+ * data-pf-people — a field of names, comma-separated (who to share with, a report's readers). As
+ * a name is typed after the last comma, the page's API is asked who matches it — `GET <url>?q=` —
+ * and the people it answers are offered, without those already written. The address is the
+ * field's own `data-pf-people="<url>"`, or that of the page around it (`data-pf-people-url`);
+ * without one, nothing is asked.
+ *
+ * Asked sparingly: two characters at least, a pause of PAUSE_MS after the last key, the request
+ * before it cancelled when a new one leaves, every answer kept for its term, and an answer shown
+ * only while the field still says what it was asked for. Typing a whole name is one request.
  */
 (function () {
     if (typeof document === 'undefined') { return; }
 
-    /** The people of each list, read once. */
-    var lists = {};
+    var PAUSE_MS = 300;
+    /** What each address answered, by term. */
+    var answered = {};
+    var waiting = null;
+    var asking = null;
 
-    function people(id) {
-        var source = document.getElementById(id);
-        if (!lists[id] && source) {
-            lists[id] = Array.prototype.map.call(source.querySelectorAll('option'), function (option) {
-                var value = option.getAttribute('value') || '';
+    /** The name being typed: what follows the last comma, and the names written before it. */
+    function typing(field) {
+        var parts = String(field.value).split(',');
+        var typed = parts.pop().trim();
+        var written = parts.map(function (part) { return part.trim(); }).filter(Boolean);
 
-                return { value: value, label: option.textContent || value };
-            });
+        return { typed: typed, written: written };
+    }
+
+    /** The offered list beside a field: a browser shows an option only where it starts with what is in the field. */
+    function offer(field, people) {
+        var id = 'pf-people-offered';
+        var shown = document.getElementById(id);
+        var now = typing(field);
+        var lead = now.written.length ? now.written.join(', ') + ', ' : '';
+        if (!shown) {
+            shown = document.createElement('datalist');
+            shown.setAttribute('id', id);
+            document.body.appendChild(shown);
         }
-
-        return source ? lists[id] : null;
+        field.setAttribute('list', id);
+        shown.textContent = '';
+        people.filter(function (one) { return now.written.indexOf(one.value) === -1; }).forEach(function (one) {
+            var option = document.createElement('option');
+            option.setAttribute('value', lead + one.value);
+            option.textContent = one.label || one.value;
+            shown.appendChild(option);
+        });
     }
 
     document.addEventListener('input', function (event) {
         var field = event.target;
-        var id = field && field.getAttribute ? field.getAttribute('data-pf-people') : null;
-        var all = id ? people(id) : null;
-        if (!all) { return; }
+        if (!field || !field.hasAttribute || !field.hasAttribute('data-pf-people')) { return; }
+        var page = field.closest ? field.closest('[data-pf-people-url]') : null;
+        var url = field.getAttribute('data-pf-people') || (page ? page.getAttribute('data-pf-people-url') : '');
+        if (!url) { return; }
 
-        // The list shown is a second one, of whole values: a browser offers an option only where
-        // it starts with what is in the field, so the names before the last comma lead each one.
-        var shown = document.getElementById(id + '-offered');
-        if (!shown) {
-            shown = document.createElement('datalist');
-            shown.setAttribute('id', id + '-offered');
-            document.body.appendChild(shown);
+        var term = typing(field).typed;
+        window.clearTimeout(waiting);
+        if (term.length < 2) {
+            offer(field, []);
+
+            return;
         }
-        field.setAttribute('list', id + '-offered');
+        var cache = answered[url] || (answered[url] = {});
+        if (cache[term]) {
+            offer(field, cache[term]);
 
-        var parts = String(field.value).split(',');
-        var typed = parts.pop().trim().toLowerCase();
-        var written = parts.map(function (part) { return part.trim(); }).filter(Boolean);
-        var lead = written.length ? written.join(', ') + ', ' : '';
-        shown.textContent = '';
-        if (typed === '') { return; }
-
-        all.filter(function (one) {
-            return written.indexOf(one.value) === -1
-                && (one.value.toLowerCase().indexOf(typed) !== -1 || one.label.toLowerCase().indexOf(typed) !== -1);
-        }).slice(0, 20).forEach(function (one) {
-            var option = document.createElement('option');
-            option.setAttribute('value', lead + one.value);
-            option.textContent = one.label;
-            shown.appendChild(option);
-        });
+            return;
+        }
+        waiting = window.setTimeout(function () {
+            if (asking) { asking.abort(); }
+            asking = typeof AbortController === 'function' ? new AbortController() : null;
+            window.fetch(url + (url.indexOf('?') === -1 ? '?' : '&') + 'q=' + encodeURIComponent(term), {
+                headers: { Accept: 'application/json' }, credentials: 'same-origin', signal: asking ? asking.signal : undefined
+            }).then(function (r) { return r.json(); }).then(function (body) {
+                var people = (body && body.data && body.data.people) || [];
+                cache[term] = people;
+                // Shown only if the field still asks for it: a slower answer to an older term is not.
+                if (typing(field).typed === term) { offer(field, people); }
+            }).catch(function () { /* cancelled, or not answered: the field stays a plain one */ });
+        }, PAUSE_MS);
     });
 }());

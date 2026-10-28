@@ -66,28 +66,31 @@ class SharePolicy
     }
 
     /**
-     * The people offered as the sharer types a name: in the analyst's space, the active accounts at
-     * or above its floor, never the sharer. A person's own Ask offers nobody: there the accounts are
-     * the site's users, and a list of them is not one user's to read. An application whose own
-     * Ask is among colleagues overrides it.
-     *
-     * ponytail: up to 500, written into the page and filtered there; an endpoint when an
-     * installation has more people than that to offer.
+     * The people offered as the sharer types a name — asked for through the API as it is typed
+     * (`GET /chat/people?q=`): in the analyst's space, the active accounts at or above its floor
+     * whose username, email or name holds `$term`, never the sharer, the first `$limit` by
+     * username. Two characters at least; fewer is nobody. A person's own Ask offers nobody: there
+     * the accounts are the site's users, and a list of them is not one user's to read. An
+     * application whose own Ask is among colleagues overrides it.
      *
      * @return list<array{value: string, label: string}>
      */
-    public function candidates(Scope $by): array
+    public function candidates(Scope $by, string $term, int $limit = 10): array
     {
-        if ($by->space !== Scope::ADMIN) {
+        $term = trim($term);
+        if ($by->space !== Scope::ADMIN || mb_strlen($term) < 2) {
             return [];
         }
+        $like   = '%' . addcslashes($term, '%_\\') . '%';
         $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#users')
             ->select(['userid', 'username', 'firstname', 'lastname'])
             ->where('usertype', '>=', TaskPolicy::analystFloor())
             ->where('active', 1)
             ->where('userid', '!=', $by->userId)
+            ->where(static fn ($q) => $q->whereLike('username', $like)->orWhereLike('email', $like)
+                ->orWhereLike('firstname', $like)->orWhereLike('lastname', $like))
             ->orderBy('username')
-            ->limit(500)
+            ->limit(max(1, min(50, $limit)))
             ->get();
         $people = [];
         while (($row = $result->fetch()) !== null) {

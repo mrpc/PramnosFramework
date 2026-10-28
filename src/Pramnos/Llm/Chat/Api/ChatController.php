@@ -165,6 +165,17 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return ['status' => 200, 'data' => ['shared' => $scope === null ? [] : (new \Pramnos\Llm\Chat\Shares())->withMe($scope->userId)]];
     }
 
+    /** Who matches `?q=`, to share with or to read a report: `SharePolicy::candidates()`. */
+    public function people(): array
+    {
+        if (($stop = $this->refusal('list')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+
+        return ['status' => 200, 'data' => ['people' => $scope === null ? [] : \Pramnos\Llm\Chat\SharePolicy::current()->candidates($scope, (string) ($_GET['q'] ?? ''))]];
+    }
+
     /** Open something shared with this person: the conversation of their own that holds it. */
     public function openShared($share_id): array
     {

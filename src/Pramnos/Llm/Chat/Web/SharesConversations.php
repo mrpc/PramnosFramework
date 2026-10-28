@@ -46,6 +46,22 @@ trait SharesConversations
         return null;
     }
 
+    /**
+     * Who matches what is typed in a name field — `?q=` — as JSON: `{people: [{value, label}]}`
+     * (`SharePolicy::candidates()`). The page's `data-pf-people` fields ask it as a name is typed.
+     */
+    public function people(): mixed
+    {
+        if ($this->taskDenied()) {
+            return null;
+        }
+        $scope  = $this->taskScope();
+        $people = $scope === null ? [] : \Pramnos\Llm\Chat\SharePolicy::current()->candidates($scope, (string) ($_GET['q'] ?? ''));
+        \Pramnos\Framework\Factory::getDocument('json');
+
+        return json_encode(['status' => 200, 'data' => ['people' => $people]], JSON_UNESCAPED_UNICODE);
+    }
+
     /** Stop sharing — the share `{id}`. A copy the recipient already took stays theirs. */
     public function unshare(mixed $id = null): mixed
     {
@@ -79,18 +95,19 @@ trait SharesConversations
      * What the page shows of sharing: what others shared with the reader, and who the open
      * conversation is shared with.
      *
-     * @return array{sharedWithMe: list<array<string, mixed>>, sharePeople: list<array{value: string, label: string}>, shares: list<array<string, mixed>>}
+     * @return array{sharedWithMe: list<array<string, mixed>>, peopleUrl: string, shares: list<array<string, mixed>>}
      */
     protected function sharing(?Scope $scope, int $openConversationId): array
     {
         if ($scope === null) {
-            return ['sharedWithMe' => [], 'sharePeople' => [], 'shares' => []];
+            return ['sharedWithMe' => [], 'peopleUrl' => '', 'shares' => []];
         }
         $shares = new Shares();
 
         return [
             'sharedWithMe' => $shares->withMe($scope->userId),
-            'sharePeople'  => \Pramnos\Llm\Chat\SharePolicy::current()->candidates($scope),
+            // Where a name field asks who matches what is typed: only where somebody is offered.
+            'peopleUrl'    => $scope->space === Scope::ADMIN ? $this->scheduledUrl('people') : '',
             'shares'       => $openConversationId > 0 ? $shares->sharesOf($scope, Shares::CONVERSATION, $openConversationId) : [],
         ];
     }

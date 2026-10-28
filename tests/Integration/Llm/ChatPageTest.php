@@ -207,6 +207,23 @@ class ChatPageTest extends LlmTestCase
         $plain = (string) $this->page()->display();
         $this->assertStringContainsString('<h1>Hi, I am Naya. How can I help?</h1>', $named);
         $this->assertStringContainsString('<h1>How can I help?</h1>', $plain);
+        // A person's own Ask offers nobody to share with: the page gives no address to ask, and
+        // asked anyway, the action answers nobody
+        $this->assertStringNotContainsString('data-pf-people-url', $plain);
+        $_GET = ['q' => 'ma'];
+        $this->assertSame('{"status":200,"data":{"people":[]}}', $this->page()->people());
+        $_GET = [];
+        // In the analyst's space the page names its address; a controller that refuses the
+        // reader answers nothing
+        $analysts = (string) $this->page(new Scope(7, null, Scope::ADMIN))->display();
+        $refusing = new class (new Scope(7, null, Scope::ADMIN), 'plain-css') extends PageFixture {
+            protected function taskDenied(): bool
+            {
+                return true;
+            }
+        };
+        $this->assertStringContainsString('data-pf-people-url="' . sURL . 'chat/people"', $analysts);
+        $this->assertNull($refusing->people());
         $this->assertStringNotContainsString('--pf-chat-accent', $plain);
     }
 

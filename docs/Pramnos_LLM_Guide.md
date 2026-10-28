@@ -611,12 +611,15 @@ Anybody below it is answered as somebody who does not exist ("Nobody here is cal
 share neither tells them a conversation exists nor names its title.
 
 In the analyst's space, the *With* field and a report's readers field suggest people as a name is
-typed. The suggestions are the active accounts at or above the floor, minus the person sharing
-(`SharePolicy::candidates()`). The page carries them as a `<datalist>` (`ShareView::people()`).
-`pf-utils.js` offers them for the name after the last comma, once something is typed, without
-the names already written. The browser filters them, so typing sends no request. A person's own
-Ask suggests nobody, because there the accounts are the site's users and a list of them is not one
-user's to read. An application whose Ask is used among colleagues overrides `candidates()`.
+typed, asked from the API each time. The page names the address (`data-pf-people-url`, the
+`people` action, or `GET /chat/people?q=` for a SPA). `SharePolicy::candidates($scope, $term)`
+answers the active accounts at or above the floor whose username, email or name holds the term,
+minus the person sharing, ten at most. `pf-utils.js` asks for the name after the last comma once
+it is two characters long, after a 300 ms pause. A newer request cancels the one before it, an
+answer is kept for its term, and an answer is shown only while the field still says that term.
+Typing a whole name is one request. A person's own Ask suggests nobody, because there the
+accounts are the site's users and a list of them is not one user's to read. An application whose
+Ask is used among colleagues overrides `candidates()`.
 
 **A conversation is shared as it stands.** The recipient sees the messages up to the moment it
 was shared, not what is said after; sharing it again with the same person moves that point on.
@@ -1000,6 +1003,7 @@ One line in the application's API routes mounts every endpoint:
 | `POST /chat/messages/{id}/rating` | rate an answer: `rating` 1, -1 or 0, and `note` |
 | `GET /chat/artifacts/{id}/csv`, `POST /chat/artifacts/{id}/pin` | an artifact's rows as CSV (`filename`, `csv`); pin it, or `pinned: false` |
 | `GET /chat/shared` | what others shared with this person |
+| `GET /chat/people?q=` | who matches what is typed in a name field, `{people: [{value, label}]}`: in the analyst's space, active accounts at or above its floor; nobody in a person's own Ask (`SharePolicy::candidates()`) |
 | `POST /chat/shared/{id}/open` | open it: the `conversation_id` of this person's own copy |
 | `GET /chat/asks/{id}` | a queued question: `waiting`, `answered` with its `conversation_id`, or `failed` with `says` |
 | `GET /chat/memory`, `DELETE /chat/memory/{id}` | what it remembers; forget one |

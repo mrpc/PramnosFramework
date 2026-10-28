@@ -11,9 +11,6 @@ namespace Pramnos\Llm\Chat\Web;
  */
 final class ShareView
 {
-    /** The id of the page's list of people to share with ({@see people()}). */
-    public const PEOPLE = 'pf-people';
-
     /**
      * "Share", folded: the people to share with, by username or email, comma-separated.
      *
@@ -29,7 +26,7 @@ final class ShareView
             . '<input type="hidden" name="kind" value="' . $e($kind) . '">'
             . '<input type="hidden" name="conversation_id" value="' . $returnTo . '">'
             . '<label>' . $t('With (usernames or emails, comma-separated)')
-            . ' <input type="text" name="names" required autocomplete="off" data-pf-people="' . self::PEOPLE . '" class="' . $e($c['input'] ?? '') . '"></label> '
+            . ' <input type="text" name="names" required autocomplete="off" data-pf-people" class="' . $e($c['input'] ?? '') . '"></label> '
             . '<button type="submit" class="' . $e($c['btn'] ?? '') . '">' . $t('Share') . '</button>'
             . '<p class="' . $e($c['muted'] ?? '') . '">' . $t('They get a copy of it as it is now, and what it shows was read with your rights.') . '</p>'
             . '</form></details>';
@@ -78,26 +75,5 @@ final class ShareView
         }
 
         return $html . '</ul>';
-    }
-
-    /**
-     * The people a name field may suggest (`SharePolicy::candidates()`), once in the page: a
-     * `<datalist>` no field shows as it is. `pf-utils.js` offers from it, for the name after the
-     * last comma, once something is typed. Nothing when there is nobody to offer.
-     *
-     * @param list<array{value: string, label: string}> $people
-     */
-    public static function people(array $people): string
-    {
-        if ($people === []) {
-            return '';
-        }
-        $e    = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
-        $html = '<datalist id="' . self::PEOPLE . '">';
-        foreach ($people as $one) {
-            $html .= '<option value="' . $e($one['value'] ?? '') . '">' . $e($one['label'] ?? '') . '</option>';
-        }
-
-        return $html . '</datalist>';
     }
 }

@@ -34,6 +34,7 @@ require_once __DIR__ . '/ArtifactsTest.php';
 #[CoversClass(SharePolicy::class)]
 #[CoversClass(SharedWithYou::class)]
 #[CoversClass(ShareView::class)]
+#[CoversClass(\Pramnos\Llm\Chat\Api\ChatController::class)]
 class SharesTest extends LlmTestCase
 {
     use ChatDatabase;
@@ -246,15 +247,18 @@ class SharesTest extends LlmTestCase
     }
 
     /**
-     * The people a name field suggests: in the analyst's space, the active accounts at or above its
-     * floor, never the one sharing, by username with their name; in a person's own Ask, nobody. The
-     * list is drawn once in the page as a `<datalist>`, escaped, and the field points at it.
+     * Who a name field is offered as it is typed, asked through the API: in the analyst's space,
+     * the active accounts at or above its floor whose username, email or name holds the term, never
+     * the one sharing, by username with their name; two characters at least; at most the limit; in
+     * a person's own Ask, nobody. The API answers it as `{people}`, and refuses as every endpoint
+     * does.
      *
-     * A person's own Ask is the site's users talking to it: offering them the list of everybody else
-     * would hand one customer the others' accounts.
+     * A person's own Ask is the site's users talking to it: offering them everybody else would hand
+     * one customer the others' accounts. And a list of everybody written into the page grows with
+     * the installation: the API answers only what was typed.
      */
     #[DataProvider('databases')]
-    public function testThePeopleANameFieldSuggests(string $type, string $host, int $port): void
+    public function testWhoANameFieldIsOfferedAsItIsTyped(string $type, string $host, int $port): void
     {
         // Arrange — maria at the floor, nikos below it, the owner at it too
         $this->connectDatabase($type, $host, $port);
@@ -263,21 +267,34 @@ class SharesTest extends LlmTestCase
         foreach (['owner' => 60, 'maria' => 50, 'nikos' => 10] as $who => $level) {
             $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $this->users[$who])->update(['usertype' => $level, 'active' => 1]);
         }
+        $mark   = substr($this->username('maria'), 0, 8);
+        $policy = new SharePolicy();
+        $admin  = new Scope($this->users['owner'], 3, Scope::ADMIN);
 
         // Act
-        $analysts = (new SharePolicy())->candidates(new Scope($this->users['owner'], 3, Scope::ADMIN));
-        $own      = (new SharePolicy())->candidates(new Scope($this->users['owner'], 3));
-        $usernames = array_column($analysts, 'value');
+        $byMark   = array_column($policy->candidates($admin, $mark), 'value');
+        $byName   = $policy->candidates($admin, 'MARIA');
+        $byEmail  = array_column($policy->candidates($admin, $this->username('maria') . '@'), 'value');
+        $short    = $policy->candidates($admin, 'm');
+        $wildcard = $policy->candidates($admin, '%%');
+        $limited  = $policy->candidates($admin, $mark, 1);
+        $own      = $policy->candidates(new Scope($this->users['owner'], 3), $mark);
+        $_GET     = ['q' => $mark];
+        $api      = (new SharingApi($admin, []))->people();
+        $refused  = (new SharingApi($admin, [], true))->people();
+        $_GET     = [];
 
         // Assert
-        $this->assertContains($this->username('maria'), $usernames);
-        $this->assertNotContains($this->username('nikos'), $usernames, 'below the floor');
-        $this->assertNotContains($this->username('owner'), $usernames, 'never the one sharing');
-        $this->assertContains(['value' => $this->username('maria'), 'label' => 'Maria Test'], $analysts);
+        $this->assertSame([$this->username('maria')], $byMark, 'not nikos, below the floor; not the owner');
+        $this->assertContains(['value' => $this->username('maria'), 'label' => 'Maria Test'], $byName, 'by name, whatever its case');
+        $this->assertSame([$this->username('maria')], $byEmail, 'by email');
+        $this->assertSame([], $short, 'two characters at least');
+        $this->assertSame([], $wildcard, 'a % is a character, not everybody');
+        $this->assertCount(1, $limited);
         $this->assertSame([], $own, 'a person\'s own Ask offers nobody');
-        $this->assertSame('<datalist id="pf-people"><option value="a&quot;b">&lt;B&gt;</option></datalist>', ShareView::people([['value' => 'a"b', 'label' => '<B>']]));
-        $this->assertSame('', ShareView::people([]));
-        $this->assertStringContainsString('data-pf-people="pf-people"', ShareView::form('/chat/share/', 'conversation', 5, 5, '', []));
+        $this->assertSame(['status' => 200, 'data' => ['people' => [['value' => $this->username('maria'), 'label' => 'Maria Test']]]], $api);
+        $this->assertSame(403, $refused['status']);
+        $this->assertStringContainsString('data-pf-people', ShareView::form('/chat/share/', 'conversation', 5, 5, '', []));
     }
 
     /**

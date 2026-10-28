@@ -11,7 +11,7 @@
  *   $this->consent       — provider, label, place, required, given
  *   $this->urls          — optional: page, ask, asked, consent, delete, forget, scheduled, all (the analyst's), share, unshare, shared
  *   $this->sharedWithMe  — optional: what others shared with the reader (Shares::withMe())
- *   $this->sharePeople   — optional: who a name field suggests (SharePolicy::candidates())
+ *   $this->peopleUrl     — optional: where a name field asks who matches what is typed (`people`)
  *   $this->shares        — optional: who the open conversation is shared with (Shares::sharesOf())
  *   $this->bulkActions   — optional: by a list's kind of record, the bulk actions it offers (BulkActions::available())
  *   $this->pinned        — optional: the ids of the artifacts the reader pinned to their dashboard
@@ -97,7 +97,7 @@ $accent  = \Pramnos\Llm\Chat\Web\ChatLook::accent((string) ($this->accent ?? '')
 $commands = \Pramnos\Llm\Chat\Web\ChatLook::commands($u, is_array($this->commands ?? null) ? $this->commands : []);
 ?>
 <?php if ($waiting): ?><noscript><meta http-equiv="refresh" content="4"></noscript><?php endif; ?>
-<div class="pf-chat<?php echo $empty ? ' pf-chat-empty' : ''; ?> px-4 py-6"<?php echo $accent !== '' ? ' style="--pf-chat-accent:' . $e($accent) . '"' : ''; ?> data-commands="<?php echo $e(json_encode($commands, JSON_UNESCAPED_UNICODE)); ?>" data-pf-chat data-page="<?php echo $e($u['page']); ?>" data-asked="<?php echo $e($u['asked']); ?>"<?php echo $sayAttr; ?> data-waiting-lines="<?php echo $e(json_encode($lines, JSON_UNESCAPED_UNICODE)); ?>" data-question-class="<?php echo $e($c['question']); ?>">
+<div class="pf-chat<?php echo $empty ? ' pf-chat-empty' : ''; ?> px-4 py-6"<?php echo $accent !== '' ? ' style="--pf-chat-accent:' . $e($accent) . '"' : ''; ?> data-commands="<?php echo $e(json_encode($commands, JSON_UNESCAPED_UNICODE)); ?>"<?php echo (string) ($this->peopleUrl ?? '') !== '' ? ' data-pf-people-url="' . $e($this->peopleUrl) . '"' : ''; ?> data-pf-chat data-page="<?php echo $e($u['page']); ?>" data-asked="<?php echo $e($u['asked']); ?>"<?php echo $sayAttr; ?> data-waiting-lines="<?php echo $e(json_encode($lines, JSON_UNESCAPED_UNICODE)); ?>" data-question-class="<?php echo $e($c['question']); ?>">
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <nav class="<?php echo $c['card']; ?>" style="flex:0 0 240px;padding:12px" aria-label="<?php echo $e(t('Conversations')); ?>">
             <a href="<?php echo $e($u['page']); ?>" class="<?php echo $c['btn']; ?>"><?php echo $e(t('New conversation')); ?></a>
@@ -295,5 +295,4 @@ $commands = \Pramnos\Llm\Chat\Web\ChatLook::commands($u, is_array($this->command
         </aside>
     </div>
 </div>
-<?php echo \Pramnos\Llm\Chat\Web\ShareView::people(is_array($this->sharePeople ?? null) ? $this->sharePeople : []); ?>
 <script src="<?php echo $e(assetUrl('assets/js/pf-chat.js')); ?>" defer></script>

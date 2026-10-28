@@ -34,6 +34,7 @@ final class Routes
         'artifacts' => '/chat/artifacts',
         'shared'   => '/chat/shared',
         'shares'   => '/chat/shares',
+        'people'   => '/chat/people',
     ];
 
     /**
@@ -74,6 +75,7 @@ final class Routes
         $r->get($p['artifacts'] . '/{artifact_id}/csv', static fn ($artifact_id) => $make()->artifactCsv($artifact_id));
         $r->post($p['artifacts'] . '/{artifact_id}/pin', static fn ($artifact_id) => $make()->pinArtifact($artifact_id));
         $r->get($p['shared'], static fn () => $make()->sharedWithMe());
+        $r->get($p['people'], static fn () => $make()->people());
         $r->post($p['shared'] . '/{share_id}/open', static fn ($share_id) => $make()->openShared($share_id));
         $r->delete($p['shares'] . '/{share_id}', static fn ($share_id) => $make()->revokeShare($share_id));
 

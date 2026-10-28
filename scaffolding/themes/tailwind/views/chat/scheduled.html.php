@@ -63,7 +63,9 @@ $runs    = is_array($this->runs ?? null) ? $this->runs : [];
 $owners  = is_array($this->owners ?? null) ? $this->owners : ['user'];
 $roles   = is_array($this->audienceRoles ?? null) ? $this->audienceRoles : [];
 // Who may receive a shared report: everyone from a role up, and people by name — blank for the maker's standing and up.
-$readers = static function (?array $audience, array $names) use ($c, $e, $t, $roles): string {
+// Where the readers' field asks who matches what is typed (only where somebody is offered).
+$people  = (string) ($this->peopleUrl ?? '');
+$readers = static function (?array $audience, array $names) use ($c, $e, $t, $roles, $people): string {
     $min  = $audience['min_usertype'] ?? null;
     $html = '<label class="' . $c['field'] . '">' . $e($t('Readers from')) . ' <select class="' . $c['select'] . '" name="audience_role">'
         . '<option value="">' . $e($t('My level and up')) . '</option>';
@@ -72,7 +74,7 @@ $readers = static function (?array $audience, array $names) use ($c, $e, $t, $ro
     }
 
     return $html . '</select></label><label class="' . $c['field'] . '">' . $e($t('And these people')) . ' <input class="' . $c['input'] . '" name="audience_users" value="'
-        . $e(implode(', ', $names)) . '" placeholder="' . $e($t('usernames or emails, comma-separated')) . '" data-pf-audience-users autocomplete="off" data-pf-people="' . \Pramnos\Llm\Chat\Web\ShareView::PEOPLE . '"></label>';
+        . $e(implode(', ', $names)) . '" placeholder="' . $e($t('usernames or emails, comma-separated')) . '" data-pf-audience-users autocomplete="off" data-pf-people="' . $e($people) . '"></label>';
 };
 ?>
 <div class="<?php echo $c['page']; ?>">
@@ -228,4 +230,3 @@ $readers = static function (?array $audience, array $names) use ($c, $e, $t, $ro
         <div><button type="submit" class="<?php echo $c['btn']; ?>"><?php echo $e($t('Schedule')); ?></button></div>
     </form>
 </div>
-<?php echo \Pramnos\Llm\Chat\Web\ShareView::people(is_array($this->sharePeople ?? null) ? $this->sharePeople : []); ?>
