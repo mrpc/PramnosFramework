@@ -50,6 +50,9 @@
         "vimeo/psalm": "^6.20",
         "enshrined/svg-sanitize": "^1.1"
     },
+    "conflict": {
+        "symfony/mime": "<5.4.55 || >=6.0,<6.4.49 || >=7.0,<7.4.22 || >=8.0,<8.1.10"
+    },
     "autoload": {
         "files": [
             "src/Pramnos/helpers.php"
