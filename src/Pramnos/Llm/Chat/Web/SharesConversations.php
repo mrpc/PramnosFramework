@@ -79,17 +79,18 @@ trait SharesConversations
      * What the page shows of sharing: what others shared with the reader, and who the open
      * conversation is shared with.
      *
-     * @return array{sharedWithMe: list<array<string, mixed>>, shares: list<array<string, mixed>>}
+     * @return array{sharedWithMe: list<array<string, mixed>>, sharePeople: list<array{value: string, label: string}>, shares: list<array<string, mixed>>}
      */
     protected function sharing(?Scope $scope, int $openConversationId): array
     {
         if ($scope === null) {
-            return ['sharedWithMe' => [], 'shares' => []];
+            return ['sharedWithMe' => [], 'sharePeople' => [], 'shares' => []];
         }
         $shares = new Shares();
 
         return [
             'sharedWithMe' => $shares->withMe($scope->userId),
+            'sharePeople'  => \Pramnos\Llm\Chat\SharePolicy::current()->candidates($scope),
             'shares'       => $openConversationId > 0 ? $shares->sharesOf($scope, Shares::CONVERSATION, $openConversationId) : [],
         ];
     }

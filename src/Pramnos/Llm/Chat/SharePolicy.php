@@ -66,6 +66,39 @@ class SharePolicy
     }
 
     /**
+     * The people offered as the sharer types a name: in the analyst's space, the active accounts at
+     * or above its floor, never the sharer. A person's own Ask offers nobody: there the accounts are
+     * the site's users, and a list of them is not one user's to read. An application whose own
+     * Ask is among colleagues overrides it.
+     *
+     * ponytail: up to 500, written into the page and filtered there; an endpoint when an
+     * installation has more people than that to offer.
+     *
+     * @return list<array{value: string, label: string}>
+     */
+    public function candidates(Scope $by): array
+    {
+        if ($by->space !== Scope::ADMIN) {
+            return [];
+        }
+        $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#users')
+            ->select(['userid', 'username', 'firstname', 'lastname'])
+            ->where('usertype', '>=', TaskPolicy::analystFloor())
+            ->where('active', 1)
+            ->where('userid', '!=', $by->userId)
+            ->orderBy('username')
+            ->limit(500)
+            ->get();
+        $people = [];
+        while (($row = $result->fetch()) !== null) {
+            $name     = trim((string) ($row['firstname'] ?? '') . ' ' . (string) ($row['lastname'] ?? ''));
+            $people[] = ['value' => (string) $row['username'], 'label' => $name !== '' ? $name : (string) $row['username']];
+        }
+
+        return $people;
+    }
+
+    /**
      * Where the recipient's notification leads: the page that opens the share. The analyst's
      * conversations open in the administration area, as the analyst does.
      *

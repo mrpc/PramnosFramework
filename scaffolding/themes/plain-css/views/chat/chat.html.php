@@ -11,6 +11,7 @@
  *   $this->consent       — provider, label, place, required, given
  *   $this->urls          — optional: page, ask, asked, consent, delete, forget, scheduled, all (the analyst's), share, unshare, shared
  *   $this->sharedWithMe  — optional: what others shared with the reader (Shares::withMe())
+ *   $this->sharePeople   — optional: who a name field suggests (SharePolicy::candidates())
  *   $this->shares        — optional: who the open conversation is shared with (Shares::sharesOf())
  *   $this->bulkActions   — optional: by a list's kind of record, the bulk actions it offers (BulkActions::available())
  *   $this->pinned        — optional: the ids of the artifacts the reader pinned to their dashboard
@@ -294,4 +295,5 @@ $commands = \Pramnos\Llm\Chat\Web\ChatLook::commands($u, is_array($this->command
         </aside>
     </div>
 </div>
+<?php echo \Pramnos\Llm\Chat\Web\ShareView::people(is_array($this->sharePeople ?? null) ? $this->sharePeople : []); ?>
 <script src="<?php echo $e(assetUrl('assets/js/pf-chat.js')); ?>" defer></script>

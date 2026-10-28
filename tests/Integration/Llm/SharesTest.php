@@ -246,6 +246,41 @@ class SharesTest extends LlmTestCase
     }
 
     /**
+     * The people a name field suggests: in the analyst's space, the active accounts at or above its
+     * floor, never the one sharing, by username with their name; in a person's own Ask, nobody. The
+     * list is drawn once in the page as a `<datalist>`, escaped, and the field points at it.
+     *
+     * A person's own Ask is the site's users talking to it: offering them the list of everybody else
+     * would hand one customer the others' accounts.
+     */
+    #[DataProvider('databases')]
+    public function testThePeopleANameFieldSuggests(string $type, string $host, int $port): void
+    {
+        // Arrange — maria at the floor, nikos below it, the owner at it too
+        $this->connectDatabase($type, $host, $port);
+        $this->people();
+        $this->configure(['analyst' => ['floor' => 50]]);
+        foreach (['owner' => 60, 'maria' => 50, 'nikos' => 10] as $who => $level) {
+            $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $this->users[$who])->update(['usertype' => $level, 'active' => 1]);
+        }
+
+        // Act
+        $analysts = (new SharePolicy())->candidates(new Scope($this->users['owner'], 3, Scope::ADMIN));
+        $own      = (new SharePolicy())->candidates(new Scope($this->users['owner'], 3));
+        $usernames = array_column($analysts, 'value');
+
+        // Assert
+        $this->assertContains($this->username('maria'), $usernames);
+        $this->assertNotContains($this->username('nikos'), $usernames, 'below the floor');
+        $this->assertNotContains($this->username('owner'), $usernames, 'never the one sharing');
+        $this->assertContains(['value' => $this->username('maria'), 'label' => 'Maria Test'], $analysts);
+        $this->assertSame([], $own, 'a person\'s own Ask offers nobody');
+        $this->assertSame('<datalist id="pf-people"><option value="a&quot;b">&lt;B&gt;</option></datalist>', ShareView::people([['value' => 'a"b', 'label' => '<B>']]));
+        $this->assertSame('', ShareView::people([]));
+        $this->assertStringContainsString('data-pf-people="pf-people"', ShareView::form('/chat/share/', 'conversation', 5, 5, '', []));
+    }
+
+    /**
      * The API and the page's actions: share, list who has it, what is shared with me, open, and
      * withdraw — through the endpoints a screen calls.
      */

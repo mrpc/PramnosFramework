@@ -2916,3 +2916,64 @@
         if (/RoutineReady|routine/i.test(type)) { state('notify'); }
     });
 })();
+
+/*
+ * data-pf-people="<datalist id>" — a field of names, comma-separated (who to share with, a
+ * report's readers). Once something is typed after the last comma, the people of that list whose
+ * username or name holds it are offered, without those already written; on an empty field, or
+ * right after a comma, nothing is. Filtered here from the list the page carries: no request is
+ * made as the person types.
+ */
+(function () {
+    if (typeof document === 'undefined') { return; }
+
+    /** The people of each list, read once. */
+    var lists = {};
+
+    function people(id) {
+        var source = document.getElementById(id);
+        if (!lists[id] && source) {
+            lists[id] = Array.prototype.map.call(source.querySelectorAll('option'), function (option) {
+                var value = option.getAttribute('value') || '';
+
+                return { value: value, label: option.textContent || value };
+            });
+        }
+
+        return source ? lists[id] : null;
+    }
+
+    document.addEventListener('input', function (event) {
+        var field = event.target;
+        var id = field && field.getAttribute ? field.getAttribute('data-pf-people') : null;
+        var all = id ? people(id) : null;
+        if (!all) { return; }
+
+        // The list shown is a second one, of whole values: a browser offers an option only where
+        // it starts with what is in the field, so the names before the last comma lead each one.
+        var shown = document.getElementById(id + '-offered');
+        if (!shown) {
+            shown = document.createElement('datalist');
+            shown.setAttribute('id', id + '-offered');
+            document.body.appendChild(shown);
+        }
+        field.setAttribute('list', id + '-offered');
+
+        var parts = String(field.value).split(',');
+        var typed = parts.pop().trim().toLowerCase();
+        var written = parts.map(function (part) { return part.trim(); }).filter(Boolean);
+        var lead = written.length ? written.join(', ') + ', ' : '';
+        shown.textContent = '';
+        if (typed === '') { return; }
+
+        all.filter(function (one) {
+            return written.indexOf(one.value) === -1
+                && (one.value.toLowerCase().indexOf(typed) !== -1 || one.label.toLowerCase().indexOf(typed) !== -1);
+        }).slice(0, 20).forEach(function (one) {
+            var option = document.createElement('option');
+            option.setAttribute('value', lead + one.value);
+            option.textContent = one.label;
+            shown.appendChild(option);
+        });
+    });
+}());

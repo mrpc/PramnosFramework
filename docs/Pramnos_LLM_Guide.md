@@ -610,6 +610,14 @@ The analyst's conversations and artifacts go only to people at or above the anal
 Anybody below it is answered as somebody who does not exist ("Nobody here is called …"), so the
 share neither tells them a conversation exists nor names its title.
 
+In the analyst's space, the *With* field and a report's readers field suggest people as a name is
+typed. The suggestions are the active accounts at or above the floor, minus the person sharing
+(`SharePolicy::candidates()`). The page carries them as a `<datalist>` (`ShareView::people()`).
+`pf-utils.js` offers them for the name after the last comma, once something is typed, without
+the names already written. The browser filters them, so typing sends no request. A person's own
+Ask suggests nobody, because there the accounts are the site's users and a list of them is not one
+user's to read. An application whose Ask is used among colleagues overrides `candidates()`.
+
 **A conversation is shared as it stands.** The recipient sees the messages up to the moment it
 was shared, not what is said after; sharing it again with the same person moves that point on.
 

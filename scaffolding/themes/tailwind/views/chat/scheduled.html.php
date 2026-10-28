@@ -72,7 +72,7 @@ $readers = static function (?array $audience, array $names) use ($c, $e, $t, $ro
     }
 
     return $html . '</select></label><label class="' . $c['field'] . '">' . $e($t('And these people')) . ' <input class="' . $c['input'] . '" name="audience_users" value="'
-        . $e(implode(', ', $names)) . '" placeholder="' . $e($t('usernames or emails, comma-separated')) . '" data-pf-audience-users></label>';
+        . $e(implode(', ', $names)) . '" placeholder="' . $e($t('usernames or emails, comma-separated')) . '" data-pf-audience-users autocomplete="off" data-pf-people="' . \Pramnos\Llm\Chat\Web\ShareView::PEOPLE . '"></label>';
 };
 ?>
 <div class="<?php echo $c['page']; ?>">
@@ -228,3 +228,4 @@ $readers = static function (?array $audience, array $names) use ($c, $e, $t, $ro
         <div><button type="submit" class="<?php echo $c['btn']; ?>"><?php echo $e($t('Schedule')); ?></button></div>
     </form>
 </div>
+<?php echo \Pramnos\Llm\Chat\Web\ShareView::people(is_array($this->sharePeople ?? null) ? $this->sharePeople : []); ?>

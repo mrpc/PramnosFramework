@@ -84,6 +84,8 @@ trait SchedulesTasks
         $view->audienceRoles = array_filter(static::audienceRoles(), fn (int $level): bool => $level >= $this->audienceFloor());
         $view->audienceUsers = is_array($task['audience'] ?? null) ? $policy->audienceNames($task['audience']['users']) : [];
         $view->mayEdit       = $task !== null && (int) $task['userid'] === $scope->userId;
+        // Who the readers' field suggests as a name is typed.
+        $view->sharePeople   = \Pramnos\Llm\Chat\SharePolicy::current()->candidates($scope);
         $view->urls      = [
             'page'   => $this->scheduledUrl(),
             'action' => $this->scheduledUrl('%s'),
