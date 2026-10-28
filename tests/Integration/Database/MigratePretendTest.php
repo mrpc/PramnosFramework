@@ -271,6 +271,51 @@ class MigratePretendTest extends BaseTestCase
     }
 
     /**
+     * The command's other outcomes: a migration with no statements, one that would decline,
+     * one that would fail (exit 1) — and a cutoff past every file, which leaves nothing to
+     * pretend.
+     */
+    public function testTheCommandReportsDeclinesFailuresEmptyMigrationsAndACutoff(): void
+    {
+        // Arrange — three files, one per outcome
+        $dir = sys_get_temp_dir() . '/pf-pretend-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        $tag = bin2hex(random_bytes(3));
+        $bodies = [
+            '2099_01_01_000001_pretend_empty_' . $tag   => '',
+            '2099_01_01_000002_pretend_decline_' . $tag => '$this->decline("the data is not ready");',
+            '2099_01_01_000003_pretend_fail_' . $tag    => 'throw new \RuntimeException("would not work");',
+        ];
+        foreach ($bodies as $file => $body) {
+            file_put_contents($dir . '/' . $file . '.php', '<?php
+                return new class($app) extends \Pramnos\Database\Migration {
+                    public string $scope = "app";
+                    public string $feature = "core";
+                    public function up(): void { ' . $body . ' }
+                    public function down(): void {}
+                };');
+        }
+
+        try {
+            // Act
+            $tester  = $this->commandTester();
+            $status  = $tester->execute(['--path' => $dir, '--pretend' => true]);
+            $display = $tester->getDisplay();
+            $later   = $this->commandTester();
+            $later->execute(['--path' => $dir, '--pretend' => true, '--cutoff' => '2099_12_31_000000']);
+        } finally {
+            exec('rm -rf ' . escapeshellarg($dir));
+        }
+
+        // Assert
+        $this->assertSame(1, $status, 'a migration that would fail makes the command fail');
+        $this->assertStringContainsString('(no statements)', $display);
+        $this->assertStringContainsString('Would decline: the data is not ready', $display);
+        $this->assertStringContainsString('Would fail: would not work', $display);
+        $this->assertStringContainsString('Nothing to migrate.', $later->getDisplay());
+    }
+
+    /**
      * A migration whose up() runs the given closure, with a slug of its own per test.
      *
      * @param \Closure(): void $up
