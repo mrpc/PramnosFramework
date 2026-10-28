@@ -16,6 +16,7 @@ use_cases:
   - Letting the AI propose changes to records that a person approves before they happen
   - Collecting feedback on AI answers and reviewing the bad ones
   - Making the AI remember and update what each user, or the whole team, tells it
+  - Letting the AI explain, in plain words, a change in the code behind "it worked yesterday"
   - Giving people a page to see, pause and receive their scheduled AI tasks and reports
   - Handing a leaving member's scheduled AI tasks to someone else
   - Asking users' agreement before their data goes to a provider
@@ -1161,6 +1162,16 @@ const client = chatClient(adminApi, {
 
 It is the admin area, so it goes with the session's cookie; anything but GET needs the session's
 token in the `X-CSRF-Token` header. A JSON body and a form are both read.
+
+### What changed in the code
+
+`recent_changes` reads what changed over a window — the application's git history (each commit's
+date, message and the files it touched; a word narrows it) and the framework's own changelog days
+from `vendor/` — so "this worked yesterday and not today" can be checked against a change rather
+than guessed at. The model is told to answer in plain words: what changed for the person and when,
+and whether it is likely the reason — never commit hashes, file names or code. A server deployed
+without `.git` has no history to read, and the tool says so. `Analyst\Tools\ChangesTool` is the
+class, for an application that wants it in an assistant of its own.
 
 ### Kept apart
 

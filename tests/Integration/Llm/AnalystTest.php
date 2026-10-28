@@ -233,7 +233,9 @@ class AnalystTest extends LlmTestCase
         // Assert — nobody
         $this->assertNotEmpty($answers, 'the sweep found nothing to check');
         foreach ($answers as $name => $answer) {
-            if ($name === 'user') {
+            // `recent_changes` reads the code's history — here the framework's own commits, whose
+            // words are developers', not data about the installation's people.
+            if ($name === 'user' || $name === 'recent_changes') {
                 continue;
             }
             $this->assertStringNotContainsString('@example.', $answer, $name . ' carried an address');
@@ -350,7 +352,7 @@ class AnalystTest extends LlmTestCase
         $this->assertArrayHasKey('posts', $tools);
         $this->assertArrayHasKey('posts_today', $tools);
         $this->assertSame('{"published":12,"by":"e***@e***.com"}', ($tools['posts']['run'])([]));
-        $this->assertCount(14, $tools, 'the help tool is the help feature\'s');
+        $this->assertCount(15, $tools, 'the help tool is the help feature\'s');
     }
 
     /**

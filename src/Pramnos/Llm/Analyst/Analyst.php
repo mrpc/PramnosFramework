@@ -209,6 +209,8 @@ final class Analyst
             new \Pramnos\Llm\Analyst\Tools\PushTool(),
             new \Pramnos\Llm\Analyst\Tools\QueueTool(),
             new \Pramnos\Llm\Analyst\Tools\LlmSpendTool(),
+            // What changed in the code, for "it worked yesterday": answered in plain words.
+            new \Pramnos\Llm\Analyst\Tools\ChangesTool(),
             new \Pramnos\Mcp\Tools\LogAnalyticsTool(),
             new \Pramnos\Mcp\Tools\LogErrorsTool(),
             new \Pramnos\Mcp\Tools\StatusTool(\Pramnos\Application\Application::getInstance()),
