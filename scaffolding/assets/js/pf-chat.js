@@ -33,6 +33,8 @@
  *   data-pf-chat-hero            — the greeting of an empty conversation, gone once one is asked;
  *                                  the page's `pf-chat-empty` class goes with it
  *   data-pf-chat-memory          — the <details> the `/memory` command opens
+ *   data-pf-rating               — an answer's 👍 and 👎 (RatingView): the note 👎 carries is shown
+ *                                  on its first press, and sent with the next
  *
  * `window.PfChat.init(element)` runs it over a conversation placed later — the side panel's
  * `pf-assist.js` does — and each run ends with a `pf-chat:ready` event on the element. It runs once
@@ -482,6 +484,26 @@
                 window.setTimeout(function () { button.textContent = was; }, 2000);
             });
         }
+
+        // 👎 asks what was wrong first: its note shows on the first press, and the next press (or
+        // Enter in the note) sends. 👍, and a 👎 already pressed (which takes the rating back), send
+        // at once. Without the script the note is there from the start.
+        Array.prototype.forEach.call(root.querySelectorAll('[data-pf-rating] form'), function (rating) {
+            var note = rating.querySelector('input[name="note"]');
+            var press = rating.querySelector('button');
+
+            if (!note || !press || press.getAttribute('aria-pressed') === 'true') {
+                return;
+            }
+            note.hidden = true;
+            rating.addEventListener('submit', function (event) {
+                if (note.hidden) {
+                    event.preventDefault();
+                    note.hidden = false;
+                    note.focus();
+                }
+            });
+        });
 
         Array.prototype.forEach.call(root.querySelectorAll('[data-pf-chat-copy]'), function (button) {
             button.addEventListener('click', function () { copy(button, button.getAttribute('data-pf-chat-copy') || ''); });

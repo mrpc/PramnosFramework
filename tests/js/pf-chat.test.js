@@ -57,13 +57,13 @@ function element(tag, attributes = {}) {
     return el;
 }
 
-/** The descendant matching `[attr]`, `tag`, or `button[type="submit"]`. */
+/** The descendant matching `[attr]`, `tag`, or `tag[attr="value"]`. */
 function find(root, selector) {
     for (const child of root.children) {
         const attr = selector.match(/^\[([\w-]+)\]$/);
-        const typed = selector.match(/^(\w+)\[type="(\w+)"\]$/);
+        const typed = selector.match(/^(\w+)\[([\w-]+)="([\w-]+)"\]$/);
         const hit = attr ? attr[1] in child.attributes
-            : typed ? child.tagName === typed[1].toUpperCase() && child.attributes.type === typed[2]
+            : typed ? child.tagName === typed[1].toUpperCase() && child.attributes[typed[2]] === typed[3]
             : child.tagName === selector.toUpperCase();
         if (hit) {
             return child;
@@ -228,6 +228,50 @@ test('the answer shows while it is written, and is looked at more often', async 
     assert.equal(line.getAttribute('data-pf-chat-waiting'), '5', 'still the line a failure would be said in');
     assert.deepEqual(ui.delays.slice(0, 2), [700, 700], 'looked at again sooner than the silent 2 seconds');
     assert.equal(ui.page.innerHTML, '<div data-pf-chat>answered</div>');
+});
+
+/** An answer's 👍 and 👎 as RatingView draws them, 👎 pressed or not. */
+function rating(pressed = false) {
+    const span = element('span', { class: 'pf-rating', 'data-pf-rating': '5' });
+    const good = span.appendChild(element('form'));
+    good.appendChild(element('button', { type: 'submit', 'aria-pressed': 'false' }));
+    const bad = span.appendChild(element('form'));
+    bad.appendChild(element('button', { type: 'submit', 'aria-pressed': pressed ? 'true' : 'false' }));
+    const note = bad.appendChild(element('input', { type: 'text', name: 'note' }));
+
+    return { span, good, bad, note };
+}
+
+/**
+ * 👎 asks what was wrong before it sends: the note is hidden until the first press, which shows
+ * and focuses it instead of sending; the next press sends, the note with it. 👍 sends at once, and
+ * so does a 👎 already pressed, which only takes the rating back.
+ *
+ * A note always on view between the buttons read as belonging to either, and nobody writes a
+ * reason before deciding the answer was bad.
+ */
+test('👎 shows its note on the first press, and sends with the next', () => {
+    // Arrange
+    const fresh = rating();
+    const taken = rating(true);
+    run({ answers: [], before: [fresh.span, taken.span] });
+    const hiddenAtFirst = fresh.note.hidden;
+
+    // Act
+    const first = fresh.bad.dispatch('submit');
+    const second = fresh.bad.dispatch('submit');
+    const good = fresh.good.dispatch('submit');
+    const takeBack = taken.bad.dispatch('submit');
+
+    // Assert
+    assert.equal(hiddenAtFirst, true, 'no note until 👎');
+    assert.equal(first.prevented, true, 'the first press asks, it does not send');
+    assert.equal(fresh.note.hidden, false);
+    assert.equal(fresh.note.focused, true);
+    assert.equal(second.prevented, undefined, 'the second sends');
+    assert.equal(good.prevented, undefined, '👍 sends at once');
+    assert.notEqual(taken.note.hidden, true, 'a pressed 👎 keeps its note as drawn');
+    assert.equal(takeBack.prevented, undefined, 'and takes the rating back at once');
 });
 
 /** The page's `/` commands, as ChatLook::commands() writes them. */

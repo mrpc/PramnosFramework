@@ -561,9 +561,14 @@ and in the SPA component, or `GET /chat/artifacts/{id}/actions` and
 
 ### Rating answers, and the queue of bad ones
 
-Under every answer, on the page and in the SPA component, the person rates it 👍 or 👎 — a bad one
-with a note of what was wrong — and pressing the chosen one again takes it back. Rating again
-replaces it. The rating comes back on each message as `rating` (1, -1 or null).
+Under every answer, on the page and in the SPA component, the person rates it 👍 or 👎. Pressing the
+chosen one again takes it back, and rating again replaces it. The rating comes back on each message
+as `rating` (1, -1 or null).
+
+A bad answer carries a note of what was wrong, asked for after 👎 is pressed. On the page the first
+press shows the note beside the button, and the next press, or Enter in the note, sends it. The
+note is on view from the start when the page runs without JavaScript. The SPA asks for it in a
+prompt.
 
 A bad answer waits in **Answers to review** (`/admin/Ai/reviews`, linked from the analyst's ⚙
 menu) with the question it answered and the note, until a reviewer marks it reviewed — recorded in
