@@ -122,7 +122,7 @@ $readers = static function (?array $audience, array $names) use ($c, $e, $t, $ro
                 <div class="<?php echo $c['muted']; ?>"><?php echo $e($when($one)); ?><?php echo $one['active'] && $one['next_run_local'] ? ' · ' . $e($t('next: %s', (string) $one['next_run_local'])) : ''; ?></div>
                 <?php if ($one['last_error']): ?><div class="<?php echo $c['bad']; ?>"><?php echo $e($one['last_error']); ?></div><?php endif; ?>
             </div>
-            <a class="<?php echo $c['btnGhost']; ?>" href="<?php echo $e($u['page'] . '?task=' . (int) $one['routine_id']); ?>"><?php echo $e($t('Runs')); ?></a>
+            <a class="<?php echo $c['btnGhost']; ?>" href="<?php echo $e($u['page'] . '?task=' . (int) $one['routine_id']); ?>"><?php echo $e($t('See its runs')); ?></a>
             <?php if ($one['kind'] === 'report'): /* one's own report, by email too: the only way to hear of it where there is no bell */ ?>
             <?php echo $button('scheduledsubscribe', ['routine_id' => $one['routine_id'], 'on' => '1', 'email' => empty($one['email']) ? '1' : ''], $t(empty($one['email']) ? 'Email it to me' : 'Stop the email'), $c['btnGhost']); ?>
             <?php endif; ?>
@@ -143,7 +143,7 @@ $readers = static function (?array $audience, array $names) use ($c, $e, $t, $ro
                 <strong><?php echo $e($one['title']); ?></strong>
                 <div class="<?php echo $c['muted']; ?>"><?php echo $e($when($one)); ?></div>
             </div>
-            <a class="<?php echo $c['btnGhost']; ?>" href="<?php echo $e($u['page'] . '?task=' . (int) $one['routine_id']); ?>"><?php echo $e($t('Runs')); ?></a>
+            <a class="<?php echo $c['btnGhost']; ?>" href="<?php echo $e($u['page'] . '?task=' . (int) $one['routine_id']); ?>"><?php echo $e($t('See its runs')); ?></a>
             <?php echo $button('scheduledsubscribe', ['routine_id' => $one['routine_id'], 'on' => $one['subscribed'] ? '' : '1'], $t($one['subscribed'] ? 'Stop receiving' : 'Receive it'), $one['subscribed'] ? $c['btnGhost'] : $c['btn']); ?>
             <?php if (empty($one['subscribed'])): ?><?php echo $button('scheduledsubscribe', ['routine_id' => $one['routine_id'], 'on' => '1', 'email' => '1'], $t('Receive it by email too'), $c['btnGhost']); ?><?php endif; ?>
         </div>

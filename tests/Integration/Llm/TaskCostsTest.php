@@ -92,11 +92,11 @@ class TaskCostsTest extends LlmTestCase
         $empty = TaskCosts::forTask(['routine_id' => 999999], []);
 
         // Assert
-        $this->assertStringContainsString('data-pf-task-cost="' . $id . '">Runs: 2 · Total: $1.50', $html);
+        $this->assertStringContainsString('data-pf-task-cost="' . $id . '">Times run: 2 · Total: $1.50', $html);
         $this->assertSame(2, substr_count($html, 'data-pf-run-cost='));
         $this->assertStringContainsString('Failed', $html);
         $this->assertStringContainsString('—', $html, 'a run without a price shows a dash, not $0');
-        $this->assertStringContainsString('Runs: 0', $empty);
+        $this->assertStringContainsString('Times run: 0', $empty);
         $this->assertStringNotContainsString('<table', $empty, 'no runs, no table');
     }
 

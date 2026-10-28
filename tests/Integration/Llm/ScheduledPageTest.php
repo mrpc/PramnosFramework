@@ -133,7 +133,7 @@ class ScheduledPageTest extends LlmTestCase
             $this->assertStringContainsString('data-pf-show-when="cadence:weekly monthly_weekday"', $html, $theme);
             $this->assertStringContainsString('data-pf-show-when="cadence:once"', $html, $theme);
             // What it cost, the framework's own: both runs counted, each run listed
-            $this->assertStringContainsString('data-pf-task-cost="' . $made['routine_id'] . '">Runs: 2', $html, $theme);
+            $this->assertStringContainsString('data-pf-task-cost="' . $made['routine_id'] . '">Times run: 2', $html, $theme);
             $this->assertStringContainsString('data-pf-run-cost="' . $runId . '"', $html, $theme);
         }
     }

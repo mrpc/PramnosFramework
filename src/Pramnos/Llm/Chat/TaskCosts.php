@@ -97,7 +97,7 @@ final class TaskCosts implements \Pramnos\Llm\Admin\Card
         $c = self::byTask()[(int) $task['routine_id']] ?? ['runs' => 0, 'cost' => 0.0, 'unpriced' => 0];
 
         $html = '<div data-pf-task-costs><h3>' . $t('What it cost') . '</h3>'
-            . '<p data-pf-task-cost="' . (int) $task['routine_id'] . '">' . $t('Runs') . ': ' . $c['runs']
+            . '<p data-pf-task-cost="' . (int) $task['routine_id'] . '">' . $t('Times run') . ': ' . $c['runs']
             . ' · ' . $t('Total') . ': ' . self::e(self::usd($c['cost']))
             . ($c['unpriced'] > 0 ? ' + ' . $c['unpriced'] . ' ' . $t('not priced') : '') . '</p>';
         if ($runs !== []) {
@@ -135,7 +135,7 @@ final class TaskCosts implements \Pramnos\Llm\Admin\Card
         $titles = self::titles(array_keys($costs));
 
         $html = '<table class="table table-sm" data-pf-task-costs><thead><tr><th>' . $t('Task') . '</th><th>'
-            . $t('Runs') . '</th><th>' . $t('Cost') . '</th></tr></thead><tbody>';
+            . $t('Times run') . '</th><th>' . $t('Cost') . '</th></tr></thead><tbody>';
         $sum = 0.0;
         foreach ($costs as $id => $c) {
             $sum += $c['cost'];
