@@ -192,6 +192,8 @@ class ApiAccountControllerTest extends TestCase
         if (!$db->connected) {
             $db->connect();
         }
+        // `new User($id)` reads `users`: run alone, nothing earlier in the suite has made it.
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Auth\CreateUsersTable::class], $db);
     }
 
     private function user(int $id, string $username, string $email): StubApiUser
