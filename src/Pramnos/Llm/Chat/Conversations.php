@@ -279,7 +279,9 @@ class Conversations
             // Not from a scheduled run: a task that schedules tasks has no end.
             + ($this->scheduled ? [] : $routines->toolsFor($this->scope, $this->assistant->timezone($this->scope), $conversationId)
                 // Kept with a conversation the person can open: a scheduled run has none yet.
-                + $artifacts->tools()));
+                + $artifacts->tools()
+                // And changes to approve, where the application turned them on: nobody approves in a run.
+                + (new Proposals($this->scope))->tools($artifacts)));
 
         $answer = $client->askWithTools(
             $this->assistant->systemPrompt($turn) . "\n\n" . ($turn->shared() ? trim($this->assistant->context($turn)) : $this->context($turn, $memory)),

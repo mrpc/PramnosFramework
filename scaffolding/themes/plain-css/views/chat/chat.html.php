@@ -71,6 +71,9 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
     'shared' => is_array($this->urls ?? null) ? '' : $url('chat/shared/'),
     // Bulk actions on a list's records (Pramnos\Bulk\BulkActions).
     'act' => is_array($this->urls ?? null) ? '' : $url('chat/act/'),
+    // A change the model proposed, approved or rejected by the reader (Llm\Chat\Proposals).
+    'approve' => is_array($this->urls ?? null) ? '' : $url('chat/approve/'),
+    'reject' => is_array($this->urls ?? null) ? '' : $url('chat/reject/'),
 ];
 $bulk    = is_array($this->bulkActions ?? null) ? $this->bulkActions : [];
 ?>
@@ -152,6 +155,7 @@ $bulk    = is_array($this->bulkActions ?? null) ? $this->bulkActions : [];
                                 <?php echo \Pramnos\Llm\Chat\Web\ArtifactView::html($artifact, $c['card'], 'pf-table', $c['muted']); ?>
                                 <?php if ($u['share'] !== ''): ?><?php echo \Pramnos\Llm\Chat\Web\ShareView::form($u['share'], 'artifact', (int) $artifact['artifact_id'], $openId, $token(), $c); ?><?php endif; ?>
                                 <?php if ($u['act'] !== '' && $artifact['kind'] === 'list'): ?><?php echo \Pramnos\Llm\Chat\Web\BulkView::forms($bulk[(string) $artifact['entity']] ?? [], $u['act'], (int) $artifact['artifact_id'], count((array) ($artifact['content']['ids'] ?? [])), $openId, $token(), $c); ?><?php endif; ?>
+                                <?php if ($u['approve'] !== ''): ?><?php echo \Pramnos\Llm\Chat\Web\BulkView::decision($artifact, $u['approve'], $u['reject'], $openId, $token(), $c); ?><?php endif; ?>
                             <?php endforeach; ?>
                             <?php $steps = array_values(array_filter((array) (($m['extra'] ?? [])['steps'] ?? []), 'is_string')); ?>
                             <?php if ($steps !== []): ?>

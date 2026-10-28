@@ -208,6 +208,30 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return is_string($done) ? self::error(422, $done) : ['status' => 200, 'data' => $done];
     }
 
+    /** Approve a change the model proposed: it runs now, as this person. */
+    public function approveProposal($artifact_id): array
+    {
+        if (($stop = $this->refusal('share')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        $done  = $scope === null ? 'There is no such proposal.' : (new \Pramnos\Llm\Chat\Proposals($scope))->approve((int) $artifact_id);
+
+        return is_string($done) ? self::error(str_starts_with($done, 'There is no such') ? 404 : 422, $done) : ['status' => 200, 'data' => $done];
+    }
+
+    /** Reject a change the model proposed: nothing changes. */
+    public function rejectProposal($artifact_id): array
+    {
+        if (($stop = $this->refusal('share')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        $why   = $scope === null ? 'There is no such proposal.' : (new \Pramnos\Llm\Chat\Proposals($scope))->reject((int) $artifact_id);
+
+        return $why === null ? ['status' => 200, 'data' => ['rejected' => true]] : self::error(str_starts_with($why, 'There is no such') ? 404 : 422, $why);
+    }
+
     /** @return array<string, mixed> */
     private function shareOne(string $kind, int $targetId): array
     {

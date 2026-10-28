@@ -11,6 +11,7 @@ use_cases:
   - Seeing what each scheduled AI task or report costs
   - Keeping a table or list an AI answer produced, to open or act on later
   - Sharing an AI conversation or one of its results with a colleague
+  - Letting the AI propose changes to records that a person approves before they happen
   - Giving people a page to see, pause and receive their scheduled AI tasks and reports
   - Handing a leaving member's scheduled AI tasks to someone else
   - Asking users' agreement before their data goes to a provider
@@ -397,6 +398,28 @@ and in the SPA component, or `GET /chat/artifacts/{id}/actions` and
 `POST /chat/artifacts/{id}/actions/{key}` with `params`. What is offered, and who may run it, is
 [Bulk actions](Pramnos_Bulk_Actions_Guide.md).
 
+### Changes the model proposes, and a person approves
+
+**Off by default.** `'llm' => ['chat' => ['propose_actions' => true]]` turns it on. Then the model
+is given two tools, and only when the person has something they may change:
+
+- `list_actions` — what this person may do, by kind of record: the
+  [bulk actions](Pramnos_Bulk_Actions_Guide.md) the application declared and they are allowed;
+- `propose_action` — one of them, on records by id, with its fields and a one-line reason.
+
+A proposal **changes nothing**. It is kept as an artifact of kind `proposal` under the answer,
+showing the action, how many records, its fields and the reason, with *Approve and do it* and
+*Reject*. Approving runs it through `BulkActions::run()` as the person approving — their right to
+it asked again, the audit log written, a long list queued — once; the artifact then shows what came
+of it. Rejecting leaves it marked rejected. Only its owner settles it, and a scheduled run is
+never given these tools, since nobody is there to approve.
+
+What may be proposed is exactly what the application declared as a bulk action, so one
+declaration serves list screens, Ask lists and the model alike. In code:
+`(new Chat\Proposals($scope))->approve($artifactId)` / `->reject($artifactId)`; on a page of the
+application's own, the `ActsOnLists` trait has the `approve/{id}` and `reject/{id}` actions and
+`Web\BulkView::decision()` the buttons.
+
 ### Sharing a conversation or an artifact
 
 A person shares one of their conversations or artifacts with others by username or email —
@@ -728,6 +751,7 @@ One line in the application's API routes mounts every endpoint:
 | `GET /chat/{id}/shares`, `GET /chat/artifacts/{id}/shares` | who it is shared with |
 | `DELETE /chat/shares/{id}` | stop one share |
 | `GET /chat/artifacts/{id}/actions`, `POST /chat/artifacts/{id}/actions/{key}` | a list's bulk actions; run one with `params` — `done`, or `queued` for a long list |
+| `POST /chat/artifacts/{id}/approve`, `POST /chat/artifacts/{id}/reject` | settle a change the model proposed; approving runs it |
 | `GET /chat/shared` | what others shared with this person |
 | `POST /chat/shared/{id}/open` | open it: the `conversation_id` of this person's own copy |
 | `GET /chat/asks/{id}` | a queued question: `waiting`, `answered` with its `conversation_id`, or `failed` with `says` |

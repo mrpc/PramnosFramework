@@ -43,6 +43,40 @@ trait ActsOnLists
         return null;
     }
 
+    /** Approve proposal `{id}`: the change runs now, as the person approving. */
+    public function approve(mixed $id = null): mixed
+    {
+        if ($this->taskDenied()) {
+            return null;
+        }
+        $scope  = $this->taskScope();
+        $result = $scope === null ? 'There is no such proposal.' : (new \Pramnos\Llm\Chat\Proposals($scope))->approve((int) ($id ?: \Pramnos\Http\Request::staticGetOption()));
+        if (is_string($result)) {
+            $this->addError($result);
+        } elseif ($result['queued'] > 0) {
+            $this->addMessage(sprintf('%d queued; they will be done shortly.', $result['queued']));
+        } else {
+            $this->addMessage($result['says'] !== '' ? $result['says'] : sprintf('Done for %d.', $result['done']));
+        }
+        $this->redirect($this->shareReturnUrl((int) ($_POST['conversation_id'] ?? 0)));
+
+        return null;
+    }
+
+    /** Reject proposal `{id}`: nothing changes, and it stays marked so. */
+    public function reject(mixed $id = null): mixed
+    {
+        if ($this->taskDenied()) {
+            return null;
+        }
+        $scope = $this->taskScope();
+        $why   = $scope === null ? 'There is no such proposal.' : (new \Pramnos\Llm\Chat\Proposals($scope))->reject((int) ($id ?: \Pramnos\Http\Request::staticGetOption()));
+        $why === null ? $this->addMessage('Rejected; nothing was changed.') : $this->addError($why);
+        $this->redirect($this->shareReturnUrl((int) ($_POST['conversation_id'] ?? 0)));
+
+        return null;
+    }
+
     /**
      * The actions the open conversation's lists offer this person, by kind of record.
      *

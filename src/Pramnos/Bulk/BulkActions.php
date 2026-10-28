@@ -111,6 +111,25 @@ final class BulkActions
     }
 
     /**
+     * Every kind of record something may be done to, with what this person may do to each.
+     *
+     * @return array<string, array<string, array{label: string, params: array<string, array<string, mixed>>}>>
+     */
+    public static function everything(int $userId): array
+    {
+        self::boot();
+        $out = [];
+        foreach (array_keys(self::$actions) as $entity) {
+            $available = self::available((string) $entity, $userId);
+            if ($available !== []) {
+                $out[(string) $entity] = $available;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * Run an action on these records, as this person. In the request for a short list, in the
      * queue for a long one. Answers what happened, or why it did not.
      *

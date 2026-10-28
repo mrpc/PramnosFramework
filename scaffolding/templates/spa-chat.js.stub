@@ -62,6 +62,9 @@ export function chatClient(api = defaultApi, paths = {}) {
         // What can be done with a list's records at once, and doing it.
         artifactActions: (id) => api.get(`${p.artifacts}/${id}/actions`),
         runArtifactAction: (id, action, params) => api.post(`${p.artifacts}/${id}/actions/${action}`, { params }),
+        // A change the model proposed: approving runs it, as this person.
+        approveProposal: (id) => api.post(`${p.artifacts}/${id}/approve`, {}),
+        rejectProposal: (id) => api.post(`${p.artifacts}/${id}/reject`, {}),
         // Per feature: each can go to its own provider, and agreement is to a provider.
         consent: (feature = 'chat') => api.get(p.consent, { feature }),
         giveConsent: (feature = 'chat') => api.post(p.consent, {}, { query: { feature } }),

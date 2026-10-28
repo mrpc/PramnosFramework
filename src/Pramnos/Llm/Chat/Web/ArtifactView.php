@@ -33,6 +33,9 @@ final class ArtifactView
         $label   = match ($kind) {
             'table' => sprintf(\Pramnos\Translator\Language::getInstance()->_('Table · %d rows'), count((array) ($content['rows'] ?? []))),
             'list'  => sprintf(\Pramnos\Translator\Language::getInstance()->_('List · %d %s'), count((array) ($content['ids'] ?? [])), (string) ($artifact['entity'] ?? '')),
+            'proposal' => \Pramnos\Translator\Language::getInstance()->_(match ((string) ($content['status'] ?? 'pending')) {
+                'approved' => 'Proposed change · approved', 'rejected' => 'Proposed change · rejected', default => 'Proposed change · waiting for you',
+            }),
             default => \Pramnos\Translator\Language::getInstance()->_('Text'),
         };
 
@@ -63,6 +66,25 @@ final class ArtifactView
             $html .= '</ul>';
             if (count($ids) > self::LIST_PREVIEW) {
                 $html .= '<p class="' . $e($muted) . '">' . $e(sprintf(\Pramnos\Translator\Language::getInstance()->_('and %d more'), count($ids) - self::LIST_PREVIEW)) . '</p>';
+            }
+        } elseif ($kind === 'proposal') {
+            // What it would do, in full: the person approves exactly this.
+            $html .= '<p>' . $e(sprintf(\Pramnos\Translator\Language::getInstance()->_('%s, on %d %s'), (string) ($content['label'] ?? ''),
+                count((array) ($content['ids'] ?? [])), (string) ($artifact['entity'] ?? ''))) . '</p>';
+            if (($content['reason'] ?? '') !== '') {
+                $html .= '<p class="' . $e($muted) . '">' . $e($content['reason']) . '</p>';
+            }
+            $html .= '<ul>';
+            foreach ((array) ($content['params'] ?? []) as $name => $value) {
+                $html .= '<li>' . $e($name) . ': ' . $e(is_scalar($value) ? $value : json_encode($value, JSON_UNESCAPED_UNICODE)) . '</li>';
+            }
+            $html .= '<li>' . $e(\Pramnos\Translator\Language::getInstance()->_('Records')) . ': ' . $e(implode(', ', array_slice(array_map('strval', (array) ($content['ids'] ?? [])), 0, self::LIST_PREVIEW))
+                . (count((array) ($content['ids'] ?? [])) > self::LIST_PREVIEW ? ' …' : '')) . '</li></ul>';
+            if (is_array($content['result'] ?? null)) {
+                $result = $content['result'];
+                $html  .= '<p class="' . $e($muted) . '">' . $e((int) ($result['queued'] ?? 0) > 0
+                    ? sprintf(\Pramnos\Translator\Language::getInstance()->_('%d queued'), (int) $result['queued'])
+                    : ((string) ($result['says'] ?? '') !== '' ? (string) $result['says'] : sprintf(\Pramnos\Translator\Language::getInstance()->_('Done for %d.'), (int) ($result['done'] ?? 0)))) . '</p>';
             }
         } else {
             $html .= '<div class="pf-chat-answer">' . Markdown::toHtml((string) ($content['text'] ?? '')) . '</div>';

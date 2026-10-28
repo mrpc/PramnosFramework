@@ -58,11 +58,11 @@ class AiController extends Controller
     {
         $this->addAuthAction(['display', 'all', 'settings', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'delete', 'forget', 'consent', 'api', 'export',
             'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'report',
-            'share', 'unshare', 'shared', 'act']);
+            'share', 'unshare', 'shared', 'act', 'approve', 'reject']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
         // `api` checks its own token, from the X-CSRF-Token header, since it also answers GET and DELETE.
         $this->addWriteAction(['save', 'check', 'ask', 'delete', 'forget', 'consent',
-            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act']);
+            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject']);
         parent::__construct($application);
     }
 
@@ -120,6 +120,8 @@ class AiController extends Controller
             'unshare'   => adminUrl('Ai/unshare/'),
             'shared'    => adminUrl('Ai/shared/'),
             'act'       => adminUrl('Ai/act/'),
+            'approve'   => adminUrl('Ai/approve/'),
+            'reject'    => adminUrl('Ai/reject/'),
         ];
         foreach ($page as $name => $value) {
             $view->{$name} = $value;

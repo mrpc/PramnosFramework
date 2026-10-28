@@ -122,11 +122,23 @@ final class Artifacts
             return $content;
         }
 
+        return $this->keep($kind, $title, $kind === 'list' ? (string) $input['entity'] : null, $content);
+    }
+
+    /**
+     * Keep an artifact whose content is already checked — the kinds above, or one of the
+     * framework's own (a proposal) — as made during this turn, to be linked with its answer.
+     *
+     * @param array<string, mixed> $content
+     * @return array<string, mixed>
+     */
+    public function keep(string $kind, string $title, ?string $entity, array $content): array
+    {
         $stamp = CallLog::instant(time());
         $row   = $this->scope->columns() + [
             'kind'       => $kind,
             'title'      => mb_substr($title, 0, self::TITLE),
-            'entity'     => $kind === 'list' ? (string) $input['entity'] : null,
+            'entity'     => $entity,
             'content'    => (string) json_encode($content, JSON_UNESCAPED_UNICODE),
             'created_at' => $stamp,
             'updated_at' => $stamp,

@@ -43,6 +43,8 @@ class ArtifactsTest extends LlmTestCase
 
     protected function tearDown(): void
     {
+        // A bulk action writes to the audit log, which remembers that this database had no table for it.
+        \Pramnos\Auth\AuditLog::resetTableCache();
         $this->disconnectDatabase();
         parent::tearDown();
     }

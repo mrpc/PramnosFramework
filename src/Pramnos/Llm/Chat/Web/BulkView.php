@@ -11,6 +11,27 @@ namespace Pramnos\Llm\Chat\Web;
 final class BulkView
 {
     /**
+     * Approve or reject a proposal that still waits; nothing once it is settled.
+     *
+     * @param array<string, mixed>  $proposal As Artifacts::shape() answers
+     * @param array<string, string> $c        The theme's classes: btn, btnGhost
+     */
+    public static function decision(array $proposal, string $approve, string $reject, int $returnTo, string $token, array $c = []): string
+    {
+        if (($proposal['kind'] ?? '') !== 'proposal' || (($proposal['content'] ?? [])['status'] ?? '') !== 'pending') {
+            return '';
+        }
+        $e  = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+        $t  = static fn (string $s): string => $e(\Pramnos\Translator\Language::getInstance()->_($s));
+        $id = (int) $proposal['artifact_id'];
+        $form = static fn (string $url, string $label, string $class): string => '<form method="post" action="' . $e($url . $id) . '" style="display:inline">' . $token
+            . '<input type="hidden" name="conversation_id" value="' . $returnTo . '"><button type="submit" class="' . $e($class) . '">' . $label . '</button></form> ';
+
+        return '<div class="pf-proposal-decision" data-pf-proposal="' . $id . '">' . $form($approve, $t('Approve and do it'), $c['btn'] ?? '')
+            . $form($reject, $t('Reject'), $c['btnGhost'] ?? '') . '</div>';
+    }
+
+    /**
      * @param array<string, array{label: string, params: array<string, array<string, mixed>>}> $actions As BulkActions::available() answers
      * @param array<string, string>                                                            $c The theme's classes: btn, input, muted
      */

@@ -93,6 +93,8 @@
     function artifactLabel(artifact) {
         if (artifact.kind === 'table') return t('Table · %s rows', artifact.content?.rows?.length ?? 0);
         if (artifact.kind === 'list') return t('List · %s %s', artifact.content?.ids?.length ?? 0, artifact.entity ?? '');
+        if (artifact.kind === 'proposal') return artifact.content?.status === 'approved' ? t('Proposed change · approved')
+            : artifact.content?.status === 'rejected' ? t('Proposed change · rejected') : t('Proposed change · waiting for you');
         return t('Text');
     }
 
@@ -226,6 +228,16 @@
             acting.said = done.queued ? t('%s queued; they will be done shortly.', done.queued) : (done.says || t('Done for %s.', done.done ?? 0));
         } catch (err) {
             acting.said = failure(err, t('It could not be done.'));
+        }
+    }
+
+    /** Approve or reject a proposed change, then read the conversation again to show what came of it. */
+    async function decide(artifact, approve) {
+        try {
+            await (approve ? chat.approveProposal(artifact.artifact_id) : chat.rejectProposal(artifact.artifact_id));
+            messages = (await chat.read(shown)).data?.messages ?? messages;
+        } catch (err) {
+            error = failure(err, t('It could not be done.'));
         }
     }
 
@@ -641,6 +653,18 @@
                                             </ul>
                                             {#if (artifact.content?.ids?.length ?? 0) > LIST_PREVIEW}
                                                 <p class="opacity-60">{t('and %s more', artifact.content.ids.length - LIST_PREVIEW)}</p>
+                                            {/if}
+                                        {:else if artifact.kind === 'proposal'}
+                                            <p>{t('%s, on %s %s', artifact.content?.label ?? '', artifact.content?.ids?.length ?? 0, artifact.entity ?? '')}</p>
+                                            {#if artifact.content?.reason}<p class="opacity-60">{artifact.content.reason}</p>{/if}
+                                            <ul class="list-disc pl-5">
+                                                {#each Object.entries(artifact.content?.params ?? {}) as [name, value]}<li>{name}: {value}</li>{/each}
+                                            </ul>
+                                            {#if artifact.content?.status === 'pending'}
+                                                <div class="mt-2 flex gap-2" data-pf-proposal={artifact.artifact_id}>
+                                                    <button type="button" class={ui('btn.sm')} onclick={() => decide(artifact, true)}>{t('Approve and do it')}</button>
+                                                    <button type="button" class={ui('btn.ghost.sm')} onclick={() => decide(artifact, false)}>{t('Reject')}</button>
+                                                </div>
                                             {/if}
                                         {:else}
                                             <div class="markdown">{@html markdown(artifact.content?.text ?? '')}</div>
