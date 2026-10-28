@@ -569,6 +569,34 @@ class ReportsTest extends LlmTestCase
     }
 
     /**
+     * Asked in Ask for a report by email, the subscribe tool turns email on — on a new
+     * subscription and on one that already exists — so the run emails them the report itself.
+     */
+    #[DataProvider('databases')]
+    public function testTheSubscribeToolTurnsOnEmail(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->policy();
+        $tasks  = $this->tasks();
+        $maker  = $tasks->toolsFor(new Scope(7, 3), 'Europe/Athens', null);
+        $reader = $tasks->toolsFor(new Scope(8, 3), 'Europe/Athens', null);
+        $shared = $maker['schedule_task']['run'](['kind' => 'report', 'owner' => 'organization', 'title' => 'Weekly', 'prompt' => 'Bookings', 'cadence' => 'daily', 'at' => '08:00']);
+        $id     = (int) preg_replace('/\D.*$/s', '', substr($shared, strlen('Scheduled as task ')));
+
+        // Act
+        $plain = $reader['subscribe_report']['run'](['routine_id' => $id]);
+        $none  = $tasks->emailSubscribers($id);
+        $email = $reader['subscribe_report']['run'](['routine_id' => $id, 'email' => true]);
+
+        // Assert
+        $this->assertSame('Subscribed.', $plain);
+        $this->assertSame([], $none, 'not asked for, no email');
+        $this->assertSame('Subscribed, by email too.', $email);
+        $this->assertSame([8], $tasks->emailSubscribers($id), 'asked again, the existing subscription now emails');
+    }
+
+    /**
      * Through the API: a reader lists the reports, subscribes and unsubscribes, reads a run and
      * the runs of the report, and opens a run as a conversation; what they may not read is
      * answered as if it did not exist.

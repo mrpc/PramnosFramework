@@ -1082,9 +1082,13 @@ class Routines
                 ), JSON_UNESCAPED_UNICODE),
             ],
             'subscribe_report' => [
-                'description' => 'Have this person receive a shared report by id, when they ask. List them first to find the id.',
-                'parameters'  => ['type' => 'object', 'properties' => ['routine_id' => ['type' => 'integer']], 'required' => ['routine_id']],
-                'run' => fn (array $a): string => ($why = $this->subscribe($scope->userId, (int) ($a['routine_id'] ?? 0))) === null ? 'Subscribed.' : 'Error: ' . $why,
+                'description' => 'Have this person receive a shared report by id, when they ask — by email too when they ask for that, which sends the report itself, not only its notice. List them first to find the id. Asked again, it changes whether email is on.',
+                'parameters'  => ['type' => 'object', 'properties' => [
+                    'routine_id' => ['type' => 'integer'],
+                    'email'      => ['type' => 'boolean', 'description' => 'Also email the report to them. Default false.'],
+                ], 'required' => ['routine_id']],
+                'run' => fn (array $a): string => ($why = $this->subscribe($scope->userId, (int) ($a['routine_id'] ?? 0), !empty($a['email']))) === null
+                    ? (!empty($a['email']) ? 'Subscribed, by email too.' : 'Subscribed.') : 'Error: ' . $why,
             ],
             'unsubscribe_report' => [
                 'description' => 'Stop this person receiving a shared report by id.',

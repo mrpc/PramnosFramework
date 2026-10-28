@@ -76,7 +76,8 @@ trait SchedulesTasks
         $view->timezone  = $this->taskConversations()->assistant()->timezone($scope);
         $view->pageUrl   = $this->scheduledUrl();
         $view->chatUrl   = $this->taskChatUrl();
-        $view->extras    = $this->scheduledExtras($task) + ['form' => '', 'task' => ''];
+        // What the open task cost is the framework's own; an application's `task` markup replaces it.
+        $view->extras    = $this->scheduledExtras($task) + ['form' => '', 'task' => $task === null ? '' : \Pramnos\Llm\Chat\TaskCosts::forTask($task, $view->runs)];
         // Who may receive a shared report: the roles to choose from, and the open one's readers by name.
         $view->audienceRoles = static::audienceRoles();
         $view->audienceUsers = is_array($task['audience'] ?? null) ? $policy->audienceNames($task['audience']['users']) : [];
@@ -241,7 +242,8 @@ trait SchedulesTasks
 
     /**
      * Markup of the controller's own for the page: `form`, printed inside the form before its
-     * button — fields its {@see afterScheduled()} reads; `task`, printed on the open task's card.
+     * button — fields its {@see afterScheduled()} reads; `task`, printed on the open task's card in
+     * place of the framework's cost summary ({@see \Pramnos\Llm\Chat\TaskCosts::forTask()}).
      * Printed as given: escape what goes in. Nothing by default.
      *
      * @param array<string, mixed>|null $task The task whose card is open, or null

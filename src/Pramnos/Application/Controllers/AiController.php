@@ -680,7 +680,10 @@ class AiController extends Controller
     {
         $out = [];
 
-        foreach (Llm::adminSections() as $section) {
+        // The framework's own card first, once a scheduled task has ever run; an application's
+        // sections follow it.
+        $own = \Pramnos\Llm\Chat\TaskCosts::byTask() === [] ? [] : [new \Pramnos\Llm\Chat\TaskCosts()];
+        foreach ([...$own, ...Llm::adminSections()] as $section) {
             try {
                 // A card that only shows has no form and no Save button.
                 $out[] = ['key' => $section->key(), 'title' => $section->title(), 'html' => $section->render(), 'saves' => $section instanceof \Pramnos\Llm\Admin\Section];

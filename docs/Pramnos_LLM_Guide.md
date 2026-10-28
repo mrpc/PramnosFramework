@@ -7,7 +7,8 @@ use_cases:
   - Working out what model calls cost, which failed, and why
   - Giving users conversations with a model that remember them
   - Scheduling a question to a model every morning, as its owner
-  - Sending an organisation a scheduled AI report its members subscribe to
+  - Sending an organisation a scheduled AI report its members subscribe to, by email too
+  - Seeing what each scheduled AI task or report costs
   - Giving people a page to see, pause and receive their scheduled AI tasks and reports
   - Handing a leaving member's scheduled AI tasks to someone else
   - Asking users' agreement before their data goes to a provider
@@ -408,7 +409,7 @@ tasks has no end), the model has four tools:
 | `list_scheduled_tasks` | This person's tasks, with when each runs next and any that stopped and why |
 | `cancel_scheduled_task` | Delete one by id |
 | `list_reports` | The shared reports here this person may receive, and whether they do |
-| `subscribe_report`, `unsubscribe_report` | Receive a shared report by id, or stop |
+| `subscribe_report`, `unsubscribe_report` | Receive a shared report by id, or stop. `email: true` sends the report itself by email too ("send it to me by email"); asked again, it turns email on or off on the existing subscription |
 
 `schedule_task` also makes a report (`kind` `report`), shared with the organisation or the
 installation (`owner`) when the person asks and the policy lets them, and told only when there is
@@ -436,8 +437,9 @@ After each run:
 - The run is recorded in `ai_task_runs` and the owner is told.
 - A question tells the owner with `Chat\RoutineReady`, or the class `chat.routine_notification`
   names, constructed with the title, whether it worked, why not, and the link.
-- A report's reader whose subscription asks for email (`subscribe($userId, $id, email: true)`, or
-  "Receive it by email too" on the scheduled page) gets the report itself by email:
+- A report's reader whose subscription asks for email (`subscribe($userId, $id, email: true)`,
+  "Receive it by email too" on the scheduled page, `email` on the chat API's subscribe, or asking
+  for it in Ask) gets the report itself by email:
   `RoutineReady::toMail()`, with its title, its words drawn from Markdown, and the link to ask
   about it. The notification class is given the report's words and that choice as its fifth and
   sixth arguments, and an application's own class written for four may ignore them. A failed run
@@ -461,6 +463,18 @@ After each run:
   count again.
 
 The question a run asks carries the day on the owner's clock.
+
+**What the tasks cost** is read from `ai_task_runs.cost`, the price of each run's model calls
+recorded once however many people receive the report (`Chat\TaskCosts`). It shows in two
+places with nothing to configure:
+
+- on `/admin/Ai`, a card listing each task's runs and cost over the last 30 days and their
+  share of everything the call log priced, once any scheduled task has run;
+- on the open task's card of the Scheduled page, its runs, total and each run's cost. A
+  controller's `scheduledExtras()` that returns `task` markup replaces it.
+
+`TaskCosts::byTask($since)` gives the same figures to an application's own screen. A run whose
+calls were not priced is counted apart, not as zero; a reminder asks no model and costs nothing.
 
 **`Chat\TaskPolicy`**, or the class `chat.task_policy` names, holds the rules around tasks. Every
 method has a default, so an application overrides only what it has:

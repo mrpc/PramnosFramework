@@ -129,6 +129,9 @@ class ScheduledPageTest extends LlmTestCase
             $this->assertStringContainsString('chat/report/' . $runId, $html, $theme . ': ask about it');
             $this->assertStringContainsString('Failed', $html, $theme);
             $this->assertStringNotContainsString('data-pf-scheduled-runs', $other, $theme . ': not theirs to read');
+            // What it cost, the framework's own: both runs counted, each run listed
+            $this->assertStringContainsString('data-pf-task-cost="' . $made['routine_id'] . '">Runs: 2', $html, $theme);
+            $this->assertStringContainsString('data-pf-run-cost="' . $runId . '"', $html, $theme);
         }
     }
 
@@ -261,6 +264,8 @@ class ScheduledPageTest extends LlmTestCase
             $this->assertLessThan(strpos($form, 'type="submit"'), strpos($form, 'data-own-field'), $theme . ': before its button');
             $card = substr($html, (int) strpos($html, 'data-pf-scheduled-runs'));
             $this->assertLessThan(strpos($card, '</section>'), strpos($card, 'data-own-card'), $theme . ': on the open task\'s card');
+            // An application's card replaces the framework's cost summary rather than sitting beside it
+            $this->assertStringNotContainsString('data-pf-task-costs', $html, $theme);
         }
         $this->assertCount(1, $good->scheduledWith);
         $this->assertSame('admins', $good->scheduledWith[0][1]['audience'], 'its own field reaches it');
