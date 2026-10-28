@@ -1080,7 +1080,9 @@ tools (⚙) sit in the top corner of the conversation column.
 `text` to put into the composer or a `url` to go to. A command with a name already taken, or with
 neither `text` nor `url`, is left out.
 
-The styles are in the theme's `components.css`, under *Ask*. They set shape and layout only, on
+The page is one column, the title and the answers' tools included, `--pf-chat-width` wide (1100px,
+enough for a report's tables). An application changes the width by setting that property on
+`.pf-chat`. The styles are in the theme's `components.css`, under *Ask*. They set shape and layout only, on
 the same shared tokens as the other components, and the theme's own buttons, type and colours
 still apply. `--pf-chat-accent` on the page (set from `accent`) overrides the theme's primary for
 the page. An existing project picks the styles up with `./pramnos project:resync --css`, and the
@@ -1238,7 +1240,10 @@ out through `onopen(id)`. Everything else an application changes without editing
 | `client`, or `api` and `paths` | the API: `chatClient(api, paths)` from `lib/llm/chat.js` by default |
 | `extra` | an object, or a function returning one, sent with each question; `extraUsed()` once it went |
 | `canAsk`, `onRefusal(err)` | hold the Ask button; take a refusal — return `true` when the application said it itself |
-| `suggestions` | questions that fill the box when pressed — they do not ask |
+| `suggestions` | questions that fill the box when pressed — they do not ask; shown under the composer of an empty conversation |
+| `greeting`, `avatar` (snippet) | an empty conversation's line and picture over the composer; *How can I help?* without a greeting |
+| `accent` | a CSS colour for the send button, the composer's focus and the chosen `/` command; the kit's primary without one |
+| `commands` | the application's `/` commands, after the screen's own (`new`, `scheduled` with `scheduledHref`, `attach`, `memory`): `{name, says, text}` fills the box, `{name, says, url}` goes there, `{name, says, run}` calls `run()` |
 | `toolLabel(tool)` | how a tool an answer read is named under it |
 | `t` | the translator — every string goes through it, `lib/i18n.svelte.js`'s by default |
 | `consentNotice(consent)` (snippet) | the agreement's wording — legal text the application owns |

@@ -2100,7 +2100,7 @@ a.pf-person:hover { background: var(--pf-subtle); }
    back on the theme's primary. Empty, the page is a greeting over one large composer, the
    examples under it; with a conversation, the composer stays at the bottom of the view. */
 /* An application's accent, set on the page itself, wins over this. */
-.pf-chat { --pf-chat-accent: var(--pf-accent); --pf-chat-width: 820px; }
+.pf-chat { --pf-chat-accent: var(--pf-accent); --pf-chat-width: 1100px; }
 .pf-chat .pf-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .pf-chat-main { position: relative; display: flex; flex-direction: column; min-height: 70vh; }
 /* The page's own tools (⚙) in the column's top corner, their menu opening towards the edge. */
@@ -2109,7 +2109,8 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-ask-gear > ul { position: absolute; right: 0; left: auto; margin: 4px 0 0; padding: 8px 12px; list-style: none; white-space: nowrap; }
 .pf-chat-messages { flex: 1 0 auto; }
 .pf-chat-empty .pf-chat-messages { flex: 0 0 auto; }
-.pf-chat-messages, .pf-chat-composer, .pf-chat-suggestions { width: 100%; max-width: var(--pf-chat-width); margin-left: auto; margin-right: auto; }
+/* One column: the title, Share, the answers and their tools, the composer — wide enough for a report's tables. */
+.pf-chat-main > :not(.pf-ask-gear) { width: 100%; max-width: var(--pf-chat-width); margin-left: auto; margin-right: auto; }
 .pf-chat-empty .pf-chat-main { justify-content: center; min-height: 60vh; }
 .pf-chat-hero { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-bottom: 24px; text-align: center; }
 .pf-chat-hero h1 { margin: 0; font-size: 1.75rem; font-weight: 600; line-height: 1.25; }

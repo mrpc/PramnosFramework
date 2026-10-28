@@ -433,6 +433,71 @@ describe('Chat', () => {
         expect(screen.queryByText('n0.txt')).toBeNull();
     });
 
+    /**
+     * An empty conversation is the application's greeting over the composer, the
+     * examples under it, and the send button in the application's accent; an open
+     * one has neither greeting nor examples. Without a greeting, a plain line.
+     *
+     * The screen is "Naya" in one application and the analyst in another: a greeting
+     * the framework wrote, in the framework's colour, would be nobody's.
+     */
+    it('greets an empty conversation as the application does', async () => {
+        // Arrange / Act
+        const { container, unmount } = render(Chat, { client: fakeClient(), greeting: 'Hi, I am Naya.', accent: 'rgb(124, 58, 237)', suggestions: ['How did this week go?'] });
+
+        // Assert
+        await screen.findByRole('heading', { name: 'Hi, I am Naya.' });
+        const form = container.querySelector('form textarea').closest('form');
+        const example = screen.getByRole('button', { name: 'How did this week go?' });
+        expect(form.compareDocumentPosition(example) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Ask' }).style.backgroundColor).toBe('rgb(124, 58, 237)');
+        unmount();
+
+        // An open conversation: no greeting; and a page without one says the plain line
+        const { container: open } = render(Chat, { client: fakeClient(), conversationId: 9 });
+        await screen.findByText('How is it?');
+        expect(open.querySelector('[data-pf-chat-hero]')).toBeNull();
+        expect(await render(Chat, { client: fakeClient() }).findByRole('heading', { name: 'How can I help?' })).toBeTruthy();
+    });
+
+    /**
+     * `/` at the start of the box offers the commands — the screen's, then the
+     * application's — narrowed as typed; ↓ and Enter run the chosen one instead of
+     * asking, and Escape closes the menu.
+     *
+     * Enter on a half-typed command must never send "/we" to the model as a question.
+     */
+    it('runs a / command from the keyboard, never asking it', async () => {
+        // Arrange
+        const client = fakeClient();
+        const run = vi.fn();
+        render(Chat, { client, commands: [{ name: 'week', says: 'This week', text: 'How did this week go?' }, { name: 'wipe', says: 'Wipe', run }] });
+        const box = await screen.findByLabelText('Your question');
+
+        // Act — everything on "/", then "/w" narrowed to the two w's
+        await fireEvent.input(box, { target: { value: '/' } });
+        const all = screen.getAllByRole('option').map((li) => li.querySelector('b').textContent);
+        await fireEvent.input(box, { target: { value: '/w' } });
+        await fireEvent.keyDown(box, { key: 'ArrowDown' });
+        await fireEvent.keyDown(box, { key: 'ArrowUp' });
+        await fireEvent.keyDown(box, { key: 'Enter' });
+
+        // Assert
+        expect(all).toEqual(['/new', '/attach', '/memory', '/week', '/wipe']);
+        expect(box.value).toBe('How did this week go?');
+        expect(screen.queryByRole('listbox')).toBeNull();
+        expect(client.ask).not.toHaveBeenCalled();
+
+        // A command that runs; Escape closes the menu until the box changes
+        await fireEvent.input(box, { target: { value: '/wi' } });
+        expect(box.getAttribute('aria-expanded')).toBe('true');
+        await fireEvent.keyDown(box, { key: 'Tab' });
+        expect(run).toHaveBeenCalledOnce();
+        await fireEvent.input(box, { target: { value: '/' } });
+        await fireEvent.keyDown(box, { key: 'Escape' });
+        expect(screen.queryByRole('listbox')).toBeNull();
+    });
+
     /** A suggestion fills the box rather than asking; a new conversation is handed to the application. */
     it('fills the box from a suggestion, and starts anew', async () => {
         // Arrange
