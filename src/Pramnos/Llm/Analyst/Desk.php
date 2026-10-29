@@ -90,6 +90,14 @@ class Desk
         return $scope === null ? null : $this->asks()->find($scope, $askId);
     }
 
+    /** Stop a queued question while it is answered: false when there is none waiting. */
+    public function cancel(int $askId): bool
+    {
+        $scope = $this->scope();
+
+        return $scope !== null && $this->asks()->cancel($scope, $askId);
+    }
+
     public function forget(int $conversationId): bool
     {
         return $this->conversations()->delete($conversationId);
@@ -110,7 +118,7 @@ class Desk
     }
 
     /**
-     * The analyst as JSON, in the conversation API's shape: `chat`, `chat/{id}`, `asks/{id}`,
+     * The analyst as JSON, in the conversation API's shape: `chat`, `chat/{id}`, `asks/{id}`, `asks/{id}/cancel`,
      * `memory`, `memory/{id}`, `consent`.
      *
      * @param list<string>         $path   What follows `api/`
@@ -136,6 +144,7 @@ class Desk
             $resource === 'chat' && $method === 'POST'                 => $this->takeQuestion($input, \Pramnos\Llm\Chat\Attachments::fromJson($input)),
             $resource === 'chat' && $method === 'DELETE'               => $this->forget($id) ? ['status' => 200, 'data' => ['deleted' => true]] : $missing('conversation'),
             $resource === 'asks' && $method === 'GET'                  => ($ask = $this->asked($id)) === null ? $missing('question') : ['status' => 200, 'data' => $ask],
+            $resource === 'asks' && $method === 'POST' && ($path[2] ?? '') === 'cancel' => $this->cancel($id) ? ['status' => 200, 'data' => ['cancelled' => true]] : $missing('question being answered'),
             $resource === 'memory' && $method === 'GET'                => ['status' => 200, 'data' => ['memories' => $chat->memory()?->all() ?? []]],
             $resource === 'memory' && $method === 'DELETE'             => $this->forgetMemory($id) ? ['status' => 200, 'data' => ['deleted' => true]] : $missing('memory'),
             $resource === 'consent' && $method === 'GET'               => ['status' => 200, 'data' => $this->consentState($scope)],

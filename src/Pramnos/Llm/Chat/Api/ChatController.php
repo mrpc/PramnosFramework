@@ -345,6 +345,20 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return $found === null ? self::error(404, 'There is no such question.') : ['status' => 200, 'data' => $found];
     }
 
+    /** Stop a question while the worker answers it: `POST /chat/asks/{ask_id}/cancel`. */
+    public function cancelAsk($ask_id): array
+    {
+        if (($stop = $this->refusal('ask')) !== null) {
+            return $stop;
+        }
+
+        $scope = $this->scope();
+
+        return $scope !== null && $this->asks()->cancel($scope, (int) $ask_id)
+            ? ['status' => 200, 'data' => ['cancelled' => true]]
+            : self::error(404, 'There is no such question being answered.');
+    }
+
     /** What the model remembers about the person asking. */
     public function memory(): array
     {

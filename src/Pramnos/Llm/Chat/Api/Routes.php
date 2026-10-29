@@ -47,6 +47,7 @@ final class Routes
         $make = static fn (): ChatController => new $controller();
 
         $r->get($p['asks'] . '/{ask_id}', static fn ($ask_id) => $make()->asked($ask_id));
+        $r->post($p['asks'] . '/{ask_id}/cancel', static fn ($ask_id) => $make()->cancelAsk($ask_id));
         $r->get($p['memory'], static fn () => $make()->memory());
         $r->delete($p['memory'] . '/{memory_id}', static fn ($memory_id) => $make()->forgetMemory($memory_id));
 

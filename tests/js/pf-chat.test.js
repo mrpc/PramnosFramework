@@ -230,6 +230,32 @@ test('the answer shows while it is written, and is looked at more often', async 
     assert.equal(ui.page.innerHTML, '<div data-pf-chat>answered</div>');
 });
 
+/**
+ * While a question is answered, a Stop button sits under it and posts to the page's `cancel/`
+ * address — the `asked/` one with its last word changed, so the analyst's page under /admin and
+ * the conversations page both work without a template naming it. Once the worker has stopped,
+ * the waiting line says so and the button goes.
+ */
+test('a question being answered can be stopped', async () => {
+    // Arrange — a page following question 5, still waiting
+    const ui = run({ waiting: '5', answers: [{ data: { status: 'waiting' } }, { data: { cancelled: true } }, { data: { status: 'cancelled' } }] });
+    await settle();
+    const stop = ui.page.querySelector('[data-pf-chat-stop]');
+
+    // Act — Stop, then the next look
+    stop.dispatch('click');
+    await settle();
+    ui.timers.shift()();
+    await settle();
+
+    // Assert
+    assert.equal(ui.requests[1].url, '/chat/cancel/5', 'the cancel address beside the asked one');
+    assert.equal(ui.requests[1].method, 'POST');
+    assert.equal(ui.page.querySelector('[data-pf-chat-stop]'), null, 'gone once stopped');
+    assert.equal(ui.messages.children[0].textContent, 'Stopped.');
+    assert.equal(ui.messages.children[0].getAttribute('data-pf-chat-waiting'), null, 'no longer a line a later failure would be said in');
+});
+
 /** An answer's 👍 and 👎 as RatingView draws them, 👎 pressed or not. */
 function rating(pressed = false) {
     const span = element('span', { class: 'pf-rating', 'data-pf-rating': '5' });

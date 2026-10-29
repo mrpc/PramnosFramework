@@ -708,6 +708,28 @@ Without the column (migration `2026_10_29_000001_add_partial_to_chat_asks` not r
 streamed, and the answer arrives whole, as before. A summary folded or a memory learned beside the
 answer is never streamed.
 
+#### Stopping an answer
+
+`Asks::cancel($scope, $askId)` stops a question that is still `waiting`: the row becomes
+`cancelled`, and the worker, which looks before every round and before every tool
+(`Conversations::stoppable()`, `Client::cancelWhen()`), stops there. A question stopped before the
+worker reaches it is never sent to a provider; one stopped mid-answer pays for the call already
+under way and no more. Nothing is kept: neither the question nor a part of the answer goes into a
+conversation. `cancel()` is false for a question that is not this person's, or no longer waiting.
+
+Both screens draw a Stop button while they follow a question. `pf-chat.js` posts to the page's
+`cancel/{id}` (the `asked/` address with its last word changed, so the conversations page and the
+analyst's page under `/admin/Ai` need nothing in their templates), with the form's hidden fields
+for the session's token. The SPA calls `chatClient().cancelAsk(id)`, and `waitForAnswer()`
+returns `{status: 'cancelled'}`. The button's words are the view's `stop` and `stopped`.
+
+A `Client` used directly takes the same hook:
+
+```php
+$answer = $client->cancelWhen(fn (): bool => $stopRequested())->askWithTools(...);
+// stopped: ['ok' => false, 'cancelled' => true, 'says' => Client::STOPPED, 'usage' => …, 'calls' => …]
+```
+
 ### Scheduled tasks: questions, reminders, reports
 
 `Chat\Routines` keeps every scheduled AI task in `ai_routines`. There are three kinds:
@@ -1036,7 +1058,8 @@ One line in the application's API routes mounts every endpoint:
 | `GET /chat/shared` | what others shared with this person |
 | `GET /chat/people?q=` | who matches what is typed in a name field, `{people: [{value, label}]}`: in the analyst's space, active accounts at or above its floor; nobody in a person's own Ask (`SharePolicy::candidates()`) |
 | `POST /chat/shared/{id}/open` | open it: the `conversation_id` of this person's own copy |
-| `GET /chat/asks/{id}` | a queued question: `waiting`, `answered` with its `conversation_id`, or `failed` with `says` |
+| `GET /chat/asks/{id}` | a queued question: `waiting`, `answered` with its `conversation_id`, `failed` with `says`, or `cancelled` |
+| `POST /chat/asks/{id}/cancel` | stop a question still `waiting`; 404 when there is none |
 | `GET /chat/memory`, `DELETE /chat/memory/{id}` | what it remembers; forget one |
 | `GET`/`POST /chat/routines`, `PUT`/`DELETE /chat/routines/{id}`, `POST /chat/routines/{id}/run` | scheduled tasks, with the templates, cadences, `kinds`, and the `owners` this person may use; `active` in a `PUT` pauses or resumes; `running` while a run waits or is under way; `run` queues one (202) |
 | `GET /chat/routines/{id}/runs?limit=` | a task's runs, newest first: its own, or a shared report the person may read |
@@ -1371,7 +1394,7 @@ A new project's layouts have it; a project's own header takes that line.
 ### As JSON
 
 The same analyst answers in the conversation API's shape under `/admin/Ai/api/` — `chat`,
-`chat/{id}`, `asks/{id}`, `memory`, `memory/{id}`, `consent` — for a screen of the application's
+`chat/{id}`, `asks/{id}`, `asks/{id}/cancel`, `memory`, `memory/{id}`, `consent` — for a screen of the application's
 own, such as the SPA's `components/llm/Chat.svelte`:
 
 ```js

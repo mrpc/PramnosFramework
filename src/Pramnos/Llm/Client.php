@@ -105,6 +105,9 @@ class Client
     /** Put under an answer still cut off after asking for the rest. */
     public const CUT_OFF = 'The answer was cut off at the model\'s length limit; raise the token budget in the AI settings for longer answers.';
 
+    /** Why an answer stopped by {@see cancelWhen()} has none. */
+    public const STOPPED = 'Stopped before it was finished.';
+
     /** Said before the last round of an answer that has spent its turn budget ({@see withTurnBudget()}). */
     public const OVER_BUDGET = 'This answer has used the budget it had. Answer now from what you have: say what you found, '
         . 'what is left undone, and offer to go on from there.';
@@ -131,6 +134,9 @@ class Client
 
     /** @var array{cost: ?float, tokens: ?int}|null What one answer may spend; null reads `llm.turn_budget` */
     private ?array $turnBudget = null;
+
+    /** @var (callable(): bool)|null Whether the answer being written has been stopped */
+    private $stopped = null;
 
     public function __construct(?Connection $connection = null, private readonly ?CallLog $log = null)
     {
@@ -176,6 +182,20 @@ class Client
     public function withTurnBudget(?float $maxCost = null, ?int $maxTokens = null): static
     {
         $this->turnBudget = ['cost' => $maxCost, 'tokens' => $maxTokens];
+
+        return $this;
+    }
+
+    /**
+     * Stop an answer when `$stopped` says so: asked before every round and before every tool,
+     * so a person pressing Stop spends no more than the call already under way. A stopped answer
+     * is a refusal with `cancelled: true` and {@see STOPPED}, carrying what it had spent.
+     *
+     * @param (callable(): bool)|null $stopped
+     */
+    public function cancelWhen(?callable $stopped): static
+    {
+        $this->stopped = $stopped;
 
         return $this;
     }
@@ -345,6 +365,10 @@ class Client
         $over     = false;
 
         for ($round = 1; $round <= $rounds; $round++) {
+            if ($this->isStopped()) {
+                return ['cancelled' => true, 'usage' => $usage, 'calls' => $calls] + $this->refusal(self::STOPPED);
+            }
+
             $payload['messages'] = array_merge([['role' => 'system', 'content' => $systemPrompt]], $messages);
 
             /*
@@ -433,6 +457,10 @@ class Client
                 ], static fn ($v): bool => $v !== null);
 
                 foreach ($requested as $call) {
+                    if ($this->isStopped()) {
+                        return ['cancelled' => true, 'usage' => $usage, 'calls' => $calls] + $this->refusal(self::STOPPED);
+                    }
+
                     $name      = (string) ($call['function']['name'] ?? '');
                     $arguments = json_decode((string) ($call['function']['arguments'] ?? '{}'), true);
                     $arguments = is_array($arguments) ? $arguments : [];
@@ -569,6 +597,12 @@ class Client
 
         // Only a model that ignored `tool_choice: none` on the last round gets here.
         return ['usage' => $usage, 'calls' => $calls] + $this->refusal('The model kept asking for tools and never answered.');
+    }
+
+    /** Whether the answer being written was stopped ({@see cancelWhen()}). */
+    private function isStopped(): bool
+    {
+        return $this->stopped !== null && ($this->stopped)();
     }
 
     /**

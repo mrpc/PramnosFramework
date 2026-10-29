@@ -87,6 +87,10 @@ class ChatApiTest extends LlmTestCase
         $this->assertSame(404, $this->call('GET', '/chat/' . $id)['status']);
         $this->assertSame(404, $this->call('DELETE', '/chat/' . $id)['status']);
         $this->assertSame(404, $this->call('GET', '/chat/asks/999')['status']);
+        // Already answered: there is nothing left to stop
+        $this->assertSame(404, $this->call('POST', '/chat/asks/' . $askId . '/cancel')['status']);
+        $stopped = $this->call('POST', '/chat', ['content' => 'And another?'])['data']['ask_id'];
+        $this->assertSame(['cancelled' => true], $this->call('POST', '/chat/asks/' . $stopped . '/cancel')['data'], 'stopped while it waits');
     }
 
     /**

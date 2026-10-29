@@ -36,6 +36,8 @@ export function chatClient(api = defaultApi, paths = {}) {
         forget: (id) => api.delete(`${p.chat}/${id}`),
         ask: (body) => api.post(p.chat, body),
         asked: (id) => api.get(`${p.asks}/${id}`),
+        // Stop a question while it is answered: the worker stops before its next round or tool.
+        cancelAsk: (id) => api.post(`${p.asks}/${id}/cancel`, {}),
         memory: () => api.get(p.memory),
         forgetMemory: (id) => api.delete(`${p.memory}/${id}`),
         routines: () => api.get(p.routines),
@@ -105,7 +107,7 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * so far and the next look comes after `partialMs` instead; the ten minutes
  * stay ten minutes.
  *
- * @returns {Promise<{status: 'answered', conversation_id: number}|{status: 'failed', says: string}|{status: 'timeout'}>}
+ * @returns {Promise<{status: 'answered', conversation_id: number}|{status: 'failed', says: string}|{status: 'cancelled'}|{status: 'timeout'}>}
  */
 export async function waitForAnswer(client, askId, { tries = 120, firstMs = 300, waitMs = 5000, partialMs = 700, sleep = pause, onwaiting = null, onpartial = null } = {}) {
     let asked = null;
@@ -122,6 +124,10 @@ export async function waitForAnswer(client, askId, { tries = 120, firstMs = 300,
 
         if (asked?.status === 'answered') {
             return { status: 'answered', conversation_id: asked.conversation_id };
+        }
+
+        if (asked?.status === 'cancelled') {
+            return { status: 'cancelled' };
         }
 
         if (asked?.partial) {

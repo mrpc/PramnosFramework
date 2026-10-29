@@ -30,10 +30,10 @@ class ChatPageController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'ask', 'asked', 'delete', 'forget', 'consent', 'report',
+        $this->addAuthAction(['display', 'ask', 'asked', 'cancel', 'delete', 'forget', 'consent', 'report',
             'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'shared', 'people', 'act', 'approve', 'reject', 'rate', 'download', 'printable', 'pin']);
         // POST with the session's token: each of these spends, forgets or changes a schedule.
-        $this->addWriteAction(['ask', 'delete', 'forget', 'consent',
+        $this->addWriteAction(['ask', 'cancel', 'delete', 'forget', 'consent',
             'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'pin']);
         parent::__construct($application);
     }
@@ -124,6 +124,15 @@ class ChatPageController extends Controller
         $found = $scope === null ? null : $this->asks()->find($scope, (int) ($id ?: \Pramnos\Http\Request::staticGetOption()));
 
         return $this->json($found === null ? ['status' => 404, 'error' => 'There is no such question.'] : ['status' => 200, 'data' => $found]);
+    }
+
+    /** Stop a queued question while it is answered, for `pf-chat.js`. */
+    public function cancel(mixed $id = null): mixed
+    {
+        $scope   = $this->scope();
+        $stopped = $scope !== null && $this->asks()->cancel($scope, (int) ($id ?: \Pramnos\Http\Request::staticGetOption()));
+
+        return $this->json($stopped ? ['status' => 200, 'data' => ['cancelled' => true]] : ['status' => 404, 'error' => 'There is no such question being answered.']);
     }
 
     /** Forget a conversation. */

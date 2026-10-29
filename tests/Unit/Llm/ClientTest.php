@@ -368,6 +368,70 @@ class ClientTest extends LlmTestCase
     }
 
     /**
+     * A stopped answer stops before its next round: what it already spent comes back with it,
+     * marked `cancelled`, and the provider is asked nothing more.
+     */
+    public function testAStoppedAnswerAsksNothingMore(): void
+    {
+        // Arrange — a model that would keep calling a tool; Stop is pressed during the first one
+        $this->answer([[200, self::calls([['look', []]])]]);
+        $stopped = false;
+        $tools   = ['look' => ['description' => 'Looks', 'parameters' => [], 'run' => static function () use (&$stopped): string {
+            $stopped = true;
+
+            return 'more';
+        }]];
+
+        // Act
+        $answer = (new Client(null, self::memoryLog()))->cancelWhen(static function () use (&$stopped): bool {
+            return $stopped;
+        })
+            ->askWithTools('', [['role' => 'user', 'content' => 'Dig']], $tools, 6);
+
+        // Assert
+        $this->assertFalse($answer['ok']);
+        $this->assertTrue($answer['cancelled']);
+        $this->assertSame(Client::STOPPED, $answer['says']);
+        $this->assertCount(1, $this->sent, 'no round after Stop');
+        $this->assertSame(24, $answer['usage']['total_tokens'], 'what it spent comes back with it');
+        $this->assertSame(['look'], array_column($answer['calls'], 'name'));
+    }
+
+    /**
+     * Stopped between two tools of the same round, the second is not run: a tool can be the
+     * slow part, and one that writes should not happen after the person said stop.
+     */
+    public function testAStoppedAnswerRunsNoMoreTools(): void
+    {
+        // Arrange — two tools asked for at once; the first is where Stop is pressed
+        $this->answer([[200, self::calls([['first', []], ['second', []]])]]);
+        $stopped = false;
+        $ran     = [];
+        $tools   = [
+            'first'  => ['description' => 'One', 'parameters' => [], 'run' => static function () use (&$stopped, &$ran): string {
+                [$stopped, $ran[]] = [true, 'first'];
+
+                return 'one';
+            }],
+            'second' => ['description' => 'Two', 'parameters' => [], 'run' => static function () use (&$ran): string {
+                $ran[] = 'second';
+
+                return 'two';
+            }],
+        ];
+
+        // Act
+        $answer = (new Client(null, self::memoryLog()))->cancelWhen(static function () use (&$stopped): bool {
+            return $stopped;
+        })
+            ->askWithTools('', [['role' => 'user', 'content' => 'Dig']], $tools, 6);
+
+        // Assert
+        $this->assertTrue($answer['cancelled']);
+        $this->assertSame(['first'], $ran, 'the second tool never ran');
+    }
+
+    /**
      * The budget in dollars comes from `llm.turn_budget` when the caller sets none, and an answer
      * within its budget says so.
      */

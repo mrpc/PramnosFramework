@@ -423,18 +423,64 @@
             }
         }
 
-        /** Follow a queued question until it is answered or fails. */
+        /** A Stop button under the answer being written, while it is; gone once it is not. */
+        function stopButton(askId) {
+            var button = root.querySelector('[data-pf-chat-stop]');
+
+            if (askId === null) {
+                if (button) {
+                    button.parentNode.removeChild(button);
+                }
+
+                return;
+            }
+            if (button || !messages || !form) {
+                return;
+            }
+            var send = form.querySelector('button[type="submit"]');
+            button = document.createElement('button');
+            button.type = 'button';
+            button.className = send ? send.className : '';
+            button.setAttribute('data-pf-chat-stop', '');
+            button.textContent = words('stop', 'Stop');
+            button.addEventListener('click', function () {
+                // The form's hidden fields carry the session's token, as the question did.
+                var body = new FormData();
+                Array.prototype.forEach.call(form.querySelectorAll('input[type="hidden"]'), function (field) {
+                    body.append(field.name, field.value);
+                });
+                button.disabled = true;
+                fetch(asked.replace(/asked\/?$/, 'cancel/') + askId, {
+                    method: 'POST',
+                    body: body,
+                    headers: { Accept: 'application/json' },
+                    credentials: 'same-origin'
+                }).catch(function () { button.disabled = false; });
+            });
+            messages.appendChild(button);
+        }
+
+        /** Follow a queued question until it is answered, fails or is stopped. */
         function follow(askId) {
+            stopButton(askId);
             fetch(asked + askId, { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
                 .then(function (r) { return r.json(); })
                 .then(function (body) {
                     var data = body && body.data;
 
+                    if (!data || data.status !== 'waiting') {
+                        stopButton(null);
+                    }
                     if (!data) {
                         say((body && body.error) || words('failed', 'The AI could not answer.'), true);
                     } else if (data.status === 'answered') {
                         stop();
                         open(data.conversation_id);
+                    } else if (data.status === 'cancelled') {
+                        var line = say(words('stopped', 'Stopped.'), false);
+                        line.removeAttribute('data-pf-chat-waiting');
+                        line.removeAttribute('aria-busy');
+                        assistant('idle');
                     } else if (data.status === 'failed') {
                         say(data.says || words('failed', 'The AI could not answer.'), true);
                     } else if (data.partial) {

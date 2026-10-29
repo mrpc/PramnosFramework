@@ -420,6 +420,9 @@ class AnalystTest extends LlmTestCase
             $this->assertSame(202, $json['status']);
             $this->assertSame('waiting', json_decode((string) (new AnalystScreen())->asked($json['data']['ask_id']), true)['data']['status']);
             $this->assertSame(404, json_decode((string) (new AnalystScreen())->asked(999), true)['status']);
+            // Stopped from the analyst's page, as pf-chat.js does: once
+            $this->assertSame(200, json_decode((string) (new AnalystScreen())->cancel($json['data']['ask_id']), true)['status']);
+            $this->assertSame(404, json_decode((string) (new AnalystScreen())->cancel($json['data']['ask_id']), true)['status']);
             $_POST = ['content' => ''];
             $empty = new AnalystScreen();
             $empty->ask();
@@ -749,6 +752,9 @@ class AnalystTest extends LlmTestCase
         $this->assertSame(202, $asked['status']);
         $this->assertSame('waiting', $this->api('GET', 'asks/' . $asked['data']['ask_id'])['data']['status']);
         $this->assertSame(404, $this->api('GET', 'asks/999')['status']);
+        // Stopped while it waits, once: a second Stop finds nothing being answered
+        $this->assertSame([200, 404], [$this->api('POST', 'asks/' . $asked['data']['ask_id'] . '/cancel')['status'], $this->api('POST', 'asks/' . $asked['data']['ask_id'] . '/cancel')['status']]);
+        $this->assertSame('cancelled', $this->api('GET', 'asks/' . $asked['data']['ask_id'])['data']['status']);
         $this->assertTrue($this->api('POST', 'consent')['data']['given']);
         $this->assertArrayHasKey('given', $this->api('DELETE', 'consent')['data']);
         $this->assertSame([200, 404], [$this->api('DELETE', 'memory/' . $memoryId)['status'], $this->api('DELETE', 'memory/' . $memoryId)['status']]);

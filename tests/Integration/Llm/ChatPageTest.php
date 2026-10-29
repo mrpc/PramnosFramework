@@ -395,12 +395,18 @@ class ChatPageTest extends LlmTestCase
         $empty  = json_decode((string) $this->page()->ask(), true);
         $asked  = json_decode((string) $this->page()->asked($queued['data']['ask_id']), true);
         $none   = json_decode((string) $this->page()->asked(999), true);
+        $stop   = json_decode((string) $this->page()->cancel($queued['data']['ask_id']), true);
+        $again  = json_decode((string) $this->page()->cancel($queued['data']['ask_id']), true);
+        $after  = json_decode((string) $this->page()->asked($queued['data']['ask_id']), true);
 
         // Assert
         $this->assertSame(202, $queued['status']);
         $this->assertSame([422, 'Ask it something.'], [$empty['status'], $empty['error']]);
         $this->assertSame('waiting', $asked['data']['status']);
         $this->assertSame(404, $none['status']);
+        // Stop, as pf-chat.js sends it: once, and the ask says so
+        $this->assertSame([200, 404], [$stop['status'], $again['status']]);
+        $this->assertSame('cancelled', $after['data']['status']);
     }
 
     /**

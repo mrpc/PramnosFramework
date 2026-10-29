@@ -59,12 +59,12 @@ class AiController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'all', 'settings', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'delete', 'forget', 'consent', 'api', 'export',
+        $this->addAuthAction(['display', 'all', 'settings', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'cancel', 'delete', 'forget', 'consent', 'api', 'export',
             'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'report',
             'share', 'unshare', 'shared', 'people', 'act', 'approve', 'reject', 'rate', 'reviews', 'reviewed', 'download', 'printable', 'pin']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
         // `api` checks its own token, from the X-CSRF-Token header, since it also answers GET and DELETE.
-        $this->addWriteAction(['save', 'check', 'ask', 'delete', 'forget', 'consent',
+        $this->addWriteAction(['save', 'check', 'ask', 'cancel', 'delete', 'forget', 'consent',
             'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'reviewed', 'pin']);
         parent::__construct($application);
     }
@@ -449,6 +449,18 @@ class AiController extends Controller
     }
 
     /** Forget one analyst conversation. */
+    /** Stop a question the analyst is answering, for `pf-chat.js`. */
+    public function cancel(mixed $id = null): mixed
+    {
+        if ($this->requireMinUserType($this->adminFloor())) {
+            return null;
+        }
+
+        $stopped = $this->analystDesk()->cancel((int) ($id ?: \Pramnos\Http\Request::staticGetOption()));
+
+        return $this->analystJson($stopped ? ['status' => 200, 'data' => ['cancelled' => true]] : ['status' => 404, 'error' => 'There is no such question being answered.']);
+    }
+
     public function delete(mixed $id = null): mixed
     {
         if ($this->requireMinUserType($this->adminFloor())) {

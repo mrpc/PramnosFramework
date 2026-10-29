@@ -14,6 +14,9 @@ use Pramnos\Llm\CallLog;
  * ({@see run()}, through `Assistant::acting()`) and marks the row answered or failed, which the
  * screen polls with {@see find()}.
  *
+ * A question still waiting can be stopped ({@see cancel()}): the row is marked `cancelled`, and
+ * the worker — which asks before every round and every tool — stops there, keeping nothing.
+ *
  * What the caller put in `$extra` travels with the task — where the answer should also go, say —
  * and {@see onAnswered()} is told every answer with it.
  */
@@ -74,6 +77,12 @@ class Asks
     {
         $org   = $job['organization_id'] ?? null;
         $scope = new Scope((int) ($job['userid'] ?? 0), $org === null ? null : (int) $org, (string) ($job['space'] ?? Scope::CHAT));
+        $askId = (int) ($job['ask_id'] ?? 0);
+        // Stopped by the person: before the worker reached it, nothing is asked at all.
+        $stopped = fn (): bool => ($this->find($scope, $askId)['status'] ?? '') === 'cancelled';
+        if ($stopped()) {
+            return ['ok' => false, 'why' => 'cancelled', 'says' => \Pramnos\Llm\Client::STOPPED];
+        }
         // The answer's text so far, for the screen following it — not more often than PARTIAL_EVERY.
         // Without the column (its migration not run yet) nothing is written, and the answer still comes whole.
         $streamed = false;
@@ -86,6 +95,7 @@ class Asks
         };
         $chat  = \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('chat_asks', 'partial')
             ? $this->chat->as($scope)->streaming($partial) : $this->chat->as($scope);
+        $chat  = $chat->stoppable($stopped);
         // An ask from the conversations: the people there are told the analyst is on it.
         if (isset($job['extra']['conversations'])) {
             try {
@@ -108,7 +118,7 @@ class Asks
 
         $outcome = $answer['ok']
             ? ['status' => 'answered', 'conversation_id' => (int) $answer['conversation_id'], 'why' => null, 'says' => null]
-            : ['status' => 'failed', 'why' => mb_substr((string) ($answer['why'] ?? '') ?: 'provider', 0, 32),
+            : ['status' => ($answer['why'] ?? '') === 'cancelled' ? 'cancelled' : 'failed', 'why' => mb_substr((string) ($answer['why'] ?? '') ?: 'provider', 0, 32),
                 'says' => (string) ($answer['says'] ?? '') ?: 'The AI could not answer.'];
 
         $scope->apply($this->table())->where('ask_id', (int) ($job['ask_id'] ?? 0))
@@ -154,6 +164,23 @@ class Asks
             'says'            => $f['says'] === null ? null : (string) $f['says'],
             'partial'         => ($f['partial'] ?? null) === null ? null : (string) $f['partial'],
         ];
+    }
+
+    /**
+     * Stop a question of this person's that is still being answered. The worker stops before its
+     * next round or tool; the call already under way is paid for. False when there is no such
+     * question, or it is no longer waiting.
+     */
+    public function cancel(Scope $scope, int $askId): bool
+    {
+        if (($this->find($scope, $askId)['status'] ?? '') !== 'waiting') {
+            return false;
+        }
+
+        $scope->apply($this->table())->where('ask_id', $askId)->where('status', 'waiting')
+            ->update(['status' => 'cancelled', 'updated_at' => CallLog::instant(time())]);
+
+        return true;
     }
 
     /**

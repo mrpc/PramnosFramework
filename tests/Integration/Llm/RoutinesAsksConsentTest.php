@@ -243,6 +243,57 @@ class RoutinesAsksConsentTest extends LlmTestCase
     }
 
     /**
+     * A question can be stopped while it waits or while it is answered: before the worker
+     * reaches it, nothing is asked at all; mid-answer, the worker stops before its next round.
+     * Either way the ask says `cancelled` and nothing is kept in a conversation.
+     *
+     * A Stop that only hid the answer on the screen would leave the worker spending rounds
+     * nobody will read; one that could stop somebody else's question, or one already answered,
+     * would lose an answer.
+     */
+    #[DataProvider('databases')]
+    public function testAQuestionCanBeStopped(string $type, string $host, int $port): void
+    {
+        // Arrange — a model that calls a tool every round; the tool is where the person presses Stop
+        $this->connectDatabase($type, $host, $port);
+        $this->answer([[200, self::calls([['look', []]])]]);
+        $queue = new RecordingQueue();
+        $asks  = new Asks(new Conversations(new StoppableAssistant()), $queue);
+        $scope = new Scope(7, 3);
+
+        // Act — one stopped before the worker reaches it, one stopped while answered
+        $early   = $asks->start($scope, null, 'Never mind');
+        $refused = $asks->cancel(new Scope(8, 3), $early);
+        $asks->cancel($scope, $early);
+        $before  = $asks->run($queue->tasks[0][1]);
+        $asked   = count($this->sent);
+
+        $later = $asks->start($scope, null, 'Dig deep');
+        StoppableAssistant::$onLook = static function () use ($asks, $scope, $later): string {
+            $asks->cancel($scope, $later);
+
+            return 'found something';
+        };
+        $during = $asks->run($queue->tasks[1][1]);
+
+        // Assert — stopped before: no call to the provider at all
+        $this->assertFalse($refused, 'another person cannot stop it');
+        $this->assertSame(['ok' => false, 'why' => 'cancelled', 'says' => \Pramnos\Llm\Client::STOPPED], $before);
+        $this->assertSame(0, $asked, 'nothing was sent for a question stopped while it waited');
+        $this->assertSame('cancelled', $asks->find($scope, $early)['status']);
+
+        // Stopped during: one round, then no more, and no conversation kept
+        $this->assertFalse($during['ok']);
+        $this->assertSame('cancelled', $during['why']);
+        $this->assertCount(1, $this->sent, 'the round under way was the last');
+        $this->assertSame(['cancelled', null], [$asks->find($scope, $later)['status'], $asks->find($scope, $later)['conversation_id']]);
+        $this->assertSame([], (new Conversations(new BaseAssistant()))->as($scope)->list(), 'nothing kept');
+
+        // Already over: there is nothing left to stop
+        $this->assertFalse($asks->cancel($scope, $later));
+    }
+
+    /**
      * The worker writes the answer's text so far on the ask while the model writes it, for the
      * screen following the question, and empties it once the ask is answered.
      *
@@ -573,5 +624,18 @@ final class PeekingTransport implements \Pramnos\Llm\Transport\Transport
     public function get(\Pramnos\Llm\Connection $connection, string $path): array
     {
         return [404, null];
+    }
+}
+
+/** An assistant with one tool, `look`, which runs what the test gives it. */
+final class StoppableAssistant extends BaseAssistant
+{
+    /** @var (callable(): string)|null */
+    public static $onLook = null;
+
+    /** @return array<string, array<string, mixed>> */
+    public function tools(\Pramnos\Llm\Chat\Turn $turn): array
+    {
+        return ['look' => ['description' => 'Looks', 'parameters' => [], 'run' => static fn (): string => self::$onLook !== null ? (self::$onLook)() : 'nothing']];
     }
 }

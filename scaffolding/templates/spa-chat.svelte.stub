@@ -128,6 +128,8 @@
     let waiting = $state(false);
     /** The answer's text so far, while the worker writes it. */
     let partial = $state('');
+    /** The question being answered, while it is: what Stop stops. */
+    let askId = $state(0);
     let waitedMs = $state(0);
     let loading = $state(false);
     let error = $state(null);
@@ -433,9 +435,11 @@
             extraUsed?.();
 
             if (queued.data?.ask_id) {
+                askId = queued.data.ask_id;
                 const done = await waitForAnswer(chat, queued.data.ask_id, { ...timing, onwaiting: (still) => (waiting = still), onpartial: (text) => (partial = text) });
                 outcome = done.status === 'answered' ? done.conversation_id
                     : done.status === 'failed' ? (done.says || t('The AI could not answer.'))
+                    : done.status === 'cancelled' ? t('Stopped.')
                     : false;
             } else {
                 outcome = queued.data?.conversation_id;
@@ -459,6 +463,7 @@
             asking = false;
             waiting = false;
             partial = '';
+            askId = 0;
         }
 
         if (typeof outcome === 'number') {
@@ -861,6 +866,9 @@
                                 {/if}
                                 {#if line && !partial}
                                     <span class="ml-2 text-sm opacity-70" role="status">{line}</span>
+                                {/if}
+                                {#if askId}
+                                    <button type="button" class="{ui('btn.ghost', 'size.xs')} ml-2" onclick={() => chat.cancelAsk(askId).catch(() => {})}>{t('Stop')}</button>
                                 {/if}
                             </div>
                         </div>

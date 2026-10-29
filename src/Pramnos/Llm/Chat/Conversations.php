@@ -65,6 +65,9 @@ class Conversations
     /** @var (callable(string): void)|null Told the answer's text so far, as it is written */
     private $onText = null;
 
+    /** @var (callable(): bool)|null Whether the answer being written has been stopped */
+    private $stopWhen = null;
+
     public function __construct(private readonly Assistant $assistant, private readonly ?Client $client = null)
     {
     }
@@ -106,6 +109,20 @@ class Conversations
     {
         $chat         = clone $this;
         $chat->onText = $listener;
+
+        return $chat;
+    }
+
+    /**
+     * These conversations, stopping an answer when `$stopped` says so — see `Client::cancelWhen()`.
+     * A stopped answer keeps nothing: neither the question nor a part of the answer is stored.
+     *
+     * @param callable(): bool $stopped
+     */
+    public function stoppable(callable $stopped): static
+    {
+        $chat           = clone $this;
+        $chat->stopWhen = $stopped;
 
         return $chat;
     }
@@ -353,7 +370,7 @@ class Conversations
             }
         }
 
-        $answer = $client->onText($this->onText)->askWithTools(
+        $answer = $client->onText($this->onText)->cancelWhen($this->stopWhen)->askWithTools(
             $this->assistant->systemPrompt($turn) . "\n\n" . ($turn->shared() ? trim($this->assistant->context($turn)) : $this->context($turn, $memory))
                 . ($turn->documents === [] ? '' : "\n\n" . Client::DATA_NOTICE)
                 . ($summary === '' ? '' : "\n\nEarlier in this conversation, in short (those messages are not shown again):\n" . $summary),
@@ -363,10 +380,10 @@ class Conversations
             $this->assistant->due($turn),
             $this->assistant->verify($turn)
         );
-        $client->onText(null);
+        $client->onText(null)->cancelWhen(null);
 
         if (!$answer['ok']) {
-            return self::refusal(isset($answer['consent']) ? 'consent' : (isset($answer['limited']) ? 'limit' : 'provider'), (string) $answer['says']);
+            return self::refusal(isset($answer['cancelled']) ? 'cancelled' : (isset($answer['consent']) ? 'consent' : (isset($answer['limited']) ? 'limit' : 'provider')), (string) $answer['says']);
         }
 
         $turn->tags = array_values(array_unique([...$held, ...(array) ($answer['tags'] ?? [])]));
