@@ -330,6 +330,14 @@ $applications = $db->queryBuilder()->from('applications')->where('user_id', $use
 - **Multiple records**: `while ($result->fetch())`, or `getAll()` / `fetchAll()`.
 - `$result->fields[0]` is never a row — `fields` is the current row, keyed by column name.
 - `getAffectedRows()` on the result of a write tells you how many rows it touched.
+- On PostgreSQL, values come back as PHP types by column type (`int4`/`int8` → `int`,
+  `numeric`/`float8` → `float`, `bool` → `bool`, `bytea` → bytes). The type names are in
+  `$result->columnTypes`. They are read from the type OID that comes with the result, through
+  `Database::PG_BUILTIN_TYPES`, and not from `pg_field_type()`. The first `pg_field_type()` in
+  a PHP process makes PHP run `select oid,typname from pg_type`, which reads every row of
+  `pg_type`. On TimescaleDB that table has a row for every chunk, so this costs tens of
+  thousands of rows on every request. Only a column of a type outside the built-in list (an
+  enum, a domain, an extension's type) still asks the server.
 
 ## What a datatable search actually looks for
 

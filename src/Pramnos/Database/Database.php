@@ -1825,6 +1825,39 @@ class Database extends \Pramnos\Framework\Base
     }
 
 
+    /** The built-in PostgreSQL types by OID — fixed by the server's own catalogue, never reassigned. */
+    public const PG_BUILTIN_TYPES = [
+        16 => 'bool', 17 => 'bytea', 18 => 'char', 19 => 'name', 20 => 'int8', 21 => 'int2',
+        23 => 'int4', 25 => 'text', 26 => 'oid', 114 => 'json', 142 => 'xml', 199 => '_json',
+        650 => 'cidr', 700 => 'float4', 701 => 'float8', 705 => 'unknown', 829 => 'macaddr',
+        869 => 'inet', 1000 => '_bool', 1001 => '_bytea', 1005 => '_int2', 1007 => '_int4',
+        1009 => '_text', 1014 => '_bpchar', 1015 => '_varchar', 1016 => '_int8',
+        1021 => '_float4', 1022 => '_float8', 1028 => '_oid', 1042 => 'bpchar',
+        1043 => 'varchar', 1082 => 'date', 1083 => 'time', 1114 => 'timestamp',
+        1115 => '_timestamp', 1182 => '_date', 1184 => 'timestamptz', 1185 => '_timestamptz',
+        1186 => 'interval', 1231 => '_numeric', 1266 => 'timetz', 1560 => 'bit',
+        1562 => 'varbit', 1700 => 'numeric', 2249 => 'record', 2950 => 'uuid', 2951 => '_uuid',
+        3614 => 'tsvector', 3802 => 'jsonb', 3807 => '_jsonb',
+    ];
+
+    /**
+     * A result column's type name, without the query `pg_field_type()` runs.
+     *
+     * The first `pg_field_type()` on a connection makes PHP run `select oid,typname from
+     * pg_type` and read every row of it. On TimescaleDB that is one row per chunk and table, tens
+     * of thousands, and it happens once per request — measured on a production server as the
+     * single most expensive statement it ran, 22% of all execution time. The OID comes with the
+     * result for free; only a type outside the built-in list (an enum, a domain, an extension's
+     * type) still asks the server.
+     *
+     * @param \PgSql\Result|resource $result
+     */
+    private static function pgFieldTypeName($result, int $field): string
+    {
+        return self::PG_BUILTIN_TYPES[(int) pg_field_type_oid($result, $field)]
+            ?? (string) pg_field_type($result, $field);
+    }
+
     /**
      * SQL written for MySQL, as PostgreSQL takes it, when this connection translates — or the
      * statement as it came.
@@ -2476,7 +2509,7 @@ class Database extends \Pramnos\Framework\Base
                 $numFields = pg_num_fields($dbResource);
                 for ($i = 0; $i < $numFields; $i++) {
                     $fieldName = pg_field_name($dbResource, $i);
-                    $fieldType = pg_field_type($dbResource, $i);
+                    $fieldType = self::pgFieldTypeName($dbResource, $i);
                     $columnTypes[$fieldName] = $fieldType;
                 }
                 $obj->columnTypes = $columnTypes;
@@ -4043,7 +4076,7 @@ class Database extends \Pramnos\Framework\Base
             $numFields = pg_num_fields($dbResource);
             for ($i = 0; $i < $numFields; $i++) {
                 $fieldName = pg_field_name($dbResource, $i);
-                $fieldType = pg_field_type($dbResource, $i);
+                $fieldType = self::pgFieldTypeName($dbResource, $i);
                 $columnTypes[$fieldName] = $fieldType;
             }
             $obj->columnTypes = $columnTypes;
