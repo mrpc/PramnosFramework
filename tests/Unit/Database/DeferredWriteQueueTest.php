@@ -48,6 +48,21 @@ class ArrayBackedQueue extends DeferredWriteQueue
     /** @var list<int> Queue ids deleted after a successful write */
     public array $deletedIds = [];
 
+    /** @var bool Whether the server is pretended to take late rows directly (TimescaleDB 2.31+) */
+    public bool $directly = false;
+
+    /** @var array{rows: int, pending: int, share: float} What a chunk is pretended to hold and await */
+    public array $chunkShape = ['rows' => 1000, 'pending' => 10, 'share' => 0.0];
+
+    /** @var string|null Where the WAL is pretended to stand when a drain begins; null: no WAL */
+    public ?string $wal = null;
+
+    /** @var list<int> WAL written since the start, one reading per chunk asked */
+    public array $walReadings = [];
+
+    /** @var int|null How far behind a replica is pretended to be */
+    public ?int $lag = null;
+
     /** No connection: every method that would need one is overridden below. */
     public function __construct()
     {
@@ -139,6 +154,47 @@ class ArrayBackedQueue extends DeferredWriteQueue
     protected function rollbackBatch(): void
     {
         $this->log[] = 'rollback';
+    }
+
+    protected function writesDirectly(): bool
+    {
+        return $this->directly;
+    }
+
+    protected function chunkRows(object $chunk): int
+    {
+        return $this->chunkShape['rows'];
+    }
+
+    protected function pendingCount(string $table, int $from, int $to): int
+    {
+        return $this->chunkShape['pending'];
+    }
+
+    protected function correctionShare(string $table, object $chunk, array $conflict): float
+    {
+        return $this->chunkShape['share'];
+    }
+
+    protected function walPosition(): ?string
+    {
+        return $this->wal;
+    }
+
+    protected function walSince(string $position): int
+    {
+        return array_shift($this->walReadings) ?? 0;
+    }
+
+    protected function replicaLag(): ?int
+    {
+        return $this->lag;
+    }
+
+    /** Whether a compressed chunk would be rewritten — the decision, exposed to test it alone. */
+    public function decides(string $table, object $chunk): bool
+    {
+        return $this->rewritesChunk($table, $chunk);
     }
 }
 
@@ -935,5 +991,191 @@ class DeferredWriteQueueTest extends TestCase
         $this->assertArrayHasKey('conflict', $spec);
         $this->assertArrayHasKey('conflict_update', $spec);
         $this->assertFalse($spec['deferred_writes'], 'Opting in is explicit');
+    }
+
+    /** A compressed chunk of the shape the drain reports. */
+    private static function compressedChunk(string $name = '_hyper_1_1_chunk'): object
+    {
+        return (object) [
+            'chunk_schema'   => '_timescaledb_internal',
+            'chunk_name'     => $name,
+            'is_compressed'  => true,
+            'range_start_ts' => 0,
+            'range_end_ts'   => 100,
+        ];
+    }
+
+    /**
+     * On a server that takes late rows directly (TimescaleDB 2.31+), one late value is written
+     * straight into its compressed chunk; an import that says so is queued from its first row;
+     * and a loop of single writes past BULK_AFTER is taken for an import and queued from there.
+     * On an older server every late row is queued, as it always was.
+     *
+     * One reading that arrives late costs tens of kilobytes written directly, against a whole
+     * chunk rewritten once drained; an import of millions written one by one would cost more
+     * than the per-chunk drain, which is what it is for.
+     */
+    public function testOneLateValueIsWrittenAndAnImportIsQueued(): void
+    {
+        // Arrange
+        $late  = ['measured_at' => time() - 7200, 'value' => 1];
+        $queue = new ArrayBackedQueue();
+        $queue->cutoff   = time() - 3600;
+        $queue->directly = true;
+
+        // Act — a run of single values up to the limit, then one more
+        $written = 0;
+        for ($i = 0; $i < DeferredWriteQueue::BULK_AFTER; $i++) {
+            $written += $queue->write('readings', $late) ? 1 : 0;
+        }
+        $pastTheLimit = $queue->write('readings', $late);
+        $import = new ArrayBackedQueue();
+        $import->cutoff   = time() - 3600;
+        $import->directly = true;
+        $importFirst = $import->bulk()->write('readings', $late);
+        $back        = $import->bulk(false)->write('readings', $late);
+        $older = new ArrayBackedQueue();
+        $older->cutoff = time() - 3600;
+        $olderLate = $older->write('readings', $late);
+
+        // Assert
+        $this->assertSame(DeferredWriteQueue::BULK_AFTER, $written, 'single late values go straight in');
+        $this->assertFalse($pastTheLimit, 'past the limit: an import, queued');
+        $this->assertCount(1, $queue->deferred);
+        $this->assertFalse($importFirst, 'an import that says so is queued from its first row');
+        $this->assertTrue($back, 'and writes directly again once it says it is done');
+        $this->assertFalse($olderLate, 'an older TimescaleDB queues every late row');
+    }
+
+    /**
+     * Where the server takes late rows directly, a compressed chunk that is not mostly rewritten
+     * is written into without decompressing it, and compressed once at the end — only the
+     * segments the rows went into; one whose pending rows are most of it is rewritten as before.
+     *
+     * Measured on 2.31: a million new rows into a 554 MB chunk cost 0.45 GB of WAL written
+     * directly, against 1.8 GB decompressed and compressed back.
+     */
+    public function testAChunkIsWrittenDirectlyUnlessMostOfItIsRewritten(): void
+    {
+        // Arrange — two compressed chunks: one with a few pending rows, one with more than its own
+        $queue = new ArrayBackedQueue();
+        $queue->directly = true;
+        $queue->chunks   = [self::compressedChunk('_hyper_1_1_chunk')];
+        $queue->batches  = [[['id' => 1, 'data' => '{"value":1}']], [], []];
+
+        // Act
+        $queue->process('readings');
+        $direct = $queue->log;
+        $rewrite = new ArrayBackedQueue();
+        $rewrite->directly   = true;
+        $rewrite->chunkShape = ['rows' => 1000, 'pending' => 600, 'share' => 0.0];
+        $rewrite->chunks     = [self::compressedChunk('_hyper_1_2_chunk')];
+        $rewrite->batches    = [[['id' => 2, 'data' => '{"value":2}']], [], []];
+        $rewrite->process('readings');
+
+        // Assert
+        $this->assertSame(['begin', 'commit', 'compress:_hyper_1_1_chunk'], $direct, 'no decompress; compressed once at the end');
+        $this->assertSame(['decompress:_hyper_1_2_chunk', 'begin', 'commit', 'compress:_hyper_1_2_chunk'], $rewrite->log);
+    }
+
+    /**
+     * The decision per chunk: rewritten when the pending rows reach REWRITE_ROWS of its rows, or
+     * the corrections among them — by the declared conflict key — reach REWRITE_CORRECTIONS;
+     * written directly otherwise; and a table without a conflict key, which only gains rows, is
+     * judged by the pending rows alone. An empty chunk is never rewritten.
+     *
+     * Measured on 2.31: corrections spread over every device broke even near 15% of the chunk,
+     * new rows did not up to 17%, and a chunk rewritten whole was cheaper decompressed.
+     */
+    public function testTheChunkDecision(): void
+    {
+        // Arrange
+        HypertableRegistry::register('keyed', ['time_column' => 'measured_at', 'conflict' => ['device', 'measured_at'], 'deferred_writes' => true]);
+        $queue = new ArrayBackedQueue();
+        $chunk = self::compressedChunk();
+        $judge = static function (array $shape, string $table = 'keyed') use ($queue, $chunk): bool {
+            $queue->chunkShape = $shape;
+
+            return $queue->decides($table, $chunk);
+        };
+
+        // Act / Assert
+        $this->assertFalse($judge(['rows' => 1000, 'pending' => 100, 'share' => 1.0]), '10% corrections: written directly');
+        $this->assertTrue($judge(['rows' => 1000, 'pending' => 150, 'share' => 1.0]), '15% corrections: rewritten');
+        $this->assertFalse($judge(['rows' => 1000, 'pending' => 400, 'share' => 0.25]), '10% of the chunk corrected, the rest new');
+        $this->assertTrue($judge(['rows' => 1000, 'pending' => 500, 'share' => 0.0]), 'half the chunk pending, new or not: rewritten');
+        $this->assertFalse($judge(['rows' => 1000, 'pending' => 400, 'share' => 1.0], 'readings'), 'no conflict key: only new rows, judged by count');
+        $this->assertFalse($judge(['rows' => 0, 'pending' => 400, 'share' => 1.0]), 'an empty chunk is not rewritten');
+    }
+
+    /**
+     * A drain stops before its next chunk once it has written its WAL budget, or while a streaming
+     * replica is too far behind, and says why; the rest waits for the next run. Without WAL to
+     * read (MySQL) it never stops.
+     *
+     * A rewrite writes about two and a half times its chunk's uncompressed size: a backfill across
+     * hundreds of chunks would outrun the replica and lose its slot.
+     */
+    public function testADrainStopsAtItsWalBudgetOrABehindReplica(): void
+    {
+        // Arrange — two compressed chunks; 30 MB written by the time the second is reached
+        $reported = [];
+        $budget = new ArrayBackedQueue();
+        $budget->wal         = '0/0';
+        $budget->walBudget   = 20 * 1048576;
+        $budget->walReadings = [0, 30 * 1048576];
+        $budget->chunks      = [self::compressedChunk('_hyper_1_1_chunk'), self::compressedChunk('_hyper_1_2_chunk')];
+        $budget->batches     = [[['id' => 1, 'data' => '{"value":1}']], [], [], []];
+        $behind = new ArrayBackedQueue();
+        $behind->wal     = '0/0';
+        $behind->lag     = 11 * 1048576;
+        $behind->replicaLagLimit = 10 * 1048576;
+        $behind->chunks  = [self::compressedChunk()];
+        $none = new ArrayBackedQueue();
+        $none->walBudget = 0;
+        $none->chunks    = [self::compressedChunk()];
+        $none->batches   = [[['id' => 2, 'data' => '{"value":2}']], [], []];
+
+        // Act
+        $spent   = $budget->process('readings', static function (string $line) use (&$reported): void { $reported[] = $line; })['readings'];
+        $lagging = $behind->process('readings')['readings'];
+        $mysql   = $none->process('readings')['readings'];
+
+        // Assert
+        $this->assertSame(1, $spent['chunks'], 'the first chunk is drained; the second waits');
+        $this->assertSame('the WAL budget is spent (30 MB written)', $spent['paused']);
+        $this->assertStringContainsString('the rest waits for the next run', end($reported));
+        $this->assertSame(0, $lagging['chunks']);
+        $this->assertSame('a replica is 11 MB behind', $lagging['paused']);
+        $this->assertArrayNotHasKey('paused', $mysql, 'no WAL to read: never stops');
+        $this->assertSame(1, $mysql['inserted']);
+    }
+
+    /**
+     * Where the catalog cannot be read — a TimescaleDB that lays it out otherwise — a chunk's rows
+     * are the planner's estimate; and on a database with no WAL to read (MySQL) a drain has no
+     * starting position, so it never stops for a budget.
+     */
+    public function testTheChunkRowsFallBackAndMySqlHasNoWal(): void
+    {
+        // Arrange — a connection whose catalog query fails, then answers the estimate
+        $estimate = new \stdClass();
+        $estimate->numRows = 1;
+        $estimate->fields  = ['n' => 42];
+        $db = $this->getMockBuilder(\Pramnos\Database\Database::class)->disableOriginalConstructor()->onlyMethods(['prepareQuery', 'query', 'capabilities'])->getMock();
+        $db->method('prepareQuery')->willReturn("'x'::regclass");
+        $db->method('query')->willReturnOnConsecutiveCalls($this->throwException(new \RuntimeException('no such column')), $estimate);
+        $capabilities = $this->getMockBuilder(\Pramnos\Database\DatabaseCapabilities::class)->disableOriginalConstructor()->onlyMethods(['isPostgreSQL'])->getMock();
+        $capabilities->method('isPostgreSQL')->willReturn(false);
+        $db->method('capabilities')->willReturn($capabilities);
+        $queue = new DeferredWriteQueue($db);
+
+        // Act
+        $rows = (new \ReflectionMethod($queue, 'chunkRows'))->invoke($queue, (object) ['chunk_schema' => 's', 'chunk_name' => 'c']);
+        $wal  = (new \ReflectionMethod($queue, 'walPosition'))->invoke($queue);
+
+        // Assert
+        $this->assertSame(42, $rows, 'the estimate, when the catalog cannot be read');
+        $this->assertNull($wal, 'no WAL to read: no budget to keep');
     }
 }

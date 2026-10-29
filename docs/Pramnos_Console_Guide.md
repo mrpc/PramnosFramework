@@ -935,7 +935,7 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 | `service:policy-engine` | Run all due framework policies (retention, aggregate refresh, …) | `--list/-l`, `--pretend` |
 | `spool:drain` | Write rows buffered out of the request path | `--status/-s`, `--max-attempts` |
 | `timescale:ensure` | Convert declared tables to hypertables and (re)apply compression | `--dry-run`, `--table/-t` |
-| `timescale:drain` | Write queued rows into their hypertables | `--table/-t`, `--status/-s`, `--retry-failed` |
+| `timescale:drain` | Write queued rows into their hypertables, per chunk, within a WAL budget | `--table/-t`, `--status/-s`, `--retry-failed`, `--wal-budget=MB`, `--replica-lag=MB` |
 
 **Authentication**
 

@@ -211,8 +211,8 @@ class DeferredWriteQueueTimescaleDBTest extends TestCase
         $this->schema->addCompressionPolicy(self::TABLE, '7 days');
         $this->assertSame(1, $this->compressedChunkCount(), 'setup: the chunk is compressed');
 
-        // Act: a second reading for the same old day arrives late.
-        $written = $this->queue->write(self::TABLE, [
+        // Act: a second reading for the same old day arrives late, in an import.
+        $written = $this->queue->bulk()->write(self::TABLE, [
             'device_id'   => 2,
             'measured_at' => date('Y-m-d H:i:s', $old + 60),
             'value'       => 20.0,
@@ -250,6 +250,7 @@ class DeferredWriteQueueTimescaleDBTest extends TestCase
         $this->compressEverything();
         $this->schema->addCompressionPolicy(self::TABLE, '7 days');
 
+        $this->queue->bulk();
         for ($i = 2; $i <= 21; $i++) {
             $this->queue->write(self::TABLE, [
                 'device_id'   => $i,
@@ -267,6 +268,138 @@ class DeferredWriteQueueTimescaleDBTest extends TestCase
         $this->assertSame(1, $stats[self::TABLE]['chunks'], 'One chunk, one pair');
         $this->assertSame(21, $this->probeRowCount());
         $this->assertSame(1, $this->compressedChunkCount());
+    }
+
+    /**
+     * On TimescaleDB 2.31+, one late value goes straight into its compressed chunk: written, not
+     * queued, and the chunk stays compressed — the row sits in its uncompressed part until the
+     * chunk is compressed again.
+     *
+     * A reading that arrives a day late was a whole chunk decompressed and compressed back once
+     * drained; written directly it costs tens of kilobytes.
+     */
+    public function testOneLateValueGoesStraightIntoItsCompressedChunk(): void
+    {
+        // Arrange
+        $old = strtotime('-30 days');
+        $this->insertDirectly(1, $old, 10.0);
+        $this->compressEverything();
+        $this->schema->addCompressionPolicy(self::TABLE, '7 days');
+
+        // Act
+        $written = $this->queue->write(self::TABLE, ['device_id' => 2, 'measured_at' => date('Y-m-d H:i:s', $old + 60), 'value' => 20.0]);
+
+        // Assert
+        $this->assertTrue($written);
+        $this->assertSame(0, $this->queue->pending(self::TABLE), 'nothing queued');
+        $this->assertSame(2, $this->probeRowCount());
+        $this->assertSame(1, $this->compressedChunkCount(), 'the chunk is still compressed');
+    }
+
+    /**
+     * An import into a chunk that already holds far more rows than it brings is drained without
+     * decompressing it: the new rows and the corrections to rows already there are written into
+     * the compressed chunk directly — the corrections past TimescaleDB's own limit on rows
+     * decompressed per transaction — and the chunk is compressed again at the end. The report says
+     * which way each chunk went.
+     *
+     * Measured on 2.31: this way writes a fraction of the WAL a rewrite does, until the
+     * corrections reach about 15% of the chunk.
+     */
+    public function testADrainWritesIntoAMostlyUntouchedChunkDirectly(): void
+    {
+        // Arrange — 200 rows in one day, compressed; an import of 10 new and 10 corrections
+        $day = strtotime('-30 days');
+        for ($i = 1; $i <= 200; $i++) {
+            $this->insertDirectly($i, $day + $i, 1.0);
+        }
+        $this->compressEverything();
+        $this->schema->addCompressionPolicy(self::TABLE, '7 days');
+        $this->queue->bulk();
+        for ($i = 1; $i <= 10; $i++) {
+            $this->queue->write(self::TABLE, ['device_id' => $i, 'measured_at' => date('Y-m-d H:i:s', $day + $i), 'value' => 9.0]);
+            $this->queue->write(self::TABLE, ['device_id' => 1000 + $i, 'measured_at' => date('Y-m-d H:i:s', $day + $i), 'value' => 2.0]);
+        }
+        // And a row whose payload is unusable: the decision's sample passes over it, the drain
+        // fails it on its own.
+        $this->db->queryBuilder()->table(DeferredWriteQueue::TABLE)->insert([
+            'tablename' => self::TABLE, 'targetdate' => date('Y-m-d H:i:s', $day + 500), 'data' => '[]',
+            'status' => DeferredWriteQueue::STATUS_PENDING, 'createdat' => date('Y-m-d H:i:s'),
+        ]);
+        $said = [];
+
+        // Act
+        $stats = $this->queue->process(self::TABLE, static function (string $line) use (&$said): void { $said[] = $line; });
+
+        // Assert
+        $this->assertSame(20, $stats[self::TABLE]['inserted']);
+        $this->assertSame(1, $stats[self::TABLE]['failed'], 'only the unusable row');
+        $this->assertStringContainsString('written directly', implode("\n", $said));
+        $this->assertSame(210, $this->probeRowCount(), '10 new; the 10 corrections replaced their rows');
+        $corrected = $this->db->query('SELECT COUNT(*) AS n FROM ' . self::TABLE . ' WHERE value = 9.0');
+        $this->assertSame(10, (int) $corrected->fields['n']);
+        $this->assertSame(1, $this->compressedChunkCount(), 'compressed again');
+    }
+
+    /**
+     * The decision reads the chunk itself: an import that corrects most of a chunk's rows has it
+     * rewritten — decompressed, written, compressed back — as before.
+     *
+     * Rewriting a whole chunk directly cost more WAL than decompressing it, and far more time.
+     */
+    public function testAChunkMostlyCorrectedIsRewritten(): void
+    {
+        // Arrange — 20 rows, every one corrected
+        $day = strtotime('-30 days');
+        for ($i = 1; $i <= 20; $i++) {
+            $this->insertDirectly($i, $day + $i, 1.0);
+        }
+        $this->compressEverything();
+        $this->schema->addCompressionPolicy(self::TABLE, '7 days');
+        $this->queue->bulk();
+        for ($i = 1; $i <= 20; $i++) {
+            $this->queue->write(self::TABLE, ['device_id' => $i, 'measured_at' => date('Y-m-d H:i:s', $day + $i), 'value' => 5.0]);
+        }
+        $said = [];
+
+        // Act
+        $this->queue->process(self::TABLE, static function (string $line) use (&$said): void { $said[] = $line; });
+
+        // Assert
+        $this->assertStringContainsString('rewritten', implode("\n", $said));
+        $all = $this->db->query('SELECT COUNT(*) AS n FROM ' . self::TABLE . ' WHERE value = 5.0');
+        $this->assertSame(20, (int) $all->fields['n']);
+        $this->assertSame(1, $this->compressedChunkCount());
+    }
+
+    /**
+     * A drain reads the WAL it writes from the server and stops before the next chunk once its
+     * budget is spent; the rest stays queued for the next run.
+     *
+     * A backfill across hundreds of chunks would otherwise write more WAL in minutes than a
+     * streaming replica keeps.
+     */
+    public function testADrainStopsBeforeTheNextChunkOnceItsWalBudgetIsSpent(): void
+    {
+        // Arrange — two days, each a compressed chunk with a late row queued
+        $first  = strtotime('-30 days');
+        $second = strtotime('-20 days');
+        $this->insertDirectly(1, $first, 1.0);
+        $this->insertDirectly(1, $second, 1.0);
+        $this->compressEverything();
+        $this->schema->addCompressionPolicy(self::TABLE, '7 days');
+        $this->queue->bulk()->write(self::TABLE, ['device_id' => 2, 'measured_at' => date('Y-m-d H:i:s', $first + 5), 'value' => 2.0]);
+        $this->queue->write(self::TABLE, ['device_id' => 2, 'measured_at' => date('Y-m-d H:i:s', $second + 5), 'value' => 2.0]);
+        $this->queue->walBudget = 1;
+
+        // Act
+        $stats = $this->queue->process(self::TABLE)[self::TABLE];
+
+        // Assert
+        $this->assertSame(1, $stats['chunks'], 'the first chunk only');
+        $this->assertStringStartsWith('the WAL budget is spent', $stats['paused']);
+        $this->assertSame(1, $this->queue->pending(self::TABLE), 'the second waits');
+        $this->assertSame(2, $this->compressedChunkCount());
     }
 
     /**

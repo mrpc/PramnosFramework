@@ -51,8 +51,8 @@ class TimescaleDrain extends Command
         $this
             ->setName('timescale:drain')
             ->setDescription(
-                'Write queued rows into their hypertables, one decompress/compress '
-                . 'pair per chunk'
+                'Write queued rows into their hypertables: per chunk, directly or with one '
+                . 'decompress/compress pair, within a WAL budget'
             )
             ->addOption(
                 'table',
@@ -71,6 +71,18 @@ class TimescaleDrain extends Command
                 null,
                 InputOption::VALUE_NONE,
                 'Put failed rows back in the queue before draining'
+            )
+            ->addOption(
+                'wal-budget',
+                null,
+                InputOption::VALUE_REQUIRED,
+                'Stop before the next chunk once this many MB of WAL are written (default 20480)'
+            )
+            ->addOption(
+                'replica-lag',
+                null,
+                InputOption::VALUE_REQUIRED,
+                'Stop before the next chunk while a streaming replica is this many MB behind (default 10240)'
             );
     }
 
@@ -85,6 +97,12 @@ class TimescaleDrain extends Command
         }
 
         $queue = $this->makeQueue($app->database);
+        foreach (['wal-budget' => 'walBudget', 'replica-lag' => 'replicaLagLimit'] as $option => $property) {
+            $megabytes = $input->getOption($option);
+            if (is_numeric($megabytes) && (int) $megabytes > 0) {
+                $queue->{$property} = (int) $megabytes * 1048576;
+            }
+        }
         $only  = $input->getOption('table');
         $only  = (is_string($only) && $only !== '') ? $only : null;
 
@@ -184,6 +202,9 @@ class TimescaleDrain extends Command
                     : '')
                 . ($stats['failed'] > 0
                     ? ', <error>' . number_format($stats['failed']) . ' failed</error>'
+                    : '')
+                . (isset($stats['paused'])
+                    ? ' — <comment>stopped: ' . $stats['paused'] . '; the rest waits for the next run</comment>'
                     : '')
             );
         }

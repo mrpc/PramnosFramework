@@ -7,20 +7,44 @@ namespace Pramnos\Database;
 /**
  * Writes that arrive too late for a compressed chunk, held until they can land.
  *
- * A hypertable with a compression policy stops accepting writes into the time
- * ranges it has already compressed. Every application that writes late data
- * meets this: a delayed reading, a backfill, a correction, a webhook that turns
- * up months after the event it describes. The write simply fails, and the row
- * is lost unless something catches it.
- *
- * Catching it is the easy half. The half worth putting in the framework is what
- * happens next, because the obvious implementation is the expensive one:
+ * Every application that writes late data meets compressed chunks: a delayed
+ * reading, a backfill, a correction, a webhook that turns up months after the
+ * event it describes. Writing into a compressed chunk is the expensive part:
  * decompressing a chunk, writing one row, and compressing it back costs the same
  * as decompressing it, writing ten thousand rows, and compressing it back. So
- * the rows are queued, and the drain groups them **by chunk** — one
+ * late rows are queued, and the drain groups them **by chunk** — one
  * decompress/compress pair per chunk, no matter how many rows are waiting inside
- * it. That grouping is the whole point; it is not obvious, and an application
- * that rediscovers it will probably rediscover it the slow way first.
+ * it.
+ *
+ * ## TimescaleDB 2.31 and later: per row, and per chunk
+ *
+ * From {@see DIRECT_FROM} on, a row written into a compressed chunk goes into the
+ * chunk's uncompressed part without decompressing it, and a later
+ * `compress_chunk()` (or the compression policy) compresses only the segments it
+ * touched. Measured on 2.31.0 with PostgreSQL 18, on a 554 MB chunk: one late row
+ * written directly cost 20–40 kB of WAL, where decompressing and compressing the
+ * chunk cost 1.3 GB whatever the number of rows. So, on such a server:
+ *
+ * - **One value** at a time — {@see write()} — is written directly, even into a
+ *   compressed chunk. Past {@see BULK_AFTER} late rows in one process, the rest
+ *   are queued: that is an import calling `write()` in a loop.
+ * - **An import** says so — {@see bulk()} — and every late row is queued.
+ * - **The drain decides per chunk** ({@see rewritesChunk()}): it decompresses
+ *   and rewrites the chunk only when the corrections to rows already there reach
+ *   {@see REWRITE_CORRECTIONS} of its rows, or the pending rows reach
+ *   {@see REWRITE_ROWS}; otherwise it writes the rows directly and compresses the
+ *   chunk once at the end. Measured: 1M new rows into that chunk cost 0.45 GB
+ *   written directly against 1.8 GB rewritten; corrections spread over every
+ *   device broke even near 15% of the chunk, and above it the rewrite won.
+ *
+ * On an older TimescaleDB every late row is queued and every chunk rewritten, as
+ * before.
+ *
+ * Either way, a drain stops before the next chunk once it has written
+ * {@see $walBudget} bytes of WAL, or a streaming replica is {@see $replicaLagLimit}
+ * bytes behind; the rest waits for the next run. A rewrite writes about two and a
+ * half times the chunk's uncompressed size, so a backfill across hundreds of
+ * chunks would otherwise outrun any replica.
  *
  * ## Writing
  *
@@ -93,6 +117,45 @@ class DeferredWriteQueue
     /** @var int How many rows one INSERT pass handles */
     protected const BATCH_SIZE = 500;
 
+    /** @var string The TimescaleDB from which late rows are written into compressed chunks directly */
+    public const DIRECT_FROM = '2.31.0';
+
+    /** @var int Late rows one process writes directly before it takes itself for an import and queues the rest */
+    public const BULK_AFTER = 1000;
+
+    /** @var float A chunk is rewritten when the pending corrections to its rows reach this share of them… */
+    public const REWRITE_CORRECTIONS = 0.15;
+
+    /** @var float …or when the pending rows, new or not, reach this share */
+    public const REWRITE_ROWS = 0.5;
+
+    /** @var int Pending rows looked up to estimate how many correct rows already there */
+    protected const SAMPLE = 200;
+
+    /** @var int WAL one drain writes, in bytes, before it stops for the next run */
+    public int $walBudget = 20 * 1024 * 1024 * 1024;
+
+    /** @var int How far, in bytes, a streaming replica may fall behind before a drain stops */
+    public int $replicaLagLimit = 10 * 1024 * 1024 * 1024;
+
+    /** @var bool Every late row is queued: an import ({@see bulk()}) */
+    protected bool $bulk = false;
+
+    /** @var int Late rows this process has written directly */
+    protected int $lateWritten = 0;
+
+    /** @var bool|null Whether this server takes late rows directly, once asked */
+    protected ?bool $direct = null;
+
+    /** @var bool The batches being drained are written into a compressed chunk directly */
+    protected bool $writingDirectly = false;
+
+    /** @var string|null Where the WAL stood when this drain began; null where there is none to read */
+    protected ?string $walStart = null;
+
+    /** @var string|null Why this drain stopped before the end, once it has */
+    protected ?string $paused = null;
+
     /** @var Database The connection everything runs on */
     protected Database $db;
 
@@ -136,9 +199,14 @@ class DeferredWriteQueue
         $timestamp = $this->timestampOf($table, $row, $time);
 
         if ($this->shouldDefer($table, $timestamp)) {
-            $this->defer($table, $row, $timestamp);
+            // One late value goes straight into its compressed chunk where the server takes it
+            // cheaply; an import — said, or a loop past BULK_AFTER — is queued and drained per chunk.
+            if ($this->bulk || $this->lateWritten >= static::BULK_AFTER || !$this->writesDirectly()) {
+                $this->defer($table, $row, $timestamp);
 
-            return false;
+                return false;
+            }
+            $this->lateWritten++;
         }
 
         try {
@@ -157,6 +225,18 @@ class DeferredWriteQueue
         }
 
         return true;
+    }
+
+    /**
+     * Queue every late row from now on — or, with false, go back to writing single late values
+     * directly. For an import: millions of rows into compressed chunks are drained per chunk, which
+     * a loop of direct writes would not be.
+     */
+    public function bulk(bool $on = true): static
+    {
+        $this->bulk = $on;
+
+        return $this;
     }
 
     /**
@@ -330,13 +410,15 @@ class DeferredWriteQueue
      * @param  callable|null $reporter function(string $message): void — progress,
      *                                 so a console command can say what is
      *                                 happening during a long run
-     * @return array<string, array{chunks: int, inserted: int, failed: int}>
-     *         What happened, per table
+     * @return array<string, array{chunks: int, inserted: int, failed: int, paused?: string}>
+     *         What happened, per table; `paused` says why a table stopped before the end
      */
     public function process(?string $only = null, ?callable $reporter = null): array
     {
         $tables = $only !== null ? [$only] : $this->tablesWithPendingRows();
         $report = [];
+        $this->walStart = $tables === [] ? null : $this->walPosition();
+        $this->paused   = null;
 
         foreach ($tables as $table) {
             $report[$table] = $this->processTable($table, $reporter);
@@ -355,25 +437,38 @@ class DeferredWriteQueue
      *
      * @param  string        $table
      * @param  callable|null $reporter
-     * @return array{chunks: int, inserted: int, failed: int}
+     * @return array{chunks: int, inserted: int, failed: int, paused?: string}
      */
     protected function processTable(string $table, ?callable $reporter = null): array
     {
         $stats = ['chunks' => 0, 'inserted' => 0, 'failed' => 0];
 
         foreach ($this->chunksWithPendingRows($table) as $chunk) {
+            // Before each chunk, not after: a rewrite is the costly step, and the budget is
+            // there to keep the next one from starting.
+            $this->paused ??= $this->mustPause();
+            if ($this->paused !== null) {
+                $stats['paused'] = $this->paused;
+                $this->report($reporter, '  stopped: ' . $this->paused . '; the rest waits for the next run');
+
+                return $stats;
+            }
             $stats['chunks']++;
             $compressed = $this->isCompressed($chunk);
+            // Written directly where the server takes it and the chunk is not mostly rewritten
+            // anyway; otherwise decompressed, written and compressed back.
+            $rewrite    = $compressed && (!$this->writesDirectly() || $this->rewritesChunk($table, $chunk));
 
             $this->report(
                 $reporter,
                 '  chunk ' . $chunk->chunk_schema . '.' . $chunk->chunk_name
-                . ($compressed ? ' (compressed)' : '')
+                . ($compressed ? ($rewrite ? ' (compressed, rewritten)' : ' (compressed, written directly)') : '')
             );
 
-            if ($compressed) {
+            if ($rewrite) {
                 $this->decompress($chunk);
             }
+            $this->writingDirectly = $compressed && !$rewrite;
 
             try {
                 $this->drain(
@@ -384,9 +479,11 @@ class DeferredWriteQueue
                     (int) $chunk->range_end_ts
                 );
             } finally {
+                $this->writingDirectly = false;
                 // A chunk left decompressed because a batch raised is a silent
                 // storage regression — it never compresses again on its own,
                 // since the policy only ever looks at chunks it has not seen.
+                // Written directly, it is compressed again only where the rows went.
                 if ($compressed) {
                     $this->recompress($chunk);
                 }
@@ -508,6 +605,12 @@ class DeferredWriteQueue
     protected function beginBatch(): void
     {
         $this->db->startTransaction();
+        // A correction written into a compressed chunk decompresses the batch it lands in, and
+        // TimescaleDB refuses a transaction past 100 000 such rows unless told otherwise.
+        if ($this->writingDirectly) {
+            // Raw: a setting for this transaction, nothing the query builder models.
+            $this->db->query('SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0');
+        }
     }
 
     /**
@@ -756,6 +859,183 @@ class DeferredWriteQueue
         }
 
         return null;
+    }
+
+    /**
+     * Whether this server takes a late row into a compressed chunk directly and cheaply:
+     * TimescaleDB {@see DIRECT_FROM} or later. Asked once.
+     */
+    protected function writesDirectly(): bool
+    {
+        return $this->direct ??= $this->hasTimescaleDB()
+            && version_compare($this->db->capabilities()->timescaleVersion(), static::DIRECT_FROM, '>=');
+    }
+
+    /**
+     * Whether a compressed chunk is rewritten — decompressed, written, compressed back — rather
+     * than written into directly: when its pending rows reach {@see REWRITE_ROWS} of the rows it
+     * holds, or the corrections among them reach {@see REWRITE_CORRECTIONS}. Corrections are
+     * estimated from a sample of the pending rows, by whether the table's declared conflict key
+     * already holds a row; a table with no conflict key only ever gains rows.
+     *
+     * @param object $chunk As reported by {@see chunksWithPendingRows()}
+     */
+    protected function rewritesChunk(string $table, object $chunk): bool
+    {
+        $rows = $this->chunkRows($chunk);
+        if ($rows <= 0) {
+            return false;
+        }
+        $pending = $this->pendingCount($table, (int) $chunk->range_start_ts, (int) $chunk->range_end_ts);
+        if ($pending >= static::REWRITE_ROWS * $rows) {
+            return true;
+        }
+        $conflict = HypertableRegistry::spec($table)['conflict'] ?? null;
+        if (!is_array($conflict) || $conflict === []) {
+            return false;
+        }
+
+        return $pending * $this->correctionShare($table, $chunk, $conflict) >= static::REWRITE_CORRECTIONS * $rows;
+    }
+
+    /**
+     * How many rows a chunk holds: what TimescaleDB counted when it compressed it. Not
+     * `approximate_row_count()`, which reads the planner's statistics and says 0 for a chunk
+     * compressed since the last ANALYZE — every chunk would then look empty and be written
+     * directly. Asked only from TimescaleDB {@see DIRECT_FROM} on, whose catalog this reads; a
+     * catalog laid out otherwise falls back on the estimate.
+     *
+     * @param object $chunk As reported by {@see chunksWithPendingRows()}
+     */
+    protected function chunkRows(object $chunk): int
+    {
+        // Raw by necessity: TimescaleDB's catalog, and a regclass made of two quoted identifiers.
+        $chunkId = $this->db->prepareQuery("format('%%I.%%I', %s, %s)::regclass", (string) $chunk->chunk_schema, (string) $chunk->chunk_name);
+        try {
+            $result = $this->db->query(
+                'SELECT s.numrows_pre_compression AS n FROM _timescaledb_catalog.compression_chunk_size s'
+                . ' JOIN _timescaledb_catalog.chunk c ON c.id = s.chunk_id WHERE c.relid = ' . $chunkId
+            );
+            if ($result && $result->numRows > 0) {
+                return (int) $result->fields['n'];
+            }
+        } catch (\Throwable) {
+            // Another layout of the catalog: the estimate below.
+        }
+        $result = $this->db->query('SELECT approximate_row_count(' . $chunkId . ') AS n');
+
+        return $result ? (int) ($result->fields['n'] ?? 0) : 0;
+    }
+
+    /** How many rows wait for this table in a time range: unix timestamps, the end exclusive. */
+    protected function pendingCount(string $table, int $from, int $to): int
+    {
+        return $this->db->queryBuilder()->table(static::TABLE)
+            ->where('tablename', $table)
+            ->where('status', static::STATUS_PENDING)
+            ->where('targetdate', '>=', date('Y-m-d H:i:s', $from))
+            ->where('targetdate', '<', date('Y-m-d H:i:s', $to))
+            ->count();
+    }
+
+    /**
+     * The share of a chunk's pending rows that correct a row already there: a sample of
+     * {@see SAMPLE}, each looked up by its conflict key.
+     *
+     * @param object       $chunk    As reported by {@see chunksWithPendingRows()}
+     * @param list<string> $conflict The table's conflict columns
+     */
+    protected function correctionShare(string $table, object $chunk, array $conflict): float
+    {
+        $sample = $this->db->queryBuilder()->table(static::TABLE)
+            ->select(['id', 'data'])
+            ->where('tablename', $table)
+            ->where('status', static::STATUS_PENDING)
+            ->where('targetdate', '>=', date('Y-m-d H:i:s', (int) $chunk->range_start_ts))
+            ->where('targetdate', '<', date('Y-m-d H:i:s', (int) $chunk->range_end_ts))
+            ->orderBy('id')
+            ->limit(static::SAMPLE)
+            ->getAllOrFail();
+        $looked = 0;
+        $found  = 0;
+        foreach ($sample as $one) {
+            try {
+                $row = $this->payloadOf($one);
+            } catch (\RuntimeException) {
+                // An unusable row fails on its own when it is drained; it tells nothing here.
+                continue;
+            }
+            $query = $this->db->queryBuilder()->table($table);
+            foreach ($conflict as $column) {
+                $query->where($column, $row[$column] ?? null);
+            }
+            $looked++;
+            $found += $query->exists() ? 1 : 0;
+        }
+
+        return $looked === 0 ? 0.0 : $found / $looked;
+    }
+
+    /**
+     * Why a drain stops before its next chunk, or null: the WAL it has written reached
+     * {@see $walBudget}, or a streaming replica is {@see $replicaLagLimit} behind. Nothing to say
+     * where there is no WAL to read (MySQL).
+     */
+    protected function mustPause(): ?string
+    {
+        if ($this->walStart === null) {
+            return null;
+        }
+        $written = $this->walSince($this->walStart);
+        if ($written >= $this->walBudget) {
+            return 'the WAL budget is spent (' . round($written / 1048576) . ' MB written)';
+        }
+        $lag = $this->replicaLag();
+        if ($lag !== null && $lag >= $this->replicaLagLimit) {
+            return 'a replica is ' . round($lag / 1048576) . ' MB behind';
+        }
+
+        return null;
+    }
+
+    /** Where the WAL stands now, or null on a database that has none to read. */
+    protected function walPosition(): ?string
+    {
+        if (!$this->db->capabilities()->isPostgreSQL()) {
+            return null;
+        }
+        // Raw: a server function, nothing the query builder models.
+        // The insert position, not pg_current_wal_lsn(): that one is where the WAL has been written out
+        // of its buffers, and stands still until a flush however much a drain has produced.
+        $result = $this->db->query('SELECT pg_current_wal_insert_lsn()::text AS lsn');
+
+        return $result ? (string) $result->fields['lsn'] : null;
+    }
+
+    /** The WAL written since a position, in bytes. */
+    protected function walSince(string $position): int
+    {
+        // Raw: a server function, nothing the query builder models.
+        $result = $this->db->query($this->db->prepareQuery(
+            'SELECT pg_wal_lsn_diff(pg_current_wal_insert_lsn(), %s::pg_lsn)::bigint AS bytes',
+            $position
+        ));
+
+        return $result ? (int) $result->fields['bytes'] : 0;
+    }
+
+    /**
+     * How far behind the furthest streaming replica is, in bytes; null without one, or where the
+     * connection may not read it (`pg_stat_replication` shows the positions to a superuser or
+     * `pg_monitor` only).
+     */
+    protected function replicaLag(): ?int
+    {
+        // Raw: a statistics view, nothing the query builder models.
+        $result = $this->db->query('SELECT max(pg_wal_lsn_diff(pg_current_wal_insert_lsn(), replay_lsn))::bigint AS lag FROM pg_stat_replication');
+        $lag    = $result ? ($result->fields['lag'] ?? null) : null;
+
+        return $lag === null ? null : (int) $lag;
     }
 
     /**

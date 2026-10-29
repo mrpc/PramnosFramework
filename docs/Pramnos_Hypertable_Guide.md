@@ -766,14 +766,27 @@ reporting success — the quietest failure available.
 
 ## Writing late data into a compressed table
 
-A hypertable with a compression policy stops accepting writes into the ranges it
-has already compressed. Every application that writes late data meets this: a
-delayed reading, a backfill, a correction, a webhook that arrives months after
-the event it describes. Without somewhere to put those rows, the choice is
-"compression **or** the ability to correct data" — which is why tables that get
-updated after the fact usually end up uncompressed for ever.
+Every application that writes late data meets compressed chunks: a delayed reading, a backfill,
+a correction, a webhook that arrives months after the event it describes. Writing into a
+compressed chunk is the expensive part. On older TimescaleDB a row written there is slow, and
+the usual answer is to decompress the chunk, write, and compress it back, which costs the same
+for one row as for a million. Without a way to do that well, the choice is "compression **or**
+the ability to correct data", which is why tables that get updated after the fact usually end up
+uncompressed for ever.
 
-`Pramnos\Database\DeferredWriteQueue` is that somewhere.
+`Pramnos\Database\DeferredWriteQueue` is that way. What it does depends on the TimescaleDB:
+
+| | TimescaleDB before 2.31 | TimescaleDB 2.31 and later |
+|---|---|---|
+| One late value (`write()`) | queued | written into its compressed chunk directly |
+| An import (`bulk()`, or past 1,000 late rows in one process) | queued | queued |
+| A compressed chunk at drain time | decompressed, written, compressed back | written directly, unless most of it is rewritten anyway |
+
+The 2.31 column comes from measurements on TimescaleDB 2.31.0 with PostgreSQL 18. On a 554 MB
+chunk, one late row written directly cost 20–40 kB of WAL, where decompressing and compressing
+the chunk cost 1.3 GB whatever the number of rows. A million new rows cost 0.45 GB written
+directly against 1.8 GB rewritten, though the direct write took longer. Corrections to rows
+already there broke even near 15% of the chunk, and above that the rewrite won.
 
 ### Declaring the table
 
@@ -815,6 +828,21 @@ It returns `true` when the row went into the table and `false` when it was
 queued. The row's time comes from the declared `time_column`; pass it as a third
 argument when it lives somewhere else.
 
+On TimescaleDB 2.31 and later, a late row from `write()` goes straight into its
+compressed chunk and returns `true`. It lands in the chunk's uncompressed part,
+and the compression policy compresses only the segments it touched. Once one
+process has written `DeferredWriteQueue::BULK_AFTER` (1,000) late rows this way,
+it is taken for an import and the rest are queued. An import that knows it is
+one says so from the first row:
+
+```php
+$queue->bulk();
+foreach ($spreadsheet as $row) {
+    $queue->write('readings', $row);   // every late row queued, drained per chunk
+}
+$queue->bulk(false);                   // single values written directly again
+```
+
 The cutoff is read from the **live compression policy**, not from a constant, and
 cached for the life of the process — a bulk import pays one query, not one per
 row. On a database with no policy, on MySQL, and on any development or CI box
@@ -842,11 +870,43 @@ php pramnos timescale:drain --retry-failed   # re-queue rows that failed
 Run it from cron, as often as your tolerance for late data requires. Hourly is a
 reasonable default.
 
-**What makes it worth having:** the drain groups the backlog **by chunk**. A
-compressed chunk has to be decompressed before it accepts a write and compressed
-again afterwards, and that pair costs the same for one row as for ten thousand.
-Paying it once per row is the obvious implementation and an unusable one. The
-grouping is the pattern; everything else is bookkeeping.
+**What makes it worth having:** the drain groups the backlog **by chunk**, and
+decides for each compressed chunk how to write into it.
+
+- On TimescaleDB before 2.31 every compressed chunk is decompressed, written and
+  compressed back. That pair costs the same for one row as for ten thousand, so
+  it is paid once per chunk, never per row.
+- On 2.31 and later the chunk is written into directly and compressed once at
+  the end, which touches only the segments the rows went into. It is rewritten
+  as before when the pending rows reach `REWRITE_ROWS` (50%) of the rows the
+  chunk holds, or when the corrections among them reach `REWRITE_CORRECTIONS`
+  (15%). Corrections are estimated from a sample of 200 pending rows, by whether
+  the declared `conflict` key already holds a row. A table without a conflict key
+  only ever gains rows. The progress line says which way each chunk went:
+  `(compressed, written directly)` or `(compressed, rewritten)`.
+
+Written directly, a correction decompresses the batch it lands in, and
+TimescaleDB refuses a transaction past 100,000 such rows. The drain lifts that
+limit for its own batches only.
+
+**A drain stops before outrunning a replica.** A rewrite writes about two and a
+half times the chunk's uncompressed size in WAL. A backfill across hundreds of
+chunks would write more in minutes than a streaming replica keeps, and lose it.
+So before each chunk the drain checks two limits, and stops if either is
+reached:
+
+- the WAL it has written this run, `--wal-budget` in MB (default 20 GB);
+- how far the furthest streaming replica is behind, `--replica-lag` in MB
+  (default 10 GB). This is read from `pg_stat_replication`, whose positions a
+  superuser or a `pg_monitor` member sees; another role reads no lag.
+
+The rest stays queued for the next run, and the report says why the run
+stopped. In code, these are `$queue->walBudget` and `$queue->replicaLagLimit`,
+in bytes. On MySQL there is no WAL to read, and the drain never stops early.
+
+```
+php pramnos timescale:drain --wal-budget=5000 --replica-lag=2000
+```
 
 It asks TimescaleDB only for the chunks that actually have rows waiting, so a
 drain is proportional to the backlog rather than to the table's age.

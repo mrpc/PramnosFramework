@@ -212,6 +212,30 @@ class TimescaleDrainTest extends TestCase
     }
 
     /**
+     * --wal-budget and --replica-lag, in MB, set the queue's limits; a run that stopped before the
+     * end says why and that the rest waits for the next run.
+     *
+     * An operator backfilling hundreds of chunks sizes the run to what the replica can take, and
+     * must see that the run stopped on purpose rather than finished.
+     */
+    public function testTheLimitsAreSetAndAStopIsSaid(): void
+    {
+        // Arrange
+        $this->injectApp();
+        $queue = new ScriptedQueue();
+        $queue->result = ['readings' => ['chunks' => 1, 'inserted' => 3, 'failed' => 0, 'paused' => 'the WAL budget is spent (60 MB written)']];
+        $tester = $this->testerFor(new TimescaleDrainWithScriptedQueue($queue));
+
+        // Act
+        $code = $tester->execute(['--wal-budget' => '50', '--replica-lag' => '200']);
+
+        // Assert
+        $this->assertSame(Command::SUCCESS, $code);
+        $this->assertSame([50 * 1048576, 200 * 1048576], [$queue->walBudget, $queue->replicaLagLimit]);
+        $this->assertStringContainsString('stopped: the WAL budget is spent (60 MB written); the rest waits for the next run', $tester->getDisplay());
+    }
+
+    /**
      * --status reports without writing.
      *
      * The distinction matters operationally: an operator inspecting a backlog
