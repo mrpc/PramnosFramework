@@ -2406,6 +2406,10 @@ days old, so statistics over a period read only that period. It is a console com
 migration because it is not cheaply undone, and when to run it is the installation's decision.
 Plain PostgreSQL and MySQL keep their table, and there the body store is what keeps it small.
 
+Run it as the application, with its own database role, which owns `mails`. The new table belongs
+to whoever creates it: made by a superuser, it is a table the application's role cannot read or
+write.
+
 It runs with the site up. The **conversion** takes milliseconds and touches only the catalogue:
 - `mails` is renamed `mails_legacy`;
 - a new `mails` is made like it, with the same columns, defaults and indexes. A serial `id`
