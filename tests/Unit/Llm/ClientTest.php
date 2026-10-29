@@ -337,6 +337,64 @@ class ClientTest extends LlmTestCase
     }
 
     /**
+     * An answer that passes its turn budget in tokens stops researching: the next round is the
+     * last, tools are forbidden, and the model is told to answer from what it has.
+     *
+     * Without it one answer can spend every round it is given — the cap that matters to whoever
+     * pays is what one answer costs, not how many rounds it took.
+     */
+    public function testAnAnswerOverItsTokenBudgetAnswersWithWhatItHas(): void
+    {
+        // Arrange — a model that would call tools forever; each tool round spends 24 tokens
+        $this->answer([
+            [200, self::calls([['look', []]])],
+            [200, self::calls([['look', []]])],
+            [200, self::says('What I found so far')],
+        ]);
+        $tools = ['look' => ['description' => 'Looks', 'parameters' => [], 'run' => static fn (): string => 'more']];
+
+        // Act — six rounds allowed, 30 tokens
+        $answer = (new Client(null, self::memoryLog()))->withTurnBudget(maxTokens: 30)
+            ->askWithTools('', [['role' => 'user', 'content' => 'Dig']], $tools, 6);
+
+        // Assert — 24 tokens is within it, 48 is not: the third request is the last
+        $this->assertTrue($answer['ok']);
+        $this->assertTrue($answer['over_budget']);
+        $this->assertSame('What I found so far', $answer['reply']);
+        $this->assertCount(3, $this->sent, 'stopped at the budget, not at the six rounds');
+        $last = $this->sent[2]['body'];
+        $this->assertSame('none', $last['tool_choice'], 'no more tools after the budget');
+        $this->assertSame(Client::OVER_BUDGET, end($last['messages'])['content']);
+    }
+
+    /**
+     * The budget in dollars comes from `llm.turn_budget` when the caller sets none, and an answer
+     * within its budget says so.
+     */
+    public function testTheTurnBudgetInDollarsComesFromTheConfiguration(): void
+    {
+        // Arrange — a budget no priced round fits in
+        $this->configure(['turn_budget' => ['cost' => 0.0000001]]);
+        $this->answer([
+            [200, self::calls([['look', []]])],
+            [200, self::says('Done')],
+        ]);
+        $tools = ['look' => ['description' => 'Looks', 'parameters' => [], 'run' => static fn (): string => 'more']];
+
+        // Act
+        $over  = (new Client(null, self::memoryLog()))->askWithTools('', [['role' => 'user', 'content' => 'Dig']], $tools, 6);
+        $this->configure([]);
+        $this->answer([[200, self::says('Done')]]);
+        $within = (new Client(null, self::memoryLog()))->askWithTools('', [['role' => 'user', 'content' => 'Dig']], $tools, 6);
+
+        // Assert — the first round's cost passed it, so the second was the last
+        $this->assertTrue($over['over_budget']);
+        $this->assertSame('none', $this->sent[1]['body']['tool_choice']);
+        // No budget configured: nothing stops the answer early
+        $this->assertFalse($within['over_budget']);
+    }
+
+    /**
      * Text written in a round that also calls a tool is part of the answer, in order, ahead of
      * the last round's — and the call log shows it.
      *

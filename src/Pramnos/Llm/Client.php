@@ -105,6 +105,10 @@ class Client
     /** Put under an answer still cut off after asking for the rest. */
     public const CUT_OFF = 'The answer was cut off at the model\'s length limit; raise the token budget in the AI settings for longer answers.';
 
+    /** Said before the last round of an answer that has spent its turn budget ({@see withTurnBudget()}). */
+    public const OVER_BUDGET = 'This answer has used the budget it had. Answer now from what you have: say what you found, '
+        . 'what is left undone, and offer to go on from there.';
+
     private Connection $connection;
 
     /** @var array<string, mixed> What the call is for, and who it is for */
@@ -124,6 +128,9 @@ class Client
 
     /** What an answer cut off and continued has said already: the streamed text goes on from it. */
     private string $shown = '';
+
+    /** @var array{cost: ?float, tokens: ?int}|null What one answer may spend; null reads `llm.turn_budget` */
+    private ?array $turnBudget = null;
 
     public function __construct(?Connection $connection = null, private readonly ?CallLog $log = null)
     {
@@ -155,6 +162,20 @@ class Client
     public function onText(?callable $listener): static
     {
         $this->onText = $listener;
+
+        return $this;
+    }
+
+    /**
+     * What one answer may spend over all its rounds, in dollars and in tokens (prompt and output
+     * together). Once either is passed, the next round is the last: no more tools, and the model
+     * is told ({@see OVER_BUDGET}) to answer from what it has and say what is left. Without this,
+     * `'llm' => ['turn_budget' => ['cost' => …, 'tokens' => …]]`; with neither, no cap but the
+     * rounds.
+     */
+    public function withTurnBudget(?float $maxCost = null, ?int $maxTokens = null): static
+    {
+        $this->turnBudget = ['cost' => $maxCost, 'tokens' => $maxTokens];
 
         return $this;
     }
@@ -320,6 +341,8 @@ class Client
         $said     = [];
         // An answer cut off at the length limit, asked to go on: the parts so far.
         $parts    = [];
+        // Whether the answer has spent its turn budget: its next round is the last.
+        $over     = false;
 
         for ($round = 1; $round <= $rounds; $round++) {
             $payload['messages'] = array_merge([['role' => 'system', 'content' => $systemPrompt]], $messages);
@@ -331,6 +354,9 @@ class Client
              */
             if ($tools !== [] && $round === $rounds && $round > 1) {
                 $payload['messages'][] = ['role' => 'system', 'content' => self::LAST_ROUND];
+                if ($over) {
+                    $payload['messages'][] = ['role' => 'system', 'content' => self::OVER_BUDGET];
+                }
             }
 
             if ($tools !== []) {
@@ -440,6 +466,11 @@ class Client
                     ];
                 }
 
+                // Over its budget: one more round, to answer with what it has.
+                if (!$over && $round < $rounds - 1 && $this->overBudget($usage, $cost)) {
+                    [$over, $rounds] = [true, $round + 1];
+                }
+
                 // Near the window: the answer goes on, without the oldest of its own results.
                 $window = (int) ($this->connection->config()['context_window'] ?? 0);
                 if ($window > 0 && $seen > $window * self::ROOM) {
@@ -496,7 +527,8 @@ class Client
 
             $answer = implode("\n\n", [...$said, $reply]);
 
-            $correction = $verify !== null && !$verified && $tools !== [] ? $verify($answer, $calls) : null;
+            // Over budget, the answer stands as it is: correcting it would spend more.
+            $correction = $verify !== null && !$verified && !$over && $tools !== [] ? $verify($answer, $calls) : null;
 
             if ($correction !== null) {
                 $verified   = true;
@@ -528,6 +560,8 @@ class Client
                 'finish'   => $finish,
                 // Still cut off after asking for the rest: the answer says so too.
                 'truncated' => $truncated,
+                // Stopped researching at the turn budget.
+                'over_budget' => $over,
                 'tags'     => $this->tags(),
                 'provider' => $this->connection->provider(),
             ];
@@ -535,6 +569,20 @@ class Client
 
         // Only a model that ignored `tool_choice: none` on the last round gets here.
         return ['usage' => $usage, 'calls' => $calls] + $this->refusal('The model kept asking for tools and never answered.');
+    }
+
+    /**
+     * Whether what an answer has spent so far passes its turn budget.
+     *
+     * @param array<string, int|float> $usage Summed over the rounds
+     */
+    private function overBudget(array $usage, float $cost): bool
+    {
+        $budget = $this->turnBudget ?? (array) Llm::config('turn_budget', []);
+        $tokens = (int) ($usage['total_tokens'] ?? ((int) ($usage['prompt_tokens'] ?? 0) + (int) ($usage['completion_tokens'] ?? 0)));
+
+        return (($budget['cost'] ?? null) !== null && $cost > (float) $budget['cost'])
+            || (($budget['tokens'] ?? null) !== null && $tokens > (int) $budget['tokens']);
     }
 
     /**

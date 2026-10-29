@@ -118,6 +118,28 @@ parts. Still cut off after that, the answer is kept with a line under it saying 
 with `truncated: true` — a scheduled report is never emailed stopping mid-sentence as though it
 were whole. Raise the budget in the AI settings for longer answers.
 
+### What one answer may spend
+
+The rounds (`askWithTools(..., $rounds)`) cap how many times a model may call tools; a turn budget
+caps what one answer costs over all of them, in dollars and in tokens (prompt and output together):
+
+```php
+$client->withTurnBudget(maxCost: 0.10, maxTokens: 200_000)->askWithTools(...);
+
+// or for every answer, in app/app.php
+'llm' => ['turn_budget' => ['cost' => 0.10, 'tokens' => 200_000]],
+```
+
+Once either is passed, the next round is the last: no more tools, and the model is told
+(`Client::OVER_BUDGET`) to answer from what it has, say what is left undone and offer to go on.
+The answer comes back with `over_budget: true`. An answer over its budget is not sent back for
+correction by `$verify`, since that would spend more. With neither set there is no cap but the
+rounds.
+
+Set the token figure from what an answer costs today, not from a round number: every round sends
+the whole conversation again, so an answer of six rounds over a 25,000-token prompt spends
+150,000 tokens before its output.
+
 ## Providers and connections
 
 Four are built in, all through the OpenAI-compatible `/chat/completions`: `openai`, `deepseek`,
