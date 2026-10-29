@@ -57,24 +57,23 @@ services:
       - MARIADB_DATABASE=pramnos_test
 
   timescaledb:
-    # Pinned to the oldest TimescaleDB the framework claims to support, not `latest`.
+    # Pinned to a version, not `latest`: the version production runs, TimescaleDB 2.31.0 on
+    # PostgreSQL 18. `latest` moves on its own, and a suite that changes under nobody's
+    # decision cannot say which version it passed on.
     #
-    # `latest` is always at least as new as any real host, so development could not be
-    # behind production and therefore could not reproduce it: three framework migrations
-    # failed permanently on a production host with `invalid continuous aggregate view`
-    # while every run of this suite passed. A continuous aggregate containing
-    # `percentile_cont(…)` or `COUNT(DISTINCT …)` is accepted by 2.30.0 and refused by
-    # 2.26.4 — and 2.26.4 is the newest package installable on Debian 11 with PostgreSQL
-    # 17, because Timescale stopped building for bullseye.
+    # The trade-off, chosen knowingly: a host still on an older TimescaleDB is no longer what the
+    # suite runs on. A continuous aggregate with `percentile_cont(…)` or `COUNT(DISTINCT …)` is
+    # accepted by 2.30+ and refused by 2.26.4 — the newest package for Debian 11 with
+    # PostgreSQL 17 — so a migration of that shape passes here and can still fail there. Such a
+    # migration is checked against that host before it ships.
     #
-    # pg17 rather than pg14 because 2.26.4 is not built for 14 at all; the registry
-    # answers `manifest unknown`. This service keeps no volume, so the major-version
-    # change costs nothing — the suite migrates it from empty on every recreate.
+    # This service keeps no volume, so a major-version change costs nothing — the suite
+    # migrates it from empty on every recreate.
     #
     # Built on that pinned image with one addition, mysql_fdw, made available (never created)
     # for `db:migrate-from-mysql --transport=fdw` and its tests. See docker/timescaledb.
     build: ./docker/timescaledb
-    image: pramnos/timescaledb-fdw:2.26.4-pg17
+    image: pramnos/timescaledb-fdw:2.31.0-pg18
     container_name: pramnos_timescaledb
     # No background workers, and this is the framework's own container only — the
     # docker-compose `init` scaffolds for an application does not carry this line and

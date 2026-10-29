@@ -863,7 +863,8 @@ read-only once generated, so it belongs in `setUpBeforeClass()` like any other.
 ## The PostgreSQL service carries `mysql_fdw`
 
 The `timescaledb` service is built from `docker/timescaledb/Dockerfile`: the pinned
-`timescale/timescaledb:2.26.4-pg17` with `mysql_fdw` compiled in, for the tests of
+`timescale/timescaledb:2.31.0-pg18` (the version production runs) with `mysql_fdw` compiled in,
+for the tests of
 `db:migrate-from-mysql --transport=fdw`. The extension is only made available; a test that wants
 it creates it in a database of its own. After pulling a change to that Dockerfile, rebuild once:
 

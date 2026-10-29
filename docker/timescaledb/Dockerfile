@@ -1,11 +1,11 @@
 # The framework's TimescaleDB, with mysql_fdw available for `db:migrate-from-mysql --transport=fdw`.
 #
-# The same pinned image the suite has always run on (see docker-compose.yml for why 2.26.4),
+# The pinned image the suite runs on (see docker-compose.yml for which version, and why),
 # plus one extension, built from source: it is not packaged for Alpine. It is only made
 # available; nothing creates it unless a test or the command asks for it.
-FROM timescale/timescaledb:2.26.4-pg17
+FROM timescale/timescaledb:2.31.0-pg18
 
-ARG MYSQL_FDW_VERSION=REL-2_9_2
+ARG MYSQL_FDW_VERSION=REL-2_9_3
 
 # The test MySQL's certificate is self-signed, and MariaDB's connector verifies by default. For
 # this image only — the framework's tests — not for a server that moves real data.
