@@ -782,6 +782,10 @@ uncompressed for ever.
 | An import (`bulk()`, or past 1,000 late rows in one process) | queued | queued |
 | A compressed chunk at drain time | decompressed, written, compressed back | written directly, unless most of it is rewritten anyway |
 
+TimescaleDB before 2.31 is still supported, and its column is how the queue behaves there. It
+will stop being officially supported in a future release
+([Upgrade Guide](Pramnos_Upgrade_Guide.md#planned-not-yet-in-effect)).
+
 The 2.31 column comes from measurements on TimescaleDB 2.31.0 with PostgreSQL 18. On a 554 MB
 chunk, one late row written directly cost 20–40 kB of WAL, where decompressing and compressing
 the chunk cost 1.3 GB whatever the number of rows. A million new rows cost 0.45 GB written

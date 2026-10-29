@@ -530,6 +530,13 @@ tracking `dev-main` sees it coming rather than after it happens:
   *further future* major version removes them. An application registering one of these three in
   `app.php`'s `addons` list has no action to take now, and the addon-loading mechanism they use
   (`Addon::load()`) is not itself deprecated or going anywhere.
+- **TimescaleDB before 2.31 will no longer be officially supported** in a future release. Today
+  the framework still supports 2.26.4 and later, and on those versions works as it always has.
+  The one place behaviour differs by version is `DeferredWriteQueue`, which writes late rows
+  differently from 2.31 on ([Hypertable Guide](Pramnos_Hypertable_Guide.md#writing-late-data-into-a-compressed-table)).
+  The framework's own suite runs on TimescaleDB 2.31 with PostgreSQL 18, so the older path is
+  covered by unit tests only. A host still below 2.31 plans its upgrade before that release, or
+  pins the last tagged release that supports it.
 
 | Area | Change | Action required |
 |---|---|---|
