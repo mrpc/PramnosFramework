@@ -184,6 +184,32 @@ class ConnectionLossDuringExecuteTest extends DatabaseTestCase
     }
 
     /**
+     * After a lost connection, reads and writes are still one session: a SELECT inside a
+     * transaction sees the row that transaction just wrote.
+     *
+     * Without a read/write split the two roles share one link. When that link died, each role
+     * reconnected on its own — the write for the INSERT, the read for the next SELECT — and from
+     * then on they were two sessions for the rest of the process. A long-running worker then read
+     * outside its own transactions, and on PostgreSQL `getInsertId()`'s `currval()` ran in a
+     * session that never used the sequence: «currval … is not yet defined in this session», a
+     * scheduler's run log failing after the server restarted.
+     */
+    public function testReadsAndWritesAreOneSessionAfterAReconnect(): void
+    {
+        // Arrange — the shared link dies
+        $this->killFromOutside($this->connectionIdentity());
+
+        // Act — a write reconnects first, then a read inside the same transaction
+        $this->db->startTransaction();
+        $this->db->query("INSERT INTO reconnect_probe (id, label) VALUES (9, 'inside')");
+        $seen = (int) $this->db->query('SELECT COUNT(*) AS n FROM reconnect_probe WHERE id = 9')->fields['n'];
+        $this->db->rollbackTransaction();
+
+        // Assert
+        $this->assertSame(1, $seen, 'the read ran in another session, outside the transaction');
+    }
+
+    /**
      * A write is retried too, and lands exactly once.
      *
      * The half of a retry that has to be got right: re-running a statement whose result was never

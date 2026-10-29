@@ -1420,7 +1420,12 @@ without disturbing the other one.
   is down is an outage, not a promotion. Put a proxy, a managed service or a virtual IP in
   front and point the framework at that.
 - **No block means no split.** With neither `read` nor `write` present the framework uses
-  the single top-level connection.
+  the single top-level connection, for reads and writes alike. After a lost connection it
+  reconnects that one connection for both roles, so reads stay in the session of the writes:
+  inside the writes' transactions, and seeing what they just wrote.
+- **The id of a row just inserted is read on the write link.** `getInsertId()` asks
+  PostgreSQL's `currval()` in the session that ran the INSERT. With a split, the read link
+  is another server, where the sequence was never used.
 
 On PostgreSQL, `DatabaseInspector::getReplicationStatus()` reports `pg_stat_replication` —
 client address, state, sync state and lag in seconds — and the DevPanel's database page

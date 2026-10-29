@@ -506,7 +506,20 @@ class Database extends \Pramnos\Framework\Base
             $stale = pg_connection_status($link) !== PGSQL_CONNECTION_OK;
         }
 
-        if ($stale) {
+        if ($stale && empty($this->readConfig) && empty($this->writeConfig)) {
+            /*
+             * One link for both roles, as connect() made it — reconnected once, and shared again.
+             *
+             * Reconnecting only the role being asked for split them: the write reconnected for an
+             * INSERT, the read for the next SELECT, and from then on they were two sessions for the
+             * rest of the process. A long-running worker read outside its own transactions, and
+             * PostgreSQL's currval() in getInsertId() ran in a session that never used the
+             * sequence — «currval … is not yet defined in this session» after a server restart.
+             */
+            $this->connectToReplica('write');
+            $this->_readConnection = $this->_writeConnection;
+            unset($this->connectionLost['read']);
+        } elseif ($stale) {
             $this->connectToReplica($role);
         }
 
@@ -2983,12 +2996,24 @@ class Database extends \Pramnos\Framework\Base
              * tracking row or a redirect to a row that is not the one it wrote.
              */
             $sequence = $this->insertSequence((string) $this->currentQuery);
-            $result   = $this->query($sequence !== null
+            $sql      = $sequence !== null
                 ? "SELECT currval('" . str_replace("'", "''", $sequence) . "') AS lastval"
-                : 'SELECT LASTVAL()');
-            if ($result) {
-                return $result->fields['lastval'];
+                : 'SELECT LASTVAL() AS lastval';
+            /*
+             * On the write link, where the INSERT ran: query() sends a SELECT to the read link, and
+             * with a read/write split that is another server, whose session never used the sequence.
+             * Not retried on a lost connection either — a new session could not answer it.
+             */
+            $answer = @\pg_query($this->getConnection(true), $sql);
+            if ($answer !== false) {
+                $row = \pg_fetch_assoc($answer);
+
+                // An integer, as query() typed it.
+                return $row === false || $row['lastval'] === null ? false : (int) $row['lastval'];
             }
+            // Raised as query() raises it: a failure here is not an id of false.
+            $this->currentQuery = $sql;
+            $this->setError(0, (string) @\pg_last_error($this->getConnection(true)), false);
         }
 
         return false;
