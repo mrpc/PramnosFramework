@@ -341,6 +341,167 @@ class DatabaseInspector
         }
     }
 
+    /** The orderings {@see getStatementStats()} accepts, by the column each one sorts on. */
+    public const STATEMENT_SORTS = [
+        'total' => 's.total_exec_time',
+        'calls' => 's.calls',
+        'mean'  => 's.mean_exec_time',
+        'rows'  => 's.rows',
+        'read'  => 's.shared_blks_read',
+        'wal'   => 's.wal_bytes',
+    ];
+
+    /**
+     * Everything `pg_stat_statements` can say about the load on this server, in one answer.
+     *
+     * `installed` and `loaded` are two separate facts because they fail separately: the
+     * extension can exist in the database while the library is missing from
+     * `shared_preload_libraries` (every read then errors), or be loaded with no
+     * `CREATE EXTENSION` (nothing to read). `reads_all` is whether this role has
+     * `pg_read_all_stats`: without it the counters of other roles are still there, but their
+     * statement text is `<insufficient privilege>`, and the screen has to say so rather than
+     * look like a server that runs one user's queries.
+     *
+     * `applications` comes from `pg_stat_activity`, not from the extension — which keeps no
+     * `application_name` — so it is answered even when the extension is absent. It is a live
+     * count of connections, not history.
+     *
+     * The summary and the per-role split read `pg_stat_statements(false)`, which skips loading
+     * the query-text file; only the top-N list pays for the text.
+     *
+     * Row keys — rows: datname, usename, calls, total_ms, mean_ms, rows, shared_blks_hit,
+     * shared_blks_read, hit_pct, wal_bytes, query. summary: statements, calls, total_ms, rows,
+     * wal_bytes, dealloc, stats_reset, since_sec. by_role: datname, usename, calls, total_ms,
+     * wal_bytes. applications: application_name, usename, datname, connections, active,
+     * idle_in_tx.
+     *
+     * @param string $sort  A key of {@see STATEMENT_SORTS}; anything else sorts by total time
+     * @return array{installed: bool, loaded: bool, reads_all: bool, error: string,
+     *     summary: array<string, mixed>, by_role: array<int, array<string, mixed>>,
+     *     rows: array<int, array<string, mixed>>, applications: array<int, array<string, mixed>>}
+     */
+    public function getStatementStats(string $sort = 'total', int $limit = 25): array
+    {
+        $answer = ['installed' => false, 'loaded' => false, 'reads_all' => false, 'error' => '',
+            'summary' => [], 'by_role' => [], 'rows' => [], 'applications' => []];
+
+        if ($this->db->type !== 'postgresql') {
+            return $answer;
+        }
+
+        // Catalogue and extension views: nothing here the query builder can express.
+        try {
+            $state = $this->db->query(
+                "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements')
+                            AS installed,
+                        current_setting('shared_preload_libraries') AS preload,
+                        pg_has_role(current_user, 'pg_read_all_stats', 'USAGE') AS reads_all"
+            );
+            $state = $state ? $state->fetch() : null;
+
+            if ($state) {
+                $answer['installed'] = in_array($state['installed'], [true, 't', 1, '1'], true);
+                $answer['reads_all'] = in_array($state['reads_all'], [true, 't', 1, '1'], true);
+                $answer['loaded']    = in_array(
+                    'pg_stat_statements',
+                    array_map('trim', explode(',', (string) $state['preload'])),
+                    true
+                );
+            }
+
+            $applications = $this->db->query(
+                "SELECT COALESCE(NULLIF(application_name, ''), '(none)') AS application_name,
+                        usename, datname, count(*) AS connections,
+                        count(*) FILTER (WHERE state = 'active') AS active,
+                        count(*) FILTER (WHERE state IN ('idle in transaction',
+                            'idle in transaction (aborted)')) AS idle_in_tx
+                 FROM pg_stat_activity
+                 WHERE backend_type = 'client backend'
+                 GROUP BY 1, 2, 3
+                 ORDER BY connections DESC
+                 LIMIT 30"
+            );
+            $answer['applications'] = ($applications && $applications->numRows > 0)
+                ? $applications->fetchAll() : [];
+        } catch (\Exception $e) {
+            $answer['error'] = $e->getMessage();
+            return $answer;
+        }
+
+        if (!$answer['installed'] || !$answer['loaded']) {
+            return $answer;
+        }
+
+        $order = self::STATEMENT_SORTS[$sort] ?? self::STATEMENT_SORTS['total'];
+        $limit = max(1, min(100, $limit));
+
+        try {
+            $summary = $this->db->query(
+                "SELECT count(*) AS statements, sum(s.calls) AS calls,
+                        ROUND(sum(s.total_exec_time)::numeric, 1) AS total_ms,
+                        sum(s.rows) AS rows, sum(s.wal_bytes) AS wal_bytes,
+                        i.dealloc,
+                        to_char(i.stats_reset, 'YYYY-MM-DD HH24:MI:SS') AS stats_reset,
+                        EXTRACT(EPOCH FROM (now() - i.stats_reset))::bigint AS since_sec
+                 FROM pg_stat_statements(false) s, pg_stat_statements_info i
+                 GROUP BY i.dealloc, i.stats_reset"
+            );
+            $answer['summary'] = ($summary && $summary->numRows > 0) ? $summary->fetch() : [];
+
+            $byRole = $this->db->query(
+                "SELECT d.datname, r.rolname AS usename, sum(s.calls) AS calls,
+                        ROUND(sum(s.total_exec_time)::numeric, 1) AS total_ms,
+                        sum(s.wal_bytes) AS wal_bytes
+                 FROM pg_stat_statements(false) s
+                 LEFT JOIN pg_database d ON d.oid = s.dbid
+                 LEFT JOIN pg_roles r ON r.oid = s.userid
+                 GROUP BY d.datname, r.rolname
+                 ORDER BY calls DESC
+                 LIMIT 20"
+            );
+            $answer['by_role'] = ($byRole && $byRole->numRows > 0) ? $byRole->fetchAll() : [];
+
+            $rows = $this->db->query(
+                "SELECT d.datname, r.rolname AS usename, s.calls,
+                        ROUND(s.total_exec_time::numeric, 1) AS total_ms,
+                        ROUND(s.mean_exec_time::numeric, 2) AS mean_ms,
+                        s.rows, s.shared_blks_hit, s.shared_blks_read,
+                        ROUND(100.0 * s.shared_blks_hit
+                            / NULLIF(s.shared_blks_hit + s.shared_blks_read, 0), 1) AS hit_pct,
+                        s.wal_bytes, left(s.query, 300) AS query
+                 FROM pg_stat_statements s
+                 LEFT JOIN pg_database d ON d.oid = s.dbid
+                 LEFT JOIN pg_roles r ON r.oid = s.userid
+                 ORDER BY {$order} DESC NULLS LAST
+                 LIMIT {$limit}"
+            );
+            $answer['rows'] = ($rows && $rows->numRows > 0) ? $rows->fetchAll() : [];
+        } catch (\Exception $e) {
+            $answer['error'] = $e->getMessage();
+        }
+
+        return $answer;
+    }
+
+    /**
+     * Start `pg_stat_statements` counting again from zero, for every database on the server.
+     *
+     * By default only a superuser may — the extension revokes the function from everybody
+     * else — so a refusal is an answer, not an exception.
+     */
+    public function resetStatementStats(): bool
+    {
+        if ($this->db->type !== 'postgresql') {
+            return false;
+        }
+
+        try {
+            return (bool) $this->db->query('SELECT pg_stat_statements_reset()');
+        } catch (\Exception) {
+            return false;
+        }
+    }
+
     /**
      * Returns view definitions from the public schema (PostgreSQL only).
      *

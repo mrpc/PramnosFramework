@@ -432,7 +432,7 @@ tables, views, TimescaleDB — and then the three this tab adds.
 | TimescaleDB | hypertables, chunks, compression, jobs, aggregates, **and the job error history** |
 | Indexes nothing uses | which indexes cost a write on every insert and buy nothing |
 | Read the hard way | which tables are scanned sequentially, and how many rows that costs |
-| Slowest statements | what the database actually spends its time on |
+| Statements | queries per second since the last reset, per database and role, the top statements, and who is connected now per application |
 
 All of it comes from the shared `DatabaseInspector`, the same one the administration screen
 uses, so the two screens cannot disagree about a table's size.
@@ -463,14 +463,40 @@ running for hours, and a column that cries wolf is a column nobody reads.
 scanned — they are there to make a duplicate impossible — so listing them as dead weight is
 telling somebody to drop the thing holding their data together.
 
-**The slowest are ordered by total time, not by mean.** A query taking two milliseconds four
-million times is the one to fix, and it never appears in a list ordered by mean.
+**Statements** come from `pg_stat_statements`, which keeps counters across the whole server
+from its last reset, and answers four questions:
 
-`pg_stat_statements` is an extension and is usually absent, so the panel says *not installed*
-rather than showing an empty table: that is a different fact from "no slow queries", and one
-screen for both tells somebody their database is fine when it has never been asked. Installed
-but unreadable — the usual state for an application role without `pg_read_all_stats` — says
-that instead, because it is fixable.
+- **How much.** Calls, execution time, WAL written and calls per second since
+  `stats_reset` (from `pg_stat_statements_info`). A non-zero *evicted* count means
+  `pg_stat_statements.max` is too small for the number of distinct statements, so the oldest
+  statements are being dropped.
+- **Whose.** Calls, calls per second, time and WAL per database and role.
+- **Which.** The top 25 statements with calls, total and mean time, rows, the shared-buffer
+  hit ratio and WAL bytes. Click a column header to sort by it (`?statements_sort=total`,
+  `calls`, `mean`, `rows`, `read`, `wal`). Sorting by *Hit %* puts first the statements that
+  read the most blocks from disk. The list is ordered by total time unless another column is
+  chosen: a query taking two milliseconds four million times is the one to fix, and a list
+  ordered by mean never shows it.
+- **Who, right now.** Connections per `application_name`, role and database, and how many of
+  them are active or idle in a transaction. This comes from `pg_stat_activity`, because
+  `pg_stat_statements` does not record `application_name`. It is a live count, not history.
+
+**Reset statistics** calls `pg_stat_statements_reset()` after a confirmation and a CSRF check.
+It zeroes the counters for every database on the server. By default only a superuser may run
+it, and a refusal is shown on the page.
+
+The page names the reason when the extension is missing, because each reason is fixed
+somewhere else:
+
+| What the page says | Fix |
+| --- | --- |
+| not loaded | add `pg_stat_statements` to `shared_preload_libraries` (beside `timescaledb`) and restart the server |
+| loaded but not created | `CREATE EXTENSION pg_stat_statements;` in the database |
+| no `pg_read_all_stats` | `GRANT pg_read_all_stats TO <role>;` (or `pg_monitor`). Without it the counters still include every role, but other roles' statement text reads `<insufficient privilege>`, and their connections never count as active |
+
+The summary and the per-role split read `pg_stat_statements(false)`, which skips the
+query-text file. Only the top list loads statement text, and it is limited to 25 rows. On MySQL
+the section is not shown.
 
 **TimescaleDB chunks are not listed as tables.** A hypertable's storage lives in
 `_timescaledb_internal` as one table per chunk — `_hyper_7_15_chunk` and forty like it — and

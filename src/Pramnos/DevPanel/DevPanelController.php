@@ -228,6 +228,10 @@ class DevPanelController extends Controller
             $this->handleProcessKill((int) ($_POST['pid'] ?? 0));
         }
 
+        if (($_POST['action'] ?? '') === 'statements_reset') {
+            $this->handleStatementsReset();
+        }
+
         $this->renderLayout('db', $this->renderDb());
         return null;
     }
@@ -1051,6 +1055,13 @@ class DevPanelController extends Controller
                     setTimeout(function () { b.textContent = t; }, 1200);
                 });
             });
+            // Kill and reset ask first; an inline onsubmit would be refused by the CSP.
+            document.addEventListener('submit', function (e) {
+                var b = e.target.querySelector('[data-confirm]');
+                if (b && !e.target.hasAttribute('data-cache-flush') && !window.confirm(b.dataset.confirm)) {
+                    e.preventDefault();
+                }
+            });
             </script>
         HTML;
     }
@@ -1216,7 +1227,18 @@ class DevPanelController extends Controller
         HTML;
     }
 
-    /** What the database spends its time on, when `pg_stat_statements` lets it say. */
+    /**
+     * What the database spends its time on, when `pg_stat_statements` lets it say.
+     *
+     * Four answers, because the questions about load are four: how much since the counters
+     * started (calls per second), whose (per database and role), which statements (sortable by
+     * time, calls, mean, rows, disk reads or WAL), and who is connected right now — the last
+     * from `pg_stat_activity`, since the extension keeps no `application_name`.
+     *
+     * Each way the extension can be missing gets its own sentence: not loaded, loaded and not
+     * created, and readable only for this role's own statements. They are fixed in three
+     * different places, and "no data" for all three sends somebody to the wrong one.
+     */
     private function renderDbStatements(
         \Pramnos\Database\Inspector\DatabaseInspector $inspector,
         bool $isPostgres
@@ -1225,44 +1247,171 @@ class DevPanelController extends Controller
             return '';
         }
 
-        $statements = $inspector->getSlowStatements();
+        $esc   = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+        $num   = static fn ($v): string => number_format((float) ($v ?? 0));
+        $sort  = (string) ($_GET['statements_sort'] ?? 'total');
+        $sort  = isset(\Pramnos\Database\Inspector\DatabaseInspector::STATEMENT_SORTS[$sort])
+            ? $sort : 'total';
+        $stats = $inspector->getStatementStats($sort);
+        $html  = '<h3 style="margin-top:1.5rem" id="statements">Statements</h3>'
+            . ($this->statementsReset !== '' ? $this->alert($this->statementsReset, 'warning') : '');
 
-        if (!$statements['available']) {
-            return '<h3 style="margin-top:1.5rem">Slowest statements</h3><p class="hint">'
-                . '<code>pg_stat_statements</code> is not installed. It is the one extension '
-                . 'worth adding to a database you are developing against — without it, "what is '
-                . 'slow" is a guess. <code>CREATE EXTENSION pg_stat_statements;</code> and add it '
-                . 'to <code>shared_preload_libraries</code>.</p>';
+        if ($stats['error'] !== '') {
+            $html .= '<p class="hint">pg_stat_statements could not be read: '
+                . $esc($stats['error']) . '</p>';
+        } elseif (!$stats['loaded']) {
+            $html .= '<p class="hint"><code>pg_stat_statements</code> is not loaded. Add it to '
+                . '<code>shared_preload_libraries</code> in postgresql.conf (beside '
+                . '<code>timescaledb</code>, if that is there), restart the server, then '
+                . '<code>CREATE EXTENSION pg_stat_statements;</code> in this database. Without '
+                . 'it, "what is slow" and "how many queries a second" are guesses.</p>';
+        } elseif (!$stats['installed']) {
+            $html .= '<p class="hint"><code>pg_stat_statements</code> is loaded but not '
+                . 'created in this database: <code>CREATE EXTENSION pg_stat_statements;</code>'
+                . '</p>';
+        } else {
+            $html .= $this->renderStatementTotals($stats, $sort, $esc, $num);
         }
 
-        $esc  = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+        return $html . $this->renderConnectedApplications($stats['applications'], $esc, $num);
+    }
+
+    /**
+     * The summary, the split by database and role, and the top statements.
+     *
+     * @param array<string, mixed> $stats {@see \Pramnos\Database\Inspector\DatabaseInspector::getStatementStats()}
+     */
+    private function renderStatementTotals(array $stats, string $sort, \Closure $esc, \Closure $num): string
+    {
+        $summary = $stats['summary'];
+        $since   = (int) ($summary['since_sec'] ?? 0);
+        $calls   = (float) ($summary['calls'] ?? 0);
+        $html    = '';
+
+        if (!$stats['reads_all']) {
+            $html .= $this->alert('This role has no pg_read_all_stats (or pg_monitor): the '
+                . 'counters below include every role, but the text of other roles\' statements '
+                . 'reads <insufficient privilege>. GRANT pg_read_all_stats TO <role>; to see them.',
+                'warning');
+        }
+
+        $facts = [
+            'Since'            => $esc($summary['stats_reset'] ?? '—'),
+            'Calls'            => $num($calls),
+            'Calls / second'   => $since > 0 ? number_format($calls / $since, 1) : '—',
+            'Execution time'   => $num($summary['total_ms'] ?? 0) . ' ms',
+            'WAL written'      => $this->humanBytes((int) ($summary['wal_bytes'] ?? 0)),
+            'Statements kept'  => $num($summary['statements'] ?? 0)
+                . ((int) ($summary['dealloc'] ?? 0) > 0
+                    ? ' <span class="badge warn">' . $num($summary['dealloc']) . ' evicted — '
+                        . 'raise pg_stat_statements.max</span>'
+                    : ''),
+        ];
+        $cells = '';
+
+        foreach ($facts as $label => $value) {
+            $cells .= '<tr><th>' . $esc($label) . '</th><td>' . $value . '</td></tr>';
+        }
+
+        $roles = '';
+
+        foreach ($stats['by_role'] as $row) {
+            $roles .= '<tr><td>' . $esc($row['datname'] ?? '—') . '</td><td>'
+                . $esc($row['usename'] ?? '—') . '</td><td class="num">' . $num($row['calls'])
+                . '</td><td class="num">' . ($since > 0
+                    ? number_format((float) $row['calls'] / $since, 1) : '—')
+                . '</td><td class="num">' . $num($row['total_ms']) . '</td><td class="num">'
+                . $this->humanBytes((int) ($row['wal_bytes'] ?? 0)) . '</td></tr>';
+        }
+
+        $labels = ['total' => 'Total ms', 'calls' => 'Calls', 'mean' => 'Mean ms',
+            'rows' => 'Rows', 'read' => 'Hit %', 'wal' => 'WAL'];
+        $head = '';
+
+        foreach ($labels as $key => $label) {
+            $head .= '<th class="num">' . ($key === $sort ? $esc($label) . ' ▾'
+                : '<a href="?statements_sort=' . $key . '#statements">' . $esc($label) . '</a>')
+                . '</th>';
+        }
+
         $rows = '';
 
-        foreach ($statements['rows'] as $statement) {
-            $rows .= '<tr><td class="num">' . number_format((int) ($statement['calls'] ?? 0))
-                . '</td><td class="num">' . $esc($statement['total_ms'] ?? '')
-                . '</td><td class="num">' . $esc($statement['mean_ms'] ?? '')
-                . '</td><td><code>' . $esc(mb_substr((string) ($statement['query'] ?? ''), 0, 300))
-                . '</code></td></tr>';
+        foreach ($stats['rows'] as $row) {
+            $query = (string) ($row['query'] ?? '');
+            $rows .= '<tr><td class="num">' . $num($row['total_ms'] ?? 0) . '</td>'
+                . '<td class="num">' . $num($row['calls'] ?? 0) . '</td>'
+                . '<td class="num">' . $esc($row['mean_ms'] ?? '') . '</td>'
+                . '<td class="num">' . $num($row['rows'] ?? 0) . '</td>'
+                . '<td class="num" title="' . $num($row['shared_blks_read'] ?? 0)
+                    . ' blocks read from disk">' . $esc($row['hit_pct'] ?? '—') . '</td>'
+                . '<td class="num">' . $this->humanBytes((int) ($row['wal_bytes'] ?? 0)) . '</td>'
+                . '<td>' . $esc(($row['usename'] ?? '—') . ' @ ' . ($row['datname'] ?? '—'))
+                . '</td><td class="query"><button type="button" class="btn-small" data-copy="'
+                . $esc($query) . '">Copy</button> <code>' . $esc($query) . '</code></td></tr>';
         }
 
         if ($rows === '') {
-            $rows = '<tr><td colspan="4" class="empty">The extension is installed and this '
-                . 'connection cannot read it — it needs <code>pg_read_all_stats</code>.</td></tr>';
+            $rows = '<tr><td colspan="8" class="empty">Nothing recorded since the last reset.</td></tr>';
         }
 
-        return <<<HTML
-            <h3 style="margin-top:1.5rem">Slowest statements</h3>
-            <p class="hint">By total time, not by mean: a query taking two milliseconds four
-            million times is the one to fix.</p>
+        $csrf = \Pramnos\Http\Middleware\CsrfMiddleware::tokenField();
+
+        return $html . <<<HTML
+            <table class="data-table">{$cells}</table>
+            <form method="POST" style="margin:.5rem 0">
+                <input type="hidden" name="action" value="statements_reset">{$csrf}
+                <button type="submit" class="btn-danger" data-confirm="Reset pg_stat_statements for every database on this server? The counters start again from zero.">Reset statistics</button>
+            </form>
+            <h4>By database and role</h4>
             <table class="data-table">
-                <thead><tr><th class="num">Calls</th><th class="num">Total ms</th>
-                <th class="num">Mean ms</th><th>Statement</th></tr></thead>
+                <thead><tr><th>Database</th><th>Role</th><th class="num">Calls</th>
+                <th class="num">Calls / s</th><th class="num">Total ms</th><th class="num">WAL</th></tr></thead>
+                <tbody>{$roles}</tbody>
+            </table>
+            <h4>Top statements</h4>
+            <p class="hint">By total time unless another column is chosen: a query taking two
+            milliseconds four million times is the one to fix. Hit % is the shared-buffer cache
+            hit ratio; sorting on it lists the statements reading most blocks from disk.</p>
+            <table class="data-table">
+                <thead><tr>{$head}<th>Role @ database</th><th>Statement</th></tr></thead>
                 <tbody>{$rows}</tbody>
             </table>
         HTML;
     }
 
+    /**
+     * Who is connected right now, per application — what the statement counters cannot say.
+     *
+     * @param array<int, array<string, mixed>> $applications
+     */
+    private function renderConnectedApplications(array $applications, \Closure $esc, \Closure $num): string
+    {
+        $rows = '';
+
+        foreach ($applications as $row) {
+            $rows .= '<tr><td>' . $esc($row['application_name'] ?? '—') . '</td><td>'
+                . $esc(($row['usename'] ?? '—') . ' @ ' . ($row['datname'] ?? '—'))
+                . '</td><td class="num">' . $num($row['connections'] ?? 0)
+                . '</td><td class="num">' . $num($row['active'] ?? 0)
+                . '</td><td class="num">' . $num($row['idle_in_tx'] ?? 0) . '</td></tr>';
+        }
+
+        if ($rows === '') {
+            return '';
+        }
+
+        return <<<HTML
+            <h4>Connected now, by application</h4>
+            <p class="hint">Live, from pg_stat_activity, across the server. Without
+            pg_read_all_stats the state of other roles' connections is hidden, so they count as
+            connected but never as active.</p>
+            <table class="data-table">
+                <thead><tr><th>Application</th><th>Role @ database</th><th class="num">Connections</th>
+                <th class="num">Active</th><th class="num">Idle in transaction</th></tr></thead>
+                <tbody>{$rows}</tbody>
+            </table>
+        HTML;
+    }
 
     /**
      * A link into Adminer for one table, or the plain name when there is no Adminer.
@@ -2580,6 +2729,31 @@ class DevPanelController extends Controller
 
     /** What the last kill did, for the banner above the process list. */
     protected string $killed = '';
+
+    /** Zero `pg_stat_statements`, and say on the page whether the server allowed it. */
+    private function handleStatementsReset(): void
+    {
+        // A token, because it throws away every database's counters, not only this one's.
+        if (!\Pramnos\Framework\Factory::getSession()
+            ->verifyCsrfToken((string) ($_POST['_csrf_token'] ?? ''))) {
+            $this->statementsReset = 'Stale form — reload the page and reset again.';
+            return;
+        }
+
+        $db = \Pramnos\Framework\Factory::getDatabase();
+
+        if (!$db || !$db->connected) {
+            return;
+        }
+
+        $this->statementsReset = $this->databaseInspector($db)->resetStatementStats()
+            ? 'pg_stat_statements was reset; the counters start from now.'
+            : 'pg_stat_statements could not be reset — by default only a superuser may, unless '
+                . 'EXECUTE on pg_stat_statements_reset() was granted to this role.';
+    }
+
+    /** What the last reset did, for the banner above the statements. */
+    protected string $statementsReset = '';
 
     private function handleCacheFlush(): void
     {

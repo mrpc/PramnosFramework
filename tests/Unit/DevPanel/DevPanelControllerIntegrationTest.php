@@ -58,6 +58,13 @@ class TestableDevPanelController extends DevPanelController
                 return ['available' => false, 'rows' => []];
             }
 
+            public function getStatementStats(string $sort = 'total', int $limit = 25): array
+            {
+                return ['installed' => false, 'loaded' => false, 'reads_all' => false,
+                    'error' => '', 'summary' => [], 'by_role' => [], 'rows' => [],
+                    'applications' => []];
+            }
+
             public function getReplicationStatus(): array { return []; }
 
             public function getPublicViews(): array { return []; }
@@ -362,50 +369,173 @@ class DevPanelControllerIntegrationTest extends TestCase
     }
 
     /**
-     * A missing `pg_stat_statements` says so rather than showing an empty table.
+     * Each way `pg_stat_statements` can be missing gets its own sentence.
      *
-     * "The extension is not installed" and "no slow queries" are different facts, and a screen
-     * that renders the same thing for both tells somebody their database is fine when it has
-     * never been asked.
+     * Not loaded, loaded but not created, and unreadable are fixed in three different places —
+     * postgresql.conf and a restart, one SQL statement, the error itself — and one "no data"
+     * for all three sends somebody to the wrong one.
      */
-    public function testAMissingStatementsExtensionSaysSo()
+    public function testEachWayTheStatementsExtensionIsMissingIsNamed()
     {
+        // Arrange
         $this->dbMock->type = 'postgresql';
-        $this->controller->inspector = $this->inspector([
-            'statements' => ['available' => false, 'rows' => []],
-        ]);
+        $cases = [
+            'shared_preload_libraries</code> in postgresql.conf'
+                => ['installed' => true, 'loaded' => false],
+            'loaded but not created'
+                => ['installed' => false, 'loaded' => true],
+            'could not be read: permission denied'
+                => ['installed' => true, 'loaded' => true, 'error' => 'permission denied'],
+        ];
 
-        $this->controller->db();
+        foreach ($cases as $expected => $state) {
+            $this->controller->inspector = $this->inspector(['statementStats' => $state]);
 
-        $this->assertStringContainsString(
-            'pg_stat_statements</code> is not installed',
-            $this->controller->lastRenderedContent
-        );
+            // Act
+            $this->controller->db();
+
+            // Assert
+            $this->assertStringContainsString($expected, $this->controller->lastRenderedContent);
+            $this->assertStringNotContainsString('Top statements',
+                $this->controller->lastRenderedContent, 'no empty table beside the reason');
+        }
     }
 
     /**
-     * And when it is installed, the slowest by total time.
+     * When the extension answers: totals with calls per second, the split per role, the top
+     * statements with WAL and the hit ratio, and the live applications.
      *
-     * By total, not by mean: a query taking two milliseconds four million times is the one to
-     * fix, and it never appears in a list ordered by mean.
+     * Calls per second is the number asked for — queries per second per application before
+     * moving the database across a network — and it is calls divided by the seconds since
+     * `stats_reset`, so 7,200 calls over an hour must read 2.0.
      */
-    public function testTheSlowestStatementsAreOrderedByTotalTime()
+    public function testTheStatementStatisticsAreRendered()
     {
+        // Arrange
         $this->dbMock->type = 'postgresql';
-        $this->controller->inspector = $this->inspector([
-            'statements' => ['available' => true, 'rows' => [
-                ['calls' => 4000000, 'total_ms' => '812340.0', 'mean_ms' => '0.20',
-                 'query' => 'SELECT 1 FROM usertokens WHERE token = $1'],
-            ]],
-        ]);
+        $this->controller->inspector = $this->inspector(['statementStats' => [
+            'installed' => true, 'loaded' => true, 'reads_all' => true,
+            'summary' => ['statements' => 120, 'calls' => 7200, 'total_ms' => '5300.5',
+                'rows' => 9000, 'wal_bytes' => 3145728, 'dealloc' => 0,
+                'stats_reset' => '2026-10-29 10:00:00', 'since_sec' => 3600],
+            'by_role' => [['datname' => 'appdb', 'usename' => 'app_user', 'calls' => 3600,
+                'total_ms' => '100.0', 'wal_bytes' => 1048576]],
+            'rows' => [['datname' => 'appdb', 'usename' => 'app_user', 'calls' => 4000000,
+                'total_ms' => '812340.0', 'mean_ms' => '0.20', 'rows' => 4000000,
+                'shared_blks_hit' => 990, 'shared_blks_read' => 10, 'hit_pct' => '99.0',
+                'wal_bytes' => 2048, 'query' => 'SELECT 1 FROM usertokens WHERE token = $1']],
+            'applications' => [['application_name' => 'urban-api', 'usename' => 'app_user',
+                'datname' => 'appdb', 'connections' => 12, 'active' => 3, 'idle_in_tx' => 1]],
+        ]]);
 
+        // Act
         $this->controller->db();
-
         $html = $this->controller->lastRenderedContent;
 
+        // Assert
+        $this->assertStringContainsString('2026-10-29 10:00:00', $html, 'since when');
+        $this->assertStringContainsString('<th>Calls / second</th><td>2.0</td>', $html);
+        $this->assertStringContainsString('3 MB', $html, 'WAL written, in bytes a person reads');
+        $this->assertStringContainsString('<td class="num">1.0</td>', $html,
+            'the role split carries its own rate: 3600 calls over the hour');
         $this->assertStringContainsString('4,000,000', $html);
-        $this->assertStringContainsString('812340.0', $html);
-        $this->assertStringContainsString('By total time, not by mean', $html);
+        $this->assertStringContainsString('99.0', $html, 'the cache hit ratio');
+        $this->assertStringContainsString('SELECT 1 FROM usertokens', $html);
+        $this->assertStringContainsString('urban-api', $html, 'connected now, by application');
+        $this->assertStringContainsString('name="action" value="statements_reset"', $html);
+        $this->assertStringContainsString('name="_csrf_token"', $html,
+            'the reset carries a token');
+        $this->assertStringNotContainsString('pg_read_all_stats (or pg_monitor)', $html,
+            'a role that reads everything is not warned');
+        $this->assertStringNotContainsString('evicted', $html);
+    }
+
+    /**
+     * A role without `pg_read_all_stats` is told so, and an eviction count above zero says the
+     * statement table is too small.
+     *
+     * Without the role the totals still include everybody, but other roles' text is
+     * `<insufficient privilege>` — and a page that did not say why would read as a server
+     * running one user's queries.
+     */
+    public function testReducedPrivilegeAndEvictionsAreSaid()
+    {
+        // Arrange
+        $this->dbMock->type = 'postgresql';
+        $this->controller->inspector = $this->inspector(['statementStats' => [
+            'installed' => true, 'loaded' => true, 'reads_all' => false,
+            'summary' => ['calls' => 10, 'since_sec' => 0, 'dealloc' => 37],
+            'rows' => [],
+        ]]);
+
+        // Act
+        $this->controller->db();
+        $html = $this->controller->lastRenderedContent;
+
+        // Assert
+        $this->assertStringContainsString('pg_read_all_stats (or pg_monitor)', $html);
+        $this->assertStringContainsString('&lt;insufficient privilege&gt;', $html, 'escaped');
+        $this->assertStringContainsString('37 evicted', $html);
+        $this->assertStringContainsString('<th>Calls / second</th><td>—</td>', $html,
+            'no start time, no rate — never a division by zero');
+        $this->assertStringContainsString('Nothing recorded since the last reset', $html);
+    }
+
+    /**
+     * The sort comes from the request, only from the list the inspector knows, and the chosen
+     * column is the one not drawn as a link.
+     */
+    public function testTheStatementSortIsTakenFromTheRequestAndChecked()
+    {
+        // Arrange
+        $this->dbMock->type = 'postgresql';
+        $inspector = $this->inspector(['statementStats' => ['installed' => true, 'loaded' => true]]);
+        $this->controller->inspector = $inspector;
+        $_GET['statements_sort'] = 'wal';
+
+        // Act
+        $this->controller->db();
+
+        // Assert
+        $this->assertSame('wal', $inspector->askedSort);
+        $this->assertStringContainsString('WAL ▾', $this->controller->lastRenderedContent);
+        $this->assertStringContainsString('?statements_sort=calls#statements',
+            $this->controller->lastRenderedContent);
+
+        // An unknown value is not passed on.
+        $_GET['statements_sort'] = 'x; DROP TABLE users';
+        $this->controller->db();
+        $this->assertSame('total', $inspector->askedSort);
+    }
+
+    /**
+     * Reset: done with a valid token and said so, refused by the server and said so, and not
+     * attempted at all with a stale token.
+     */
+    public function testResettingTheStatementsReportsWhatHappened()
+    {
+        // Arrange
+        $this->dbMock->type = 'postgresql';
+        $token = \Pramnos\Http\Session::getInstance()->getCsrfToken();
+        $cases = [
+            'was reset; the counters start from now' => [true, $token],
+            'could not be reset'                     => [false, $token],
+            'Stale form'                             => [true, 'not-the-token'],
+        ];
+
+        foreach ($cases as $expected => [$allowed, $submitted]) {
+            $this->controller->inspector = $this->inspector([
+                'reset' => $allowed,
+                'statementStats' => ['installed' => true, 'loaded' => true],
+            ]);
+            $_POST = ['action' => 'statements_reset', '_csrf_token' => $submitted];
+
+            // Act
+            $this->controller->db();
+
+            // Assert
+            $this->assertStringContainsString($expected, $this->controller->lastRenderedContent);
+        }
     }
 
     /**
@@ -429,7 +559,7 @@ class DevPanelControllerIntegrationTest extends TestCase
                                'sync_state' => 'async', 'lag_sec' => 0]],
             'views'       => [['view_name' => 'v_active_users',
                                'view_definition' => 'SELECT * FROM users']],
-            'statements'  => ['available' => true, 'rows' => []],
+            'statementStats' => ['installed' => true, 'loaded' => true, 'reads_all' => true],
             'indexes'     => ['unused' => [], 'scanned' => []],
         ]);
         $this->controller->timescale = [
@@ -455,7 +585,7 @@ class DevPanelControllerIntegrationTest extends TestCase
         // …and what only this tab has
         $this->assertStringContainsString('Active Processes', $html);
         $this->assertStringContainsString('Indexes nothing uses', $html);
-        $this->assertStringContainsString('Slowest statements', $html);
+        $this->assertStringContainsString('Top statements', $html);
         $this->assertStringContainsString('policy_compression', $html,
             'a compression job failing for a week is invisible from the hypertable list');
     }
@@ -751,6 +881,23 @@ class DevPanelControllerIntegrationTest extends TestCase
             public function getSlowStatements(int $limit = 15): array
             {
                 return $this->answers['statements'] ?? ['available' => false, 'rows' => []];
+            }
+
+            /** The sort the panel asked for, so a test can see the request parameter arrive. */
+            public string $askedSort = '';
+
+            public function getStatementStats(string $sort = 'total', int $limit = 25): array
+            {
+                $this->askedSort = $sort;
+
+                return ($this->answers['statementStats'] ?? []) + ['installed' => false,
+                    'loaded' => false, 'reads_all' => false, 'error' => '', 'summary' => [],
+                    'by_role' => [], 'rows' => [], 'applications' => []];
+            }
+
+            public function resetStatementStats(): bool
+            {
+                return (bool) ($this->answers['reset'] ?? false);
             }
 
             public function getReplicationStatus(): array

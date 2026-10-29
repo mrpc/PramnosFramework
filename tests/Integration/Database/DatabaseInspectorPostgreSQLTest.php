@@ -145,6 +145,84 @@ class DatabaseInspectorPostgreSQLTest extends TestCase
     }
 
     /**
+     * The statement statistics read the real extension: counters, the split per role, the top
+     * list in the order asked for, the live applications — and a reset that zeroes them.
+     *
+     * The test container preloads `pg_stat_statements` (docker-compose.yml), so the extension is
+     * created here and dropped again if this test was the one that created it. The suite
+     * connects as a superuser, so `reads_all` is true; the reduced-privilege wording is the
+     * DevPanel unit test's job.
+     */
+    public function testTheStatementStatisticsReadTheExtensionAndReset(): void
+    {
+        // Arrange
+        $created = (int) ($this->db->query(
+            "SELECT count(*) AS n FROM pg_extension WHERE extname = 'pg_stat_statements'"
+        )->fields['n'] ?? 0) === 0;
+        $this->db->query('CREATE EXTENSION IF NOT EXISTS pg_stat_statements');
+        $inspector = new DatabaseInspector($this->db);
+
+        try {
+            $this->assertTrue($inspector->resetStatementStats(), 'a superuser may reset');
+
+            for ($i = 0; $i < 5; $i++) {
+                $this->db->query('SELECT 4242 AS inspector_marker');
+            }
+
+            // Act
+            $stats = $inspector->getStatementStats('calls', 50);
+
+            // Assert
+            $this->assertSame('', $stats['error']);
+            $this->assertTrue($stats['installed']);
+            $this->assertTrue($stats['loaded'], 'the container preloads the library');
+            $this->assertTrue($stats['reads_all'], 'the suite connects as a superuser');
+            $this->assertGreaterThanOrEqual(5, (int) $stats['summary']['calls']);
+            $this->assertNotEmpty($stats['summary']['stats_reset'], 'calls per second needs a start');
+            $this->assertNotEmpty($stats['by_role']);
+            $this->assertNotEmpty($stats['applications'], 'this connection is one of them');
+
+            $marker = array_values(array_filter(
+                $stats['rows'],
+                static fn (array $row): bool => str_contains((string) $row['query'], 'inspector_marker')
+            ));
+            $this->assertCount(1, $marker, 'the five runs are one normalised statement');
+            $this->assertSame(5, (int) $marker[0]['calls']);
+            $this->assertArrayHasKey('wal_bytes', $marker[0]);
+            $this->assertArrayHasKey('hit_pct', $marker[0]);
+
+            $calls = array_map(static fn (array $row): int => (int) $row['calls'], $stats['rows']);
+            $sorted = $calls;
+            rsort($sorted);
+            $this->assertSame($sorted, $calls, 'sort=calls orders by calls, descending');
+
+            // A reset empties what was there: the marker is no longer recorded.
+            $this->assertTrue($inspector->resetStatementStats());
+            $after = $inspector->getStatementStats('total', 100);
+            $this->assertSame([], array_filter(
+                $after['rows'],
+                static fn (array $row): bool => str_contains((string) $row['query'], 'inspector_marker')
+            ));
+        } finally {
+            if ($created) {
+                $this->db->query('DROP EXTENSION IF EXISTS pg_stat_statements');
+            }
+        }
+    }
+
+    /**
+     * An unknown sort is not SQL: it falls back to total time instead of reaching the query.
+     */
+    public function testAnUnknownSortFallsBackToTotalTime(): void
+    {
+        // Act — a value that would be an injection if it were interpolated
+        $stats = (new DatabaseInspector($this->db))->getStatementStats('1; DROP TABLE users');
+
+        // Assert — answered, not errored
+        $this->assertSame('', $stats['error']);
+    }
+
+    /**
      * Replication answers with nothing on a standalone instance, not with an error.
      */
     public function testReplicationAnswersOnAStandaloneInstance(): void

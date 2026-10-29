@@ -105,8 +105,12 @@ services:
     # runs thousands of them. Measured on the PostgreSQL-heavy classes (GroupRoles,
     # AccountErasure, FrameworkMigrationsPostgreSQL, TwoFactorAuthServicePostgreSQL).
     # Never copy these flags to a container that holds data.
+    #
+    # pg_stat_statements is preloaded so the developer panel's statement statistics run against
+    # the real extension, as they do on a server that enables it.
     command: >-
       postgres -c timescaledb.max_background_workers=0
+      -c shared_preload_libraries=timescaledb,pg_stat_statements
       -c fsync=off -c full_page_writes=off
     environment:
       - POSTGRES_USER=postgres

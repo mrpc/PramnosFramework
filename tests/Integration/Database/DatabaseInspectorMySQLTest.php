@@ -77,6 +77,27 @@ class DatabaseInspectorMySQLTest extends TestCase
     }
 
     /**
+     * The statement statistics answer "not installed" on MySQL, and a reset does nothing.
+     *
+     * The DevPanel renders nothing for MySQL; the inspector still has to answer with every key,
+     * not an error, for any other caller.
+     */
+    public function testTheStatementStatisticsAreAbsentOnMysql(): void
+    {
+        // Arrange
+        $inspector = new DatabaseInspector($this->db);
+
+        // Act
+        $stats = $inspector->getStatementStats();
+
+        // Assert
+        $this->assertFalse($stats['installed']);
+        $this->assertFalse($stats['loaded']);
+        $this->assertSame([], $stats['rows']);
+        $this->assertFalse($inspector->resetStatementStats());
+    }
+
+    /**
      * Replication is empty on MySQL rather than an error.
      */
     public function testReplicationIsEmptyOnMysql(): void
