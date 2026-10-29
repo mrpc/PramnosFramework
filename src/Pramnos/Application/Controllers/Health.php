@@ -102,6 +102,7 @@ class Health extends Controller
         $view                = $this->getView('health');
         $view->overallStatus = $overallStatus;
         $view->checks        = $checks;
+        $view->checkLinks    = static::checkLinks(array_keys($checks), User::getCurrentUser() ?: null);
         $view->dbType        = $dbType;
         $view->dbVersion     = $dbVersion;
         $view->cacheAdapter  = $cacheAdapter;
@@ -242,6 +243,61 @@ class Health extends Controller
     // =========================================================================
     // Helpers
     // =========================================================================
+
+    /** The framework's checks that have a screen of their own, and the administration path to it. */
+    public const CHECK_PAGES = [
+        'database'    => 'Dashboard/database',
+        'hypertables' => 'Dashboard/database',
+        'cache'       => 'Dashboard/cache',
+    ];
+
+    /**
+     * Where each check's name leads: the screen that says more than the one-line verdict.
+     *
+     * The framework's own are {@see CHECK_PAGES}, shown only to somebody who may open them
+     * (`admin.dashboard`). An application names its own checks' screens, moves one, or removes
+     * one with `''`, in app.php — and those it does not check, since it is the application that
+     * knows what guards them:
+     *
+     * ```php
+     * 'health' => ['links' => ['my_service' => 'Services', 'cache' => '']],
+     * ```
+     *
+     * A path is in the administration area; an address starting `http(s)://` or `//` is used as
+     * it is.
+     *
+     * @param  list<string> $names The checks on the page
+     * @return array<string, string> Check name => URL, for those that lead somewhere
+     */
+    public static function checkLinks(array $names, ?object $user): array
+    {
+        $app       = \Pramnos\Application\Application::currentInstance();
+        $chosen    = is_object($app) ? ($app->applicationInfo['health']['links'] ?? []) : [];
+        $chosen    = is_array($chosen) ? $chosen : [];
+        $dashboard = null;
+        $links     = [];
+
+        foreach ($names as $name) {
+            if (array_key_exists($name, $chosen)) {
+                $path = is_string($chosen[$name]) ? $chosen[$name] : '';
+            } elseif (isset(self::CHECK_PAGES[$name])) {
+                $dashboard ??= \Pramnos\Auth\AdminAccess::allows(
+                    $user,
+                    'admin.dashboard',
+                    \Pramnos\Auth\AdminAccess::defaultUsertype()
+                );
+                $path = $dashboard ? self::CHECK_PAGES[$name] : '';
+            } else {
+                continue;
+            }
+
+            if ($path !== '') {
+                $links[$name] = preg_match('#^(https?:)?//#i', $path) === 1 ? $path : adminUrl($path);
+            }
+        }
+
+        return $links;
+    }
 
     /** Whether check() shows what each check found: to an administrator, or to all where app.php says so. */
     private function detailsAreVisible(): bool

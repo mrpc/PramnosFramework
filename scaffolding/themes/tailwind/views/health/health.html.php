@@ -5,6 +5,7 @@
  * Variables (set by Health::display()):
  *   $this->overallStatus — 'ok' | 'notice' | 'degraded' | 'down'
  *   $this->checks        — array<name, array{status, message, details}>
+ *   $this->checkLinks    — array<name, url>: the screen a check's name leads to, if any
  *   $this->dbType        — ucfirst DB type string or 'not connected'
  *   $this->dbVersion     — DB version string or '—'
  *   $this->cacheAdapter  — cache adapter name or '—'
@@ -58,7 +59,7 @@ $rowBadgeColor = static function (string $status): string {
                 <?php else: ?>
                     <?php foreach ($this->checks as $name => $check): ?>
                     <tr class="hover:bg-base-200">
-                        <td class="px-4 py-3 font-medium text-base-content"><?php echo htmlspecialchars($name); ?></td>
+                        <td class="px-4 py-3 font-medium text-base-content"><?php $healthLink = $this->checkLinks[$name] ?? null; echo $healthLink !== null ? '<a href="' . htmlspecialchars($healthLink) . '">' . htmlspecialchars($name) . '</a>' : htmlspecialchars($name); ?></td>
                         <td class="px-4 py-3">
                             <span class="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium <?php echo $rowBadgeColor($check['status']); ?> status-badge status-<?php echo htmlspecialchars($check['status']); ?>">
                                 <?php echo strtoupper(htmlspecialchars($check['status'])); ?>

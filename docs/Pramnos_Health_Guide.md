@@ -297,6 +297,29 @@ Or, if the check belongs to a feature, in that feature's service provider
 idempotent, so registering the same name twice replaces rather than duplicates;
 that is also how an application overrides a built-in check with its own.
 
+### Linking a check to its screen
+
+On the `/health` page and on the dashboard's Health card, a check's name links to the screen
+that shows more about it. The framework links `database` and `hypertables` to
+`Dashboard/database`, and `cache` to `Dashboard/cache`. These links are shown only to somebody
+who may open the dashboard (`admin.dashboard`). A link to a screen that answers "access denied"
+reads as a broken page.
+
+An application links its own checks in `app.php`. The same list can move a framework link or
+remove one with `''`:
+
+```php
+'health' => ['links' => [
+    'payment_gateway' => 'Payments',                          // a path in the administration area
+    'database'        => 'https://grafana.example.com/d/db',  // a full address, used as it is
+    'cache'           => '',                                  // no link
+]],
+```
+
+The framework does not check access for these links, because the application knows what guards
+its own screens. `Health::checkLinks($names, $user)` returns the resulting URLs, for a page of
+the application's own.
+
 ### Choosing a status
 
 - **`down`** — the application cannot do its job. Somebody should be woken up.

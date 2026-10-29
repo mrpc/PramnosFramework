@@ -40,11 +40,20 @@ final class HealthChecks extends Widget
             return '';
         }
 
+        // The same links as the health page: a check's name opens the screen that says more.
+        $links = \Pramnos\Application\Controllers\Health::checkLinks(
+            array_map('strval', array_keys($checks)),
+            \Pramnos\User\User::getCurrentUser() ?: null
+        );
+
         $html = '<ul class="pf-dashboard-health">';
         foreach ($checks as $name => $result) {
             $status  = (string) ($result['status'] ?? 'unknown');
             $message = $status !== 'ok' ? (string) ($result['message'] ?? '') : '';
-            $html   .= '<li><span class="pf-dashboard-health-name">' . self::e((string) $name) . '</span>'
+            $label   = isset($links[$name])
+                ? '<a href="' . self::e($links[$name]) . '">' . self::e((string) $name) . '</a>'
+                : self::e((string) $name);
+            $html   .= '<li><span class="pf-dashboard-health-name">' . $label . '</span>'
                 . ($message !== '' ? '<span class="pf-dashboard-health-message">' . self::e($message) . '</span>' : '')
                 . '<span class="pf-dashboard-status pf-dashboard-status--' . self::e($status) . '">' . self::e(strtoupper($status)) . '</span></li>';
         }
