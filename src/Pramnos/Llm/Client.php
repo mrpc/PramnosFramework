@@ -141,6 +141,9 @@ class Client
     /** @var (callable(list<array{name: string, arguments: array<string, mixed>}>, callable(string, array<string, mixed>): string): list<string>)|null */
     private $parallel = null;
 
+    /** What names the answer for {@see Idempotency}; null for a new token each answer. */
+    private ?string $answering = null;
+
     public function __construct(?Connection $connection = null, private readonly ?CallLog $log = null)
     {
         $this->connection = $connection ?? new Connection();
@@ -185,6 +188,19 @@ class Client
     public function withTurnBudget(?float $maxCost = null, ?int $maxTokens = null): static
     {
         $this->turnBudget = ['cost' => $maxCost, 'tokens' => $maxTokens];
+
+        return $this;
+    }
+
+    /**
+     * Name the answer, so a change its tools made is not made again by another run of the same
+     * answer — a queued question answered again after a crash, say. See {@see Idempotency}: a
+     * tool marked `'writes' => true` runs once per answer, tool and arguments. Without a name,
+     * each answer is its own, and only a change repeated within it is caught.
+     */
+    public function answering(?string $key): static
+    {
+        $this->answering = $key;
 
         return $this;
     }
@@ -382,6 +398,8 @@ class Client
         $parts    = [];
         // Whether the answer has spent its turn budget: its next round is the last.
         $over     = false;
+        // What its changes are made once under (Idempotency).
+        $answerKey = $this->answering ?? bin2hex(random_bytes(16));
 
         for ($round = 1; $round <= $rounds; $round++) {
             if ($this->isStopped()) {
@@ -488,9 +506,16 @@ class Client
                     $arguments = is_array($arguments) ? $arguments : [];
                     $calls[]   = ['name' => $name, 'arguments' => $arguments];
 
-                    $result = $early[$at] ?? ($read !== null && !empty($tools[$name]['writes'])
-                        ? sprintf(self::HELD_WRITE, $read)
-                        : $this->run($tools[$name] ?? null, $name, $arguments));
+                    $result = $early[$at] ?? match (true) {
+                        $read !== null && !empty($tools[$name]['writes']) => sprintf(self::HELD_WRITE, $read),
+                        // A change is made once per answer, tool and arguments.
+                        !empty($tools[$name]['writes']) => Idempotency::once(
+                            Idempotency::key($answerKey, $name, $arguments),
+                            $name,
+                            fn (): string => $this->run($tools[$name], $name, $arguments)
+                        ),
+                        default => $this->run($tools[$name] ?? null, $name, $arguments),
+                    };
                     [$result, $moved] = $this->governed($tools[$name] ?? [], $result, $arguments, $context);
                     if (!empty($tools[$name]['untrusted'])) {
                         $read  ??= $name;

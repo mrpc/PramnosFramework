@@ -68,6 +68,9 @@ class Conversations
     /** @var (callable(): bool)|null Whether the answer being written has been stopped */
     private $stopWhen = null;
 
+    /** What names the answer, so its changes are made once — see `Client::answering()` */
+    private ?string $answerKey = null;
+
     public function __construct(private readonly Assistant $assistant, private readonly ?Client $client = null)
     {
     }
@@ -123,6 +126,18 @@ class Conversations
     {
         $chat           = clone $this;
         $chat->stopWhen = $stopped;
+
+        return $chat;
+    }
+
+    /**
+     * These conversations, naming the answer — a queued question's `ask:{id}` — so another run of
+     * it does not make the changes the first one made. See `Client::answering()`.
+     */
+    public function answering(string $key): static
+    {
+        $chat            = clone $this;
+        $chat->answerKey = $key;
 
         return $chat;
     }
@@ -366,7 +381,7 @@ class Conversations
             'extra'           => $extra,
         ]);
 
-        $answer = $client->onText($this->onText)->cancelWhen($this->stopWhen)->inParallel($parallel)->askWithTools(
+        $answer = $client->onText($this->onText)->cancelWhen($this->stopWhen)->inParallel($parallel)->answering($this->answerKey)->askWithTools(
             $this->assistant->systemPrompt($turn) . "\n\n" . ($turn->shared() ? trim($this->assistant->context($turn)) : $this->context($turn, $memory))
                 . ($turn->documents === [] ? '' : "\n\n" . Client::DATA_NOTICE)
                 . ($summary === '' ? '' : "\n\nEarlier in this conversation, in short (those messages are not shown again):\n" . $summary),
@@ -376,7 +391,7 @@ class Conversations
             $this->assistant->due($turn),
             $this->assistant->verify($turn)
         );
-        $client->onText(null)->cancelWhen(null)->inParallel(null);
+        $client->onText(null)->cancelWhen(null)->inParallel(null)->answering(null);
 
         if (!$answer['ok']) {
             return self::refusal(isset($answer['cancelled']) ? 'cancelled' : (isset($answer['consent']) ? 'consent' : (isset($answer['limited']) ? 'limit' : 'provider')), (string) $answer['says']);

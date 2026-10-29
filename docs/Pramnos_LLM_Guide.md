@@ -277,6 +277,24 @@ answer against the calls made; once, a correction is sent back with a required c
 more rounds. The rejected answer, and the text written before it, are dropped: the reply
 is the one written after the correction.
 
+### A change is made once per answer
+
+A tool marked `'writes' => true` runs once per answer, tool and arguments. Called again with the
+same arguments, in any key order, it is not run. The model is told it was done and what it
+returned then (`Idempotency::DONE`), so a model that loses track, or is corrected and does it
+again, does not send the same email twice. Other arguments are another change.
+
+```php
+$client->answering('ask:' . $askId)->askWithTools(...);   // a name for the answer
+```
+
+Without a name each answer is its own, and only a repeat within it is caught. A queued question
+is named by its ask, so if it is answered again after a crash it does not repeat what it already
+changed. The key is taken by an insert into `pramnos.llm_tool_idempotency` before the tool runs,
+so two processes cannot both make the change. A result starting with `Error:` gives the key back
+so the change can be tried again. Keys are kept a day (`Idempotency::KEEP`). Without the table,
+every call runs.
+
 ### Tools that run at once
 
 A model often asks for several reads in one round — three figures, two queries. A tool marked

@@ -95,7 +95,8 @@ class Asks
         };
         $chat  = \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('chat_asks', 'partial')
             ? $this->chat->as($scope)->streaming($partial) : $this->chat->as($scope);
-        $chat  = $chat->stoppable($stopped);
+        // Named by the ask: answered again, it does not make the changes it already made.
+        $chat  = $chat->stoppable($stopped)->answering('ask:' . $askId);
         // An ask from the conversations: the people there are told the analyst is on it.
         if (isset($job['extra']['conversations'])) {
             try {
