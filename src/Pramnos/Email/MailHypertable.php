@@ -24,8 +24,9 @@ use Pramnos\Database\Database;
  * ## How it gets there
  *
  * 1. **Convert**, in one transaction that only touches the catalogue: `mails` becomes
- *    `mails_legacy`, and a new `mails` is made like it — the same columns, defaults and id
- *    sequence, `date` widened to `bigint` (so it outlives 2038), the primary key `(id, date)` as a
+ *    `mails_legacy`, and a new `mails` is made like it — the same columns and defaults, the id
+ *    sequence kept (a serial id) or numbered on from the old table's highest (an identity id),
+ *    `date` widened to `bigint` (so it outlives 2038), the primary key `(id, date)` as a
  *    hypertable needs, monthly chunks, compression after ninety days. From this moment new mail is
  *    written to the new table.
  * 2. **Drain**: the rows move a batch at a time, each batch deleted from the old table and
@@ -111,6 +112,10 @@ final class MailHypertable
             "SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = current_schema() AND tablename = '" . $this->name() . "'"
         )->fetchAll();
         $sequence = (string) ($this->db->query("SELECT pg_get_serial_sequence('" . $this->name() . "', 'id') AS seq")->fields['seq'] ?? '');
+        // An identity column — what `db:migrate-from-mysql` makes — rather than a serial one.
+        $identity = (string) ($this->db->query(
+            "SELECT is_identity FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = '" . $this->name() . "' AND column_name = 'id'"
+        )->fields['is_identity'] ?? '') === 'YES';
 
         // Raw throughout: DDL, and TimescaleDB's own functions.
         $this->db->startTransaction();
@@ -119,10 +124,33 @@ final class MailHypertable
             foreach ($indexes as $index) {
                 $this->db->query('ALTER INDEX ' . $this->quoted($index['indexname']) . ' RENAME TO ' . $this->quoted(substr($index['indexname'], 0, 50) . '_legacy'));
             }
-            $this->db->query('CREATE TABLE ' . $table . ' (LIKE ' . $legacy . ' INCLUDING DEFAULTS INCLUDING COMMENTS INCLUDING STORAGE)');
+            $this->db->query('CREATE TABLE ' . $table . ' (LIKE ' . $legacy . ' INCLUDING DEFAULTS INCLUDING COMMENTS INCLUDING STORAGE'
+                . ($identity ? ' INCLUDING IDENTITY' : '') . ')');
             $this->db->query('ALTER TABLE ' . $table . ' ALTER COLUMN date TYPE bigint');
-            // The id sequence belongs to the new table: dropping the old one must not take it.
-            if ($sequence !== '') {
+            if ($identity) {
+                /*
+                 * An identity's sequence is the column's own and cannot be handed to another
+                 * table, so `OWNED BY` below refused it ("cannot change ownership of identity
+                 * sequence") and the conversion rolled back. The new column has an identity of its
+                 * own instead, numbered on from the old table's highest id — read here, under the
+                 * rename's lock, so no new mail can take an id a row still waiting to move has.
+                 */
+                $next = (int) ($this->db->query('SELECT COALESCE(MAX(id), 0) + 1 AS next FROM ' . $legacy)->fields['next'] ?? 1);
+                $this->db->query('ALTER TABLE ' . $table . ' ALTER COLUMN id RESTART WITH ' . max(1, $next));
+                /*
+                 * …and it takes the old sequence's name. A connection remembers which sequence
+                 * answers `getInsertId()` for this table, by name: a mail worker running through the
+                 * conversion would otherwise go on reading the old table's sequence — "not yet
+                 * defined in this session", then "does not exist" once the drain drops it.
+                 */
+                $fresh = (string) ($this->db->query("SELECT pg_get_serial_sequence('" . $this->name() . "', 'id') AS seq")->fields['seq'] ?? '');
+                if ($sequence !== '' && $fresh !== '' && $fresh !== $sequence) {
+                    $bare = static fn (string $qualified): string => str_replace('""', '"', trim((string) preg_replace('/^.*\.(?=(?:[^"]|"[^"]*")*$)/', '', $qualified), '"'));
+                    $this->db->query('ALTER SEQUENCE ' . $sequence . ' RENAME TO ' . $this->quoted(substr($this->legacy(), 0, 50) . '_id_seq'));
+                    $this->db->query('ALTER SEQUENCE ' . $fresh . ' RENAME TO ' . $this->quoted($bare($sequence)));
+                }
+            } elseif ($sequence !== '') {
+                // The id sequence belongs to the new table: dropping the old one must not take it.
                 $this->db->query('ALTER SEQUENCE ' . $sequence . ' OWNED BY ' . $table . '.id');
             }
             $this->db->query('ALTER TABLE ' . $table . ' ADD PRIMARY KEY (id, date)');
@@ -176,7 +204,8 @@ final class MailHypertable
                 // so a row is moved or it is not — never copied twice, never lost.
                 $result = $this->db->query(
                     'WITH moved AS (DELETE FROM ' . $legacy . ' WHERE id IN (SELECT id FROM ' . $legacy . ' ORDER BY id DESC LIMIT ' . max(1, $size) . ') RETURNING ' . $columns . ') '
-                    . 'INSERT INTO ' . $table . ' (' . $columns . ') SELECT ' . $columns . ' FROM moved'
+                    // OVERRIDING SYSTEM VALUE: a row keeps its id, also under `GENERATED ALWAYS`.
+                    . 'INSERT INTO ' . $table . ' (' . $columns . ') OVERRIDING SYSTEM VALUE SELECT ' . $columns . ' FROM moved'
                 );
                 $count = $result ? (int) $result->getAffectedRows() : 0;
                 $moved += $count;

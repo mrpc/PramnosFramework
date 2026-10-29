@@ -192,6 +192,54 @@ final class MailHypertableTest extends TestCase
         $this->assertSame(0, $mails->drain(), 'nothing left to move');
     }
 
+    /** @return array<string, array{string}> The two kinds of identity column */
+    public static function identities(): array
+    {
+        return ['by default' => ['BY DEFAULT'], 'always' => ['ALWAYS']];
+    }
+
+    /**
+     * A table whose `id` is an IDENTITY column — every table `db:migrate-from-mysql` made — converts
+     * and drains like a serial one.
+     *
+     * The conversion used to hand the old id sequence to the new table with `OWNED BY`, which an
+     * identity's sequence refuses ("cannot change ownership of identity sequence"), so it rolled
+     * back every time. The new column has an identity of its own now, numbered on from the old
+     * table's highest id, so new mail never takes an id a row waiting to move still has; and the
+     * move keeps each row's id, also under `GENERATED ALWAYS`.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('identities')]
+    public function testATableWithAnIdentityIdConvertsAndDrains(string $kind): void
+    {
+        // Arrange — `mails.id` an identity, as a migrated table has it, and rows in it
+        $this->db->query('ALTER TABLE mails ALTER COLUMN id DROP DEFAULT');
+        $this->db->query('DROP SEQUENCE IF EXISTS mails_id_seq');
+        $this->db->query('ALTER TABLE mails ALTER COLUMN id ADD GENERATED ' . $kind . ' AS IDENTITY');
+        for ($i = 0; $i < 12; $i++) {
+            $this->mail('reader' . $i . '@example.com', $i * 30);
+        }
+        $highest = (int) $this->db->query('SELECT MAX(id) AS m FROM mails')->fields['m'];
+        $mails   = new MailHypertable($this->db);
+
+        // Act
+        $mails->convert();
+        // This connection read the table's sequence before the conversion, as a mail worker
+        // running through it has: getInsertId() must still answer the new row's id.
+        $answered = $this->mail('fresh@example.com', 0);
+        $fresh    = (int) $this->db->query("SELECT id FROM mails WHERE tomail = 'fresh@example.com'")->fields['id'];
+        $moved = $mails->drain(5);
+        $ids   = array_map(static fn (array $row): int => (int) $row['id'], $this->db->query('SELECT id FROM mails ORDER BY id')->fetchAll());
+
+        // Assert
+        $this->assertSame($highest + 1, $fresh, 'new mail is numbered on from the old table');
+        $this->assertSame($fresh, $answered, 'the insert id read by its old name is the new table\'s');
+        $this->assertSame(12, $moved);
+        $this->assertSame(MailHypertable::HYPERTABLE, $mails->state());
+        $this->assertSame(range(1, $highest + 1), $ids, 'every row kept its id; none taken twice');
+        $this->assertSame('YES', $this->db->query("SELECT is_identity FROM information_schema.columns WHERE table_name = 'mails' AND column_name = 'id'")->fields['is_identity']);
+        $this->assertSame($highest + 2, $this->mail('after@example.com', 0), 'the identity outlived the old table, under its old name');
+    }
+
     /**
      * While the rows move, a person's copy, an erasure and a retention policy reach both tables:
      * nothing of theirs is missed for being in the old one.

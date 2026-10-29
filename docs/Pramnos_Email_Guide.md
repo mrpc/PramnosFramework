@@ -2408,7 +2408,10 @@ Plain PostgreSQL and MySQL keep their table, and there the body store is what ke
 
 It runs with the site up. The **conversion** takes milliseconds and touches only the catalogue:
 - `mails` is renamed `mails_legacy`;
-- a new `mails` is made like it, with the same columns, defaults, id sequence and indexes;
+- a new `mails` is made like it, with the same columns, defaults and indexes. A serial `id`
+  keeps its sequence. An IDENTITY `id`, which is what `db:migrate-from-mysql` makes, gets an
+  identity of its own, numbered on from the old table's highest id and given the old sequence's
+  name, so a process already running (a mail worker) goes on reading the right insert ids;
 - `date` is widened to `bigint`, so it outlives 2038;
 - the primary key becomes `(id, date)`, as a hypertable needs;
 - the status index becomes `(status, date)`, which is what the outbox reads.
