@@ -178,6 +178,56 @@ class QueryLogInterpolationTest extends TestCase
     }
 
     /**
+     * A bound Binary is described by its length, not cast to a string.
+     *
+     * Binary has no __toString(): casting it was a fatal error that turned
+     * every request holding a toolbar grant into a 500 as soon as it ran a
+     * query with a bytea/blob parameter. Raw bytes are unreadable anyway.
+     */
+    public function testABinaryValueIsDescribedByItsLength(): void
+    {
+        // Arrange
+        $describer = new StatementDescriber();
+
+        // Act
+        $described = $describer->describe(
+            'SELECT * FROM online WHERE visitorid = ?',
+            [new \Pramnos\Database\Binary(hex2bin('00ff10ab'))]
+        );
+
+        // Assert
+        $this->assertSame('SELECT * FROM online WHERE visitorid = <binary: 4 bytes>', $described);
+    }
+
+    /**
+     * Any other value that cannot be a string is named by its type.
+     *
+     * An object without __toString() or an array would otherwise fatal or
+     * warn; a Stringable object still shows its own text.
+     */
+    public function testValuesThatAreNotStringsAreNamedByType(): void
+    {
+        // Arrange
+        $describer = new StatementDescriber();
+        $stringable = new class () {
+            /** @return string The text the log should show. */
+            public function __toString(): string
+            {
+                return 'shown';
+            }
+        };
+
+        // Act
+        $described = $describer->describe(
+            'SELECT ?, ?, ?',
+            [new \stdClass(), [1, 2], $stringable]
+        );
+
+        // Assert — the Stringable is quoted like any string
+        $this->assertSame("SELECT <stdClass>, <array>, 'shown'", $described);
+    }
+
+    /**
      * A statement with no parameters comes back unchanged.
      */
     public function testAStatementWithNoParametersIsUntouched(): void

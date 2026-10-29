@@ -703,6 +703,11 @@ the toolbar shows real column values, personal ones included, for the rows your 
 browsing touches. The session collector masks `password`, `token`, `secret` and friends;
 the query log does not.
 
+A bound value that is not text is not cast: a `Binary` parameter shows as
+`<binary: 16 bytes>`, any other object without `__toString()` (or an array) as its type,
+`<stdClass>`. Describing a statement never fails the statement — the log runs on every query
+of a request that holds a grant.
+
 **Why this is not in the DevPanel.** That panel opens only in a development environment
 (`APP_DEBUG` or `DEVELOPMENT`) or for the people `app.php` names
 (`devpanel.production_min_usertype`, `usertypes`, `userids`), and deliberately so: it

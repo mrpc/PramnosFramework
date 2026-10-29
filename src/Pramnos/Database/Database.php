@@ -2634,6 +2634,15 @@ class Database extends \Pramnos\Framework\Base
             return (string) $value;
         }
 
+        // Describing must never fail the statement it describes: the log runs
+        // on every query of a request that holds a toolbar grant.
+        if ($value instanceof Binary) {
+            return '<binary: ' . strlen($value->bytes) . ' bytes>';
+        }
+        if (!is_scalar($value) && !$value instanceof \Stringable) {
+            return '<' . get_debug_type($value) . '>';
+        }
+
         $string = (string) $value;
 
         // A parameter can hold an entire request body; the log is for reading.
