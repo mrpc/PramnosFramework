@@ -131,17 +131,27 @@ class DatabaseInspectorMySQLTest extends TestCase
 
     /**
      * Table sizes come back with the four numbers the screen shows.
+     *
+     * The test makes its own table: it relied on tables other classes leave behind, so run on
+     * its own against a fresh container it found none and failed.
      */
     public function testTableSizesCarryTheFourNumbers(): void
     {
-        // Act
-        $tables = (new DatabaseInspector($this->db))->getTableSizes();
+        // Arrange
+        $this->db->query('CREATE TABLE IF NOT EXISTS inspector_size_probe (id INT PRIMARY KEY)');
 
-        // Assert
-        $this->assertNotSame([], $tables);
-        $this->assertArrayHasKey('total_bytes', $tables[0]);
-        $this->assertArrayHasKey('data_bytes', $tables[0]);
-        $this->assertArrayHasKey('index_bytes', $tables[0]);
-        $this->assertArrayHasKey('row_estimate', $tables[0]);
+        try {
+            // Act
+            $tables = (new DatabaseInspector($this->db))->getTableSizes();
+
+            // Assert
+            $this->assertNotSame([], $tables);
+            $this->assertArrayHasKey('total_bytes', $tables[0]);
+            $this->assertArrayHasKey('data_bytes', $tables[0]);
+            $this->assertArrayHasKey('index_bytes', $tables[0]);
+            $this->assertArrayHasKey('row_estimate', $tables[0]);
+        } finally {
+            $this->db->query('DROP TABLE IF EXISTS inspector_size_probe');
+        }
     }
 }
