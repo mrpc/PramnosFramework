@@ -1061,6 +1061,9 @@ class FullAuthorizationCodeFlowTest extends TestCase
      */
     private function registerUser(): void
     {
+        // Tokens first: 4242 is a common id across the suite, and a class that left tokens for it
+        // made this one read somebody else's `expires` (the rows are fetched unordered).
+        $this->db->queryBuilder()->table('#PREFIX#usertokens')->where('userid', self::USER_ID)->delete();
         $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', self::USER_ID)->delete();
 
         $this->db->queryBuilder()->table('#PREFIX#users')->insert([
