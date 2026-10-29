@@ -171,9 +171,40 @@ The whole row is written instead when the model is new, was never loaded, the sa
 (`_save(..., $force = true)`), or the model declares `protected $_saveWholeRow = true;`. Use the
 last for a model whose save is meant to put the whole row back as the model holds it.
 
-This does not settle two writers of the **same** column: the one that saves last wins. Where that
-matters, lock the row in a transaction (`$db->queryBuilder()->table(...)->lockForUpdate()`) before
-reading and writing it.
+This does not settle two writers of the **same** column: by default the one that saves last wins.
+
+#### Refusing a save that would overwrite someone else's change
+
+A model that must not overwrite a concurrent change to the same column declares:
+
+```php
+protected $_checkWriteConflicts = true;
+```
+
+Its updates then write only if every column they write still holds the value the model loaded:
+the UPDATE carries `col <=> loaded` (MySQL) or `col IS NOT DISTINCT FROM loaded` (PostgreSQL)
+beside the primary key. When the row has changed, nothing is written and the save throws
+`Pramnos\Application\WriteConflictException`. No column or schema change is needed.
+
+```php
+try {
+    $device->name = $newName;
+    $device->save();
+} catch (\Pramnos\Application\WriteConflictException $e) {
+    // $e->columns: the written columns that changed meanwhile ([] when the row was deleted).
+    // A background job loads the row again and redoes its change; a form tells the person
+    // their copy is out of date.
+}
+```
+
+The exception's message names no column, so it is safe to show. Some columns are written
+without the check, because their loaded value cannot be compared back reliably: floats and
+decimals (the value went through a PHP float), JSON, XML, binary and spatial types. A column the
+model did not load has no loaded value to compare with. A change elsewhere to a column the model
+does not write is never a conflict, since that column is not written.
+
+Without the check, the other way to serialise two writers is to lock the row in a transaction
+(`$db->queryBuilder()->table(...)->lockForUpdate()`) before reading and writing it.
 
 There is no bulk update through the model. A statement that touches many rows is
 query-builder work, and it is worth writing the scope back in by hand:

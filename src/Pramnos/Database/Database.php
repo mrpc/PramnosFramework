@@ -2900,9 +2900,27 @@ class Database extends \Pramnos\Framework\Base
      */
     public function updateTableData($table, $data, $filter = '', $debug = false)
     {
+        return $this->updateTableDataWhere($table, $data, (string) $filter, [], $debug);
+    }
+
+    /**
+     * {@see updateTableData()}, with values bound into the filter's `?` placeholders.
+     *
+     * A method of its own rather than a fifth argument on `updateTableData()`, which a
+     * subclass may override: an added parameter there is a fatal at class load for it.
+     *
+     * @param string       $table    Table name to update
+     * @param array        $data     Rows of fieldName, value and type, as updateTableData() takes
+     * @param string       $filter   The WHERE condition, `?` for each binding
+     * @param array<mixed> $bindings Values for the placeholders, in order
+     * @param bool         $debug    Enable debug mode to output the query
+     * @return mixed The statement's result, or false when it failed
+     */
+    public function updateTableDataWhere($table, $data, string $filter, array $bindings = [], $debug = false)
+    {
         $qb = $this->queryBuilder()->from($table);
         if ($filter != '') {
-            $qb->whereRaw($filter);
+            $qb->whereRaw($filter, $bindings);
         }
 
         $values = [];

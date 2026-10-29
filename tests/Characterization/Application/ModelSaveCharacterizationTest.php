@@ -91,6 +91,7 @@ class ModelSaveCharacterizationTest extends TestCase
             $table->string('code', 10);
             $table->integer('stats')->nullable();
             $table->string('note', 50)->nullable();
+            $table->double('score')->nullable();
             $table->timestamp('created_at')->useCurrent();
         });
 
@@ -528,6 +529,134 @@ class ModelSaveCharacterizationTest extends TestCase
         $this->assertSame('kept', $this->row($id)['note'], 'the loaded value was written back');
     }
 
+    // ── Conflicts in the same column, for a model that asks ──────────────────
+
+    /**
+     * Without the check, the second writer of the same column wins and nobody is told — the
+     * default, and the case writing only changed columns cannot settle.
+     */
+    #[DataProvider('engines')]
+    public function testWithoutTheCheckTheLastWriterOfAColumnWins(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->engine($type, $host, $port, $user);
+        $id     = $this->seed();
+        $first  = (new ModelSaveProbe())->load($id);
+        $second = (new ModelSaveProbe())->load($id);
+
+        // Act
+        $first->name = 'from the first';
+        $first->save();
+        $second->name = 'from the second';
+        $second->save();
+
+        // Assert
+        $this->assertSame('from the second', $this->row($id)['name']);
+    }
+
+    /**
+     * With the check, the second writer of the same column is refused: nothing it changed is
+     * written — not the contested column, not the others — and the exception names the column.
+     */
+    #[DataProvider('engines')]
+    public function testWithTheCheckTheSecondWriterOfAColumnIsRefused(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->engine($type, $host, $port, $user);
+        $id     = $this->seed();
+        $first  = (new ModelSaveProbe())->load($id)->checkConflicts();
+        $second = (new ModelSaveProbe())->load($id)->checkConflicts();
+        $first->name = 'from the first';
+        $first->save();
+
+        // Act
+        $second->name = 'from the second';
+        $second->note = 'also from the second';
+        try {
+            $second->save();
+            $this->fail('the conflict was not reported');
+        } catch (\Pramnos\Application\WriteConflictException $e) {
+            // Assert
+            $this->assertSame(['name'], $e->columns);
+            $this->assertSame(ModelSaveProbe::class, $e->model);
+            $this->assertSame($id, (int) $e->primaryKey);
+            $this->assertStringNotContainsString('name', $e->getMessage(), 'the message names no column');
+        }
+        $row = $this->row($id);
+        $this->assertSame('from the first', $row['name']);
+        $this->assertSame('kept', $row['note'], 'nothing of the refused save was written');
+    }
+
+    /**
+     * With the check, a save goes through when nobody touched its columns: another writer's
+     * change to a different column is no conflict, and a column loaded as null compares as null.
+     */
+    #[DataProvider('engines')]
+    public function testWithTheCheckAnUncontestedSaveGoesThrough(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — `score` loaded null; another writer changes `note`
+        $this->engine($type, $host, $port, $user);
+        $id    = $this->seed();
+        $probe = (new ModelSaveProbe())->load($id)->checkConflicts();
+        $this->elsewhere($id, ['note' => 'changed elsewhere']);
+
+        // Act
+        $probe->name  = 'renamed';
+        $probe->stats = 6;
+        $probe->save();
+        $probe->stats = null;
+        $probe->save();
+
+        // Assert
+        $row = $this->row($id);
+        $this->assertSame('renamed', $row['name']);
+        $this->assertNull($row['stats'], 'a second save checks against what the first wrote');
+        $this->assertSame('changed elsewhere', $row['note']);
+    }
+
+    /**
+     * With the check, a row deleted since the load is a conflict with no columns to name.
+     */
+    #[DataProvider('engines')]
+    public function testWithTheCheckADeletedRowIsAConflict(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->engine($type, $host, $port, $user);
+        $id    = $this->seed();
+        $probe = (new ModelSaveProbe())->load($id)->checkConflicts();
+        $this->db->queryBuilder()->table(self::TABLE)->where('id', $id)->delete();
+
+        // Act & Assert
+        $probe->name = 'renamed';
+        try {
+            $probe->save();
+            $this->fail('the conflict was not reported');
+        } catch (\Pramnos\Application\WriteConflictException $e) {
+            $this->assertSame([], $e->columns);
+        }
+    }
+
+    /**
+     * A float column is written without the check: its loaded value went through a PHP float,
+     * and comparing that back is how a save would be refused for a rounding difference.
+     */
+    #[DataProvider('engines')]
+    public function testWithTheCheckAFloatColumnIsNotCompared(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->engine($type, $host, $port, $user);
+        $id    = $this->seed();
+        $probe = (new ModelSaveProbe())->load($id)->checkConflicts();
+        $this->elsewhere($id, ['score' => 1.5]);
+
+        // Act
+        $probe->score = 2.25;
+        $probe->save();
+
+        // Assert
+        $this->assertSame(2.25, (float) $this->row($id)['score']);
+    }
+
     /**
      * On MySQL, an `ON UPDATE CURRENT_TIMESTAMP` column now moves when a model saves. It never
      * did: every save wrote the column explicitly with the value it had loaded, which MySQL
@@ -573,6 +702,9 @@ class ModelSaveProbe extends Model
     /** @var string|null */
     public $note;
 
+    /** @var float|null */
+    public $score;
+
     /** @var string|null */
     public $created_at;
 
@@ -615,6 +747,14 @@ class ModelSaveProbe extends Model
     public function wholeRow(): void
     {
         $this->_saveWholeRow = true;
+    }
+
+    /** Check written columns against the loaded values, as `$_checkWriteConflicts` does. */
+    public function checkConflicts(): static
+    {
+        $this->_checkWriteConflicts = true;
+
+        return $this;
     }
 
     /** As if the load had not selected this column. */

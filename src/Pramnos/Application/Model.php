@@ -69,6 +69,23 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
     protected $_saveWholeRow = false;
 
     /**
+     * Whether an update first checks that the columns it writes still hold what the model loaded.
+     *
+     * Off by default. On, the UPDATE carries, beside the primary key, one condition per written
+     * column — `col <=> loaded` on MySQL, `col IS NOT DISTINCT FROM loaded` on PostgreSQL — and when
+     * no row matches, the save writes nothing and throws {@see WriteConflictException}. That is
+     * what settles two writers of the **same** column, which writing only changed columns cannot:
+     * the second to save is told, instead of silently winning. No schema change is needed.
+     *
+     * Columns that cannot be compared reliably are written without the check: floats and
+     * decimals (the loaded value went through a PHP float), JSON, XML, binary and spatial types.
+     * A column the model did not load has no loaded value to compare with either.
+     *
+     * @var bool
+     */
+    protected $_checkWriteConflicts = false;
+
+    /**
      * Database prefix used for this model
      * @var string
      */
@@ -394,12 +411,14 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
             $changedOnly = !$this->_isnew && !empty($this->_initialData)
                 && $force == false && !$this->_saveWholeRow;
             $writedata = array();
+            $columnTypes = array();
 
             if (isset(self::$columnCache[$this->columnCacheSlot()])) {
                 foreach (self::$columnCache[$this->columnCacheSlot()] as $fields) {
                     if ($fields['Field'] != $this->_primaryKey) {
                         $field = $fields['Field'];
                         $before = $this->$field;
+                        $columnTypes[$field] = (string) $fields['Type'];
                         if ($fields['Null'] == "NO") {
                             if ($this->$field === NULL) {
                                 // The cached half of the same rule — see the uncached branch
@@ -476,6 +495,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                     if ($result->fields['Field'] != $this->_primaryKey) {
                         $field = $result->fields['Field'];
                         $before = $this->$field;
+                        $columnTypes[$field] = (string) $result->fields['Type'];
                         if ($result->fields['Null'] == "NO") {
                             if ($this->$field === NULL) {
                                 /*
@@ -595,11 +615,17 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 // Nothing of the table's to write — the change was to a property that is not one
                 // of its columns, such as a joined field — is not a statement to send: an
                 // UPDATE with no SET is a syntax error.
-                $result = $writedata === array() ? true : $database->updateTableData(
-                    $this->getFullTableName(), $writedata,
-                    "`" . $primarykey . "` = '" . $this->$primarykey . "'",
-                    $debug
-                );
+                if ($writedata === array()) {
+                    $result = true;
+                } elseif ($changedOnly && $this->_checkWriteConflicts) {
+                    $result = $this->updateUnlessChanged($database, $writedata, $columnTypes, $debug);
+                } else {
+                    $result = $database->updateTableData(
+                        $this->getFullTableName(), $writedata,
+                        "`" . $primarykey . "` = '" . $this->$primarykey . "'",
+                        $debug
+                    );
+                }
                 if ($result === false) {
                     // `updateTableData()` already catches its own \Throwable and returns false
                     // (the same shape `insertDataToTable()` has) — so the result, not an
@@ -1661,6 +1687,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
         '_initialData'     => true,
         '_lastChanges'     => true,
         '_saveWholeRow'    => true,
+        '_checkWriteConflicts' => true,
         '_errors'          => true,
         '_messages'        => true,
         '_data'            => true,
@@ -1983,6 +2010,71 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
     protected function changeScope(): ?string
     {
         return null;
+    }
+
+    /**
+     * The UPDATE of {@see $_checkWriteConflicts}: written only if every column it writes still
+     * holds the loaded value, and a {@see WriteConflictException} when one does not.
+     *
+     * Affected rows decide, and they can: every column written differs from its loaded value,
+     * so a row that matched the conditions is a row that changed, including on MySQL, which
+     * counts changed rows rather than matched ones.
+     *
+     * @param array<int, array<string, mixed>> $writedata
+     * @param array<string, string>            $columnTypes The columns' types, as introspected
+     * @return mixed The statement's result, or false when it failed
+     */
+    private function updateUnlessChanged(
+        \Pramnos\Database\Database $database,
+        array $writedata,
+        array $columnTypes,
+        bool $debug
+    ): mixed {
+        $primarykey = $this->_primaryKey;
+        $sameAs     = $database->type === 'postgresql' ? ' IS NOT DISTINCT FROM ?' : ' <=> ?';
+        $filter     = '`' . $primarykey . '` = ?';
+        $bindings   = array($this->$primarykey);
+        $checked    = array();
+
+        foreach ($writedata as $item) {
+            $field = $item['fieldName'];
+            $type  = strtolower($columnTypes[$field] ?? '');
+            if (!array_key_exists($field, $this->_initialData) || preg_match(
+                '/^(float|double|real|decimal|numeric|json|jsonb|xml|bytea|blob|tinyblob|mediumblob'
+                . '|longblob|binary|varbinary|geometry|geography|point|linestring|polygon)/',
+                $type
+            ) === 1) {
+                continue;
+            }
+            $filter    .= ' AND `' . $field . '`' . $sameAs;
+            $bindings[] = $this->_initialData[$field];
+            $checked[]  = $field;
+        }
+
+        $result = $database->updateTableDataWhere(
+            $this->getFullTableName(), $writedata, $filter, $bindings, $debug
+        );
+        if ($result === false || $checked === array()
+            || !$result instanceof \Pramnos\Database\Result || $result->getAffectedRows() > 0) {
+            return $result;
+        }
+
+        // Nothing matched: say which of the checked columns moved, or that the row is gone.
+        $now = $database->queryBuilder()->table($this->getFullTableName())
+            ->select($checked)->where($primarykey, $this->$primarykey)->first();
+        $moved = array();
+        if ($now && $now->numRows > 0) {
+            foreach ($checked as $field) {
+                $loaded = $this->_initialData[$field];
+                $current = $now->fields[$field] ?? null;
+                if (($loaded === null) !== ($current === null)
+                    || (string) $loaded !== (string) $current) {
+                    $moved[] = $field;
+                }
+            }
+        }
+
+        throw new WriteConflictException(static::class, $this->$primarykey, $moved);
     }
 
     /**
