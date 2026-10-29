@@ -973,8 +973,19 @@ class QueryBuilder
     }
 
     /**
+     * Order the rows randomly, in the connection's own dialect: RANDOM() on
+     * PostgreSQL and TimescaleDB, RAND() on MySQL and MariaDB.
+     *
+     * @return $this
+     */
+    public function orderByRandom()
+    {
+        return $this->orderByRaw($this->db->type === 'postgresql' ? 'RANDOM()' : 'RAND()');
+    }
+
+    /**
      * Add a group by clause.
-     * 
+     *
      * @param array|string $columns
      * @return $this
      */

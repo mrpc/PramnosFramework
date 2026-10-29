@@ -591,6 +591,18 @@ $qb->from('posts')->latest()->limit(10)->get();
 // → ORDER BY created_at DESC
 ```
 
+#### `orderByRandom(): static`
+
+Random order, written in the connection's dialect — `RANDOM()` on PostgreSQL and
+TimescaleDB, `RAND()` on MySQL. Neither database knows the other's name, so do not
+write either by hand with `orderByRaw()`.
+
+```php
+$qb->from('users')->orderByRandom()->limit(5)->get();
+// MySQL      → ORDER BY RAND() LIMIT 5
+// PostgreSQL → ORDER BY RANDOM() LIMIT 5
+```
+
 #### `groupBy(string|array $columns): static`
 
 ```php

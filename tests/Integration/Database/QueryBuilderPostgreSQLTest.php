@@ -1942,4 +1942,31 @@ class QueryBuilderPostgreSQLTest extends DatabaseTestCase
         $this->expectExceptionMessageMatches('/invalid byte sequence/i');
         $this->db->queryBuilder()->table('qb_blobs')->whereLikeText('payload', '%anything%')->count();
     }
+
+    /**
+     * orderByRandom() runs on this database and returns every row, each once.
+     *
+     * The unit test proves the SQL text; this proves the function exists on the real
+     * server and that the ordering neither drops nor duplicates rows.
+     */
+    public function testOrderByRandomReturnsEveryRow(): void
+    {
+        // Arrange
+        $this->seedProducts();
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->from('qb_products')
+            ->select('name')
+            ->orderByRandom()
+            ->get();
+
+        // Assert
+        $names = [];
+        while ($result->fetch()) {
+            $names[] = $result->fields['name'];
+        }
+        sort($names);
+        $this->assertSame(['Apple', 'Banana', 'Carrot', 'Daikon', 'Elderberry'], $names);
+    }
 }

@@ -1601,4 +1601,27 @@ class QueryBuilderUnitTest extends TestCase
         $this->assertStringContainsString('PARTITION BY "category"', $sql);
         $this->assertStringContainsString('"price_rank"', $sql);
     }
+
+    /**
+     * orderByRandom() writes the random function the connection's dialect has.
+     *
+     * PostgreSQL has no RAND() ("function rand() does not exist") and MySQL has no
+     * RANDOM(), so a caller writing either by hand breaks on the other database.
+     */
+    public function testOrderByRandomUsesTheDialectsFunction(): void
+    {
+        // Arrange
+        $mysql = $this->makeQB('mysql')->from('users')->orderByRandom()->limit(3);
+        $pgsql = $this->makeQB('postgresql')->from('users')->orderByRandom()->limit(3);
+
+        // Act
+        $mysqlSql = $mysql->toSql();
+        $pgsqlSql = $pgsql->toSql();
+
+        // Assert
+        $this->assertStringContainsString('ORDER BY RAND()', $mysqlSql);
+        $this->assertStringContainsString('ORDER BY RANDOM()', $pgsqlSql);
+        // 'RANDOM()' does not contain 'RAND()', so this proves the MySQL form did not leak in
+        $this->assertStringNotContainsString('RAND()', $pgsqlSql);
+    }
 }
