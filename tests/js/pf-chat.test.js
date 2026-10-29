@@ -233,45 +233,120 @@ test('the answer shows while it is written, and is looked at more often', async 
 /** An answer's 👍 and 👎 as RatingView draws them, 👎 pressed or not. */
 function rating(pressed = false) {
     const span = element('span', { class: 'pf-rating', 'data-pf-rating': '5' });
-    const good = span.appendChild(element('form'));
-    good.appendChild(element('button', { type: 'submit', 'aria-pressed': 'false' }));
-    const bad = span.appendChild(element('form'));
-    bad.appendChild(element('button', { type: 'submit', 'aria-pressed': pressed ? 'true' : 'false' }));
-    const note = bad.appendChild(element('input', { type: 'text', name: 'note' }));
+    const form = (value, isPressed) => {
+        const one = span.appendChild(element('form', { action: '/chat/rate/5', 'data-pf-rating-value': String(value) }));
+        one.action = '/chat/rate/5';
+        one.submitted = 0;
+        one.submit = () => { one.submitted++; };
+        one.appendChild(element('input', { type: 'hidden', name: 'rating' })).value = isPressed ? '0' : String(value);
+        one.appendChild(element('button', { type: 'submit', 'aria-pressed': isPressed ? 'true' : 'false' }));
 
-    return { span, good, bad, note };
+        return one;
+    };
+    const good = form(1, false);
+    const bad = form(-1, pressed);
+    const note = bad.appendChild(element('input', { type: 'text', name: 'note' }));
+    const value = (one) => one.querySelector('input[name="rating"]').value;
+    const pressedOf = (one) => one.querySelector('button').getAttribute('aria-pressed');
+
+    return { span, good, bad, note, value, pressedOf };
 }
 
 /**
  * 👎 asks what was wrong before it sends: the note is hidden until the first press, which shows
  * and focuses it instead of sending; the next press sends, the note with it. 👍 sends at once, and
- * so does a 👎 already pressed, which only takes the rating back.
+ * so does a 👎 already pressed, which only takes the rating back. A press is sent in the
+ * background, not by posting the page.
  *
  * A note always on view between the buttons read as belonging to either, and nobody writes a
  * reason before deciding the answer was bad.
  */
-test('👎 shows its note on the first press, and sends with the next', () => {
+test('👎 shows its note on the first press, and sends with the next', async () => {
     // Arrange
     const fresh = rating();
     const taken = rating(true);
-    run({ answers: [], before: [fresh.span, taken.span] });
+    const ui = run({ answers: [{ ok: true, rating: -1, message: 'Noted' }, { ok: true, rating: 1, message: 'Noted' }, { ok: true, rating: 0, message: 'Noted' }], before: [fresh.span, taken.span] });
     const hiddenAtFirst = fresh.note.hidden;
+    const takenNoteAtFirst = taken.note.hidden;
 
     // Act
     const first = fresh.bad.dispatch('submit');
+    const asked = ui.requests.length;
     const second = fresh.bad.dispatch('submit');
+    await settle();
     const good = fresh.good.dispatch('submit');
+    await settle();
     const takeBack = taken.bad.dispatch('submit');
+    await settle();
 
     // Assert
     assert.equal(hiddenAtFirst, true, 'no note until 👎');
     assert.equal(first.prevented, true, 'the first press asks, it does not send');
-    assert.equal(fresh.note.hidden, false);
+    assert.equal(asked, 0);
     assert.equal(fresh.note.focused, true);
-    assert.equal(second.prevented, undefined, 'the second sends');
-    assert.equal(good.prevented, undefined, '👍 sends at once');
-    assert.notEqual(taken.note.hidden, true, 'a pressed 👎 keeps its note as drawn');
-    assert.equal(takeBack.prevented, undefined, 'and takes the rating back at once');
+    assert.equal(second.prevented, true, 'the second sends — in the background, not by posting the page');
+    assert.equal(good.prevented, true, '👍 sends at once');
+    assert.notEqual(takenNoteAtFirst, true, 'a pressed 👎 keeps its note as drawn');
+    assert.equal(taken.note.hidden, true, 'taken back, the note folds with the rest');
+    assert.equal(takeBack.prevented, true, 'and takes the rating back at once');
+    assert.deepEqual(ui.requests.map((r) => [r.url, r.method]), [['/chat/rate/5', 'POST'], ['/chat/rate/5', 'POST'], ['/chat/rate/5', 'POST']]);
+    assert.equal(fresh.bad.submitted + fresh.good.submitted + taken.bad.submitted, 0, 'no page was posted');
+});
+
+/**
+ * What the server kept redraws both buttons in place: the chosen one pressed, and its hidden value
+ * 0 so the next press takes it back; the other unpressed with its own value; the note folded and
+ * emptied; and the server's words beside them, as a copy says ✓.
+ */
+test('a rating changes both buttons in place and says so', async () => {
+    // Arrange
+    const r = rating();
+    const ui = run({ answers: [{ ok: true, rating: -1, message: 'Thank you — noted.' }, { ok: true, rating: 1, message: 'Thank you — noted.' }], before: [r.span] });
+
+    // Act — 👎 with a note
+    r.bad.dispatch('submit');
+    r.note.value = 'Wrong year';
+    r.bad.dispatch('submit');
+    await settle();
+    const afterBad = [r.pressedOf(r.good), r.value(r.good), r.pressedOf(r.bad), r.value(r.bad), r.note.hidden, r.note.value];
+    const said = r.span.querySelector('[data-pf-rating-said]');
+    const saidText = said.textContent;
+
+    // …then 👍, which replaces it
+    r.good.dispatch('submit');
+    await settle();
+
+    // Assert
+    assert.deepEqual(afterBad, ['false', '1', 'true', '0', true, ''], '👎 pressed; pressing it again takes it back');
+    assert.equal(saidText, '✓ Thank you — noted.');
+    assert.equal(said.getAttribute('role'), 'status', 'read out by a screen reader');
+    assert.deepEqual([r.pressedOf(r.good), r.value(r.good), r.pressedOf(r.bad), r.value(r.bad)], ['true', '0', 'false', '-1']);
+    assert.equal(ui.requests[0].body.form, r.bad, 'the form itself is what is sent, token and note with it');
+});
+
+/**
+ * A refusal the server words is said beside the buttons, which stay as they were; anything that
+ * is not an answer — a lost connection, a page instead of JSON — posts the form as it would have
+ * without the script.
+ */
+test('a refusal is said, and anything else falls back to posting the form', async () => {
+    // Arrange
+    const refused = rating();
+    const lost = rating();
+    run({ answers: [{ ok: false, error: 'There is no such answer.' }, new Error('offline')], before: [refused.span, lost.span] });
+
+    // Act
+    refused.good.dispatch('submit');
+    await settle();
+    lost.good.dispatch('submit');
+    await settle();
+
+    // Assert
+    assert.equal(refused.span.querySelector('[data-pf-rating-said]').textContent, 'There is no such answer.');
+    assert.equal(refused.pressedOf(refused.good), 'false', 'nothing changed');
+    assert.equal(refused.good.submitted, 0);
+    assert.equal(lost.good.submitted, 1, 'posted the old way');
+    assert.equal(lost.good.querySelector('button').disabled, false);
 });
 
 /** The page's `/` commands, as ChatLook::commands() writes them. */

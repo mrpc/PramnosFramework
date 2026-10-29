@@ -570,6 +570,15 @@ press shows the note beside the button, and the next press, or Enter in the note
 note is on view from the start when the page runs without JavaScript. The SPA asks for it in a
 prompt.
 
+On the page and in the side panel, `pf-chat.js` sends a rating in the background: the buttons
+change in place, the conversation keeps its scroll position, and "✓ Thank you — noted." (or the
+refusal) shows beside them for a moment. The action `rate/{id}` answers a request with
+`Accept: application/json` with `{ok: true, rating, message}`, or `{ok: false, error}` and a 422.
+Without the script, or when the answer is not JSON, the form posts and the page comes back with
+the message flashed. Each form carries `data-pf-rating-value` (1 or -1), so the script knows what
+a button means once its hidden `rating` holds 0, which takes the rating back. An application with
+its own copy of `pf-chat.js` refreshes it with `php bin/pramnos project:resync --js`.
+
 A bad answer waits in **Answers to review** (`/admin/Ai/reviews`, linked from the analyst's ⚙
 menu) with the question it answered and the note, until a reviewer marks it reviewed — recorded in
 the audit log as `ai.answer_reviewed`. A new verdict puts it back. The screen is for whoever reads

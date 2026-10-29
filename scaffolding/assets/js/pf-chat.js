@@ -485,23 +485,101 @@
             });
         }
 
+        /** A rating's outcome beside its buttons, for a moment, as a copy says ✓. */
+        function rated(group, text, failed) {
+            var said = group.querySelector('[data-pf-rating-said]');
+
+            if (!said) {
+                said = document.createElement('span');
+                said.setAttribute('data-pf-rating-said', '');
+                said.setAttribute('role', 'status');
+                said.className = 'pf-rating-said';
+                group.appendChild(said);
+            }
+            said.textContent = (failed ? '' : '✓ ') + text;
+            window.setTimeout(function () { said.textContent = ''; }, 3000);
+        }
+
+        /**
+         * Send one of an answer's ratings without leaving the page, and redraw both buttons from
+         * what the server kept. Anything other than a JSON answer — a refusal page, a lost
+         * connection — posts the form as it would have without the script.
+         */
+        function rate(rating, group) {
+            var press = rating.querySelector('button');
+
+            press.disabled = true;
+            fetch(rating.action || rating.getAttribute('action'), {
+                method: 'POST',
+                body: new FormData(rating),
+                credentials: 'same-origin',
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            })
+                .then(function (response) { return response.json(); })
+                .then(function (answer) {
+                    press.disabled = false;
+                    if (!answer || typeof answer.ok !== 'boolean') {
+                        throw new Error('not an answer');
+                    }
+                    if (!answer.ok) {
+                        rated(group, answer.error || '', true);
+
+                        return;
+                    }
+                    var now = parseInt(answer.rating, 10) || 0;
+
+                    Array.prototype.forEach.call(group.querySelectorAll('form'), function (one) {
+                        var value = parseInt(one.getAttribute('data-pf-rating-value'), 10);
+                        var pressed = now !== 0 && value === now;
+                        var button = one.querySelector('button');
+                        var hidden = one.querySelector('input[name="rating"]');
+                        var note = one.querySelector('input[name="note"]');
+
+                        if (button) {
+                            button.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+                        }
+                        if (hidden && !isNaN(value)) {
+                            hidden.value = pressed ? '0' : String(value);
+                        }
+                        if (note) {
+                            note.hidden = true;
+                            note.value = '';
+                        }
+                    });
+                    rated(group, answer.message || '', false);
+                })
+                .catch(function () {
+                    press.disabled = false;
+                    rating.submit();
+                });
+        }
+
         // 👎 asks what was wrong first: its note shows on the first press, and the next press (or
         // Enter in the note) sends. 👍, and a 👎 already pressed (which takes the rating back), send
-        // at once. Without the script the note is there from the start.
+        // at once. Without the script the note is there from the start, and every press posts the
+        // page; with it, a rating is sent in the background and the buttons change in place.
         Array.prototype.forEach.call(root.querySelectorAll('[data-pf-rating] form'), function (rating) {
             var note = rating.querySelector('input[name="note"]');
             var press = rating.querySelector('button');
+            var group = rating.parentNode;
 
-            if (!note || !press || press.getAttribute('aria-pressed') === 'true') {
-                return;
+            if (note && press && press.getAttribute('aria-pressed') !== 'true') {
+                note.hidden = true;
             }
-            note.hidden = true;
             rating.addEventListener('submit', function (event) {
-                if (note.hidden) {
+                // Asked at the press, not at load: a rating changed in place changes the answer.
+                if (note && note.hidden && press && press.getAttribute('aria-pressed') !== 'true') {
                     event.preventDefault();
                     note.hidden = false;
                     note.focus();
+
+                    return;
                 }
+                if (typeof fetch === 'undefined' || typeof FormData === 'undefined' || !group) {
+                    return;
+                }
+                event.preventDefault();
+                rate(rating, group);
             });
         });
 

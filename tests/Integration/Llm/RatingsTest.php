@@ -164,6 +164,44 @@ class RatingsTest extends LlmTestCase
         $this->assertSame([], $refused->messages);
     }
 
+    /**
+     * `pf-chat.js` asks for JSON and gets it: the rating kept and the words to say, or the refusal
+     * with a 422 — and no flash message or redirect, which the next page load would otherwise
+     * show and the background request would follow into a whole page.
+     */
+    #[DataProvider('databases')]
+    public function testThePageAnswersTheScriptInJson(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $mine = new Scope(7, null);
+        [$id, $answer] = $this->exchange($mine);
+        $_SERVER['HTTP_ACCEPT'] = 'application/json';
+        $_POST = ['rating' => '-1', 'note' => 'Wrong year', 'conversation_id' => (string) $id];
+
+        try {
+            // Act
+            $page    = new PageFixture($mine, 'plain-css');
+            $kept    = json_decode((string) $page->rate($answer), true);
+            $other   = new PageFixture(new Scope(8, null), 'plain-css');
+            $refused = json_decode((string) $other->rate($answer), true);
+        } finally {
+            unset($_SERVER['HTTP_ACCEPT']);
+            $_POST = [];
+        }
+
+        // Assert
+        $this->assertSame(['ok' => true, 'rating' => -1, 'message' => 'Thank you — noted.'], $kept);
+        $this->assertSame([], $page->messages, 'nothing flashed for the next page');
+        $this->assertSame([], $page->redirectedTo, 'no redirect for the script to follow');
+        $this->assertFalse($refused['ok']);
+        $this->assertSame('There is no such answer.', $refused['error']);
+        $this->assertSame(422, $refused['status']);
+        $this->assertSame([], $other->errors);
+        $this->assertSame(-1, (new Conversations(new RecordingAssistant()))->as($mine)->find($id)['messages'][1]['rating'],
+            'the rating was kept');
+    }
+
     /** The markup: the pressed button, the note beside the bad one; an empty queue says so. */
     public function testTheMarkup(): void
     {
@@ -178,6 +216,8 @@ class RatingsTest extends LlmTestCase
         $this->assertStringContainsString('name="rating" value="0"', $buttons, 'pressing the chosen one again takes it back');
         $this->assertStringContainsString('aria-pressed="true" aria-label="A bad answer"', $buttons);
         $this->assertStringContainsString('name="note"', $buttons);
+        $this->assertStringContainsString('data-pf-rating-value="1"', $buttons, 'each button says what it means');
+        $this->assertStringContainsString('data-pf-rating-value="-1"', $buttons, 'even while its hidden value is 0');
         $this->assertStringContainsString('Nothing waiting', $empty);
         $this->assertStringContainsString('href="/admin/Ai/all?c=6"', $admin, 'an analyst conversation opens read only');
         $this->assertStringContainsString('&lt;q&gt;', $admin);

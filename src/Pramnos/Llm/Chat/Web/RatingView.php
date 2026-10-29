@@ -23,7 +23,9 @@ final class RatingView
         $form   = static function (int $value, string $label, string $aria, string $extra = '') use ($e, $action, $id, $returnTo, $token, $rating, $c): string {
             $pressed = $rating === $value;
 
-            return '<form method="post" action="' . $e($action . $id) . '" style="display:inline">' . $token
+            // `data-pf-rating-value`: what this button means, which `pf-chat.js` needs once a
+            // rating has changed in place and the hidden `rating` holds 0 (take it back) instead.
+            return '<form method="post" action="' . $e($action . $id) . '" data-pf-rating-value="' . $value . '" style="display:inline">' . $token
                 . '<input type="hidden" name="conversation_id" value="' . $returnTo . '">'
                 . '<input type="hidden" name="rating" value="' . ($pressed ? 0 : $value) . '">'
                 // The note after its button: between 👍 and 👎 it read as belonging to either.
