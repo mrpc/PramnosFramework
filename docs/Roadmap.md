@@ -78,8 +78,8 @@ context billed again on every turn. The price of the chain is latency, about 1.5
 sound, which a spoken "one moment" covers while a tool runs.
 
 The cost of a voice answer is almost all text to speech: transcription is a small fraction of a
-cent per question, and a hosted voice reading a ~50 s answer costs several times the text answer
-itself. Spoken locally, a voice answer costs what a text answer costs.
+cent per question, and a hosted voice reading a typical answer — about 320 tokens, well over a
+minute spoken — costs ten to twenty times the text answer itself. Spoken locally, a voice answer costs what a text answer costs.
 
 **Phases:**
 
