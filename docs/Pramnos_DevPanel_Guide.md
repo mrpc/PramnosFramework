@@ -492,6 +492,7 @@ somewhere else:
 | --- | --- |
 | not loaded | add `pg_stat_statements` to `shared_preload_libraries` (beside `timescaledb`) and restart the server |
 | loaded but not created | `CREATE EXTENSION pg_stat_statements;` in the database |
+| not created, and this role cannot read `shared_preload_libraries` | both of the above. Reading the setting takes `pg_read_all_settings`, which an application role usually lacks. Once the extension exists, the page checks by reading it instead |
 | no `pg_read_all_stats` | `GRANT pg_read_all_stats TO <role>;` (or `pg_monitor`). Without it the counters still include every role, but other roles' statement text reads `<insufficient privilege>`, and their connections never count as active |
 
 The summary and the per-role split read `pg_stat_statements(false)`, which skips the

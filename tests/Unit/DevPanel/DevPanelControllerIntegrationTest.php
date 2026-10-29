@@ -384,6 +384,8 @@ class DevPanelControllerIntegrationTest extends TestCase
                 => ['installed' => true, 'loaded' => false],
             'loaded but not created'
                 => ['installed' => false, 'loaded' => true],
+            'cannot read <code>shared_preload_libraries</code>'
+                => ['installed' => false, 'loaded' => null],
             'could not be read: permission denied'
                 => ['installed' => true, 'loaded' => true, 'error' => 'permission denied'],
         ];

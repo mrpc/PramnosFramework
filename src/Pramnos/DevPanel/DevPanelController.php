@@ -1259,12 +1259,19 @@ class DevPanelController extends Controller
         if ($stats['error'] !== '') {
             $html .= '<p class="hint">pg_stat_statements could not be read: '
                 . $esc($stats['error']) . '</p>';
-        } elseif (!$stats['loaded']) {
+        } elseif ($stats['loaded'] === false) {
             $html .= '<p class="hint"><code>pg_stat_statements</code> is not loaded. Add it to '
                 . '<code>shared_preload_libraries</code> in postgresql.conf (beside '
                 . '<code>timescaledb</code>, if that is there), restart the server, then '
                 . '<code>CREATE EXTENSION pg_stat_statements;</code> in this database. Without '
                 . 'it, "what is slow" and "how many queries a second" are guesses.</p>';
+        } elseif (!$stats['installed'] && $stats['loaded'] === null) {
+            $html .= '<p class="hint"><code>pg_stat_statements</code> is not created in this '
+                . 'database, and this role cannot read <code>shared_preload_libraries</code> to '
+                . 'say whether it is loaded (that takes <code>pg_read_all_settings</code>). To '
+                . 'enable it: add it to <code>shared_preload_libraries</code> in postgresql.conf '
+                . '(beside <code>timescaledb</code>, if that is there), restart the server, then '
+                . '<code>CREATE EXTENSION pg_stat_statements;</code> in this database.</p>';
         } elseif (!$stats['installed']) {
             $html .= '<p class="hint"><code>pg_stat_statements</code> is loaded but not '
                 . 'created in this database: <code>CREATE EXTENSION pg_stat_statements;</code>'

@@ -211,6 +211,59 @@ class DatabaseInspectorPostgreSQLTest extends TestCase
     }
 
     /**
+     * A role that may not read `shared_preload_libraries` still gets an answer, not an error.
+     *
+     * `current_setting('shared_preload_libraries')` refuses without `pg_read_all_settings`,
+     * which is every ordinary application role, and the refusal emptied the whole section —
+     * the enable instructions and the live applications included. Without the extension the
+     * answer is "cannot tell" (null); with it, reading the extension tells.
+     */
+    public function testARoleThatCannotReadTheSettingStillGetsAnAnswer(): void
+    {
+        // Arrange — an ordinary role, as an application connects
+        $installedBefore = (int) ($this->db->query(
+            "SELECT count(*) AS n FROM pg_extension WHERE extname = 'pg_stat_statements'"
+        )->fields['n'] ?? 0) > 0;
+        $this->db->query('DROP ROLE IF EXISTS inspector_plain_role');
+        $this->db->query('CREATE ROLE inspector_plain_role');
+        $inspector = new DatabaseInspector($this->db);
+
+        try {
+            $this->db->query('DROP EXTENSION IF EXISTS pg_stat_statements');
+            $this->db->query('SET ROLE inspector_plain_role');
+
+            // Act — not created
+            $absent = $inspector->getStatementStats();
+
+            $this->db->query('RESET ROLE');
+            $this->db->query('CREATE EXTENSION pg_stat_statements');
+            $this->db->query('SET ROLE inspector_plain_role');
+
+            // Act — created
+            $present = $inspector->getStatementStats();
+
+            // Assert
+            $this->assertSame('', $absent['error'], 'no permission error');
+            $this->assertFalse($absent['installed']);
+            $this->assertNull($absent['loaded'], 'this role cannot tell, and says so');
+            $this->assertNotEmpty($absent['applications'], 'the live table survives');
+
+            $this->assertSame('', $present['error']);
+            $this->assertTrue($present['loaded'], 'reading the extension proved it loaded');
+            $this->assertFalse($present['reads_all']);
+            $this->assertNotEmpty($present['rows']);
+        } finally {
+            $this->db->query('RESET ROLE');
+            if (!$installedBefore) {
+                $this->db->query('DROP EXTENSION IF EXISTS pg_stat_statements');
+            } else {
+                $this->db->query('CREATE EXTENSION IF NOT EXISTS pg_stat_statements');
+            }
+            $this->db->query('DROP ROLE IF EXISTS inspector_plain_role');
+        }
+    }
+
+    /**
      * An unknown sort is not SQL: it falls back to total time instead of reaching the query.
      */
     public function testAnUnknownSortFallsBackToTotalTime(): void

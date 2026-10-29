@@ -357,7 +357,9 @@ class DatabaseInspector
      * `installed` and `loaded` are two separate facts because they fail separately: the
      * extension can exist in the database while the library is missing from
      * `shared_preload_libraries` (every read then errors), or be loaded with no
-     * `CREATE EXTENSION` (nothing to read). `reads_all` is whether this role has
+     * `CREATE EXTENSION` (nothing to read). `loaded` is null when this role cannot tell:
+     * `shared_preload_libraries` is readable only with `pg_read_all_settings`, and with the
+     * extension created the answer comes from reading it instead. `reads_all` is whether this role has
      * `pg_read_all_stats`: without it the counters of other roles are still there, but their
      * statement text is `<insufficient privilege>`, and the screen has to say so rather than
      * look like a server that runs one user's queries.
@@ -376,7 +378,7 @@ class DatabaseInspector
      * idle_in_tx.
      *
      * @param string $sort  A key of {@see STATEMENT_SORTS}; anything else sorts by total time
-     * @return array{installed: bool, loaded: bool, reads_all: bool, error: string,
+     * @return array{installed: bool, loaded: ?bool, reads_all: bool, error: string,
      *     summary: array<string, mixed>, by_role: array<int, array<string, mixed>>,
      *     rows: array<int, array<string, mixed>>, applications: array<int, array<string, mixed>>}
      */
@@ -394,7 +396,8 @@ class DatabaseInspector
             $state = $this->db->query(
                 "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements')
                             AS installed,
-                        current_setting('shared_preload_libraries') AS preload,
+                        (SELECT setting FROM pg_settings
+                         WHERE name = 'shared_preload_libraries') AS preload,
                         pg_has_role(current_user, 'pg_read_all_stats', 'USAGE') AS reads_all"
             );
             $state = $state ? $state->fetch() : null;
@@ -402,13 +405,20 @@ class DatabaseInspector
             if ($state) {
                 $answer['installed'] = in_array($state['installed'], [true, 't', 1, '1'], true);
                 $answer['reads_all'] = in_array($state['reads_all'], [true, 't', 1, '1'], true);
-                $answer['loaded']    = in_array(
+                /*
+                 * `pg_settings`, not `current_setting()`: without `pg_read_all_settings` the
+                 * function errors and took the whole section down with it, while the view
+                 * just leaves the row out — and then this role cannot tell.
+                 */
+                $answer['loaded'] = $state['preload'] === null ? null : in_array(
                     'pg_stat_statements',
                     array_map('trim', explode(',', (string) $state['preload'])),
                     true
                 );
             }
 
+            // `backend_type IS NULL` too: without pg_read_all_stats every other role's row hides
+            // its type, and filtering on it alone counted only this role's own connections.
             $applications = $this->db->query(
                 "SELECT COALESCE(NULLIF(application_name, ''), '(none)') AS application_name,
                         usename, datname, count(*) AS connections,
@@ -416,7 +426,7 @@ class DatabaseInspector
                         count(*) FILTER (WHERE state IN ('idle in transaction',
                             'idle in transaction (aborted)')) AS idle_in_tx
                  FROM pg_stat_activity
-                 WHERE backend_type = 'client backend'
+                 WHERE backend_type = 'client backend' OR backend_type IS NULL
                  GROUP BY 1, 2, 3
                  ORDER BY connections DESC
                  LIMIT 30"
@@ -426,6 +436,16 @@ class DatabaseInspector
         } catch (\Exception $e) {
             $answer['error'] = $e->getMessage();
             return $answer;
+        }
+
+        if ($answer['installed'] && $answer['loaded'] === null) {
+            // Created, and the setting is hidden: reading the extension is the test — it
+            // refuses with "must be loaded via shared_preload_libraries" when it is not.
+            try {
+                $answer['loaded'] = (bool) $this->db->query('SELECT 1 FROM pg_stat_statements_info');
+            } catch (\Exception) {
+                $answer['loaded'] = false;
+            }
         }
 
         if (!$answer['installed'] || !$answer['loaded']) {
