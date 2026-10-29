@@ -153,6 +153,9 @@ class DeferredWriteQueue
     /** @var string|null Where the WAL stood when this drain began; null where there is none to read */
     protected ?string $walStart = null;
 
+    /** @var int Chunks this run has drained, across tables: the WAL budget waits for the first */
+    protected int $drained = 0;
+
     /** @var string|null Why this drain stopped before the end, once it has */
     protected ?string $paused = null;
 
@@ -419,6 +422,7 @@ class DeferredWriteQueue
         $report = [];
         $this->walStart = $tables === [] ? null : $this->walPosition();
         $this->paused   = null;
+        $this->drained  = 0;
 
         foreach ($tables as $table) {
             $report[$table] = $this->processTable($table, $reporter);
@@ -454,6 +458,7 @@ class DeferredWriteQueue
                 return $stats;
             }
             $stats['chunks']++;
+            $this->drained++;
             $compressed = $this->isCompressed($chunk);
             // Written directly where the server takes it and the chunk is not mostly rewritten
             // anyway; otherwise decompressed, written and compressed back.
@@ -980,14 +985,19 @@ class DeferredWriteQueue
      * Why a drain stops before its next chunk, or null: the WAL it has written reached
      * {@see $walBudget}, or a streaming replica is {@see $replicaLagLimit} behind. Nothing to say
      * where there is no WAL to read (MySQL).
+     *
+     * The budget is not asked before a run's first chunk. The WAL read is the server's, not this
+     * drain's own, so on a server busy with other writes a small budget was spent before the
+     * drain had written anything — and a drain that pauses before its first chunk pauses every
+     * run. A replica that is behind still stops it before the first.
      */
     protected function mustPause(): ?string
     {
         if ($this->walStart === null) {
             return null;
         }
-        $written = $this->walSince($this->walStart);
-        if ($written >= $this->walBudget) {
+        $written = $this->drained > 0 ? $this->walSince($this->walStart) : 0;
+        if ($this->drained > 0 && $written >= $this->walBudget) {
             return 'the WAL budget is spent (' . round($written / 1048576) . ' MB written)';
         }
         $lag = $this->replicaLag();

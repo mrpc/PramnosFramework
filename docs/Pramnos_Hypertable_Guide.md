@@ -899,7 +899,10 @@ chunks would write more in minutes than a streaming replica keeps, and lose it.
 So before each chunk the drain checks two limits, and stops if either is
 reached:
 
-- the WAL it has written this run, `--wal-budget` in MB (default 20 GB);
+- the WAL written since the run began, `--wal-budget` in MB (default 20 GB).
+  This is the server's WAL, other writers' included, so it is checked only from
+  the second chunk on: the first chunk of a run always drains, and a busy server
+  cannot spend the budget before the drain has done anything;
 - how far the furthest streaming replica is behind, `--replica-lag` in MB
   (default 10 GB). This is read from `pg_stat_replication`, whose positions a
   superuser or a `pg_monitor` member sees; another role reads no lag.

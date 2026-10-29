@@ -403,6 +403,44 @@ class DeferredWriteQueueTimescaleDBTest extends TestCase
     }
 
     /**
+     * WAL the server wrote for others before the drain began does not stop its first chunk.
+     *
+     * The budget reads the server's WAL, not only this drain's. With a small budget on a server
+     * busy with other writes, it was spent before the drain had written anything, so every run
+     * stopped before its first chunk and nothing ever drained. The full suite hit exactly that:
+     * a one-byte budget, and WAL from the previous test, left `chunks` at 0. Here the drain is
+     * made to start from position `0/0`, so the server's whole WAL counts against it at once.
+     */
+    public function testWalWrittenByOthersDoesNotStopTheFirstChunk(): void
+    {
+        // Arrange — two compressed chunks with a late row each, and a budget spent from the start
+        $first  = strtotime('-30 days');
+        $second = strtotime('-20 days');
+        $this->insertDirectly(1, $first, 1.0);
+        $this->insertDirectly(1, $second, 1.0);
+        $this->compressEverything();
+        $this->schema->addCompressionPolicy(self::TABLE, '7 days');
+        $queue = new class ($this->db) extends DeferredWriteQueue {
+            /** As if the drain began before every byte of WAL the server has written. */
+            protected function walPosition(): ?string
+            {
+                return '0/0';
+            }
+        };
+        $queue->bulk()->write(self::TABLE, ['device_id' => 2, 'measured_at' => date('Y-m-d H:i:s', $first + 5), 'value' => 2.0]);
+        $queue->write(self::TABLE, ['device_id' => 2, 'measured_at' => date('Y-m-d H:i:s', $second + 5), 'value' => 2.0]);
+        $queue->walBudget = 1;
+
+        // Act
+        $stats = $queue->process(self::TABLE)[self::TABLE];
+
+        // Assert — the first chunk drained; the budget stops the second
+        $this->assertSame(1, $stats['chunks'], 'a drain always makes progress');
+        $this->assertStringStartsWith('the WAL budget is spent', $stats['paused']);
+        $this->assertSame(1, $queue->pending(self::TABLE));
+    }
+
+    /**
      * Two values for the same conflict key in one batch are written in the order they were
      * queued, the last one winning, and neither fails: each is its own INSERT … ON CONFLICT
      * inside the batch, so none meets "ON CONFLICT DO UPDATE command cannot affect row a second

@@ -1123,7 +1123,8 @@ class DeferredWriteQueueTest extends TestCase
         $budget = new ArrayBackedQueue();
         $budget->wal         = '0/0';
         $budget->walBudget   = 20 * 1048576;
-        $budget->walReadings = [0, 30 * 1048576];
+        // One reading: the budget is not asked before the first chunk, only before the second.
+        $budget->walReadings = [30 * 1048576];
         $budget->chunks      = [self::compressedChunk('_hyper_1_1_chunk'), self::compressedChunk('_hyper_1_2_chunk')];
         $budget->batches     = [[['id' => 1, 'data' => '{"value":1}']], [], [], []];
         $behind = new ArrayBackedQueue();
