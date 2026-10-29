@@ -185,6 +185,7 @@ class RatingsTest extends LlmTestCase
             $kept    = json_decode((string) $page->rate($answer), true);
             $other   = new PageFixture(new Scope(8, null), 'plain-css');
             $refused = json_decode((string) $other->rate($answer), true);
+            $status  = http_response_code();
         } finally {
             unset($_SERVER['HTTP_ACCEPT']);
             $_POST = [];
@@ -196,10 +197,52 @@ class RatingsTest extends LlmTestCase
         $this->assertSame([], $page->redirectedTo, 'no redirect for the script to follow');
         $this->assertFalse($refused['ok']);
         $this->assertSame('There is no such answer.', $refused['error']);
-        $this->assertSame(422, $refused['status']);
+        $this->assertSame(422, $status, 'a refusal is a 422, not a 200 with ok: false alone');
         $this->assertSame([], $other->errors);
         $this->assertSame(-1, (new Conversations(new RecordingAssistant()))->as($mine)->find($id)['messages'][1]['rating'],
             'the rating was kept');
+    }
+
+    /**
+     * The analyst's screen rates through the same trait, and it is not a `ChatPageController`.
+     *
+     * The JSON answer once called that class's `wantsJson()`, which the analyst's controller does
+     * not have, so pressing 👍 on `/admin/Ai` was a fatal error — the plain form too, since the
+     * call came before the redirect. Both shapes, through `AiController` itself.
+     */
+    #[DataProvider('databases')]
+    public function testTheAnalystsScreenRatesInJsonAndByForm(string $type, string $host, int $port): void
+    {
+        // Arrange — an answer in the analyst's conversations of the administrator the screen sees
+        $this->connectDatabase($type, $host, $port);
+        $adminId = (fn (): int => $this->adminId())->call(new AnalystScreen());
+        $analyst = \Pramnos\Llm\Analyst\Analyst::conversations($adminId);
+        $id      = (int) $analyst->seed('Counts', [['role' => 'user', 'content' => 'How many?'], ['role' => 'assistant', 'content' => 'Forty.']]);
+        $answer  = (int) $analyst->find($id)['messages'][1]['message_id'];
+
+        try {
+            // Act — the script
+            $_SERVER['HTTP_ACCEPT'] = 'application/json';
+            $_POST  = ['rating' => '1', 'conversation_id' => (string) $id];
+            $script = new AnalystScreen();
+            $json   = json_decode((string) $script->rate($answer), true);
+
+            // …and the plain form
+            unset($_SERVER['HTTP_ACCEPT']);
+            $_POST = ['rating' => '-1', 'note' => 'Wrong year', 'conversation_id' => (string) $id];
+            $form  = new AnalystScreen();
+            $form->rate($answer);
+        } finally {
+            unset($_SERVER['HTTP_ACCEPT']);
+            $_POST = [];
+        }
+
+        // Assert
+        $this->assertSame(['ok' => true, 'rating' => 1, 'message' => 'Thank you — noted.'], $json);
+        $this->assertSame([], $script->redirectedTo);
+        $this->assertSame(['Thank you — noted.'], $form->messages);
+        $this->assertCount(1, $form->redirectedTo, 'the form goes back to the conversation');
+        $this->assertSame(-1, $analyst->find($id)['messages'][1]['rating']);
     }
 
     /** The markup: the pressed button, the note beside the bad one; an empty queue says so. */
