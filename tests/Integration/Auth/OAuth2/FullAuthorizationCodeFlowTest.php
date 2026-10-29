@@ -459,9 +459,6 @@ class FullAuthorizationCodeFlowTest extends TestCase
         $keys = new class { use \Pramnos\Tests\Support\PreservesAppKeys { snapshotAppKeys as public; restoreAppKeys as public; } };
         $keys->snapshotAppKeys();
 
-        // Loading the user reads `userdetails` too, and other tests drop it.
-        $this->runMigrations([\Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class], $this->db);
-
         try {
             $factory = new OAuth2ServerFactory(
                 $this->controller,
@@ -1113,6 +1110,9 @@ class FullAuthorizationCodeFlowTest extends TestCase
 
         $this->runMigrations([
             \Pramnos\Framework\Migrations\Auth\CreateUsersTable::class,
+            // Loading an account reads `userdetails` beside `users`, and other classes drop it:
+            // every test here that loads the user — the API call, the scope policy — needs it.
+            \Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class,
             \Pramnos\Framework\Migrations\Auth\CreateUsertokensTable::class,
             // `token_lookup` is how a token is found without a full-table scan over
             // hashes; `User\Token::storageFor()` writes it on every insert, so the
