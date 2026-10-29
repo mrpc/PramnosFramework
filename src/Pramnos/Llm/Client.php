@@ -493,8 +493,10 @@ class Client
                     'tool_calls'        => $requested,
                 ], static fn ($v): bool => $v !== null);
 
+                // Before anything runs, the gate: a refused call is told why in place of its result.
+                $refused = $this->refusedCalls($requested, $tools, $context);
                 // Two or more reads asked for at once, and no write among them: run together.
-                $early = $this->together($requested, $tools);
+                $early = $this->together(array_diff_key($requested, $refused), $tools);
 
                 foreach ($requested as $at => $call) {
                     if ($this->isStopped()) {
@@ -506,7 +508,7 @@ class Client
                     $arguments = is_array($arguments) ? $arguments : [];
                     $calls[]   = ['name' => $name, 'arguments' => $arguments];
 
-                    $result = $early[$at] ?? match (true) {
+                    $result = $refused[$at] ?? $early[$at] ?? match (true) {
                         $read !== null && !empty($tools[$name]['writes']) => sprintf(self::HELD_WRITE, $read),
                         // A change is made once per answer, tool and arguments.
                         !empty($tools[$name]['writes']) => Idempotency::once(
@@ -644,6 +646,30 @@ class Client
 
         // Only a model that ignored `tool_choice: none` on the last round gets here.
         return ['usage' => $usage, 'calls' => $calls] + $this->refusal('The model kept asking for tools and never answered.');
+    }
+
+    /**
+     * What the gate ({@see Llm::gate()}) said against each of a round's calls, by its place.
+     *
+     * @param list<array<string, mixed>>          $requested
+     * @param array<string, array<string, mixed>> $tools
+     * @param array<string, mixed>                $context
+     * @return array<int, string>
+     */
+    private function refusedCalls(array $requested, array $tools, array $context): array
+    {
+        $gate    = Llm::gate();
+        $refused = [];
+        foreach ($requested as $at => $call) {
+            $name      = (string) ($call['function']['name'] ?? '');
+            $arguments = json_decode((string) ($call['function']['arguments'] ?? '{}'), true);
+            $why       = $gate->before($name, is_array($arguments) ? $arguments : [], $tools[$name] ?? [], $context);
+            if ($why !== null) {
+                $refused[$at] = $why;
+            }
+        }
+
+        return $refused;
     }
 
     /**

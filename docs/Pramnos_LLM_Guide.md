@@ -369,6 +369,7 @@ process) or set at runtime with `Llm::use()`:
     'limits'  => App\Llm\PlanLimits::class,     // Pramnos\Llm\Policy\Limits
     'consent' => App\Llm\Consent::class,        // Pramnos\Llm\Policy\Consent
     'router'  => App\Llm\Router::class,         // Pramnos\Llm\Policy\Router
+    'tool_gate' => App\Llm\Gate::class,         // Pramnos\Llm\Policy\ToolGate
     'rules'   => [App\Llm\GoogleData::class],   // Pramnos\Llm\Policy\DataRule
 ],
 ```
@@ -385,6 +386,53 @@ process) or set at runtime with `Llm::use()`:
   An `organization_id` that is present and `null` means *no organisation* — the
   [analyst](#the-administrators-analyst) says it on purpose — so fill a tenant in only when the
   key is missing (`array_key_exists`, not `??`).
+
+- **`ToolGate`** — `before(string $name, array $arguments, array $tool, array $context): ?string`
+  before every tool call the model asks for. A refusal is told to the model in place of the
+  result, worded as "Not done: …", and the call never runs, alone or among calls run at once.
+  The default lets every call run. See [approvals given in advance](#approvals-given-in-advance).
+
+### Approvals given in advance
+
+`Policy\GrantGate` lets a gated call run only within a `ToolGrant`: an approval for one tool, with
+typed limits on its arguments. Gated are the tools that write, and any marked `'gated' => true`.
+
+```php
+use Pramnos\Llm\Policy\GrantGate;
+use Pramnos\Llm\Policy\Grants\{DomainMatcher, MaxNumberMatcher, ToolGrant};
+
+Llm::use('tool_gate', new GrantGate([
+    new ToolGrant(
+        'send_email',
+        ['to' => new DomainMatcher('example.com'), 'cc' => new DomainMatcher('example.com')],
+        free: ['subject', 'body'],
+        userId: 7,
+        expiresAt: time() + 86400,
+    ),
+    new ToolGrant('refund', ['amount' => new MaxNumberMatcher(100.00)], free: ['order_id']),
+]));
+```
+
+**Every argument is accounted for.** A call is allowed only when each argument it carries is
+accepted by its matcher, or is named in `free`. An argument the grant does not name refuses the
+call, so a `to` within the domain does not cover a `cc` outside it, or a `bcc` nobody thought of.
+An argument the call leaves out is nothing to check. A grant holds for its tool, its person
+(`userId`, or anybody) and until `expiresAt`.
+
+The matchers read the decoded value, never a pattern over the call's JSON, which spacing, key
+order or an escape would get past:
+
+| Matcher | Accepts |
+|---|---|
+| `DomainMatcher('example.com', …)` | every address at one of the domains: a list, `a@x, b@y`, or `Name <a@x>`; anything that is not an address refuses |
+| `MaxNumberMatcher(100.0)` | a number, or numeric text, no greater than the limit |
+| `PrefixPathMatcher('/var/safe/')` | a path under the directory once `.` and `..` are worked out |
+| `OneOfMatcher('draft', 'review')` | one of the values exactly, or a list of them |
+
+A call no grant covers is told `GrantGate::NEEDS_APPROVAL`: the model says what it would do and
+does it when the person confirms. An application whose grants are stored, or depend on the
+person, overrides `GrantGate::grants(array $context)`; one that gates other tools overrides
+`gated()`. An argument matcher of its own implements `Grants\ArgumentMatcher`.
 
 `Llm::listen(callable)` is told about every call after it is logged — for what an application
 keeps per call beside the log, such as what an article cost to write. A listener that throws is

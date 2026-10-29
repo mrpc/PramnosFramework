@@ -42,6 +42,7 @@ final class Llm
         'limits'  => Policy\NoLimits::class,
         'consent' => Policy\NoConsent::class,
         'router'  => Policy\DefaultRouter::class,
+        'tool_gate' => Policy\OpenGate::class,
     ];
 
     /**
@@ -73,6 +74,12 @@ final class Llm
     public static function router(): Policy\Router
     {
         return self::one('router');
+    }
+
+    /** What decides, before it runs, whether a tool call may: `'llm' => ['tool_gate' => …]`. */
+    public static function gate(): Policy\ToolGate
+    {
+        return self::one('tool_gate');
     }
 
     /**
@@ -111,7 +118,7 @@ final class Llm
     /**
      * Set a policy at runtime, over whatever `app.php` says.
      *
-     * @param string              $kind   `limits`, `consent`, `router`, `rules` or `admin_sections`
+     * @param string              $kind   `limits`, `consent`, `router`, `tool_gate`, `rules` or `admin_sections`
      * @param object|list<object> $policy One object, or a list for `rules` and `admin_sections`
      */
     public static function use(string $kind, object|array $policy): void
