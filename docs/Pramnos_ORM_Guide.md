@@ -161,6 +161,20 @@ $user->email = 'newemail@example.com';
 $user->save();
 ```
 
+An update writes only the columns whose value differs from what the model loaded, and a save
+with nothing changed writes nothing. A column another process changed meanwhile keeps that
+change: a background job saving a model's statistics and an administrator renaming the same
+record both keep their change, whichever saves second. A different spelling of the same value
+(`5` loaded, `'5'` posted) is not a change; any other difference is, including `0123` to `123`.
+
+The whole row is written instead when the model is new, was never loaded, the save is forced
+(`_save(..., $force = true)`), or the model declares `protected $_saveWholeRow = true;`. Use the
+last for a model whose save is meant to put the whole row back as the model holds it.
+
+This does not settle two writers of the **same** column: the one that saves last wins. Where that
+matters, lock the row in a transaction (`$db->queryBuilder()->table(...)->lockForUpdate()`) before
+reading and writing it.
+
 There is no bulk update through the model. A statement that touches many rows is
 query-builder work, and it is worth writing the scope back in by hand:
 

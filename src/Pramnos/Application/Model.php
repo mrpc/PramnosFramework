@@ -55,6 +55,20 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
     protected $_lastChanges = array();
 
     /**
+     * Whether an update writes every column instead of only the ones that changed.
+     *
+     * Off: an update of a loaded model writes only the columns whose value differs from what it
+     * loaded, so a column another process changed meanwhile keeps that change. Writing every
+     * column put back, in each one the model had not touched, the value it had loaded — two
+     * writers of different columns of one row, and whichever saved second undid the other
+     * without an error. Set it on a model that relies on a save restoring the whole row; a
+     * single save can ask for the same with `force`.
+     *
+     * @var bool
+     */
+    protected $_saveWholeRow = false;
+
+    /**
      * Database prefix used for this model
      * @var string
      */
@@ -368,10 +382,24 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
             }
             $itemdata = array();
 
+            /*
+             * What the UPDATE writes: the columns that changed, when there is something to say
+             * what changed against. Every column is still listed in `$itemdata` — an insert
+             * writes them all, and the model's record of what the row holds is refreshed from
+             * all of them below — and `$writedata` is the part an update sends.
+             *
+             * The whole row instead when the model is new, was never loaded (nothing to compare
+             * with), the save is forced, or the model asked for it with `$_saveWholeRow`.
+             */
+            $changedOnly = !$this->_isnew && !empty($this->_initialData)
+                && $force == false && !$this->_saveWholeRow;
+            $writedata = array();
+
             if (isset(self::$columnCache[$this->columnCacheSlot()])) {
                 foreach (self::$columnCache[$this->columnCacheSlot()] as $fields) {
                     if ($fields['Field'] != $this->_primaryKey) {
                         $field = $fields['Field'];
+                        $before = $this->$field;
                         if ($fields['Null'] == "NO") {
                             if ($this->$field === NULL) {
                                 // The cached half of the same rule — see the uncached branch
@@ -384,6 +412,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                                 $this->$field = "";
                             }
                         }
+                        $coerced = $this->$field;
                         if ($autoGetValues == true) {
                             if ($debug == true) {
                                 echo "<br />" . $this->$field
@@ -401,6 +430,9 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                             'value'     => $this->$field,
                             'type'      => $this->fieldtype($fields['Type'])
                         );
+                        if (!$changedOnly || $this->writesColumn($field, $before, $coerced)) {
+                            $writedata[] = end($itemdata);
+                        }
                     }
                 }
             } else {
@@ -443,6 +475,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                     self::$columnCache[$slot][] = $result->fields;
                     if ($result->fields['Field'] != $this->_primaryKey) {
                         $field = $result->fields['Field'];
+                        $before = $this->$field;
                         if ($result->fields['Null'] == "NO") {
                             if ($this->$field === NULL) {
                                 /*
@@ -466,6 +499,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                                 $this->$field = "";
                             }
                         }
+                        $coerced = $this->$field;
                         if ($autoGetValues == true) {
                             if ($debug == true) {
                                 echo "<br />" . $this->$field
@@ -486,6 +520,9 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                                 $result->fields['Type']
                             )
                         );
+                        if (!$changedOnly || $this->writesColumn($field, $before, $coerced)) {
+                            $writedata[] = end($itemdata);
+                        }
                     }
                 }
             }
@@ -555,8 +592,11 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 $database->cacheflush($this->_cacheKey);
                 
             } else {
-                $result = $database->updateTableData(
-                    $this->getFullTableName(), $itemdata,
+                // Nothing of the table's to write — the change was to a property that is not one
+                // of its columns, such as a joined field — is not a statement to send: an
+                // UPDATE with no SET is a syntax error.
+                $result = $writedata === array() ? true : $database->updateTableData(
+                    $this->getFullTableName(), $writedata,
                     "`" . $primarykey . "` = '" . $this->$primarykey . "'",
                     $debug
                 );
@@ -1620,6 +1660,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
         '_isnew'           => true,
         '_initialData'     => true,
         '_lastChanges'     => true,
+        '_saveWholeRow'    => true,
         '_errors'          => true,
         '_messages'        => true,
         '_data'            => true,
@@ -1942,6 +1983,45 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
     protected function changeScope(): ?string
     {
         return null;
+    }
+
+    /**
+     * Whether an update of a loaded model writes this column.
+     *
+     * A column it loaded is written when its value now differs from the loaded one. Stricter than
+     * {@see getChanges()}, which compares numbers as numbers and so calls `0123` and `123` the
+     * same — the right answer for "did anything change", the wrong one for "what goes in the
+     * row": a string column would keep `0123`. Writing a column that did not need it costs
+     * nothing; not writing one that did loses the value. So the same value as text — `5` loaded,
+     * `'5'` set, as a form posts it — is no change, and any other difference is.
+     *
+     * A column it did not load (added to the table since, or left out of a list's select) has
+     * nothing to compare with: it is written when the model holds a value for it, and not when
+     * it is empty — writing that empty value is how a column nobody read was blanked.
+     *
+     * @param mixed $before  The value before the NOT NULL coercion
+     * @param mixed $coerced The value after it, before any posted value
+     */
+    private function writesColumn(string $field, mixed $before, mixed $coerced): bool
+    {
+        $now = $this->$field;
+
+        if (!array_key_exists($field, $this->_initialData)) {
+            return $before !== null || $now !== $coerced;
+        }
+
+        $loaded = $this->_initialData[$field];
+        if ($loaded === $now) {
+            return false;
+        }
+        if ($loaded === null || $now === null) {
+            return true;
+        }
+        if (is_scalar($loaded) && is_scalar($now)) {
+            return (string) $loaded !== (string) $now;
+        }
+
+        return true;
     }
 
     /**
