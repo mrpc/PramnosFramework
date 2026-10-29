@@ -432,6 +432,98 @@ class ClientTest extends LlmTestCase
     }
 
     /**
+     * Two or more parallel reads asked for in one round go to the runner together, and their
+     * results reach the model in the order it asked — beside a call that is not parallel, which
+     * runs here in its place.
+     *
+     * The model reads results by their call ids, but a model that sees them out of order has been
+     * seen to answer about the wrong one; the order is the contract.
+     */
+    public function testParallelReadsAreRunTogetherAndKeepTheirOrder(): void
+    {
+        // Arrange — a, local, b in one round; a and b are parallel
+        $this->answer([
+            [200, self::calls([['a', ['n' => 1]], ['local', []], ['b', ['n' => 2]]])],
+            [200, self::says('Done')],
+        ]);
+        $tools = [
+            'a'     => ['description' => 'A', 'parameters' => [], 'parallel' => true, 'run' => static fn (): string => 'not here'],
+            'local' => ['description' => 'L', 'parameters' => [], 'run' => static fn (): string => 'ran here'],
+            'b'     => ['description' => 'B', 'parameters' => [], 'parallel' => true, 'run' => static fn (): string => 'not here'],
+        ];
+        $handed = [];
+        $runner = static function (array $calls, callable $runHere) use (&$handed): array {
+            $handed = $calls;
+
+            return ['from runner a', 'from runner b'];
+        };
+
+        // Act
+        $answer = (new Client(null, self::memoryLog()))->inParallel($runner)
+            ->askWithTools('', [['role' => 'user', 'content' => 'Read']], $tools, 3);
+
+        // Assert — the runner had a and b, with their arguments; the model got all three in order
+        $this->assertTrue($answer['ok']);
+        $this->assertSame([['name' => 'a', 'arguments' => ['n' => 1]], ['name' => 'b', 'arguments' => ['n' => 2]]], $handed);
+        $results = array_values(array_filter($this->sent[1]['body']['messages'], static fn (array $m): bool => $m['role'] === 'tool'));
+        $this->assertSame(['from runner a', 'ran here', 'from runner b'], array_column($results, 'content'));
+    }
+
+    /**
+     * A round with a write in it, or with a single parallel read, runs as before: in order, here.
+     * A read moved ahead of a write in the same round could read what the write was about to change.
+     */
+    public function testARoundWithAWriteOrOneReadIsNotRunTogether(): void
+    {
+        // Arrange
+        $this->answer([
+            [200, self::calls([['a', []], ['save', []]])],
+            [200, self::calls([['a', []]])],
+            [200, self::says('Done')],
+        ]);
+        $tools = [
+            'a'    => ['description' => 'A', 'parameters' => [], 'parallel' => true, 'run' => static fn (): string => 'here'],
+            'save' => ['description' => 'S', 'parameters' => [], 'parallel' => true, 'writes' => true, 'run' => static fn (): string => 'saved'],
+        ];
+        $asked  = 0;
+        $runner = static function () use (&$asked): array {
+            $asked++;
+
+            return [];
+        };
+
+        // Act
+        $answer = (new Client(null, self::memoryLog()))->inParallel($runner)
+            ->askWithTools('', [['role' => 'user', 'content' => 'Go']], $tools, 4);
+
+        // Assert
+        $this->assertTrue($answer['ok']);
+        $this->assertSame(0, $asked, 'never handed over');
+    }
+
+    /** A runner that answers short is said for the calls it left out, rather than shifting results. */
+    public function testARunnerThatAnswersShortIsSaid(): void
+    {
+        // Arrange
+        $this->answer([
+            [200, self::calls([['a', []], ['b', []]])],
+            [200, self::says('Done')],
+        ]);
+        $tools = [
+            'a' => ['description' => 'A', 'parameters' => [], 'parallel' => true, 'run' => static fn (): string => ''],
+            'b' => ['description' => 'B', 'parameters' => [], 'parallel' => true, 'run' => static fn (): string => ''],
+        ];
+
+        // Act
+        (new Client(null, self::memoryLog()))->inParallel(static fn (): array => ['only a'])
+            ->askWithTools('', [['role' => 'user', 'content' => 'Go']], $tools, 3);
+
+        // Assert
+        $results = array_values(array_filter($this->sent[1]['body']['messages'], static fn (array $m): bool => $m['role'] === 'tool'));
+        $this->assertSame(['only a', 'Error: the tool did not answer.'], array_column($results, 'content'));
+    }
+
+    /**
      * The budget in dollars comes from `llm.turn_budget` when the caller sets none, and an answer
      * within its budget says so.
      */

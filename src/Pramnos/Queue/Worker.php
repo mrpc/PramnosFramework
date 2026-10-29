@@ -385,6 +385,7 @@ class Worker
     public const FRAMEWORK_HANDLERS = [
         \Pramnos\Llm\Chat\Asks::TASK => \Pramnos\Llm\Chat\AskTask::class,
         \Pramnos\Llm\Chat\Routines::TASK => \Pramnos\Llm\Chat\TaskRunTask::class,
+        \Pramnos\Llm\Chat\ParallelTools::TASK => \Pramnos\Llm\Chat\ToolTask::class,
         \Pramnos\Event\EventListenerTask::TYPE => \Pramnos\Event\EventListenerTask::class,
         \Pramnos\Audience\Rules\Engine::TASK => \Pramnos\Audience\Rules\RuleTask::class,
         \Pramnos\Conversations\Unfurls::TASK => \Pramnos\Conversations\UnfurlTask::class,

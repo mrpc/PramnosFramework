@@ -352,25 +352,21 @@ class Conversations
         $memory    = new Memory($this->scope);
         $routines  = new Routines($this);
         $artifacts = new Artifacts($this->scope);
-        // An answer others read too carries nothing of the asker's own: not what was remembered
-        // about them, not their tasks.
-        $tools    = $this->assistant->tools($turn) + ($turn->shared() ? [] : $memory->tools($this, $conversationId)
-            // Not from a scheduled run: a task that schedules tasks has no end.
-            + ($this->scheduled ? [] : $routines->toolsFor($this->scope, $this->assistant->timezone($this->scope), $conversationId)
-                // Kept with a conversation the person can open: a scheduled run has none yet.
-                + $artifacts->tools()
-                // And changes to approve, where the application turned them on: nobody approves in a run.
-                + (new Proposals($this->scope))->tools($artifacts)));
+        // The same services the tools write through: what they made is linked to the conversation below.
+        $tools     = $this->buildTools($turn, $memory, $routines, $artifacts);
 
-        // A change is made only on the person's word: after reading what somebody else wrote, the
-        // client holds these back (Client::HELD_WRITE).
-        foreach ($this->assistant->writes() as $name) {
-            if (isset($tools[$name])) {
-                $tools[$name]['writes'] = true;
-            }
-        }
+        // Reads asked for at once run at once, shared with the `llm_tool` workers, where the
+        // application turned it on: a worker builds these same tools again from this.
+        $parallel = ParallelTools::forAnswer([
+            'space'           => $this->scope->space,
+            'userid'          => $this->scope->userId,
+            'organization_id' => $this->scope->organizationId,
+            'conversation_id' => $conversationId,
+            'scheduled'       => $this->scheduled,
+            'extra'           => $extra,
+        ]);
 
-        $answer = $client->onText($this->onText)->cancelWhen($this->stopWhen)->askWithTools(
+        $answer = $client->onText($this->onText)->cancelWhen($this->stopWhen)->inParallel($parallel)->askWithTools(
             $this->assistant->systemPrompt($turn) . "\n\n" . ($turn->shared() ? trim($this->assistant->context($turn)) : $this->context($turn, $memory))
                 . ($turn->documents === [] ? '' : "\n\n" . Client::DATA_NOTICE)
                 . ($summary === '' ? '' : "\n\nEarlier in this conversation, in short (those messages are not shown again):\n" . $summary),
@@ -380,7 +376,7 @@ class Conversations
             $this->assistant->due($turn),
             $this->assistant->verify($turn)
         );
-        $client->onText(null)->cancelWhen(null);
+        $client->onText(null)->cancelWhen(null)->inParallel(null);
 
         if (!$answer['ok']) {
             return self::refusal(isset($answer['cancelled']) ? 'cancelled' : (isset($answer['consent']) ? 'consent' : (isset($answer['limited']) ? 'limit' : 'provider')), (string) $answer['says']);
@@ -806,6 +802,47 @@ class Conversations
     }
 
     /** @return array{ok: false, says: string, why: string, conversation_id: null, message: null} */
+    /**
+     * Every tool an answer is given: the assistant's, and — unless others read it too — memory,
+     * schedules, artifacts and proposals. A queue worker running one call of a round
+     * ({@see ParallelTools}) builds them again here, so it runs what the answer would have.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public function toolsFor(Turn $turn): array
+    {
+        return $this->buildTools($turn, new Memory($this->scope), new Routines($this), new Artifacts($this->scope));
+    }
+
+    /**
+     * {@see toolsFor()}, through the services the answer goes on using: the tasks and artifacts its
+     * tools make are linked to the conversation once it is stored.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function buildTools(Turn $turn, Memory $memory, Routines $routines, Artifacts $artifacts): array
+    {
+        // An answer others read too carries nothing of the asker's own: not what was remembered
+        // about them, not their tasks.
+        $tools    = $this->assistant->tools($turn) + ($turn->shared() ? [] : $memory->tools($this, $turn->conversationId)
+            // Not from a scheduled run: a task that schedules tasks has no end.
+            + ($this->scheduled ? [] : $routines->toolsFor($this->scope, $this->assistant->timezone($this->scope), $turn->conversationId)
+                // Kept with a conversation the person can open: a scheduled run has none yet.
+                + $artifacts->tools()
+                // And changes to approve, where the application turned them on: nobody approves in a run.
+                + (new Proposals($this->scope))->tools($artifacts)));
+
+        // A change is made only on the person's word: after reading what somebody else wrote, the
+        // client holds these back (Client::HELD_WRITE).
+        foreach ($this->assistant->writes() as $name) {
+            if (isset($tools[$name])) {
+                $tools[$name]['writes'] = true;
+            }
+        }
+
+        return $tools;
+    }
+
     private static function refusal(string $why, string $says): array
     {
         return ['ok' => false, 'says' => $says, 'why' => $why, 'conversation_id' => null, 'message' => null];

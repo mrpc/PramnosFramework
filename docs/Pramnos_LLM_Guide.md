@@ -277,6 +277,45 @@ answer against the calls made; once, a correction is sent back with a required c
 more rounds. The rejected answer, and the text written before it, are dropped: the reply
 is the one written after the correction.
 
+### Tools that run at once
+
+A model often asks for several reads in one round — three figures, two queries. A tool marked
+`'parallel' => true` says it reads and changes nothing and depends only on its arguments and the
+person asking. When a round asks for two or more of those and for no tool that `writes`, they run
+at once:
+
+```php
+// app/app.php
+'llm' => ['parallel_tools' => true],              // or ['timeout' => 60], seconds
+```
+
+```php
+// the application's orchestrator: a pool for the calls, beside its other daemons
+protected function buildDesiredProcesses(): array
+{
+    return [
+        ...$this->queuePool('llm-tools', ['types' => ['llm_tool'], 'floor' => 1, 'ceiling' => 4, 'args' => ['--sleep', '1']]),
+    ];
+}
+```
+
+Each call becomes a row of `pramnos.llm_tool_runs` and a queued `llm_tool` task. The answer works
+through the rows itself while the pool's workers take tasks; whichever claims a row first runs
+that call. So an answer never waits for a worker that is not there: with no pool, or a pool
+asleep, the calls run one after another as before, and a slow call, such as a long query, runs
+beside the others instead of ahead of them. Results reach the model in the order it asked for
+them. A call a worker took and did not finish within the timeout is said to the model
+(`ParallelTools::TOO_LONG`). The round's rows are deleted once read.
+
+A worker has no closures. It builds the tools again (`Conversations::toolsFor()`) from the
+assistant of the space, the person, the conversation and `extra`, as the answer did, and runs the
+one named, as the answer's author (`Assistant::acting()`). That is why a parallel tool must not
+depend on the turn's messages or write to its `bag`. A worker runs only tools marked parallel.
+
+The analyst's tools are marked parallel. A `Client` used directly takes a runner of its own:
+`$client->inParallel(fn (array $calls, callable $runHere): array => …)`, results in the order of
+`$calls`.
+
 ### What somebody else wrote is data, not instructions
 
 A tool that reads words somebody other than the person asking wrote — an email, a customer's

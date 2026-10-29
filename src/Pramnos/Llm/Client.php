@@ -138,6 +138,9 @@ class Client
     /** @var (callable(): bool)|null Whether the answer being written has been stopped */
     private $stopped = null;
 
+    /** @var (callable(list<array{name: string, arguments: array<string, mixed>}>, callable(string, array<string, mixed>): string): list<string>)|null */
+    private $parallel = null;
+
     public function __construct(?Connection $connection = null, private readonly ?CallLog $log = null)
     {
         $this->connection = $connection ?? new Connection();
@@ -182,6 +185,22 @@ class Client
     public function withTurnBudget(?float $maxCost = null, ?int $maxTokens = null): static
     {
         $this->turnBudget = ['cost' => $maxCost, 'tokens' => $maxTokens];
+
+        return $this;
+    }
+
+    /**
+     * Run the calls of a round at once, where the model asked for two or more tools marked
+     * `'parallel' => true` and for no tool that writes. `$runner` is given the calls and how this
+     * client runs one itself, and returns their results in the same order — see
+     * `Chat\ParallelTools`, which shares them with the queue workers of the `llm_tool` pool.
+     * Every other call runs here, in order, as without it.
+     *
+     * @param (callable(list<array{name: string, arguments: array<string, mixed>}>, callable(string, array<string, mixed>): string): list<string>)|null $runner
+     */
+    public function inParallel(?callable $runner): static
+    {
+        $this->parallel = $runner;
 
         return $this;
     }
@@ -456,7 +475,10 @@ class Client
                     'tool_calls'        => $requested,
                 ], static fn ($v): bool => $v !== null);
 
-                foreach ($requested as $call) {
+                // Two or more reads asked for at once, and no write among them: run together.
+                $early = $this->together($requested, $tools);
+
+                foreach ($requested as $at => $call) {
                     if ($this->isStopped()) {
                         return ['cancelled' => true, 'usage' => $usage, 'calls' => $calls] + $this->refusal(self::STOPPED);
                     }
@@ -466,9 +488,9 @@ class Client
                     $arguments = is_array($arguments) ? $arguments : [];
                     $calls[]   = ['name' => $name, 'arguments' => $arguments];
 
-                    $result = $read !== null && !empty($tools[$name]['writes'])
+                    $result = $early[$at] ?? ($read !== null && !empty($tools[$name]['writes'])
                         ? sprintf(self::HELD_WRITE, $read)
-                        : $this->run($tools[$name] ?? null, $name, $arguments);
+                        : $this->run($tools[$name] ?? null, $name, $arguments));
                     [$result, $moved] = $this->governed($tools[$name] ?? [], $result, $arguments, $context);
                     if (!empty($tools[$name]['untrusted'])) {
                         $read  ??= $name;
@@ -597,6 +619,40 @@ class Client
 
         // Only a model that ignored `tool_choice: none` on the last round gets here.
         return ['usage' => $usage, 'calls' => $calls] + $this->refusal('The model kept asking for tools and never answered.');
+    }
+
+    /**
+     * The results of a round's calls run at once ({@see inParallel()}), by their place in the
+     * round — or none, when there is no runner, fewer than two parallel calls, or any call writes.
+     *
+     * @param list<array<string, mixed>>          $requested
+     * @param array<string, array<string, mixed>> $tools
+     * @return array<int, string>
+     */
+    private function together(array $requested, array $tools): array
+    {
+        if ($this->parallel === null) {
+            return [];
+        }
+
+        $batch = [];
+        foreach ($requested as $at => $call) {
+            $name = (string) ($call['function']['name'] ?? '');
+            if (!empty($tools[$name]['writes'])) {
+                return [];
+            }
+            if (!empty($tools[$name]['parallel'])) {
+                $arguments  = json_decode((string) ($call['function']['arguments'] ?? '{}'), true);
+                $batch[$at] = ['name' => $name, 'arguments' => is_array($arguments) ? $arguments : []];
+            }
+        }
+        if (count($batch) < 2) {
+            return [];
+        }
+
+        $results = ($this->parallel)(array_values($batch), fn (string $name, array $arguments): string => $this->run($tools[$name] ?? null, $name, $arguments));
+
+        return array_combine(array_keys($batch), array_map('strval', array_pad(array_values($results), count($batch), 'Error: the tool did not answer.')));
     }
 
     /** Whether the answer being written was stopped ({@see cancelWhen()}). */

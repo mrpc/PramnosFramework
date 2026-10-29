@@ -270,6 +270,8 @@ final class Analyst
         $tools = Tools::fromMcp(self::mcpTools($adminId, $area));
 
         foreach ($tools as $name => $tool) {
+            // Read-only, and built from the administrator alone: several asked at once run at once.
+            $tools[$name]['parallel'] = true;
             if (!in_array($name, Redactor::SELF_REDACTING, true)) {
                 $run                 = $tool['run'];
                 $tools[$name]['run'] = static fn (array $arguments): string => Redactor::clean((string) $run($arguments));
