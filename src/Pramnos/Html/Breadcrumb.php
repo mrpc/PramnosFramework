@@ -63,6 +63,9 @@ class Breadcrumb extends \Pramnos\Framework\Base
      */
     public function addItem($label, $url = '', $title = '')
     {
+        // A label that is null — a page with no title — is the empty string: null as an array
+        // key is deprecated since PHP 8.5, and the empty string is what it always became.
+        $label = (string) $label;
         $this->items[$label] = array(
             'label' => $label,
             'url' => $url,

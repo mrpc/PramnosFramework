@@ -186,6 +186,35 @@ final class AdminBreadcrumbTest extends TestCase
      *
      * @return array<string, array{string}>
      */
+    /**
+     * A crumb whose label is null — a controller whose page has no title — is an empty label,
+     * without a deprecation: PHP 8.5 deprecates null as an array key, and an application's
+     * suite that turns deprecations into failures stopped on it.
+     */
+    public function testANullLabelIsAnEmptyOne(): void
+    {
+        // Arrange
+        $trail = new \Pramnos\Html\Breadcrumb();
+        $raised = null;
+        set_error_handler(static function (int $level, string $message) use (&$raised): bool {
+            $raised = $message;
+
+            return true;
+        });
+
+        // Act
+        try {
+            $trail->addItem(null, '/x');
+            $html = $trail->render();
+        } finally {
+            restore_error_handler();
+        }
+
+        // Assert
+        $this->assertNull($raised, 'no deprecation');
+        $this->assertStringContainsString('href="/x"', $html);
+    }
+
     public static function themes(): array
     {
         return ['tailwind' => ['tailwind'], 'bootstrap' => ['bootstrap'], 'plain-css' => ['plain-css']];
