@@ -403,6 +403,40 @@ class DeferredWriteQueueTimescaleDBTest extends TestCase
     }
 
     /**
+     * Two values for the same conflict key in one batch are written in the order they were
+     * queued, the last one winning, and neither fails: each is its own INSERT … ON CONFLICT
+     * inside the batch, so none meets "ON CONFLICT DO UPDATE command cannot affect row a second
+     * time" — the error a single multi-row INSERT with the key twice raises, failing every row
+     * with it.
+     *
+     * An application's own queue that batched rows into one statement lost tens of thousands of
+     * readings that way, a reading and its correction arriving in the same hour.
+     */
+    public function testTheSameKeyTwiceInOneBatchKeepsTheLastValue(): void
+    {
+        // Arrange — a compressed chunk, and three values for one key queued in one import
+        $day = strtotime('-30 days');
+        for ($i = 1; $i <= 50; $i++) {
+            $this->insertDirectly($i, $day + $i, 1.0);
+        }
+        $this->compressEverything();
+        $this->schema->addCompressionPolicy(self::TABLE, '7 days');
+        $this->queue->bulk();
+        foreach ([7.0, 8.0, 9.0] as $value) {
+            $this->queue->write(self::TABLE, ['device_id' => 500, 'measured_at' => date('Y-m-d H:i:s', $day + 3), 'value' => $value]);
+        }
+
+        // Act
+        $stats = $this->queue->process(self::TABLE)[self::TABLE];
+
+        // Assert
+        $this->assertSame([3, 0], [$stats['inserted'], $stats['failed']], 'all three written, none failed');
+        $row = $this->db->query('SELECT COUNT(*) AS n, MAX(value) AS v FROM ' . self::TABLE . ' WHERE device_id = 500');
+        $this->assertSame(1, (int) $row->fields['n'], 'one row for the key');
+        $this->assertEqualsWithDelta(9.0, (float) $row->fields['v'], 0.0001, 'the last value queued');
+    }
+
+    /**
      * A late row for a key that already exists overwrites it.
      *
      * A corrected reading should replace the stored one; without the declared
