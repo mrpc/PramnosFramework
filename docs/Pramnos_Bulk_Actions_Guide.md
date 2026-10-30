@@ -11,7 +11,7 @@ use_cases:
 A bulk action is something a person can do to a list of records at once — send these people an
 email, turn these devices off, put these users in a group. It is declared once per kind of
 record and offered wherever such a list appears: under a list an Ask answer kept
-([LLM guide — Artifacts](Pramnos_LLM_Guide.md#artifacts-tables-lists-and-texts-kept-from-an-answer)),
+([LLM guide — Artifacts](Pramnos_LLM_Conversations_Guide.md#artifacts-tables-lists-and-texts-kept-from-an-answer)),
 or on a list screen of the application's own.
 
 ## Declaring one

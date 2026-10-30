@@ -1678,7 +1678,7 @@ asked through a remote assistant is answered with what the application's own Ask
 
 This page is about the framework as an MCP **server**. The other direction, an application's
 model calling tools of external MCP servers (GitHub, a database, a search service) over stdio or
-HTTP, is `Pramnos\Llm\Mcp`. See [tools from other MCP servers](Pramnos_LLM_Guide.md#tools-from-other-mcp-servers).
+HTTP, is `Pramnos\Llm\Mcp`. See [tools from other MCP servers](Pramnos_LLM_Tools_Guide.md#tools-from-other-mcp-servers).
 
 ## Related
 

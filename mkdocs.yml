@@ -120,7 +120,14 @@ nav:
       - Third-Party Integration: Pramnos_AuthServer_Integration_Guide.md
     - External Integrations:
       - HTTP Client (outbound requests): Pramnos_Http_Client_Guide.md
-      - Language models (LLM): Pramnos_LLM_Guide.md
+      - Language models (LLM):
+        - Overview: Pramnos_LLM_Guide.md
+        - Tools for a model: Pramnos_LLM_Tools_Guide.md
+        - Conversations: Pramnos_LLM_Conversations_Guide.md
+        - "The person's own: profile, calendar, journal": Pramnos_LLM_Person_Guide.md
+        - Scheduled tasks: Pramnos_LLM_Scheduled_Tasks_Guide.md
+        - Screens for conversations: Pramnos_LLM_Screens_Guide.md
+        - The administrators' analyst: Pramnos_LLM_Analyst_Guide.md
       - Bulk actions: Pramnos_Bulk_Actions_Guide.md
       - OAuth2 Client (signing in elsewhere): Pramnos_OAuth_Client_Guide.md
     - Platform Engines:

@@ -1023,7 +1023,7 @@ A name ending in `*` handles a whole family of lists — `'invoices-*'` for one 
 unless one of them has a handler of its own. The framework's own families: `newsignin` turns the
 account's alert off, and `askreport-{id}` — a scheduled report's email — stops that report's email
 for the accounts with the address and clears the opt-out again, so the report's subscription is
-the one switch (see the [LLM guide](Pramnos_LLM_Guide.md#scheduled-tasks-questions-reminders-reports)).
+the one switch (see the [LLM guide](Pramnos_LLM_Scheduled_Tasks_Guide.md#scheduled-tasks-questions-reminders-reports)).
 
 The unsubscribe link, like the wrapper's `$siteurl` where no `site_url` setting is set, is built on
 the site's configured address (`APP_URL`), so mail a cron run sends leads to the site; the console
