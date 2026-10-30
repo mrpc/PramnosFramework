@@ -12,6 +12,7 @@ use_cases:
   - Keeping a table or list an AI answer produced, to open or act on later
   - Handing part of an answer to a subagent with its own context, tools and budget
   - Measuring a prompt, model or tool change against eval fixtures, and failing CI on a regression
+  - Turning a person's assistant into a personal companion that knows who they are and the people in their life
   - Exporting an AI result to CSV or PDF, or pinning a chart to the dashboard
   - Reading the fields of an invoice or form with a model, checked before saving
   - Sharing an AI conversation or one of its results with a colleague
@@ -1020,6 +1021,48 @@ or whatever the application declared for that kind of record — from under the 
 and in the SPA component, or `GET /chat/artifacts/{id}/actions` and
 `POST /chat/artifacts/{id}/actions/{key}` with `params`. What is offered, and who may run it, is
 [Bulk actions](Pramnos_Bulk_Actions_Guide.md).
+
+### The personal companion
+
+`'llm' => ['chat' => ['companion' => true]]` turns a person's own conversations (the `chat`
+space, never the administrators' analyst, and never an answer others read too) into a
+companion. Off by default: an assistant for work has no business keeping who somebody's
+brother is.
+
+#### What it holds true about them: the profile
+
+`Companion\Dossier`, in `chat_dossier`, holds what should not change on the model's word alone:
+
+| Area | Changes | |
+|---|---|---|
+| `identity`, `values`, `goals` | on the person's confirmation | who they are, what they hold to, what they work towards |
+| `relationships` | on the person's confirmation | one entry per person in their life, `subject` naming them: the relationship graph |
+| `mood` | at once, only with consent | how they have felt lately |
+
+Habits and preferences are not here. They are [memory](#memory), learned and corrected as the
+person talks. The profile's entries change by proposal:
+
+- the model calls `note_profile`, and the entry holds the proposal as `pending`. The prompt
+  lists it apart, as not true until confirmed;
+- the person says yes in a later message and the model calls `confirm_profile`, or no and it
+  calls `reject_profile`. A proposal made in an answer cannot be confirmed in the same answer,
+  so a wrong guess about who somebody is never becomes a fact in every prompt after it;
+- every confirmed change raises the entry's `version`. Its before and after go to the changelog
+  (`ChangelogWriter::event('chat_dossier', …)`), and `Dossier::history($id)` reads the versions
+  from there, oldest first;
+- `mood` is kept only once the person agreed: their setting `ai_companion_feelings`
+  (`Dossier::FEELINGS`). Without it the model is told to ask, and nothing is kept. Each new
+  mood replaces the last, and the versions are the mood over time;
+- `recall_person` finds a person in their life by part of a name, or lists everybody
+  (`Dossier::people()`).
+
+The tools are `writes`, so after reading somebody else's words they wait for the person
+(see [What somebody else wrote is data, not instructions](#what-somebody-else-wrote-is-data-not-instructions)).
+Their results are tagged `personal`, so a [data rule](#data-rules) on that tag keeps them with a
+provider you trust with them, or on a local model. At most `Dossier::MAX` (60) entries of
+`Dossier::CHARS` (500) characters, because they go into every prompt.
+`Dossier::entries()`, `confirm()`, `reject()` and `forget()` are there for a screen of the
+application's own, where the person sees and changes their profile.
 
 ### Rating answers, and the queue of bad ones
 

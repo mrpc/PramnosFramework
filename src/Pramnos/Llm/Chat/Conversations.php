@@ -790,6 +790,13 @@ class Conversations
             $lines[] = $pinned;
         }
 
+        // The companion's: what the person confirmed about themselves, and what waits for their word.
+        if ($this->scope !== null && \Pramnos\Llm\Companion\Companion::on($this->scope) && !$turn->shared()
+            && ($own = (new \Pramnos\Llm\Companion\Companion($this->scope))->context()) !== '') {
+            $lines[] = '';
+            $lines[] = $own;
+        }
+
         return trim(implode("\n", $lines));
     }
 
@@ -901,7 +908,9 @@ class Conversations
                 // Kept with a conversation the person can open: a scheduled run has none yet.
                 + $artifacts->tools()
                 // And changes to approve, where the application turned them on: nobody approves in a run.
-                + (new Proposals($this->scope))->tools($artifacts)));
+                + (new Proposals($this->scope))->tools($artifacts))
+            // The companion's, where the application turned it on.
+            + ($this->scope !== null && \Pramnos\Llm\Companion\Companion::on($this->scope) ? (new \Pramnos\Llm\Companion\Companion($this->scope))->tools() : []));
 
         // A change is made only on the person's word: after reading what somebody else wrote, the
         // client holds these back (Client::HELD_WRITE).
