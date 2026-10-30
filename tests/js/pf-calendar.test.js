@@ -23,7 +23,7 @@ const SOURCE = path.join(__dirname, '..', '..', 'scaffolding', 'assets', 'js', '
 const settle = async () => { for (let i = 0; i < 6; i++) { await new Promise((r) => setImmediate(r)); } };
 
 /** A page with a calendar element, a filter form, a fake FullCalendar and every POST recorded. */
-function page({ library = true, update = true, ok = true } = {}) {
+function page({ library = true, update = true, ok = true, realtime = null } = {}) {
     const { window, document } = createDom({ url: 'https://app.test/admin/calendar', meta: { csrf: 't0ken' } });
     const form = document.createElement('form');
     form.setAttribute('id', 'filters');
@@ -47,6 +47,7 @@ function page({ library = true, update = true, ok = true } = {}) {
     element.setAttribute('data-locale', 'el');
     element.setAttribute('data-editable', '1');
     if (update) { element.setAttribute('data-update', '/admin/Calendar/move'); }
+    if (realtime) { element.setAttribute('data-channel', 'private-users.5'); window.pfRealtime = realtime; }
     document.body.appendChild(element);
     document.querySelector = (selector) => (selector === '#filters' ? form : selector === 'meta[name="csrf"]' ? { content: 't0ken' } : null);
 
@@ -158,3 +159,19 @@ test('without data-update a change is only told, and without FullCalendar nothin
     assert.equal(told.told.length, 1);
     assert.equal(none.element.pfCalendar, undefined);
 });
+
+test('with data-channel, calendar.changed refetches — over a socket channel or over SSE', () => {
+    // Arrange
+    const heard = {};
+    const socket = page({ realtime: { channel: (name) => ({ listen: (event, fn) => { heard[name + ' ' + event] = fn; } }) } });
+    const sse = page({ realtime: { transport: 'sse', on: (event, fn) => { heard['sse ' + event] = fn; } } });
+
+    // Act
+    heard['private-users.5 calendar.changed']();
+    heard['sse calendar.changed']();
+
+    // Assert
+    assert.equal(socket.calendars[0].refetched, 1);
+    assert.equal(sse.calendars[0].refetched, 1);
+});
+

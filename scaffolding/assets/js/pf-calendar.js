@@ -9,6 +9,7 @@
  *        data-update="/admin/Calendar/move"          optional: a dragged or resized event is POSTed here
  *        data-editable="1"                           optional: events may be dragged and resized
  *        data-view="timeGridWeek"                    optional: dayGridMonth (default), timeGridWeek, timeGridDay
+ *        data-channel="private-users.5"              optional: refetch when it hears calendar.changed (pfRealtime)
  *        data-locale="el"></div>                     optional: the page's language
  *
  * What a person does is told to the page as events on the element, for it to answer:
@@ -113,6 +114,18 @@
         });
         calendar.render();
         element.pfCalendar = calendar;
+
+        // A change made elsewhere — the assistant made an appointment — shows at once.
+        var channel = element.getAttribute('data-channel');
+        var rt = window.pfRealtime;
+        var refetch = function () { calendar.refetchEvents(); };
+        if (channel && rt) {
+            if (rt.transport === 'sse' && rt.on) {
+                rt.on('calendar.changed', refetch);
+            } else if (rt.channel) {
+                rt.channel(channel).listen('calendar.changed', refetch);
+            }
+        }
 
         if (form) {
             form.addEventListener('change', function () { calendar.refetchEvents(); });

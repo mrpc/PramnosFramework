@@ -910,7 +910,7 @@ class Conversations
                 // And changes to approve, where the application turned them on: nobody approves in a run.
                 + (new Proposals($this->scope))->tools($artifacts))
             // The companion's, where the application turned it on.
-            + ($this->scope !== null && \Pramnos\Llm\Companion\Companion::on($this->scope) ? (new \Pramnos\Llm\Companion\Companion($this->scope))->tools() : []));
+            + ($this->scope !== null && \Pramnos\Llm\Companion\Companion::on($this->scope) ? (new \Pramnos\Llm\Companion\Companion($this->scope, $this->assistant->timezone($this->scope)))->tools() : []));
 
         // A change is made only on the person's word: after reading what somebody else wrote, the
         // client holds these back (Client::HELD_WRITE).

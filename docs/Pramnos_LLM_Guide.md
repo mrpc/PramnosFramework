@@ -1064,6 +1064,36 @@ provider you trust with them, or on a local model. At most `Dossier::MAX` (60) e
 `Dossier::entries()`, `confirm()`, `reject()` and `forget()` are there for a screen of the
 application's own, where the person sees and changes their profile.
 
+#### Appointments and tasks: the calendar
+
+`Companion\Calendar`, in `chat_calendar`, keeps the person's own appointments and tasks. Times
+go in and come out on their clock (`Y-m-d H:i`, in the assistant's `timezone()`) and are stored as
+moments.
+
+| Tool | |
+|---|---|
+| `calendar_create_event` | an appointment; an hour long when no end is given |
+| `calendar_list_events` | from one day to another, inclusive (`parallel`) |
+| `calendar_update_event` | move, rename or change notes; a move without an end keeps the length |
+| `calendar_delete_event` | cancel one |
+| `task_create`, `task_list`, `task_update` | a task, due by a time or not; listed soonest due first; marked done |
+
+**An overlap is an answer, not a failure.** An appointment that would overlap another is not
+made, and the tool answers what is there and the nearest free starts before and after, the same
+length, between `Calendar::DAY_STARTS` and `DAY_ENDS` (08:00–20:00):
+
+```json
+{"error": "conflict", "existing": "Accountant", "existing_at": "2026-10-20 15:30", "free_slots": ["14:30", "17:00"]}
+```
+
+So the model offers those instead of saying it failed. An all-day event never conflicts.
+
+**On the page.** `feed($start, $end)` is the JSON a [`pf-calendar`](Pramnos_Calendar_Guide.md)
+takes as `data-events`, and `move($body)` is its `data-update`, checked for overlaps the same way.
+Every change is announced to the person's private channel as `calendar.changed`, and a
+`pf-calendar` with `data-channel` refetches when it hears it. An appointment the assistant makes
+appears on an open page at once.
+
 ### Rating answers, and the queue of bad ones
 
 Under every answer, on the page and in the SPA component, the person rates it 👍 or 👎. Pressing the

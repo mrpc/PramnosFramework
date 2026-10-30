@@ -41,6 +41,7 @@ pramnos project:resync --js --all          # pf-calendar.js
 | `data-editable` | `1`: events may be dragged and resized |
 | `data-view` | `dayGridMonth` (the default), `timeGridWeek`, `timeGridDay` |
 | `data-locale` | The calendar's language; the page's `lang` otherwise |
+| `data-channel` | A realtime channel (`private-users.{id}`): hearing `calendar.changed` there, the calendar refetches. The companion's calendar announces every change this way |
 
 What a person does is told to the page as events on the element:
 
