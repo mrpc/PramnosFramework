@@ -307,6 +307,86 @@ class DatabaseTest extends \PHPUnit\Framework\TestCase
         $this->assertSame('updated', $row2->fields['label']);
     }
 
+    /**
+     * A failed upsert() inside a transaction throws, and leaves the connection usable.
+     *
+     * On PostgreSQL a failed statement aborts the transaction it ran in. upsert() used to
+     * return false and leave it so, and every later statement on the connection — in code
+     * unrelated to the upsert — failed with "current transaction is aborted". It now rolls
+     * the transaction back before it throws.
+     */
+    public function testFailedUpsertInATransactionThrowsAndRollsBack(): void
+    {
+        // Arrange — a label longer than its VARCHAR(100), inside an open transaction
+        $data = [
+            ['fieldName' => 'code',  'value' => 'UPSERT-PG-FAIL', 'type' => 'string'],
+            ['fieldName' => 'label', 'value' => str_repeat('x', 101), 'type' => 'string'],
+        ];
+        self::$db->startTransaction();
+
+        // Act
+        $thrown = null;
+        try {
+            self::$db->upsert('public.' . self::$table, $data, 'code');
+        } catch (\Pramnos\Database\QueryException $e) {
+            $thrown = $e;
+        }
+
+        // Assert
+        $this->assertNotNull($thrown, 'a failed upsert must throw, not return false');
+        $this->assertStringContainsString('too long', $thrown->getDriverMessage());
+        $this->assertFalse(self::$db->inTransaction(), 'the aborted transaction is rolled back');
+        // The next statement runs: no "current transaction is aborted".
+        $row = self::$db->query('SELECT 1 AS ok');
+        $this->assertSame(1, (int) $row->fields['ok']);
+    }
+
+    /**
+     * A failed upsert() outside a transaction throws too, and the same statement then
+     * succeeds with a value that fits — the prepared statement is kept only when it was made.
+     */
+    public function testFailedUpsertOutsideATransactionThrows(): void
+    {
+        // Arrange
+        $data = [
+            ['fieldName' => 'code',  'value' => 'UPSERT-PG-FAIL2', 'type' => 'string'],
+            ['fieldName' => 'label', 'value' => str_repeat('y', 101), 'type' => 'string'],
+        ];
+
+        // Act + Assert — the long value fails
+        try {
+            self::$db->upsert('public.' . self::$table, $data, 'code');
+            $this->fail('a failed upsert must throw');
+        } catch (\Pramnos\Database\QueryException $e) {
+            $this->assertStringContainsString('too long', $e->getDriverMessage());
+        }
+
+        // Act — a value that fits, through the same statement
+        $data[1]['value'] = 'fits';
+        self::$db->upsert('public.' . self::$table, $data, 'code');
+
+        // Assert
+        $row = self::$db->query("SELECT label FROM public." . self::$table . " WHERE code = 'UPSERT-PG-FAIL2'");
+        $this->assertSame('fits', $row->fields['label']);
+    }
+
+    /**
+     * A conflict target with no unique index behind it — a mistake in the call, not in the
+     * data — throws as well.
+     */
+    public function testUpsertOnAColumnWithNoUniqueIndexThrows(): void
+    {
+        // Arrange
+        $data = [
+            ['fieldName' => 'code',  'value' => 'UPSERT-PG-FAIL3', 'type' => 'string'],
+            ['fieldName' => 'label', 'value' => 'x', 'type' => 'string'],
+        ];
+
+        // Act + Assert
+        $this->expectException(\Pramnos\Database\QueryException::class);
+        self::$db->upsert('public.' . self::$table, $data, 'label');
+    }
+
     // =========================================================================
     // startTransaction / commitTransaction / rollbackTransaction (PostgreSQL)
     // =========================================================================

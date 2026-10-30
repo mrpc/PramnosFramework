@@ -1053,6 +1053,15 @@ try {
 }
 ```
 
+### A failed `upsert()` rolls back
+
+`upsert()` throws a `QueryException` when its statement fails — the MySQL branch through
+`query()`, the PostgreSQL branch itself. On PostgreSQL it first rolls back a transaction opened
+with `startTransaction()`: the failed statement aborted it, and left standing, every later
+statement on the connection would fail with *current transaction is aborted*, in code that has
+nothing to do with the upsert. `User::save()` writes its details through `upsert()`, so a value
+the column cannot hold makes `save()` throw, with the transaction already ended.
+
 ### Transactions announce themselves
 
 `commitTransaction()` and `rollbackTransaction()` fire an event, so code that has

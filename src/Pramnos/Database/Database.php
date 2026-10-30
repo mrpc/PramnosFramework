@@ -3874,6 +3874,8 @@ class Database extends \Pramnos\Framework\Base
      * @param array $data Array of field data (fieldName, value, type)
      * @param string|array $conflictTarget Column name(s) that define the conflict (for Postgres)
      * @return Result|bool
+     * @throws QueryException On PostgreSQL, when the statement fails — after rolling back a
+     *         transaction opened with startTransaction(). MySQL's query() throws its own.
      */
     public function upsert($table, $data, $conflictTarget)
     {
@@ -3908,15 +3910,27 @@ class Database extends \Pramnos\Framework\Base
                  . 'DO UPDATE SET ' . \implode(', ', $updates);
 
             $stmtName = 'upsert_' . \md5($sql);
-            if (!isset($this->preparedStatements[$stmtName])) {
-                \pg_prepare($this->_dbConnection, $stmtName, $sql);
+            $prepared = isset($this->preparedStatements[$stmtName])
+                || @\pg_prepare($this->_dbConnection, $stmtName, $sql) !== false;
+            if ($prepared) {
                 $this->preparedStatements[$stmtName] = $sql;
+                $this->queryResult = @\pg_execute($this->_dbConnection, $stmtName, $params);
             }
-            
-            $this->queryResult = \pg_execute($this->_dbConnection, $stmtName, $params);
-            if ($this->queryResult === false) {
-                 \Pramnos\Logs\Logger::logError('Upsert error: ' . \pg_last_error($this->_dbConnection) . ' for query: ' . $sql, null);
-                 return false;
+            if (!$prepared || $this->queryResult === false) {
+                /*
+                 * Thrown, as the MySQL branch's query() does, and with the caller's transaction
+                 * rolled back first, as Model::_save() does. A failed statement aborts the
+                 * PostgreSQL transaction it ran in: returned as false, every later statement on
+                 * the connection — in code that has nothing to do with this one — failed with
+                 * "current transaction is aborted" until something issued a ROLLBACK.
+                 */
+                $error = (string) \pg_last_error($this->_dbConnection);
+                $this->error_text = $error;
+                \Pramnos\Logs\Logger::logError('Upsert error: ' . $error . ' for query: ' . $sql, null);
+                if ($this->inTransaction()) {
+                    $this->rollbackTransaction();
+                }
+                throw new QueryException($error, $sql, null, 'Could not write to ' . $table . '.');
             }
             return new Result($this, $this->queryResult);
         } else {
