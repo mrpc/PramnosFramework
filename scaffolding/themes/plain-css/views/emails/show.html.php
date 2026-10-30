@@ -6,6 +6,7 @@
  *   $this->mail — email row array
  */
 $mail = $this->mail ?? [];
+$h    = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 
 /*
  * The column names, read from the table rather than guessed — see the note in the tailwind
@@ -60,7 +61,7 @@ $sentAt    = is_numeric($rawDate) && (int) $rawDate > 0
         </div>
     </div>
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
-        <div class="card-header" style="padding:10px 16px;font-weight:600;background:#f5f5f5;border-bottom:1px solid #ddd">Body</div>
+        <div class="card-header" style="padding:10px 16px;font-weight:600;background:#f5f5f5;border-bottom:1px solid #ddd"><?php echo $h(t('Body')); ?></div>
         <div class="card-body" style="padding:16px">
             <?php if ($body !== ''): ?>
                 <?php /* Popups allowed and nothing else: a link opens in a window of its own (the
@@ -69,114 +70,123 @@ $sentAt    = is_numeric($rawDate) && (int) $rawDate > 0
                 <iframe sandbox="allow-popups allow-popups-to-escape-sandbox" srcdoc="<?php echo htmlspecialchars((string) ($this->preview ?? $body), ENT_QUOTES, 'UTF-8'); ?>"
                     style="width:100%;border:none;height:400px;resize:vertical;overflow:auto"></iframe>
             <?php else: ?>
-                <p style="color:#888">No body content.</p>
+                <p style="color:#888"><?php echo $h(t('No body content.')); ?></p>
             <?php endif; ?>
         </div>
     </div>
-</div>
 
 <?php
 /*
- * Everything else known about this message.
- *
- * Read out of the stored body rather than out of the sending code: a template that lost its
- * unsubscribe link and one that kept it are identical from there. Rendered plainly here — this
- * theme has no component library to lean on, and the facts are the point.
+ * Everything else known about this message, read out of the stored body rather than out of the
+ * sending code: a template that lost its unsubscribe link and one that kept it are identical
+ * from there. In cards inside the page's column, as the rest of this screen; a link breaks
+ * anywhere, because an unsubscribe link is one word of two hundred characters.
  */
 $report = $this->report ?? null;
 
 if ($report !== null):
     $tracking = $report->tracking();
-    $when = static fn (int $at): string => $at > 0 ? date('j M Y, H:i', $at) : '\u2014';
+    $when = static fn (int $at): string => $at > 0 ? date('j M Y, H:i', $at) : '—';
 ?>
-<?php /* Fetched again when the reader comes back to the page, for a tracked message: following
-         one of its links from the preview is a click (`data-pf-refresh-on-return`, pf-utils.js). */ ?>
-<div id="pf-mail-tracking"<?php echo !empty($tracking['recorded']) ? ' data-pf-refresh-on-return' : ''; ?>>
-<h3>Tracking</h3>
-<?php if (!empty($tracking['recorded'])): ?>
-    <p>
-        <strong><?php echo (int) $tracking['clicks']; ?></strong> clicked &middot;
-        <strong><?php echo (int) $tracking['opens']; ?></strong> opened &middot;
-        <strong><?php echo (int) $tracking['proxyOpens']; ?></strong> prefetched
-    </p>
-    <p>
-        Prefetched means a mailbox provider fetched the image on delivery. It is not somebody
-        reading the message, which is why it is counted apart.
-    </p>
-    <p>
-        First opened <?php echo $when((int) ($tracking['firstOpenAt'] ?? 0)); ?>,
-        last opened <?php echo $when((int) ($tracking['lastOpenAt'] ?? 0)); ?>,
-        first clicked <?php echo $when((int) ($tracking['firstClickAt'] ?? 0)); ?>.
-    </p>
-<?php else: ?>
-    <p>Not tracked.</p>
-<?php endif; ?>
-<p>
-    Pixel in the body: <?php echo !empty($tracking['pixel']) ? 'yes' : 'no'; ?>.
-    Wrapped links: <?php echo (int) ($tracking['wrappedLinks'] ?? 0); ?>.
-</p>
-<?php if (!empty($tracking['note'])): ?>
-    <p><em><?php echo htmlspecialchars($tracking['note']); ?></em></p>
+    <?php /* Fetched again when the reader comes back to the page, for a tracked message: following
+             one of its links from the preview is a click (`data-pf-refresh-on-return`, pf-utils.js). */ ?>
+    <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px" id="pf-mail-tracking"<?php echo !empty($tracking['recorded']) ? ' data-pf-refresh-on-return' : ''; ?>>
+        <div class="card-header" style="padding:10px 16px;font-weight:600;background:#f5f5f5;border-bottom:1px solid #ddd"><?php echo $h(t('Tracking')); ?></div>
+        <div class="card-body" style="padding:16px">
+        <?php if (!empty($tracking['recorded'])): ?>
+            <p>
+                <strong><?php echo (int) $tracking['clicks']; ?></strong> <?php echo $h(t('clicked')); ?> &middot;
+                <strong><?php echo (int) $tracking['opens']; ?></strong> <?php echo $h(t('opened')); ?> &middot;
+                <strong><?php echo (int) $tracking['proxyOpens']; ?></strong> <?php echo $h(t('prefetched')); ?>
+            </p>
+            <p style="color:#888;font-size:0.875em"><?php echo $h(t('Prefetched means a mailbox provider fetched the image on delivery. It is not somebody reading the message, which is why it is counted apart.')); ?></p>
+            <p>
+                <?php echo $h(t('First opened')); ?> <?php echo $h($when((int) ($tracking['firstOpenAt'] ?? 0))); ?>,
+                <?php echo $h(t('last opened')); ?> <?php echo $h($when((int) ($tracking['lastOpenAt'] ?? 0))); ?>,
+                <?php echo $h(t('first clicked')); ?> <?php echo $h($when((int) ($tracking['firstClickAt'] ?? 0))); ?>.
+            </p>
+        <?php else: ?>
+            <p><?php echo $h(t('Not tracked.')); ?></p>
+        <?php endif; ?>
+            <p style="margin:0">
+                <?php echo $h(t('Pixel in the body')); ?>: <?php echo $h(!empty($tracking['pixel']) ? t('yes') : t('no')); ?>.
+                <?php echo $h(t('Wrapped links')); ?>: <?php echo (int) ($tracking['wrappedLinks'] ?? 0); ?>.
+            </p>
+        <?php if (!empty($tracking['note'])): ?>
+            <p style="color:#888;font-size:0.875em;margin:8px 0 0"><em><?php echo $h(t($tracking['note'])); ?></em></p>
+        <?php endif; ?>
+        </div>
+    </div>
+
+    <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
+        <div class="card-header" style="padding:10px 16px;font-weight:600;background:#f5f5f5;border-bottom:1px solid #ddd"><?php echo $h(t('Structured data (Gmail actions and highlights)')); ?></div>
+        <div class="card-body" style="padding:16px">
+        <?php $blocks = $report->structuredData(); ?>
+        <?php if ($blocks === []): ?>
+            <p><?php echo $h(t('None. Gmail draws no button in the message list for this mail.')); ?></p>
+        <?php else: foreach ($blocks as $block): ?>
+            <p>
+                <code><?php echo $h((string) $block['type']); ?></code>
+                <?php echo $h((string) ($block['description'] ?? $block['name'] ?? '')); ?>
+            </p>
+            <?php if (!empty($block['actions'])): ?>
+                <ul>
+                <?php foreach ($block['actions'] as $action): ?>
+                    <li style="overflow-wrap:anywhere">
+                        <code><?php echo $h((string) ($action['action'] ?? '')); ?></code>
+                        <?php echo $h((string) ($action['name'] ?? '')); ?>
+                        <?php if (!empty($action['url'])): ?>&rarr; <?php echo $h($action['url']); ?><?php endif; ?>
+                    </li>
+                <?php endforeach; ?>
+                </ul>
+            <?php endif; ?>
+            <?php if (!empty($block['raw'])): ?>
+                <p><strong><?php echo $h(t('Unreadable JSON — Gmail ignores it silently.')); ?></strong></p>
+            <?php endif; ?>
+        <?php endforeach; endif; ?>
+            <p style="color:#888;font-size:0.875em;margin:0"><?php echo $h(t('Gmail shows none of this until the sending domain is registered with Google.')); ?></p>
+        </div>
+    </div>
+
+    <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
+        <div class="card-header" style="padding:10px 16px;font-weight:600;background:#f5f5f5;border-bottom:1px solid #ddd"><?php echo $h(t('Links, and where they really go')); ?></div>
+        <div class="card-body" style="padding:16px">
+        <?php $links = $report->links(); ?>
+        <?php if ($links === []): ?>
+            <p style="margin:0"><?php echo $h(t('No links in this message.')); ?></p>
+        <?php else: ?>
+            <?php // Fixed layout and breaking anywhere: an unsubscribe link is one 200-character word. ?>
+            <table style="table-layout:fixed;width:100%;border-collapse:collapse">
+                <thead><tr><th><?php echo $h(t('In the markup')); ?></th><th><?php echo $h(t('Goes to')); ?></th><th style="width:7rem"></th></tr></thead>
+                <tbody>
+                <?php foreach ($links as $link): ?>
+                    <tr>
+                        <td style="overflow-wrap:anywhere"><?php echo $h((string) $link['url']); ?></td>
+                        <td style="overflow-wrap:anywhere"><?php echo $h((string) ($link['destination'] ?? $link['url'])); ?></td>
+                        <td>
+                            <?php if (!empty($link['broken'])): ?><?php echo $h(t('token does not verify')); ?>
+                            <?php elseif (!empty($link['wrapped'])): ?><?php echo $h(t('tracked')); ?><?php endif; ?>
+                            <?php if ((int) $link['count'] > 1): ?> &times;<?php echo (int) $link['count']; ?><?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+        <?php $unsub = $report->unsubscribe(); ?>
+        <?php if (!empty($unsub['note'])): ?>
+            <p style="color:#888;font-size:0.875em;margin:8px 0 0"><em><?php echo $h(t($unsub['note'])); ?></em></p>
+        <?php endif; ?>
+        </div>
+    </div>
+
+    <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
+        <div class="card-header" style="padding:10px 16px;font-weight:600;background:#f5f5f5;border-bottom:1px solid #ddd"><?php echo $h(t('As a text-only client shows it')); ?></div>
+        <div class="card-body" style="padding:16px">
+            <?php /* The half nobody looks at, and the half that used to arrive as the stylesheet with every
+                     link removed. A text part that does not match the HTML is a documented spam signal. */ ?>
+            <pre style="margin:0;white-space:pre-wrap;overflow-wrap:anywhere"><?php echo $h($report->plainText()); ?></pre>
+        </div>
+    </div>
 <?php endif; ?>
 </div>
-
-<h3>Structured data (Gmail actions and highlights)</h3>
-<?php $blocks = $report->structuredData(); ?>
-<?php if ($blocks === []): ?>
-    <p>None. Gmail draws no button in the message list for this mail.</p>
-<?php else: foreach ($blocks as $block): ?>
-    <p>
-        <code><?php echo htmlspecialchars((string) $block['type']); ?></code>
-        <?php echo htmlspecialchars((string) ($block['description'] ?? $block['name'] ?? '')); ?>
-    </p>
-    <?php if (!empty($block['actions'])): ?>
-        <ul>
-        <?php foreach ($block['actions'] as $action): ?>
-            <li>
-                <code><?php echo htmlspecialchars((string) ($action['action'] ?? '')); ?></code>
-                <?php echo htmlspecialchars((string) ($action['name'] ?? '')); ?>
-                <?php if (!empty($action['url'])): ?>
-                    &rarr; <?php echo htmlspecialchars($action['url']); ?>
-                <?php endif; ?>
-            </li>
-        <?php endforeach; ?>
-        </ul>
-    <?php endif; ?>
-    <?php if (!empty($block['raw'])): ?>
-        <p><strong>Unreadable JSON — Gmail ignores it silently.</strong></p>
-    <?php endif; ?>
-<?php endforeach; endif; ?>
-<p>Gmail shows none of this until the sending domain is registered with Google.</p>
-
-<h3>Links, and where they really go</h3>
-<?php $links = $report->links(); ?>
-<?php if ($links === []): ?>
-    <p>No links in this message.</p>
-<?php else: ?>
-    <table>
-        <thead><tr><th>In the markup</th><th>Goes to</th><th></th></tr></thead>
-        <tbody>
-        <?php foreach ($links as $link): ?>
-            <tr>
-                <td><?php echo htmlspecialchars((string) $link['url']); ?></td>
-                <td><?php echo htmlspecialchars((string) ($link['destination'] ?? $link['url'])); ?></td>
-                <td>
-                    <?php if (!empty($link['broken'])): ?>token does not verify
-                    <?php elseif (!empty($link['wrapped'])): ?>tracked<?php endif; ?>
-                    <?php if ((int) $link['count'] > 1): ?> &times;<?php echo (int) $link['count']; ?><?php endif; ?>
-                </td>
-            </tr>
-        <?php endforeach; ?>
-        </tbody>
-    </table>
-<?php endif; ?>
-<?php $unsub = $report->unsubscribe(); ?>
-<?php if (!empty($unsub['note'])): ?>
-    <p><em><?php echo htmlspecialchars($unsub['note']); ?></em></p>
-<?php endif; ?>
-
-<h3>As a text-only client shows it</h3>
-<?php /* The half nobody looks at, and the half that used to arrive as the stylesheet with every
-         link removed. A text part that does not match the HTML is a documented spam signal. */ ?>
-<pre style="white-space:pre-wrap;word-break:break-word"><?php echo htmlspecialchars($report->plainText()); ?></pre>
-<?php endif; ?>

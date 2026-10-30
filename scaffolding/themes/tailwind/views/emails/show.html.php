@@ -125,15 +125,15 @@ $sentAt  = is_numeric($rawDate) && (int) $rawDate > 0
          * whose labels carry no state is a strip somebody has to click through every time.
          */
         $trackingLabel = !empty($tracking['recorded'])
-            ? 'Tracking · ' . (int) $tracking['clicks'] . ' clicked'
-            : 'Tracking · off';
-        $actionsLabel  = 'Gmail actions · ' . ($blocks === [] ? 'none' : count($blocks));
-        $linksLabel    = 'Links · ' . count($links);
+            ? t('Tracking') . ' · ' . (int) $tracking['clicks'] . ' ' . t('clicked')
+            : t('Tracking') . ' · ' . t('off');
+        $actionsLabel  = t('Gmail actions') . ' · ' . ($blocks === [] ? t('none') : count($blocks));
+        $linksLabel    = t('Links') . ' · ' . count($links);
     }
     ?>
 
     <div role="tablist" class="tabs tabs-lift">
-        <input type="radio" name="pf-mail-tabs" role="tab" class="tab" aria-label="Message" checked>
+        <input type="radio" name="pf-mail-tabs" role="tab" class="tab" aria-label="<?php echo htmlspecialchars(t('Message'), ENT_QUOTES, 'UTF-8'); ?>" checked>
         <div role="tabpanel" class="tab-content bg-base-100 border-base-300 p-5">
             <?php if ($body !== ''): ?>
                 <?php /* Sandboxed: the body is whatever was queued, and this screen is inside
@@ -146,7 +146,7 @@ $sentAt  = is_numeric($rawDate) && (int) $rawDate > 0
                 <iframe sandbox="allow-popups allow-popups-to-escape-sandbox" srcdoc="<?php echo htmlspecialchars((string) ($this->preview ?? $body), ENT_QUOTES, 'UTF-8'); ?>"
                     style="width:100%;border:none;height:600px;resize:vertical;overflow:auto"></iframe>
             <?php else: ?>
-                <p class="text-base-content/70">No body content.</p>
+                <p class="text-base-content/70"><?php echo htmlspecialchars(t('No body content.'), ENT_QUOTES, 'UTF-8'); ?></p>
             <?php endif; ?>
         </div>
 
@@ -161,36 +161,35 @@ $sentAt  = is_numeric($rawDate) && (int) $rawDate > 0
             <div class="max-w-2xl text-sm space-y-3">
                 <?php if (!empty($tracking['recorded'])): ?>
                     <div class="flex flex-wrap gap-2">
-                        <span class="badge badge-success"><?php echo (int) $tracking['clicks']; ?> clicked</span>
-                        <span class="badge"><?php echo (int) $tracking['opens']; ?> opened</span>
-                        <span class="badge badge-ghost"><?php echo (int) $tracking['proxyOpens']; ?> prefetched</span>
+                        <span class="badge badge-success"><?php echo (int) $tracking['clicks']; ?> <?php echo htmlspecialchars(t('clicked'), ENT_QUOTES, 'UTF-8'); ?></span>
+                        <span class="badge"><?php echo (int) $tracking['opens']; ?> <?php echo htmlspecialchars(t('opened'), ENT_QUOTES, 'UTF-8'); ?></span>
+                        <span class="badge badge-ghost"><?php echo (int) $tracking['proxyOpens']; ?> <?php echo htmlspecialchars(t('prefetched'), ENT_QUOTES, 'UTF-8'); ?></span>
                     </div>
                     <p class="opacity-70 text-xs">
-                        Prefetched means a mailbox provider fetched the image on delivery — not
-                        somebody reading it, which is why it is counted apart.
+                        <?php echo htmlspecialchars(t('Prefetched means a mailbox provider fetched the image on delivery. It is not somebody reading the message, which is why it is counted apart.'), ENT_QUOTES, 'UTF-8'); ?>
                     </p>
                     <dl class="grid gap-x-6 gap-y-1 sm:grid-cols-2 text-xs">
-                        <div><dt class="inline font-semibold">List:</dt>
+                        <div><dt class="inline font-semibold"><?php echo htmlspecialchars(t('List'), ENT_QUOTES, 'UTF-8'); ?>:</dt>
                             <dd class="inline"><?php echo htmlspecialchars((string) ($tracking['list'] ?? '')); ?></dd></div>
-                        <div><dt class="inline font-semibold">First opened:</dt>
+                        <div><dt class="inline font-semibold"><?php echo htmlspecialchars(t('First opened'), ENT_QUOTES, 'UTF-8'); ?>:</dt>
                             <dd class="inline"><?php echo $when((int) ($tracking['firstOpenAt'] ?? 0)); ?></dd></div>
-                        <div><dt class="inline font-semibold">Last opened:</dt>
+                        <div><dt class="inline font-semibold"><?php echo htmlspecialchars(t('Last opened'), ENT_QUOTES, 'UTF-8'); ?>:</dt>
                             <dd class="inline"><?php echo $when((int) ($tracking['lastOpenAt'] ?? 0)); ?></dd></div>
-                        <div><dt class="inline font-semibold">First clicked:</dt>
+                        <div><dt class="inline font-semibold"><?php echo htmlspecialchars(t('First clicked'), ENT_QUOTES, 'UTF-8'); ?>:</dt>
                             <dd class="inline"><?php echo $when((int) ($tracking['firstClickAt'] ?? 0)); ?></dd></div>
                     </dl>
                 <?php else: ?>
-                    <p class="opacity-70">Not tracked.</p>
+                    <p class="opacity-70"><?php echo htmlspecialchars(t('Not tracked.'), ENT_QUOTES, 'UTF-8'); ?></p>
                 <?php endif; ?>
 
                 <p class="text-xs opacity-70">
-                    Pixel in the body: <?php echo !empty($tracking['pixel']) ? 'yes' : 'no'; ?> ·
-                    wrapped links: <?php echo (int) ($tracking['wrappedLinks'] ?? 0); ?>
+                    <?php echo htmlspecialchars(t('Pixel in the body'), ENT_QUOTES, 'UTF-8'); ?>: <?php echo htmlspecialchars(!empty($tracking['pixel']) ? t('yes') : t('no'), ENT_QUOTES, 'UTF-8'); ?> ·
+                    <?php echo htmlspecialchars(t('Wrapped links'), ENT_QUOTES, 'UTF-8'); ?>: <?php echo (int) ($tracking['wrappedLinks'] ?? 0); ?>
                 </p>
 
                 <?php if (!empty($tracking['note'])): ?>
                     <div role="status" class="alert alert-warning py-2">
-                        <span class="text-xs"><?php echo htmlspecialchars($tracking['note']); ?></span>
+                        <span class="text-xs"><?php echo htmlspecialchars(t($tracking['note']), ENT_QUOTES, 'UTF-8'); ?></span>
                     </div>
                 <?php endif; ?>
             </div>
@@ -201,7 +200,7 @@ $sentAt  = is_numeric($rawDate) && (int) $rawDate > 0
         <div role="tabpanel" class="tab-content bg-base-100 border-base-300 p-5">
             <div class="max-w-2xl text-sm">
                 <?php if ($blocks === []): ?>
-                    <p class="opacity-70">None. No button is drawn in the message list.</p>
+                    <p class="opacity-70"><?php echo htmlspecialchars(t('None. Gmail draws no button in the message list for this mail.'), ENT_QUOTES, 'UTF-8'); ?></p>
                 <?php else: foreach ($blocks as $block): ?>
                     <div class="mb-3">
                         <span class="badge badge-outline badge-sm"><?php echo htmlspecialchars((string) $block['type']); ?></span>
@@ -222,12 +221,12 @@ $sentAt  = is_numeric($rawDate) && (int) $rawDate > 0
                             </ul>
                         <?php endif; ?>
                         <?php if (!empty($block['raw'])): ?>
-                            <p class="text-error text-xs">Unreadable JSON — Gmail ignores it silently.</p>
+                            <p class="text-error text-xs"><?php echo htmlspecialchars(t('Unreadable JSON — Gmail ignores it silently.'), ENT_QUOTES, 'UTF-8'); ?></p>
                         <?php endif; ?>
                     </div>
                 <?php endforeach; endif; ?>
                 <p class="opacity-70 text-xs mt-2">
-                    Nothing shows until the sending domain is registered with Google.
+                    <?php echo htmlspecialchars(t('Gmail shows none of this until the sending domain is registered with Google.'), ENT_QUOTES, 'UTF-8'); ?>
                 </p>
             </div>
         </div>
@@ -237,7 +236,7 @@ $sentAt  = is_numeric($rawDate) && (int) $rawDate > 0
         <div role="tabpanel" class="tab-content bg-base-100 border-base-300 p-5">
             <div class="max-w-3xl text-sm">
                 <?php if ($links === []): ?>
-                    <p class="opacity-70">No links in this message.</p>
+                    <p class="opacity-70"><?php echo htmlspecialchars(t('No links in this message.'), ENT_QUOTES, 'UTF-8'); ?></p>
                 <?php else: ?>
                     <?php /* The width is worth having here: a wrapped link's real destination is
                              a long URL, and wrapping it over four lines is what made this panel
@@ -251,9 +250,9 @@ $sentAt  = is_numeric($rawDate) && (int) $rawDate > 0
                                 ?></td>
                                 <td class="whitespace-nowrap text-right">
                                     <?php if (!empty($link['broken'])): ?>
-                                        <span class="badge badge-error badge-xs">token does not verify</span>
+                                        <span class="badge badge-error badge-xs"><?php echo htmlspecialchars(t('token does not verify'), ENT_QUOTES, 'UTF-8'); ?></span>
                                     <?php elseif (!empty($link['wrapped'])): ?>
-                                        <span class="badge badge-ghost badge-xs">tracked</span>
+                                        <span class="badge badge-ghost badge-xs"><?php echo htmlspecialchars(t('tracked'), ENT_QUOTES, 'UTF-8'); ?></span>
                                     <?php endif; ?>
                                     <?php if ((int) $link['count'] > 1): ?>
                                         <span class="opacity-60">×<?php echo (int) $link['count']; ?></span>
@@ -266,12 +265,12 @@ $sentAt  = is_numeric($rawDate) && (int) $rawDate > 0
                 <?php endif; ?>
 
                 <?php if (!empty($unsub['note'])): ?>
-                    <p class="opacity-70 text-xs mt-2"><?php echo htmlspecialchars($unsub['note']); ?></p>
+                    <p class="opacity-70 text-xs mt-2"><?php echo htmlspecialchars(t($unsub['note']), ENT_QUOTES, 'UTF-8'); ?></p>
                 <?php endif; ?>
             </div>
         </div>
 
-        <input type="radio" name="pf-mail-tabs" role="tab" class="tab" aria-label="Plain text">
+        <input type="radio" name="pf-mail-tabs" role="tab" class="tab" aria-label="<?php echo htmlspecialchars(t('Plain text'), ENT_QUOTES, 'UTF-8'); ?>">
         <div role="tabpanel" class="tab-content bg-base-100 border-base-300 p-5">
             <?php /* The half nobody looks at — and the half that used to arrive as the
                      stylesheet with every link removed. */ ?>

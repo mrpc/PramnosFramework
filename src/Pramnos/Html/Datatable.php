@@ -644,7 +644,9 @@ class Datatable extends Base
                  * in a modern CSS reset has no border, no padding and no background, so
                  * the box was **there and invisible** — a filter row that looked empty.
                  * Every bundled theme styles the class; a theme that does not still gets
-                 * the browser's own control, because nothing here removes it.
+                 * the browser's own control, because nothing here removes it — sized to its
+                 * column by the inline width, since the browser's own is about 260px and seven
+                 * of them push a table past the page.
                  */
                 $this->aoColumns[$key]->footer .= '<input id="autofootsearch_'
                     . $c . '" value="' . htmlspecialchars(
@@ -653,7 +655,7 @@ class Datatable extends Base
                         'UTF-8'
                     )
                     . '" name="' . $c
-                    . '" class="pf-footsearch" type="search"'
+                    . '" class="pf-footsearch" type="search" style="width:100%;box-sizing:border-box"'
                     . ' placeholder="' . htmlspecialchars(
                         (string) $this->aoColumns[$key]->label,
                         ENT_QUOTES,

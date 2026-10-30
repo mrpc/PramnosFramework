@@ -668,6 +668,9 @@ class DatatableTest extends TestCase
         $html = $dt->render();
         
         $this->assertStringContainsString('id="autofootsearch_0"', $html);
+        // Sized to its column even where the theme's stylesheet is missing: the browser's own
+        // width, about 260px a box, pushed a seven-column table past the page.
+        $this->assertStringContainsString('class="pf-footsearch" type="search" style="width:100%;box-sizing:border-box"', $html);
         $this->assertStringContainsString('value="searchme"', $html);
         $this->assertStringContainsString('mySearchTable.fnFilter( "searchme", 0 )', $html, 'a JSON string: see testValuesInTheScriptCannotBreakOutOfIt');
         $this->assertStringContainsString('jQuery(\'#emailsearch\').change', $html);

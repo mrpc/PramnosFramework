@@ -1838,6 +1838,10 @@ as its recipient opening it, and with `<base target="_blank">`, so a link opens 
 own. The tracked links stay — following one from the preview is how an administrator checks that
 clicks are recorded — and the Tracking tab and its count are fetched again when the reader comes
 back to the page (`data-pf-refresh-on-return` in `pf-utils.js`, on any element with an id).
+Under the message, the report — tracking, Gmail's structured data, every link and where it really
+goes, the text-only part — is translated, its notes from `MessageReport` included, and a link
+breaks anywhere rather than running off the page: an unsubscribe link is one word of two hundred
+characters.
 
 Every `send()` writes that row, sent or failed. An application that already keeps its own row
 for each message in the same table gets two; it turns the framework's off for every send,

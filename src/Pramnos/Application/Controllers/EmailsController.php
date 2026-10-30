@@ -90,6 +90,7 @@ class EmailsController extends Controller
         // values are 0, 1 and 2 asks the reader to guess which number means what.
         $statusFilter = new \Pramnos\Html\Select('status_filter');
         $statusFilter->id = 'dt-emails-status';
+        $statusFilter->extraAttributes = 'class="pf-footsearch" style="width:100%;box-sizing:border-box"';
         $options = ['' => t('Any status')];
         foreach ($this->statuses() as $value => $label) {
             $options[(string) $value] = $label;

@@ -995,7 +995,9 @@ version of the client made the request. A multiple select's choice — an array,
 The generated box carries `class="pf-footsearch"` and the column's label as its
 placeholder. **The class is not decoration**: a bare `<input>` under a modern CSS reset has
 no border, no padding and no background, so the filter row was there and invisible — every
-bundled theme styles it, and a theme of your own should too.
+bundled theme styles it, and a theme of your own should too. The box also carries an inline
+`width:100%`, so it is as wide as its column even on a page without the theme's stylesheet: the
+browser's own width is about 260px a box, and a table of seven columns no longer fits the page.
 
 The boxes filter their own table only, so two tables on one page do not filter each other, and
 the placeholder is a real `placeholder` attribute — nothing writes the label into the value or

@@ -34,5 +34,15 @@ $scopedTo = (string) ($this->scopedTo ?? '');
             <a href="<?php echo $e($this->clearUrl ?? adminUrl('emails')); ?>" class="btn btn-sm btn-outline-secondary ms-2"><?php echo $e(t('Show all')); ?></a>
         </div>
     <?php endif; ?>
-    <?php echo $this->datatable->render(); ?>
+    <?php
+    // In a card and in this theme's own table styling. The controller turns Bootstrap's off for
+    // every theme; this view is the one that knows it is Bootstrap's.
+    $this->datatable->jui = false;
+    $this->datatable->bootstrap = true;
+    ?>
+    <div class="card">
+        <div class="card-body">
+            <?php echo $this->datatable->render(); ?>
+        </div>
+    </div>
 </div>
