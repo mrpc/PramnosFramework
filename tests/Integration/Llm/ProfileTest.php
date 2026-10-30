@@ -344,6 +344,40 @@ class ProfileTest extends LlmTestCase
     }
 
     /**
+     * The prompt carries at most `Profile::CONTEXT` characters of the profile — who they are first,
+     * the people in their life after — and says how many more are kept. How they feel is not in
+     * that cached zone but in the last one, which changes with every question anyway.
+     */
+    #[DataProvider('databases')]
+    public function testThePromptCarriesAShortProfileAndTheMoodLast(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $scope   = $this->person($type, $host, $port, feelings: true);
+        $this->configure(['chat' => ['profile' => ['confirm' => false]]]);
+        $profile = new Profile($scope);
+        for ($i = 1; $i <= 12; $i++) {
+            $profile->note('relationships', str_repeat('A friend from school, kind and steady. ', 6), 'Friend ' . $i);
+        }
+        $profile->note('identity', 'A nurse in Patras');
+        $profile->note('mood', 'Tired but hopeful');
+        $this->answer([[200, self::says('Hello.')]]);
+
+        // Act
+        $context = $profile->context();
+        (new Conversations(new BaseAssistant()))->as($scope)->ask(null, 'Hi');
+        $messages = $this->sent[0]['body']['messages'];
+        $tail     = $messages[count($messages) - 2]['content'];
+
+        // Assert
+        $this->assertLessThanOrEqual(Profile::CONTEXT + 200, mb_strlen($context));
+        $this->assertStringContainsString('identity] A nurse in Patras', $context, 'who they are comes first, though noted last');
+        $this->assertMatchesRegularExpression('/\d+ more entries are kept; recall_person finds/', $context);
+        $this->assertStringNotContainsString('Tired but hopeful', $context, 'not in the cached zone');
+        $this->assertStringContainsString('How this person has felt lately: Tired but hopeful', $tail);
+        $this->assertSame('', (new Profile(new Scope($scope->userId + 100000, null)))->moodContext());
+    }
+
+    /**
      * Turned on, the profile's tools are offered in a person's own conversation and what they
      * confirmed is in its prompt; off — the default — neither, and never in the analyst's space.
      */

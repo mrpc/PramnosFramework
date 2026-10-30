@@ -51,6 +51,16 @@ class Conversations
     public const TITLE = 80;
 
     /** How the framework notes the tools an earlier answer wrote with. Only this class writes it. */
+    /** Questions a conversation stays on the tier it was given before it is decided again. */
+    public const CASCADE_HOLD = 4;
+
+    /**
+     * Tools offered at once above which they are grouped in skills, when the application has not
+     * said either way (`'llm' => ['chat' => ['skills' => …]]`): every round carries every tool's
+     * description, and past this many that is most of a small question's prompt.
+     */
+    public const SKILLS_FROM = 20;
+
     /** The calls of a cut answer named for the next question, at most. */
     public const STOPPED_CALLS = 20;
 
@@ -337,7 +347,7 @@ class Conversations
         // The tier the question needs, where the application has tiers — never over a client the
         // caller gave, which is its choice.
         $tier   = $this->client === null
-            ? \Pramnos\Llm\Llm::cascade()->tier(['purpose' => $this->scope->purpose()] + $this->scope->context(), $question, $history)
+            ? $this->heldTier($conversationId, fn (): ?string => \Pramnos\Llm\Llm::cascade()->tier(['purpose' => $this->scope->purpose()] + $this->scope->context(), $question, $history))
             : null;
         $client = $this->tiered($tier) ?? $this->client($this->scope);
 
@@ -407,7 +417,10 @@ class Conversations
         ]);
 
         // In three zones, the part that never changes first, so the provider's cache keeps the most.
-        $zones  = new ContextAssembler($this->assistant);
+        // How the person feels changes with a word, so it goes last, where nothing is cached anyway.
+        $zones  = (new ContextAssembler($this->assistant))->alsoNow(
+            !$turn->shared() && Profile::on($this->scope) && Profile::available() ? (new Profile($this->scope))->moodContext() : ''
+        );
         $prefix = $zones->staticPrefix($turn);
         $zones->checkPrefix($prefix, $conversationId);
         $semi   = ($turn->shared() ? trim($this->assistant->context($turn)) : $this->context($turn, $memory))
@@ -984,8 +997,9 @@ class Conversations
      */
     private function grouped(array $tools): array
     {
-        $chat = \Pramnos\Llm\Llm::config('chat', []);
-        if (!is_array($chat) || empty($chat['skills'])) {
+        $chat   = \Pramnos\Llm\Llm::config('chat', []);
+        $skills = is_array($chat) && array_key_exists('skills', $chat) ? (bool) $chat['skills'] : count($tools) > self::SKILLS_FROM;
+        if (!$skills) {
             return $tools;
         }
 
@@ -1006,6 +1020,44 @@ class Conversations
      * @param list<string>                        $except
      * @return array<string, array<string, mixed>>
      */
+    /**
+     * The tier a conversation is on, decided once and held for {@see CASCADE_HOLD} questions
+     * (`'llm' => ['cascade_hold' => …]`, 1 to decide every time): the decision is a model call of
+     * its own, and a conversation rarely changes its nature from one message to the next. A new
+     * conversation, or one the cache cannot hold for, decides each time.
+     *
+     * @param callable(): ?string $decide
+     */
+    private function heldTier(?int $conversationId, callable $decide): ?string
+    {
+        $hold = (int) \Pramnos\Llm\Llm::config('cascade_hold', self::CASCADE_HOLD);
+        if ($conversationId === null || $hold <= 1 || \Pramnos\Llm\Llm::config('tiers', []) === []) {
+            return $decide();
+        }
+        $key = 'tier-' . $conversationId;
+        try {
+            // Held for an hour at most: a conversation picked up the next day is decided again.
+            $cache = \Pramnos\Cache\Cache::getInstance('llm');
+            $held  = json_decode((string) $cache->load($key), true);
+        } catch (\Throwable) {
+            return $decide();
+        }
+        if (is_array($held) && (int) ($held['left'] ?? 0) > 0 && (int) ($held['until'] ?? 0) > time()) {
+            $tier = $held['tier'] === null ? null : (string) $held['tier'];
+            $held = ['left' => (int) $held['left'] - 1] + $held;
+        } else {
+            $tier = $decide();
+            $held = ['tier' => $tier, 'left' => $hold - 1, 'until' => time() + 3600];
+        }
+        try {
+            $cache->save((string) json_encode($held), $key);
+        } catch (\Throwable) {
+            // A cache that cannot keep it costs a decision next time, never the answer.
+        }
+
+        return $tier;
+    }
+
     /** Whether the application offers its external MCP servers' tools in conversations: `'llm' => ['chat' => ['mcp' => true]]`. */
     public static function mcpOn(): bool
     {

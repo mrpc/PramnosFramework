@@ -38,8 +38,19 @@ final class ContextAssembler
     /** The log the warnings go to. */
     public const LOG = 'llm';
 
+    /** What the framework adds to zone 3 itself, beside the assistant's own. */
+    private string $alsoNow = '';
+
     public function __construct(private readonly Assistant $assistant)
     {
+    }
+
+    /** Add to zone 3 what changes too often for zone 2 — how the person feels, for one. */
+    public function alsoNow(string $text): static
+    {
+        $this->alsoNow = trim($text);
+
+        return $this;
     }
 
     /** Zone 1: the assistant's role and rules, byte for byte the same from one question to the next. */
@@ -56,7 +67,8 @@ final class ContextAssembler
     {
         $zone = $this->assistant->timezone($turn->scope);
         $now  = new \DateTimeImmutable('now', new \DateTimeZone($zone));
-        $own  = method_exists($this->assistant, 'volatileContext') ? trim((string) $this->assistant->volatileContext($turn)) : '';
+        $own  = trim((method_exists($this->assistant, 'volatileContext') ? (string) $this->assistant->volatileContext($turn) : '')
+            . ($this->alsoNow === '' ? '' : "\n\n" . $this->alsoNow));
 
         return 'Now: ' . $now->format('l j F Y, H:i') . ' (' . $zone . ').'
             . ($own !== '' ? "\n\n" . $own : '')

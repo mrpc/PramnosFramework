@@ -39,9 +39,18 @@ final class Profile
     /** The person's own setting that lets how they feel be kept. */
     public const FEELINGS = 'ai_profile_feelings';
 
-    /** Entries kept per person, and characters per entry: it goes into every prompt. */
+    /** Entries kept per person, and characters per entry. */
     public const MAX   = 60;
     public const CHARS = 500;
+
+    /**
+     * What the prompt carries of it at most, in characters: who they are, what they value and work
+     * towards first, the people in their life after. The rest is a `recall_person` away.
+     */
+    public const CONTEXT = 2000;
+
+    /** The order the prompt reads the areas in, the most telling first. */
+    private const ORDER = ['identity' => 0, 'values' => 1, 'goals' => 2, 'relationships' => 3];
 
     /** The changelog's entity. */
     public const ENTITY = 'chat_dossier';
@@ -279,12 +288,26 @@ final class Profile
         return $out;
     }
 
-    /** What goes into the prompt: what is true, and what waits for the person's word. Empty with nothing. */
+    /**
+     * What goes into the prompt's cached zone: what is true, and what waits for the person's word,
+     * within {@see CONTEXT} characters. Not how they feel: that changes too often for a cached
+     * zone, and is {@see moodContext()}'s. Empty with nothing.
+     */
     public function context(): string
     {
         $true    = [];
         $waiting = [];
-        foreach ($this->entries() as $e) {
+        $entries = array_values(array_filter($this->entries(), static fn (array $e): bool => $e['area'] !== 'mood'));
+        usort($entries, static fn (array $a, array $b): int => [self::ORDER[$a['area']] ?? 9, $a['dossier_id']] <=> [self::ORDER[$b['area']] ?? 9, $b['dossier_id']]);
+        $room = self::CONTEXT;
+        $left = 0;
+        foreach ($entries as $e) {
+            $line = mb_strlen((string) ($e['content'] ?? '')) + mb_strlen((string) ($e['pending'] ?? '')) + 30;
+            if ($room - $line < 0) {
+                $left++;
+                continue;
+            }
+            $room -= $line;
             $label = $e['area'] . ($e['subject'] !== null ? ': ' . $e['subject'] : '');
             if ($e['content'] !== null) {
                 $true[] = '- [' . $e['dossier_id'] . ', ' . $label . '] ' . $e['content'];
@@ -295,7 +318,20 @@ final class Profile
         }
 
         return trim(($true === [] ? '' : "What this person confirmed about themselves (id, area):\n" . implode("\n", $true))
-            . ($waiting === [] ? '' : "\n\nProposed, not confirmed — not true until they say so (id, area):\n" . implode("\n", $waiting)));
+            . ($waiting === [] ? '' : "\n\nProposed, not confirmed — not true until they say so (id, area):\n" . implode("\n", $waiting))
+            . ($left === 0 ? '' : "\n\n" . $left . ' more entries are kept; recall_person finds the people among them by name.'));
+    }
+
+    /** How they have felt lately, for the part of the prompt that changes with every question. Empty with nothing. */
+    public function moodContext(): string
+    {
+        foreach ($this->entries() as $e) {
+            if ($e['area'] === 'mood' && $e['content'] !== null) {
+                return 'How this person has felt lately: ' . $e['content'];
+            }
+        }
+
+        return '';
     }
 
     /**

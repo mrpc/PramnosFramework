@@ -230,7 +230,11 @@ class Memory
             $prompt .= ' Also ' . (Profile::confirms() ? 'propose' : 'keep') . ', only from what they plainly said and is not already in "profile": who they are (identity), '
                 . 'what they value (values), what they work towards (goals), a person in their life (relationships, with subject naming them) '
                 . 'and how they feel (mood): {"op": "propose", "area": "identity|values|goals|relationships|mood", "subject": "Name", "content": "one sentence"}.';
-            $input['profile'] = array_map(static fn (array $e): array => array_intersect_key($e, array_flip(['area', 'subject', 'content', 'pending'])), $profile->entries());
+            // What is there, enough to not propose it again: the start of each, not the whole.
+            $input['profile'] = array_map(static fn (array $e): array => array_filter([
+                'area' => $e['area'], 'subject' => $e['subject'],
+                'says' => mb_substr((string) ($e['content'] ?? $e['pending'] ?? ''), 0, 80),
+            ]), $profile->entries());
         }
         try {
             $answer = $client->askCheaply($prompt, [['role' => 'user', 'content' => json_encode($input, JSON_UNESCAPED_UNICODE)]]);

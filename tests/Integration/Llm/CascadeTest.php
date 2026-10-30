@@ -95,6 +95,44 @@ class CascadeTest extends LlmTestCase
     }
 
     /**
+     * In one conversation the tier is decided once and held for `Conversations::CASCADE_HOLD`
+     * questions — the decision is a call of its own — then decided again; with
+     * `'cascade_hold' => 1`, every question is decided.
+     */
+    #[DataProvider('databases')]
+    public function testTheTierIsHeldForAConversation(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->tiers();
+        $chat  = (new Conversations(new BaseAssistant()))->as(new Scope(7, null));
+        $this->answer([...self::decides('fast'), [200, self::says('Hello')]]);
+        $first = $chat->ask(null, 'Hi');   // a new conversation decides, as it has no id yet
+        $id    = (int) $first['conversation_id'];
+        // An id an earlier run used may still have a decision held: this one starts clean.
+        \Pramnos\Cache\Cache::getInstance('llm')->delete('tier-' . $id);
+        $this->sent = [];
+        $replies = [...self::decides('frontier')];
+        for ($i = 0; $i < 4; $i++) {
+            $replies[] = [200, self::says('Answer ' . $i)];
+        }
+        $this->answer([...$replies, ...self::decides('fast'), [200, self::says('Again')]]);
+
+        // Act
+        for ($i = 0; $i < 4; $i++) {
+            $chat->ask($id, 'Question ' . $i);
+        }
+        $held = $this->sent;
+        $chat->ask($id, 'Question 4');
+        $hosts = array_map(static fn (array $r): string => (string) parse_url($r['url'], PHP_URL_HOST), $this->sent);
+
+        // Assert
+        $this->assertSame(['api.deepseek.com', 'api.deepseek.com', 'api.openai.com', 'api.openai.com', 'api.openai.com', 'api.openai.com'],
+            array_map(static fn (array $r): string => (string) parse_url($r['url'], PHP_URL_HOST), $held), 'one decision, four answers on the frontier');
+        $this->assertSame(['api.deepseek.com', 'api.deepseek.com', 'api.deepseek.com'], array_slice($hosts, 6), 'decided again on the fifth');
+    }
+
+    /**
      * The frontier tier down: the question is answered on the fast tier, told that it answers in
      * the stronger model's place.
      */

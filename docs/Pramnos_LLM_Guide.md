@@ -374,10 +374,13 @@ because a worker builds only the answer's first tools.
 
 #### Skills in a conversation
 
-A conversation groups its tools the same way, all of them, when the application turns it on:
+A conversation groups its tools the same way, all of them. Unsaid, it does so once an answer
+would offer more than `Conversations::SKILLS_FROM` (20) tools, because every round carries every
+tool's description, and past that many they are most of a small question's prompt:
 
 ```php
-'llm' => ['chat' => ['skills' => true]],   // off by default: every tool, as it is
+'llm' => ['chat' => ['skills' => true]],    // always grouped
+'llm' => ['chat' => ['skills' => false]],   // never: every tool, as it is
 ```
 
 With it on, a tool marked `'skills' => [...]` is offered only once the model turns one of its
@@ -713,6 +716,10 @@ implement `Policy\Cascade` to decide without a model.
 - A conversation holding data of a tag moves within the tier as it does without tiers.
 - The decision is logged with the purpose `cascade`, and the tier's calls carry `tier` in their
   context.
+- **Decided once a conversation, not once a question.** The decision is a model call of its own,
+  so a conversation keeps the tier it was given for `Conversations::CASCADE_HOLD` (4) questions,
+  within the hour, then is decided again. `'llm' => ['cascade_hold' => 1]` decides every question,
+  at that cost; a conversation's first question, which has no id yet, is always decided.
 
 ### Approvals given in advance
 
@@ -999,7 +1006,7 @@ of it as it can from one question to the next:
 |---|---|---|---|
 | 1, static | the system prompt | `systemPrompt(Turn)` | with the code only |
 | 2, semi-static | a system message ahead of the history | `context(Turn)`, what is remembered, what is pinned, the summary | when one of those does |
-| 3, dynamic | a system message just before the question | `Now: Friday 30 October 2026, 14:05 (Europe/Athens)`, `volatileContext(Turn)`, the notice for an attached document | every question |
+| 3, dynamic | a system message just before the question | `Now: Friday 30 October 2026, 14:05 (Europe/Athens)`, `volatileContext(Turn)`, how the person has felt lately (with the profile on), the notice for an attached document | every question |
 
 A cache matches a request from its start. With the time and the page last, two questions in a
 row share everything up to the one before. With them in the system prompt they would share
@@ -1231,8 +1238,12 @@ what the model notes and what learning finds, as it does with mood:
 Every change is still a version in the log, the person still corrects or forgets an entry with a
 word, and `confirm_profile` and `reject_profile` are not offered, two tools fewer in every request.
 
-What is confirmed is in the [second zone](#the-context-in-three-zones) of every prompt. At most
-`Profile::MAX` (60) entries of `Profile::CHARS` (500) characters, because of that. The tools are
+What is confirmed is in the [second zone](#the-context-in-three-zones) of every prompt, up to
+`Profile::CONTEXT` (2,000) characters: who they are, what they value and work towards first, the
+people in their life after, and a line saying how many more are kept, which `recall_person` finds.
+How they feel is not there: it changes with a word, and in the cached zone every change would
+make the provider read the whole conversation again, so it goes in the third. A person keeps at
+most `Profile::MAX` (60) entries of `Profile::CHARS` (500) characters. The tools are
 `writes`, so after reading somebody else's words they wait for the person, and their results are
 tagged `personal` for a [data rule](#data-rules).
 

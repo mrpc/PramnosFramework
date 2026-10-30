@@ -205,4 +205,39 @@ class SkillsTest extends LlmTestCase
         $this->assertSame('', Conversations::whereItStopped(['extra' => ['stopped' => 'rounds'], 'tools' => []]), 'nothing called');
         $this->assertStringContainsString('limit of rounds', Conversations::whereItStopped(['extra' => ['stopped' => 'rounds'], 'tools' => [['name' => 'x', 'arguments' => []]]]));
     }
+
+    /**
+     * Unsaid either way, an assistant with more than `Conversations::SKILLS_FROM` tools gets them
+     * grouped — every round carries every description — and `'skills' => false` keeps them as
+     * they are however many there are.
+     */
+    #[DataProvider('databases')]
+    public function testManyToolsAreGroupedUnlessTheApplicationSaysNo(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $many = new class extends BaseAssistant {
+            public function tools(Turn $turn): array
+            {
+                $tools = [];
+                for ($i = 0; $i < 25; $i++) {
+                    $tools['crm_' . $i] = ['description' => 'CRM ' . $i, 'parameters' => [], 'run' => static fn (): string => 'ok', 'skills' => ['crm']];
+                }
+
+                return $tools;
+            }
+        };
+        $this->answer([[200, self::says('Hi')], [200, self::says('Hi')]]);
+
+        // Act
+        (new Conversations($many))->as(new Scope(7, null))->ask(null, 'Hi');
+        $this->configure(['chat' => ['skills' => false]]);
+        (new Conversations($many))->as(new Scope(7, null))->ask(null, 'Hi');
+
+        // Assert
+        $this->assertContains('use_skill', self::offered($this->sent[0]));
+        $this->assertNotContains('crm_0', self::offered($this->sent[0]), 'until the model turns crm on');
+        $this->assertContains('crm_0', self::offered($this->sent[1]));
+        $this->assertNotContains('use_skill', self::offered($this->sent[1]));
+    }
 }
