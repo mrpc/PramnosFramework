@@ -840,6 +840,13 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 die($database->queryBuilder()->from($this->getFullTableName())->where($this->_primaryKey, $primaryKey)->limit(1)->toSql());
             }
             
+            // "abc" for an integer key is no row. MySQL compared it as 0, PostgreSQL refused the
+            // statement: an exception for what is a page asked with a bad id, and on PostgreSQL
+            // an aborted transaction besides.
+            if ($this->keyCannotMatch($primaryKey)) {
+                return $this;
+            }
+
             // Use specific cache key that includes the primary key value
             $specificCacheKey = $this->_generateSpecificCacheKey($primaryKey);
             $query  = $database->queryBuilder()
@@ -868,6 +875,37 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
             }
         }
         return $this;
+    }
+
+    /**
+     * Whether a key value can never match this table's primary key: one that is not a whole
+     * number, for an integer column.
+     *
+     * A whole number — an int, or a string of digits — is never looked at, so the common load
+     * costs nothing; anything else reads the table's columns once per process. A column whose
+     * type cannot be read is left to the database, as before.
+     */
+    private function keyCannotMatch(mixed $value): bool
+    {
+        if (!is_string($value) || preg_match('/^\s*-?\d+\s*$/', $value) === 1) {
+            return false;
+        }
+
+        try {
+            if (!isset(self::$columnCache[$this->columnCacheSlot()])) {
+                $this->_getAllTableFields();
+            }
+        } catch (\Throwable) {
+            return false;
+        }
+
+        foreach (self::$columnCache[$this->columnCacheSlot()] ?? [] as $column) {
+            if (trim((string) ($column['Field'] ?? ''), '`"') === $this->_primaryKey) {
+                return preg_match('/^(tinyint|smallint|mediumint|int|integer|bigint|int2|int4|int8|serial|bigserial|smallserial)\b/i', (string) ($column['Type'] ?? '')) === 1;
+            }
+        }
+
+        return false;
     }
 
     /**

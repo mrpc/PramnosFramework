@@ -687,6 +687,19 @@ $model = new \App\Models\Application($this);
 $model->load($id);
 ```
 
+### A key that is not a number, for an integer primary key
+
+`_load('abc')` on a model whose primary key is an integer column loads nothing and runs no query:
+the model stays new, the same on MySQL and PostgreSQL. MySQL would compare `'abc'` as `0`, and
+PostgreSQL would refuse the statement (*invalid input syntax for type bigint*) and abort an open
+transaction, so the framework stops the value before either sees it. That covers a crawler asking
+`/testimonial/some-slug`, or a form posting an empty id.
+
+A whole number (an `int`, or a string of digits, with or without space around it) goes straight
+to the query, with no extra cost. Anything else reads the table's columns once per process, and
+only an integer column turns it away. A text primary key is looked up by whatever it is given.
+A model's own `load()` needs no `ctype_digit()` guard for this.
+
 ### Reading a model's columns
 
 `Database::getColumns()` is the introspection call; it is cached and invalidated for you (see
