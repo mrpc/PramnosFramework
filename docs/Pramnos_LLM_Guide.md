@@ -329,6 +329,48 @@ and returns tools to add. A skill with no tool this person may use is not offere
 are its tools. Tools added during an answer run in the answer, never on a parallel worker,
 because a worker builds only the answer's first tools.
 
+### Tools from other MCP servers
+
+The framework is also an MCP **client**. An application connects to external MCP servers, and
+their tools reach the model like any other:
+
+```php
+// app/app.php
+'llm' => ['mcp_servers' => [
+    'github' => ['command' => 'npx', 'args' => ['-y', '@modelcontextprotocol/server-github'], 'env' => ['GITHUB_TOKEN' => '…']],
+    'docs'   => ['url' => 'https://mcp.example.com/mcp', 'headers' => ['Authorization' => 'Bearer …'], 'skills' => ['docs']],
+]],
+// or the file other MCP clients read: {"mcpServers": {…}} in the same shape
+'llm' => ['mcp_servers' => ROOT . '/app/mcp.json'],
+```
+
+```php
+use Pramnos\Llm\Mcp\Servers;
+
+$tools = Servers::tools();                    // github__search_issues, docs__search, …
+Servers::register($registry);                 // or into a ToolRegistry, with their metadata
+```
+
+A server is either `command` (with `args`, `env`, `cwd`), run as a process and spoken to over
+stdio, or `url` (with `headers`), spoken to over the Streamable HTTP transport, which answers in
+JSON or in server-sent events. `timeout` is seconds per call (30). Any other key, such as
+`permissions`, `skills` or `gated`, goes on each of its tools as registry metadata.
+
+- **Every tool from another server is `untrusted`.** What it returns was written by somebody
+  else, and arrives as data, not instructions.
+- A tool the server marks `readOnlyHint` is idempotent, so through a registry it runs at once with
+  others. Any other tool is taken to **write**, which means it is held after untrusted reads,
+  made once per answer, and gated by a `GrantGate`. The safe assumption for a tool nobody
+  described is that it changes something.
+- Names are `{server}__{tool}`, cut to what a provider accepts (`Mcp\Client::nameFor()`).
+- Each server is connected once per process and its tools are listed once. A server that cannot
+  be reached is logged and left out, so a service that is down costs its own tools and not the
+  answer. A result the server marks as an error reads `Error: …`, like a failed tool of our own.
+
+One server on its own is `new Mcp\Client(new StdioTransport([...]))` or
+`new Mcp\Client(new HttpTransport($url, $headers))`, with `listTools()`, `callTool()` and
+`tools($prefix)`.
+
 ### A change is made once per answer
 
 A tool marked `'writes' => true` runs once per answer, tool and arguments. Called again with the

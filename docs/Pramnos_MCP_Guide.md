@@ -10,6 +10,7 @@ use_cases:
   - Working out what an MCP tool actually returns, or why a client says it is broken
   - Offering a capability to an assistant outside this machine, authenticated with OAuth
   - Connecting Claude.ai or ChatGPT to this application's MCP endpoint
+  - Giving the application's own AI the tools of an external MCP server
   - Offering a page's forms to an AI agent in the visitor's browser (WebMCP)
   - Finding out who calls a method, or where a class is defined, without grepping
   - Finding out whether a generator already exists for the class you are about to write
@@ -1672,6 +1673,12 @@ Anything else returns JSON-RPC error `-32601`.
 `McpServer::setInstructions()`. The HTTP endpoint sets it from the application's analyst
 (`AnalystAssistant::mcpInstructions()`, see the [LLM guide](Pramnos_LLM_Guide.md)), so a question
 asked through a remote assistant is answered with what the application's own Ask knows.
+
+## As a client of other servers
+
+This page is about the framework as an MCP **server**. The other direction, an application's
+model calling tools of external MCP servers (GitHub, a database, a search service) over stdio or
+HTTP, is `Pramnos\Llm\Mcp`. See [tools from other MCP servers](Pramnos_LLM_Guide.md#tools-from-other-mcp-servers).
 
 ## Related
 
