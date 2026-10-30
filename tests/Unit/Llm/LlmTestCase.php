@@ -141,6 +141,31 @@ abstract class LlmTestCase extends TestCase
             'usage' => ['prompt_tokens' => 20, 'completion_tokens' => 4, 'total_tokens' => 24]];
     }
 
+    /**
+     * Every system message of a request, joined: the system prompt and the context's other zones
+     * (`ContextAssembler`), wherever in the messages each one is.
+     *
+     * @param array{body: array<string, mixed>} $request
+     */
+    protected static function systemOf(array $request): string
+    {
+        return implode("\n\n", array_map(
+            static fn (array $m): string => (string) $m['content'],
+            array_values(array_filter((array) $request['body']['messages'], static fn (array $m): bool => ($m['role'] ?? '') === 'system'))
+        ));
+    }
+
+    /**
+     * A request's messages without its system ones: what was said, and the tool calls and results.
+     *
+     * @param array{body: array<string, mixed>} $request
+     * @return list<array<string, mixed>>
+     */
+    protected static function spoken(array $request): array
+    {
+        return array_values(array_filter((array) $request['body']['messages'], static fn (array $m): bool => ($m['role'] ?? '') !== 'system'));
+    }
+
     /** A call log that keeps its entries in memory. */
     protected static function memoryLog(): CallLog
     {

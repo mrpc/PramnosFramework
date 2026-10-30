@@ -381,17 +381,26 @@ class Conversations
             'extra'           => $extra,
         ]);
 
+        // In three zones, the part that never changes first, so the provider's cache keeps the most.
+        $zones  = new ContextAssembler($this->assistant);
+        $prefix = $zones->staticPrefix($turn);
+        $zones->checkPrefix($prefix, $conversationId);
+        $semi   = ($turn->shared() ? trim($this->assistant->context($turn)) : $this->context($turn, $memory))
+            . ($summary === '' ? '' : "\n\nEarlier in this conversation, in short (those messages are not shown again):\n" . $summary);
+
         $answer = $client->onText($this->onText)->cancelWhen($this->stopWhen)->inParallel($parallel)->answering($this->answerKey)->askWithTools(
-            $this->assistant->systemPrompt($turn) . "\n\n" . ($turn->shared() ? trim($this->assistant->context($turn)) : $this->context($turn, $memory))
-                . ($turn->documents === [] ? '' : "\n\n" . Client::DATA_NOTICE)
-                . ($summary === '' ? '' : "\n\nEarlier in this conversation, in short (those messages are not shown again):\n" . $summary),
-            $messages,
+            $prefix,
+            $zones->messages($turn, $semi, $messages),
             $tools,
             $this->assistant->rounds(),
             $this->assistant->due($turn),
             $this->assistant->verify($turn)
         );
         $client->onText(null)->cancelWhen(null)->inParallel(null)->answering(null);
+
+        if ($answer['ok']) {
+            ContextAssembler::cacheReport((array) ($answer['usage'] ?? []), count($messages) > 1, $conversationId);
+        }
 
         if (!$answer['ok']) {
             return self::refusal(isset($answer['cancelled']) ? 'cancelled' : (isset($answer['consent']) ? 'consent' : (isset($answer['limited']) ? 'limit' : 'provider')), (string) $answer['says']);
@@ -512,11 +521,12 @@ class Conversations
             $due['report_relevance'] = static fn (array $calls): bool => !in_array('report_relevance', array_column($calls, 'name'), true);
         }
 
+        $zones  = new ContextAssembler($this->assistant);
         $answer = $client->askWithTools(
+            $zones->staticPrefix($turn),
             // Not the maker's memory: a shared report is read by others, and what the maker told
             // the assistant about themselves is not theirs to read.
-            trim($this->assistant->systemPrompt($turn) . "\n\n" . trim($this->assistant->context($turn))),
-            $messages,
+            $zones->messages($turn, trim($this->assistant->context($turn)), $messages),
             $tools,
             $this->assistant->rounds(),
             $due + $this->assistant->due($turn)

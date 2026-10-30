@@ -196,7 +196,7 @@ class MemoryLearningTest extends LlmTestCase
         // Assert
         $this->assertTrue($answer['ok'], $answer['says']);
         $this->assertSame(['Is called Maria.'], array_column((new Memory(new Scope(7, 3)))->all(), 'content'));
-        $system = (string) $this->sent[2]['body']['messages'][0]['content'];
+        $system = self::systemOf($this->sent[2]);
         $this->assertMatchesRegularExpression('/- \[\d+, fact, \d{4}-\d\d-\d\d\] Is called Maria\./', $system, 'dated');
         $this->assertStringContainsString('What this organisation keeps about its shared work', $system);
         $this->assertStringContainsString('We sell water meters.', $system);
@@ -246,7 +246,7 @@ class MemoryLearningTest extends LlmTestCase
         $this->assertStringContainsString('I live in Patras.', $learning);
         $this->assertStringNotContainsString('Hello, Maria.', $learning, 'what the person said, not the answers');
         $this->assertStringNotContainsString('CEO', $learning, 'an attached document is somebody else\'s words, not theirs');
-        $this->assertStringContainsString(\Pramnos\Llm\Client::DATA_NOTICE, (string) $this->sent[1]['body']['messages'][0]['content'], 'with a document attached, the prompt says it is data');
+        $this->assertStringContainsString(\Pramnos\Llm\Client::DATA_NOTICE, self::systemOf($this->sent[1]), 'with a document attached, the prompt says it is data');
         $this->assertSame(['Is called Maria, lives in Patras.'], array_column((new Memory(new Scope(7, 3)))->all(), 'content'));
         $this->assertSame($lastBefore, $learnedUpto, 'learned up to the last message');
         $last = max(array_map('intval', array_column($this->rows('chat_messages'), 'message_id')));
@@ -316,7 +316,7 @@ class MemoryLearningTest extends LlmTestCase
         // Assert
         $this->assertTrue($answer['ok'], $answer['says']);
         $this->assertSame([], (new Memory(new Scope(7, null)))->all(), 'nothing was remembered on the email\'s word');
-        $this->assertStringStartsWith('Not done: this answer has read text somebody else wrote (inbox)', (string) $this->sent[2]['body']['messages'][5]['content']);
+        $this->assertStringStartsWith('Not done: this answer has read text somebody else wrote (inbox)', (string) self::spoken($this->sent[2])[4]['content']);
     }
 }
 

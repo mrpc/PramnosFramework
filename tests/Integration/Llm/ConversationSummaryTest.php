@@ -158,13 +158,13 @@ class ConversationSummaryTest extends LlmTestCase
      */
     private static function said(array $request): array
     {
-        return array_map(static fn (array $one): string => (string) $one['content'], array_slice($request['body']['messages'], 1));
+        return array_map(static fn (array $one): string => (string) $one['content'], self::spoken($request));
     }
 
     /** @param array{body: array<string, mixed>} $request */
     private static function system(array $request): string
     {
-        return (string) $request['body']['messages'][0]['content'];
+        return self::systemOf($request);
     }
 }
 

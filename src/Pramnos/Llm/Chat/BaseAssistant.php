@@ -17,13 +17,24 @@ class BaseAssistant implements Assistant
         return new Connection(null, isset(Connection::features()['chat']) ? 'chat' : null);
     }
 
+    /** The same for every question: today's date comes with each question ({@see ContextAssembler}). */
     public function systemPrompt(Turn $turn): string
     {
-        return 'You are a helpful assistant. Today is ' . gmdate('l j F Y') . ' (UTC). '
+        return 'You are a helpful assistant. '
             . 'Answer in the language the question was asked in, and write anything you say while you call tools in that language too. Never claim to have done anything no tool result says was done.';
     }
 
     public function context(Turn $turn): string
+    {
+        return '';
+    }
+
+    /**
+     * What is true only for this question — the page the person is on, say — sent just before
+     * it rather than in the system prompt, which stays the same for the provider's cache. The
+     * time is added for every assistant ({@see ContextAssembler::dynamicTail()}).
+     */
+    public function volatileContext(Turn $turn): string
     {
         return '';
     }

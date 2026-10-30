@@ -208,7 +208,7 @@ class LivingArtifactsTest extends LlmTestCase
         (new Artifacts(new Scope($userId, null, Scope::ADMIN)))->pin($admin);
         $a->update($plan, 'patch', ['find' => 'Friday', 'replace' => 'Monday']);
         (new Conversations(new BaseAssistant()))->as($scope)->ask(null, 'What is the plan?');
-        $system = $this->sent[0]['body']['messages'][0]['content'];
+        $system = self::systemOf($this->sent[0]);
         $off    = self::call($a, 'pin_artifact', ['id' => $plan, 'pinned' => false]);
         $after  = $a->pinnedContext();
 

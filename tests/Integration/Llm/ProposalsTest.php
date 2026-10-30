@@ -94,7 +94,7 @@ class ProposalsTest extends LlmTestCase
         $this->assertSame([], $this->ran, 'nothing ran');
         $names = array_column(array_column($this->sent[0]['body']['tools'], 'function'), 'name');
         $this->assertContains('propose_action', $names);
-        $this->assertStringContainsString('"device"', (string) $this->sent[1]['body']['messages'][3]['content'], 'list_actions answered with what may be done');
+        $this->assertStringContainsString('"device"', (string) self::spoken($this->sent[1])[2]['content'], 'list_actions answered with what may be done');
         // Nobody may do anything: no tools
         $this->assertSame([], (new Proposals(new Scope(8, 3)))->tools(new Artifacts(new Scope(8, 3))));
     }

@@ -87,7 +87,7 @@ class AnalystPromptTest extends LlmTestCase
 
         // Assert
         $this->assertSame(['Europe/Athens', 'America/New_York', 'UTC'], [$application, $configured, $unknown]);
-        $this->assertStringContainsString('dates and days are in Europe/Athens', $this->prompt(new AnalystAssistant()));
+        $this->assertStringContainsString('Dates and days are in Europe/Athens', $this->prompt(new AnalystAssistant()));
     }
 
     /**

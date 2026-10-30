@@ -131,7 +131,7 @@ class RoutinesAsksConsentTest extends LlmTestCase
         $this->assertNotNull($row['conversation_id']);
         $this->assertNull($row['last_error']);
         $this->assertGreaterThan(time(), strtotime((string) $row['next_run_at']));
-        $this->assertStringContainsString('Scheduled task "Morning"', $this->sent[0]['body']['messages'][1]['content']);
+        $this->assertStringContainsString('Scheduled task "Morning"', self::spoken($this->sent[0])[0]['content']);
         $this->assertNotContains('schedule_task', array_column(array_column($this->sent[0]['body']['tools'], 'function'), 'name'));
         $this->assertSame([[7, 'Morning', true, '']], array_map(static fn (array $d): array => [$d[0], $d[1]->title, $d[1]->ok, $d[1]->why], $routines->delivered));
         $this->assertStringEndsWith('chat?c=' . $row['conversation_id'], $routines->delivered[0][1]->link);

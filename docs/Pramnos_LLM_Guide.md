@@ -644,7 +644,8 @@ Extend `Chat\BaseAssistant`, which answers every hook with a default:
 | hook | |
 |---|---|
 | `connection(Scope)` | the connection answers go out on — the `chat` feature's by default |
-| `systemPrompt(Turn)`, `context(Turn)` | the instructions, and what the model is told about the person; what it remembers is added after |
+| `systemPrompt(Turn)`, `context(Turn)` | the instructions, the same for every question; and what the model is told about the person, with what it remembers added after |
+| `volatileContext(Turn)` | what is true only for this question, such as the page the person is on, sent just before it |
 | `tools(Turn)` | this answer's tools; the memory's and the schedule's are added by the framework |
 | `due(Turn)`, `verify(Turn)` | what an answer must end with, and what it is checked against — see `askWithTools()` |
 | `writes()` | the tools that change something: a later answer is told which an earlier one called |
@@ -690,6 +691,38 @@ An attachment is a document's words: `ask(…, attachment: ['name' => 'release.d
 document's photos, and `keepPictures($name, $bytes, $store)` keeps them through
 `$store(string $path, string $filename): ?string` — the application's media library — and lists
 their addresses after the words.
+
+### The context, in three zones
+
+`Chat\ContextAssembler` lays an answer's context out so a provider's prompt cache keeps as much
+of it as it can from one question to the next:
+
+| Zone | Sent as | Holds | Changes |
+|---|---|---|---|
+| 1, static | the system prompt | `systemPrompt(Turn)` | with the code only |
+| 2, semi-static | a system message ahead of the history | `context(Turn)`, what is remembered, what is pinned, the summary | when one of those does |
+| 3, dynamic | a system message just before the question | `Now: Friday 30 October 2026, 14:05 (Europe/Athens)`, `volatileContext(Turn)`, the notice for an attached document | every question |
+
+A cache matches a request from its start. With the time and the page last, two questions in a
+row share everything up to the one before. With them in the system prompt they would share
+nothing, and every question would pay for its whole context again. So an assistant's
+`systemPrompt()` holds nothing that changes between questions: no date, no time, no page, no
+count. Those belong in `volatileContext()`. The time is added for every assistant, on its
+`timezone()`.
+
+Two checks watch it, both logged to the `llm` log:
+
+- **The static prompt.** `checkPrefix()` keeps the hash of zone 1 per conversation. When it
+  changes between two questions while neither the assistant's class nor the `llm` settings did,
+  it logs `Cache invalidation: …` with the first line that differs, before the call is sent.
+- **The hit ratio.** `cacheReport()` reads how much of an answer's prompt the provider served
+  from its cache (DeepSeek's `prompt_cache_hit_tokens`, or OpenAI's `cached_tokens`). It logs
+  when a question that followed others got less than `ContextAssembler::HIT_RATIO` (80%) of
+  it. A prompt under `CACHE_FLOOR` tokens is not cached by providers and is not reported.
+
+Changes made during an answer, such as an artifact updated, reach the model as that tool's result
+and are in zone 2 from the next question. Moving zone 2 in the middle of an answer would break the
+cache.
 
 ### Memory
 

@@ -283,7 +283,7 @@ class TasksTest extends LlmTestCase
         // Assert
         $this->assertSame([$made['routine_id']], array_column(RanPolicy::$ran, 'routine_id'), 'heard once: the refused run never ran');
         $this->assertSame('ok', RanPolicy::$ran[0]['status']);
-        $this->assertStringContainsString('run on Friday 16 October 2026', $this->sent[0]['body']['messages'][1]['content'], 'the day on the owner\'s clock, not UTC\'s');
+        $this->assertStringContainsString('run on Friday 16 October 2026', self::spoken($this->sent[0])[0]['content'], 'the day on the owner\'s clock, not UTC\'s');
         $this->assertFalse($refused['ok']);
         $this->assertFalse($tasks->byId($made['routine_id'])['active']);
         $this->assertSame('It was paused: you may no longer run it here.', end($tasks->delivered)[1]->why);

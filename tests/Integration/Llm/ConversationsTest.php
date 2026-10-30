@@ -89,8 +89,9 @@ class ConversationsTest extends LlmTestCase
         $this->assertSame(['draft' => 9], $assistant->turns[0]->extra);
         $this->assertSame((int) $answer['conversation_id'], $assistant->answeredIn);
         $this->assertStringStartsWith('Asked: ', end($this->sent[0]['body']['messages'])['content'], 'question() rewrote it');
-        $this->assertStringContainsString('SYSTEM' . "\n\n" . 'CONTEXT', $this->sent[0]['body']['messages'][0]['content']);
-        $this->assertStringContainsString('You remember nothing about this person yet.', $this->sent[0]['body']['messages'][0]['content']);
+        $this->assertSame('SYSTEM', $this->sent[0]['body']['messages'][0]['content'], 'the system prompt alone in zone 1');
+        $this->assertStringStartsWith('CONTEXT', $this->sent[0]['body']['messages'][1]['content'], 'the context in zone 2');
+        $this->assertStringContainsString('You remember nothing about this person yet.', $this->sent[0]['body']['messages'][1]['content']);
         $names = array_column(array_column($this->sent[0]['body']['tools'], 'function'), 'name');
         $this->assertContains('lookup', $names);
         $this->assertContains('remember', $names, 'the memory tools are always there');
@@ -179,12 +180,12 @@ class ConversationsTest extends LlmTestCase
         // Assert
         $this->assertTrue($second['ok']);
         $sent = $this->sent[0]['body'];
-        $history = array_column(array_slice($sent['messages'], 1), 'content');
+        $history = array_column(self::spoken($this->sent[0]), 'content');
         $this->assertSame('Remember I like tables', $history[0]);
         $this->assertSame("Noted.\n\n" . Conversations::MARK . 'remember ⟧', $history[1]);
         $this->assertTrue($assistant->turns[0]->scheduled);
         $this->assertNotContains('schedule_task', array_column(array_column($sent['tools'], 'function'), 'name'));
-        $this->assertStringContainsString('Likes tables', $sent['messages'][0]['content'], 'the memory is in the context');
+        $this->assertStringContainsString('Likes tables', self::systemOf($this->sent[0]), 'the memory is in the context');
         $this->assertCount(4, $this->chat($scope)->find($first['conversation_id'])['messages']);
     }
 

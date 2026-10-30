@@ -150,9 +150,10 @@ class PageAndPanelTest extends LlmTestCase
         $turn      = new Turn(new Scope(1), null, false, [], [], ['page' => $page], new Conversations($assistant));
         $plain     = new Turn(new Scope(1), null, false, [], [], [], new Conversations($assistant));
 
-        // Act
-        $prompt = $assistant->systemPrompt($turn);
-        $none   = $assistant->systemPrompt($plain);
+        // Act — the page comes with the question, not in the system prompt the cache keeps
+        $prompt = $assistant->volatileContext($turn);
+        $none   = $assistant->volatileContext($plain);
+        $static = $assistant->systemPrompt($turn);
         $bare   = Page::prompt(Page::fromInput(['url' => '/admin/x']));
 
         // Assert
@@ -160,6 +161,7 @@ class PageAndPanelTest extends LlmTestCase
         $this->assertStringContainsString('It shows one post, id 12 ("Spring")', $prompt);
         $this->assertStringContainsString('Every post, **published** or not.', $prompt, 'the page\'s help, as background');
         $this->assertStringNotContainsString('asking from a page', $none, 'no page, nothing said');
+        $this->assertStringNotContainsString('Edit post', $static, 'the system prompt is the same on every page');
         $this->assertStringContainsString('When the question says "this" or "here", it means that page.', $bare);
         $this->assertSame('', Page::prompt(null));
     }

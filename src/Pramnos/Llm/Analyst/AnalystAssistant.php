@@ -46,8 +46,8 @@ class AnalystAssistant extends BaseAssistant
             . 'that is your name, and you answer to it. Answer questions about '
             . 'how it is used and how it is running from what its tools read: accounts, sessions, '
             . 'organisations, mailing lists, email, push, the queue, logs, health and model spend. '
-            . 'Today is ' . (new \DateTimeImmutable('now', new \DateTimeZone($zone)))->format('l j F Y')
-            . '; dates and days are in ' . $zone . '.' . "\n\n"
+            // Today's date comes with each question, not here: this prompt stays the same for the cache.
+            . 'Dates and days are in ' . $zone . '.' . "\n\n"
             . ($people !== '' ? $people . ' ' : '')
             . 'Masked values ([phone], [ip], a***@…) were removed on purpose; never try to recover them.' . "\n\n"
             . 'Say which window a figure covers. If a tool says the installation keeps no such data, say '
@@ -59,9 +59,14 @@ class AnalystAssistant extends BaseAssistant
                 : 'You cannot change anything: no tool writes.')
             . (($charts = trim($this->charts())) !== '' ? "\n\n" . $charts : '')
             . ($about !== '' ? "\n\nAbout this application: " . $about : '')
-            . (($page = \Pramnos\Assist\Page::prompt(is_array($turn->extra['page'] ?? null) ? $turn->extra['page'] : null)) !== '' ? "\n\n" . $page : '')
             . $this->sharedRule($turn)
             . "\n\nAnswer in the language the question was asked in, and write anything you say while you call tools in that language too.";
+    }
+
+    /** The page the administrator asked from: it changes with every question, so it comes with it. */
+    public function volatileContext(Turn $turn): string
+    {
+        return \Pramnos\Assist\Page::prompt(is_array($turn->extra['page'] ?? null) ? $turn->extra['page'] : null);
     }
 
     /**
