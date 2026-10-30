@@ -31,8 +31,8 @@ class SharePolicy
     }
 
     /**
-     * The people named, as `name => userid`: by username or email, never the person sharing. A
-     * name that is nobody is left out, and reported as such.
+     * The people named, as `name => userid`, in the order the names were given: by username or
+     * email, never the person sharing. A name that is nobody is left out, and reported as such.
      *
      * @param list<string> $names
      * @return array<string, int>
@@ -62,7 +62,16 @@ class SharePolicy
             }
         }
 
-        return $found;
+        // In the order the names were given, not the order the database read the rows in — which
+        // PostgreSQL changes once a row is updated.
+        $ordered = [];
+        foreach ($names as $name) {
+            if (isset($found[$name])) {
+                $ordered[$name] = $found[$name];
+            }
+        }
+
+        return $ordered;
     }
 
     /**
