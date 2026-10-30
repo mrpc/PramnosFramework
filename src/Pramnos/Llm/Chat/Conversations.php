@@ -1079,7 +1079,14 @@ class Conversations
         }
         $zone = $this->assistant->timezone($this->scope);
 
-        return (Profile::on($this->scope) ? self::inSkill((new Profile($this->scope))->tools(), 'profile') : [])
+        // The servers the person connected themselves: theirs, so never in a shared answer, which
+        // never comes this way.
+        $connected = $this->scope->space === Scope::CHAT && \Pramnos\Llm\Mcp\Connections::on()
+            ? (new \Pramnos\Llm\Mcp\Connections($this->scope))->tools()
+            : [];
+
+        return $connected
+            + (Profile::on($this->scope) ? self::inSkill((new Profile($this->scope))->tools(), 'profile') : [])
             + (Calendar::on($this->scope) ? self::inSkill((new Calendar($this->scope, $zone))->tools(), 'calendar', ['set_busy']) : [])
             + (Journal::on($this->scope) ? self::inSkill((new Journal($this->scope, $zone))->tools(), 'journal') : []);
     }

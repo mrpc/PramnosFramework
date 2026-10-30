@@ -483,6 +483,91 @@ class ChatPageTest extends LlmTestCase
     }
 
     /**
+     * The person's own MCP connections from the page: the panel only where the application offers
+     * them; a server connected with a token, listed by its host, removed; one that wants a
+     * sign-in sends the person there; and a sign-in this page did not start is refused.
+     */
+    #[DataProvider('databases')]
+    public function testConnectionsFromThePage(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Core\CreateUsersettingsTable::class], $this->db);
+        // A real account: one that does not exist keeps no settings, and so no connection.
+        do {
+            $mark = 'cp' . bin2hex(random_bytes(4));
+            $this->db->queryBuilder()->table('#PREFIX#users')->insert(['username' => $mark, 'email' => $mark . '@example.com', 'password' => 'x', 'regdate' => time()]);
+            $me = (int) $this->db->getInsertId();
+        } while ($me < 2);
+        \Pramnos\User\User::clearUserCache();
+        // Ids start again with each class's tables: a user cached under this id is somebody else.
+        $this->db->cacheflush('userlist');
+        $scope = new Scope($me, null);
+        $ghost = new \Pramnos\Llm\Mcp\Connections(new Scope(999999, null));
+        $server = 'https://93.184.215.14/mcp';
+        \Pramnos\Http\Client::fake([
+            $server => static function (\Pramnos\Http\Client $request): \Pramnos\Http\ClientResponse {
+                $body = json_decode((string) $request->requestBody(), true) ?: [];
+                if (($request->requestHeaders()['Authorization'] ?? '') !== 'Bearer t') {
+                    return \Pramnos\Http\ClientResponse::make('', 401, ['WWW-Authenticate' => 'Bearer resource_metadata="https://93.184.215.15/r"']);
+                }
+
+                return isset($body['id'])
+                    ? \Pramnos\Http\ClientResponse::make(['jsonrpc' => '2.0', 'id' => $body['id'], 'result' => ($body['method'] ?? '') === 'tools/list' ? ['tools' => []] : []])
+                    : \Pramnos\Http\ClientResponse::make('', 202);
+            },
+            'https://93.184.215.15/r' => \Pramnos\Http\ClientResponse::make(['authorization_servers' => ['https://93.184.215.15']]),
+            'https://93.184.215.15/.well-known/oauth-authorization-server' => \Pramnos\Http\ClientResponse::make([
+                'authorization_endpoint' => 'https://93.184.215.15/authorize', 'token_endpoint' => 'https://93.184.215.15/token', 'registration_endpoint' => 'https://93.184.215.15/register',
+            ]),
+            'https://93.184.215.15/register' => \Pramnos\Http\ClientResponse::make(['client_id' => 'c'], 201),
+            '*' => \Pramnos\Http\ClientResponse::make('', 404),
+        ]);
+
+        // Act / Assert — off: no panel, and connecting is refused
+        $this->assertStringNotContainsString('Your connections', $this->page($scope)->display());
+        $refused = $this->page($scope);
+        $refused->connect();
+        $this->assertSame(['Connecting servers is not offered here.'], $refused->errors);
+
+        // On: an account that cannot keep settings keeps no connection
+        $this->configure(['chat' => ['connections' => true]]);
+        $this->assertSame(['error' => 'This account cannot keep a connection.'], $ghost->add('gh', $server, 't'));
+
+        // Connect with a token, listed by its host, then removed
+        $_POST = ['name' => 'gh', 'url' => $server, 'token' => 't'];
+        $made = $this->page($scope);
+        $made->connect();
+        $this->assertSame(['Connected.'], $made->messages);
+        $drawn = $this->page($scope)->display();
+        $this->assertStringContainsString('Your connections (1)', $drawn);
+        $this->assertStringContainsString('93.184.215.14', $drawn);
+        $gone = $this->page($scope);
+        $gone->disconnect('gh');
+        $this->assertSame(['Disconnected.'], $gone->messages);
+        $again = $this->page($scope);
+        $again->disconnect('gh');
+        $this->assertSame(['There is no such connection.'], $again->errors);
+
+        // A server that wants a sign-in sends the person there
+        $_POST = ['name' => 'notes', 'url' => $server];
+        $signIn = $this->page($scope);
+        $signIn->connect();
+        $this->assertStringStartsWith('https://93.184.215.15/authorize?', $signIn->redirectedTo[0]);
+        $_POST = [];
+
+        // Back with a state this page did not start
+        $_GET = ['state' => 'nope', 'code' => 'x'];
+        $back = $this->page($scope);
+        $back->connected();
+        $this->assertStringStartsWith('That sign-in is not one', $back->errors[0]);
+        $_GET = [];
+        \Pramnos\Http\Client::resetFakes();
+        $this->db->queryBuilder()->table('#PREFIX#usersettings')->where('userid', $me)->delete();
+        $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $me)->delete();
+    }
+
+    /**
      * Nobody signed in is sent to sign in; the widget is drawn only for somebody signed in.
      */
     #[DataProvider('databases')]

@@ -16,7 +16,7 @@ use Pramnos\Routing\Router;
  * ```
  *
  * Everything sits under `/chat` by default: `/chat`, `/chat/{conversation_id}`,
- * `/chat/asks/{ask_id}`, `/chat/memory`, `/chat/routines`, `/chat/runs`, `/chat/reports` and
+ * `/chat/asks/{ask_id}`, `/chat/memory`, `/chat/connections`, `/chat/routines`, `/chat/runs`, `/chat/reports` and
  * `/chat/consent`. The fixed paths
  * are registered before `/chat/{conversation_id}`, which would otherwise take "memory" for an id.
  */
@@ -27,6 +27,7 @@ final class Routes
         'chat'     => '/chat',
         'asks'     => '/chat/asks',
         'memory'   => '/chat/memory',
+        'connections' => '/chat/connections',
         'routines' => '/chat/routines',
         'runs'     => '/chat/runs',
         'reports'  => '/chat/reports',
@@ -50,6 +51,9 @@ final class Routes
         $r->post($p['asks'] . '/{ask_id}/cancel', static fn ($ask_id) => $make()->cancelAsk($ask_id));
         $r->get($p['memory'], static fn () => $make()->memory());
         $r->delete($p['memory'] . '/{memory_id}', static fn ($memory_id) => $make()->forgetMemory($memory_id));
+        $r->get($p['connections'], static fn () => $make()->connections());
+        $r->post($p['connections'], static fn () => $make()->connect());
+        $r->delete($p['connections'] . '/{name}', static fn ($name) => $make()->disconnect($name));
 
         $r->get($p['routines'], static fn () => $make()->routines());
         $r->post($p['routines'], static fn () => $make()->createRoutine());

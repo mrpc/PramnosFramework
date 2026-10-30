@@ -7,6 +7,7 @@
  *   $this->conversation  — the open one, or null: title, messages (role, content, tools, …)
  *   $this->ask           — a question being answered, or null: status (waiting, answered, failed), says
  *   $this->memories      — what it remembers: memory_id, kind, content, source (`learned` when picked up after an answer)
+ *   $this->connections   — optional: the MCP servers the person connected (Mcp\Connections::all()), or null where not offered
  *   $this->limits        — provider, model, turns, rounds, memory
  *   $this->consent       — provider, label, place, required, given
  *   $this->urls          — optional: page, ask, asked, consent, delete, forget, scheduled, all (the analyst's), share, unshare, shared
@@ -283,6 +284,30 @@ $commands = \Pramnos\Llm\Chat\Web\ChatLook::commands($u, is_array($this->command
                     </li>
                 <?php endforeach; ?>
             </ul>
+            <?php if (is_array($this->connections ?? null)): ?>
+                <?php // The servers the person connected themselves: an address, and a token or a sign-in. ?>
+                <h2 class="text-sm font-semibold mt-3"><?php echo $e(sprintf(t('Your connections (%d)'), count($this->connections))); ?></h2>
+                <ul style="list-style:none;padding:0">
+                    <?php foreach ($this->connections as $one): ?>
+                        <li style="margin-bottom:6px">
+                            <strong><?php echo $e($one['name']); ?></strong> <span class="<?php echo $c['muted']; ?>"><?php echo $e(parse_url($one['url'], PHP_URL_HOST)); ?></span>
+                            <form method="post" action="<?php echo $e($url('chat/disconnect/') . rawurlencode($one['name'])); ?>" style="display:inline">
+                                <?php echo $token(); ?>
+                                <input type="hidden" name="conversation_id" value="<?php echo $openId; ?>">
+                                <button type="submit" class="<?php echo $c['btnGhost']; ?>" aria-label="<?php echo $e(t('Disconnect')); ?>">✕</button>
+                            </form>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+                <form method="post" action="<?php echo $e($url('chat/connect')); ?>">
+                    <?php echo $token(); ?>
+                    <input type="hidden" name="conversation_id" value="<?php echo $openId; ?>">
+                    <input class="<?php echo $c['input']; ?>" name="name" placeholder="<?php echo $e(t('Name, e.g. github')); ?>" required pattern="[a-z][a-z0-9_]{0,19}" style="margin-bottom:4px">
+                    <input class="<?php echo $c['input']; ?>" name="url" type="url" placeholder="https://…" required style="margin-bottom:4px">
+                    <input class="<?php echo $c['input']; ?>" name="token" type="password" autocomplete="off" placeholder="<?php echo $e(t('Token, if it takes one')); ?>" style="margin-bottom:4px">
+                    <button type="submit" class="<?php echo $c['btn']; ?>"><?php echo $e(t('Connect')); ?></button>
+                </form>
+            <?php endif; ?>
             <?php if (!empty($consent['required']) && !empty($consent['given'])): ?>
                 <h2 class="text-sm font-semibold mt-3"><?php echo $e(t('Your agreement')); ?></h2>
                 <p class="<?php echo $c['muted']; ?>"><?php echo $e(sprintf(t('You agreed to the AI features using %s.'), $consent['label'])); ?></p>

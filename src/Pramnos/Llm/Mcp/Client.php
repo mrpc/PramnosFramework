@@ -78,8 +78,23 @@ class Client
      */
     public function tools(string $prefix, array $meta = []): array
     {
+        return self::toolsFrom($this->listTools(), $prefix, fn (string $name, array $arguments): string => $this->callTool($name, $arguments), $meta);
+    }
+
+    /**
+     * Tools as the framework's, from a server's `tools/list` — listed now, or kept from when it
+     * was — each run through `$call(name, arguments)`. Every one is `untrusted`; one the server
+     * marks `readOnlyHint` is idempotent, any other is taken to write.
+     *
+     * @param list<array<string, mixed>>              $listed
+     * @param callable(string, array<string, mixed>): string $call
+     * @param array<string, mixed>                    $meta
+     * @return array<string, array<string, mixed>>
+     */
+    public static function toolsFrom(array $listed, string $prefix, callable $call, array $meta = []): array
+    {
         $out = [];
-        foreach ($this->listTools() as $tool) {
+        foreach ($listed as $tool) {
             $name     = (string) ($tool['name'] ?? '');
             $readOnly = !empty($tool['annotations']['readOnlyHint']);
             if ($name === '') {
@@ -88,7 +103,7 @@ class Client
             $out[self::nameFor($prefix, $name)] = [
                 'description' => (string) ($tool['description'] ?? ''),
                 'parameters'  => Tools::schema((array) ($tool['inputSchema'] ?? [])),
-                'run'         => fn (array $arguments): string => $this->callTool($name, $arguments),
+                'run'         => static fn (array $arguments): string => $call($name, $arguments),
                 'untrusted'   => true,
             ] + ($readOnly ? ['idempotent' => true] : ['writes' => true]) + $meta;
         }

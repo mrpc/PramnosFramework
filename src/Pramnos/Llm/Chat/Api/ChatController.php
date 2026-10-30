@@ -381,6 +381,56 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             : self::error(404, 'There is no such memory.');
     }
 
+    /** The MCP servers this person connected themselves, without their secrets. */
+    public function connections(): array
+    {
+        if (($stop = $this->refusal('list')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        if ($scope === null || !\Pramnos\Llm\Mcp\Connections::on()) {
+            return self::error(404, 'Connecting servers is not offered here.');
+        }
+
+        return ['status' => 200, 'data' => ['connections' => (new \Pramnos\Llm\Mcp\Connections($scope))->all()]];
+    }
+
+    /**
+     * Connect a server: `name`, `url`, and a `token` where it takes one. A server that wants the
+     * person to sign in answers `authorize`, the address to send them to; they come back to the
+     * page's `chat/connected`.
+     */
+    public function connect(): array
+    {
+        if (($stop = $this->refusal('routines')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        if ($scope === null || !\Pramnos\Llm\Mcp\Connections::on()) {
+            return self::error(404, 'Connecting servers is not offered here.');
+        }
+        $input = $this->input();
+        $made  = (new \Pramnos\Llm\Mcp\Connections($scope))->add((string) ($input['name'] ?? ''), (string) ($input['url'] ?? ''), (string) ($input['token'] ?? ''));
+
+        return isset($made['error']) ? self::error(422, $made['error']) : ['status' => isset($made['authorize']) ? 200 : 201, 'data' => $made];
+    }
+
+    /** Remove a connection. */
+    public function disconnect($name): array
+    {
+        if (($stop = $this->refusal('delete')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        if ($scope === null || !\Pramnos\Llm\Mcp\Connections::on()) {
+            return self::error(404, 'Connecting servers is not offered here.');
+        }
+
+        return (new \Pramnos\Llm\Mcp\Connections($scope))->remove((string) $name)
+            ? ['status' => 200, 'data' => ['deleted' => true]]
+            : self::error(404, 'There is no such connection.');
+    }
+
     /** This person's scheduled questions, and the templates on offer. */
     public function routines(): array
     {

@@ -17,8 +17,12 @@ final class HttpTransport implements Transport
 
     private ?string $version = null;
 
-    /** @param array<string, string> $headers Sent with every message: an `Authorization`, say */
-    public function __construct(private readonly string $url, private readonly array $headers = [])
+    /**
+     * @param array<string, string> $headers      Sent with every message: an `Authorization`, say
+     * @param bool                  $userSupplied A person gave the address: every request goes through
+     *                                            the SSRF guard ({@see Http::forUserSuppliedUrl()})
+     */
+    public function __construct(private readonly string $url, private readonly array $headers = [], private readonly bool $userSupplied = false)
     {
     }
 
@@ -27,7 +31,8 @@ final class HttpTransport implements Transport
         $response = $this->post($message, $timeout);
 
         if ($response->status() >= 400) {
-            throw new McpException('The MCP server at ' . $this->url . ' answered HTTP ' . $response->status() . '.');
+            throw new McpException('The MCP server at ' . $this->url . ' answered HTTP ' . $response->status() . '.', 0, null,
+                $response->status(), $response->header('WWW-Authenticate'));
         }
         if (($session = $response->header('Mcp-Session-Id')) !== '') {
             $this->session = $session;
@@ -67,6 +72,9 @@ final class HttpTransport implements Transport
                 ]))
                 ->json($message)
                 ->timeout($timeout);
+            if ($this->userSupplied) {
+                $request = $request->forUserSuppliedUrl();
+            }
 
             return $request->send();
         } catch (\Throwable $why) {

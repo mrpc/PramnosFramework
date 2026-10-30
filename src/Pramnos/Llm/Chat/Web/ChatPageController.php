@@ -31,10 +31,10 @@ class ChatPageController extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction(['display', 'ask', 'asked', 'cancel', 'delete', 'forget', 'consent', 'report',
-            'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'shared', 'people', 'act', 'approve', 'reject', 'rate', 'download', 'printable', 'pin']);
+            'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'shared', 'people', 'act', 'approve', 'reject', 'rate', 'download', 'printable', 'pin', 'connect', 'disconnect', 'connected']);
         // POST with the session's token: each of these spends, forgets or changes a schedule.
         $this->addWriteAction(['ask', 'cancel', 'delete', 'forget', 'consent',
-            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'pin']);
+            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'pin', 'connect', 'disconnect']);
         parent::__construct($application);
     }
 
@@ -68,6 +68,8 @@ class ChatPageController extends Controller
         $view->conversation  = $open > 0 ? $chat->find($open) : null;
         $view->ask           = $ask;
         $view->memories      = $chat->memory()?->all() ?? [];
+        // The servers the person connected themselves, where the application offers it.
+        $view->connections   = \Pramnos\Llm\Mcp\Connections::on() ? (new \Pramnos\Llm\Mcp\Connections($scope))->all() : null;
         $view->limits        = $chat->limits();
         $view->consent       = $this->consentState($scope);
         $chat                = Llm::config('chat', []);
@@ -151,6 +153,53 @@ class ChatPageController extends Controller
         $forgotten = (bool) $this->conversations()->memory()?->forget((int) ($id ?: \Pramnos\Http\Request::staticGetOption()));
         $forgotten ? $this->addMessage('Forgotten.') : $this->addError('There is no such memory.');
         $this->redirect($this->pageUrl((int) ($_POST['conversation_id'] ?? 0)));
+
+        return null;
+    }
+
+    /**
+     * Connect a server of the person's own — `name`, `url`, `token` in the form. One that wants a
+     * sign-in sends them there, and they come back to {@see connected()}.
+     */
+    public function connect(): mixed
+    {
+        $scope = $this->scope();
+        $made  = $scope === null || !\Pramnos\Llm\Mcp\Connections::on()
+            ? ['error' => 'Connecting servers is not offered here.']
+            : (new \Pramnos\Llm\Mcp\Connections($scope))->add((string) ($_POST['name'] ?? ''), (string) ($_POST['url'] ?? ''), (string) ($_POST['token'] ?? ''));
+        if (isset($made['authorize'])) {
+            $this->redirect($made['authorize']);
+
+            return null;
+        }
+        isset($made['error']) ? $this->addError($made['error']) : $this->addMessage('Connected.');
+        $this->redirect($this->pageUrl((int) ($_POST['conversation_id'] ?? 0)));
+
+        return null;
+    }
+
+    /** Remove one of the person's connections. */
+    public function disconnect(mixed $id = null): mixed
+    {
+        $scope = $this->scope();
+        $name  = (string) ($id ?: \Pramnos\Http\Request::staticGetOption());
+        $scope !== null && \Pramnos\Llm\Mcp\Connections::on() && (new \Pramnos\Llm\Mcp\Connections($scope))->remove($name)
+            ? $this->addMessage('Disconnected.')
+            : $this->addError('There is no such connection.');
+        $this->redirect($this->pageUrl((int) ($_POST['conversation_id'] ?? 0)));
+
+        return null;
+    }
+
+    /** `chat/connected` — where a server's sign-in sends the person back, with `state` and `code`. */
+    public function connected(): mixed
+    {
+        $scope = $this->scope();
+        $done  = $scope === null || !\Pramnos\Llm\Mcp\Connections::on()
+            ? ['error' => 'Connecting servers is not offered here.']
+            : (new \Pramnos\Llm\Mcp\Connections($scope))->finish((string) ($_GET['state'] ?? ''), (string) ($_GET['code'] ?? ''));
+        isset($done['error']) ? $this->addError($done['error']) : $this->addMessage('Connected.');
+        $this->redirect($this->pageUrl(0));
 
         return null;
     }

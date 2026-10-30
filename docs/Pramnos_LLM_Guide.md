@@ -15,6 +15,7 @@ use_cases:
   - Giving an assistant a profile of the person, their calendar and a journal, each turned on by itself
   - Keeping an assistant from messaging people at night, too often or while they are busy
   - Letting the assistant search the web and read a page somebody links to
+  - Letting each person connect their own MCP servers (GitHub, Notion…) with a token or a sign-in
   - Exporting an AI result to CSV or PDF, or pinning a chart to the dashboard
   - Reading the fields of an invoice or form with a model, checked before saving
   - Sharing an AI conversation or one of its results with a colleague
@@ -460,6 +461,49 @@ application's own token (GitHub, a database) acts as the application, whoever is
 One server on its own is `new Mcp\Client(new StdioTransport([...]))` or
 `new Mcp\Client(new HttpTransport($url, $headers))`, with `listTools()`, `callTool()` and
 `tools($prefix)`.
+
+#### Servers each person connects themselves
+
+What a chat product calls connectors: a person adds their own GitHub, Notion or calendar server,
+and its tools reach their assistant. On with:
+
+```php
+'llm' => ['chat' => ['connections' => true]],   // needs APP_KEY: the tokens are kept encrypted
+```
+
+The chat page's settings panel gets a **Your connections** list with a form (name, address, token),
+and the JSON API has `GET` and `POST /chat/connections` and `DELETE /chat/connections/{name}`.
+
+- **An address, never a program.** A connection is an `https://` address; a person never makes
+  the server run anything. Every request — to the server, its metadata, its token endpoint — goes
+  through the SSRF guard (`forUserSuppliedUrl()`), so nothing on the server's own network is
+  reached, whoever names it.
+- **A token, or a sign-in.** With a token, it is sent as `Authorization: Bearer …`. Without one,
+  a server that answers 401 the MCP way is signed in to: its authorization server is found
+  (protected-resource metadata, RFC 9728, then RFC 8414), the application registers itself there
+  (RFC 7591), and the person is sent to sign in, with PKCE. They come back to `chat/connected`,
+  the code becomes tokens, and a token about to run out is refreshed before a call.
+- **Kept with the account.** The addresses and tokens are the person's setting
+  `ai_mcp_connections`, encrypted, so they go when the account is erased. What tools each server
+  offers is cached, and asked again when the cache lets go: a conversation does not wait for every
+  server on every question.
+- **Theirs alone.** The tools are `{name}__{tool}`, in a [skill](#skills-in-a-conversation)
+  named after the connection, in the person's own conversations only — never in an answer others
+  read, never in the analyst. Like every MCP tool they are `untrusted`, and those that change
+  something wait for the person after anything untrusted was read.
+- At most `Connections::MAX` (5) a person. A server that cannot answer costs its own tools, not the
+  answer.
+
+```php
+use Pramnos\Llm\Mcp\Connections;
+
+$connections = new Connections($scope);
+$connections->add('github', 'https://api.githubcopilot.com/mcp/', $token); // ['connected' => 'github']
+$connections->add('notes', 'https://mcp.notes.example/');                  // ['authorize' => 'https://…'] — redirect there
+$connections->finish($_GET['state'], $_GET['code']);                        // on the way back
+$connections->all();                                                        // without the secrets
+$connections->remove('github');
+```
 
 ### A change is made once per answer
 
@@ -1866,6 +1910,7 @@ One line in the application's API routes mounts every endpoint:
 | `GET /chat/asks/{id}` | a queued question: `waiting`, `answered` with its `conversation_id`, `failed` with `says`, or `cancelled` |
 | `POST /chat/asks/{id}/cancel` | stop a question still `waiting`; 404 when there is none |
 | `GET /chat/memory`, `DELETE /chat/memory/{id}` | what it remembers; forget one |
+| `GET /chat/connections`, `POST /chat/connections`, `DELETE /chat/connections/{name}` | the MCP servers the person connected; connect one (`name`, `url`, `token`; answers `authorize` when it wants a sign-in); remove one |
 | `GET`/`POST /chat/routines`, `PUT`/`DELETE /chat/routines/{id}`, `POST /chat/routines/{id}/run` | scheduled tasks, with the templates, cadences, `kinds`, and the `owners` this person may use; `active` in a `PUT` pauses or resumes; `running` while a run waits or is under way; `run` queues one (202) |
 | `GET /chat/routines/{id}/runs?limit=` | a task's runs, newest first: its own, or a shared report the person may read |
 | `GET /chat/runs/{id}`, `POST /chat/runs/{id}/continue` | one run with its task; open it as a conversation of the person's own (`conversation_id`) |
