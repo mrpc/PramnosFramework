@@ -141,6 +141,9 @@ class Client
     /** @var (callable(list<array{name: string, arguments: array<string, mixed>}>, callable(string, array<string, mixed>): string): list<string>)|null */
     private $parallel = null;
 
+    /** @var array<string, mixed>|null The `response_format` of the answer being asked for, by {@see askForJson()} */
+    private ?array $responseFormat = null;
+
     /** What names the answer for {@see Idempotency}; null for a new token each answer. */
     private ?string $answering = null;
 
@@ -254,6 +257,84 @@ class Client
     public function ask(string $systemPrompt, array $messages): array
     {
         return $this->converse($systemPrompt, $messages, [], 1);
+    }
+
+    /**
+     * Ask for an answer in a given shape — a JSON schema — and get it decoded and checked.
+     *
+     * Where the provider takes `response_format: json_schema` (its entry says `json_schema`), the
+     * answer is asked for in that shape and checked against the schema; one that does not fit is
+     * sent back once with what is wrong. Elsewhere the schema is the arguments of one tool,
+     * `$name`, which the model is made to call; arguments that do not fit are refused before
+     * anything is kept, and it is told why ({@see refusedCalls()}). Either way the answer carries
+     * `data`, the decoded object, or `ok` false and `says`.
+     *
+     * @param list<array<string, mixed>> $messages
+     * @param array<string, mixed>       $schema An object's schema
+     * @return array<string, mixed>
+     */
+    public function askForJson(string $systemPrompt, array $messages, array $schema, string $name = 'answer'): array
+    {
+        $schema = Tools::schema($schema);
+
+        if (!empty($this->connection->config()['json_schema'])) {
+            $this->responseFormat = ['type' => 'json_schema', 'json_schema' => ['name' => $name, 'schema' => $schema]];
+            try {
+                $asked = $messages;
+                for ($try = 0; ; $try++) {
+                    $answer = $this->ask($systemPrompt, $asked);
+                    if (!$answer['ok']) {
+                        return $answer + ['data' => null];
+                    }
+                    $data   = json_decode(self::unfenced((string) $answer['reply']), true);
+                    $errors = is_array($data) ? JsonSchema::errors($data, $schema) : ['the answer is not a JSON object'];
+                    if ($errors === []) {
+                        return ['data' => $data] + $answer;
+                    }
+                    if ($try >= 1) {
+                        return ['ok' => false, 'data' => null, 'says' => 'The answer did not fit the shape asked for: ' . implode('; ', $errors) . '.'] + $answer;
+                    }
+                    // Sent back once with what is wrong: most models correct it.
+                    $asked = [...$asked, ['role' => 'assistant', 'content' => (string) $answer['reply']],
+                        ['role' => 'user', 'content' => 'That does not fit the schema: ' . implode('; ', $errors) . '. Answer again, with the JSON only.']];
+                }
+            } finally {
+                $this->responseFormat = null;
+            }
+        }
+
+        $data  = null;
+        $tools = [$name => [
+            'description' => 'Give your answer here, as these fields.',
+            'parameters'  => $schema,
+            'run'         => static function (array $arguments) use (&$data): string {
+                $data = $arguments;
+
+                return 'Recorded.';
+            },
+        ]];
+        $answer = $this->askWithTools(
+            rtrim($systemPrompt) . "\n\nAnswer by calling " . $name . '.',
+            $messages,
+            $tools,
+            3,
+            [$name => static function () use (&$data): bool {
+                return $data === null;
+            }]
+        );
+        if (!$answer['ok']) {
+            return $answer + ['data' => null];
+        }
+
+        return $data === null
+            ? ['ok' => false, 'data' => null, 'says' => 'The model gave no answer in the shape asked for.'] + $answer
+            : ['data' => $data] + $answer;
+    }
+
+    /** A reply's JSON without the Markdown fence a model sometimes puts around it. */
+    private static function unfenced(string $reply): string
+    {
+        return preg_match('/^\s*```(?:json)?\s*\n(.*)\n\s*```\s*$/s', $reply, $m) === 1 ? $m[1] : $reply;
     }
 
     /**
@@ -682,13 +763,35 @@ class Client
         foreach ($requested as $at => $call) {
             $name      = (string) ($call['function']['name'] ?? '');
             $arguments = json_decode((string) ($call['function']['arguments'] ?? '{}'), true);
-            $why       = $gate->before($name, is_array($arguments) ? $arguments : [], $tools[$name] ?? [], $context);
+            $why       = $this->badArguments($name, (string) ($call['function']['arguments'] ?? ''), $tools[$name] ?? null)
+                ?? $gate->before($name, is_array($arguments) ? $arguments : [], $tools[$name] ?? [], $context);
             if ($why !== null) {
                 $refused[$at] = $why;
             }
         }
 
         return $refused;
+    }
+
+    /**
+     * Why a call's arguments cannot be run — not JSON, or not what the tool's schema takes — or
+     * null. Told to the model in place of a result, so it calls again with them corrected rather
+     * than a tool running on what it never meant.
+     *
+     * @param array<string, mixed>|null $tool
+     */
+    private function badArguments(string $name, string $raw, ?array $tool): ?string
+    {
+        if ($tool === null) {
+            return null;
+        }
+        $decoded = json_decode(trim($raw) === '' ? '{}' : $raw, true);
+        if (!is_array($decoded)) {
+            return 'Error: ' . $name . ' was not run: its arguments were not a JSON object. Call it again with them as one.';
+        }
+        $errors = JsonSchema::errors($decoded, Tools::schema((array) ($tool['parameters'] ?? [])));
+
+        return $errors === [] ? null : 'Error: ' . $name . ' was not run: ' . implode('; ', $errors) . '. Call it again with the arguments corrected.';
     }
 
     /**
@@ -952,6 +1055,9 @@ class Client
             (string) $config['token_param'] => $this->maxTokens(),
             'stream'   => false,
         ];
+        if ($this->responseFormat !== null) {
+            $payload['response_format'] = $this->responseFormat;
+        }
 
         $effort = ($config['reasoning_param'] ?? null) === 'effort'
             && preg_match((string) ($config['reasoning_models'] ?? '/(?!)/'), $model) === 1;

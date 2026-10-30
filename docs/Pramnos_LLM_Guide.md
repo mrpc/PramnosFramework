@@ -80,6 +80,32 @@ spent the whole output budget thinking (`finish_reason: length`).
 `about()` sets what lands on the log row: `purpose` (so the log can answer *what is costing
 this*), `userid` (the signed-in user when not given), `organization_id`, and anything else.
 
+### An answer in a given shape
+
+`Client::askForJson($systemPrompt, $messages, $schema, $name)` asks for an object of a JSON
+schema and returns it decoded and checked, as `data`:
+
+```php
+$answer = $client->askForJson('Classify the message.', $messages, [
+    'type' => 'object',
+    'properties' => ['topic' => ['type' => 'string', 'enum' => ['billing', 'support', 'sales']], 'urgent' => ['type' => 'boolean']],
+    'required' => ['topic'],
+], 'classification');
+
+$answer['ok'] ? $answer['data']['topic'] : $answer['says'];
+```
+
+Where the provider takes `response_format: json_schema` (its entry says `'json_schema' => true`:
+OpenAI, Gemini, Mistral), the answer is asked for in that shape, with no tool. An answer that does
+not fit is sent back once with what is wrong, and a second one that does not fit is a failure. A
+fenced code block around the JSON is read. Elsewhere, DeepSeek for one, the schema becomes the
+arguments of one tool named `$name`, which the model is made to call.
+
+`JsonSchema::errors($value, $schema)` is the check. It covers `type` (one, or a list),
+`required`, `properties`, `items`, `enum`, `minimum`/`maximum`, `minLength`/`maxLength` and
+`minItems`/`maxItems`, and nothing else in a schema. A number written as text (`"5"`) counts as a
+number.
+
 ### Reading fields out of a document
 
 `Pramnos\Llm\Extractor` reads named fields out of a document — an invoice, an order, a form — and
@@ -243,6 +269,13 @@ A tool is a plain array — `name => ['description', 'parameters' => JSON schema
 — so an application's own closures sit beside the MCP ones. `run` gets the decoded arguments; a
 result that is not a string is JSON-encoded; what it throws is told to the model as an error
 rather than ending the answer. Results are cut at 20,000 characters.
+
+**Arguments are checked before a tool runs.** A call whose arguments are not a JSON object, or do
+not fit the tool's `parameters` (`JsonSchema::errors()`), is not run. The model is told what is
+wrong in place of the result (`Error: send was not run: to: is required. …`) and calls again,
+corrected, in the next round. A tool therefore never runs on arguments it does not take: a
+missing required field, a value outside its `enum`, a list where an object belongs. Such a call
+is not run at once with others either.
 
 **A long answer makes room for itself.** Each round's prompt is counted by the provider
 (`prompt_tokens`). Past `Client::ROOM` (70%) of the connection's `context_window`, the answer's

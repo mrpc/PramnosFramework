@@ -23,9 +23,9 @@ namespace Pramnos\Llm;
  * //  'missing' => [], 'invalid' => [], 'says' => '']
  * ```
  *
- * The model is given one tool whose arguments are the fields — not prose to be parsed — told to
- * answer through it, and to leave out what the document does not say rather than guess; a model that
- * answers without it read nothing, and is reported so. Then each field
+ * The fields are asked for as an object — {@see Client::askForJson()}: the provider's structured
+ * answer where it has one, otherwise one tool whose arguments are the fields — never prose to be
+ * parsed, and the model is told to leave out what the document does not say rather than guess. Then each field
  * is checked: a required one is there; a number is a number (`1.240,50` and `1,240.50` both read);
  * a date is a real date, written `YYYY-MM-DD`; an `enum` is one of its options; a `pattern`
  * matches. What fails is reported by field, and kept out of `data`.
@@ -78,34 +78,26 @@ final class Extractor
         foreach ($fields as $name => $field) {
             $type = (string) ($field['type'] ?? 'text');
             $properties[(string) $name] = array_filter([
-                'type'        => match ($type) { 'number' => 'number', 'boolean' => 'boolean', default => 'string' },
+                // A number or a yes may come as the document writes it — `1.240,50`, "yes" — and
+                // check() reads it; a schema that took only the strict type would refuse it first.
+                'type'        => match ($type) { 'number' => ['number', 'string'], 'boolean' => ['boolean', 'string'], default => 'string' },
                 'enum'        => $type === 'enum' ? array_values(array_map('strval', (array) ($field['options'] ?? []))) : null,
                 'description' => trim(((string) ($field['description'] ?? '')) . ($type === 'date' ? ' As YYYY-MM-DD.' : '')) ?: null,
             ], static fn ($v): bool => $v !== null);
         }
-        $read  = null;
-        $tools = ['record_fields' => [
-            'description' => 'Record the fields read from the document. Leave out a field the document does not say; never guess one.',
-            'parameters'  => ['type' => 'object', 'properties' => $properties],
-            'run'         => static function (array $a) use (&$read): string {
-                $read = $a;
-
-                return 'Recorded.';
-            },
-        ]];
-        $client = $this->client ?? new Client();
-        $answer = $client->askWithTools(
-            'You read ' . $what . ' and record its fields with record_fields, exactly as the document gives them. Do not invent what it does not say.',
+        // In the provider's own structured answer where it has one, through a tool where it has
+        // not: either way the fields come back as an object, checked against their schema.
+        $answer = ($this->client ?? new Client())->askForJson(
+            'You read ' . $what . ' and record its fields exactly as the document gives them. Leave out a field the document '
+                . 'does not say; never guess one.',
             [['role' => 'user', 'content' => mb_substr($text, 0, self::CHARS)]],
-            $tools,
-            2
+            ['type' => 'object', 'properties' => $properties],
+            'record_fields'
         );
         if (!($answer['ok'] ?? false)) {
             return self::failed((string) ($answer['says'] ?? 'The model did not answer.'));
         }
-        if (!is_array($read)) {
-            return self::failed('The model read nothing.');
-        }
+        $read = $answer['data'];
 
         return self::check($read, $fields);
     }

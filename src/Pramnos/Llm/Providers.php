@@ -85,6 +85,8 @@ final class Providers
             // No balance endpoint: what OpenAI billed comes from its cost report (Billing\OpenAiCosts).
             'balance_path'  => null,
             'token_param'   => 'max_completion_tokens',
+            // `response_format: {type: json_schema}`: a structured answer without a tool.
+            'json_schema'   => true,
             // The o-series and GPT-5 onwards reason, take `reasoning_effort` and refuse a
             // temperature; GPT-4o refuses the effort.
             'reasoning_param' => 'effort',
@@ -113,6 +115,7 @@ final class Providers
             'models_path'   => '/models',
             'balance_path'  => null,
             'token_param'   => 'max_tokens',
+            'json_schema'   => true,
             'reasoning_param' => 'effort',
             'reasoning_models' => '/^gemini/i',
             'efforts'       => ['off' => 'low', 'on' => null],
@@ -140,6 +143,7 @@ final class Providers
             'reasoning_param' => null,
             'supports_temperature' => true,
             'cache_key_param' => 'prompt_cache_key',
+            'json_schema'   => true,
             'model_pattern' => '/^(mistral-(small|medium|large)|ministral)/i',
             'default_model' => 'mistral-small-2603',
             'context_window' => 128000,
@@ -158,6 +162,9 @@ final class Providers
         'token_param'          => 'max_tokens',
         'reasoning_param'      => null,
         'supports_temperature' => true,
+        // Whether it takes `response_format: {type: json_schema}`; without it a structured answer
+        // is asked for through a tool (Client::askForJson()).
+        'json_schema'          => false,
         'model_pattern'        => null,
         'default_model'        => '',
         'requires_consent'     => false,
