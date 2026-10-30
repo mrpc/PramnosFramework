@@ -493,6 +493,7 @@ class Client
                     'tool_calls'        => $requested,
                 ], static fn ($v): bool => $v !== null);
 
+                $grown = false;
                 // Before anything runs, the gate: a refused call is told why in place of its result.
                 $refused = $this->refusedCalls($requested, $tools, $context);
                 // Two or more reads asked for at once, and no write among them: run together.
@@ -519,6 +520,16 @@ class Client
                         default => $this->run($tools[$name] ?? null, $name, $arguments),
                     };
                     [$result, $moved] = $this->governed($tools[$name] ?? [], $result, $arguments, $context);
+                    // A tool that hands over more tools — a skill turned on: theirs from the next round.
+                    if (!isset($refused[$at]) && is_callable($tools[$name]['expands'] ?? null)) {
+                        // Run here, never on a worker: a worker builds the answer's first tools, not these.
+                        $added = array_map(
+                            static fn (array $tool): array => array_diff_key($tool, ['parallel' => true]),
+                            array_diff_key((array) ($tools[$name]['expands'])($arguments), $tools)
+                        );
+                        $tools += $added;
+                        $grown  = $grown || $added !== [];
+                    }
                     if (!empty($tools[$name]['untrusted'])) {
                         $read  ??= $name;
                         $token   = bin2hex(random_bytes(8));
@@ -546,6 +557,14 @@ class Client
                 // Over its budget: one more round, to answer with what it has.
                 if (!$over && $round < $rounds - 1 && $this->overBudget($usage, $cost)) {
                     [$over, $rounds] = [true, $round + 1];
+                }
+
+                if ($grown) {
+                    if (array_filter($tools, static fn ($tool): bool => !empty($tool['untrusted'])) !== [] && !str_contains($systemPrompt, self::DATA_NOTICE)) {
+                        $systemPrompt = rtrim($systemPrompt) . "\n\n" . self::DATA_NOTICE;
+                    }
+                    // The tools are in the request's prefix: offered from the next round on.
+                    $payload = $this->basePayload($tools, $systemPrompt) + ['messages' => []];
                 }
 
                 // Near the window: the answer goes on, without the oldest of its own results.

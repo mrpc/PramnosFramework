@@ -277,6 +277,58 @@ answer against the calls made; once, a correction is sent back with a required c
 more rounds. The rejected answer, and the text written before it, are dropped: the reply
 is the one written after the correction.
 
+### Declaring tools once: the registry
+
+`ToolRegistry` holds tools with the metadata the runtime reads. It hands them to the client per
+person, and per skill in use:
+
+```php
+use Pramnos\Llm\ToolRegistry;
+
+$registry = (new ToolRegistry())
+    ->registerMcp(new ExportCsvTool(), ['idempotent' => true, 'permissions' => ['admin.reports'], 'skills' => ['reporting'], 'latency_tier' => 'slow'])
+    ->register('send_email', $send, ['writes' => true, 'skills' => ['mail']], 'Send an email', $schema)
+    ->add($assistantTools)                       // tools already in the client's shape
+    ->describeSkill('reporting', 'Reports and exports of the site\'s figures');
+
+$tools = $registry->tools(['userid' => $userId], skills: ['reporting']);
+```
+
+| Metadata | Default | Read by |
+|---|---|---|
+| `writes` | false | held after untrusted reads, made once per answer, gated by a `GrantGate` |
+| `idempotent` | false | with `writes` false, the tool runs at once with others |
+| `parallel` | `!writes && idempotent` | given explicitly, over the default |
+| `untrusted` | false | the result is data, not instructions |
+| `gated` | false | needs a grant though it does not write |
+| `permissions` | none | every ability, through `AdminAccess::allows()` unless the registry is given its own check |
+| `skills` | none | offered only while one of its skills is in use; a tool with none is always offered |
+| `tags` | none | data tags, as `Tools::tag()` |
+| `cost_weight`, `latency_tier` | `low`, `fast` | kept on the tool's `meta` |
+
+**Skills, a few at a time.** Offer the tools of no skill, the `use_skill` tool, and a line in the
+prompt naming the skills there are:
+
+```php
+public function tools(Turn $turn): array
+{
+    $context = ['userid' => $turn->rightsOf()];
+
+    return $this->registry->tools($context, skills: []) + $this->registry->skillTool($context);
+}
+
+public function systemPrompt(Turn $turn): string
+{
+    return '…' . "\n\n" . $this->registry->manifest(['userid' => $turn->rightsOf()]);
+}
+```
+
+The model calls `use_skill` with a skill's name, and the skill's tools are offered from the next
+round. Any tool may do the same through an `expands` callable, which takes the call's arguments
+and returns tools to add. A skill with no tool this person may use is not offered, and neither
+are its tools. Tools added during an answer run in the answer, never on a parallel worker,
+because a worker builds only the answer's first tools.
+
 ### A change is made once per answer
 
 A tool marked `'writes' => true` runs once per answer, tool and arguments. Called again with the
