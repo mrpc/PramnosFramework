@@ -36,6 +36,9 @@ final class Calendar
     /** What a list answers at most. */
     public const LIST = 100;
 
+    /** Minutes before an appointment its reminder goes. */
+    public const REMIND = 30;
+
     /** The event a page hears on a change. */
     public const CHANGED = 'calendar.changed';
 
@@ -258,11 +261,15 @@ final class Calendar
         return $out;
     }
 
-    /** Mark an appointment's reminder as gone, so it goes once. */
-    public static function alerted(int $id): void
+    /**
+     * Mark an appointment's reminder as dealt with, so it is looked at once: sent now, or — held
+     * by the person's quiet hours, the day's limit or being busy — passed, marked at the first
+     * moment there is, so it neither goes later nor counts among the day's pings.
+     */
+    public static function alerted(int $id, bool $sent = true): void
     {
         \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#chat_calendar')
-            ->where('item_id', $id)->update(['alerted_at' => Instant::utc(time())]);
+            ->where('item_id', $id)->update(['alerted_at' => Instant::utc($sent ? time() : 1)]);
     }
 
     /**

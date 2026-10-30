@@ -9,7 +9,9 @@ use Pramnos\Database\Migration;
  * an `event` from `starts_at` to `ends_at`, a `task` by `due_at`, done or not.
  *
  * State, not history: a row is an appointment or task that exists now; one deleted is gone.
- * `alerted_at` is state as well — whether the reminder before an event has gone, so it goes once.
+ * `alerted_at` is state as well — whether the reminder before an event was dealt with, so it is
+ * once: when it went, or the first moment there is (1970-01-01 00:00:01) for one held back by the
+ * person's quiet hours, the day's limit or being busy, which therefore never counts as sent.
  * Beside the other `chat_*` tables, in the application's schema, with the same scope columns.
  */
 class CreateChatCalendarTable extends Migration

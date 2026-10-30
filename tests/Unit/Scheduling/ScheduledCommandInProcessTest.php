@@ -26,6 +26,16 @@ use Symfony\Component\Console\Output\OutputInterface;
 #[CoversClass(FrameworkSchedule::class)]
 class ScheduledCommandInProcessTest extends TestCase
 {
+    /**
+     * No console from an earlier test: `work` and `schedule:run` set theirs for the process, and a
+     * test that ran either left it behind, so "without a console" ran in process.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+        ScheduledTask::useConsole(null);
+    }
+
     protected function tearDown(): void
     {
         ScheduledTask::useConsole(null);

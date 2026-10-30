@@ -44,6 +44,7 @@ final class Llm
         'router'  => Policy\DefaultRouter::class,
         'tool_gate' => Policy\OpenGate::class,
         'cascade' => Policy\NoCascade::class,
+        'proactivity' => Policy\QuietProactivity::class,
     ];
 
     /**
@@ -81,6 +82,15 @@ final class Llm
     public static function cascade(): Policy\Cascade
     {
         return self::one('cascade');
+    }
+
+    /**
+     * Whether the companion may reach out to a person now: `'llm' => ['proactivity' => …]`, a
+     * class, or the default's settings (`['quiet' => '22:30-07:30', 'daily' => 3]`).
+     */
+    public static function proactivity(): Policy\Proactivity
+    {
+        return self::one('proactivity');
     }
 
     /** What decides, before it runs, whether a tool call may: `'llm' => ['tool_gate' => …]`. */
@@ -125,7 +135,7 @@ final class Llm
     /**
      * Set a policy at runtime, over whatever `app.php` says.
      *
-     * @param string              $kind   `limits`, `consent`, `router`, `tool_gate`, `cascade`, `rules` or `admin_sections`
+     * @param string              $kind   `limits`, `consent`, `router`, `tool_gate`, `cascade`, `proactivity`, `rules` or `admin_sections`
      * @param object|list<object> $policy One object, or a list for `rules` and `admin_sections`
      */
     public static function use(string $kind, object|array $policy): void

@@ -1094,6 +1094,42 @@ Every change is announced to the person's private channel as `calendar.changed`,
 `pf-calendar` with `data-channel` refetches when it hears it. An appointment the assistant makes
 appears on an open page at once.
 
+#### Reaching out on its own, with manners: `Proactivity`
+
+The companion reaches out in two ways: a [scheduled question](#scheduled-tasks-questions-reminders-reports)
+it asks on its own (a morning briefing, an evening review), and a reminder
+`Calendar::REMIND` (30) minutes before an appointment, sent by `llm:routines`
+(`Companion::remind()`). Before either, `Llm::proactivity()` decides now, later, or not this
+time. Nothing is spent on a ping that is held: a held question asks no model.
+
+The default, `Policy\QuietProactivity`:
+
+```php
+'llm' => ['proactivity' => ['quiet' => '22:30-07:30', 'daily' => 3]],
+```
+
+| Rule | Then |
+|---|---|
+| inside `quiet`, on the person's clock (`''` for none) | held until quiet hours end |
+| `daily` pings already today: questions it asked, reminders sent | not this time |
+| in an appointment now, or busy by their word | not this time |
+
+- **Busy by their word.** The person tells the companion they are busy until a time, or no
+  longer are, and it calls `set_busy`. The time is kept as their setting
+  `ai_companion_busy_until`.
+- **What happens to a held question.** One held for quiet hours is asked when they end. One held
+  for the limit or for being busy waits for its next turn, and a one-off is tried again in an
+  hour.
+- **What happens to a held reminder.** It is passed: marked so it is not looked at again, and it
+  does not count among the day's pings.
+- **What it covers.** Only scheduled questions where the companion is on. A reminder the person
+  set, a report others subscribed to, and a run they asked for with "Run now" all go as they
+  always did.
+- **Your own rules.** `'llm' => ['proactivity' => MyPolicy::class]` takes your own
+  `Policy\Proactivity`. Its `when()` returns `$now`, a later moment, or 0, and with `$critical`
+  (an alarm the person set) it should return `$now`. A policy that throws lets the question go:
+  the person's own schedule is never silenced by an error.
+
 ### Rating answers, and the queue of bad ones
 
 Under every answer, on the page and in the SPA component, the person rates it 👍 or 👎. Pressing the

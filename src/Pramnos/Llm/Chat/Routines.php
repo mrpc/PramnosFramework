@@ -285,6 +285,11 @@ class Routines
             if (!$this->claim($task, (string) $row['next_run_at'], $now)) {
                 continue;
             }
+            // A question the companion asks on its own waits for its manners: held, it costs nothing.
+            if ($task['kind'] === self::ASK && ($when = $this->proactive($task, $now)) !== $now) {
+                $this->hold($task, $when, $now);
+                continue;
+            }
             $claimed++;
 
             if (!$this->queued() && $task['space'] !== Scope::CHAT) {
@@ -325,6 +330,43 @@ class Routines
             ]);
 
         return is_object($result) && (int) $result->getAffectedRows() === 1;
+    }
+
+    /**
+     * When a scheduled question may be asked, where the companion is on: {@see \Pramnos\Llm\Policy\Proactivity}.
+     * Now, everywhere else — and a run its owner asked for never comes this way.
+     *
+     * @param array<string, mixed> $task
+     */
+    private function proactive(array $task, int $now): int
+    {
+        $policy = $this->policy();
+        $scope  = $policy->scope($task);
+        if (!\Pramnos\Llm\Companion\Companion::on($scope)) {
+            return $now;
+        }
+
+        try {
+            return \Pramnos\Llm\Llm::proactivity()->when($scope->userId, $policy->timezone($task), $now);
+        } catch (\Throwable $why) {
+            // A policy that cannot decide does not silence the person's own schedule.
+            \Pramnos\Logs\Logger::log('llm proactivity: ' . $why->getMessage(), 'llm');
+
+            return $now;
+        }
+    }
+
+    /**
+     * Let go of a claimed question that may not be asked now: until `$when`, or — not this time —
+     * at its next turn, which the claim already set. A one-off is not lost: it is tried in an hour.
+     *
+     * @param array<string, mixed> $task
+     */
+    private function hold(array $task, int $when, int $now): void
+    {
+        $next = $when > 0 ? $when : ($task['cadence'] === 'once' ? $now + 3600 : null);
+        $this->table()->where('routine_id', (int) $task['routine_id'])->update(['locked_until' => null, 'updated_at' => CallLog::instant(time())]
+            + ($next !== null ? ['next_run_at' => CallLog::instant($next)] : []));
     }
 
     /** @var array<string, self> The tasks of other spaces, with their own assistant */
