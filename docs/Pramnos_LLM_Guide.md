@@ -11,6 +11,7 @@ use_cases:
   - Seeing what each scheduled AI task or report costs
   - Keeping a table or list an AI answer produced, to open or act on later
   - Handing part of an answer to a subagent with its own context, tools and budget
+  - Measuring a prompt, model or tool change against eval fixtures, and failing CI on a regression
   - Exporting an AI result to CSV or PDF, or pinning a chart to the dashboard
   - Reading the fields of an invoice or form with a model, checked before saving
   - Sharing an AI conversation or one of its results with a colleague
@@ -664,6 +665,76 @@ in the history. With no alternative the model is told the rule's `refusalResult(
 result. `$answer['tags']` says which tags reached the model, so a conversation holding such data
 can stay where it may go: `$client->moveFor('google')` moves before anything is asked, or
 returns false when nothing may take it.
+
+## Evals: measuring a change before it ships
+
+`Pramnos\Llm\Eval\Suite` asks a set of questions, each with the tool calls a good answer makes,
+and scores the answers. `llm:eval` compares the scores with a baseline and exits 1 on a
+regression, so a CI step stops on a prompt, model or tool change that made things worse.
+
+A case is a JSON file, one case each or a list of them:
+
+```json
+{
+  "name": "orders this month",
+  "user_query": "How many orders did we get this month?",
+  "available_tools": ["count_orders", "list_users"],
+  "tool_results": {"count_orders": {"count": 42}},
+  "expected_tool_calls": ["count_orders"],
+  "expected_arguments": {"count_orders": {"period": "this_month"}},
+  "expected_final_state": {"answer_contains": ["42"]}
+}
+```
+
+`available_tools` names tools of the set the suite is given (the assistant's own, with their real
+descriptions and schemas) or defines them in place as `{"name": {"description", "parameters"}}`.
+No tool runs: each answers its `tool_results` entry, or `ok`. So a case reads nothing, changes
+nothing, and gets the same results every time; only the model varies. A case may carry its own
+`system` prompt.
+
+| Score, per case | |
+|---|---|
+| `tool_accuracy` | expected tools called, over the larger of expected and called: an unexpected call costs as much as a missing one |
+| `argument_fidelity` | expected arguments the best call of each tool had; `"Ann"` matches `"ann "`, `"5"` matches `5`, a list or object must match whole |
+| `final_state` | the answer holds every `answer_contains` text, ignoring case |
+| `rounds` | the rounds the answer took |
+
+| Gate (`Report::regressions()`) | Fails when |
+|---|---|
+| `tool_accuracy`, `argument_fidelity` | the mean falls by more than 5 points of 100 (`Report::ACCURACY_DROP`) |
+| `rounds` | the mean rises by more than a fifth (`Report::ROUNDS_RISE`): the same answers costing more |
+
+```bash
+# tests/llm-eval/setup.php returns ['system' => …, 'tools' => …, 'client' => fn () => new Client(…)]
+./yourapp llm:eval tests/llm-eval --setup=tests/llm-eval/setup.php --baseline=tests/llm-eval/baseline.json --write-baseline
+./yourapp llm:eval tests/llm-eval --setup=tests/llm-eval/setup.php --baseline=tests/llm-eval/baseline.json
+```
+
+Keep the baseline in the repository beside the cases: a saved report in the directory is not
+read as a case. An improvement is taken by writing it again, and a regression is seen in review.
+The run asks a real provider and costs what its questions cost, so a CI job runs it when prompts,
+tools or models change, by hand or on a schedule, and not on every push. A CI has no saved
+settings, so `setup.php` gives the client its key from the environment:
+`'client' => fn () => new Client((new Connection('openai'))->with(['api_key' => getenv('OPENAI_API_KEY')]))`.
+
+```yaml
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 5 * * 1'
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: composer install --no-interaction
+      - run: ./yourapp llm:eval tests/llm-eval --setup=tests/llm-eval/setup.php --baseline=tests/llm-eval/baseline.json
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+```
+
+In code, `(new Suite($cases))->run($systemPrompt, $tools)` returns the `Report`; compare two with
+`$report->regressions($baseline)`.
 
 ## The call log and costs
 

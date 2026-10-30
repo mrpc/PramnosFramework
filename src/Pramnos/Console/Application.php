@@ -227,6 +227,7 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\MailHypertable());
         $this->add(new \Pramnos\Console\Commands\LlmPrune());
         $this->add(new \Pramnos\Console\Commands\LlmRoutines());
+        $this->add(new \Pramnos\Console\Commands\LlmEval());
         // The other half of the same table: `Email::queue()` writes a message there instead of
         // opening an SMTP connection in somebody's request, and this is what delivers it.
         $this->add(new \Pramnos\Console\Commands\MailFlush());
