@@ -448,6 +448,35 @@ final class Artifacts
      */
     public function create(array $input): array|string
     {
+        $made = self::made($input);
+        if (is_string($made)) {
+            return $made;
+        }
+        [$kind, $title, $content] = $made;
+
+        return $this->keep($kind, $title, $kind === 'list' ? (string) $input['entity'] : null, $content);
+    }
+
+    /**
+     * What is wrong with an artifact as {@see create()} would take it, or null: checked, not kept.
+     *
+     * @param array<string, mixed> $input
+     */
+    public static function check(array $input): ?string
+    {
+        $made = self::made($input);
+
+        return is_string($made) ? $made : null;
+    }
+
+    /**
+     * An artifact's kind, title and content from what was given, or why not.
+     *
+     * @param array<string, mixed> $input
+     * @return array{0: string, 1: string, 2: array<string, mixed>}|string
+     */
+    private static function made(array $input): array|string
+    {
         $kind  = (string) ($input['kind'] ?? '');
         $title = trim((string) preg_replace('/\s+/u', ' ', (string) ($input['title'] ?? '')));
         if (!in_array($kind, self::KINDS, true)) {
@@ -463,11 +492,8 @@ final class Artifacts
             'chart' => self::chartContent($input),
             default => self::textContent($input),
         };
-        if (is_string($content)) {
-            return $content;
-        }
 
-        return $this->keep($kind, $title, $kind === 'list' ? (string) $input['entity'] : null, $content);
+        return is_string($content) ? $content : [$kind, $title, $content];
     }
 
     /**

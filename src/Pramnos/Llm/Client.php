@@ -31,6 +31,7 @@ namespace Pramnos\Llm;
  * | `finish` | the provider's `finish_reason` |
  * | `tags` | the data tags whose results reached the model (see `Policy\DataRule`) |
  * | `provider` | the provider that answered — not the one it started on, if it moved |
+ * | `rounds`, `out_of_rounds` | `askWithTools()`: the rounds it took, and whether the last was forced for want of more |
  * | `limited`, `consent` | set when `Policy\Limits` or `Policy\Consent` refused |
  *
  * ## Every call is logged, including the ones that failed
@@ -538,7 +539,8 @@ class Client
                 $says = $this->reason($status, $body);
                 $this->write($entry + ['http_status' => $status, 'duration_ms' => $took, 'error' => $says], $context);
 
-                return $this->refusal($says);
+                // With what earlier rounds spent and called: those tools ran, a write among them.
+                return ['usage' => $usage, 'calls' => $calls] + $this->refusal($says);
             }
 
             $choice    = $body['choices'][0] ?? [];
@@ -739,6 +741,10 @@ class Client
                 'truncated' => $truncated,
                 // Stopped researching at the turn budget.
                 'over_budget' => $over,
+                // How many rounds it took, and whether the last was the forced one: told to
+                // answer with no tool left to call, rather than done researching.
+                'rounds'   => $round,
+                'out_of_rounds' => !$over && $tools !== [] && $round === $rounds && $round > 1,
                 'tags'     => $this->tags(),
                 'provider' => $this->connection->provider(),
             ];

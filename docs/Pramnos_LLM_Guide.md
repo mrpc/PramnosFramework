@@ -10,6 +10,7 @@ use_cases:
   - Sending an organisation a scheduled AI report its members subscribe to, by email too
   - Seeing what each scheduled AI task or report costs
   - Keeping a table or list an AI answer produced, to open or act on later
+  - Handing part of an answer to a subagent with its own context, tools and budget
   - Exporting an AI result to CSV or PDF, or pinning a chart to the dashboard
   - Reading the fields of an invoice or form with a model, checked before saving
   - Sharing an AI conversation or one of its results with a colleague
@@ -460,6 +461,49 @@ depend on the turn's messages or write to its `bag`. A worker runs only tools ma
 The analyst's tools are marked parallel. A `Client` used directly takes a runner of its own:
 `$client->inParallel(fn (array $calls, callable $runHere): array => …)`, results in the order of
 `$calls`.
+
+### Subagents: a task with a context of its own
+
+A `Subagent` is a task handed to a model with its own instructions, its own tools and nothing of
+the conversation that asked. It always gives back a `SubagentResult`, and never throws.
+
+```php
+use Pramnos\Llm\Subagent;
+
+$research = new Subagent(
+    'You compare suppliers. Read their price lists and say which is cheapest for each item.',
+    tools: $supplierTools,
+    rounds: 8,
+    client: (new Client(new Connection(null, 'research')))->withTurnBudget(maxCost: 0.10),
+    artifacts: $artifacts,          // optional: lets it draft artifacts
+);
+
+$result = $research->run('Prices for 200 m of cable and 40 sockets');
+
+// or as one tool of a parent's answer
+$tools['research_suppliers'] = $research->asTool('Compare the suppliers for a list of items');
+```
+
+| Status | Reason | Means |
+|---|---|---|
+| `success` | `completed` | answered within its rounds and budget; its artifacts are kept |
+| `partial` | `max_rounds_reached`, `budget_exceeded` | answered from what it had when it ran out; its artifacts are drafts |
+| `failed` | `tool_error`, `provider_error`, `cancelled` | no answer; the summary says why and which tools it had called |
+
+- **The summary is never empty.** On success it is the answer; on a failure it says what went
+  wrong and what was called, so a parent still knows what was tried.
+- **Artifacts are drafts until the task finishes.** With `artifacts`, the subagent gets
+  `save_artifact`, checked when it is called (`Artifacts::check()`), so the model can put a bad
+  one right. They are kept only on `success`; otherwise they come back in `draftArtifacts`, as the
+  model gave them, for somebody to confirm with `Artifacts::create()`. One that cannot be kept
+  stays a draft.
+- **The parent reads little.** `asTool()` answers `SubagentResult::forParent()`: the status, the
+  summary and the titles of what was kept or drafted, never the content. The tool takes the
+  `writes`, `untrusted` and `gated` flags of the tools inside it, so the parent's gate and held
+  writes treat it as they would those tools.
+- **Give it a `Client` of its own.** The parent's is in the middle of an answer while the
+  subagent runs. Its rounds, turn budget and cancellation are the subagent's; `tokensSpent` and
+  `roundsUsed` say what it took.
 
 ### What somebody else wrote is data, not instructions
 
