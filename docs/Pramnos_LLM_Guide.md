@@ -497,6 +497,7 @@ process) or set at runtime with `Llm::use()`:
     'consent' => App\Llm\Consent::class,        // Pramnos\Llm\Policy\Consent
     'router'  => App\Llm\Router::class,         // Pramnos\Llm\Policy\Router
     'tool_gate' => App\Llm\Gate::class,         // Pramnos\Llm\Policy\ToolGate
+    'cascade' => App\Llm\Tiers::class,         // Pramnos\Llm\Policy\Cascade
     'rules'   => [App\Llm\GoogleData::class],   // Pramnos\Llm\Policy\DataRule
 ],
 ```
@@ -518,6 +519,41 @@ process) or set at runtime with `Llm::use()`:
   before every tool call the model asks for. A refusal is told to the model in place of the
   result, worded as "Not done: …", and the call never runs, alone or among calls run at once.
   The default lets every call run. See [approvals given in advance](#approvals-given-in-advance).
+
+### A model for each question: tiers
+
+An application can answer routine questions on a cheap, fast model and the hard ones on a
+stronger, dearer one. Each tier is a [feature](#features), so its provider and model are set on
+the administration screen:
+
+```php
+'llm' => [
+    'features' => ['chat' => 'Ask AI', 'chat_frontier' => 'Ask AI, for the hard questions'],
+    'tiers'    => ['fast' => 'chat', 'frontier' => 'chat_frontier'],
+    'cascade'  => \Pramnos\Llm\Policy\ModelCascade::class,
+],
+```
+
+Before each question in a conversation, the `Cascade` policy names the tier it needs, and the
+question is answered on that tier's connection. `ModelCascade` asks the fast tier with one short
+call (`askForJson()`, `{"tier": "fast"|"frontier"}`) on the question and the four messages before
+it. *fast* is for routine questions, lookups, figures and short tasks. *frontier* is for long
+reasoning, delicate personal or emotional conversation, and writing where the wording matters.
+Override `ModelCascade::guidance()` to say what needs the frontier in your application, or
+implement `Policy\Cascade` to decide without a model.
+
+- **The frontier tier down.** When the frontier tier cannot answer (a refusal, a provider that
+  stays down after its retries and fallback), the question is answered on the fast tier. That
+  tier is told it answers in the stronger model's place (`Conversations::DEGRADED`) and should
+  say so if the question needs more.
+- **No decision changes nothing.** With no cascade (the default `NoCascade`), with `tiers` not
+  naming both, or with the fast tier unable to decide, the question goes to the assistant's own
+  connection, as before.
+- A `Conversations` given a `Client` of the caller's own is not cascaded: that choice is the
+  caller's.
+- A conversation holding data of a tag moves within the tier as it does without tiers.
+- The decision is logged with the purpose `cascade`, and the tier's calls carry `tier` in their
+  context.
 
 ### Approvals given in advance
 

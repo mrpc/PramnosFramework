@@ -53,6 +53,10 @@ class Conversations
     /** How the framework notes the tools an earlier answer wrote with. Only this class writes it. */
     public const MARK = '⟦Tools that wrote in this answer: ';
 
+    /** Told to the fast tier when it answers in place of the frontier one, which is down. */
+    public const DEGRADED = 'The stronger model is unavailable right now, so you are answering in its place: answer as well as you can, '
+        . 'and say plainly if the question needs more than you can give.';
+
     private ?Scope $scope = null;
 
     private ?bool $tracks = null;
@@ -314,7 +318,12 @@ class Conversations
             }
         }
 
-        $client = $this->client($this->scope);
+        // The tier the question needs, where the application has tiers — never over a client the
+        // caller gave, which is its choice.
+        $tier   = $this->client === null
+            ? \Pramnos\Llm\Llm::cascade()->tier(['purpose' => $this->scope->purpose()] + $this->scope->context(), $question, $history)
+            : null;
+        $client = $this->tiered($tier) ?? $this->client($this->scope);
 
         // A conversation already holding data of a kind is asked only where that kind may go —
         // its summary too.
@@ -388,15 +397,29 @@ class Conversations
         $semi   = ($turn->shared() ? trim($this->assistant->context($turn)) : $this->context($turn, $memory))
             . ($summary === '' ? '' : "\n\nEarlier in this conversation, in short (those messages are not shown again):\n" . $summary);
 
-        $answer = $client->onText($this->onText)->cancelWhen($this->stopWhen)->inParallel($parallel)->answering($this->answerKey)->askWithTools(
-            $prefix,
-            $zones->messages($turn, $semi, $messages),
-            $tools,
-            $this->assistant->rounds(),
-            $this->assistant->due($turn),
-            $this->assistant->verify($turn)
-        );
-        $client->onText(null)->cancelWhen(null)->inParallel(null)->answering(null);
+        $sent = $zones->messages($turn, $semi, $messages);
+        $run  = function (\Pramnos\Llm\Client $client, array $sent) use ($prefix, $tools, $turn, $parallel): array {
+            $answer = $client->onText($this->onText)->cancelWhen($this->stopWhen)->inParallel($parallel)->answering($this->answerKey)->askWithTools(
+                $prefix,
+                $sent,
+                $tools,
+                $this->assistant->rounds(),
+                $this->assistant->due($turn),
+                $this->assistant->verify($turn)
+            );
+            $client->onText(null)->cancelWhen(null)->inParallel(null)->answering(null);
+
+            return $answer;
+        };
+        $answer = $run($client, $sent);
+
+        // The frontier tier down: answered on the fast one instead, which is told so.
+        if (!$answer['ok'] && $tier === 'frontier' && !isset($answer['cancelled']) && !isset($answer['consent']) && !isset($answer['limited'])
+            && ($fast = $this->tiered('fast')) !== null
+            && array_filter($held, static fn (string $tag): bool => !$fast->moveFor($tag)) === []) {
+            $sent[count($sent) - 2]['content'] .= "\n\n" . self::DEGRADED;
+            $answer = $run($fast, $sent);
+        }
 
         if ($answer['ok']) {
             ContextAssembler::cacheReport((array) ($answer['usage'] ?? []), count($messages) > 1, $conversationId);
@@ -710,6 +733,21 @@ class Conversations
         $chat = \Pramnos\Llm\Llm::config('chat', []);
 
         return (bool) ($chat['summarize'] ?? true);
+    }
+
+    /**
+     * A client on a tier's feature (`'llm' => ['tiers' => [name => feature]]`), marked as the
+     * scope's other calls are; null for no tier, or one the application did not name.
+     */
+    private function tiered(?string $tier): ?\Pramnos\Llm\Client
+    {
+        $feature = $tier === null ? null : (((array) \Pramnos\Llm\Llm::config('tiers', []))[$tier] ?? null);
+        if (!is_string($feature) || $feature === '' || $this->scope === null) {
+            return null;
+        }
+
+        return (new \Pramnos\Llm\Client(new \Pramnos\Llm\Connection(null, $feature)))
+            ->about(['purpose' => $this->scope->purpose(), 'tier' => $tier] + $this->scope->context() + $this->about);
     }
 
     /** The client a call in this scope is made with. */

@@ -43,6 +43,7 @@ final class Llm
         'consent' => Policy\NoConsent::class,
         'router'  => Policy\DefaultRouter::class,
         'tool_gate' => Policy\OpenGate::class,
+        'cascade' => Policy\NoCascade::class,
     ];
 
     /**
@@ -74,6 +75,12 @@ final class Llm
     public static function router(): Policy\Router
     {
         return self::one('router');
+    }
+
+    /** Which tier of model answers a question: `'llm' => ['cascade' => …, 'tiers' => […]]`. */
+    public static function cascade(): Policy\Cascade
+    {
+        return self::one('cascade');
     }
 
     /** What decides, before it runs, whether a tool call may: `'llm' => ['tool_gate' => …]`. */
@@ -118,7 +125,7 @@ final class Llm
     /**
      * Set a policy at runtime, over whatever `app.php` says.
      *
-     * @param string              $kind   `limits`, `consent`, `router`, `tool_gate`, `rules` or `admin_sections`
+     * @param string              $kind   `limits`, `consent`, `router`, `tool_gate`, `cascade`, `rules` or `admin_sections`
      * @param object|list<object> $policy One object, or a list for `rules` and `admin_sections`
      */
     public static function use(string $kind, object|array $policy): void
