@@ -849,9 +849,11 @@ class Token extends \Pramnos\Framework\Base
             }
 
             // A URL nobody has logged before. This happens once per distinct
-            // URL for the life of the installation.
+            // URL for the life of the installation. `url` is varchar(255): a
+            // longer one — a list of ids in the path — is kept cut, and is still
+            // found by the hash of the whole of it.
             $database->queryBuilder()->table('#PREFIX#urls')->insert([
-                'url'  => $url,
+                'url'  => mb_substr($url, 0, 255),
                 'hash' => $hash,
             ]);
 

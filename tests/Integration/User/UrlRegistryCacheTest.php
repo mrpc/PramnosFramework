@@ -167,6 +167,31 @@ class UrlRegistryCacheTest extends BaseTestCase
     }
 
     /**
+     * A URL longer than the column is registered, cut to 255 characters, and found again by the
+     * hash of the whole of it.
+     *
+     * `urls.url` is varchar(255) and an API call can carry a list of ids in its path. Inserting
+     * the whole of it failed — and on PostgreSQL aborted the drain's transaction — so every token
+     * action of such a call was parked by the spool and never written.
+     */
+    public function testALongUrlIsRegisteredCut(): void
+    {
+        // Arrange
+        $this->url .= '/' . implode(',', range(400000, 400100));
+
+        // Act
+        $id = Token::urlId($this->url);
+        $this->clearCache();
+        $again = Token::urlId($this->url);
+
+        // Assert
+        $this->assertGreaterThan(0, $id, 'the long URL was not registered');
+        $this->assertSame($id, $again, 'found again by the hash of the whole URL, not inserted twice');
+        $row = $this->db->query('SELECT url FROM ' . $this->db->prefix . 'urls WHERE urlid = ' . $id);
+        $this->assertSame(mb_substr($this->url, 0, 255), $row->fields['url']);
+    }
+
+    /**
      * A full cache drops its oldest half and keeps the newest.
      *
      * The claim the comment makes, asserted: the entries that survive are the ones added most

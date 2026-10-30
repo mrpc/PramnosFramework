@@ -2599,9 +2599,13 @@ Three properties worth knowing when reading a report built on this table:
 - **The cache is per process; the registry is not.** A second worker resolving a URL the first one
   registered finds the existing row rather than inserting a duplicate, so ids are stable across
   processes and a report can group on them.
-- **An unreachable registry resolves to `0`, and the drain carries on.** `0` is the "no URL" value
-  the action row takes, so a missing or broken `urls` table costs the URL of an action rather than
-  the whole batch — a gap in a report instead of a gap in the audit trail.
+- **A URL longer than the column is kept cut.** `urls.url` holds 255 characters, and a call with a
+  list of ids in its path can be longer. The row stores the first 255; the lookup is by the hash of
+  the *whole* URL, so it is still one row per URL and found again by the next call.
+- **An unreachable registry resolves to `0`.** `urlId()` itself never throws. Where
+  `tokenactions.urlid` carries its foreign key to `urls`, an action row with `0` cannot be written
+  either, so the spool keeps the batch and retries it — which is what a registry that is down for a
+  moment needs.
 
 A consequence for anyone reading `urls`: a query string is **not** part of the key. The registry is
 per endpoint, so `/orders?id=1` and `/orders?id=2` are one row. That is deliberate — the alternative
@@ -2958,7 +2962,7 @@ $svc->disable($userId, $password);                            // refused when wr
 $newCodes = $svc->regenerateBackupCodes($userId, $password);  // string[]|false
 $svc->disableForOperator($userId);                            // administrative
 $svc->regenerateBackupCodesForOperator($userId);              // administrative, destructive
-$svc->cleanupExpiredSessions();                               // removes used/expired setup rows
+$svc->cleanupExpiredSessions();                               // removes used/expired setup rows — `used` integer or boolean, `expires_at` Unix time or timestamp
 ```
 
 **The issuer is the name the authenticator app files the account under.** `startSetup()`
