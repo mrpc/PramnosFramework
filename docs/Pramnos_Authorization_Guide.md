@@ -181,7 +181,7 @@ application that never opens the toolbar pays one boolean check per decision. Sa
 Abilities live in statics. That is right for a request and wrong for anything handling more
 than one, so `Gate::reset()` exists, and the test suite calls it between tests via
 `Pramnos\Framework\Testing\GateIsolation` — see
-[the Testing Guide](Pramnos_Testing_Guide.md#isolating-process-wide-state).
+[the Testing Guide](Pramnos_Testing_Runner_Guide.md#isolating-process-wide-state).
 
 ---
 
@@ -841,7 +841,7 @@ before there is any record to reason about.
 
 The types, their capabilities, how an application declares its own, and why
 `usertype_capabilities` **replaces** the framework's map instead of merging with it are all
-in the [Authentication guide](Pramnos_Authentication_Guide.md#what-a-usertype-is-what-each-one-may-do-and-how-to-change-them),
+in the [Authentication guide](Pramnos_Auth_Users_Guide.md#what-a-usertype-is-what-each-one-may-do-and-how-to-change-them),
 next to `users.usertype` itself. `/admin/Users/types` renders the running answer.
 
 ### Which layer a question belongs to

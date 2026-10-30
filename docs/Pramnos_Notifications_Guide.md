@@ -794,7 +794,7 @@ class WeeklyDigest implements NotificationInterface
 
 The message is **composed in this request** — rendered, wrapped, suppression-checked — and
 written to the outbox instead of an SMTP connection. `mail:flush` delivers it. See
-[the outbox](Pramnos_Email_Guide.md#the-outbox) for what the worker does with a refusal.
+[the outbox](Pramnos_Email_Outbox_Guide.md#the-outbox) for what the worker does with a refusal.
 
 Composed now rather than by the worker, and that is the part worth understanding: composition
 reads the request's language, its settings and its unsubscribe token, and a worker running an

@@ -46,7 +46,7 @@ opens the panel whatever the callback says. To keep an account out, narrow the l
 example by raising `production_min_usertype` out of reach and naming people in `userids`.
 
 Every floor below defaults to the **`root` role** — `'roles' => ['root' => 99]`, see
-[Moving the lines](Pramnos_Authentication_Guide.md#moving-the-lines-roles) — so moving root moves
+[Moving the lines](Pramnos_Auth_Users_Guide.md#moving-the-lines-roles) — so moving root moves
 all three tools. A key set here wins over the role:
 
 ```php

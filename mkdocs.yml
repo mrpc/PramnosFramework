@@ -30,6 +30,7 @@ theme:
     - navigation.tabs
     - navigation.top
     - navigation.indexes
+    - navigation.expand
     - search.highlight
     - search.suggest
     - content.code.copy
@@ -81,7 +82,11 @@ nav:
       - Application Styles (MVC / SPA / hybrid): Pramnos_Application_Styles_Guide.md
       - Routing: Pramnos_Routing_Guide.md
       - Validation: Pramnos_Validation_System_Guide.md
-      - Theming: Pramnos_Theme_Guide.md
+      - Theming:
+        - Overview: Pramnos_Theme_Guide.md
+        - "Widgets, menus and navigation": Pramnos_Theme_Navigation_Guide.md
+        - "The administration theme, theme settings and content types": Pramnos_Theme_Admin_Guide.md
+        - "One palette, every UI system": Pramnos_Theme_UI_Systems_Guide.md
       - Internationalization: Pramnos_Internationalization_Guide.md
       - Document Output: Pramnos_Document_Output_Guide.md
       - Environment Variables: Pramnos_Environment_Variables_Guide.md
@@ -111,7 +116,13 @@ nav:
       - Realtime (SSE & WebSockets): Pramnos_Realtime_Guide.md
       - Model Change Feed: Pramnos_Change_Feed_Guide.md
     - Security & Identity:
-      - Authentication: Pramnos_Authentication_Guide.md
+      - Authentication:
+        - Overview: Pramnos_Authentication_Guide.md
+        - "Users: types, the administration screen, registration": Pramnos_Auth_Users_Guide.md
+        - "Second factors, lockout and new-device alerts": Pramnos_Auth_Second_Factors_Guide.md
+        - "Passkeys": Pramnos_Auth_Passkeys_Guide.md
+        - "Tokens: API tokens, JWT and password resets": Pramnos_Auth_Tokens_Guide.md
+        - "Permissions, OAuth2 scopes and addons": Pramnos_Auth_Permissions_Guide.md
       - Setting up an Auth Server: Pramnos_AuthServer_Setup_Guide.md
       - Authorization: Pramnos_Authorization_Guide.md
       - Security Hardening: Pramnos_Security_Guide.md
@@ -133,14 +144,25 @@ nav:
     - Platform Engines:
       - Administration help and side panel: Pramnos_Admin_Assistant_Guide.md
       - Notifications: Pramnos_Notifications_Guide.md
-      - Email: Pramnos_Email_Guide.md
+      - Email:
+        - Overview: Pramnos_Email_Guide.md
+        - "Writing a message: templates, wrapper, editor, the parts": Pramnos_Email_Writing_Guide.md
+        - "Mail to many: kinds of mail, unsubscribing, mailing lists": Pramnos_Email_Mass_Mail_Guide.md
+        - "Deliverability: tracking, Gmail actions, DNS, bounces": Pramnos_Email_Deliverability_Guide.md
+        - "The outbox, and what is kept of a sent message": Pramnos_Email_Outbox_Guide.md
       - Audiences (attributes and filters): Pramnos_Audience_Guide.md
       - Conversations (team chat, support, messages): Pramnos_Conversations_Guide.md
       - Moderation (bans, mutes, filter, reports): Pramnos_Moderation_Guide.md
       - Web Push: Pramnos_Push_Guide.md
       - Media: Pramnos_Media_Guide.md
     - Operations:
-      - Console Commands: Pramnos_Console_Guide.md
+      - Console Commands:
+        - Overview: Pramnos_Console_Guide.md
+        - "Starting a project: init, project:setup, reconfiguring": Pramnos_Console_Init_Guide.md
+        - "Generating models, controllers and views": Pramnos_Console_Model_Generation_Guide.md
+        - "Generating APIs and front-ends": Pramnos_Console_API_Generation_Guide.md
+        - "Migrations and seeds from the console": Pramnos_Console_Migrations_Guide.md
+        - "Writing commands and daemons": Pramnos_Console_Writing_Commands_Guide.md
       - Health checks: Pramnos_Health_Guide.md
       - MCP server (AI assistant integration): Pramnos_MCP_Guide.md
       - Workers & Daemons: Pramnos_Workers_And_Daemons_Guide.md
@@ -148,7 +170,13 @@ nav:
       - Deploy webhooks: Pramnos_Deploy_Webhook_Guide.md
       - Moving from MySQL: Pramnos_Moving_From_MySQL_Guide.md
       - Logging: Pramnos_Logging_Guide.md
-      - Testing: Pramnos_Testing_Guide.md
+      - Testing:
+        - Overview: Pramnos_Testing_Guide.md
+        - "Databases in tests": Pramnos_Testing_Databases_Guide.md
+        - "A fast suite, and coverage that means something": Pramnos_Testing_Speed_Coverage_Guide.md
+        - "Pitfalls: tests that pass for the wrong reason": Pramnos_Testing_Pitfalls_Guide.md
+        - "Process state, and ./dockertest": Pramnos_Testing_Runner_Guide.md
+        - "Testing JavaScript": Pramnos_Testing_JavaScript_Guide.md
       - Test suite performance: Pramnos_Test_Suite_Performance.md
       - Debugging: Pramnos_Debugging_Guide.md
       - DevPanel: Pramnos_DevPanel_Guide.md

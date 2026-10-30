@@ -67,7 +67,7 @@ defaults — the controls' words through `t()`, and the `upload` and `links` add
 
 On a message form the editor is reached by the composer's tools — saved messages, placeholders,
 writing with AI, the signature — like the other editors; see the
-[Email guide](Pramnos_Email_Guide.md#composing-a-message-saved-messages-placeholders-ai-the-signature).
+[Email guide](Pramnos_Email_Writing_Guide.md#composing-a-message-saved-messages-placeholders-ai-the-signature).
 
 ## A field's own settings
 

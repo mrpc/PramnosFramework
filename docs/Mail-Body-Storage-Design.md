@@ -133,7 +133,7 @@ content is in the database on every framework row anyway: no body store ships, a
 prototype's was opt-in with a 512-byte floor.
 
 **The shipped retention command differs from this policy.** `mail:prune` (see the
-[Email guide](Pramnos_Email_Guide.md#what-to-keep-of-a-sent-message-and-for-how-long)) strips
+[Email guide](Pramnos_Email_Outbox_Guide.md#what-to-keep-of-a-sent-message-and-for-how-long)) strips
 bodies and deletes rows past configured ages. It does nothing until an installation configures a
 policy, so it does not contradict "never deleted" by default — but the two have to be reconciled
 before a body store is designed around either.

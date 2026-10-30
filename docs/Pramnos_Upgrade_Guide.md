@@ -99,7 +99,7 @@ survives.
 
 All five ship in `src/` (`Pramnos\Framework\Testing`), so they exist in `vendor/` and need
 no autoload configuration. See
-[Isolating process-wide state](Pramnos_Testing_Guide.md#isolating-process-wide-state).
+[Isolating process-wide state](Pramnos_Testing_Runner_Guide.md#isolating-process-wide-state).
 
 ---
 

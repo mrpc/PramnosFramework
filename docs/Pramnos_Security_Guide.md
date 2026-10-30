@@ -837,7 +837,7 @@ if (!$auth->auth($username, $password)) {
 
 The ladder and window come from the `loginlockoutsteps` and `loginlockoutwindowseconds`
 settings — see the
-[Authentication guide](Pramnos_Authentication_Guide.md#login-lockout-brute-force-protection).
+[Authentication guide](Pramnos_Auth_Second_Factors_Guide.md#login-lockout-brute-force-protection).
 
 **A lockout whose table cannot be reached fails open.** The table may not be migrated yet, or the
 database may be down. Then the status reads "not locked", a failure is not recorded, and the
@@ -861,7 +861,7 @@ if (TOTPHelper::verifyCode($secret, $code)) {
 }
 ```
 
-See [Two-Factor Authentication](Pramnos_Authentication_Guide.md#two-factor-authentication-totp)
+See [Two-Factor Authentication](Pramnos_Auth_Second_Factors_Guide.md#two-factor-authentication-totp)
 for the full enrolment flow.
 
 ## Content Security Policy
@@ -1600,7 +1600,7 @@ anybody repeating the installation's own configuration.
 
 `create:migration` asks whether each table it generates holds personal data and prints the
 line to paste — see the
-[Console guide](Pramnos_Console_Guide.md#the-personal-data-question). That is the one
+[Console guide](Pramnos_Console_Migrations_Guide.md#the-personal-data-question). That is the one
 moment somebody knows the answer.
 
 ### Why a denial list, and what it costs

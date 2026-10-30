@@ -1558,7 +1558,7 @@ $fake->assertBroadcast('private-order.42', 'order.paid');
 ```
 
 Full reference — including `assertBroadcastExcept()` for `toOthers()` — in the
-[Testing guide](Pramnos_Testing_Guide.md#asserting-that-something-was-broadcast).
+[Testing guide](Pramnos_Testing_Runner_Guide.md#asserting-that-something-was-broadcast).
 
 ---
 

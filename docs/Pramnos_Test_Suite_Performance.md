@@ -241,7 +241,7 @@ worse than no guard, because it is counted.
   only MySQL accepts. The repetition *is* the test.
 - **Do not reach for parallelism first.** `./dockertest --parallel[=N]` exists — ParaTest
   over N workers, each with its own database, then the `serial` group in one process (see
-  the [Testing Guide](Pramnos_Testing_Guide.md#running-the-frameworks-suite-in-parallel)).
+  the [Testing Guide](Pramnos_Testing_Speed_Coverage_Guide.md#running-the-frameworks-suite-in-parallel)).
   It collects no coverage, so the sequential run stays the reference, and a test that fails
   only in parallel is one that shares something. Parallelism hides a slow class rather than
   fixing it; remove the per-class costs above first.

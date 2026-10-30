@@ -544,7 +544,7 @@ The screen imports five shared components — `DataTable`, `Pagination`,
 never overwritten afterwards, because the value of shipping a `DataTable` is
 that you extend it. `project:resync --spa-components` takes a newer version of
 those you have not changed, and keeps the rest. See the [Console
-Guide](Pramnos_Console_Guide.md#front-end-generation-spa-projects) for the
+Guide](Pramnos_Console_API_Generation_Guide.md#front-end-generation-spa-projects) for the
 control-per-type table and the components' contracts.
 
 ### The shell is a page, not a view
@@ -715,7 +715,7 @@ stack's sections are plain modules under the web root.
 ### Testing a section
 
 - Its router and page calls are plain JavaScript: test them with `test:js` and the
-  `pramnos-testing` helpers (see the [Testing Guide](Pramnos_Testing_Guide.md#testing-the-javascript-of-an-application)).
+  `pramnos-testing` helpers (see the [Testing Guide](Pramnos_Testing_JavaScript_Guide.md#testing-the-javascript-of-an-application)).
 - Its components are tested with Vitest, like the SPA's.
 - On the server, a `TestClient` request to a deep link (`/admin/Users/edit/5`) proves the address
   is answered with the mount element inside the area.

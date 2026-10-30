@@ -158,7 +158,7 @@ framework with no preset silently renders as `plain`, and a test asserts the two
 None of the five routes is where a palette lives. `app/themes/theme.css` holds every colour and
 radius for the project, in daisyUI's theme-generator format, and `pramnos theme:build` propagates
 it to `www/assets/css/theme-tokens.css`, `www/assets/theme-tokens.json` and
-`ThemeTokens::token()` for PHP. See the [Theme guide](Pramnos_Theme_Guide.md#one-palette-every-ui-system).
+`ThemeTokens::token()` for PHP. See the [Theme guide](Pramnos_Theme_UI_Systems_Guide.md#one-palette-every-ui-system).
 
 So a `pf-*` rule should be written in those tokens rather than in literals:
 
@@ -176,7 +176,7 @@ component that did not change when everything else did.
 
 Which components follow `project:switch-ui` and which do not, and how to write an application's
 own templates so they do, is in the Theme Guide's
-[Writing views that survive a UI switch](Pramnos_Theme_Guide.md#writing-views-that-survive-a-ui-switch).
+[Writing views that survive a UI switch](Pramnos_Theme_UI_Systems_Guide.md#writing-views-that-survive-a-ui-switch).
 
 `Icon` emits `pf-icon` and `SearchBox` emits four `pf-omnibox-*` names, with no property for any of
 them. **Restyle them with CSS (route 1)** — they are neutral hooks, so a rule is the whole answer
