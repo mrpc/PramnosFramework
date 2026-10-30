@@ -10,24 +10,24 @@ use Pramnos\Llm\CallLog;
 use Pramnos\Llm\Chat\BaseAssistant;
 use Pramnos\Llm\Chat\Conversations;
 use Pramnos\Llm\Chat\Scope;
-use Pramnos\Llm\Companion\Calendar;
-use Pramnos\Llm\Companion\Companion;
+use Pramnos\Llm\Chat\Calendar;
 use Pramnos\Llm\Llm;
 use Pramnos\Llm\Policy\Proactivity;
 use Pramnos\Llm\Policy\QuietProactivity;
 use Pramnos\Tests\Unit\Llm\LlmTestCase;
 
 /**
- * The companion's manners — when it may reach out on its own — on MySQL and PostgreSQL.
+ * The assistant's manners — when it may reach out on its own — on MySQL and PostgreSQL.
  *
  * What holds: nothing in quiet hours, held until they end; no more than the day's pings; nothing
  * while the person is in an appointment or said they are busy; an alarm whatever the rules; a
  * scheduled question that is held costs no model call and is asked later; an appointment's
- * reminder goes once, or is passed without counting; and none of it touches an application that
- * has not turned the companion on.
+ * reminder goes once, or is passed without counting; and none of it holds anything for an
+ * application that has not set `'llm' => ['proactivity' => …]`.
  */
 #[CoversClass(QuietProactivity::class)]
-#[CoversClass(Companion::class)]
+#[CoversClass(Calendar::class)]
+#[CoversClass(Llm::class)]
 #[CoversClass(\Pramnos\Llm\Chat\Routines::class)]
 class ProactivityTest extends LlmTestCase
 {
@@ -138,9 +138,9 @@ class ProactivityTest extends LlmTestCase
     {
         // Arrange
         $userId = $this->person($type, $host, $port);
-        $this->configure(['proactivity' => ['quiet' => ''], 'chat' => ['companion' => true]]);
+        $this->configure(['proactivity' => ['quiet' => ''], 'chat' => ['calendar' => true]]);
         $scope  = new Scope($userId, null);
-        $tools  = (new Companion($scope, 'UTC'))->tools();
+        $tools  = (new Calendar($scope, 'UTC'))->tools();
         $now    = time();
         $policy = new QuietProactivity();
 
@@ -160,8 +160,8 @@ class ProactivityTest extends LlmTestCase
 
     /**
      * A scheduled question the policy holds is not asked — no model call — and waits: until the
-     * moment given, or its next turn; a one-off is tried in an hour. Without the companion the
-     * policy is never asked.
+     * moment given, or its next turn; a one-off is tried in an hour. Without
+     * `'llm' => ['proactivity' => …]` the policy is never asked.
      */
     #[DataProvider('databases')]
     public function testAHeldQuestionIsNotAsked(string $type, string $host, int $port): void
@@ -185,8 +185,7 @@ class ProactivityTest extends LlmTestCase
                 return $this->answer;
             }
         };
-        Llm::use('proactivity', $policy);
-        $this->configure(['chat' => ['companion' => true]]);
+        $this->configure(['proactivity' => true]);
         Llm::use('proactivity', $policy);
 
         // Act — not this time
@@ -210,7 +209,7 @@ class ProactivityTest extends LlmTestCase
         $this->assertSame($now + 5000, $heldNext);
         $this->assertNull($this->db->queryBuilder()->table('ai_routines')->where('routine_id', $daily['routine_id'])->first()->fields['locked_until'], 'let go of');
 
-        // Without the companion the policy is not asked, and the question is
+        // Without manners asked for, the policy is not asked, and the question is
         $this->configure([]);
         Llm::use('proactivity', $policy);
         $asked = $policy->asked;
@@ -231,7 +230,7 @@ class ProactivityTest extends LlmTestCase
         $routines = new RecordingRoutines(new Conversations(new BaseAssistant()));
         $made     = $routines->create(new Scope(7, null), ['title' => 'Morning', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00']);
         $this->db->queryBuilder()->table('ai_routines')->where('routine_id', $made['routine_id'])->update(['next_run_at' => CallLog::instant(time() - 60)]);
-        $this->configure(['chat' => ['companion' => true]]);
+        $this->configure(['proactivity' => true]);
         Llm::use('proactivity', new class implements Proactivity {
             public function when(int $userId, string $timezone, int $now, bool $critical = false): int
             {
@@ -249,14 +248,15 @@ class ProactivityTest extends LlmTestCase
 
     /**
      * An appointment's reminder goes once, with the minutes left; one the policy holds is passed —
-     * marked, never sent, not counted — and without the companion nothing is sent.
+     * marked, never sent, not counted; without manners asked for, the policy holds nothing; and
+     * without the calendar on nothing is sent.
      */
     #[DataProvider('databases')]
     public function testRemindersBeforeAppointments(string $type, string $host, int $port): void
     {
         // Arrange
         $this->connectDatabase($type, $host, $port);
-        $this->configure(['chat' => ['companion' => true], 'proactivity' => ['quiet' => '']]);
+        $this->configure(['chat' => ['calendar' => true], 'proactivity' => ['quiet' => '']]);
         // On the minute, so "in 20 minutes" is exact.
         $now  = time() - time() % 60;
         $soon = (new Calendar(new Scope(7, null), 'UTC'))->create('Giorgos', gmdate('Y-m-d H:i', $now + 20 * 60))['created']['id'];
@@ -266,8 +266,8 @@ class ProactivityTest extends LlmTestCase
         };
 
         // Act
-        $first  = Companion::remind($now, $tell);
-        $second = Companion::remind($now, $tell);
+        $first  = Calendar::remind($now, $tell);
+        $second = Calendar::remind($now, $tell);
         $held   = (new Calendar(new Scope(8, null), 'UTC'))->create('Held', gmdate('Y-m-d H:i', $now + 10 * 60))['created']['id'];
         Llm::use('proactivity', new class implements Proactivity {
             public function when(int $userId, string $timezone, int $now, bool $critical = false): int
@@ -275,23 +275,32 @@ class ProactivityTest extends LlmTestCase
                 return 0;
             }
         });
-        $passed = Companion::remind($now, $tell);
+        $passed = Calendar::remind($now, $tell);
+        $this->configure(['chat' => ['calendar' => true]]);
+        Llm::use('proactivity', new class implements Proactivity {
+            public function when(int $userId, string $timezone, int $now, bool $critical = false): int
+            {
+                return 0;
+            }
+        });
+        (new Calendar(new Scope(11, null), 'UTC'))->create('No manners', gmdate('Y-m-d H:i', $now + 25 * 60));
+        $unheld = Calendar::remind($now, $tell);
         $this->configure([]);
         $off    = (new Calendar(new Scope(9, null), 'UTC'))->create('Off', gmdate('Y-m-d H:i', $now + 5 * 60))['created']['id'];
-        $none   = Companion::remind($now, $tell);
+        $none   = Calendar::remind($now, $tell);
 
         // Assert
-        $this->assertSame([1, 0, 0, 0], [$first, $second, $passed, $none]);
-        $this->assertSame([[7, 'In 20 minutes: Giorgos.']], $told);
+        $this->assertSame([1, 0, 0, 1, 0], [$first, $second, $passed, $unheld, $none]);
+        $this->assertSame([[7, 'In 20 minutes: Giorgos.'], [11, 'In 25 minutes: No manners.']], $told);
         $alerted = fn (int $id): string => (string) $this->db->queryBuilder()->table('chat_calendar')->where('item_id', $id)->first()->fields['alerted_at'];
         $this->assertStringStartsWith('1970-01-01', $alerted($held), 'passed, at the first moment there is');
         $this->assertStringStartsWith('1970-01-01', $alerted($off));
         $this->assertStringStartsWith(gmdate('Y-m-d'), $alerted($soon));
 
         // One that cannot be told is not counted, and does not stop the rest
-        $this->configure(['chat' => ['companion' => true], 'proactivity' => ['quiet' => '']]);
+        $this->configure(['chat' => ['calendar' => true], 'proactivity' => ['quiet' => '']]);
         (new Calendar(new Scope(10, null), 'UTC'))->create('Broken', gmdate('Y-m-d H:i', $now + 15 * 60));
-        $this->assertSame(0, Companion::remind($now, static function (): void {
+        $this->assertSame(0, Calendar::remind($now, static function (): void {
             throw new \RuntimeException('no push endpoint');
         }));
     }

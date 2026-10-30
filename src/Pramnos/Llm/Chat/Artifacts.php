@@ -42,6 +42,9 @@ final class Artifacts
     /** What an artifact can be. */
     public const KINDS = ['table', 'list', 'text', 'chart'];
 
+    /** Told on the person's private channel when one of theirs is changed or pinned: `{id, pinned?}`. */
+    public const CHANGED = 'artifact.changed';
+
     /** How a chart may be drawn. */
     public const CHARTS = ['bar', 'line', 'pie', 'doughnut'];
 
@@ -248,6 +251,8 @@ final class Artifacts
             'content'    => (string) json_encode($content, JSON_UNESCAPED_UNICODE),
             'updated_at' => CallLog::instant(time()),
         ]);
+        // An open page showing it redraws it now; the prompt has it from the next question.
+        \Pramnos\Broadcasting\BroadcastingManager::toUser($this->scope->userId, self::CHANGED, ['id' => $artifactId]);
 
         return $this->find($artifactId) ?? 'There is no such artifact.';
     }
@@ -817,6 +822,7 @@ final class Artifacts
             $pins = array_values(array_filter($pins, static fn (string $one): bool => $one !== $key));
         }
         $user->setSetting(self::PIN_SETTING, json_encode($pins));
+        \Pramnos\Broadcasting\BroadcastingManager::toUser($this->scope->userId, self::CHANGED, ['id' => $artifactId, 'pinned' => $pinned]);
 
         return null;
     }

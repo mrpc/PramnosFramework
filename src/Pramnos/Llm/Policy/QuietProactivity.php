@@ -7,8 +7,10 @@ namespace Pramnos\Llm\Policy;
 use Pramnos\Database\Instant;
 
 /**
- * The companion's manners, by default: no ping in quiet hours, a few a day at most, and none
- * while the person is busy.
+ * The assistant's manners when it reaches out on its own, by default: no ping in quiet hours, a
+ * few a day at most, and none while the person is busy. Applied once the application sets
+ * `'llm' => ['proactivity' => …]` — to a person's own scheduled questions and to calendar
+ * reminders.
  *
  * ```php
  * 'llm' => ['proactivity' => ['quiet' => '22:30-07:30', 'daily' => 3]],
@@ -25,7 +27,7 @@ use Pramnos\Database\Instant;
 class QuietProactivity implements Proactivity
 {
     /** The person's own setting: busy until this Unix time. */
-    public const BUSY = 'ai_companion_busy_until';
+    public const BUSY = 'ai_busy_until';
 
     public const QUIET = '22:30-07:30';
     public const DAILY = 3;
@@ -78,7 +80,7 @@ class QuietProactivity implements Proactivity
 
     /**
      * Pings already sent today, on the person's clock: questions it asked, and reminders. The
-     * tables are the companion's own feature's; a failure here reaches the caller, which lets
+     * tables are the calendar's; a failure here reaches the caller, which lets
      * the person's schedule go rather than silence it.
      */
     protected function sentToday(int $userId, \DateTimeImmutable $local): int
@@ -98,6 +100,6 @@ class QuietProactivity implements Proactivity
     protected function busy(int $userId, string $timezone, int $now): bool
     {
         return (int) (new \Pramnos\User\User($userId))->getSetting(self::BUSY, 0) > $now
-            || (new \Pramnos\Llm\Companion\Calendar(new \Pramnos\Llm\Chat\Scope($userId, null), $timezone))->busyAt($now);
+            || (new \Pramnos\Llm\Chat\Calendar(new \Pramnos\Llm\Chat\Scope($userId, null), $timezone))->busyAt($now);
     }
 }

@@ -21,6 +21,7 @@ use Pramnos\Tests\Unit\Llm\LlmTestCase;
  * front of the model at the start of every question, as it stands then.
  */
 #[CoversClass(Artifacts::class)]
+#[CoversClass(\Pramnos\Broadcasting\BroadcastingManager::class)]
 class LivingArtifactsTest extends LlmTestCase
 {
     use ChatDatabase;
@@ -185,6 +186,43 @@ class LivingArtifactsTest extends LlmTestCase
         $this->assertSame([], $noTag);
         $this->assertCount(1, $one);
         $this->assertSame('No artifacts found.', self::call(new Artifacts(new Scope(8, null)), 'list_artifacts', ['entity' => 'user']));
+    }
+
+    /**
+     * A change and a pin are told to the person's open pages at once, as `artifact.changed` on
+     * their private channel — a refused change is not; without broadcasting set up nothing is told
+     * and nothing fails.
+     */
+    #[DataProvider('databases')]
+    public function testAChangeIsToldToTheOpenPage(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $userId = $this->user();
+        $a      = new Artifacts(new Scope($userId, null));
+        $plan   = $a->create(['kind' => 'text', 'title' => 'Plan', 'text' => 'Ship on Friday.'])['artifact_id'];
+        $quiet  = $a->update($plan, 'append', ['text' => 'Nobody listening.']);
+        $fake   = \Pramnos\Broadcasting\Testing\FakeDriver::swap();
+
+        try {
+            // Act
+            $a->update($plan, 'append', ['text' => 'Or Monday.']);
+            $a->update($plan, 'patch', ['find' => 'nothing like this', 'replace' => 'x']);
+            $a->pin($plan);
+            $events = array_map(static fn (array $r): array => [$r['event'], $r['payload']], $fake->recorded());
+            $channels = array_unique(array_column($fake->recorded(), 'channel'));
+        } finally {
+            \Pramnos\Broadcasting\Testing\FakeDriver::restore();
+        }
+
+        // Assert
+        $this->assertIsArray($quiet, 'without broadcasting the change is made all the same');
+        $this->assertSame([
+            [Artifacts::CHANGED, ['id' => $plan]],
+            [Artifacts::CHANGED, ['id' => $plan, 'pinned' => true]],
+        ], $events, 'the refused patch is not told');
+        $this->assertCount(1, $channels);
+        $this->assertStringContainsString((string) $userId, (string) reset($channels), 'their own channel');
     }
 
     /**

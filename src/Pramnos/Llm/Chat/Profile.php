@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Pramnos\Llm\Companion;
+namespace Pramnos\Llm\Chat;
 
 use Pramnos\Changelog\ChangelogWriter;
 use Pramnos\Llm\CallLog;
-use Pramnos\Llm\Chat\Scope;
 
 /**
  * What the assistant holds true about a person that should not change on its own word —
- * `chat_dossier`.
+ * `chat_dossier`. On with `'llm' => ['chat' => ['profile' => true]]`: in every prompt of the
+ * person's own conversations, with its tools in the `profile` skill.
  *
  * | Area | Changed | |
  * |---|---|---|
@@ -28,7 +28,7 @@ use Pramnos\Llm\Chat\Scope;
  * `pramnos.changelog_events` ({@see history()}): the versions are in the log, the table holds what
  * is true now. So erasing a profile is two deletes, not one — {@see erase()} does both.
  */
-final class Dossier
+final class Profile
 {
     /** Areas that change only on the person's confirmation. */
     public const CONFIRMED = ['identity', 'values', 'goals', 'relationships'];
@@ -37,7 +37,7 @@ final class Dossier
     public const AREAS = [...self::CONFIRMED, 'mood'];
 
     /** The person's own setting that lets how they feel be kept. */
-    public const FEELINGS = 'ai_companion_feelings';
+    public const FEELINGS = 'ai_profile_feelings';
 
     /** Entries kept per person, and characters per entry: it goes into every prompt. */
     public const MAX   = 60;
@@ -51,6 +51,14 @@ final class Dossier
 
     public function __construct(private readonly Scope $scope)
     {
+    }
+
+    /** Whether the application turned it on, for this scope's space: a person's own conversations only. */
+    public static function on(Scope $scope): bool
+    {
+        $chat = \Pramnos\Llm\Llm::config('chat', []);
+
+        return $scope->space === Scope::CHAT && is_array($chat) && !empty($chat['profile']);
     }
 
     /** Whether the table is there. */

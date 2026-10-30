@@ -85,12 +85,24 @@ final class Llm
     }
 
     /**
-     * Whether the companion may reach out to a person now: `'llm' => ['proactivity' => …]`, a
+     * Whether the assistant may reach out to a person now: `'llm' => ['proactivity' => …]`, a
      * class, or the default's settings (`['quiet' => '22:30-07:30', 'daily' => 3]`).
      */
     public static function proactivity(): Policy\Proactivity
     {
         return self::one('proactivity');
+    }
+
+    /**
+     * Whether the application asked for manners at all — `'llm' => ['proactivity' => …]` set, to
+     * settings, `true` or a class. Without it a person's scheduled questions and reminders go at
+     * their time, as they always did.
+     */
+    public static function proactive(): bool
+    {
+        $config = self::config('proactivity', null);
+
+        return $config !== null && $config !== false;
     }
 
     /** What decides, before it runs, whether a tool call may: `'llm' => ['tool_gate' => …]`. */

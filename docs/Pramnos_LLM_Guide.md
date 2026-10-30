@@ -12,7 +12,8 @@ use_cases:
   - Keeping a table or list an AI answer produced, to open or act on later
   - Handing part of an answer to a subagent with its own context, tools and budget
   - Measuring a prompt, model or tool change against eval fixtures, and failing CI on a regression
-  - Turning a person's assistant into a personal companion that knows who they are and the people in their life
+  - Giving an assistant a profile of the person, their calendar and a journal, each turned on by itself
+  - Keeping an assistant from messaging people at night, too often or while they are busy
   - Letting the assistant search the web and read a page somebody links to
   - Exporting an AI result to CSV or PDF, or pinning a chart to the dashboard
   - Reading the fields of an invoice or form with a model, checked before saving
@@ -165,6 +166,11 @@ Once either is passed, the next round is the last: no more tools, and the model 
 The answer comes back with `over_budget: true`. An answer over its budget is not sent back for
 correction by `$verify`, since that would spend more. With neither set there is no cap but the
 rounds.
+
+**Going on from where it stopped.** In a conversation, an answer cut at its budget or its rounds
+is remembered as cut: the next question's history names the calls it had already made, with
+their arguments (`Conversations::whereItStopped()`). "Go on" starts from there, instead of
+reading everything again.
 
 Set the token figure from what an answer costs today, not from a round number: every round sends
 the whole conversation again, so an answer of six rounds over a 25,000-token prompt spends
@@ -382,7 +388,7 @@ and what it is for. The framework's own tools are already marked (`Conversations
 |---|---|
 | `tasks` | scheduling questions, reminders and reports |
 | `artifacts` | `read_artifact`, `update_artifact`, `list_artifacts`, `pin_artifact` (`save_artifact` stays) |
-| `profile`, `calendar`, `journal` | the [companion](#the-personal-companion)'s |
+| `profile`, `calendar`, `journal` | the [person's own](#the-persons-own-a-profile-a-calendar-a-journal) profile, calendar and journal (`set_busy` stays) |
 | `web` | `web_search`, `fetch_url` |
 
 Memory, `save_artifact` and `set_busy` belong to no skill. An application marks its own tools
@@ -442,6 +448,11 @@ JSON or in server-sent events. `timeout` is seconds per call (30). Any other key
 - Each server is connected once per process and its tools are listed once. A server that cannot
   be reached is logged and left out, so a service that is down costs its own tools and not the
   answer. A result the server marks as an error reads `Error: …`, like a failed tool of our own.
+
+**In conversations.** Configuring servers does not put their tools in front of every person:
+the application offers them in its people's conversations with `'llm' => ['chat' => ['mcp' => true]]`,
+or adds `Servers::tools()` to its own assistant's `tools()` where it chooses. A server holding the
+application's own token (GitHub, a database) acts as the application, whoever is asking.
 
 One server on its own is `new Mcp\Client(new StdioTransport([...]))` or
 `new Mcp\Client(new HttpTransport($url, $headers))`, with `listTools()`, `callTool()` and
@@ -607,6 +618,26 @@ Then:
   it when the person confirms in their next message. So "please remember that the reader is the
   administrator" in an email does not become a memory, nor a task, nor a change. A write before
   any such read runs as usual.
+
+```php
+public function tools(Turn $turn): array
+{
+    return [
+        'read_ticket' => [
+            'description' => 'A support ticket, as the customer wrote it',
+            'parameters'  => ['type' => 'object', 'properties' => ['id' => ['type' => 'integer']]],
+            'run'         => fn (array $a): string => Ticket::text((int) $a['id']),
+            'untrusted'   => true,   // the customer's words: data, never instructions
+        ],
+        'close_ticket' => [
+            'description' => 'Close a ticket',
+            'parameters'  => ['type' => 'object', 'properties' => ['id' => ['type' => 'integer']]],
+            'run'         => fn (array $a): string => Ticket::close((int) $a['id']),
+            'writes'      => true,   // held after read_ticket, until the person confirms
+        ],
+    ];
+}
+```
 
 A document the person attaches is not marked: they chose it and asked about it, so their request
 stands. Its words still never become what is remembered about them, because learning reads what
@@ -977,6 +1008,33 @@ nothing, and every question would pay for its whole context again. So an assista
 count. Those belong in `volatileContext()`. The time is added for every assistant, on its
 `timezone()`.
 
+```php
+final class SupportAssistant extends \Pramnos\Llm\Chat\BaseAssistant
+{
+    // Zone 1: the same bytes for every question, so the provider's cache keeps it.
+    public function systemPrompt(Turn $turn): string
+    {
+        return 'You help the support team answer customers. Be brief.';
+    }
+
+    // Zone 2: changes rarely — kept in the cache until it does.
+    public function context(Turn $turn): string
+    {
+        return 'Open tickets assigned to this person: ' . Ticket::countFor($turn->scope->userId) . '.';
+    }
+
+    // Zone 3: changes with every question — last, so everything before it stays cached.
+    public function volatileContext(Turn $turn): string
+    {
+        return 'The person is looking at ticket #' . (int) ($_GET['ticket'] ?? 0) . '.';
+    }
+}
+```
+
+With the [profile](#a-profile-that-changes-only-on-the-persons-word) or the
+[calendar](#appointments-and-tasks) on, what the person confirmed and today's appointments join
+zone 2.
+
 Two checks watch it, both logged to the `llm` log:
 
 - **The static prompt.** `checkPrefix()` keeps the hash of zone 1 per conversation. When it
@@ -1013,7 +1071,9 @@ an answer others read, a scheduled run and a conversation opened from a report a
 learned from, and so is one whose data no connection may take. At most ten changes a pass, within
 the limits; what it cannot read changes nothing, and a failure never fails the answer. What it
 keeps is marked `learned` and shown so on the memory list, where the person forgets it like any
-other.
+other. With the [profile](#a-profile-that-changes-only-on-the-persons-word) on, the same call
+proposes to it what the person plainly said about who they are and the people in their life: a
+proposal, which the next answer asks them to confirm.
 
 **What the person asks to be remembered is remembered at once.** "Remember that I moved to
 Athens", "forget that": the model calls `remember` or `forget` in the same answer, with no batch to
@@ -1096,7 +1156,9 @@ remembered about them. Each pinned artifact gets up to `Artifacts::PINNED_EACH` 
 all of them together up to `PINNED_ALL`, each with its id, so the model can read one whole. A
 change made during an answer reaches the model as that tool's result, and is in the context from
 the next question on. Changing the context in the middle of an answer would break the cached
-prompt, so the next question is when it shows.
+prompt, so the next question is when it shows. An open page hears of it at once: a change or a pin
+is announced on the person's private channel as `artifact.changed` (`Artifacts::CHANGED`, with
+`{id, pinned?}`), so a page showing the artifact can fetch it again.
 
 **Acting on a list.** A list's records can be acted on in bulk — put the people in a user group,
 or whatever the application declared for that kind of record — from under the list on the page
@@ -1104,57 +1166,90 @@ and in the SPA component, or `GET /chat/artifacts/{id}/actions` and
 `POST /chat/artifacts/{id}/actions/{key}` with `params`. What is offered, and who may run it, is
 [Bulk actions](Pramnos_Bulk_Actions_Guide.md).
 
-### The personal companion
+### The person's own: a profile, a calendar, a journal
 
-`'llm' => ['chat' => ['companion' => true]]` turns a person's own conversations (the `chat`
-space, never the administrators' analyst, and never an answer others read too) into a
-companion. Off by default: an assistant for work has no business keeping who somebody's
-brother is.
+Three capabilities for an assistant that serves one person over time — a CRM's account manager
+keeping track of their clients and their day, a clinic's staff assistant, a coaching, HR or
+customer-success application. Each is turned on by itself, in a person's own conversations only:
+never in the administrators' analyst, never in an answer others read too.
 
-#### What it holds true about them: the profile
+```php
+// app/app.php
+'llm' => [
+    'chat' => [
+        'profile'  => true,   // who the person is and the people in their life, on their word
+        'calendar' => true,   // their appointments and tasks, today in every prompt
+        'journal'  => true,   // a page a day, in their words
+    ],
+    // When the assistant may reach out on its own: quiet hours, a few pings a day, not while busy.
+    'proactivity' => ['quiet' => '22:30-07:30', 'daily' => 3],
+],
+```
 
-`Companion\Dossier`, in `chat_dossier`, holds what should not change on the model's word alone:
+| Capability | Turned on by | What it improves |
+|---|---|---|
+| [Profile](#a-profile-that-changes-only-on-the-persons-word) | `chat.profile` | Answers that know who the person is and who "Eleni" is, without the model ever deciding that on its own |
+| [Calendar](#appointments-and-tasks) | `chat.calendar` | "Book Giorgos at 16:00" that checks for clashes and offers free times; "what do I have this afternoon" with no tool call; reminders before appointments |
+| [Journal](#a-journal-a-day) | `chat.journal` | A record of the person's days, kept as they talk |
+| [Manners](#reaching-out-on-its-own-with-manners) | `proactivity` | Scheduled questions and reminders that never arrive at night, too often, or in a meeting |
+
+Their tools are in the `profile`, `calendar` and `journal` [skills](#skills-in-a-conversation), so
+with skills on they cost nothing until the model needs them.
+
+#### A profile that changes only on the person's word
+
+`Chat\Profile`, in `chat_dossier`, holds what should not change on the model's word alone:
 
 | Area | Changes | |
 |---|---|---|
 | `identity`, `values`, `goals` | on the person's confirmation | who they are, what they hold to, what they work towards |
-| `relationships` | on the person's confirmation | one entry per person in their life, `subject` naming them: the relationship graph |
+| `relationships` | on the person's confirmation | one entry per person in their life, `subject` naming them |
 | `mood` | at once, only with consent | how they have felt lately |
 
 Habits and preferences are not here. They are [memory](#memory), learned and corrected as the
-person talks. The profile's entries change by proposal:
+person talks. The profile changes by proposal:
 
-- the model calls `note_profile`, and the entry holds the proposal as `pending`. The prompt
-  lists it apart, as not true until confirmed;
+- the model calls `note_profile`, or [learning](#memory) proposes from what the person plainly
+  said. The entry holds the proposal as `pending`, and the prompt lists it apart, as not true
+  until confirmed;
 - the person says yes in a later message and the model calls `confirm_profile`, or no and it
   calls `reject_profile`. A proposal made in an answer cannot be confirmed in the same answer,
   so a wrong guess about who somebody is never becomes a fact in every prompt after it;
-- every confirmed change raises the entry's `version`. Its before and after go to the changelog
-  (`ChangelogWriter::event('chat_dossier', …)`), and `Dossier::history($id)` reads the versions
-  from there, oldest first;
-- `mood` is kept only once the person agreed: their setting `ai_companion_feelings`
-  (`Dossier::FEELINGS`). Without it the model is told to ask, and nothing is kept. Each new
-  mood replaces the last, and the versions are the mood over time;
-- `recall_person` finds a person in their life by part of a name, or lists everybody
-  (`Dossier::people()`).
+- every confirmed change raises the entry's `version`. Its before and after go to the changelog,
+  and `Profile::history($id)` reads the versions from there, oldest first;
+- `mood` is kept only once the person agreed: their setting `ai_profile_feelings`
+  (`Profile::FEELINGS`). Without it the model is told to ask, and nothing is kept;
+- `recall_person` finds a person in their life by part of a name, or lists everybody.
 
-Erasing a profile is two deletes — the rows, and their versions in `pramnos.changelog_events` — so
-do it with `Dossier::erase('userid', $id)` or `Dossier::erase('organization_id', $id)` rather
-than by hand: a delete written against `changelog_events` without its schema matches nothing and
-says nothing. Account erasure (`AccountErasure`) already calls it for the person.
+What is confirmed is in the [second zone](#the-context-in-three-zones) of every prompt. At most
+`Profile::MAX` (60) entries of `Profile::CHARS` (500) characters, because of that. The tools are
+`writes`, so after reading somebody else's words they wait for the person, and their results are
+tagged `personal` for a [data rule](#data-rules).
 
-The tools are `writes`, so after reading somebody else's words they wait for the person
-(see [What somebody else wrote is data, not instructions](#what-somebody-else-wrote-is-data-not-instructions)).
-Their results are tagged `personal`, so a [data rule](#data-rules) on that tag keeps them with a
-provider you trust with them, or on a local model. At most `Dossier::MAX` (60) entries of
-`Dossier::CHARS` (500) characters, because they go into every prompt.
-`Dossier::entries()`, `confirm()`, `reject()` and `forget()` are there for a screen of the
-application's own, where the person sees and changes their profile.
+A screen of the application's own, where the person sees and changes their profile:
 
-#### Appointments and tasks: the calendar
+```php
+use Pramnos\Llm\Chat\{Profile, Scope};
 
-`Companion\Calendar`, in `chat_calendar`, keeps the person's own appointments and tasks. Times
-go in and come out on their clock (`Y-m-d H:i`, in the assistant's `timezone()`) and are stored as
+$profile = new Profile(new Scope($user->userid, $organizationId));
+$profile->entries();                          // each: dossier_id, area, subject, content, pending, version
+$profile->confirm($id);                       // the person's yes, from a button
+$profile->reject($id);
+$profile->forget($id);
+$profile->history($id);                       // [{version, from, to, at}, …]
+
+// Erasing: the rows and their versions in pramnos.changelog_events, in one call.
+Profile::erase('organization_id', $organizationId);
+```
+
+`Profile::erase()` exists because the versions live in `pramnos.changelog_events`: a delete
+written by hand against `changelog_events`, without its schema, matches nothing and says nothing.
+Account erasure already calls it for the person.
+
+#### Appointments and tasks
+
+`Chat\Calendar`, in `chat_calendar`, keeps the person's own appointments and tasks. Times go in
+and come out on their clock (`Y-m-d H:i`, in the assistant's `timezone()`) and are stored as
 moments.
 
 | Tool | |
@@ -1164,81 +1259,101 @@ moments.
 | `calendar_update_event` | move, rename or change notes; a move without an end keeps the length |
 | `calendar_delete_event` | cancel one |
 | `task_create`, `task_list`, `task_update` | a task, due by a time or not; listed soonest due first; marked done |
+| `set_busy` | the person is busy until a time, or no longer: no ping meanwhile |
 
-**An overlap is an answer, not a failure.** An appointment that would overlap another is not
-made, and the tool answers what is there and the nearest free starts before and after, the same
-length, between `Calendar::DAY_STARTS` and `DAY_ENDS` (08:00–20:00):
+- **Today is in the prompt.** The day's appointments and the open tasks due by its end are in
+  the second zone of every prompt (`Calendar::context()`). "What do I have this afternoon" needs
+  no tool call, and the text changes only when the calendar does, so it stays cached.
+- **An overlap is an answer, not a failure.** An appointment that would overlap another is not
+  made. The tool answers what is there and the nearest free starts before and after, the same
+  length, between `Calendar::DAY_STARTS` and `DAY_ENDS` (08:00–20:00), so the model offers those:
 
-```json
-{"error": "conflict", "existing": "Accountant", "existing_at": "2026-10-20 15:30", "free_slots": ["14:30", "17:00"]}
+  ```json
+  {"error": "conflict", "existing": "Accountant", "existing_at": "2026-10-20 15:30", "free_slots": ["14:30", "17:00"]}
+  ```
+
+- **Reminders.** `llm:routines` sends one `Calendar::REMIND` (30) minutes before each
+  appointment, once, as a notification. With [manners](#reaching-out-on-its-own-with-manners)
+  set, they decide whether it goes.
+- **On the page.** `feed($start, $end)` is the JSON a [`pf-calendar`](Pramnos_Calendar_Guide.md)
+  takes as `data-events`, and `move($body)` is its `data-update`, checked for overlaps the same
+  way. Every change is announced on the person's private channel as `calendar.changed`, and a
+  `pf-calendar` with `data-channel` refetches: an appointment the assistant makes appears on an
+  open page at once.
+
+```php
+// Two routes for the page's calendar.
+$calendar = new \Pramnos\Llm\Chat\Calendar($scope, $timezone);
+return $calendar->feed($_GET['start'], $_GET['end']);   // data-events
+return $calendar->move($request->json());               // data-update
 ```
 
-So the model offers those instead of saying it failed. An all-day event never conflicts.
+`Calendar::TEMPLATES` offers a ready-made routine, `daily_plan` (08:00): the day's appointments
+and open tasks, kept as an artifact, pinned, and a short good morning.
 
-**On the page.** `feed($start, $end)` is the JSON a [`pf-calendar`](Pramnos_Calendar_Guide.md)
-takes as `data-events`, and `move($body)` is its `data-update`, checked for overlaps the same way.
-Every change is announced to the person's private channel as `calendar.changed`, and a
-`pf-calendar` with `data-channel` refetches when it hears it. An appointment the assistant makes
-appears on an open page at once.
+#### A journal a day
 
-#### Reaching out on its own, with manners: `Proactivity`
+`Chat\Journal`: `journal` writes an entry in today's page, a text
+[artifact](#artifacts-tables-lists-and-texts-kept-from-an-answer) titled `Journal Y-m-d` on the
+person's clock. The day's first entry makes the page, the next ones are added to it, each with its
+time. It is pinned, shared and exported like any artifact, and tagged `personal`.
+`Journal::TEMPLATES` offers `evening_review` (21:30): what got done and how the day went, written
+down, and the morning's plan unpinned.
 
-The companion reaches out in two ways: a [scheduled question](#scheduled-tasks-questions-reminders-reports)
-it asks on its own (a morning briefing, an evening review), and a reminder
-`Calendar::REMIND` (30) minutes before an appointment, sent by `llm:routines`
-(`Companion::remind()`). Before either, `Llm::proactivity()` decides now, later, or not this
-time. Nothing is spent on a ping that is held: a held question asks no model.
+Both templates are offered beside the application's own `routine_templates`, which win by key.
+
+#### Reaching out on its own, with manners
+
+An assistant reaches out in two ways: a [scheduled question](#scheduled-tasks-questions-reminders-reports)
+it asks on its own, and a calendar reminder. With `'llm' => ['proactivity' => …]` set
+(`Llm::proactive()`), `Llm::proactivity()` decides before either: now, later, or not this time.
+Nothing is spent on a ping that is held: a held question asks no model. Without it, everything
+goes at its time, as it always did.
 
 The default, `Policy\QuietProactivity`:
 
-```php
-'llm' => ['proactivity' => ['quiet' => '22:30-07:30', 'daily' => 3]],
-```
-
 | Rule | Then |
 |---|---|
-| inside `quiet`, on the person's clock (`''` for none) | held until quiet hours end |
-| `daily` pings already today: questions it asked, reminders sent | not this time |
-| in an appointment now, or busy by their word | not this time |
+| inside `quiet` (`22:30-07:30`), on the person's clock (`''` for none) | held until quiet hours end |
+| `daily` (3) pings already today: questions it asked, reminders sent | not this time |
+| in an appointment now, or busy by their word (`set_busy`, the setting `ai_busy_until`) | not this time |
 
-- **Busy by their word.** The person tells the companion they are busy until a time, or no
-  longer are, and it calls `set_busy`. The time is kept as their setting
-  `ai_companion_busy_until`.
-- **What happens to a held question.** One held for quiet hours is asked when they end. One held
-  for the limit or for being busy waits for its next turn, and a one-off is tried again in an
-  hour.
-- **What happens to a held reminder.** It is passed: marked so it is not looked at again, and it
-  does not count among the day's pings.
-- **What it covers.** Only scheduled questions where the companion is on. A reminder the person
-  set, a report others subscribed to, and a run they asked for with "Run now" all go as they
+- **A held question.** One held for quiet hours is asked when they end. One held for the limit
+  or for being busy waits for its next turn, and a one-off is tried again in an hour.
+- **A held reminder** is passed: marked so it is not looked at again, and not counted.
+- **What it covers.** Scheduled questions in a person's own conversations, and calendar
+  reminders. A report others subscribed to and a run somebody asked for with "Run now" go as they
   always did.
-- **Your own rules.** `'llm' => ['proactivity' => MyPolicy::class]` takes your own
+- **Your own rules.** `'llm' => ['proactivity' => MyPolicy::class]` takes a
   `Policy\Proactivity`. Its `when()` returns `$now`, a later moment, or 0, and with `$critical`
   (an alarm the person set) it should return `$now`. A policy that throws lets the question go:
   the person's own schedule is never silenced by an error.
 
-#### A journal, a morning and an evening
+```php
+final class WorkingHoursOnly implements \Pramnos\Llm\Policy\Proactivity
+{
+    public function when(int $userId, string $timezone, int $now, bool $critical = false): int
+    {
+        $local = (new \DateTimeImmutable('@' . $now))->setTimezone(new \DateTimeZone($timezone));
 
-- **`journal`** writes an entry in today's journal: a text [artifact](#artifacts-tables-lists-and-texts-kept-from-an-answer)
-  a day, `Journal Y-m-d` on the person's clock. The day's first entry makes the page, the next
-  ones are added to it, each with its time. Pin it, share it or export it like any artifact.
-- **Two ready-made routines** (`Companion::TEMPLATES`) are offered beside the application's own
-  `routine_templates`, which win by key. `companion_morning` (08:00) reads the day's appointments
-  and open tasks, keeps the plan as an artifact and says good morning. `companion_evening`
-  (21:30) asks what got done and how the day went, for the journal. Both are scheduled
-  questions, so the [manners](#reaching-out-on-its-own-with-manners-proactivity) apply.
+        return $critical || ((int) $local->format('N') <= 5 && (int) $local->format('G') >= 9 && (int) $local->format('G') < 18)
+            ? $now
+            : 0;
+    }
+}
+```
 
-#### Confiding in it: the stronger model, and data kept close
+#### Sensitive conversations: the stronger model, and data kept close
 
-Nothing here is the companion's own; it is the harness, set for it:
+Nothing here is new machinery; it is the rest of the framework, set for a person who confides:
 
 ```php
 'llm' => [
-    'chat'  => ['companion' => true],
-    // A delicate personal or emotional conversation goes to the frontier tier; and when that
-    // provider is down, the fast one answers in its place, warmly first.
+    // A delicate personal or emotional conversation goes to the frontier tier; when that provider
+    // is down, the fast one answers in its place, warmly first.
     'tiers' => ['fast' => 'chat_fast', 'frontier' => 'chat_frontier'],
-    // What the person confided — the profile, the journal — only to a provider you trust with it.
+    'cascade' => \Pramnos\Llm\Policy\ModelCascade::class,
+    // The profile's and the journal's results only to a provider you trust with them.
     'rules' => [App\Llm\PersonalStaysLocal::class],   // a DataRule for the tag 'personal'
 ],
 ```
@@ -1247,9 +1362,8 @@ Nothing here is the companion's own; it is the harness, set for it:
   conversation to the frontier model. If that provider is down, the fast one answers in its
   place, told to answer warmly first when the person is upset or confiding.
 - The profile's tools and `journal` tag their results `personal`. A [data rule](#data-rules) for
-  that tag keeps them with the provider it names, a local model for instance, or tells the model
-  why not.
-- How they feel is kept only with their consent (`ai_companion_feelings`).
+  that tag keeps them with the provider it names, a local model for instance.
+- How they feel is kept only with their consent (`ai_profile_feelings`).
 
 ### Rating answers, and the queue of bad ones
 

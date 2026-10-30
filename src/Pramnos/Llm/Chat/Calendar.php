@@ -2,14 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Pramnos\Llm\Companion;
+namespace Pramnos\Llm\Chat;
 
 use Pramnos\Database\Instant;
-use Pramnos\Llm\Chat\Scope;
 
 /**
- * A person's own appointments and tasks, as the companion keeps them — `chat_calendar` — and the
- * tools it keeps them with.
+ * A person's own appointments and tasks — `chat_calendar` — and the tools the assistant keeps them
+ * with. On with `'llm' => ['chat' => ['calendar' => true]]`, in the `calendar` skill, in a
+ * person's own conversations: today's appointments and the tasks due are in every prompt
+ * ({@see context()}), so "what do I have this afternoon" needs no tool call.
  *
  * Times go in and come out on the person's clock (`Y-m-d H:i`, in `$timezone`) and are stored as
  * moments. An appointment that would overlap another is not made: the tool answers
@@ -39,11 +40,95 @@ final class Calendar
     /** Minutes before an appointment its reminder goes. */
     public const REMIND = 30;
 
+    /**
+     * The routine it offers beside the application's own `routine_templates`, which override it
+     * by key: the day's plan, in the morning.
+     */
+    public const TEMPLATES = [
+        'daily_plan' => [
+            'title'   => 'Good morning',
+            'prompt'  => 'Plan my day: read today\'s appointments and my open tasks, keep the plan as today\'s artifact and pin it, '
+                . 'and greet me with what the day holds, in two or three sentences.',
+            'cadence' => 'daily',
+            'at'      => '08:00',
+        ],
+    ];
+
+    /** Tasks the prompt names at most. */
+    public const CONTEXT_TASKS = 10;
+
     /** The event a page hears on a change. */
     public const CHANGED = 'calendar.changed';
 
     public function __construct(private readonly Scope $scope, private readonly string $timezone = 'UTC')
     {
+    }
+
+    /** Whether the application turned it on, for this scope's space: a person's own conversations only. */
+    public static function on(Scope $scope): bool
+    {
+        $chat = \Pramnos\Llm\Llm::config('chat', []);
+
+        return $scope->space === Scope::CHAT && is_array($chat) && !empty($chat['calendar']);
+    }
+
+    /**
+     * Today on the person's clock, for the prompt: the day's appointments and the open tasks due
+     * by its end or overdue. Changes only when the calendar does, so it stays in the cached part
+     * of the prompt for the rest of the day. Empty with nothing.
+     */
+    public function context(): string
+    {
+        if (!self::available()) {
+            return '';
+        }
+        $today = $this->local(time(), 'Y-m-d');
+        $lines = [];
+        foreach ($this->events($today, $today) as $event) {
+            $lines[] = '- ' . ($event['all_day'] ? 'all day' : substr((string) $event['start'], 11) . '–' . substr((string) $event['end'], 11))
+                . ' [' . $event['id'] . '] ' . $event['title'];
+        }
+        $due = array_filter($this->tasks(), static fn (array $t): bool => $t['due'] !== null && substr((string) $t['due'], 0, 10) <= $today);
+        foreach (array_slice($due, 0, self::CONTEXT_TASKS) as $task) {
+            $lines[] = '- task [' . $task['id'] . '] ' . $task['title'] . ' (due ' . $task['due'] . ')';
+        }
+
+        return $lines === [] ? '' : 'Today, ' . $today . ' (' . $this->timezone . "), in the person's calendar:\n" . implode("\n", $lines);
+    }
+
+    /**
+     * Send the reminders of appointments starting within {@see REMIND} minutes, each once —
+     * `llm:routines` calls it every minute. Where the application set `'llm' => ['proactivity' =>
+     * …]`, {@see \Pramnos\Llm\Policy\Proactivity} decides whether one goes now. Answers how many went.
+     *
+     * @param (callable(int, object): void)|null $deliver A seam: tell a person, by id
+     */
+    public static function remind(int $now, ?callable $deliver = null): int
+    {
+        $sent = 0;
+        foreach (self::startingSoon($now, self::REMIND) as $row) {
+            $scope = new Scope((int) $row['userid'], $row['organization_id'] === null ? null : (int) $row['organization_id'], (string) $row['space']);
+            $id    = (int) $row['item_id'];
+            try {
+                $zone = Chat::assistant()->timezone($scope);
+                $go   = self::on($scope) && (!\Pramnos\Llm\Llm::proactive() || \Pramnos\Llm\Llm::proactivity()->when($scope->userId, $zone, $now) === $now);
+                self::alerted($id, $go);
+                if (!$go) {
+                    continue;
+                }
+                $starts  = (new \DateTimeImmutable((string) $row['starts_at'], new \DateTimeZone('UTC')))->getTimestamp();
+                $minutes = max(1, (int) round(($starts - $now) / 60));
+                $words   = 'In ' . $minutes . ' minute' . ($minutes === 1 ? '' : 's') . ': ' . $row['title'] . '.';
+                $notice  = new TaskReminder($words, '');
+                $deliver !== null ? $deliver($scope->userId, $notice) : (new \Pramnos\User\User($scope->userId))->notify($notice);
+                $sent++;
+            } catch (\Throwable $why) {
+                // One reminder that cannot go does not stop the others.
+                \Pramnos\Logs\Logger::log('calendar reminder ' . $id . ': ' . $why->getMessage(), 'llm');
+            }
+        }
+
+        return $sent;
     }
 
     /** Whether the table is there. */
@@ -370,6 +455,22 @@ final class Calendar
                 'run'      => fn (array $a): string => $json($this->tasks(!empty($a['done']))),
                 'parallel' => true,
             ],
+            'set_busy' => [
+                'description' => 'The person says they are busy — in a meeting, driving, resting — until a time; or, with no time, that they no longer are. '
+                    . 'Nothing is sent to them on the assistant\'s own initiative meanwhile.',
+                'parameters'  => ['type' => 'object', 'properties' => ['until' => $time]],
+                'run'         => function (array $a): string {
+                    $until = trim((string) ($a['until'] ?? ''));
+                    $at    = $until === '' ? null : $this->moment($until);
+                    if ($until !== '' && $at === null) {
+                        return 'Error: a time is Y-m-d H:i.';
+                    }
+                    (new \Pramnos\User\User($this->scope->userId))->setSetting(\Pramnos\Llm\Policy\QuietProactivity::BUSY, $at === null ? '0' : (string) $at);
+
+                    return $at === null ? 'No longer busy.' : 'Busy until ' . $until . '.';
+                },
+                'writes'      => true,
+            ],
             'task_update' => [
                 'description' => 'Change a task: mark it done, rename it, or change when it is due.',
                 'parameters'  => ['type' => 'object', 'properties' => [
@@ -503,16 +604,7 @@ final class Calendar
     /** Tell an open page of the person's that their calendar changed. Best effort. */
     private function announce(): void
     {
-        try {
-            $manager = \Pramnos\Broadcasting\BroadcastingManager::currentInstance();
-            if ($manager === null) {
-                return;
-            }
-            $config = \Pramnos\Application\Application::currentInstance()?->applicationInfo['broadcasting'] ?? [];
-            $manager->broadcast(\Pramnos\Broadcasting\RealtimeConfig::userChannel($this->scope->userId, is_array($config) ? $config : []), self::CHANGED, []);
-        } catch (\Throwable $e) {
-            \Pramnos\Logs\Logger::log('Calendar change was not announced: ' . $e->getMessage(), 'broadcasting');
-        }
+        \Pramnos\Broadcasting\BroadcastingManager::toUser($this->scope->userId, self::CHANGED);
     }
 
     private function scoped(int $id): \Pramnos\Database\QueryBuilder

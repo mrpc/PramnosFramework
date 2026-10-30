@@ -198,14 +198,16 @@ class Memory
     /**
      * Keep what the person stated about themselves or their work, correct what changed and forget
      * what they took back — one short call, its answer a list of changes,
-     * applied within the limits. Never throws: a memory that could not be learned is no reason for
-     * an answer to fail.
+     * applied within the limits. Where the profile is on ({@see Profile}), the same call proposes
+     * what they plainly said about who they are, what they value, their goals, the people in their
+     * life and how they feel: a proposal waits for the person's yes, which the next answer asks
+     * for. Never throws: a memory that could not be learned is no reason for an answer to fail.
      *
-     * @return array{kept: int, corrected: int, forgotten: int}
+     * @return array{kept: int, corrected: int, forgotten: int, proposed: int}
      */
     public function learn(\Pramnos\Llm\Client $client, string $said): array
     {
-        $done = ['kept' => 0, 'corrected' => 0, 'forgotten' => 0];
+        $done = ['kept' => 0, 'corrected' => 0, 'forgotten' => 0, 'proposed' => 0];
         if (trim($said) === '') {
             return $done;
         }
@@ -221,8 +223,16 @@ class Memory
             . 'Everything is about "me". '
             . 'Answer JSON only: {"changes": [{"op": "keep", "about": "me", "kind": "fact|preference", "memory": "one sentence"}, '
             . '{"op": "correct", "id": 3, "memory": "one sentence"}, {"op": "forget", "id": 4}]}.';
+        $profile = Profile::on($this->scope) && Profile::available() ? new Profile($this->scope) : null;
+        $input   = ['remembered' => $known, 'said' => mb_substr($said, 0, 4000)];
+        if ($profile !== null) {
+            $prompt .= ' Also propose, only from what they plainly said and is not already in "profile": who they are (identity), '
+                . 'what they value (values), what they work towards (goals), a person in their life (relationships, with subject naming them) '
+                . 'and how they feel (mood): {"op": "propose", "area": "identity|values|goals|relationships|mood", "subject": "Name", "content": "one sentence"}.';
+            $input['profile'] = array_map(static fn (array $e): array => array_intersect_key($e, array_flip(['area', 'subject', 'content', 'pending'])), $profile->entries());
+        }
         try {
-            $answer = $client->askCheaply($prompt, [['role' => 'user', 'content' => json_encode(['remembered' => $known, 'said' => mb_substr($said, 0, 4000)], JSON_UNESCAPED_UNICODE)]]);
+            $answer = $client->askCheaply($prompt, [['role' => 'user', 'content' => json_encode($input, JSON_UNESCAPED_UNICODE)]]);
             $reply  = (string) ($answer['reply'] ?? '');
             $json   = json_decode((string) (preg_match('/\{.*\}/s', $reply, $m) === 1 ? $m[0] : $reply), true);
             $ids    = array_column($known, 'about', 'id');
@@ -239,6 +249,10 @@ class Memory
                     $done['corrected']++;
                 } elseif ($op === 'forget' && isset($ids[$id]) && $this->forget($id)) {
                     $done['forgotten']++;
+                } elseif ($op === 'propose' && $profile !== null) {
+                    $subject = trim((string) ($change['subject'] ?? ''));
+                    $noted   = $profile->note((string) ($change['area'] ?? ''), (string) ($change['content'] ?? ''), $subject === '' ? null : $subject);
+                    $done['proposed'] += str_starts_with($noted, 'Proposed') || str_starts_with($noted, 'Kept') ? 1 : 0;
                 }
             }
         } catch (\Throwable $why) {

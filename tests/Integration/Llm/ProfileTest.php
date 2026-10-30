@@ -10,12 +10,12 @@ use Pramnos\Database\WriteSpool;
 use Pramnos\Llm\Chat\BaseAssistant;
 use Pramnos\Llm\Chat\Conversations;
 use Pramnos\Llm\Chat\Scope;
-use Pramnos\Llm\Companion\Companion;
-use Pramnos\Llm\Companion\Dossier;
+use Pramnos\Llm\Chat\Journal;
+use Pramnos\Llm\Chat\Profile;
 use Pramnos\Tests\Unit\Llm\LlmTestCase;
 
 /**
- * The companion's profile of a person — who they are, what they hold to, the people in their
+ * The assistant's profile of a person — who they are, what they hold to, the people in their
  * life, how they feel — on MySQL and PostgreSQL.
  *
  * What holds: nothing lasting becomes true on the model's word — it proposes, and only a
@@ -23,9 +23,10 @@ use Pramnos\Tests\Unit\Llm\LlmTestCase;
  * after in the changelog; how somebody feels is kept only with their consent; and a person's
  * entries are theirs alone.
  */
-#[CoversClass(Dossier::class)]
-#[CoversClass(Companion::class)]
-class DossierTest extends LlmTestCase
+#[CoversClass(Profile::class)]
+#[CoversClass(Journal::class)]
+#[CoversClass(\Pramnos\Llm\Chat\Memory::class)]
+class ProfileTest extends LlmTestCase
 {
     use ChatDatabase;
 
@@ -60,21 +61,21 @@ class DossierTest extends LlmTestCase
             \Pramnos\Framework\Migrations\Changelog\AddScopeToChangelogEvents::class,
         ], $this->db);
         // The profile's table is rebuilt for each class, its ids with it: the log's rows go too.
-        $this->db->queryBuilder()->table('pramnos.changelog_events')->where('entity', Dossier::ENTITY)->delete();
+        $this->db->queryBuilder()->table('pramnos.changelog_events')->where('entity', Profile::ENTITY)->delete();
         $mark = 'dz' . bin2hex(random_bytes(4));
         $this->db->queryBuilder()->table('#PREFIX#users')->insert(['username' => $mark, 'email' => $mark . '@example.com', 'password' => 'x', 'regdate' => time()]);
         $id = (int) $this->db->getInsertId();
         $this->users[] = $id;
         \Pramnos\User\User::clearUserCache();
         if ($feelings) {
-            (new \Pramnos\User\User($id))->setSetting(Dossier::FEELINGS, '1');
+            (new \Pramnos\User\User($id))->setSetting(Profile::FEELINGS, '1');
         }
 
         return new Scope($id, null);
     }
 
     /** Run one of the profile's tools as the model would. */
-    private static function call(Dossier $dossier, string $tool, array $arguments): string
+    private static function call(Profile $dossier, string $tool, array $arguments): string
     {
         return ($dossier->tools()[$tool]['run'])($arguments);
     }
@@ -93,31 +94,31 @@ class DossierTest extends LlmTestCase
         $member  = new Scope($this->person($type, $host, $port)->userId, 9071);
         $ids     = [];
         foreach ([$leaving, $staying, $member] as $scope) {
-            $proposed = (new Dossier($scope))->note('values', 'Honesty first');
+            $proposed = (new Profile($scope))->note('values', 'Honesty first');
             $ids[]    = $id = (int) preg_replace('/\D.*/s', '', substr($proposed, strlen('Proposed as entry ')));
-            (new Dossier($scope))->confirm($id);
+            (new Profile($scope))->confirm($id);
         }
         $events = fn (int $id): int => $this->db->queryBuilder()->table(\Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE)
-            ->where('entity', Dossier::ENTITY)->where('itemid', (string) $id)->count();
+            ->where('entity', Profile::ENTITY)->where('itemid', (string) $id)->count();
         $this->assertSame(1, $events($ids[0]), 'the version is in the log before');
 
         // Act
-        $erased  = Dossier::erase('userid', $leaving->userId);
-        $again   = Dossier::erase('userid', $leaving->userId);
-        $company = Dossier::erase('organization_id', 9071, $this->db);
+        $erased  = Profile::erase('userid', $leaving->userId);
+        $again   = Profile::erase('userid', $leaving->userId);
+        $company = Profile::erase('organization_id', 9071, $this->db);
 
         // Assert
         $this->assertSame([1, 0, 1], [$erased, $again, $company]);
-        $this->assertSame([], (new Dossier($leaving))->entries());
+        $this->assertSame([], (new Profile($leaving))->entries());
         $this->assertSame(0, $events($ids[0]), 'the earlier versions went with it');
         $this->assertSame(0, $events($ids[2]), 'the organisation\'s too');
-        $this->assertCount(1, (new Dossier($staying))->entries(), 'another person\'s stays');
+        $this->assertCount(1, (new Profile($staying))->entries(), 'another person\'s stays');
         $this->assertSame(1, $events($ids[1]));
         $without = $this->createMock(\Pramnos\Database\Database::class);
         $without->method('schema')->willReturn($this->createStub(\Pramnos\Database\SchemaBuilder::class));
-        $this->assertSame(0, Dossier::erase('userid', $staying->userId, $without), 'no table, nothing to erase');
+        $this->assertSame(0, Profile::erase('userid', $staying->userId, $without), 'no table, nothing to erase');
         $this->expectException(\InvalidArgumentException::class);
-        Dossier::erase('space', 1);
+        Profile::erase('space', 1);
     }
 
     /**
@@ -130,17 +131,17 @@ class DossierTest extends LlmTestCase
     {
         // Arrange
         $scope = $this->person($type, $host, $port);
-        $now   = new Dossier($scope);
+        $now   = new Profile($scope);
 
         // Act
         $proposed = $now->note('goals', 'Run a marathon in 2027');
         $id       = (int) preg_replace('/\D.*/s', '', substr($proposed, strlen('Proposed as entry ')));
         $tooSoon  = $now->confirm($id);
         $context  = $now->context();
-        $later    = new Dossier($scope);
+        $later    = new Profile($scope);
         $yes      = self::call($later, 'confirm_profile', ['id' => $id]);
         $later->note('goals', 'Run a half marathon in 2027', null, $id);
-        $again    = (new Dossier($scope))->confirm($id);
+        $again    = (new Profile($scope))->confirm($id);
 
         // Assert
         $this->assertStringContainsString('not kept yet', $proposed);
@@ -167,11 +168,11 @@ class DossierTest extends LlmTestCase
     {
         // Arrange
         $scope = $this->person($type, $host, $port);
-        $a     = new Dossier($scope);
+        $a     = new Profile($scope);
         $a->note('values', 'Family first');
         $valueId = $a->entries()[0]['dossier_id'];
-        (new Dossier($scope))->confirm($valueId);
-        $b = new Dossier($scope);
+        (new Profile($scope))->confirm($valueId);
+        $b = new Profile($scope);
         $b->note('identity', 'A nurse');
         $nurseId = $b->entries()[0]['dossier_id'] === $valueId ? $b->entries()[1]['dossier_id'] : $b->entries()[0]['dossier_id'];
 
@@ -197,17 +198,17 @@ class DossierTest extends LlmTestCase
     {
         // Arrange
         $scope = $this->person($type, $host, $port);
-        $a     = new Dossier($scope);
+        $a     = new Profile($scope);
 
         // Act
         $noSubject = $a->note('relationships', 'A colleague');
         $a->note('relationships', 'Colleague on the project', 'Giorgos Papas');
         $a->note('relationships', 'Sister', 'Maria');
-        $b = new Dossier($scope);
+        $b = new Profile($scope);
         foreach ($b->entries() as $entry) {
             $b->confirm($entry['dossier_id']);
         }
-        $c = new Dossier($scope);
+        $c = new Profile($scope);
         $c->note('relationships', 'Manager since October', 'giorgos papas');
 
         // Assert
@@ -227,8 +228,8 @@ class DossierTest extends LlmTestCase
     public function testMoodNeedsConsentAndNoConfirmation(string $type, string $host, int $port): void
     {
         // Arrange
-        $without = new Dossier($this->person($type, $host, $port));
-        $with    = new Dossier($this->person($type, $host, $port, feelings: true));
+        $without = new Profile($this->person($type, $host, $port));
+        $with    = new Profile($this->person($type, $host, $port, feelings: true));
 
         // Act
         $refused = $without->note('mood', 'Stressed, 2 of 5');
@@ -254,43 +255,79 @@ class DossierTest extends LlmTestCase
     {
         // Arrange
         $scope = $this->person($type, $host, $port);
-        $mine  = new Dossier($scope);
+        $mine  = new Profile($scope);
         $mine->note('goals', 'Learn Italian');
         $id    = $mine->entries()[0]['dossier_id'];
-        $other = new Dossier(new Scope($scope->userId + 100000, null));
+        $other = new Profile(new Scope($scope->userId + 100000, null));
 
         // Act / Assert
         $this->assertStringStartsWith('Error: an area is one of', $mine->note('hobbies', 'Chess'));
         $this->assertStringStartsWith('Error: say it in 1 to', $mine->note('goals', '   '));
-        $this->assertStringStartsWith('Error: say it in 1 to', $mine->note('goals', str_repeat('x', Dossier::CHARS + 1)));
+        $this->assertStringStartsWith('Error: say it in 1 to', $mine->note('goals', str_repeat('x', Profile::CHARS + 1)));
         $this->assertSame('Error: there is no entry ' . $id . '.', $other->note('goals', 'Mine now', null, $id));
         $this->assertFalse($other->forget($id), 'somebody else\'s entry');
         $this->assertSame([], $other->history($id));
-        for ($i = 1; $i < Dossier::MAX; $i++) {
+        for ($i = 1; $i < Profile::MAX; $i++) {
             $mine->note('goals', 'Goal ' . $i);
         }
         $this->assertStringStartsWith('Not kept: the profile is full', $mine->note('goals', 'One more'));
         $this->assertTrue($mine->forget($id));
-        $this->assertCount(Dossier::MAX - 1, $mine->entries());
+        $this->assertCount(Profile::MAX - 1, $mine->entries());
     }
 
     /**
-     * Turned on, the companion's tools are offered in a person's own conversation and what they
-     * confirmed is in its prompt; off — the default — neither, and never in the analyst's space.
+     * Learning in the background proposes to the profile what the person plainly said — a
+     * proposal, waiting for their yes, never a fact — and sees what the profile already holds; an
+     * area that is not one is left out, and without the profile on nothing is proposed.
      */
     #[DataProvider('databases')]
-    public function testTheCompanionInAConversation(string $type, string $host, int $port): void
+    public function testLearningProposesToTheProfile(string $type, string $host, int $port): void
     {
         // Arrange
         $scope = $this->person($type, $host, $port);
-        (new Dossier($scope))->note('identity', 'A nurse in Patras');
-        (new Dossier($scope))->confirm((new Dossier($scope))->entries()[0]['dossier_id']);
+        (new Profile($scope))->note('identity', 'A nurse in Patras');
+        $this->configure(['chat' => ['profile' => true, 'memory' => ['learn' => true]]]);
+        $this->answer([
+            [200, self::says('{"changes": [{"op": "propose", "area": "relationships", "subject": "Eleni", "content": "His wife"},'
+                . ' {"op": "propose", "area": "values", "content": "Family first"}, {"op": "propose", "area": "hobbies", "content": "Chess"}]}')],
+            [200, self::says('{"changes": [{"op": "propose", "area": "goals", "content": "Run a marathon"}]}')],
+        ]);
+        $memory = new \Pramnos\Llm\Chat\Memory($scope);
+
+        // Act
+        $done = $memory->learn(new \Pramnos\Llm\Client(), 'My wife Eleni and I put family first.');
+        $this->configure(['chat' => ['memory' => ['learn' => true]]]);
+        $off  = $memory->learn(new \Pramnos\Llm\Client(), 'I want to run a marathon.');
+
+        // Assert
+        $this->assertSame(2, $done['proposed'], 'the made-up area is left out');
+        $eleni = array_values(array_filter((new Profile($scope))->entries(), static fn (array $e): bool => $e['subject'] === 'Eleni'))[0];
+        $this->assertSame(['His wife', null], [$eleni['pending'], $eleni['content']], 'a proposal, waiting for their yes');
+        $this->assertCount(3, (new Profile($scope))->entries());
+        $this->assertSame(['identity', 'relationships', 'values'], array_column((new Profile($scope))->entries(), 'area'));
+        $this->assertStringContainsString('A nurse in Patras', $this->sent[0]['body']['messages'][1]['content'], 'it saw the profile');
+        $this->assertStringContainsString('"op": "propose"', $this->sent[0]['body']['messages'][0]['content']);
+        $this->assertSame(0, $off['proposed'], 'off: nothing proposed');
+        $this->assertStringNotContainsString('propose', $this->sent[1]['body']['messages'][0]['content']);
+    }
+
+    /**
+     * Turned on, the profile's tools are offered in a person's own conversation and what they
+     * confirmed is in its prompt; off — the default — neither, and never in the analyst's space.
+     */
+    #[DataProvider('databases')]
+    public function testTheProfileInAConversation(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $scope = $this->person($type, $host, $port);
+        (new Profile($scope))->note('identity', 'A nurse in Patras');
+        (new Profile($scope))->confirm((new Profile($scope))->entries()[0]['dossier_id']);
         $this->answer([[200, self::says('Hello.')]]);
 
         // Act
         (new Conversations(new BaseAssistant()))->as($scope)->ask(null, 'Hi');
         $off = $this->sent[0];
-        $this->configure(['chat' => ['companion' => true]]);
+        $this->configure(['chat' => ['profile' => true]]);
         (new Conversations(new BaseAssistant()))->as($scope)->ask(null, 'Hi');
         $on = $this->sent[1];
 
@@ -301,23 +338,24 @@ class DossierTest extends LlmTestCase
         $this->assertContains('note_profile', $names($on));
         $this->assertContains('recall_person', $names($on));
         $this->assertStringContainsString('[1, identity] A nurse in Patras', preg_replace('/\[\d+, identity\]/', '[1, identity]', self::systemOf($on)));
-        $this->assertFalse(Companion::on(new Scope($scope->userId, null, Scope::ADMIN)), 'not the analyst\'s space');
-        $this->assertTrue((new Dossier($scope))->tools()['note_profile']['writes']);
-        $this->assertSame(['personal' => true], (new Dossier($scope))->tools()['recall_person']['tags']);
+        $this->assertFalse(Profile::on(new Scope($scope->userId, null, Scope::ADMIN)), 'not the analyst\'s space');
+        $this->assertNotContains('journal', $names($on), 'each is turned on by itself');
+        $this->assertTrue((new Profile($scope))->tools()['note_profile']['writes']);
+        $this->assertSame(['personal' => true], (new Profile($scope))->tools()['recall_person']['tags']);
     }
 
     /**
      * The journal: the day's first entry makes a page, `Journal Y-m-d` on the person's clock,
-     * and the next ones are added to it, each with its time; nothing is not an entry. Where the
-     * companion is on, its morning and evening routines are offered beside the application's own,
-     * which win by key.
+     * and the next ones are added to it, each with its time; nothing is not an entry. The journal
+     * offers its evening review and the calendar its morning plan, each only where it is on, beside
+     * the application's own routines, which win by key.
      */
     #[DataProvider('databases')]
     public function testTheJournalAndTheRoutinesItOffers(string $type, string $host, int $port): void
     {
         // Arrange
         $scope = $this->person($type, $host, $port);
-        $tools = (new Companion($scope, 'Europe/Athens'))->tools();
+        $tools = (new Journal($scope, 'Europe/Athens'))->tools();
         $today = 'Journal ' . (new \DateTimeImmutable('now', new \DateTimeZone('Europe/Athens')))->format('Y-m-d');
 
         // Act
@@ -327,7 +365,9 @@ class DossierTest extends LlmTestCase
         $pages  = (new \Pramnos\Llm\Chat\Artifacts($scope))->search(['kind' => 'text', 'query' => 'Journal']);
         $text   = (new \Pramnos\Llm\Chat\Artifacts($scope))->find((int) $pages[0]['artifact_id'])['content']['text'];
         $off    = \Pramnos\Llm\Chat\Routines::templates();
-        $this->configure(['chat' => ['companion' => true, 'routine_templates' => ['companion_evening' => ['title' => 'Mine', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '20:00']]]]);
+        $this->configure(['chat' => ['journal' => true]]);
+        $journal = \Pramnos\Llm\Chat\Routines::templates();
+        $this->configure(['chat' => ['journal' => true, 'calendar' => true, 'routine_templates' => ['evening_review' => ['title' => 'Mine', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '20:00']]]]);
         $on     = \Pramnos\Llm\Chat\Routines::templates();
 
         // Assert
@@ -337,8 +377,9 @@ class DossierTest extends LlmTestCase
         $this->assertMatchesRegularExpression("/^- \\d\\d:\\d\\d Closed the project plan\\.\n\n- \\d\\d:\\d\\d Felt calmer after the walk\\.$/", $text);
         $this->assertSame(['personal' => true], $tools['journal']['tags']);
         $this->assertSame([], $off);
-        $this->assertEqualsCanonicalizing(['companion_evening', 'companion_morning'], array_keys($on));
-        $this->assertSame('Mine', $on['companion_evening']['title'], 'the application\'s own wins');
-        $this->assertSame('08:00', $on['companion_morning']['at']);
+        $this->assertSame(['evening_review'], array_keys($journal), 'the journal\'s alone');
+        $this->assertEqualsCanonicalizing(['evening_review', 'daily_plan'], array_keys($on));
+        $this->assertSame('Mine', $on['evening_review']['title'], 'the application\'s own wins');
+        $this->assertSame('08:00', $on['daily_plan']['at']);
     }
 }

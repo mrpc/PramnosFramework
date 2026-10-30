@@ -231,9 +231,9 @@ class AccountErasure
             $qb('chat_artifacts')->where('userid', $userId)->delete();
         }
 
-        // The companion's profile of them, with every earlier version of it in the event log,
+        // The assistant's profile of them, with every earlier version of it in the event log,
         // and their calendar.
-        \Pramnos\Llm\Companion\Dossier::erase('userid', $userId, $this->database);
+        \Pramnos\Llm\Chat\Profile::erase('userid', $userId, $this->database);
         if ($schema->hasTable('chat_calendar')) {
             $qb('chat_calendar')->where('userid', $userId)->delete();
         }

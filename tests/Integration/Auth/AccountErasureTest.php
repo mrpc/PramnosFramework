@@ -132,7 +132,7 @@ class AccountErasureTest extends TestCase
     /**
      * What the assistant keeps about a user: a conversation and its message and artifact, a memory, a
      * question asked, an agreement, a dashboard, a scheduled task with its run and a reader, and a
-     * call in the cost log, the companion's profile entry with its version in the event log, and an
+     * call in the cost log, the assistant's profile entry with its version in the event log, and an
      * appointment. Answers the task's id.
      */
     private function aiDataOf(int $userId): int
@@ -263,7 +263,7 @@ class AccountErasureTest extends TestCase
     /**
      * What the assistant keeps about the account goes too: its conversations with every message,
      * its memory, questions, agreements and dashboard, its tasks with their runs and readers, the
-     * companion's profile of it with every earlier version in the event log, and its calendar. The
+     * assistant's profile of it with every earlier version in the event log, and its calendar. The
      * cost log keeps what each call cost, without who or what was said. Another account's stays.
      */
     #[DataProvider('databases')]

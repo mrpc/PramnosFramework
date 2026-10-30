@@ -79,7 +79,8 @@ class Routines
 
     /**
      * Ready-made routines an application offers, by key: `title`, `prompt`, `cadence`, `at`, `day` —
-     * and, where the companion is on, its own ({@see \Pramnos\Llm\Companion\Companion::TEMPLATES}).
+     * and the calendar's morning plan and the journal's evening review, where each is on
+     * ({@see Calendar::TEMPLATES}, {@see Journal::TEMPLATES}).
      *
      * @return array<string, array<string, mixed>>
      */
@@ -87,9 +88,10 @@ class Routines
     {
         $chat = \Pramnos\Llm\Llm::config('chat', []);
 
-        // The companion's morning and evening, under the application's own.
+        // The calendar's morning and the journal's evening, under the application's own.
         return (is_array($chat['routine_templates'] ?? null) ? $chat['routine_templates'] : [])
-            + (is_array($chat) && !empty($chat['companion']) ? \Pramnos\Llm\Companion\Companion::TEMPLATES : []);
+            + (is_array($chat) && !empty($chat['calendar']) ? Calendar::TEMPLATES : [])
+            + (is_array($chat) && !empty($chat['journal']) ? Journal::TEMPLATES : []);
     }
 
     /**
@@ -288,7 +290,7 @@ class Routines
             if (!$this->claim($task, (string) $row['next_run_at'], $now)) {
                 continue;
             }
-            // A question the companion asks on its own waits for its manners: held, it costs nothing.
+            // A question the assistant asks on its own waits for its manners: held, it costs nothing.
             if ($task['kind'] === self::ASK && ($when = $this->proactive($task, $now)) !== $now) {
                 $this->hold($task, $when, $now);
                 continue;
@@ -336,8 +338,9 @@ class Routines
     }
 
     /**
-     * When a scheduled question may be asked, where the companion is on: {@see \Pramnos\Llm\Policy\Proactivity}.
-     * Now, everywhere else — and a run its owner asked for never comes this way.
+     * When a scheduled question may be asked, where the application set `'llm' => ['proactivity' => …]`:
+     * {@see \Pramnos\Llm\Policy\Proactivity}, in a person's own conversations. Now, everywhere else —
+     * and a run its owner asked for never comes this way.
      *
      * @param array<string, mixed> $task
      */
@@ -345,7 +348,7 @@ class Routines
     {
         $policy = $this->policy();
         $scope  = $policy->scope($task);
-        if (!\Pramnos\Llm\Companion\Companion::on($scope)) {
+        if (!\Pramnos\Llm\Llm::proactive() || $scope->space !== Scope::CHAT) {
             return $now;
         }
 

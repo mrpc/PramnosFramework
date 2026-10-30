@@ -51,6 +51,9 @@ class Conversations
     public const TITLE = 80;
 
     /** How the framework notes the tools an earlier answer wrote with. Only this class writes it. */
+    /** The calls of a cut answer named for the next question, at most. */
+    public const STOPPED_CALLS = 20;
+
     public const MARK = '⟦Tools that wrote in this answer: ';
 
     /** Told to the fast tier when it answers in place of the frontier one, which is down. */
@@ -325,7 +328,7 @@ class Conversations
                 if ((int) $turn['message_id'] <= (int) ($row['summary_upto'] ?? 0)) {
                     continue;
                 }
-                $history[] = ['role' => $turn['role'], 'content' => $turn['content'] . $this->whatItDid($turn['tools'] ?? [])];
+                $history[] = ['role' => $turn['role'], 'content' => $turn['content'] . $this->whatItDid($turn['tools'] ?? []) . self::whereItStopped($turn)];
                 $ids[]     = (int) $turn['message_id'];
                 $lastContext = $turn['role'] === 'assistant' ? (int) ($turn['context'] ?? 0) : $lastContext;
             }
@@ -467,9 +470,12 @@ class Conversations
         // ("Let me check…") are steps, not the start of the answer — kept, folded away, and left out
         // of the copy and of the history the next question replays.
         $steps   = array_values(array_filter(array_map('strval', (array) ($answer['steps'] ?? [])), static fn (string $one): bool => trim($one) !== ''));
+        // An answer cut at its budget or its rounds is remembered as cut, so the next question
+        // goes on from what it read instead of reading it again (whereItStopped()).
+        $stopped = !empty($answer['over_budget']) ? 'budget' : (!empty($answer['out_of_rounds']) ? 'rounds' : null);
         $message = $this->store($conversationId, 'assistant', self::withoutMark((string) ($answer['final'] ?? $answer['reply'])),
             (array) ($answer['calls'] ?? []), $answer['cost'], $stamp, $answer['context'] ?? null,
-            $steps === [] ? [] : ['steps' => $steps]);
+            array_filter(['steps' => $steps, 'stopped' => $stopped]));
         $message['artifacts'] = $artifacts->link($conversationId, (int) $message['message_id'], $turn->tags);
 
         // What the person stated, kept — once several of their messages have gathered. An answer
@@ -617,6 +623,27 @@ class Conversations
         }
 
         return $done === [] ? '' : "\n\n" . self::MARK . implode(', ', array_unique($done)) . ' ⟧';
+    }
+
+    /**
+     * For an earlier answer cut at its budget or its rounds, what it had already called, with the
+     * arguments: the next question — "go on" — starts from there rather than from the beginning.
+     *
+     * @param array<string, mixed> $turn A stored message
+     */
+    public static function whereItStopped(array $turn): string
+    {
+        $why = (string) ($turn['extra']['stopped'] ?? '');
+        if ($why === '' || ($turn['tools'] ?? []) === []) {
+            return '';
+        }
+        $calls = array_map(
+            static fn (array $call): string => ($call['name'] ?? '?') . '(' . mb_substr((string) json_encode($call['arguments'] ?? [], JSON_UNESCAPED_UNICODE), 0, 200) . ')',
+            array_slice((array) $turn['tools'], 0, self::STOPPED_CALLS)
+        );
+
+        return "\n\n⟦This answer stopped at its " . ($why === 'budget' ? 'budget' : 'limit of rounds') . ' after calling: '
+            . implode('; ', $calls) . '. Go on from there; do not repeat those calls. ⟧';
     }
 
     /** A reply without any note it wrote itself in the system's name. */
@@ -803,11 +830,17 @@ class Conversations
             $lines[] = $pinned;
         }
 
-        // The companion's: what the person confirmed about themselves, and what waits for their word.
-        if ($this->scope !== null && \Pramnos\Llm\Companion\Companion::on($this->scope) && !$turn->shared()
-            && ($own = (new \Pramnos\Llm\Companion\Companion($this->scope))->context()) !== '') {
-            $lines[] = '';
-            $lines[] = $own;
+        // The person's own, where the application turned them on: what they confirmed about
+        // themselves and what waits for their word, and today in their calendar.
+        if ($this->scope !== null && !$turn->shared()) {
+            $own = [
+                Profile::on($this->scope) && Profile::available() ? (new Profile($this->scope))->context() : '',
+                Calendar::on($this->scope) ? (new Calendar($this->scope, $this->assistant->timezone($this->scope)))->context() : '',
+            ];
+            foreach (array_filter($own) as $part) {
+                $lines[] = '';
+                $lines[] = $part;
+            }
         }
 
         return trim(implode("\n", $lines));
@@ -918,6 +951,8 @@ class Conversations
         $tools    = $this->assistant->tools($turn)
             // The web, where the application offers it: nobody's own, so in a shared answer too.
             + (\Pramnos\Llm\Web\Web::on() ? (new \Pramnos\Llm\Web\Web())->tools() : [])
+            // The external MCP servers, where the application offers them here: the application's.
+            + (self::mcpOn() ? \Pramnos\Llm\Mcp\Servers::tools() : [])
             + ($turn->shared() ? [] : $memory->tools($this, $turn->conversationId)
             // Not from a scheduled run: a task that schedules tasks has no end.
             + ($this->scheduled ? [] : self::inSkill($routines->toolsFor($this->scope, $this->assistant->timezone($this->scope), $turn->conversationId), 'tasks')
@@ -925,8 +960,8 @@ class Conversations
                 + self::inSkill($artifacts->tools(), 'artifacts', ['save_artifact'])
                 // And changes to approve, where the application turned them on: nobody approves in a run.
                 + (new Proposals($this->scope))->tools($artifacts))
-            // The companion's, where the application turned it on.
-            + ($this->scope !== null && \Pramnos\Llm\Companion\Companion::on($this->scope) ? (new \Pramnos\Llm\Companion\Companion($this->scope, $this->assistant->timezone($this->scope)))->tools() : []));
+            // The person's profile, calendar and journal, where the application turned each on.
+            + $this->personalTools());
 
         // A change is made only on the person's word: after reading what somebody else wrote, the
         // client holds these back (Client::HELD_WRITE).
@@ -971,6 +1006,32 @@ class Conversations
      * @param list<string>                        $except
      * @return array<string, array<string, mixed>>
      */
+    /** Whether the application offers its external MCP servers' tools in conversations: `'llm' => ['chat' => ['mcp' => true]]`. */
+    public static function mcpOn(): bool
+    {
+        $chat = \Pramnos\Llm\Llm::config('chat', []);
+
+        return is_array($chat) && !empty($chat['mcp']);
+    }
+
+    /**
+     * The profile's, the calendar's and the journal's tools, each where the application turned it
+     * on, one set per answer: a proposal made in it is known to it.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function personalTools(): array
+    {
+        if ($this->scope === null) {
+            return [];
+        }
+        $zone = $this->assistant->timezone($this->scope);
+
+        return (Profile::on($this->scope) ? self::inSkill((new Profile($this->scope))->tools(), 'profile') : [])
+            + (Calendar::on($this->scope) ? self::inSkill((new Calendar($this->scope, $zone))->tools(), 'calendar', ['set_busy']) : [])
+            + (Journal::on($this->scope) ? self::inSkill((new Journal($this->scope, $zone))->tools(), 'journal') : []);
+    }
+
     public static function inSkill(array $tools, string $skill, array $except = []): array
     {
         foreach ($tools as $name => $tool) {

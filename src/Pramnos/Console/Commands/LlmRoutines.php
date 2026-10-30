@@ -38,8 +38,8 @@ class LlmRoutines extends Command
         $ran      = $routines->runDue(time());
         $output->writeln($ran === 0 ? 'Nothing was due.' : 'Asked ' . $ran . ' scheduled question' . ($ran === 1 ? '' : 's') . '.');
 
-        // The companion's reminders before appointments, as its manners allow.
-        $reminded = \Pramnos\Llm\Companion\Companion::remind(time());
+        // Reminders before appointments in a person's calendar, as the manners allow.
+        $reminded = \Pramnos\Llm\Chat\Calendar::remind(time());
         if ($reminded > 0) {
             $output->writeln('Reminded of ' . $reminded . ' appointment' . ($reminded === 1 ? '' : 's') . '.');
         }

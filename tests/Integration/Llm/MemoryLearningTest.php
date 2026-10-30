@@ -154,14 +154,14 @@ class MemoryLearningTest extends LlmTestCase
         $silent  = $memory->learn($client, '   ');
 
         // Assert
-        $this->assertSame(['kept' => 1, 'corrected' => 1, 'forgotten' => 1], $done, 'the organisation\'s fact is not learned');
+        $this->assertSame(['kept' => 1, 'corrected' => 1, 'forgotten' => 1, 'proposed' => 0], $done, 'the organisation\'s fact is not learned');
         $this->assertSame(['Lives in Athens.', 'Wants short answers.'], array_column($memory->all(), 'content'));
         $this->assertSame(['learned', 'learned'], array_column($memory->all(), 'source'), 'what it kept or corrected is marked');
         $this->assertSame([], $memory->shared(), 'learning never writes what the organisation shares');
         $this->assertStringContainsString('Everything is about \"me\"', json_encode($this->sent[0]['body']['messages'][0]['content']));
-        $this->assertSame(['kept' => 0, 'corrected' => 0, 'forgotten' => 0], $garbled);
-        $this->assertSame(['kept' => 0, 'corrected' => 0, 'forgotten' => 0], $nothing);
-        $this->assertSame(['kept' => 0, 'corrected' => 0, 'forgotten' => 0], $silent, 'nothing said, no call');
+        $this->assertSame(['kept' => 0, 'corrected' => 0, 'forgotten' => 0, 'proposed' => 0], $garbled);
+        $this->assertSame(['kept' => 0, 'corrected' => 0, 'forgotten' => 0, 'proposed' => 0], $nothing);
+        $this->assertSame(['kept' => 0, 'corrected' => 0, 'forgotten' => 0, 'proposed' => 0], $silent, 'nothing said, no call');
         $this->assertCount(3, $this->sent, 'one call each, none for silence');
         $this->assertStringContainsString('Lives in Patras.', $this->sent[0]['body']['messages'][1]['content'], 'it saw what is remembered');
     }

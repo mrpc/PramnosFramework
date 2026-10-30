@@ -111,6 +111,27 @@ class BroadcastingManager
         return self::$instance;
     }
 
+    /**
+     * Tell a person's open pages that something of theirs changed, on their private channel as the
+     * application names it. Best effort: without broadcasting set up it does nothing, and a failure
+     * is logged, never the caller's — the change is made whether or not a page heard of it.
+     *
+     * @param array<string, mixed> $payload
+     */
+    public static function toUser(int $userId, string $event, array $payload = []): void
+    {
+        $manager = self::$instance;
+        if ($manager === null || $userId <= 0) {
+            return;
+        }
+        try {
+            $config = \Pramnos\Application\Application::currentInstance()?->applicationInfo['broadcasting'] ?? [];
+            $manager->broadcast(RealtimeConfig::userChannel($userId, is_array($config) ? $config : []), $event, $payload);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log($event . ' was not announced to ' . $userId . ': ' . $e->getMessage(), 'broadcasting');
+        }
+    }
+
     // =========================================================================
     // Driver management
     // =========================================================================

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Llm\Policy;
 
 /**
- * Whether the companion may reach out to a person now — a scheduled question it asks on its own,
+ * Whether the assistant may reach out to a person now — a scheduled question it asks on its own,
  * a reminder before an appointment — or later, or not this time: `'llm' => ['proactivity' => …]`.
  *
  * Asked before anything is spent, so a ping that is held costs no model call.

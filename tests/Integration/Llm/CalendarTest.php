@@ -7,11 +7,11 @@ namespace Pramnos\Tests\Integration\Llm;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Pramnos\Llm\Chat\Scope;
-use Pramnos\Llm\Companion\Calendar;
+use Pramnos\Llm\Chat\Calendar;
 use Pramnos\Tests\Unit\Llm\LlmTestCase;
 
 /**
- * The companion's calendar — appointments and tasks on the person's clock — on MySQL and
+ * A person's calendar — appointments and tasks on the person's clock — on MySQL and
  * PostgreSQL.
  *
  * What holds: a time given on the person's clock comes back on it, whatever zone the database
@@ -20,7 +20,7 @@ use Pramnos\Tests\Unit\Llm\LlmTestCase;
  * out; tasks list soonest due first; and nobody reads or changes another person's.
  */
 #[CoversClass(Calendar::class)]
-class CompanionCalendarTest extends LlmTestCase
+class CalendarTest extends LlmTestCase
 {
     use ChatDatabase;
 
@@ -69,6 +69,51 @@ class CompanionCalendarTest extends LlmTestCase
         $this->assertSame(strtotime('2026-10-20 13:00:00 UTC'), strtotime($feed[0]['start']), 'the same moment: 13:00 UTC');
         $this->assertFalse($feed[0]['allDay']);
         $this->assertSame([], self::call($calendar, 'calendar_list_events', ['from' => '2026-10-21', 'to' => 'tomorrow']));
+    }
+
+    /**
+     * Today is in the prompt: the day's appointments on the person's clock and the open tasks due
+     * by its end or overdue — not tomorrow's, not a task with no due time, not a done one; nothing
+     * at all on an empty day. In a conversation it is there only with the calendar on.
+     */
+    #[DataProvider('databases')]
+    public function testTodayIsInThePrompt(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $calendar = $this->calendar($type, $host, $port, 43);
+        $empty    = $calendar->context();
+        $today    = (new \DateTimeImmutable('now', new \DateTimeZone('Europe/Athens')))->format('Y-m-d');
+        $tomorrow = (new \DateTimeImmutable('tomorrow', new \DateTimeZone('Europe/Athens')))->format('Y-m-d');
+        $calendar->create('Dentist', $today . ' 23:00');
+        $calendar->create('Holiday', $today, null, true);
+        $calendar->create('Tomorrow\'s', $tomorrow . ' 09:00');
+        $calendar->addTask('Pay the rent', $today . ' 12:00');
+        $calendar->addTask('Someday');
+        $done = $calendar->addTask('Already done', $today . ' 10:00')['created']['id'];
+        $calendar->updateTask($done, ['done' => true]);
+        $this->setting('llm_openai_api_key', 'sk-test');
+        $this->answer([[200, self::says('Hi')], [200, self::says('Hi')]]);
+
+        // Act
+        $context = $calendar->context();
+        (new \Pramnos\Llm\Chat\Conversations(new \Pramnos\Llm\Chat\BaseAssistant()))->as(new Scope(43, null))->ask(null, 'Hi');
+        $this->configure(['chat' => ['calendar' => true]]);
+        (new \Pramnos\Llm\Chat\Conversations(new \Pramnos\Llm\Chat\BaseAssistant()))->as(new Scope(43, null))->ask(null, 'Hi');
+
+        // Assert
+        $this->assertSame('', $empty, 'nothing on an empty day');
+        $this->assertStringStartsWith('Today, ' . $today . ' (Europe/Athens), in the person\'s calendar:', $context);
+        $this->assertStringContainsString('23:00–00:00', $context);
+        $this->assertStringContainsString('Dentist', $context);
+        $this->assertStringContainsString('all day', $context);
+        $this->assertStringContainsString('Pay the rent (due ' . $today . ' 12:00)', $context);
+        $this->assertStringNotContainsString('Tomorrow', $context);
+        $this->assertStringNotContainsString('Someday', $context, 'a task with no due time is the list\'s, not today\'s');
+        $this->assertStringNotContainsString('Already done', $context);
+        $this->assertStringNotContainsString('Dentist', self::systemOf($this->sent[0]), 'off: not in the prompt');
+        $this->assertStringContainsString('Dentist', self::systemOf($this->sent[1]));
+        $this->assertTrue(Calendar::on(new Scope(43, null)));
+        $this->assertFalse(Calendar::on(new Scope(43, null, Scope::ADMIN)), 'a person\'s own conversations only');
     }
 
     /**

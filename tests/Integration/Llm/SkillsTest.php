@@ -148,4 +148,61 @@ class SkillsTest extends LlmTestCase
         $this->assertSame(['artifacts'], $tools['pin_artifact']['skills']);
         $this->assertArrayNotHasKey('skills', $tools['save_artifact']);
     }
+
+    /**
+     * An application's external MCP servers are offered in conversations only with
+     * `'llm' => ['chat' => ['mcp' => true]]`: configuring the servers alone does not put a
+     * third party's tools in front of every person.
+     */
+    #[DataProvider('databases')]
+    public function testTheMcpServersAreOfferedOnlyWhenAsked(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['mcp_servers' => ['fx' => ['command' => PHP_BINARY, 'args' => [ROOT . '/tests/fixtures/mcp/server.php']]]]);
+        $this->answer([[200, self::says('Hi')], [200, self::says('Hi')]]);
+
+        try {
+            // Act
+            (new Conversations(self::assistant()))->as(new Scope(7, null))->ask(null, 'Hi');
+            $this->configure(['mcp_servers' => ['fx' => ['command' => PHP_BINARY, 'args' => [ROOT . '/tests/fixtures/mcp/server.php']]], 'chat' => ['mcp' => true]]);
+            (new Conversations(self::assistant()))->as(new Scope(7, null))->ask(null, 'Hi');
+        } finally {
+            \Pramnos\Llm\Mcp\Servers::closeAll();
+        }
+
+        // Assert
+        $this->assertNotContains('fx__echo', self::offered($this->sent[0]));
+        $this->assertContains('fx__echo', self::offered($this->sent[1]));
+    }
+
+    /**
+     * An answer cut at its turn budget is remembered as cut: the next question's history names
+     * what it had already called, with the arguments, so "go on" starts from there. An answer
+     * that finished carries no such note.
+     */
+    #[DataProvider('databases')]
+    public function testACutAnswerTellsTheNextWhereItStopped(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['turn_budget' => ['tokens' => 1]]);
+        $this->answer([
+            [200, self::calls([['crm_lookup', ['name' => 'Acme']]])],
+            [200, self::says('I looked up Acme; I ran out before the rest.')],
+            [200, self::says('Going on.')],
+        ]);
+        $chat = (new Conversations(self::assistant()))->as(new Scope(7, null));
+
+        // Act
+        $first = $chat->ask(null, 'Compare every customer.');
+        $chat->ask((int) $first['conversation_id'], 'Go on.');
+
+        // Assert
+        $history = json_encode($this->sent[2]['body']['messages'], JSON_UNESCAPED_UNICODE);
+        $this->assertStringContainsString('stopped at its budget after calling: crm_lookup({\\"name\\":\\"Acme\\"})', $history);
+        $this->assertSame('', Conversations::whereItStopped(['extra' => [], 'tools' => [['name' => 'x']]]), 'a finished answer');
+        $this->assertSame('', Conversations::whereItStopped(['extra' => ['stopped' => 'rounds'], 'tools' => []]), 'nothing called');
+        $this->assertStringContainsString('limit of rounds', Conversations::whereItStopped(['extra' => ['stopped' => 'rounds'], 'tools' => [['name' => 'x', 'arguments' => []]]]));
+    }
 }
