@@ -10,13 +10,38 @@ use Pramnos\Llm\Chat\Scope;
  * The personal-companion layer of a person's own conversations, on with
  * `'llm' => ['chat' => ['companion' => true]]`: what they confirmed about themselves and the
  * people in their life ({@see Dossier}), in every prompt, and the tools to propose and confirm it;
- * their appointments and tasks ({@see Calendar}).
+ * their appointments and tasks ({@see Calendar}); a journal a day; `set_busy`; and the morning
+ * and evening routines of {@see TEMPLATES}. When it reaches out on its own is
+ * {@see \Pramnos\Llm\Policy\Proactivity}'s to say.
  *
  * Off by default: an assistant for work has no business keeping who somebody's brother is. Never
  * in an answer others read too, nor in the administrators' analyst.
  */
 final class Companion
 {
+    /**
+     * Routines the companion offers beside the application's own `routine_templates`, which
+     * override them by key: the morning plan and the evening review of the day.
+     */
+    public const TEMPLATES = [
+        'companion_morning' => [
+            'title'   => 'Good morning',
+            'prompt'  => 'Plan my day: read today\'s appointments and my open tasks, keep the plan as today\'s artifact, '
+                . 'and greet me with what the day holds, in two or three sentences.',
+            'cadence' => 'daily',
+            'at'      => '08:00',
+        ],
+        'companion_evening' => [
+            'title'   => 'The day\'s review',
+            'prompt'  => 'The day is ending. Ask me briefly what I got done and how I feel, so we can close the day in my journal.',
+            'cadence' => 'daily',
+            'at'      => '21:30',
+        ],
+    ];
+
+    /** The journal's title, before the day it is for. */
+    public const JOURNAL = 'Journal';
+
     private ?Dossier $dossier = null;
 
     private ?Calendar $calendar = null;
@@ -53,7 +78,7 @@ final class Companion
      */
     public function tools(): array
     {
-        return $this->dossier()->tools() + $this->calendar()->tools() + $this->busyTool();
+        return $this->dossier()->tools() + $this->calendar()->tools() + $this->busyTool() + $this->journalTool();
     }
 
     /**
@@ -113,6 +138,46 @@ final class Companion
                 return $at === false ? 'No longer busy.' : 'Busy until ' . $until . '.';
             },
             'writes'      => true,
+        ]];
+    }
+
+    /**
+     * `journal`: a line in today's journal — a text artifact a day, `Journal Y-m-d` on the
+     * person's clock — made on the day's first entry, added to after it. Tagged `personal`.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function journalTool(): array
+    {
+        if (!\Pramnos\Llm\Chat\Artifacts::available()) {
+            return [];
+        }
+
+        return ['journal' => [
+            'description' => 'Write in the person\'s journal for today: what they got done, what they thought, what they learned. '
+                . 'In their words where you can, one entry at a time.',
+            'parameters'  => ['type' => 'object', 'properties' => ['entry' => ['type' => 'string']], 'required' => ['entry']],
+            'run'         => function (array $a): string {
+                $entry = trim((string) ($a['entry'] ?? ''));
+                if ($entry === '') {
+                    return 'Error: there is nothing to write.';
+                }
+                $artifacts = new \Pramnos\Llm\Chat\Artifacts($this->scope);
+                $title     = self::JOURNAL . ' ' . (new \DateTimeImmutable('now', new \DateTimeZone($this->timezone)))->format('Y-m-d');
+                $line      = '- ' . (new \DateTimeImmutable('now', new \DateTimeZone($this->timezone)))->format('H:i') . ' ' . $entry;
+                foreach ($artifacts->search(['kind' => 'text', 'query' => $title]) as $found) {
+                    if ($found['title'] === $title) {
+                        $done = $artifacts->update((int) $found['artifact_id'], 'append', ['text' => $line]);
+
+                        return is_string($done) ? 'Error: ' . $done : 'Written in ' . $title . '.';
+                    }
+                }
+                $made = $artifacts->create(['kind' => 'text', 'title' => $title, 'text' => $line]);
+
+                return is_string($made) ? 'Error: ' . $made : 'Written in ' . $title . ', a new page.';
+            },
+            'writes'      => true,
+            'tags'        => ['personal' => true],
         ]];
     }
 

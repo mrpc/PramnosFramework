@@ -78,7 +78,8 @@ class Routines
     }
 
     /**
-     * Ready-made routines an application offers, by key: `title`, `prompt`, `cadence`, `at`, `day`.
+     * Ready-made routines an application offers, by key: `title`, `prompt`, `cadence`, `at`, `day` —
+     * and, where the companion is on, its own ({@see \Pramnos\Llm\Companion\Companion::TEMPLATES}).
      *
      * @return array<string, array<string, mixed>>
      */
@@ -86,7 +87,9 @@ class Routines
     {
         $chat = \Pramnos\Llm\Llm::config('chat', []);
 
-        return is_array($chat['routine_templates'] ?? null) ? $chat['routine_templates'] : [];
+        // The companion's morning and evening, under the application's own.
+        return (is_array($chat['routine_templates'] ?? null) ? $chat['routine_templates'] : [])
+            + (is_array($chat) && !empty($chat['companion']) ? \Pramnos\Llm\Companion\Companion::TEMPLATES : []);
     }
 
     /**

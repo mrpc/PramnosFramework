@@ -55,7 +55,7 @@ class Conversations
 
     /** Told to the fast tier when it answers in place of the frontier one, which is down. */
     public const DEGRADED = 'The stronger model is unavailable right now, so you are answering in its place: answer as well as you can, '
-        . 'and say plainly if the question needs more than you can give.';
+        . 'and say plainly if the question needs more than you can give. If the person is upset or confiding in you, answer them warmly first.';
 
     private ?Scope $scope = null;
 

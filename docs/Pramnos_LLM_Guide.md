@@ -1130,6 +1130,40 @@ The default, `Policy\QuietProactivity`:
   (an alarm the person set) it should return `$now`. A policy that throws lets the question go:
   the person's own schedule is never silenced by an error.
 
+#### A journal, a morning and an evening
+
+- **`journal`** writes an entry in today's journal: a text [artifact](#artifacts-tables-lists-and-texts-kept-from-an-answer)
+  a day, `Journal Y-m-d` on the person's clock. The day's first entry makes the page, the next
+  ones are added to it, each with its time. Pin it, share it or export it like any artifact.
+- **Two ready-made routines** (`Companion::TEMPLATES`) are offered beside the application's own
+  `routine_templates`, which win by key. `companion_morning` (08:00) reads the day's appointments
+  and open tasks, keeps the plan as an artifact and says good morning. `companion_evening`
+  (21:30) asks what got done and how the day went, for the journal. Both are scheduled
+  questions, so the [manners](#reaching-out-on-its-own-with-manners-proactivity) apply.
+
+#### Confiding in it: the stronger model, and data kept close
+
+Nothing here is the companion's own; it is the harness, set for it:
+
+```php
+'llm' => [
+    'chat'  => ['companion' => true],
+    // A delicate personal or emotional conversation goes to the frontier tier; and when that
+    // provider is down, the fast one answers in its place, warmly first.
+    'tiers' => ['fast' => 'chat_fast', 'frontier' => 'chat_frontier'],
+    // What the person confided — the profile, the journal — only to a provider you trust with it.
+    'rules' => [App\Llm\PersonalStaysLocal::class],   // a DataRule for the tag 'personal'
+],
+```
+
+- The [tiers](#a-model-for-each-question-tiers) send a delicate personal or emotional
+  conversation to the frontier model. If that provider is down, the fast one answers in its
+  place, told to answer warmly first when the person is upset or confiding.
+- The profile's tools and `journal` tag their results `personal`. A [data rule](#data-rules) for
+  that tag keeps them with the provider it names, a local model for instance, or tells the model
+  why not.
+- How they feel is kept only with their consent (`ai_companion_feelings`).
+
 ### Rating answers, and the queue of bad ones
 
 Under every answer, on the page and in the SPA component, the person rates it 👍 or 👎. Pressing the

@@ -264,4 +264,40 @@ class DossierTest extends LlmTestCase
         $this->assertTrue((new Dossier($scope))->tools()['note_profile']['writes']);
         $this->assertSame(['personal' => true], (new Dossier($scope))->tools()['recall_person']['tags']);
     }
+
+    /**
+     * The journal: the day's first entry makes a page, `Journal Y-m-d` on the person's clock,
+     * and the next ones are added to it, each with its time; nothing is not an entry. Where the
+     * companion is on, its morning and evening routines are offered beside the application's own,
+     * which win by key.
+     */
+    #[DataProvider('databases')]
+    public function testTheJournalAndTheRoutinesItOffers(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $scope = $this->person($type, $host, $port);
+        $tools = (new Companion($scope, 'Europe/Athens'))->tools();
+        $today = 'Journal ' . (new \DateTimeImmutable('now', new \DateTimeZone('Europe/Athens')))->format('Y-m-d');
+
+        // Act
+        $first  = ($tools['journal']['run'])(['entry' => 'Closed the project plan.']);
+        $second = ($tools['journal']['run'])(['entry' => 'Felt calmer after the walk.']);
+        $empty  = ($tools['journal']['run'])(['entry' => '  ']);
+        $pages  = (new \Pramnos\Llm\Chat\Artifacts($scope))->search(['kind' => 'text', 'query' => 'Journal']);
+        $text   = (new \Pramnos\Llm\Chat\Artifacts($scope))->find((int) $pages[0]['artifact_id'])['content']['text'];
+        $off    = \Pramnos\Llm\Chat\Routines::templates();
+        $this->configure(['chat' => ['companion' => true, 'routine_templates' => ['companion_evening' => ['title' => 'Mine', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '20:00']]]]);
+        $on     = \Pramnos\Llm\Chat\Routines::templates();
+
+        // Assert
+        $this->assertSame(['Written in ' . $today . ', a new page.', 'Written in ' . $today . '.'], [$first, $second]);
+        $this->assertSame('Error: there is nothing to write.', $empty);
+        $this->assertCount(1, $pages, 'one page a day');
+        $this->assertMatchesRegularExpression("/^- \\d\\d:\\d\\d Closed the project plan\\.\n\n- \\d\\d:\\d\\d Felt calmer after the walk\\.$/", $text);
+        $this->assertSame(['personal' => true], $tools['journal']['tags']);
+        $this->assertSame([], $off);
+        $this->assertEqualsCanonicalizing(['companion_evening', 'companion_morning'], array_keys($on));
+        $this->assertSame('Mine', $on['companion_evening']['title'], 'the application\'s own wins');
+        $this->assertSame('08:00', $on['companion_morning']['at']);
+    }
 }
