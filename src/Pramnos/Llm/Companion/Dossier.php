@@ -25,8 +25,8 @@ use Pramnos\Llm\Chat\Scope;
  * somebody is never becomes a fact in every prompt after it.
  *
  * Every confirmed change raises the entry's `version`, and its before and after go to
- * `changelog_events` ({@see history()}): the versions are in the log, the table holds what is
- * true now.
+ * `pramnos.changelog_events` ({@see history()}): the versions are in the log, the table holds what
+ * is true now. So erasing a profile is two deletes, not one — {@see erase()} does both.
  */
 final class Dossier
 {
@@ -61,6 +61,40 @@ final class Dossier
         } catch (\Throwable) {
             return false;
         }
+    }
+
+    /**
+     * Erase the profiles of a person (`userid`) or of an organisation (`organization_id`), with
+     * every earlier version of each entry in the event log — what a person said about their values
+     * and the people close to them is not to outlive the erasure there either. Answers the
+     * entries erased.
+     */
+    public static function erase(string $by, int $id, ?\Pramnos\Database\Database $database = null): int
+    {
+        if ($by !== 'userid' && $by !== 'organization_id') {
+            throw new \InvalidArgumentException('A profile is erased by userid or organization_id, not ' . $by . '.');
+        }
+        $database ??= \Pramnos\Framework\Factory::getDatabase();
+        $schema = $database->schema();
+        if (!$schema->hasTable('chat_dossier')) {
+            return 0;
+        }
+
+        $entries = [];
+        $result  = $database->queryBuilder()->table('#PREFIX#chat_dossier')->select(['dossier_id'])->where($by, $id)->get();
+        while ($result && ($row = $result->fetch()) !== null) {
+            $entries[] = (string) $row['dossier_id'];
+        }
+        if ($entries === []) {
+            return 0;
+        }
+        if ($schema->hasTable(ChangelogWriter::EVENTS_TABLE)) {
+            $database->queryBuilder()->table(ChangelogWriter::EVENTS_TABLE)
+                ->where('entity', self::ENTITY)->whereIn('itemid', $entries)->delete();
+        }
+        $database->queryBuilder()->table('#PREFIX#chat_dossier')->whereIn('dossier_id', $entries)->delete();
+
+        return count($entries);
     }
 
     /** Whether this person agreed to how they feel being kept. */

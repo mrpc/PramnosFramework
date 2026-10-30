@@ -1138,6 +1138,11 @@ person talks. The profile's entries change by proposal:
 - `recall_person` finds a person in their life by part of a name, or lists everybody
   (`Dossier::people()`).
 
+Erasing a profile is two deletes — the rows, and their versions in `pramnos.changelog_events` — so
+do it with `Dossier::erase('userid', $id)` or `Dossier::erase('organization_id', $id)` rather
+than by hand: a delete written against `changelog_events` without its schema matches nothing and
+says nothing. Account erasure (`AccountErasure`) already calls it for the person.
+
 The tools are `writes`, so after reading somebody else's words they wait for the person
 (see [What somebody else wrote is data, not instructions](#what-somebody-else-wrote-is-data-not-instructions)).
 Their results are tagged `personal`, so a [data rule](#data-rules) on that tag keeps them with a

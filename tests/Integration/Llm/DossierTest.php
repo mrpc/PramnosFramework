@@ -80,6 +80,47 @@ class DossierTest extends LlmTestCase
     }
 
     /**
+     * Erasing a person's profile takes every earlier version in the event log with it, and only
+     * theirs; an organisation's goes the same way; nothing to erase answers 0; any other column
+     * is refused rather than deleting by something unchecked.
+     */
+    #[DataProvider('databases')]
+    public function testEraseTakesTheVersionsWithIt(string $type, string $host, int $port): void
+    {
+        // Arrange — a confirmed entry each, with its version in the log
+        $leaving = $this->person($type, $host, $port);
+        $staying = $this->person($type, $host, $port);
+        $member  = new Scope($this->person($type, $host, $port)->userId, 9071);
+        $ids     = [];
+        foreach ([$leaving, $staying, $member] as $scope) {
+            $proposed = (new Dossier($scope))->note('values', 'Honesty first');
+            $ids[]    = $id = (int) preg_replace('/\D.*/s', '', substr($proposed, strlen('Proposed as entry ')));
+            (new Dossier($scope))->confirm($id);
+        }
+        $events = fn (int $id): int => $this->db->queryBuilder()->table(\Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE)
+            ->where('entity', Dossier::ENTITY)->where('itemid', (string) $id)->count();
+        $this->assertSame(1, $events($ids[0]), 'the version is in the log before');
+
+        // Act
+        $erased  = Dossier::erase('userid', $leaving->userId);
+        $again   = Dossier::erase('userid', $leaving->userId);
+        $company = Dossier::erase('organization_id', 9071, $this->db);
+
+        // Assert
+        $this->assertSame([1, 0, 1], [$erased, $again, $company]);
+        $this->assertSame([], (new Dossier($leaving))->entries());
+        $this->assertSame(0, $events($ids[0]), 'the earlier versions went with it');
+        $this->assertSame(0, $events($ids[2]), 'the organisation\'s too');
+        $this->assertCount(1, (new Dossier($staying))->entries(), 'another person\'s stays');
+        $this->assertSame(1, $events($ids[1]));
+        $without = $this->createMock(\Pramnos\Database\Database::class);
+        $without->method('schema')->willReturn($this->createStub(\Pramnos\Database\SchemaBuilder::class));
+        $this->assertSame(0, Dossier::erase('userid', $staying->userId, $without), 'no table, nothing to erase');
+        $this->expectException(\InvalidArgumentException::class);
+        Dossier::erase('space', 1);
+    }
+
+    /**
      * A goal is proposed, not kept: the same answer cannot confirm it; the next one can, and it
      * is version 1. A correction is proposed again, confirmed, and is version 2 — both versions
      * in the changelog, oldest first.

@@ -233,14 +233,7 @@ class AccountErasure
 
         // The companion's profile of them, with every earlier version of it in the event log,
         // and their calendar.
-        if ($schema->hasTable('chat_dossier')) {
-            $entries = $ids($qb('chat_dossier')->select(['dossier_id'])->where('userid', $userId)->get(), 'dossier_id');
-            if ($entries !== [] && $schema->hasTable(\Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE)) {
-                $qb(\Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE)->where('entity', \Pramnos\Llm\Companion\Dossier::ENTITY)
-                    ->whereIn('itemid', array_map('strval', $entries))->delete();
-            }
-            $qb('chat_dossier')->where('userid', $userId)->delete();
-        }
+        \Pramnos\Llm\Companion\Dossier::erase('userid', $userId, $this->database);
         if ($schema->hasTable('chat_calendar')) {
             $qb('chat_calendar')->where('userid', $userId)->delete();
         }
