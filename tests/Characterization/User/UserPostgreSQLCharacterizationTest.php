@@ -62,6 +62,49 @@ class UserPostgreSQLCharacterizationTest extends TestCase
     }
 
     /**
+     * A load served from the static cache gives the same object a load from the database gives
+     * (FW-303).
+     *
+     * The cache held `(array) $this`, whose protected and private properties are named with PHP's
+     * NUL-byte mangling ("\0*\0originalOtherinfo"). Restored with `$this->$key = $value`, each
+     * became a new public property under that literal name, and the real one was never written:
+     * `originalOtherinfo` stayed empty, so a save wrote every detail again, and
+     * `get_object_vars()` inside the class saw keys with a NUL byte in them, which reached an
+     * application's serialised audit log and broke a PostgreSQL `LIKE` over it.
+     */
+    public function testACachedLoadIsTheSameObjectAsAFreshOne(): void
+    {
+        // Arrange
+        $username = 'cachehit_' . bin2hex(random_bytes(4));
+        $user = new User();
+        $user->username = $username;
+        $user->email    = $username . '@example.com';
+        $user->setPassword('secret123');
+        $user->save();
+        $user->favouritecolour = 'blue';
+        $user->save();
+        $userId = (int) $user->userid;
+        User::clearUserCache();
+        // Every property, protected ones too, as the class itself sees them.
+        $inside = static fn (User $u): array => (fn (): array => get_object_vars($this))->call($u);
+
+        try {
+            // Act
+            $fresh  = new User($userId);   // from the database, and into the cache
+            $cached = new User($userId);   // from the cache
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#userdetails')->where('userid', $userId)->delete();
+            $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->delete();
+            User::clearUserCache();
+        }
+
+        // Assert
+        $this->assertSame($inside($fresh), $inside($cached), 'a cache hit rebuilds exactly what a miss built');
+        $this->assertSame([], array_values(array_filter(array_keys($inside($cached)), static fn (string $k): bool => str_contains($k, "\0"))), 'no mangled name became a property');
+        $this->assertSame('blue', $inside($cached)['originalOtherinfo']['favouritecolour'] ?? null, 'the real protected property was restored');
+    }
+
+    /**
      * `save()` writes `active` as the object holds it — a new user saved inactive is inactive,
      * and an existing one given another state (an application's 2, 3, 5) keeps that state. On
      * PostgreSQL the column was left out of the save, so the default or the old value won.

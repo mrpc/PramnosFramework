@@ -206,7 +206,7 @@ class User extends \Pramnos\Framework\Base implements
      * How many accounts the two static caches hold.
      *
      * Neither had a limit. `$usersCache` holds a whole `User` object per account and
-     * `$_usercache` holds `(array) $this` — every property, including `otherinfo` — and both
+     * `$_usercache` holds a snapshot of every property, including `otherinfo` — and both
      * live for the process. A web request touches a handful of accounts and never notices; a
      * long-running worker, a console command over every user, or a test suite in one process
      * holds every account it has ever seen.
@@ -1056,13 +1056,12 @@ class User extends \Pramnos\Framework\Base implements
         }
 
         if (is_array(self::$_usercache) && isset(self::$_usercache[$uid])) {
+            // The snapshot holds every property by its plain name, `_initialUserData` — the
+            // row's columns, _save()'s diffing baseline — among them: a hit rebuilds exactly
+            // what the miss built.
             foreach (self::$_usercache[$uid] as $key => $value) {
                 $this->$key = $value;
             }
-            // The savable columns, from the same cached snapshot a fresh load() would have
-            // read from the row directly -- so a cache hit gives _save() the same diffing
-            // baseline a cache miss would.
-            $this->_initialUserData = self::$_usercache[$uid];
             return $this;
         }
         $database = \Pramnos\Framework\Factory::getDatabase();
@@ -1126,7 +1125,13 @@ class User extends \Pramnos\Framework\Base implements
             if (!is_array(self::$_usercache)) {
                 self::$_usercache = array();
             }
-            self::$_usercache[$uid] = (array) $this;
+            // `get_object_vars()`, not `(array) $this`: the cast names a protected or private
+            // property with PHP's NUL-byte mangling ("\0*\0originalOtherinfo"), and restoring
+            // that key made a new public property of that literal name instead of setting the
+            // real one (FW-303). A password waiting for its first save is never copied.
+            $snapshot = get_object_vars($this);
+            unset($snapshot['_pendingPlainPassword']);
+            self::$_usercache[$uid] = $snapshot;
             self::trimCache(self::$_usercache);
         }
         return $this;

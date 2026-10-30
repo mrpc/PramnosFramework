@@ -1362,6 +1362,14 @@ its own. Check `$user->userid > 1` after constructing when the id should exist. 
 no row to update — the user was deleted after it loaded — writes nothing, details included, and
 leaves `There is no user N to save: it does not exist.` in `$user->_errors`.
 
+#### A second load of the same user comes from memory
+
+`load()` keeps what it read for the process, up to a thousand users, and a second
+`new User($id)` is built from that, with no query. It is the same object a load from the database
+gives: the columns, the details (`otherinfo`), `originalOtherinfo` (so a save writes only the
+details that changed) and `_initialUserData`, the baseline `save()` compares with.
+`User::clearUserCache()` empties it, and a save of that user drops their entry.
+
 #### `getCurrentUser()` is a read
 
 It returns the signed-in user, or `false`, and **writes nothing**. Call it as
