@@ -583,10 +583,16 @@ class TwoFactorAuthService
      */
     public function cleanupExpiredSessions(): void
     {
+        // An installation that predates the framework's migration can have `used` boolean and
+        // `expires_at` a timestamp; PostgreSQL compares neither with an integer.
+        $schema  = $this->database->schema();
+        $used    = $schema->columnType('authserver.twofactor_setup', 'used');
+        $expires = (string) $schema->columnType('authserver.twofactor_setup', 'expires_at');
+
         $this->database->queryBuilder()
             ->table('authserver.twofactor_setup')
-            ->where('used', 1)
-            ->orWhere('expires_at', '<', time())
+            ->where('used', $used === 'boolean' || $used === 'bool' ? true : 1)
+            ->orWhere('expires_at', '<', preg_match('/^(timestamp|datetime|date)/', $expires) === 1 ? gmdate('Y-m-d H:i:s') : time())
             ->delete();
     }
 

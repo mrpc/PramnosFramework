@@ -683,6 +683,7 @@ class TwoFactorAuthServiceTest extends TestCase
         $qb->expects($this->once())->method('delete')->willReturn(null);
 
         $db      = $this->buildDb($qb);
+        $db->method('schema')->willReturn($this->createStub(\Pramnos\Database\SchemaBuilder::class));
         $service = new TwoFactorAuthService($db);
 
         // Act — must not throw; the mock expectation above verifies delete() was called
