@@ -27,6 +27,18 @@ use Pramnos\Llm\CallLog;
  */
 final class Artifacts
 {
+    /** How much of one artifact a model reads at once ({@see asText()}), in characters. */
+    public const READ = 20000;
+
+    /** How much of each pinned artifact goes into every question's context. */
+    public const PINNED_EACH = 2000;
+
+    /** How much of all the pinned artifacts goes into every question's context. */
+    public const PINNED_ALL = 8000;
+
+    /** How an artifact can be changed ({@see update()}). */
+    public const MODES = ['replace', 'append', 'patch'];
+
     /** What an artifact can be. */
     public const KINDS = ['table', 'list', 'text', 'chart'];
 
@@ -110,7 +122,322 @@ final class Artifacts
 
                 return is_string($made) ? 'Error: ' . $made : 'Saved as artifact ' . $made['artifact_id'] . '.';
             },
-        ]];
+        ]] + $this->workspaceTools();
+    }
+
+    /**
+     * The tools that work on artifacts kept earlier, in any conversation: read one, change it,
+     * find them, pin one. A pinned artifact is in the context of every question that follows.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function workspaceTools(): array
+    {
+        $id = ['type' => 'integer', 'description' => 'The artifact\'s id.'];
+
+        return [
+            'read_artifact' => [
+                'description' => 'Read an artifact this person kept, from any conversation, by its id or its title.',
+                'parameters'  => ['type' => 'object', 'properties' => ['id' => $id, 'title' => ['type' => 'string', 'description' => 'Its title, or a part of it.']]],
+                'run'         => function (array $a): string {
+                    $found = $this->lookUp($a);
+
+                    return $found === null ? 'Error: there is no such artifact.' : self::asText($found, self::READ);
+                },
+            ],
+            'update_artifact' => [
+                'description' => 'Change an artifact this person kept. mode replace: give its kind\'s fields anew. '
+                    . 'mode append: table rows, list ids (and labels), or text to add at the end. '
+                    . 'mode patch: a new title; for a text, find (exactly once) and replace; for a list, remove ids; for a table, remove_rows by number from 1.',
+                'parameters'  => ['type' => 'object', 'properties' => [
+                    'id'          => $id,
+                    'mode'        => ['type' => 'string', 'enum' => self::MODES],
+                    'title'       => ['type' => 'string'],
+                    'columns'     => ['type' => 'array', 'items' => ['type' => 'string']],
+                    'rows'        => ['type' => 'array', 'items' => ['type' => 'array', 'items' => ['type' => ['string', 'number', 'boolean', 'null']]]],
+                    'ids'         => ['type' => 'array', 'items' => ['type' => ['integer', 'string']]],
+                    'labels'      => ['type' => 'array', 'items' => ['type' => 'string']],
+                    'text'        => ['type' => 'string'],
+                    'chart_type'  => ['type' => 'string', 'enum' => self::CHARTS],
+                    'series'      => ['type' => 'array', 'items' => ['type' => 'object']],
+                    'find'        => ['type' => 'string'],
+                    'replace'     => ['type' => 'string'],
+                    'remove'      => ['type' => 'array', 'items' => ['type' => ['integer', 'string']]],
+                    'remove_rows' => ['type' => 'array', 'items' => ['type' => 'integer']],
+                ], 'required' => ['id', 'mode']],
+                'run'         => function (array $a): string {
+                    $changed = $this->update((int) ($a['id'] ?? 0), (string) ($a['mode'] ?? ''), $a);
+
+                    return is_string($changed) ? 'Error: ' . $changed : 'Changed artifact ' . $changed['artifact_id'] . '.';
+                },
+            ],
+            'list_artifacts' => [
+                'description' => 'Find artifacts this person kept, newest change first, by kind, entity, tag or words in the title.',
+                'parameters'  => ['type' => 'object', 'properties' => [
+                    'kind'   => ['type' => 'string', 'enum' => self::KINDS],
+                    'entity' => ['type' => 'string'],
+                    'tag'    => ['type' => 'string'],
+                    'query'  => ['type' => 'string', 'description' => 'Words in the title.'],
+                    'limit'  => ['type' => 'integer', 'description' => 'At most 50.'],
+                ]],
+                'run'         => function (array $a): string {
+                    $found = $this->search($a, min(50, max(1, (int) ($a['limit'] ?? 20))));
+
+                    return $found === [] ? 'No artifacts found.' : implode("\n", array_map(static fn (array $one): string => '#' . $one['artifact_id'] . ' ' . $one['kind'] . ': ' . $one['title']
+                        . ($one['entity'] !== null ? ' (' . $one['entity'] . ')' : '') . ($one['tags'] !== [] ? ' [' . implode(', ', $one['tags']) . ']' : '')
+                        . ', ' . substr($one['updated_at'], 0, 10), $found));
+                },
+            ],
+            'pin_artifact' => [
+                'description' => 'Pin an artifact, or take it off: a pinned one is on this person\'s dashboard and in front of you in every question that follows.',
+                'parameters'  => ['type' => 'object', 'properties' => ['id' => $id, 'pinned' => ['type' => 'boolean']], 'required' => ['id']],
+                'run'         => function (array $a): string {
+                    $on  = (bool) ($a['pinned'] ?? true);
+                    $why = $this->pin((int) ($a['id'] ?? 0), $on);
+
+                    return $why !== null ? 'Error: ' . $why : ($on ? 'Pinned.' : 'Taken off.');
+                },
+            ],
+        ];
+    }
+
+    /**
+     * Change one of this person's artifacts — see the `update_artifact` tool for the modes. The
+     * whole of the new content passes the checks a new one would. Answers it, or why not.
+     *
+     * @param array<string, mixed> $input
+     * @return array<string, mixed>|string
+     */
+    public function update(int $artifactId, string $mode, array $input): array|string
+    {
+        $found = $this->find($artifactId);
+        if ($found === null) {
+            return 'There is no such artifact.';
+        }
+        if (!in_array($found['kind'], self::KINDS, true)) {
+            return 'A ' . $found['kind'] . ' cannot be changed here.';
+        }
+        if (!in_array($mode, self::MODES, true)) {
+            return 'Change it with one of: ' . implode(', ', self::MODES) . '.';
+        }
+
+        $kind   = $found['kind'];
+        $old    = $found['content'];
+        $title  = trim((string) preg_replace('/\s+/u', ' ', (string) ($input['title'] ?? ''))) ?: $found['title'];
+        $fields = match ($mode) {
+            'replace' => ['entity' => $found['entity']] + $input,
+            'append'  => self::appended($kind, $old, $input, (string) $found['entity']),
+            default   => self::patched($kind, $old, $input, (string) $found['entity']),
+        };
+        if (is_string($fields)) {
+            return $fields;
+        }
+
+        $content = match ($kind) {
+            'table' => self::tableContent($fields),
+            'list'  => self::listContent($fields),
+            'chart' => self::chartContent($fields),
+            default => self::textContent($fields),
+        };
+        if (is_string($content)) {
+            return $content;
+        }
+
+        $this->scope->apply($this->table())->where('artifact_id', $artifactId)->update([
+            'title'      => mb_substr($title, 0, self::TITLE),
+            'content'    => (string) json_encode($content, JSON_UNESCAPED_UNICODE),
+            'updated_at' => CallLog::instant(time()),
+        ]);
+
+        return $this->find($artifactId) ?? 'There is no such artifact.';
+    }
+
+    /**
+     * This person's artifacts matching what is asked — kind, entity, a tag, words in the title —
+     * newest change first, without their content.
+     *
+     * @param array<string, mixed> $filters
+     * @return list<array<string, mixed>>
+     */
+    public function search(array $filters, int $limit = 20): array
+    {
+        if (!self::available()) {
+            return [];
+        }
+        $query = $this->scope->apply($this->table())
+            ->select(['artifact_id', 'kind', 'title', 'entity', 'tags', 'conversation_id', 'created_at', 'updated_at'])
+            ->whereIn('kind', self::KINDS);
+        foreach (['kind', 'entity'] as $field) {
+            if (trim((string) ($filters[$field] ?? '')) !== '') {
+                $query->where($field, trim((string) $filters[$field]));
+            }
+        }
+        if (trim((string) ($filters['query'] ?? '')) !== '') {
+            $query->whereLike('title', '%' . trim((string) $filters['query']) . '%');
+        }
+        // ponytail: the tag is checked here, over the newest 500 — a tag in a column of its own if that stops being enough.
+        $result = $query->orderBy('updated_at', 'desc')->orderBy('artifact_id', 'desc')->limit(500)->get();
+        $tag    = trim((string) ($filters['tag'] ?? ''));
+        $out    = [];
+        while (($row = $result->fetch()) !== null && count($out) < max(1, $limit)) {
+            $one = self::shape($row + ['userid' => $this->scope->userId, 'message_id' => null, 'content' => '']);
+            if ($tag === '' || in_array($tag, $one['tags'], true)) {
+                $out[] = array_diff_key($one, ['content' => true, 'message_id' => true]) + ['updated_at' => (string) ($row['updated_at'] ?? $row['created_at'])];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * What this person pinned in this space, as text for the context of every question — each
+     * cut to {@see PINNED_EACH} and all of them to {@see PINNED_ALL}, with their ids, so the model
+     * can read one whole. Empty when nothing is pinned here.
+     */
+    public function pinnedContext(): string
+    {
+        if (!self::available()) {
+            return '';
+        }
+        $user = new \Pramnos\User\User($this->scope->userId);
+        if ((int) ($user->userid ?? 0) !== $this->scope->userId) {
+            return '';
+        }
+        $parts = [];
+        $left  = self::PINNED_ALL;
+        foreach (self::pins($user) as $key) {
+            [$id, $space, $organization] = array_pad(explode('@', $key), 3, '');
+            if ($space !== $this->scope->space || $organization !== (string) ($this->scope->organizationId ?? '') || $left <= 0) {
+                continue;
+            }
+            $found = $this->find((int) $id);
+            if ($found !== null) {
+                $text    = self::asText($found, min(self::PINNED_EACH, $left));
+                $left   -= mb_strlen($text);
+                $parts[] = $text;
+            }
+        }
+
+        return $parts === [] ? '' : "What this person pinned, as it stands now (read_artifact for the whole of one):\n\n" . implode("\n\n", $parts);
+    }
+
+    /**
+     * An artifact as a model reads it: its id, kind and title, then its content, cut to `$limit`
+     * characters with a line saying so.
+     *
+     * @param array<string, mixed> $artifact As {@see shape()} answers
+     */
+    public static function asText(array $artifact, int $limit = self::READ): string
+    {
+        $c    = (array) ($artifact['content'] ?? []);
+        $cell = static fn ($v): string => $v === null ? '' : (is_string($v) ? $v : (string) json_encode($v, JSON_UNESCAPED_UNICODE));
+        $head = '#' . (int) $artifact['artifact_id'] . ' ' . $artifact['kind'] . ': ' . $artifact['title']
+            . (($artifact['entity'] ?? null) !== null ? ' (' . $artifact['entity'] . ')' : '');
+        $body = match ((string) $artifact['kind']) {
+            'table' => implode("\n", array_map(
+                static fn (array $row): string => implode("\t", array_map($cell, $row)),
+                [(array) ($c['columns'] ?? []), ...(array) ($c['rows'] ?? [])]
+            )),
+            'list'  => implode("\n", array_map(
+                static fn ($id, $at): string => $id . (isset($c['labels'][$at]) ? "\t" . $c['labels'][$at] : ''),
+                (array) ($c['ids'] ?? []),
+                array_keys((array) ($c['ids'] ?? []))
+            )),
+            'chart' => ($c['chart'] ?? 'bar') . ' chart; labels: ' . implode(', ', (array) ($c['labels'] ?? [])) . "\n" . implode("\n", array_map(
+                static fn (array $one): string => ($one['label'] ?? '') . ': ' . implode(', ', (array) ($one['data'] ?? [])),
+                (array) ($c['series'] ?? [])
+            )),
+            default => (string) ($c['text'] ?? json_encode($c, JSON_UNESCAPED_UNICODE)),
+        };
+        $text = $head . "\n" . $body;
+        $note = "\n[… cut here; read_artifact " . (int) $artifact['artifact_id'] . ' for the whole]';
+
+        // The note counts within the limit, so what is pinned never goes past its share.
+        return mb_strlen($text) > $limit ? mb_substr($text, 0, max(0, $limit - mb_strlen($note))) . $note : $text;
+    }
+
+    /**
+     * One of this person's artifacts by id, or the newest whose title is the one given — or,
+     * failing that, holds it.
+     *
+     * @param array<string, mixed> $a
+     * @return array<string, mixed>|null
+     */
+    private function lookUp(array $a): ?array
+    {
+        if ((int) ($a['id'] ?? 0) > 0) {
+            return $this->find((int) $a['id']);
+        }
+        $title = mb_strtolower(trim((string) ($a['title'] ?? '')));
+        if ($title === '') {
+            return null;
+        }
+        $candidates = $this->search(['query' => $title], 50);
+        $exact      = array_values(array_filter($candidates, static fn (array $one): bool => mb_strtolower($one['title']) === $title));
+        $best       = $exact[0] ?? $candidates[0] ?? null;
+
+        return $best === null ? null : $this->find($best['artifact_id']);
+    }
+
+    /**
+     * The fields of an artifact with more added at its end.
+     *
+     * @param array<string, mixed> $old   Its content
+     * @param array<string, mixed> $input What to add
+     * @return array<string, mixed>|string
+     */
+    private static function appended(string $kind, array $old, array $input, string $entity): array|string
+    {
+        return match ($kind) {
+            'table' => ['columns' => $old['columns'] ?? [], 'rows' => [...(array) ($old['rows'] ?? []), ...(array) ($input['rows'] ?? [])]],
+            'list'  => ['entity' => $entity,
+                'ids'    => [...(array) ($old['ids'] ?? []), ...(array) ($input['ids'] ?? [])],
+                'labels' => [...(array) ($old['labels'] ?? []), ...(array) ($input['labels'] ?? [])]],
+            'text'  => ['text' => rtrim((string) ($old['text'] ?? '')) . "\n\n" . trim((string) ($input['text'] ?? ''))],
+            default => 'A chart is changed whole: use mode replace.',
+        };
+    }
+
+    /**
+     * The fields of an artifact with a part changed — see the `update_artifact` tool.
+     *
+     * @param array<string, mixed> $old
+     * @param array<string, mixed> $input
+     * @return array<string, mixed>|string
+     */
+    private static function patched(string $kind, array $old, array $input, string $entity): array|string
+    {
+        if ($kind === 'text' && isset($input['find'])) {
+            $text = (string) ($old['text'] ?? '');
+            $find = (string) $input['find'];
+            if ($find === '' || substr_count($text, $find) !== 1) {
+                return 'What to find must be in the text exactly once.';
+            }
+
+            return ['text' => str_replace($find, (string) ($input['replace'] ?? ''), $text)];
+        }
+        if ($kind === 'list' && isset($input['remove'])) {
+            $remove = array_map('strval', (array) $input['remove']);
+            $keep   = array_filter((array) ($old['ids'] ?? []), static fn ($id): bool => !in_array((string) $id, $remove, true));
+
+            return ['entity' => $entity, 'ids' => array_values($keep),
+                'labels' => array_values(array_intersect_key((array) ($old['labels'] ?? []), $keep))];
+        }
+        if ($kind === 'table' && isset($input['remove_rows'])) {
+            $drop = array_map(static fn ($n): int => (int) $n - 1, (array) $input['remove_rows']);
+
+            return ['columns' => $old['columns'] ?? [], 'rows' => array_values(array_diff_key((array) ($old['rows'] ?? []), array_flip($drop)))];
+        }
+        if (trim((string) ($input['title'] ?? '')) === '') {
+            return 'Nothing to change: give a new title, or what to change in it.';
+        }
+
+        // A new title alone: the content as it was.
+        return match ($kind) {
+            'list'  => ['entity' => $entity] + $old,
+            'chart' => ['chart_type' => $old['chart'] ?? 'bar'] + $old,
+            default => $old,
+        };
     }
 
     /**

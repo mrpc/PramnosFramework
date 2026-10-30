@@ -774,6 +774,30 @@ as it was kept. `Artifacts::csv()`, `Artifacts::filename()`, `->pin($id, $on)`,
 `Artifacts::pinned($user)` are the same in code. A pinned artifact is the result as it stood, not a
 query run again: a figure that should stay current is a scheduled report.
 
+**A workspace across conversations.** Besides `save_artifact`, the model is given tools that
+work on what this person kept earlier, from any conversation:
+
+| Tool | Does |
+|---|---|
+| `read_artifact` | reads one by `id`, or by `title`, preferring an exact title to one that only contains the words; at most `Artifacts::READ` characters |
+| `update_artifact` | changes one: `mode` `replace` (its kind's fields anew), `append` (table rows, list ids and labels, or text at the end), or `patch` (a new `title`; `find`/`replace` in a text, exactly once; `remove` ids from a list; `remove_rows` from a table, numbered from 1) |
+| `list_artifacts` | finds them by `kind`, `entity`, `tag` or words in the title (`query`), newest change first |
+| `pin_artifact` | pins one, or takes it off (`pinned: false`) |
+
+A change is checked whole, against the same limits as a new artifact. A list that would name an
+id twice, or a table past 1,000 rows, is refused with the reason and left as it was. A chart is
+changed only whole (`replace`), the entity of a list stays what it was, and the framework's own
+kinds, such as a proposal, are not changed here. `->update($id, $mode, $input)`,
+`->search($filters, $limit)` and `Artifacts::asText($artifact, $limit)` are the same in code.
+
+**A pinned artifact is in front of the model in every question.** What this person pinned in
+this space goes into the context of each question as it stands at that moment, after what is
+remembered about them. Each pinned artifact gets up to `Artifacts::PINNED_EACH` characters and
+all of them together up to `PINNED_ALL`, each with its id, so the model can read one whole. A
+change made during an answer reaches the model as that tool's result, and is in the context from
+the next question on. Changing the context in the middle of an answer would break the cached
+prompt, so the next question is when it shows.
+
 **Acting on a list.** A list's records can be acted on in bulk — put the people in a user group,
 or whatever the application declared for that kind of record — from under the list on the page
 and in the SPA component, or `GET /chat/artifacts/{id}/actions` and

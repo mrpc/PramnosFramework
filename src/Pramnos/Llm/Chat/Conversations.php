@@ -734,6 +734,14 @@ class Conversations
             }
         }
 
+        // What the person pinned, as it stands at the start of this question: a change made during
+        // the answer is in its tool result now, and here from the next question on.
+        $pinned = (new Artifacts($this->scope))->pinnedContext();
+        if ($pinned !== '') {
+            $lines[] = '';
+            $lines[] = $pinned;
+        }
+
         return trim(implode("\n", $lines));
     }
 
