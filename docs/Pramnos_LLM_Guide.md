@@ -474,6 +474,12 @@ logging; `llm:prune` keeps 90 days. `created_at` is written and compared in UTC
 the bare UTC wall clock on MySQL and MariaDB, which drops an offset. Either way the windows hold
 whatever zone PHP or the database session is in, and a value read back is UTC.
 
+Every call of one turn — an answer, a degraded fallback to another tier, the summary fold of an
+old conversation, and the memory learned from it — carries the same `llm_calls.trace_id`
+(`Conversations::trace()`, a fresh one per `ask()`/`report()` and per conversation in
+`learnQuiet()`'s own batch). `CallLog::trace($id)` reads them back together, oldest first — "why
+did this answer cost what it cost" is usually not one row.
+
 Prices are USD per million tokens in three buckets — `cache_hit`, `cache_miss`, `output` —
 because a cached token can cost a fiftieth of an uncached one; an entry may add `off_peak` with
 `peak_utc` hours. They are a setting (`llm_prices`), edited on `/admin/Ai/settings` and seeded from

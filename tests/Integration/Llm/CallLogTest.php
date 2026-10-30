@@ -12,6 +12,7 @@ use Pramnos\Application\Settings;
 use Pramnos\Database\Database;
 use Pramnos\Framework\Factory;
 use Pramnos\Framework\Migrations\Llm\AddTokensToLlmCalls;
+use Pramnos\Framework\Migrations\Llm\AddTraceIdToLlmCalls;
 use Pramnos\Framework\Migrations\Llm\CreateLlmCallsTable;
 use Pramnos\Llm\CallLog;
 use Pramnos\Llm\Pricing;
@@ -26,6 +27,7 @@ use Pramnos\Llm\Pricing;
 #[CoversClass(CallLog::class)]
 #[CoversClass(CreateLlmCallsTable::class)]
 #[CoversClass(AddTokensToLlmCalls::class)]
+#[CoversClass(AddTraceIdToLlmCalls::class)]
 #[CoversClass(\Pramnos\Console\Commands\LlmPrune::class)]
 class CallLogTest extends TestCase
 {
@@ -295,5 +297,52 @@ class CallLogTest extends TestCase
         } finally {
             date_default_timezone_set($zone);
         }
+    }
+
+    /**
+     * The migration adds `trace_id` once, twice running it is a no-op, and `down()` takes it
+     * away again — the same idempotency contract {@see testAnExistingTableGainsTokens} checks
+     * for `tokens`.
+     */
+    #[DataProvider('databases')]
+    public function testTheTraceIdMigrationIsIdempotent(string $type, string $host, int $port): void
+    {
+        // Arrange — the base table, with no trace_id yet
+        $this->connect($type, $host, $port);
+
+        // Act — running the migration twice must not fail or duplicate the column
+        $this->migration(AddTraceIdToLlmCalls::class)->up();
+        $this->migration(AddTraceIdToLlmCalls::class)->up();
+
+        // Assert
+        $this->assertTrue($this->db->schema()->hasColumn('llm_calls', 'trace_id'));
+
+        // And down takes it away again
+        $this->migration(AddTraceIdToLlmCalls::class)->down();
+        $this->assertFalse($this->db->schema()->hasColumn('llm_calls', 'trace_id'));
+    }
+
+    /**
+     * Every call of one turn — the answer and the memory learned from it, say — carries the
+     * same `trace_id`; a call from a different turn does not; and {@see CallLog::trace()} reads
+     * exactly the first group back, oldest first.
+     */
+    #[DataProvider('databases')]
+    public function testATraceGroupsOneTurnsCalls(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connect($type, $host, $port);
+        $this->migration(AddTraceIdToLlmCalls::class)->up();
+        $log = new CallLog();
+
+        // Act — two calls of the same turn, one of another
+        $log->record(['provider' => 'openai', 'model' => 'answer', 'trace_id' => 'trace-a']);
+        $log->record(['provider' => 'openai', 'model' => 'learn', 'trace_id' => 'trace-a']);
+        $log->record(['provider' => 'openai', 'model' => 'unrelated', 'trace_id' => 'trace-b']);
+
+        // Assert — only the first turn's two calls come back, in the order they were made
+        $this->assertSame(['answer', 'learn'], array_column($log->trace('trace-a'), 'model'));
+        $this->assertSame(['unrelated'], array_column($log->trace('trace-b'), 'model'));
+        $this->assertSame([], $log->trace('trace-does-not-exist'));
     }
 }

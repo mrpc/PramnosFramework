@@ -6,6 +6,7 @@ namespace Pramnos\Tests\Integration\Llm;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Pramnos\Llm\CallLog;
 use Pramnos\Llm\Chat\Conversations;
 use Pramnos\Llm\Chat\Memory;
 use Pramnos\Llm\Chat\Scope;
@@ -207,6 +208,38 @@ class MemoryLearningTest extends LlmTestCase
         $members = (new Memory(new Scope(8, 3)))->tools($chat, null)['remember'];
         $this->assertArrayNotHasKey('about', $members['parameters']['properties'], 'for a member it is not even offered');
         $this->assertArrayHasKey('replaces', $remember['parameters']['properties']);
+    }
+
+    /**
+     * The answer and the memory it is learned from, in the same `ask()`, are one turn: the same
+     * `trace_id` in `llm_calls` ({@see \Pramnos\Llm\CallLog::trace()}). A second, unrelated `ask()`
+     * is a different turn, and gets a different one.
+     */
+    #[DataProvider('databases')]
+    public function testATraceLinksTheAnswerAndItsLearn(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        Llm::use('rules', [new AcceptsEverything()]);
+        $this->configure(['chat' => ['memory' => ['learn' => true, 'learn_every' => 1]]]);
+        $this->answer([
+            [200, self::says('Noted, Maria.')],
+            [200, self::says('{"changes": [{"op": "keep", "about": "me", "kind": "fact", "memory": "Is called Maria."}]}')],
+            [200, self::says('Fine.')],
+        ]);
+        $chat = (new Conversations(new RecordingAssistant()))->as(new Scope(7, 3));
+
+        // Act — each ask() is its own turn: an answer, then learning from it
+        $chat->ask(null, 'I am Maria, by the way.');
+        $chat->ask(null, 'Something unrelated.');
+
+        // Assert — oldest first: [answer, learn] of the first turn, then [answer, learn] of the second
+        $traces = array_column(array_reverse((new CallLog())->recent(4)), 'trace_id');
+        $this->assertNotEmpty($traces[0]);
+        $this->assertSame($traces[0], $traces[1], 'the answer and the memory learned from it are one turn');
+        $this->assertNotEmpty($traces[2]);
+        $this->assertSame($traces[2], $traces[3], 'its own answer and learn are one turn too');
+        $this->assertNotSame($traces[0], $traces[2], 'an unrelated ask() is a different turn');
     }
 
     /**

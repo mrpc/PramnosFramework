@@ -92,6 +92,9 @@ class Conversations
     /** @var array<string, int> What every call is marked with besides the scope: the scheduled task */
     private array $about = [];
 
+    /** One id for every call of the turn under way — the answer, a tier fallback, its fold and its learn. */
+    private ?string $traceId = null;
+
     /** @var (callable(string): void)|null Told the answer's text so far, as it is written */
     private $onText = null;
 
@@ -302,7 +305,8 @@ class Conversations
             return self::refusal('scope', 'This needs somebody signed in.');
         }
 
-        $question = mb_substr(trim($question), 0, self::CHARS);
+        $this->traceId = self::newTrace();
+        $question      = mb_substr(trim($question), 0, self::CHARS);
         $attached = trim((string) ($attachment['text'] ?? ''));
 
         // A document alone is a question too: "make this an article" is what it usually means.
@@ -551,10 +555,11 @@ class Conversations
             return self::refusal('scope', 'This needs somebody signed in.') + ['content' => '', 'steps' => [], 'cost' => null, 'relevant' => null];
         }
 
-        $messages = [['role' => 'user', 'content' => mb_substr(trim($question), 0, self::CHARS)]];
-        $turn     = new Turn($this->scope, null, true, $messages, [], $extra, $this);
-        $client   = ($this->client ?? new Client($this->assistant->connection($this->scope)))
-            ->about(['purpose' => $this->scope->purpose()] + $this->scope->context() + $this->about);
+        $this->traceId = self::newTrace();
+        $messages      = [['role' => 'user', 'content' => mb_substr(trim($question), 0, self::CHARS)]];
+        $turn          = new Turn($this->scope, null, true, $messages, [], $extra, $this);
+        $client        = ($this->client ?? new Client($this->assistant->connection($this->scope)))
+            ->about(['purpose' => $this->scope->purpose(), 'trace_id' => $this->trace()] + $this->scope->context() + $this->about);
         $tools    = array_diff_key($this->assistant->tools($turn), array_flip($this->assistant->writes()));
         $decided  = null;
         $due      = [];
@@ -685,9 +690,10 @@ class Conversations
         $read = 0;
 
         while ($result && ($row = $result->fetch()) !== null) {
-            $scope  = new Scope((int) $row['userid'], $row['organization_id'] === null ? null : (int) $row['organization_id'], (string) $row['space']);
-            $chat   = $this->as($scope);
-            $client = $this->client($scope);
+            $this->traceId = self::newTrace();
+            $scope         = new Scope((int) $row['userid'], $row['organization_id'] === null ? null : (int) $row['organization_id'], (string) $row['space']);
+            $chat          = $this->as($scope);
+            $client        = $this->client($scope);
             // Data of a kind goes only where that kind may go; where nothing may take it, it is not learned from.
             $barred = array_filter(self::tagsOf((array) $chat->conversation((int) $row['conversation_id'])), static fn (string $tag): bool => !$client->moveFor($tag));
             $read  += (int) $chat->learnFrom((int) $row['conversation_id'], new Memory($scope), $barred === [] ? $client : null, true);
@@ -800,14 +806,26 @@ class Conversations
         }
 
         return (new \Pramnos\Llm\Client(new \Pramnos\Llm\Connection(null, $feature)))
-            ->about(['purpose' => $this->scope->purpose(), 'tier' => $tier] + $this->scope->context() + $this->about);
+            ->about(['purpose' => $this->scope->purpose(), 'tier' => $tier, 'trace_id' => $this->trace()] + $this->scope->context() + $this->about);
     }
 
     /** The client a call in this scope is made with. */
     private function client(Scope $scope): Client
     {
         return ($this->client ?? new Client($this->assistant->connection($scope)))
-            ->about(['purpose' => $scope->purpose()] + $scope->context() + $this->about);
+            ->about(['purpose' => $scope->purpose(), 'trace_id' => $this->trace()] + $scope->context() + $this->about);
+    }
+
+    /** One id for every call of the turn under way, made fresh by {@see newTrace()}. */
+    private function trace(): string
+    {
+        return $this->traceId ??= self::newTrace();
+    }
+
+    /** A new id for one turn — short enough for a log line, random enough never to repeat. */
+    private static function newTrace(): string
+    {
+        return bin2hex(random_bytes(8));
     }
 
     /**

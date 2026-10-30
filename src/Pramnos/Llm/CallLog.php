@@ -61,9 +61,11 @@ class CallLog
             $usage = is_array($entry['usage'] ?? null) ? $entry['usage'] : [];
             $model = (string) ($entry['model'] ?? '');
 
-            // The scheduled task, only when there is one: an installation that has not run the
-            // migration adding the column goes on logging every other call.
-            $this->table()->insert((isset($entry['routine_id']) ? ['routine_id' => (int) $entry['routine_id']] : []) + [
+            // The scheduled task and the turn's trace, each only when there is one: an
+            // installation that has not run the migration adding the column goes on logging
+            // every other call.
+            $this->table()->insert((isset($entry['routine_id']) ? ['routine_id' => (int) $entry['routine_id']] : [])
+                + (isset($entry['trace_id']) ? ['trace_id' => mb_substr((string) $entry['trace_id'], 0, 32)] : []) + [
                 'organization_id' => $entry['organization_id'] ?? null,
                 'userid'          => $entry['userid'] ?? null,
                 'purpose'         => mb_substr((string) ($entry['purpose'] ?? 'assistant'), 0, 32),
@@ -218,6 +220,29 @@ class CallLog
         $row['messages'] = self::decode($row['messages'] ?? null);
 
         return $row;
+    }
+
+    /**
+     * Every call of one turn — the answer, a tier fallback, the summary fold and the memory
+     * learned from it — oldest first, so the order they ran in is the order read.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function trace(string $traceId): array
+    {
+        try {
+            $result = $this->table()->where('trace_id', $traceId)->orderBy('call_id')->get();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $rows = [];
+        while ($result && ($row = $result->fetch()) !== null) {
+            $row['usage'] = self::decode($row['usage'] ?? null);
+            $rows[]       = $row;
+        }
+
+        return $rows;
     }
 
     /**
