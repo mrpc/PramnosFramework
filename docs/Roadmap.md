@@ -14,25 +14,6 @@ live in the [Changelog](version-history/index.md); this page tracks what is
 > *why* and what "done" requires. Anything touching live authentication is
 > verified in a real application before it is merged.
 
-## Authentication & Auth Server
-
-### Retire the deprecated `auth` / `session` addons
-
-The built-in login lifecycle, session tracking, activity logging **and remember-me** now cover
-what the legacy addons provided. Remember-me is one rotating token per sign-in in
-`authserver.remember_tokens` (`Auth\RememberTokens`). `Auth::authCheck()` re-establishes a remembered login
-through `Auth::rememberLogin()` when no auth addon is registered. `SessionTrackingMiddleware`
-already calls it, and an application in production uses it through its own addon.
-
-**Left:**
-
-- New scaffolds register no auth addon, and a characterization test signs in from the cookies with
-  none registered, on all three databases. What remains is the same in a real application, across
-  new requests and browser restarts.
-
-*Done when:* a new scaffold registers no auth addon, and remember-me works there across browser
-restarts.
-
 ## Search engines
 
 ### hreflang, and a sitemap

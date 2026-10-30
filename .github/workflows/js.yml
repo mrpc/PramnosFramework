@@ -17,6 +17,9 @@ on:
       - main
     paths:
       - "src/**/*.js"
+      - "src/Pramnos/Debug/DebugBarAsset.php"
+      - "src/Pramnos/Auth/Passkey/PasskeyAsset.php"
+      - "src/Pramnos/Security/CookieConsent.php"
       - "tests/js/**"
       - "eslint.config.mjs"
       - "package.json"
@@ -24,6 +27,9 @@ on:
   pull_request:
     paths:
       - "src/**/*.js"
+      - "src/Pramnos/Debug/DebugBarAsset.php"
+      - "src/Pramnos/Auth/Passkey/PasskeyAsset.php"
+      - "src/Pramnos/Security/CookieConsent.php"
       - "tests/js/**"
       - "eslint.config.mjs"
       - "package.json"
