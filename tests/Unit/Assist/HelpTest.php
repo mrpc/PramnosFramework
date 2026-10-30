@@ -124,6 +124,32 @@ class HelpTest extends TestCase
     }
 
     /**
+     * A screen that does a different thing for each option of its address has a page per option
+     * — `devices/massiveupdate/3` — and the action's page stays the overview for an option without
+     * one, and for the address with none. The application's action page still wins over the
+     * framework's option page.
+     */
+    public function testAPagePerOptionOfTheAddress(): void
+    {
+        // Arrange
+        mkdir($this->own . '/devices/massiveupdate', 0777, true);
+        file_put_contents($this->own . '/devices/massiveupdate.md', "# Mass updates");
+        file_put_contents($this->own . '/devices/massiveupdate/3.md', "---\ntitle: Changing the area of many devices\n---\n# Area");
+        mkdir($this->framework . '/users/edit', 0777, true);
+        file_put_contents($this->framework . '/users/edit/5.md', "# The framework's, for one option");
+        Help::useDirectories([$this->own, $this->framework]);
+
+        // Act / Assert
+        $this->assertSame('devices/massiveupdate/3', Help::forScreen('devices', 'massiveupdate', '3')['slug']);
+        $this->assertSame('Changing the area of many devices', Help::forScreen('Devices', 'massiveUpdate', '3')['title']);
+        $this->assertSame('devices/massiveupdate', Help::forScreen('devices', 'massiveupdate', '7')['slug'], 'no page of its own: the overview');
+        $this->assertSame('devices/massiveupdate', Help::forScreen('devices', 'massiveupdate')['slug']);
+        $this->assertSame('devices/massiveupdate/3', Help::forScreen('devices', 'massiveupdate', '../3')['slug'], 'an option is one name: only its letters and digits count');
+        $this->assertSame('users/edit', Help::forScreen('users', 'edit', '5')['slug'], 'the application\'s action page, over the framework\'s option page');
+        $this->assertSame('# Area', trim((string) Help::text('devices', 'massiveupdate', '3')));
+    }
+
+    /**
      * A question finds its page by the page's questions first, then its text — folded, so
      * accents, case and the final sigma do not matter, and word endings do not either.
      */

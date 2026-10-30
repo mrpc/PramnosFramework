@@ -96,6 +96,7 @@ class PageAndPanelTest extends LlmTestCase
         $this->assertSame('edit', $first[1]);
         $this->assertSame(['kind' => 'post', 'id' => '12', 'label' => ''], $first[2]);
         $this->assertSame('edit', Page::action(), 'a later controller in the same request is not the page');
+        $this->assertSame('12', Page::context()['option'], 'the address\'s option, for a help page per option');
     }
 
     /** A screen named `UsersController` is `users`; one named after its address keeps that name. */
@@ -123,13 +124,14 @@ class PageAndPanelTest extends LlmTestCase
     {
         // Act
         $page = Page::fromInput([
-            'screen' => '../Users', 'action' => 'Edit', 'title' => "Edit\nmaria", 'url' => '/admin/users/edit/5',
+            'screen' => '../Users', 'action' => 'Edit', 'option' => '../5', 'title' => "Edit\nmaria", 'url' => '/admin/users/edit/5',
             'kind' => 'user', 'id' => ['5'], 'label' => str_repeat('x', 500), 'extra' => 'dropped',
         ]);
 
         // Assert
         $this->assertSame('users', $page['screen']);
         $this->assertSame('edit', $page['action']);
+        $this->assertSame('5', $page['option'], 'an option finds a help page too: a name, nothing else');
         $this->assertSame('Edit maria', $page['title'], 'no line breaks into the prompt');
         $this->assertSame('', $page['id'], 'not a value');
         $this->assertSame(200, mb_strlen($page['label']));

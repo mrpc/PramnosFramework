@@ -51,6 +51,7 @@ A help page is a Markdown file. Its name is its path without `.md`:
 ```
 app/help/users.md            the Users screen — every action of it
 app/help/users/edit.md       only its edit form
+app/help/devices/massiveupdate/3.md  that action for one option of its address: /Devices/massiveupdate/3
 app/help/billing/refunds.md  a page of its own, reached from the list or a link
 app/help/images/refund.png   a picture a page shows
 ```
@@ -58,6 +59,14 @@ app/help/images/refund.png   a picture a page shows
 **A screen's page is named after the screen**: the controller's class name, lowercase, without
 `Controller`. `Admin\Controllers\Users` is `users`, and its `edit` action is `users/edit`, falling
 back to `users`. The panel finds it on its own.
+
+**A page per option of the address.** Where one action does a different thing for each option —
+`/Devices/massiveupdate/3` changes the area of many devices, `/Devices/massiveupdate/1` their
+owner — `devices/massiveupdate/3.md` is that one's page, found before `devices/massiveupdate.md`,
+which stays the overview for an option without a page of its own and for the address with none.
+Give such a page a `title:`, so the Help index lists it by what it does, not by a number. In code,
+`Help::forScreen($screen, $action, $option)`; the help API takes `&option=` beside `screen` and
+`action`.
 
 **The application's pages come first, whichever of the two it wrote.** An application that wrote
 `app/help/users.md` gets it on the edit form too: the framework's own `users/edit.md` is used only

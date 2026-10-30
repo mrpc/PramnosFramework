@@ -153,10 +153,10 @@ final class Help
         return \Pramnos\Application\FeatureRegistry::isEnabled('help');
     }
 
-    /** The Markdown of a screen's action, or of the screen, or null — the administration's. */
-    public static function text(string $screen, string $action = ''): ?string
+    /** The Markdown of a screen's action for an option, of the action, or of the screen, or null — the administration's. */
+    public static function text(string $screen, string $action = '', string $option = ''): ?string
     {
-        return self::forScreen($screen, $action)['body'] ?? null;
+        return self::forScreen($screen, $action, $option)['body'] ?? null;
     }
 
     /**
@@ -164,9 +164,9 @@ final class Help
      *
      * @return array<string, mixed>|null
      */
-    public static function forScreen(string $screen, string $action = ''): ?array
+    public static function forScreen(string $screen, string $action = '', string $option = ''): ?array
     {
-        return self::admin()->forScreen($screen, $action);
+        return self::admin()->forScreen($screen, $action, $option);
     }
 
     /**

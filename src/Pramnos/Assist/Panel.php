@@ -35,7 +35,7 @@ final class Panel
         $context = Page::context();
         // This request's level: the site's pages outside the administration, never its own.
         $book    = Help::book();
-        $help    = Help::enabled() ? $book->forScreen($context['screen'], $context['action']) : null;
+        $help    = Help::enabled() ? $book->forScreen($context['screen'], $context['action'], $context['option']) : null;
 
         // On Ask itself, the panel would be the page twice: the link it always was.
         if ($ask && $context['screen'] === 'ai') {
@@ -126,7 +126,7 @@ final class Panel
             }
             $href = function_exists('adminUrl') ? adminUrl('Ai') : '#';
         } else {
-            $help = Help::enabled() ? $book->forScreen($context['screen'], $context['action']) : null;
+            $help = Help::enabled() ? $book->forScreen($context['screen'], $context['action'], $context['option']) : null;
             if ($help === null) {
                 return '';
             }
@@ -148,7 +148,7 @@ final class Panel
     {
         $context = Page::context();
         $book    = Help::book();
-        $help    = Help::enabled() ? $book->forScreen($context['screen'], $context['action']) : null;
+        $help    = Help::enabled() ? $book->forScreen($context['screen'], $context['action'], $context['option']) : null;
 
         if ((!$ask || $context['screen'] === 'ai') && $help === null) {
             return '';

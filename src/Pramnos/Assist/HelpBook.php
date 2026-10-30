@@ -86,31 +86,39 @@ final class HelpBook
     }
 
     /**
-     * The page of a screen's action, or of the screen — the application's before the
-     * framework's, whichever of the two it wrote: an application that wrote `users.md` means it
-     * for the edit form too, and the framework's `users/edit.md` must not win over it.
+     * The page of a screen's action for one option of its address, of the action, or of the
+     * screen — the application's before the framework's, whichever it wrote: an application that
+     * wrote `users.md` means it for the edit form too, and the framework's `users/edit.md` must
+     * not win over it.
+     *
+     * The option is the address's part after the action — `/Devices/massiveupdate/3` — for a
+     * screen that does a different thing for each: `devices/massiveupdate/3.md` is that one's
+     * page, and `devices/massiveupdate.md` stays the overview, found for any option without one.
      *
      * @return array<string, mixed>|null
      */
-    public function forScreen(string $screen, string $action = ''): ?array
+    public function forScreen(string $screen, string $action = '', string $option = ''): ?array
     {
         $screen = Help::slug($screen);
         $action = Help::slug($action);
+        $option = Help::slug(str_replace('/', '', $option));
 
         if ($screen === '' || str_contains($screen, '/')) {
             return null;
         }
 
-        $forAction = $action !== '' && $action !== 'display' ? $this->page($screen . '/' . $action) : null;
+        $acts      = $action !== '' && $action !== 'display';
+        $forOption = $acts && $option !== '' ? $this->page($screen . '/' . $action . '/' . $option) : null;
+        $forAction = $acts ? $this->page($screen . '/' . $action) : null;
         $forScreen = $this->page($screen);
 
-        foreach ([$forAction, $forScreen] as $page) {
+        foreach ([$forOption, $forAction, $forScreen] as $page) {
             if ($page !== null && !$page['framework']) {
                 return $page;
             }
         }
 
-        return $forAction ?? $forScreen ?? $this->claiming($screen);
+        return $forOption ?? $forAction ?? $forScreen ?? $this->claiming($screen);
     }
 
     /**

@@ -72,7 +72,7 @@ class HelpApi
         return $page === null ? self::error(404, 'There is no such help page.') : ['status' => 200, 'data' => $this->drawn($book, $page)];
     }
 
-    /** The page for `?screen=` and `?action=`, as the side panel finds it. */
+    /** The page for `?screen=`, `?action=` and `?option=`, as the side panel finds it. */
     public function screen(): array
     {
         if (($stop = $this->refusal()) !== null) {
@@ -80,7 +80,7 @@ class HelpApi
         }
         $book = $this->book();
 
-        $page = $book->forScreen((string) ($_GET['screen'] ?? ''), (string) ($_GET['action'] ?? ''));
+        $page = $book->forScreen((string) ($_GET['screen'] ?? ''), (string) ($_GET['action'] ?? ''), (string) ($_GET['option'] ?? ''));
 
         return $page === null ? self::error(404, 'This screen has no help page.') : ['status' => 200, 'data' => $this->drawn($book, $page)];
     }

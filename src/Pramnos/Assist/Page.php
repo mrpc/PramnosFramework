@@ -38,6 +38,9 @@ final class Page
 
     private static string $action = '';
 
+    /** The address's part after the action — `3` in `/Devices/massiveupdate/3` — as a help page's name can have it. */
+    private static string $option = '';
+
     /** @var array{kind: string, id: string, label: string}|null */
     private static ?array $subject = null;
 
@@ -58,6 +61,7 @@ final class Page
         self::$action = strtolower((string) preg_replace('/[^A-Za-z0-9_-]/', '', $action === '' ? 'display' : $action));
 
         $id = \Pramnos\Http\Request::staticGetOption();
+        self::$option = is_scalar($id) ? strtolower((string) preg_replace('/[^A-Za-z0-9_-]/', '', (string) $id)) : '';
         if (self::$subject === null && $subjectKind !== '' && is_scalar($id) && trim((string) $id) !== '') {
             self::$subject = ['kind' => $subjectKind, 'id' => self::trim((string) $id), 'label' => ''];
         }
@@ -89,7 +93,7 @@ final class Page
     /**
      * Everything the panel sends back with a question.
      *
-     * @return array{screen: string, action: string, title: string, url: string, kind: string, id: string, label: string}
+     * @return array{screen: string, action: string, option: string, title: string, url: string, kind: string, id: string, label: string}
      */
     public static function context(): array
     {
@@ -103,6 +107,7 @@ final class Page
         return [
             'screen' => self::$screen,
             'action' => self::$action,
+            'option' => self::$option,
             'title'  => self::trim($title),
             'url'    => self::trim((string) ($_SERVER['REQUEST_URI'] ?? '')),
             'kind'   => self::$subject['kind'] ?? '',
@@ -114,7 +119,7 @@ final class Page
     /**
      * A page as the browser sent it back, keeping only the known keys, as short strings.
      *
-     * @return array{screen: string, action: string, title: string, url: string, kind: string, id: string, label: string}|null
+     * @return array{screen: string, action: string, option: string, title: string, url: string, kind: string, id: string, label: string}|null
      */
     public static function fromInput(mixed $input): ?array
     {
@@ -123,12 +128,12 @@ final class Page
         }
 
         $page = [];
-        foreach (['screen', 'action', 'title', 'url', 'kind', 'id', 'label'] as $key) {
+        foreach (['screen', 'action', 'option', 'title', 'url', 'kind', 'id', 'label'] as $key) {
             $value      = $input[$key] ?? '';
             $page[$key] = is_scalar($value) ? self::trim((string) $value) : '';
         }
         // A screen name finds a help file: letters, digits, dashes and underscores only.
-        foreach (['screen', 'action'] as $key) {
+        foreach (['screen', 'action', 'option'] as $key) {
             $page[$key] = strtolower((string) preg_replace('/[^A-Za-z0-9_-]/', '', $page[$key]));
         }
 
@@ -172,6 +177,7 @@ final class Page
     {
         self::$screen  = '';
         self::$action  = '';
+        self::$option  = '';
         self::$subject = null;
         self::$entered = false;
     }
