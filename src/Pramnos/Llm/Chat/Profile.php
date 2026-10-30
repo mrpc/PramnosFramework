@@ -61,6 +61,18 @@ final class Profile
         return $scope->space === Scope::CHAT && is_array($chat) && !empty($chat['profile']);
     }
 
+    /**
+     * Whether an entry waits for the person's yes — the default — or is kept at once:
+     * `'llm' => ['chat' => ['profile' => ['confirm' => false]]]`. Kept at once, every change is still
+     * a version in the log, and the person still forgets or corrects it with a word.
+     */
+    public static function confirms(): bool
+    {
+        $profile = \Pramnos\Llm\Llm::config('chat', [])['profile'] ?? true;
+
+        return !is_array($profile) || ($profile['confirm'] ?? true) !== false;
+    }
+
     /** Whether the table is there. */
     public static function available(): bool
     {
@@ -155,7 +167,7 @@ final class Profile
         }
         $id = (int) $entry['dossier_id'];
 
-        if ($area === 'mood') {
+        if ($area === 'mood' || !self::confirms()) {
             $this->change($entry, $content);
 
             return 'Kept: ' . $content;
@@ -298,13 +310,15 @@ final class Profile
         if (!self::available()) {
             return [];
         }
-        $id = ['type' => 'object', 'properties' => ['id' => ['type' => 'integer']], 'required' => ['id']];
+        $id       = ['type' => 'object', 'properties' => ['id' => ['type' => 'integer']], 'required' => ['id']];
+        $confirms = self::confirms();
 
-        return [
+        $tools = [
             'note_profile' => [
-                'description' => 'Propose something lasting about the person: who they are (identity), what they hold to (values), what they work towards (goals), '
+                'description' => ($confirms ? 'Propose' : 'Keep') . ' something lasting about the person: who they are (identity), what they hold to (values), what they work towards (goals), '
                     . 'a person in their life (relationships, with subject naming them), or how they feel lately (mood, kept at once and only with their consent). '
-                    . 'All but mood wait for the person to confirm. Habits and preferences go to remember, not here.',
+                    . ($confirms ? 'All but mood wait for the person to confirm. ' : 'Only what they said plainly; correct an entry with replaces. ')
+                    . 'Habits and preferences go to remember, not here.',
                 'parameters'  => ['type' => 'object', 'properties' => [
                     'area'     => ['type' => 'string', 'enum' => self::AREAS],
                     'content'  => ['type' => 'string'],
@@ -341,6 +355,9 @@ final class Profile
                 'tags'   => ['personal' => true],
             ],
         ];
+
+        // Kept at once, there is nothing to confirm: two tools fewer in every request.
+        return $confirms ? $tools : array_diff_key($tools, ['confirm_profile' => true, 'reject_profile' => true]);
     }
 
     /** Make `$content` the entry, a version on, and log the change. */

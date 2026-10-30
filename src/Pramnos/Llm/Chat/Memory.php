@@ -201,7 +201,8 @@ class Memory
      * applied within the limits. Where the profile is on ({@see Profile}), the same call proposes
      * what they plainly said about who they are, what they value, their goals, the people in their
      * life and how they feel: a proposal waits for the person's yes, which the next answer asks
-     * for. Never throws: a memory that could not be learned is no reason for an answer to fail.
+     * for — or, with the profile set not to confirm ({@see Profile::confirms()}), is kept at once.
+     * Never throws: a memory that could not be learned is no reason for an answer to fail.
      *
      * @return array{kept: int, corrected: int, forgotten: int, proposed: int}
      */
@@ -226,7 +227,7 @@ class Memory
         $profile = Profile::on($this->scope) && Profile::available() ? new Profile($this->scope) : null;
         $input   = ['remembered' => $known, 'said' => mb_substr($said, 0, 4000)];
         if ($profile !== null) {
-            $prompt .= ' Also propose, only from what they plainly said and is not already in "profile": who they are (identity), '
+            $prompt .= ' Also ' . (Profile::confirms() ? 'propose' : 'keep') . ', only from what they plainly said and is not already in "profile": who they are (identity), '
                 . 'what they value (values), what they work towards (goals), a person in their life (relationships, with subject naming them) '
                 . 'and how they feel (mood): {"op": "propose", "area": "identity|values|goals|relationships|mood", "subject": "Name", "content": "one sentence"}.';
             $input['profile'] = array_map(static fn (array $e): array => array_intersect_key($e, array_flip(['area', 'subject', 'content', 'pending'])), $profile->entries());

@@ -1221,6 +1221,16 @@ person talks. The profile changes by proposal:
   (`Profile::FEELINGS`). Without it the model is told to ask, and nothing is kept;
 - `recall_person` finds a person in their life by part of a name, or lists everybody.
 
+**Or kept at once.** Where waiting for a yes is more than the application needs, the profile keeps
+what the model notes and what learning finds, as it does with mood:
+
+```php
+'llm' => ['chat' => ['profile' => ['confirm' => false]]],
+```
+
+Every change is still a version in the log, the person still corrects or forgets an entry with a
+word, and `confirm_profile` and `reject_profile` are not offered, two tools fewer in every request.
+
 What is confirmed is in the [second zone](#the-context-in-three-zones) of every prompt. At most
 `Profile::MAX` (60) entries of `Profile::CHARS` (500) characters, because of that. The tools are
 `writes`, so after reading somebody else's words they wait for the person, and their results are

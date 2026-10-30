@@ -312,6 +312,38 @@ class ProfileTest extends LlmTestCase
     }
 
     /**
+     * Set not to confirm, an entry is kept at once — by the model's tool and by learning alike —
+     * each change still a version in the log, and there are no confirm and reject tools to offer.
+     */
+    #[DataProvider('databases')]
+    public function testKeptAtOnceWhenSetNotToConfirm(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $scope = $this->person($type, $host, $port);
+        $this->configure(['chat' => ['profile' => ['confirm' => false], 'memory' => ['learn' => true]]]);
+        $this->answer([[200, self::says('{"changes": [{"op": "propose", "area": "relationships", "subject": "Eleni", "content": "His wife"}]}')]]);
+        $profile = new Profile($scope);
+
+        // Act
+        $said    = self::call($profile, 'note_profile', ['area' => 'goals', 'content' => 'Run a marathon']);
+        $learned = (new \Pramnos\Llm\Chat\Memory($scope))->learn(new \Pramnos\Llm\Client(), 'My wife Eleni.');
+
+        // Assert
+        $this->assertFalse(Profile::confirms());
+        $this->assertTrue(Profile::on($scope), 'an array of settings is on');
+        $this->assertSame('Kept: Run a marathon', $said);
+        $this->assertSame(1, $learned['proposed']);
+        $kept = array_column((new Profile($scope))->entries(), 'content', 'area');
+        $this->assertSame(['goals' => 'Run a marathon', 'relationships' => 'His wife'], $kept);
+        $this->assertSame([1, null, 'Run a marathon'], array_values(array_map(static fn (array $v): array => [$v['version'], $v['from'], $v['to']], $profile->history((int) $profile->entries()[0]['dossier_id'])))[0], 'still a version');
+        $this->assertArrayNotHasKey('confirm_profile', $profile->tools());
+        $this->assertArrayNotHasKey('reject_profile', $profile->tools());
+        $this->assertStringContainsString('Also keep,', $this->sent[0]['body']['messages'][0]['content']);
+        $this->configure(['chat' => ['profile' => true]]);
+        $this->assertTrue(Profile::confirms(), 'true confirms, the default');
+    }
+
+    /**
      * Turned on, the profile's tools are offered in a person's own conversation and what they
      * confirmed is in its prompt; off — the default — neither, and never in the analyst's space.
      */
