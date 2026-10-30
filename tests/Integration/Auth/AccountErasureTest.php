@@ -92,6 +92,7 @@ class AccountErasureTest extends TestCase
             Notifications\CreatePushtestsTable::class,
             \Pramnos\Framework\Migrations\Core\CreateUsersettingsTable::class,
             \Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class,
+            \Pramnos\Framework\Migrations\Changelog\CreateChangelogTables::class,
             ...self::llmMigrations(),
         ]);
 
@@ -131,7 +132,8 @@ class AccountErasureTest extends TestCase
     /**
      * What the assistant keeps about a user: a conversation and its message and artifact, a memory, a
      * question asked, an agreement, a dashboard, a scheduled task with its run and a reader, and a
-     * call in the cost log. Answers the task's id.
+     * call in the cost log, the companion's profile entry with its version in the event log, and an
+     * appointment. Answers the task's id.
      */
     private function aiDataOf(int $userId): int
     {
@@ -152,6 +154,11 @@ class AccountErasureTest extends TestCase
         $qb('ai_task_runs')->insert(['routine_id' => $task, 'kind' => 'ask', 'status' => 'ok', 'content' => 'About Eleni']);
         $qb('ai_task_subscriptions')->insert(['routine_id' => $task, 'userid' => $userId, 'email' => false]);
         $qb('llm_calls')->insert(['userid' => $userId, 'provider' => 'openai', 'model' => 'm', 'messages' => 'Eleni', 'reply' => 'Eleni', 'cost' => 0.5, 'created_at' => $stamp]);
+        $qb('chat_dossier')->insert(['userid' => $userId, 'area' => 'relationships', 'subject' => 'Eleni', 'content' => 'Wife', 'version' => 1, 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $entry = (int) $qb('chat_dossier')->where('userid', $userId)->first()->fields['dossier_id'];
+        $qb(\Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE)->insert(['entity' => 'chat_dossier', 'itemid' => (string) $entry, 'event' => 'changed',
+            'logtype' => 0, 'details' => '{"to":"Wife"}', 'userid' => $userId, 'source' => 'test', 'created_at' => $stamp]);
+        $qb('chat_calendar')->insert(['userid' => $userId, 'kind' => 'event', 'title' => 'Dinner with Eleni', 'starts_at' => $stamp, 'created_at' => $stamp, 'updated_at' => $stamp]);
 
         return $task;
     }
@@ -255,7 +262,8 @@ class AccountErasureTest extends TestCase
 
     /**
      * What the assistant keeps about the account goes too: its conversations with every message,
-     * its memory, questions, agreements and dashboard, its tasks with their runs and readers. The
+     * its memory, questions, agreements and dashboard, its tasks with their runs and readers, the
+     * companion's profile of it with every earlier version in the event log, and its calendar. The
      * cost log keeps what each call cost, without who or what was said. Another account's stays.
      */
     #[DataProvider('databases')]
@@ -273,7 +281,7 @@ class AccountErasureTest extends TestCase
         (new AccountErasure($this->db))->erase($leaving);
 
         // Assert
-        foreach (['chat_conversations', 'chat_artifacts', 'chat_memory', 'chat_asks', 'ai_consents', 'usersettings', 'ai_routines', 'ai_task_subscriptions', 'llm_calls'] as $table) {
+        foreach (['chat_conversations', 'chat_artifacts', 'chat_memory', 'chat_asks', 'ai_consents', 'usersettings', 'ai_routines', 'ai_task_subscriptions', 'llm_calls', 'chat_dossier', 'chat_calendar', \Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE] as $table) {
             $this->assertSame(0, $count($table, 'userid', $leaving), $table . ' still holds the account');
             $this->assertSame(1, $count($table, 'userid', $staying), $table . ': another account\'s went too');
         }

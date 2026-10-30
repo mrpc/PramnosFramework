@@ -231,6 +231,20 @@ class AccountErasure
             $qb('chat_artifacts')->where('userid', $userId)->delete();
         }
 
+        // The companion's profile of them, with every earlier version of it in the event log,
+        // and their calendar.
+        if ($schema->hasTable('chat_dossier')) {
+            $entries = $ids($qb('chat_dossier')->select(['dossier_id'])->where('userid', $userId)->get(), 'dossier_id');
+            if ($entries !== [] && $schema->hasTable(\Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE)) {
+                $qb(\Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE)->where('entity', \Pramnos\Llm\Companion\Dossier::ENTITY)
+                    ->whereIn('itemid', array_map('strval', $entries))->delete();
+            }
+            $qb('chat_dossier')->where('userid', $userId)->delete();
+        }
+        if ($schema->hasTable('chat_calendar')) {
+            $qb('chat_calendar')->where('userid', $userId)->delete();
+        }
+
         // What they shared and what was shared with them; copies others already took are theirs.
         if ($schema->hasTable('chat_shares')) {
             $qb('chat_shares')->where('userid', $userId)->delete();
