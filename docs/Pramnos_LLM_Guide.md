@@ -13,6 +13,7 @@ use_cases:
   - Handing part of an answer to a subagent with its own context, tools and budget
   - Measuring a prompt, model or tool change against eval fixtures, and failing CI on a regression
   - Turning a person's assistant into a personal companion that knows who they are and the people in their life
+  - Letting the assistant search the web and read a page somebody links to
   - Exporting an AI result to CSV or PDF, or pinning a chart to the dashboard
   - Reading the fields of an invoice or form with a model, checked before saving
   - Sharing an AI conversation or one of its results with a colleague
@@ -545,6 +546,48 @@ $tools['research_suppliers'] = $research->asTool('Compare the suppliers for a li
 - **Give it a `Client` of its own.** The parent's is in the middle of an answer while the
   subagent runs. Its rounds, turn budget and cancellation are the subagent's; `tokensSpent` and
   `roundsUsed` say what it took.
+
+### The web: searching it and reading a page
+
+`'llm' => ['chat' => ['web' => true]]` offers two tools in conversations, in the `web` skill.
+They are nobody's own, so they are offered in a shared answer too.
+
+| Tool | |
+|---|---|
+| `web_search` | `query`, `kind` (`web` or `news`), `language`: titles, addresses, dates and snippets |
+| `fetch_url` | `url`: the page's title and its own words |
+
+Both results are somebody else's words (`untrusted`, so writes wait for the person after them),
+and both run at once with other reads (`parallel`).
+
+**Searching** goes through the providers the application has keys for, in its order, and the
+first that answers with results wins. One that refuses (a bad or spent key, its own trouble)
+passes to the next:
+
+```php
+'llm' => ['web' => [
+    'search' => ['brave' => getenv('BRAVE_KEY'), 'serper' => getenv('SERPER_KEY')],  // brave, tavily, exa, serper, jina
+    'bing'   => true,     // the free last resort; false never asks it
+]],
+```
+
+With no key, or when none answers, Bing's own search is read as a feed (`format=rss`), its
+click-through links unwrapped to the articles. That output is undocumented and not a promise,
+which is why it comes last and can be turned off.
+
+**Reading a page** (`Web::page()`) treats the address as user-supplied:
+`Client::forUserSuppliedUrl()`. Every hop must resolve to a public address, the address is pinned
+against DNS rebinding, and nothing on the server's own network (`169.254.169.254` included) is
+reached. At most 3 MB, in 15 seconds.
+
+- **What is read.** An HTML page gives its own words (`Web\PageText`): the `articleBody` it
+  declares in JSON-LD, else the paragraphs in `<article>`, else every paragraph, without menus,
+  footers or one-word lines. Plain text, JSON, XML, CSV and Markdown are read as they are.
+  Anything else, a PDF for instance, is said not to be read.
+- **A page that refuses servers.** Many answer a server with a challenge (403). With
+  `'web' => ['reader' => true, 'reader_key' => …]` such a page is asked again through a reader
+  that fetches from its own servers (`Web::READER`). It is off by default, because it tells a
+  third party which address was read, and an address the guard refused is never sent there.
 
 ### What somebody else wrote is data, not instructions
 

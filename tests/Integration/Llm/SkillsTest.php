@@ -77,12 +77,17 @@ class SkillsTest extends LlmTestCase
 
         // Act
         (new Conversations(self::assistant()))->as(new Scope(7, null))->ask(null, 'Hi');
+        $this->configure(['chat' => ['web' => true]]);
+        (new Conversations(self::assistant()))->as(new Scope(7, null))->ask(null, 'Hi');
 
         // Assert
         $names = self::offered($this->sent[0]);
         $this->assertContains('crm_lookup', $names);
         $this->assertContains('pin_artifact', $names);
         $this->assertNotContains('use_skill', $names);
+        $this->assertNotContains('fetch_url', $names, 'the web is the application\'s to offer');
+        $this->assertContains('fetch_url', self::offered($this->sent[1]));
+        $this->assertContains('web_search', self::offered($this->sent[1]));
     }
 
     /**

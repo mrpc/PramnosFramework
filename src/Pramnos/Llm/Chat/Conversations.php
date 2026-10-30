@@ -915,7 +915,10 @@ class Conversations
     {
         // An answer others read too carries nothing of the asker's own: not what was remembered
         // about them, not their tasks.
-        $tools    = $this->assistant->tools($turn) + ($turn->shared() ? [] : $memory->tools($this, $turn->conversationId)
+        $tools    = $this->assistant->tools($turn)
+            // The web, where the application offers it: nobody's own, so in a shared answer too.
+            + (\Pramnos\Llm\Web\Web::on() ? (new \Pramnos\Llm\Web\Web())->tools() : [])
+            + ($turn->shared() ? [] : $memory->tools($this, $turn->conversationId)
             // Not from a scheduled run: a task that schedules tasks has no end.
             + ($this->scheduled ? [] : self::inSkill($routines->toolsFor($this->scope, $this->assistant->timezone($this->scope), $turn->conversationId), 'tasks')
                 // Kept with a conversation the person can open: a scheduled run has none yet.
