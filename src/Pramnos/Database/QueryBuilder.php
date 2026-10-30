@@ -420,6 +420,43 @@ class QueryBuilder
     }
 
     /**
+     * Add a "where not in" clause.
+     *
+     * @param string $column
+     * @param array $values
+     * @param string $boolean
+     * @return $this
+     */
+    public function whereNotIn($column, array $values, $boolean = 'and')
+    {
+        return $this->whereIn($column, $values, $boolean, true);
+    }
+
+    /**
+     * Add an "or where in" clause.
+     *
+     * @param string $column
+     * @param array $values
+     * @return $this
+     */
+    public function orWhereIn($column, array $values)
+    {
+        return $this->whereIn($column, $values, 'or');
+    }
+
+    /**
+     * Add an "or where not in" clause.
+     *
+     * @param string $column
+     * @param array $values
+     * @return $this
+     */
+    public function orWhereNotIn($column, array $values)
+    {
+        return $this->whereIn($column, $values, 'or', true);
+    }
+
+    /**
      * Add a "where null" clause.
      *
      * @param string $column

@@ -390,15 +390,17 @@ $qb->where('role', 'admin')->orWhere('role', 'superuser');
 // → WHERE role = 'admin' OR role = 'superuser'
 ```
 
-#### `whereIn(string $column, array $values): static`
+#### `whereIn(string $column, array $values): static` / `whereNotIn(…)` / `orWhereIn(…)` / `orWhereNotIn(…)`
 
 ```php
 $qb->whereIn('userid', [1, 2, 3]);
 // → WHERE userid IN (1, 2, 3)
 
-// Negation
-$qb->whereIn('status', ['active', 'pending'], 'and', true);
+$qb->whereNotIn('status', ['active', 'pending']);
 // → WHERE status NOT IN ('active', 'pending')
+
+$qb->where('role', 'admin')->orWhereIn('userid', [1, 2, 3]);
+// → WHERE role = 'admin' OR userid IN (1, 2, 3)
 ```
 
 #### `whereNull(string $column): static` / `whereNotNull(string $column): static`

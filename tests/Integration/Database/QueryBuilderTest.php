@@ -194,6 +194,66 @@ class QueryBuilderTest extends TestCase
         $this->assertEquals(2, $result->numRows);
     }
 
+    /**
+     * whereNotIn() must exclude every row whose column matches a value in the list
+     * (FW-306: it did not exist at all, despite the pattern being used for whereIn's $not flag).
+     */
+    public function testWhereNotIn()
+    {
+        // Arrange
+        $this->db->query("INSERT INTO `#PREFIX#qb_test` (name, age) VALUES ('Young', 10), ('Mid', 25), ('Old', 50)");
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->from('#PREFIX#qb_test')
+            ->whereNotIn('age', [10, 50])
+            ->get();
+
+        // Assert: only the row whose age is not in the list survives
+        $this->assertEquals(1, $result->numRows);
+        $this->assertEquals('Mid', $result->fields['name']);
+    }
+
+    /**
+     * orWhereIn() must widen the result set with an OR, like the other or* clauses
+     * (FW-306: missing, forcing callers to chain multiple orWhere() calls instead).
+     */
+    public function testOrWhereIn()
+    {
+        // Arrange
+        $this->db->query("INSERT INTO `#PREFIX#qb_test` (name, age) VALUES ('Teen', 15), ('Mid', 25), ('Senior', 65)");
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->from('#PREFIX#qb_test')
+            ->where('name', 'Teen')
+            ->orWhereIn('age', [25, 65])
+            ->get();
+
+        // Assert: the explicit match plus both ages in the list
+        $this->assertEquals(3, $result->numRows);
+    }
+
+    /**
+     * orWhereNotIn() must widen the result set with rows outside the list, joined by OR
+     * (FW-306: missing alongside orWhereIn()).
+     */
+    public function testOrWhereNotIn()
+    {
+        // Arrange
+        $this->db->query("INSERT INTO `#PREFIX#qb_test` (name, age) VALUES ('Teen', 15), ('Mid', 25), ('Senior', 65)");
+
+        // Act
+        $result = $this->db->queryBuilder()
+            ->from('#PREFIX#qb_test')
+            ->where('name', 'NoSuchName')
+            ->orWhereNotIn('age', [25])
+            ->get();
+
+        // Assert: both rows whose age is not 25 (the explicit where matches nothing)
+        $this->assertEquals(2, $result->numRows);
+    }
+
     public function testUnion()
     {
         $this->db->query("INSERT INTO `#PREFIX#qb_test` (name, age) VALUES ('Alice', 20), ('Bob', 30)");
