@@ -365,6 +365,45 @@ and returns tools to add. A skill with no tool this person may use is not offere
 are its tools. Tools added during an answer run in the answer, never on a parallel worker,
 because a worker builds only the answer's first tools.
 
+#### Skills in a conversation
+
+A conversation groups its tools the same way, all of them, when the application turns it on:
+
+```php
+'llm' => ['chat' => ['skills' => true]],   // off by default: every tool, as it is
+```
+
+With it on, a tool marked `'skills' => [...]` is offered only once the model turns one of its
+skills on with `use_skill`, and a tool of no skill is always offered. `use_skill` names each skill
+and what it is for. The framework's own tools are already marked (`Conversations::SKILLS`):
+
+| Skill | Tools |
+|---|---|
+| `tasks` | scheduling questions, reminders and reports |
+| `artifacts` | `read_artifact`, `update_artifact`, `list_artifacts`, `pin_artifact` (`save_artifact` stays) |
+| `profile`, `calendar`, `journal` | the [companion](#the-personal-companion)'s |
+| `web` | `web_search`, `fetch_url` |
+
+Memory, `save_artifact` and `set_busy` belong to no skill. An application marks its own tools
+the same way, and says what its skills are for in its assistant's `skills()`:
+
+```php
+public function tools(Turn $turn): array
+{
+    return ['crm_lookup' => ['description' => '…', 'parameters' => […], 'run' => …, 'skills' => ['crm']]];
+}
+
+public function skills(): array
+{
+    return ['crm' => 'customers and their orders'];
+}
+```
+
+Marking costs nothing while it is off, so mark tools as you write them. A tool whose
+`permissions` the person lacks is left out either way. A worker running a
+[parallel call](#tools-that-run-at-once) builds every tool (`Conversations::toolsFor()`), grouped
+or not.
+
 ### Tools from other MCP servers
 
 The framework is also an MCP **client**. An application connects to external MCP servers, and

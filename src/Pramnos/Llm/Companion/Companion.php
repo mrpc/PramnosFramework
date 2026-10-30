@@ -78,7 +78,10 @@ final class Companion
      */
     public function tools(): array
     {
-        return $this->dossier()->tools() + $this->calendar()->tools() + $this->busyTool() + $this->journalTool();
+        return \Pramnos\Llm\Chat\Conversations::inSkill($this->dossier()->tools(), 'profile')
+            + \Pramnos\Llm\Chat\Conversations::inSkill($this->calendar()->tools(), 'calendar')
+            + $this->busyTool()
+            + \Pramnos\Llm\Chat\Conversations::inSkill($this->journalTool(), 'journal');
     }
 
     /**

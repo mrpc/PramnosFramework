@@ -196,4 +196,26 @@ final class EchoTool implements McpToolInterface
     {
         return ['said' => $input['say'] ?? ''];
     }
+
+    /**
+     * A tool added in the client's shape goes back out with what the registry does not read
+     * itself — `expands`, an application's own key — so putting tools through a registry to group
+     * them loses nothing the client needs.
+     */
+    public function testAddKeepsWhatItDoesNotRead(): void
+    {
+        // Arrange
+        $expands  = static fn (): array => [];
+        $registry = (new ToolRegistry(static fn (): bool => true))->add([
+            'grow' => ['description' => 'd', 'parameters' => [], 'run' => static fn (): string => 'ok', 'expands' => $expands, 'x_app' => 7, 'skills' => ['s']],
+        ]);
+
+        // Act
+        $tool = $registry->tools([], ['s'])['grow'];
+
+        // Assert
+        $this->assertSame($expands, $tool['expands']);
+        $this->assertSame(7, $tool['x_app']);
+        $this->assertSame(['s'], $tool['meta']['skills']);
+    }
 }

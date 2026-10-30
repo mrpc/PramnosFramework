@@ -44,6 +44,18 @@ class BaseAssistant implements Assistant
         return [];
     }
 
+    /**
+     * What each of this assistant's own skills is for, by name — for `use_skill`, where
+     * `'llm' => ['chat' => ['skills' => true]]` offers a tool marked `'skills' => [...]` only once
+     * its skill is turned on ({@see Conversations::SKILLS} has the framework's own).
+     *
+     * @return array<string, string>
+     */
+    public function skills(): array
+    {
+        return [];
+    }
+
     public function due(Turn $turn): array
     {
         return [];

@@ -39,7 +39,7 @@ use Pramnos\Mcp\McpToolInterface;
  */
 final class ToolRegistry
 {
-    /** @var array<string, array{run: callable, description: string, parameters: array<string, mixed>, meta: array<string, mixed>}> */
+    /** @var array<string, array{run: callable, description: string, parameters: array<string, mixed>, meta: array<string, mixed>, own?: array<string, mixed>}> */
     private array $tools = [];
 
     /** @var array<string, string> What each skill is for, by name */
@@ -93,12 +93,15 @@ final class ToolRegistry
             if (!is_callable($tool['run'] ?? null)) {
                 continue;
             }
-            $own = array_intersect_key($tool, array_flip(['writes', 'idempotent', 'parallel', 'untrusted', 'gated', 'permissions', 'skills', 'tags', 'cost_weight', 'latency_tier']));
+            $flags = ['writes', 'idempotent', 'parallel', 'untrusted', 'gated', 'permissions', 'skills', 'tags', 'cost_weight', 'latency_tier'];
+            $own   = array_intersect_key($tool, array_flip($flags));
             $this->tools[(string) $name] = [
                 'run'         => $tool['run'],
                 'description' => (string) ($tool['description'] ?? ''),
                 'parameters'  => Tools::schema((array) ($tool['parameters'] ?? [])),
                 'meta'        => $own + (array) ($tool['meta'] ?? []) + $meta,
+                // What the registry does not read itself — `expands`, a tag's closure — goes back out as it came.
+                'own'         => array_diff_key($tool, array_flip([...$flags, 'run', 'description', 'parameters', 'meta'])),
             ];
         }
 
@@ -187,7 +190,7 @@ final class ToolRegistry
                 'untrusted'   => $meta['untrusted'] ?: null,
                 'gated'       => $meta['gated'] ?: null,
                 'tags'        => $meta['tags'] ?: null,
-            ], static fn ($v): bool => $v !== null) + ['meta' => $meta];
+            ], static fn ($v): bool => $v !== null) + ['meta' => $meta] + ($tool['own'] ?? []);
         }
 
         return $out;
@@ -225,7 +228,10 @@ final class ToolRegistry
         }
 
         return ['use_skill' => [
-            'description' => 'Turn on a skill: its tools are yours from the next step. Skills: ' . implode(', ', array_keys($available)) . '.',
+            'description' => 'Turn on a skill: its tools are yours from the next step. Skills: ' . implode('; ', array_map(
+                fn (string $skill): string => $skill . (($this->skillNotes[$skill] ?? '') !== '' ? ' (' . $this->skillNotes[$skill] . ')' : ''),
+                array_keys($available)
+            )) . '.',
             'parameters'  => Tools::schema(['properties' => ['skill' => ['type' => 'string', 'enum' => array_keys($available)]], 'required' => ['skill']]),
             'run'         => static fn (array $arguments): string => isset($available[(string) ($arguments['skill'] ?? '')])
                 ? 'Turned on ' . $arguments['skill'] . ': ' . implode(', ', $available[(string) $arguments['skill']]) . '.'

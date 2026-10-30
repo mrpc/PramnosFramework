@@ -57,6 +57,19 @@ class Conversations
     public const DEGRADED = 'The stronger model is unavailable right now, so you are answering in its place: answer as well as you can, '
         . 'and say plainly if the question needs more than you can give. If the person is upset or confiding in you, answer them warmly first.';
 
+    /**
+     * The framework's own skills, and what each is for — where `'llm' => ['chat' => ['skills' =>
+     * true]]` offers their tools only once the model turns one on ({@see grouped()}).
+     */
+    public const SKILLS = [
+        'tasks'     => 'scheduling questions, reminders and reports',
+        'artifacts' => 'reading, changing, finding and pinning artifacts kept earlier',
+        'profile'   => 'what the person confirmed about themselves and the people in their life',
+        'calendar'  => 'the person\'s appointments and tasks',
+        'journal'   => 'the person\'s journal for the day',
+        'web'       => 'searching the web and reading a page',
+    ];
+
     private ?Scope $scope = null;
 
     private ?bool $tracks = null;
@@ -377,7 +390,7 @@ class Conversations
         $routines  = new Routines($this);
         $artifacts = new Artifacts($this->scope);
         // The same services the tools write through: what they made is linked to the conversation below.
-        $tools     = $this->buildTools($turn, $memory, $routines, $artifacts);
+        $tools     = $this->grouped($this->buildTools($turn, $memory, $routines, $artifacts));
 
         // Reads asked for at once run at once, shared with the `llm_tool` workers, where the
         // application turned it on: a worker builds these same tools again from this.
@@ -904,9 +917,9 @@ class Conversations
         // about them, not their tasks.
         $tools    = $this->assistant->tools($turn) + ($turn->shared() ? [] : $memory->tools($this, $turn->conversationId)
             // Not from a scheduled run: a task that schedules tasks has no end.
-            + ($this->scheduled ? [] : $routines->toolsFor($this->scope, $this->assistant->timezone($this->scope), $turn->conversationId)
+            + ($this->scheduled ? [] : self::inSkill($routines->toolsFor($this->scope, $this->assistant->timezone($this->scope), $turn->conversationId), 'tasks')
                 // Kept with a conversation the person can open: a scheduled run has none yet.
-                + $artifacts->tools()
+                + self::inSkill($artifacts->tools(), 'artifacts', ['save_artifact'])
                 // And changes to approve, where the application turned them on: nobody approves in a run.
                 + (new Proposals($this->scope))->tools($artifacts))
             // The companion's, where the application turned it on.
@@ -917,6 +930,49 @@ class Conversations
         foreach ($this->assistant->writes() as $name) {
             if (isset($tools[$name])) {
                 $tools[$name]['writes'] = true;
+            }
+        }
+
+        return $tools;
+    }
+
+    /**
+     * Where `'llm' => ['chat' => ['skills' => true]]`: the tools of no skill, and `use_skill` for
+     * the rest — a skill's tools are added to the answer once the model turns it on, so a model
+     * with many tools starts from a short list. Off, every tool, as they are.
+     *
+     * @param array<string, array<string, mixed>> $tools
+     * @return array<string, array<string, mixed>>
+     */
+    private function grouped(array $tools): array
+    {
+        $chat = \Pramnos\Llm\Llm::config('chat', []);
+        if (!is_array($chat) || empty($chat['skills'])) {
+            return $tools;
+        }
+
+        $registry = (new \Pramnos\Llm\ToolRegistry())->add($tools);
+        $notes    = self::SKILLS + (method_exists($this->assistant, 'skills') ? (array) $this->assistant->skills() : []);
+        foreach ($notes as $skill => $note) {
+            $registry->describeSkill((string) $skill, (string) $note);
+        }
+        $context = $this->scope?->context() ?? [];
+
+        return $registry->tools($context, []) + $registry->skillTool($context);
+    }
+
+    /**
+     * Mark tools as a skill's, but those named in `$except`, which stay offered always.
+     *
+     * @param array<string, array<string, mixed>> $tools
+     * @param list<string>                        $except
+     * @return array<string, array<string, mixed>>
+     */
+    public static function inSkill(array $tools, string $skill, array $except = []): array
+    {
+        foreach ($tools as $name => $tool) {
+            if (!in_array($name, $except, true)) {
+                $tools[$name]['skills'] = [...(array) ($tool['skills'] ?? []), $skill];
             }
         }
 
