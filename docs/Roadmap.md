@@ -86,29 +86,6 @@ Nothing above is thrown away by that.
 **Done requires:** each phase in the page and the SPA, documented in the LLM guide, with tests for
 the endpoint, limits, consent and call-log entries of phase 2.
 
-## Documentation
-
-### Deduplicate the two Getting Started pages
-
-`docs/index.md` and `docs/Getting_Started.md` start as the same document: the same
-installation, Docker, structure and scaffolding sections. `Getting_Started.md` continues into
-the `daemons` container, configuration and secrets, and `.gitignore`; `index.md` is a shorter
-copy of its first half. The nav presents them as "Quickstart" and "Full Setup Guide", but
-nothing keeps the shared half in step.
-
-This matters because `docs/` is a retrieval corpus (rule 13): two pages with the same
-content compete for the same question and neither is more authoritative than the other.
-
-- Decide which one survives, or split them for real — a short quickstart that
-  stops at "it runs", and a full guide that continues into Docker, structure and
-  scaffolding.
-- Update the `nav:` labels so they describe what each page actually is.
-- Keep whichever URL is already linked from the README and the scaffolded
-  projects, or add a redirect.
-
-*Done when:* the two pages answer different questions, and the `use_cases:` of
-each say which.
-
 ## Test suite
 
 ### A dashboard test that sometimes skips itself

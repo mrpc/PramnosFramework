@@ -5,9 +5,11 @@ use_cases:
   - Generating a first model, controller and view
 ---
 
-# Getting Started with Pramnos Framework
+# Full Setup Guide
 
-Welcome to the Pramnos Framework! This guide will help you set up a new project from scratch using our command-line tools.
+Everything the [Quickstart](index.md) leaves out: Docker, the `daemons` container,
+configuration and secrets, project structure, `.gitignore`, and generating your first model
+and controller.
 
 ## Installation
 
