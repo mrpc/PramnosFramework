@@ -114,6 +114,36 @@ class McpToolsTest extends TestCase
         $this->assertSame(100, $result[0]['rows']);
     }
 
+    /**
+     * The PostgreSQL row count is cast to `bigint`, not `int`.
+     *
+     * A hypertable chunk or any table past ~2.1 billion rows overflows PostgreSQL's `int`
+     * ("value ... is out of range for type integer"), turning the whole tool into an error
+     * instead of a table list. PHP's own `(int)` cast is 64-bit and safe; only the SQL side
+     * needed the fix.
+     */
+    public function testListTablesToolPostgresCastsRowCountAsBigint(): void
+    {
+        // Arrange
+        $db = $this->createMockDatabase();
+        $db->connected = true;
+        $db->type = 'postgresql';
+
+        $res = $this->createMock(\Pramnos\Database\Result::class);
+        $res->method('fetchAll')->willReturn([]);
+        $db->expects($this->once())->method('query')
+            ->with($this->logicalAnd(
+                $this->stringContains('::bigint'),
+                $this->logicalNot($this->matchesRegularExpression('/::text::int\b/'))
+            ))
+            ->willReturn($res);
+
+        $tool = new ListTablesTool($db);
+
+        // Act
+        $tool->execute([]);
+    }
+
     public function testListTablesToolExecuteNullResult(): void
     {
         // Arrange

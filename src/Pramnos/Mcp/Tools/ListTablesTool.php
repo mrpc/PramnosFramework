@@ -44,7 +44,7 @@ class ListTablesTool implements McpToolInterface
                            (xpath('/row/cnt/text()', query_to_xml(
                                'SELECT COUNT(*) AS cnt FROM \"' || table_name || '\"',
                                false, true, ''
-                           )))[1]::text::int AS row_count
+                           )))[1]::text::bigint AS row_count
                     FROM information_schema.tables
                     WHERE table_schema = 'public'
                       AND table_type   = 'BASE TABLE'
