@@ -130,5 +130,8 @@ real environment variable beats `.env` — a host that injects `APP_DB_PASSWORD`
 * **Do not commit `.env`.** Commit `.env.example` with every key and the secrets blank.
 * **`loadDotenv()` is safe to call more than once.** A file already loaded in the request is
   not read again.
+* **`loadDotenv()` also fills `getenv()`**, not only `$_ENV`/`$_SERVER` — so code that reads
+  configuration with a bare `getenv('KEY')`, matching docker-compose's `environment:` entries,
+  sees a loaded `.env` too, not only `envvar()`.
 * **`env()` is a different helper.** It reads PHP *constants* (`env('FIELD')` returns
   `constant('FIELD')`), not the environment. Use `envvar()` for environment values.

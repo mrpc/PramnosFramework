@@ -362,6 +362,10 @@ class GlobalHelpersTest extends TestCase
         $result = loadDotenv($tempDir);
         $this->assertTrue($result);
         $this->assertEquals('12345', $_ENV['PRAMNOS_TEST_LOAD_ENV'] ?? null);
+        // usePutenv(): without it Symfony Dotenv fills only $_ENV/$_SERVER, and getenv() — the
+        // convention everywhere in this framework, same as docker-compose's `environment:` —
+        // keeps returning false for a key this function just reported loaded.
+        $this->assertSame('12345', getenv('PRAMNOS_TEST_LOAD_ENV'));
 
         // A second call should return true immediately without reloading
         $result2 = loadDotenv($tempDir);

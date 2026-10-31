@@ -97,6 +97,11 @@ if (!function_exists("loadDotenv")) {
     /**
      * Loads .env file from the given path using Symfony Dotenv.
      *
+     * Calls usePutenv() first: without it, Symfony Dotenv fills only $_ENV/$_SERVER, not the
+     * process environment table, and getenv() — the convention everywhere in this framework and
+     * its applications, matching docker-compose's `environment:` entries — keeps returning false
+     * for every loaded key even though this function returned true.
+     *
      * @param string|null $path
      * @param string $fileName
      * @return bool
@@ -124,7 +129,7 @@ if (!function_exists("loadDotenv")) {
         }
 
         $dotenv = new \Symfony\Component\Dotenv\Dotenv();
-        $dotenv->loadEnv($envFile);
+        $dotenv->usePutenv()->loadEnv($envFile);
 
         $loadedFiles[$envFile] = true;
 
