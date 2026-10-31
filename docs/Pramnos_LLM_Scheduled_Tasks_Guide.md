@@ -10,7 +10,7 @@ use_cases:
 
 Part of the [language-model guide](Pramnos_LLM_Guide.md).
 
-`Chat\Routines` keeps every scheduled AI task in `ai_routines`. There are three kinds:
+`Chat\Routines` keeps every scheduled AI task in `pramnos.ai_routines`. There are three kinds:
 
 - **`ask`**, a question asked again into its owner's conversation;
 - **`reminder`**, the owner's own words sent back as a notification with no model asked, so it
@@ -86,7 +86,7 @@ rather than none.
 
 After each run:
 
-- The run is recorded in `ai_task_runs` and the owner is told.
+- The run is recorded in `pramnos.ai_task_runs` and the owner is told.
 - A question tells the owner with `Chat\RoutineReady`, or the class `chat.routine_notification`
   names, constructed with the title, whether it worked, why not, and the link.
 - A report's reader whose subscription asks for email (`subscribe($userId, $id, email: true)`,
@@ -151,7 +151,7 @@ The schedule form shows only what applies (`data-pf-show-when`; everything witho
 the time fields for the cadence chosen, *For*, *Tell readers* and the email box for a report, the
 readers for a report shared with an organisation or everyone.
 
-**What the tasks cost** is read from `ai_task_runs.cost`, the price of each run's model calls
+**What the tasks cost** is read from `pramnos.ai_task_runs.cost`, the price of each run's model calls
 recorded once however many people receive the report (`Chat\TaskCosts`). It shows in two
 places with nothing to configure:
 
@@ -207,7 +207,7 @@ conversation:
 - The assistant's write tools (`Assistant::writes()`), the memory and the scheduling tools are
   left out. What the maker told the assistant about themselves is not in the prompt either, since
   others read the result.
-- The run is kept in `ai_task_runs`: content, cost, the model's steps, and who was told.
+- The run is kept in `pramnos.ai_task_runs`: content, cost, the model's steps, and who was told.
 - The run is charged once, however many people read it.
 - A failure tells the maker only. Readers get reports, not errors.
 
@@ -221,7 +221,7 @@ the right stops receiving it. The default `canSee()` is strict: a reader of lowe
 the maker would see what the maker's rights read. An application with roles says here who may
 read, such as the readers of the property the report is about.
 
-**The maker chooses.** A shared report can name its readers, kept in `ai_routines.audience`:
+**The maker chooses.** A shared report can name its readers, kept in `pramnos.ai_routines.audience`:
 everyone from a role up, people by name, or both. They are still only inside the organisation for
 an organisation's report. The choice opens the report to people below the maker's standing, on
 purpose: they read what the maker's rights read.

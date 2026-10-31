@@ -1940,7 +1940,7 @@ class Account extends Controller
     protected function taskRoutines(): ?\Pramnos\Llm\Chat\Routines
     {
         try {
-            if (!\Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('ai_routines')) {
+            if (!\Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('pramnos.ai_routines')) {
                 return null;
             }
         } catch (\Throwable) {

@@ -55,7 +55,7 @@ class TasksTest extends LlmTestCase
     /** Make a task due a minute ago. */
     private function due(int $routineId): void
     {
-        $this->db->queryBuilder()->table('ai_routines')->where('routine_id', $routineId)
+        $this->db->queryBuilder()->table('pramnos.ai_routines')->where('routine_id', $routineId)
             ->update(['next_run_at' => CallLog::instant(time() - 60)]);
     }
 
@@ -72,7 +72,7 @@ class TasksTest extends LlmTestCase
         $this->configure(['chat' => ['routine_notification' => CapturedNotice::class]]);
         $this->answer([[200, self::says('All quiet.')]]);
         $stamp = CallLog::instant(time());
-        $this->db->queryBuilder()->table('ai_routines')->insert([
+        $this->db->queryBuilder()->table('pramnos.ai_routines')->insert([
             'organization_id' => 3, 'userid' => 7, 'space' => 'chat', 'title' => 'Morning', 'prompt' => 'Anything new?',
             'template' => null, 'cadence' => 'daily', 'at' => '08:00', 'day' => null, 'timezone' => 'Europe/Athens',
             'is_active' => true, 'next_run_at' => CallLog::instant(time() - 60), 'created_at' => $stamp, 'updated_at' => $stamp,
@@ -302,7 +302,7 @@ class TasksTest extends LlmTestCase
         $tasks = $this->tasks();
         $mine  = $tasks->create(new Scope(7, 3), ['title' => 'Morning', 'prompt' => 'Report', 'cadence' => 'daily', 'at' => '08:00', 'conversation_id' => 5]);
         $other = $tasks->create(new Scope(7, 4), ['title' => 'Elsewhere', 'prompt' => 'x', 'cadence' => 'daily', 'at' => '09:00']);
-        $this->db->queryBuilder()->table('ai_task_subscriptions')->insert(['routine_id' => $mine['routine_id'], 'userid' => 7, 'email' => false]);
+        $this->db->queryBuilder()->table('pramnos.ai_task_subscriptions')->insert(['routine_id' => $mine['routine_id'], 'userid' => 7, 'email' => false]);
         $listed = $tasks->ownedBy(3, 7);
 
         // Act
@@ -458,14 +458,14 @@ class TasksTest extends LlmTestCase
         // Act
         $this->llmSchemaChanged();
         $migration->down();
-        $shrunk = $schema->hasColumn('ai_routines', 'kind');
+        $shrunk = $schema->hasColumn('pramnos.ai_routines', 'kind');
         $migration->up();
         $migration->up();
 
         // Assert
         $this->assertFalse($shrunk);
         foreach (['kind', 'owner', 'resource_type', 'resource_id', 'run_at', 'nth', 'notify', 'failures', 'locked_until'] as $column) {
-            $this->assertTrue($schema->hasColumn('ai_routines', $column), $column);
+            $this->assertTrue($schema->hasColumn('pramnos.ai_routines', $column), $column);
         }
     }
 

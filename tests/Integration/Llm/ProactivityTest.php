@@ -107,11 +107,11 @@ class ProactivityTest extends LlmTestCase
         $now    = time();
         $zone   = 'UTC';
         $this->configure(['proactivity' => ['quiet' => '']]);
-        $this->db->queryBuilder()->table('ai_routines')->insert(['userid' => $userId, 'space' => 'chat', 'kind' => 'ask', 'title' => 'Morning', 'prompt' => 'p',
+        $this->db->queryBuilder()->table('pramnos.ai_routines')->insert(['userid' => $userId, 'space' => 'chat', 'kind' => 'ask', 'title' => 'Morning', 'prompt' => 'p',
             'cadence' => 'daily', 'at' => '08:00', 'timezone' => 'UTC', 'is_active' => true, 'created_at' => CallLog::instant($now), 'updated_at' => CallLog::instant($now)]);
         $routineId = (int) $this->db->getInsertId();
         foreach (['ok', 'ok', 'failed'] as $status) {
-            $this->db->queryBuilder()->table('ai_task_runs')->insert(['routine_id' => $routineId, 'kind' => 'ask', 'status' => $status, 'started_at' => CallLog::instant($now - 60)]);
+            $this->db->queryBuilder()->table('pramnos.ai_task_runs')->insert(['routine_id' => $routineId, 'kind' => 'ask', 'status' => $status, 'started_at' => CallLog::instant($now - 60)]);
         }
         $calendar = new Calendar(new Scope($userId, null), $zone);
         $sent     = $calendar->create('A', gmdate('Y-m-d H:i', $now + 7200))['created']['id'];
@@ -173,7 +173,7 @@ class ProactivityTest extends LlmTestCase
         $scope   = new Scope(7, null);
         $daily   = $routines->create($scope, ['title' => 'Morning', 'prompt' => 'How did you sleep?', 'cadence' => 'daily', 'at' => '08:00']);
         $once    = $routines->create($scope, ['title' => 'Once', 'prompt' => 'Check in', 'cadence' => 'once', 'in_minutes' => 60]);
-        $due     = fn (int $id) => $this->db->queryBuilder()->table('ai_routines')->where('routine_id', $id)->update(['next_run_at' => CallLog::instant($now - 60)]);
+        $due     = fn (int $id) => $this->db->queryBuilder()->table('pramnos.ai_routines')->where('routine_id', $id)->update(['next_run_at' => CallLog::instant($now - 60)]);
         $next    = fn (int $id): int => (int) strtotime((string) $routines->find($scope, $id)['next_run_at'] . (str_contains((string) $routines->find($scope, $id)['next_run_at'], '+') ? '' : ' UTC'));
         $policy  = new class implements Proactivity {
             public int $answer = 0;
@@ -197,7 +197,7 @@ class ProactivityTest extends LlmTestCase
         // Held until a moment
         $policy->answer = $now + 5000;
         $due($daily['routine_id']);
-        $this->db->queryBuilder()->table('ai_routines')->where('routine_id', $once['routine_id'])->update(['is_active' => false]);
+        $this->db->queryBuilder()->table('pramnos.ai_routines')->where('routine_id', $once['routine_id'])->update(['is_active' => false]);
         $routines->runDue($now);
         $heldNext = $next($daily['routine_id']);
 
@@ -207,7 +207,7 @@ class ProactivityTest extends LlmTestCase
         $this->assertGreaterThan($now + 3600, $dailyNext, 'its next turn, tomorrow\'s 08:00 or later today');
         $this->assertSame($now + 3600, $onceNext, 'a one-off in an hour');
         $this->assertSame($now + 5000, $heldNext);
-        $this->assertNull($this->db->queryBuilder()->table('ai_routines')->where('routine_id', $daily['routine_id'])->first()->fields['locked_until'], 'let go of');
+        $this->assertNull($this->db->queryBuilder()->table('pramnos.ai_routines')->where('routine_id', $daily['routine_id'])->first()->fields['locked_until'], 'let go of');
 
         // Without manners asked for, the policy is not asked, and the question is
         $this->configure([]);
@@ -229,7 +229,7 @@ class ProactivityTest extends LlmTestCase
         $this->connectDatabase($type, $host, $port);
         $routines = new RecordingRoutines(new Conversations(new BaseAssistant()));
         $made     = $routines->create(new Scope(7, null), ['title' => 'Morning', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00']);
-        $this->db->queryBuilder()->table('ai_routines')->where('routine_id', $made['routine_id'])->update(['next_run_at' => CallLog::instant(time() - 60)]);
+        $this->db->queryBuilder()->table('pramnos.ai_routines')->where('routine_id', $made['routine_id'])->update(['next_run_at' => CallLog::instant(time() - 60)]);
         $this->configure(['proactivity' => true]);
         Llm::use('proactivity', new class implements Proactivity {
             public function when(int $userId, string $timezone, int $now, bool $critical = false): int

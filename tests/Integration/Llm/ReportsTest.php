@@ -136,7 +136,7 @@ class ReportsTest extends LlmTestCase
         $made  = $this->report($tasks);
         (new \Pramnos\Llm\Chat\Memory(new Scope(7, 3)))->remember('preference', 'My wife is called Eleni');
         foreach ([8, 9, 10] as $userId) {
-            $this->db->queryBuilder()->table('ai_task_subscriptions')->insert(['routine_id' => $made['routine_id'], 'userid' => $userId, 'email' => false]);
+            $this->db->queryBuilder()->table('pramnos.ai_task_subscriptions')->insert(['routine_id' => $made['routine_id'], 'userid' => $userId, 'email' => false]);
         }
 
         // Act
@@ -276,7 +276,7 @@ class ReportsTest extends LlmTestCase
         $this->answer([[500, ['error' => ['message' => 'Overloaded']]]]);
         $tasks = $this->tasks();
         $made  = $this->report($tasks);
-        $this->db->queryBuilder()->table('ai_task_subscriptions')->insert(['routine_id' => $made['routine_id'], 'userid' => 8, 'email' => false]);
+        $this->db->queryBuilder()->table('pramnos.ai_task_subscriptions')->insert(['routine_id' => $made['routine_id'], 'userid' => 8, 'email' => false]);
 
         // Act
         $failed = $tasks->run($tasks->byId($made['routine_id']), time());
@@ -319,7 +319,7 @@ class ReportsTest extends LlmTestCase
         $outsider = $tasks->subscribe(10, $id);
         $notOne   = $tasks->subscribe(7, $mine['routine_id']);
         $listed   = $tasks->reports(new Scope(8, 3));
-        $email    = $this->rows('ai_task_subscriptions')[0]['email'];
+        $email    = $this->rows('pramnos.ai_task_subscriptions')[0]['email'];
         $off      = $tasks->unsubscribe(8, $id);
         $offAgain = $tasks->unsubscribe(8, $id);
         $tasks->subscribe(7, $id);
@@ -441,11 +441,11 @@ class ReportsTest extends LlmTestCase
         // Act
         $this->llmSchemaChanged();
         $migration->down();
-        $gone    = $schema->hasColumn('ai_routines', 'audience');
+        $gone    = $schema->hasColumn('pramnos.ai_routines', 'audience');
         $without = $this->report($this->tasks());
         $migration->up();
         $migration->up();
-        $back = $schema->hasColumn('ai_routines', 'audience');
+        $back = $schema->hasColumn('pramnos.ai_routines', 'audience');
 
         // Assert
         $this->assertFalse($gone);

@@ -19,19 +19,19 @@ class AddAudienceToAiRoutines extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
-        if (!$schema->hasTable('ai_routines') || $schema->hasColumn('ai_routines', 'audience')) {
+        if (!$schema->hasTable('pramnos.ai_routines') || $schema->hasColumn('pramnos.ai_routines', 'audience')) {
             return;
         }
 
-        $schema->table('ai_routines', fn ($table) => $table->text('audience')->nullable()
+        $schema->table('pramnos.ai_routines', fn ($table) => $table->text('audience')->nullable()
             ->comment('JSON {min_usertype, users}: who may receive a shared report; null for the maker\'s standing and up'));
     }
 
     public function down(): void
     {
         $schema = $this->application->database->schema();
-        if ($schema->hasTable('ai_routines') && $schema->hasColumn('ai_routines', 'audience')) {
-            $schema->table('ai_routines', fn ($table) => $table->dropColumn(['audience']));
+        if ($schema->hasTable('pramnos.ai_routines') && $schema->hasColumn('pramnos.ai_routines', 'audience')) {
+            $schema->table('pramnos.ai_routines', fn ($table) => $table->dropColumn(['audience']));
         }
     }
 }

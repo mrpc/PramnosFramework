@@ -39,13 +39,13 @@ class ExtendAiRoutinesForTasks extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
-        if (!$schema->hasTable('ai_routines')) {
+        if (!$schema->hasTable('pramnos.ai_routines')) {
             return;
         }
 
         foreach ($this->columns() as $name => $add) {
-            if (!$schema->hasColumn('ai_routines', $name)) {
-                $schema->table('ai_routines', fn ($table) => $add($table));
+            if (!$schema->hasColumn('pramnos.ai_routines', $name)) {
+                $schema->table('pramnos.ai_routines', fn ($table) => $add($table));
             }
         }
     }
@@ -53,13 +53,13 @@ class ExtendAiRoutinesForTasks extends Migration
     public function down(): void
     {
         $schema = $this->application->database->schema();
-        if (!$schema->hasTable('ai_routines')) {
+        if (!$schema->hasTable('pramnos.ai_routines')) {
             return;
         }
 
-        $present = array_values(array_filter(array_keys($this->columns()), fn (string $c): bool => $schema->hasColumn('ai_routines', $c)));
+        $present = array_values(array_filter(array_keys($this->columns()), fn (string $c): bool => $schema->hasColumn('pramnos.ai_routines', $c)));
         if ($present !== []) {
-            $schema->table('ai_routines', fn ($table) => $table->dropColumn($present));
+            $schema->table('pramnos.ai_routines', fn ($table) => $table->dropColumn($present));
         }
     }
 }

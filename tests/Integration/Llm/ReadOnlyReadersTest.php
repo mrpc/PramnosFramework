@@ -54,12 +54,12 @@ class ReadOnlyReadersTest extends LlmTestCase
     {
         $tasks = new Routines(new \Pramnos\Llm\Chat\Conversations(new SchedulingAnalyst()));
         $made  = $tasks->create(new Scope(7, null, Scope::ADMIN), ['kind' => 'report', 'owner' => 'global', 'title' => 'Leaks', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00']);
-        $this->db->queryBuilder()->table('ai_routines')->where('routine_id', $made['routine_id'])->update(['audience' => json_encode(['min_usertype' => 1, 'users' => []])]);
-        $this->db->queryBuilder()->table('ai_task_runs')->insert(['routine_id' => $made['routine_id'], 'kind' => 'report', 'status' => 'ok', 'content' => '**3** leaks today',
+        $this->db->queryBuilder()->table('pramnos.ai_routines')->where('routine_id', $made['routine_id'])->update(['audience' => json_encode(['min_usertype' => 1, 'users' => []])]);
+        $this->db->queryBuilder()->table('pramnos.ai_task_runs')->insert(['routine_id' => $made['routine_id'], 'kind' => 'report', 'status' => 'ok', 'content' => '**3** leaks today',
             'started_at' => \Pramnos\Llm\CallLog::instant(time()), 'finished_at' => \Pramnos\Llm\CallLog::instant(time())]);
 
         // The run's id from the row itself: an insert id read after the audience update is not always the run's.
-        return [$tasks->byId($made['routine_id']), (int) $this->db->queryBuilder()->table('ai_task_runs')->where('routine_id', $made['routine_id'])->max('run_id')];
+        return [$tasks->byId($made['routine_id']), (int) $this->db->queryBuilder()->table('pramnos.ai_task_runs')->where('routine_id', $made['routine_id'])->max('run_id')];
     }
 
     /** A screen read by somebody below the floor. */

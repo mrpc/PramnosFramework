@@ -34,7 +34,7 @@ final class TaskCosts implements \Pramnos\Llm\Admin\Card
     public static function byTask(?int $since = null): array
     {
         $qb    = \Pramnos\Framework\Factory::getDatabase()->queryBuilder();
-        $query = $qb->table('#PREFIX#ai_task_runs')->select([
+        $query = $qb->table('pramnos.ai_task_runs')->select([
             'routine_id',
             $qb->raw('count(*) as runs'),
             $qb->raw('sum(cost) as cost'),
@@ -70,7 +70,7 @@ final class TaskCosts implements \Pramnos\Llm\Admin\Card
             return [];
         }
         $titles = [];
-        $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#ai_routines')
+        $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('pramnos.ai_routines')
             ->select(['routine_id', 'title'])->whereIn('routine_id', $ids)->get();
         while (($row = $result->fetch()) !== null) {
             $titles[(int) $row['routine_id']] = (string) $row['title'];

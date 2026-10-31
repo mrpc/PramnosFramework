@@ -454,8 +454,8 @@ class Unsubscribe
             while ($found && ($row = $found->fetch()) !== null) {
                 $users[] = (int) $row['userid'];
             }
-            if ($users !== [] && $routineId > 0 && $db->schema()->hasTable('ai_task_subscriptions')) {
-                $db->queryBuilder()->table('#PREFIX#ai_task_subscriptions')->where('routine_id', $routineId)->whereIn('userid', $users)->update(['email' => false]);
+            if ($users !== [] && $routineId > 0 && $db->schema()->hasTable('pramnos.ai_task_subscriptions')) {
+                $db->queryBuilder()->table('pramnos.ai_task_subscriptions')->where('routine_id', $routineId)->whereIn('userid', $users)->update(['email' => false]);
             }
             static::clearOptOut($email, self::REPORT_PREFIX . $routineId);
         } catch (\Throwable $e) {

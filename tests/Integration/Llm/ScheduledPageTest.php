@@ -77,7 +77,7 @@ class ScheduledPageTest extends LlmTestCase
         $tasks->create(new Scope(7, 3), ['kind' => 'reminder', 'title' => 'Call <Maria>', 'prompt' => 'x', 'cadence' => 'monthly_weekday', 'nth' => 5, 'day' => 5, 'at' => '17:00']);
         $paused = $tasks->create(new Scope(7, 3), ['title' => 'Daily', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00']);
         $tasks->update(new Scope(7, 3), $paused['routine_id'], ['active' => false]);
-        $this->db->queryBuilder()->table('ai_routines')->where('routine_id', $paused['routine_id'])->update(['last_error' => 'Out of <credit>']);
+        $this->db->queryBuilder()->table('pramnos.ai_routines')->where('routine_id', $paused['routine_id'])->update(['last_error' => 'Out of <credit>']);
         $tasks->create(new Scope(8, 3), ['kind' => 'report', 'owner' => 'organization', 'title' => 'Team week', 'prompt' => 'p', 'cadence' => 'weekly', 'day' => 1, 'at' => '08:00']);
 
         foreach (self::THEMES as $theme) {
@@ -102,7 +102,7 @@ class ScheduledPageTest extends LlmTestCase
         }
 
         // Act — the daily one handed to the worker
-        $this->db->queryBuilder()->table('ai_routines')->where('routine_id', $paused['routine_id'])
+        $this->db->queryBuilder()->table('pramnos.ai_routines')->where('routine_id', $paused['routine_id'])
             ->update(['locked_until' => \Pramnos\Llm\CallLog::instant(time() + 600)]);
 
         foreach (self::THEMES as $theme) {

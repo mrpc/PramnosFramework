@@ -26,16 +26,16 @@ class LlmTablesCheck implements HealthCheck
         'chat_memory'        => true,
         'chat_asks'          => true,
         'ai_consents'        => false,
-        'ai_routines'        => true,
-        'ai_task_runs'       => false,
-        'ai_task_subscriptions' => false,
+        'pramnos.ai_routines'        => true,
+        'pramnos.ai_task_runs'       => false,
+        'pramnos.ai_task_subscriptions' => false,
         'chat_artifacts'     => true,
         'chat_shares'        => true,
     ];
 
     /** Columns added to a table after it was first written, which the code reads. */
     private const ADDED = [
-        'ai_routines' => ['kind', 'locked_until'],
+        'pramnos.ai_routines' => ['kind', 'locked_until'],
         'chat_messages' => ['rating'],
     ];
 
@@ -59,7 +59,7 @@ class LlmTablesCheck implements HealthCheck
         $problems = [];
 
         foreach (self::TABLES as $table => $spaced) {
-            $columns = $schema->columnDetails('#PREFIX#' . $table);
+            $columns = $schema->columnDetails(str_contains($table, '.') ? $table : '#PREFIX#' . $table);
 
             if ($columns === []) {
                 $problems[] = $table . ': missing';

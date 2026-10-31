@@ -43,9 +43,10 @@ $chat->find($id);       // one, with its messages, as the assistant presents the
 $chat->delete($id);
 ```
 
-The tables are `chat_conversations`, `chat_messages`, `chat_memory`, `chat_asks`, `ai_consents` and
-`ai_routines`, with the installation's table prefix (`#PREFIX#chat_conversations` in a query of
-your own). A table that already exists under its name is left as it is, except
+The tables are `chat_conversations`, `chat_messages`, `chat_memory`, `chat_asks` and `ai_consents`,
+with the installation's table prefix (`#PREFIX#chat_conversations` in a query of your own).
+Scheduled tasks live in `pramnos.ai_routines` instead — the engine's schema, not the
+application's; see the Scheduled Tasks guide. A table that already exists under its name is left as it is, except
 for what the framework needs to write to it: `tags`, `extra` and `space` are added, and an
 `organization_id` that refuses a null is made to take one — a conversation outside any
 organisation, the analyst's always, is written with none. The `llm_tables` health check says

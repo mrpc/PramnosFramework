@@ -24,7 +24,7 @@ class MakeOrganizationIdNullableOnChatTables extends Migration
     public $description  = 'Makes organization_id nullable on the conversation tables an application created first';
 
     /** The tables a row outside an organisation is written to. */
-    public const TABLES = ['chat_conversations', 'chat_messages', 'chat_memory', 'chat_asks', 'ai_consents', 'ai_routines'];
+    public const TABLES = ['chat_conversations', 'chat_messages', 'chat_memory', 'chat_asks', 'ai_consents', 'pramnos.ai_routines'];
 
     public function up(): void
     {

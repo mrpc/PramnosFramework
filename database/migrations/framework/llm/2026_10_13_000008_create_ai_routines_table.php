@@ -22,11 +22,11 @@ class CreateAiRoutinesTable extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasTable('ai_routines')) {
+        if ($schema->hasTable('pramnos.ai_routines')) {
             return;
         }
 
-        $schema->createTable('ai_routines', function ($table) {
+        $schema->createTable('pramnos.ai_routines', function ($table) {
             $table->increments('routine_id');
             $table->integer('organization_id')->nullable();
             $table->integer('userid');
@@ -50,6 +50,6 @@ class CreateAiRoutinesTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('ai_routines');
+        $this->application->database->schema()->dropTableIfExists('pramnos.ai_routines');
     }
 }

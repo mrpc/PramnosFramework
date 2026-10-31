@@ -38,7 +38,7 @@ class TaskCostsTest extends LlmTestCase
     /** Record one run of a task, as Routines::record() writes it. */
     private function recordRun(int $routineId, string $status, ?float $cost, int $startedAt): void
     {
-        $this->db->queryBuilder()->table('ai_task_runs')->insert([
+        $this->db->queryBuilder()->table('pramnos.ai_task_runs')->insert([
             'routine_id' => $routineId, 'kind' => 'report', 'status' => $status, 'cost' => $cost,
             'started_at' => CallLog::instant($startedAt), 'finished_at' => CallLog::instant($startedAt + 5),
         ]);

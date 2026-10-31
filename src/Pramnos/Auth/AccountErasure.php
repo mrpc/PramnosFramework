@@ -191,7 +191,7 @@ class AccountErasure
             'chat_memory'                      => 'userid',
             'chat_asks'                        => 'userid',
             'ai_consents'                      => 'userid',
-            'ai_task_subscriptions'            => 'userid',
+            'pramnos.ai_task_subscriptions'            => 'userid',
             // Their own settings, the dashboard's layout among them.
             (defined('DB_USERSETTINGSTABLE') ? (string) DB_USERSETTINGSTABLE : 'usersettings') => 'userid',
         ];
@@ -244,14 +244,14 @@ class AccountErasure
             $qb('chat_shares')->where('recipient', $userId)->delete();
         }
 
-        if ($schema->hasTable('ai_routines')) {
-            $tasks = $ids($qb('ai_routines')->select(['routine_id'])->where('userid', $userId)->get(), 'routine_id');
-            foreach (['ai_task_runs', 'ai_task_subscriptions'] as $table) {
+        if ($schema->hasTable('pramnos.ai_routines')) {
+            $tasks = $ids($qb('pramnos.ai_routines')->select(['routine_id'])->where('userid', $userId)->get(), 'routine_id');
+            foreach (['pramnos.ai_task_runs', 'pramnos.ai_task_subscriptions'] as $table) {
                 if ($tasks !== [] && $schema->hasTable($table)) {
                     $qb($table)->whereIn('routine_id', $tasks)->delete();
                 }
             }
-            $qb('ai_routines')->where('userid', $userId)->delete();
+            $qb('pramnos.ai_routines')->where('userid', $userId)->delete();
         }
 
         if ($schema->hasTable('llm_calls')) {

@@ -17,11 +17,11 @@ class CreateAiTaskSubscriptionsTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
-        if ($schema->hasTable('ai_task_subscriptions')) {
+        if ($schema->hasTable('pramnos.ai_task_subscriptions')) {
             return;
         }
 
-        $schema->createTable('ai_task_subscriptions', function ($table) {
+        $schema->createTable('pramnos.ai_task_subscriptions', function ($table) {
             $table->comment('Who receives a shared AI report, and whether by email too');
             $table->integer('routine_id');
             $table->integer('userid');
@@ -34,6 +34,6 @@ class CreateAiTaskSubscriptionsTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('ai_task_subscriptions');
+        $this->application->database->schema()->dropTableIfExists('pramnos.ai_task_subscriptions');
     }
 }

@@ -151,7 +151,7 @@ class ConversationsTest extends LlmTestCase
 
         // Assert
         $this->assertSame(['in tools' => 'draft 9', 'in answered' => 'draft 9'], $assistant->seen);
-        $this->assertSame('Pacific/Auckland', $this->rows('ai_routines')[0]['timezone']);
+        $this->assertSame('Pacific/Auckland', $this->rows('pramnos.ai_routines')[0]['timezone']);
         $this->assertSame('draft 9', $answer['message']['bagged']);
     }
 

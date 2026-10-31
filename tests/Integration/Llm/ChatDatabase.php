@@ -30,7 +30,7 @@ trait ChatDatabase
     private static array $llmBuilt = [];
 
     /** The tables the `llm` migrations create, child tables first. */
-    private const LLM_TABLES = ['chat_calendar', 'chat_dossier', 'pramnos.llm_tool_runs', 'pramnos.llm_tool_idempotency', 'chat_shares', 'chat_artifacts', 'chat_messages', 'chat_conversations', 'chat_memory', 'chat_asks', 'ai_consents', 'ai_task_subscriptions', 'ai_task_runs', 'ai_routines', 'llm_calls'];
+    private const LLM_TABLES = ['chat_calendar', 'chat_dossier', 'pramnos.llm_tool_runs', 'pramnos.llm_tool_idempotency', 'chat_shares', 'chat_artifacts', 'chat_messages', 'chat_conversations', 'chat_memory', 'chat_asks', 'ai_consents', 'pramnos.ai_task_subscriptions', 'pramnos.ai_task_runs', 'pramnos.ai_routines', 'llm_calls'];
 
     /** @return array<string, array{string, string, int}> */
     public static function databases(): array

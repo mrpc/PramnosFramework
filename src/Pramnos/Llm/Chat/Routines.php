@@ -761,7 +761,7 @@ class Routines
 
     private function subscriptionsTable(): \Pramnos\Database\QueryBuilder
     {
-        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#ai_task_subscriptions');
+        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('pramnos.ai_task_subscriptions');
     }
 
     /**
@@ -1605,11 +1605,11 @@ class Routines
 
     private function table(): \Pramnos\Database\QueryBuilder
     {
-        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#ai_routines');
+        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('pramnos.ai_routines');
     }
 
     private function runsTable(): \Pramnos\Database\QueryBuilder
     {
-        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#ai_task_runs');
+        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('pramnos.ai_task_runs');
     }
 }

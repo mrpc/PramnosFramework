@@ -148,11 +148,11 @@ class AccountErasureTest extends TestCase
         $qb('chat_asks')->insert(['userid' => $userId, 'status' => 'answered', 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
         $qb('ai_consents')->insert(['userid' => $userId, 'provider' => 'deepseek', 'created_at' => $stamp]);
         $qb('usersettings')->insert(['userid' => $userId, 'setting' => 'dashboard.admin', 'value' => '[]', 'updated_at' => time()]);
-        $qb('ai_routines')->insert(['userid' => $userId, 'space' => 'chat', 'title' => 'Task ' . $userId, 'prompt' => 'p', 'cadence' => 'daily',
+        $qb('pramnos.ai_routines')->insert(['userid' => $userId, 'space' => 'chat', 'title' => 'Task ' . $userId, 'prompt' => 'p', 'cadence' => 'daily',
             'at' => '08:00', 'timezone' => 'UTC', 'is_active' => true, 'created_at' => $stamp, 'updated_at' => $stamp]);
-        $task = (int) $qb('ai_routines')->where('userid', $userId)->first()->fields['routine_id'];
-        $qb('ai_task_runs')->insert(['routine_id' => $task, 'kind' => 'ask', 'status' => 'ok', 'content' => 'About Eleni']);
-        $qb('ai_task_subscriptions')->insert(['routine_id' => $task, 'userid' => $userId, 'email' => false]);
+        $task = (int) $qb('pramnos.ai_routines')->where('userid', $userId)->first()->fields['routine_id'];
+        $qb('pramnos.ai_task_runs')->insert(['routine_id' => $task, 'kind' => 'ask', 'status' => 'ok', 'content' => 'About Eleni']);
+        $qb('pramnos.ai_task_subscriptions')->insert(['routine_id' => $task, 'userid' => $userId, 'email' => false]);
         $qb('llm_calls')->insert(['userid' => $userId, 'provider' => 'openai', 'model' => 'm', 'messages' => 'Eleni', 'reply' => 'Eleni', 'cost' => 0.5, 'created_at' => $stamp]);
         $qb('chat_dossier')->insert(['userid' => $userId, 'area' => 'relationships', 'subject' => 'Eleni', 'content' => 'Wife', 'version' => 1, 'created_at' => $stamp, 'updated_at' => $stamp]);
         $entry = (int) $qb('chat_dossier')->where('userid', $userId)->first()->fields['dossier_id'];
@@ -281,12 +281,12 @@ class AccountErasureTest extends TestCase
         (new AccountErasure($this->db))->erase($leaving);
 
         // Assert
-        foreach (['chat_conversations', 'chat_artifacts', 'chat_memory', 'chat_asks', 'ai_consents', 'usersettings', 'ai_routines', 'ai_task_subscriptions', 'llm_calls', 'chat_dossier', 'chat_calendar', \Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE] as $table) {
+        foreach (['chat_conversations', 'chat_artifacts', 'chat_memory', 'chat_asks', 'ai_consents', 'usersettings', 'pramnos.ai_routines', 'pramnos.ai_task_subscriptions', 'llm_calls', 'chat_dossier', 'chat_calendar', \Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE] as $table) {
             $this->assertSame(0, $count($table, 'userid', $leaving), $table . ' still holds the account');
             $this->assertSame(1, $count($table, 'userid', $staying), $table . ': another account\'s went too');
         }
-        $this->assertSame(0, $count('ai_task_runs', 'routine_id', $theirs), 'their task\'s runs');
-        $this->assertSame(1, $count('ai_task_runs', 'routine_id', $kept));
+        $this->assertSame(0, $count('pramnos.ai_task_runs', 'routine_id', $theirs), 'their task\'s runs');
+        $this->assertSame(1, $count('pramnos.ai_task_runs', 'routine_id', $kept));
         $this->assertSame(1, $this->db->queryBuilder()->table('chat_messages')->count(), 'only the other account\'s message');
         $call = $this->db->queryBuilder()->table('llm_calls')->whereNull('userid')->first()->fields;
         $this->assertSame([null, null, 0.5], [$call['messages'], $call['reply'], (float) $call['cost']], 'the cost kept, the words gone');

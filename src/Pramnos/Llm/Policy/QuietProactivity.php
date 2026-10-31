@@ -87,8 +87,8 @@ class QuietProactivity implements Proactivity
     {
         $midnight = Instant::utc($local->setTime(0, 0)->getTimestamp());
         $db       = \Pramnos\Framework\Factory::getDatabase();
-        $asks     = $db->queryBuilder()->table('#PREFIX#ai_routines')->where('userid', $userId)->where('kind', 'ask')->pluck('routine_id');
-        $asked    = $asks === [] ? 0 : $db->queryBuilder()->table('#PREFIX#ai_task_runs')
+        $asks     = $db->queryBuilder()->table('pramnos.ai_routines')->where('userid', $userId)->where('kind', 'ask')->pluck('routine_id');
+        $asked    = $asks === [] ? 0 : $db->queryBuilder()->table('pramnos.ai_task_runs')
             ->whereIn('routine_id', array_map('intval', $asks))->where('status', 'ok')
             ->where('started_at', '>=', $midnight)->count();
 

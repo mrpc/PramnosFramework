@@ -19,11 +19,11 @@ class CreateAiTaskRunsTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
-        if ($schema->hasTable('ai_task_runs')) {
+        if ($schema->hasTable('pramnos.ai_task_runs')) {
             return;
         }
 
-        $schema->createTable('ai_task_runs', function ($table) {
+        $schema->createTable('pramnos.ai_task_runs', function ($table) {
             $table->comment('Each run of a scheduled AI task: its output, cost and outcome');
             $table->increments('run_id');
             $table->integer('routine_id');
@@ -45,6 +45,6 @@ class CreateAiTaskRunsTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('ai_task_runs');
+        $this->application->database->schema()->dropTableIfExists('pramnos.ai_task_runs');
     }
 }

@@ -21,7 +21,7 @@ class AddSpaceToChatTables extends Migration
     public $description  = 'Adds space to chat_conversations, chat_memory, chat_asks and ai_routines';
 
     /** The tables a conversation's rows live in, outside its messages. */
-    private const TABLES = ['chat_conversations', 'chat_memory', 'chat_asks', 'ai_routines'];
+    private const TABLES = ['chat_conversations', 'chat_memory', 'chat_asks', 'pramnos.ai_routines'];
 
     public function up(): void
     {

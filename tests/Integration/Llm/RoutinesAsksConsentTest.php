@@ -119,7 +119,7 @@ class RoutinesAsksConsentTest extends LlmTestCase
         $routines = $this->routines();
         $scope    = new Scope(7, 3);
         $made     = $routines->create($scope, ['title' => 'Morning', 'prompt' => 'Report', 'cadence' => 'daily', 'at' => '08:00']);
-        $this->db->queryBuilder()->table('ai_routines')->where('routine_id', $made['routine_id'])
+        $this->db->queryBuilder()->table('pramnos.ai_routines')->where('routine_id', $made['routine_id'])
             ->update(['next_run_at' => \Pramnos\Llm\CallLog::instant(time() - 60)]);
 
         // Act
@@ -477,7 +477,7 @@ class RoutinesAsksConsentTest extends LlmTestCase
         foreach (array_reverse($migrations) as $class) {
             $this->migration($class)->down();
         }
-        $this->assertFalse($this->db->schema()->hasTable('ai_routines'));
+        $this->assertFalse($this->db->schema()->hasTable('pramnos.ai_routines'));
     }
 
     /**
@@ -494,7 +494,7 @@ class RoutinesAsksConsentTest extends LlmTestCase
         $nothing = $tester->execute([]);
         $said    = $tester->getDisplay();
         $this->llmSchemaChanged();
-        $this->db->schema()->dropTableIfExists('ai_routines');
+        $this->db->schema()->dropTableIfExists('pramnos.ai_routines');
         $absent = $tester->execute([]);
 
         // Assert

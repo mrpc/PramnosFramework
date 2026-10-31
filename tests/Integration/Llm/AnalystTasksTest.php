@@ -71,7 +71,7 @@ class AnalystTasksTest extends LlmTestCase
         $this->connectDatabase($type, $host, $port);
         $this->answer([[200, self::says('Fine.')]]);
         $stamp = CallLog::instant(time());
-        $this->db->queryBuilder()->table('ai_routines')->insert([
+        $this->db->queryBuilder()->table('pramnos.ai_routines')->insert([
             'organization_id' => null, 'userid' => 7, 'space' => Scope::ADMIN, 'title' => 'Weekly figures', 'prompt' => 'How many?',
             'kind' => 'ask', 'owner' => 'user', 'cadence' => 'daily', 'at' => '08:00', 'timezone' => 'UTC', 'notify' => 'always',
             'is_active' => true, 'next_run_at' => CallLog::instant(time() - 60), 'created_at' => $stamp, 'updated_at' => $stamp,
@@ -118,7 +118,7 @@ class AnalystTasksTest extends LlmTestCase
         $tasks = $this->tasks();
         $made  = $tasks->create(new Scope(7, null), ['kind' => 'reminder', 'title' => 'Mine', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00']);
         $tasks->run($tasks->byId($made['routine_id']), time());
-        $this->db->queryBuilder()->table('ai_task_subscriptions')->insert(['routine_id' => $made['routine_id'], 'userid' => 7, 'email' => false]);
+        $this->db->queryBuilder()->table('pramnos.ai_task_subscriptions')->insert(['routine_id' => $made['routine_id'], 'userid' => 7, 'email' => false]);
 
         // Act
         $tasks->delete(new Scope(7, null), $made['routine_id']);
