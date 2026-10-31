@@ -382,20 +382,23 @@ class DashboardLayoutsMySQLTest extends TestCase
     /**
      * Mail sent with no tracking in the week gets no "Opened" tile at all — not "0%", which would
      * say nobody read it when nobody was counting.
+     *
+     * Used to read the shared test database for "is there tracked mail this week" and skip
+     * itself when another test's row was still there — a connection-timing accident of the full
+     * run, not anything this test could control, and a skip checks nothing (Roadmap: "A dashboard
+     * test that sometimes skips itself"). It now clears the window it asserts about instead of
+     * hoping it is already clear: deterministic regardless of what another test left behind.
      */
     public function testUntrackedMailShowsNoOpenRate(): void
     {
-        // Arrange — tracked mail only from before the week
+        // Arrange — the last eight days cleared, so "no tracked mail this week" is this test's
+        // own doing, not a hope about what the shared database happens to hold
         \Pramnos\Framework\Testing\Schema::ensure([
             \Pramnos\Framework\Migrations\Core\CreatePramnosSchema::class,
             \Pramnos\Framework\Migrations\Messaging\CreateEmailTrackingTables::class,
             \Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class,
         ], $this->db);
-        $tracking = fn () => $this->db->queryBuilder()->table('pramnos.emailtracking');
-        $recent   = $tracking()->where('sent_at', '>=', time() - 8 * 86400)->count();
-        if ($recent > 0) {
-            $this->markTestSkipped('This database has tracked mail from this week.');
-        }
+        $this->db->queryBuilder()->table('pramnos.emailtracking')->where('sent_at', '>=', time() - 8 * 86400)->delete();
 
         // Act
         $email = (new \Pramnos\Dashboard\Widgets\EmailActivity())->render();
