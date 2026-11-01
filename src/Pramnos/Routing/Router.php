@@ -49,10 +49,34 @@ class Router extends Base implements RouterInterface
     private array $globalMiddlewares = [];
 
     /**
-     * Named-route index — keyed by route name.
-     * @var array<string, \Pramnos\Routing\Route>
+     * Named-route index — keyed by route name. A locale group ({@see
+     * addLocalizedRoute()}) stores its whole `locale => Route` map under the
+     * one name instead of a single Route.
+     * @var array<string, \Pramnos\Routing\Route|array<string, \Pramnos\Routing\Route>>
      */
     private array $namedRoutes = [];
+
+    /**
+     * Locale route groups — one entry per group created by registering an
+     * array `$uri` (one path per locale). {@see addLocalizedRoute()},
+     * {@see getLocaleSiblings()}.
+     * @var array<int, array<string, \Pramnos\Routing\Route>>
+     */
+    private array $localeGroups = [];
+
+    /**
+     * Next id handed out to a locale route group.
+     * @var int
+     */
+    private int $nextLocaleGroupId = 0;
+
+    /**
+     * The route matched by the most recent getMatchedRoute() call (and so by
+     * dispatch()/dispatchSafe()/dispatchWithoutPermissions(), which all call
+     * it). Null before any request has been matched. {@see getCurrentRoute()}
+     * @var \Pramnos\Routing\Route|null
+     */
+    private ?Route $lastMatchedRoute = null;
 
     /**
      * Stack of active group attribute sets — nested groups push/pop here.
@@ -374,10 +398,27 @@ class Router extends Base implements RouterInterface
          * output can check the method. What is fixed here is *which route runs*.
          */
         if ($matched === null && $method === 'HEAD') {
-            return $this->matchWithin('GET', $request);
+            $matched = $this->matchWithin('GET', $request);
         }
 
+        $this->lastMatchedRoute = $matched;
         return $matched;
+    }
+
+    /**
+     * The route matched by the most recent dispatch (or getMatchedRoute()
+     * call), or null before any request has been matched.
+     *
+     * Exists so code running after the match — building the `<head>`, for
+     * instance ({@see \Pramnos\Document\Document::addAlternatesFromRoute()})
+     * — can ask "what did we just match" without re-running request
+     * matching itself.
+     *
+     * @return \Pramnos\Routing\Route|null
+     */
+    public function getCurrentRoute(): ?Route
+    {
+        return $this->lastMatchedRoute;
     }
 
     /**
@@ -579,6 +620,84 @@ class Router extends Base implements RouterInterface
     }
 
     /**
+     * Register one route per locale, sharing a group so hreflang can be
+     * derived from the router instead of a hand-maintained slug map.
+     *
+     * Each entry is registered through addSingleRoute() — so group prefixes,
+     * middleware and permissions already in effect apply exactly as they do
+     * for a single route — then tagged with its locale and a shared group id.
+     *
+     * ```php
+     * $router->get(['el' => '/syxnes-erwthseis', 'en' => '/faqs'], 'Faqs@display');
+     * ```
+     *
+     * @param  array<string,string> $uris  Locale => URI.
+     * @param  string $method
+     * @param  \Closure|array|string $action
+     * @param  array|string|null $permissions
+     * @return \Pramnos\Routing\LocalizedRoute
+     */
+    protected function addLocalizedRoute(array $uris, string $method, $action, $permissions = null): LocalizedRoute
+    {
+        $groupId = $this->nextLocaleGroupId++;
+        $routes  = [];
+
+        foreach ($uris as $locale => $uri) {
+            $route = $this->addSingleRoute($uri, $method, $action, $permissions);
+            $route->locale($locale);
+            $route->localeGroupId = $groupId;
+            $routes[$locale] = $route;
+        }
+
+        $this->localeGroups[$groupId] = $routes;
+
+        return new LocalizedRoute(
+            $routes,
+            function (string $name) use ($routes): void {
+                $this->namedRoutes[$name] = $routes;
+            }
+        );
+    }
+
+    /**
+     * Register a single route, or — when $uri is an array of locale => path
+     * — one route per locale sharing a group. {@see addLocalizedRoute()}
+     *
+     * @param  string|array<string,string> $uri
+     * @param  string $method
+     * @param  \Closure|array|string $action
+     * @param  array|string|null $permissions
+     * @return \Pramnos\Routing\Route|\Pramnos\Routing\LocalizedRoute
+     */
+    private function routeOrLocalized($uri, string $method, $action, $permissions = null): Route|LocalizedRoute
+    {
+        if (is_array($uri)) {
+            return $this->addLocalizedRoute($uri, $method, $action, $permissions);
+        }
+        return $this->addSingleRoute($uri, $method, $action, $permissions);
+    }
+
+    /**
+     * The locale siblings of a route registered via an array $uri, keyed by
+     * locale and including $route itself — or an empty array for a route
+     * that was not part of a locale group.
+     *
+     * This is how hreflang is derived for free for a page the router knows
+     * about: from the current route, find the group; from the group, every
+     * sibling's URL.
+     *
+     * @param  \Pramnos\Routing\Route $route
+     * @return array<string, \Pramnos\Routing\Route>
+     */
+    public function getLocaleSiblings(Route $route): array
+    {
+        if ($route->localeGroupId === null) {
+            return [];
+        }
+        return $this->localeGroups[$route->localeGroupId] ?? [];
+    }
+
+    /**
      * Define a route group — apply shared attributes to all routes registered
      * inside the callback.
      *
@@ -624,92 +743,98 @@ class Router extends Base implements RouterInterface
      *   $router->get('/api/users', fn() => ...)
      *          ->middleware(new AuthMiddleware());
      *
-     * @param  string  $uri
+     * Pass an array of locale => path instead of a string to register one
+     * route per locale, sharing a group ({@see addLocalizedRoute()}):
+     *
+     *   $router->get(['el' => '/syxnes-erwthseis', 'en' => '/faqs'], 'Faqs@display')
+     *          ->name('faqs');
+     *
+     * @param  string|array<string,string>  $uri
      * @param  \Closure|array|string  $action
      * @param  array|string|null  $permissions
-     * @return \Pramnos\Routing\Route
+     * @return \Pramnos\Routing\Route|\Pramnos\Routing\LocalizedRoute
      */
-    public function get($uri, $action, $permissions = null): Route
+    public function get($uri, $action, $permissions = null): Route|LocalizedRoute
     {
-        return $this->addSingleRoute($uri, 'GET', $action, $permissions);
+        return $this->routeOrLocalized($uri, 'GET', $action, $permissions);
     }
 
     /**
      * Register a new POST route and return it for optional middleware chaining.
      *
-     * @param  string  $uri
+     * @param  string|array<string,string>  $uri
      * @param  \Closure|array|string  $action
      * @param  array|string|null  $permissions
-     * @return \Pramnos\Routing\Route
+     * @return \Pramnos\Routing\Route|\Pramnos\Routing\LocalizedRoute
      */
-    public function post($uri, $action, $permissions = null): Route
+    public function post($uri, $action, $permissions = null): Route|LocalizedRoute
     {
-        return $this->addSingleRoute($uri, 'POST', $action, $permissions);
+        return $this->routeOrLocalized($uri, 'POST', $action, $permissions);
     }
 
     /**
      * Register a new PUT route and return it for optional middleware chaining.
      *
-     * @param  string  $uri
+     * @param  string|array<string,string>  $uri
      * @param  \Closure|array|string  $action
      * @param  array|string|null  $permissions
-     * @return \Pramnos\Routing\Route
+     * @return \Pramnos\Routing\Route|\Pramnos\Routing\LocalizedRoute
      */
-    public function put($uri, $action, $permissions = null): Route
+    public function put($uri, $action, $permissions = null): Route|LocalizedRoute
     {
-        return $this->addSingleRoute($uri, 'PUT', $action, $permissions);
+        return $this->routeOrLocalized($uri, 'PUT', $action, $permissions);
     }
 
     /**
      * Register a new DELETE route and return it for optional middleware chaining.
      *
-     * @param  string  $uri
+     * @param  string|array<string,string>  $uri
      * @param  \Closure|array|string  $action
      * @param  array|string|null  $permissions
-     * @return \Pramnos\Routing\Route
+     * @return \Pramnos\Routing\Route|\Pramnos\Routing\LocalizedRoute
      */
-    public function delete($uri, $action, $permissions = null): Route
+    public function delete($uri, $action, $permissions = null): Route|LocalizedRoute
     {
-        return $this->addSingleRoute($uri, 'DELETE', $action, $permissions);
+        return $this->routeOrLocalized($uri, 'DELETE', $action, $permissions);
     }
 
     /**
      * Register a new PATCH route and return it for optional middleware chaining.
      *
-     * @param  string  $uri
+     * @param  string|array<string,string>  $uri
      * @param  \Closure|array|string  $action
      * @param  array|string|null  $permissions
-     * @return \Pramnos\Routing\Route
+     * @return \Pramnos\Routing\Route|\Pramnos\Routing\LocalizedRoute
      */
-    public function patch($uri, $action, $permissions = null): Route
+    public function patch($uri, $action, $permissions = null): Route|LocalizedRoute
     {
-        return $this->addSingleRoute($uri, 'PATCH', $action, $permissions);
+        return $this->routeOrLocalized($uri, 'PATCH', $action, $permissions);
     }
 
     /**
      * Register a new OPTIONS route and return it for optional middleware chaining.
      *
-     * @param  string  $uri
+     * @param  string|array<string,string>  $uri
      * @param  \Closure|array|string  $action
      * @param  array|string|null  $permissions
-     * @return \Pramnos\Routing\Route
+     * @return \Pramnos\Routing\Route|\Pramnos\Routing\LocalizedRoute
      */
-    public function options($uri, $action, $permissions = null): Route
+    public function options($uri, $action, $permissions = null): Route|LocalizedRoute
     {
-        return $this->addSingleRoute($uri, 'OPTIONS', $action, $permissions);
+        return $this->routeOrLocalized($uri, 'OPTIONS', $action, $permissions);
     }
 
     /**
      * Register a new HEAD route and return it for optional middleware chaining.
      *
-     * @param  string  $uri
+     * @param  string|array<string,string>  $uri
      * @param  \Closure|array|string  $action
      * @param  array|string|null  $permissions
-     * @return \Pramnos\Routing\Route
+     * @return \Pramnos\Routing\Route|\Pramnos\Routing\LocalizedRoute
      */
-    public function head($uri, $action, $permissions = null): Route
+    public function head($uri, $action, $permissions = null): Route|LocalizedRoute
     {
-        return $this->addSingleRoute($uri, 'HEAD', $action, $permissions);
+        return $this->routeOrLocalized($uri, 'HEAD', $action, $permissions);
     }
 
     /**
@@ -956,12 +1081,17 @@ class Router extends Base implements RouterInterface
     /**
      * Look up a route by its logical name.
      *
+     * A name shared by a locale route group has no single route to return —
+     * use route() to resolve it to a locale's URI, or getLocaleSiblings() on
+     * one of the group's own Route objects for the whole map.
+     *
      * @param  string  $name  The name assigned via Route::name() or #[Route(name: '…')].
      * @return \Pramnos\Routing\Route|null
      */
     public function getByName(string $name): ?Route
     {
-        return $this->namedRoutes[$name] ?? null;
+        $entry = $this->namedRoutes[$name] ?? null;
+        return $entry instanceof Route ? $entry : null;
     }
 
     /**
@@ -979,17 +1109,38 @@ class Router extends Base implements RouterInterface
      * echo $router->route('posts.show', ['year' => 2026]); // '/posts/2026'
      * ```
      *
+     * A name shared by a locale group ({@see addLocalizedRoute()}) picks the
+     * sibling for `$locale`, defaulting to the current language
+     * (`Translator\Language::currentlang()`), and to the group's first
+     * sibling if that locale isn't one of them:
+     *
+     * ```php
+     * $router->get(['el' => '/syxnes-erwthseis', 'en' => '/faqs'], $action)->name('faqs');
+     * $router->route('faqs', [], 'en'); // '/faqs'
+     * $router->route('faqs', [], 'el'); // '/syxnes-erwthseis'
+     * ```
+     *
      * @param  string               $name    The route name.
      * @param  array<string, mixed> $params  URI parameter values keyed by name.
+     * @param  string|null          $locale  Which sibling to resolve to, for a name shared
+     *                                       by a locale group. Ignored for an ordinary route.
      * @return string  The generated URI.
      * @throws \InvalidArgumentException  When the name does not match any registered route.
      */
-    public function route(string $name, array $params = []): string
+    public function route(string $name, array $params = [], ?string $locale = null): string
     {
-        $route = $this->getByName($name);
-        if ($route === null) {
+        $entry = $this->namedRoutes[$name] ?? null;
+        if ($entry === null) {
             throw new \InvalidArgumentException("Route [{$name}] not defined.");
         }
+
+        if (is_array($entry)) {
+            $locale ??= \Pramnos\Translator\Language::getInstance()->currentlang();
+            $route = $entry[$locale] ?? reset($entry);
+        } else {
+            $route = $entry;
+        }
+
         return $this->buildUrl($route->uri, $params);
     }
 

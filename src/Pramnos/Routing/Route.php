@@ -62,6 +62,22 @@ class Route
     public ?string $routeName = null;
 
     /**
+     * The locale this route answers, when it was registered as part of a
+     * localized route group ({@see Router::addLocalizedRoute()}). Null for an
+     * ordinary, single-URI route.
+     * @var string|null
+     */
+    public ?string $locale = null;
+
+    /**
+     * Identifies the set of sibling routes — one per locale — that this route
+     * was registered alongside. Null for an ordinary, single-URI route.
+     * {@see Router::getLocaleSiblings()}
+     * @var int|null
+     */
+    public ?int $localeGroupId = null;
+
+    /**
      * Optional callback invoked by name() to register the name with the Router.
      * Set by Router::addSingleRoute() via setNameRegistrationCallback().
      * @var \Closure|null
@@ -287,6 +303,20 @@ class Route
     public function getName(): ?string
     {
         return $this->routeName;
+    }
+
+    /**
+     * Set the locale this route answers. Called by
+     * Router::addLocalizedRoute() for each sibling it registers; chainable
+     * for consistency with middleware()/name().
+     *
+     * @param  string|null $locale
+     * @return static
+     */
+    public function locale(?string $locale): static
+    {
+        $this->locale = $locale;
+        return $this;
     }
 
     /**

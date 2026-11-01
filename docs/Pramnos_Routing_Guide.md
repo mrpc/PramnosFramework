@@ -97,6 +97,35 @@ $router->getByName('users.show');                    // the Route, or null
 `route()` throws `InvalidArgumentException` for an unknown name. Optional placeholders that are
 not supplied are stripped.
 
+### Localized route groups
+
+Pass an array of `locale => path` instead of a string `$uri` to register one route per locale,
+sharing a name and a group:
+
+```php
+$router->get(['el' => '/syxnes-erwthseis', 'en' => '/faqs'], 'Faqs@display')->name('faqs');
+
+$router->route('faqs', [], 'en');   // '/faqs'
+$router->route('faqs', [], 'el');   // '/syxnes-erwthseis'
+$router->route('faqs');             // current language, falling back to the first locale
+                                     // in the group if it isn't one of them
+```
+
+`->name()`, `->middleware()` and `->requirePermissions()` chain the same way as on a single
+route — they apply to every locale in the group. `getByName()` returns `null` for a group's
+name, since "the name points at several routes" has no single answer; `route()` is what resolves
+it to one.
+
+This is where hreflang comes from without a slug map, declared or derived: from a matched route,
+`Router::getLocaleSiblings($route)` returns every sibling keyed by locale (`[]` for a route that
+wasn't registered this way), and `Document::addAlternatesFromRoute($router, $route)` turns that
+straight into `<link rel="alternate" hreflang="…">` tags — see
+[Document Guide: hreflang alternates](Pramnos_Document_Output_Guide.md#hreflang-alternates). A
+page whose alternates the router cannot derive — a database-backed slug, say — still needs
+`Document::addAlternate()` called explicitly; see
+[hreflang and sitemaps — design](Hreflang-And-Sitemap-Design.md) for the registry that will
+cover that case.
+
 ## Middleware
 
 Middleware is a `Pramnos\Http\MiddlewareInterface` instance or its class name. A class name is
