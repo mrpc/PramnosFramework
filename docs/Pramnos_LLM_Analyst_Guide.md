@@ -244,6 +244,67 @@ a provider setting (`browser`/`api`/`local`), with size limits, consent and call
 continuous voice-conversation mode with end-of-speech detection and sentence-by-sentence
 streamed speech.
 
+## The floating companion
+
+`pf-companion.js` gives the picture above a place to live outside a chat panel — floating on the
+screen, aware of whether the reader is still there:
+
+```js
+window.PfCompanion.mount({ html: '<span class="pf-assistant-avatar ...">…</span>' });
+// or, with no `html`: reads <template data-pf-companion> — the page writes the markup, pf-assist.js's
+// own panel uses the same convention for its template.
+
+document.addEventListener('pf-companion:click', () => { /* what a click means is yours to decide */ });
+document.addEventListener('pf-companion:activity', (e) => { /* e.detail.active: boolean */ });
+
+window.PfCompanion.setPose('sitting');       // free-form — see below
+window.PfCompanion.setPosition('top-left');  // a convenience default; override .pf-companion-dock for anything else
+window.PfCompanion.unmount();
+```
+
+`mount()` builds a fixed `.pf-companion-dock`, tracks `mousemove`/`keydown`/`scroll`/`click`/
+`touchstart` against `idleMs` (default 60000; `0` turns idle detection off entirely), and on
+crossing that threshold sets `data-pf-companion-activity="away"` on the dock and dispatches
+`pf-companion:activity`; activity resuming sets it back. Clicking the dock dispatches
+`pf-companion:click` and does nothing else — not open the assist panel, not anything — because
+what a click should do is the application's decision, not this file's.
+
+**What this deliberately does not have: a pose vocabulary, states beyond the 9 above, mini-games,
+or any character content.** `setPose(name)` sets `data-pose="<name>"` on the mounted avatar's
+root element, completely unvalidated — "sitting", "sploot", a typo, anything. The framework
+keeps no list to check it against, because two applications building on this (one with 12
+feline poses, one with none at all) need to be free to invent entirely different vocabularies
+without waiting on, or being shaped by, a framework-chosen one. An application's own stylesheet
+reacts to `[data-pose="…"]` however it likes; that stylesheet is the entire "character", and it
+belongs to the application.
+
+### A debug window for whatever is mounted
+
+```js
+window.PfCompanionDebug.mount();   // a small floating panel; .unmount() to remove it
+```
+
+`pf-companion-debug.js` reads the currently mounted dock rather than knowing about any character:
+a larger live copy of its avatar, one button per `pfAssistant` state (the 9, unchanged) to
+audition the chat-lifecycle animations a set already has, and a free-text box + Apply calling
+`setPose()` with whatever is typed — works for any name, because this file has none of its own.
+If the mounted avatar's root element happens to carry `data-poses="sitting,sleeping,walking"` (a
+plain comma list — entirely optional, read straight from the DOM, nothing enforces it), the panel
+turns it into quick-pick buttons too; absent, the free-text box is all there is. A toggle forces
+`pf-companion:activity` active/away to preview idle visuals without waiting out `idleMs`.
+
+Not a route: mount it on whatever `/debug` page an application already has, the same way it
+would mount anything else. Nothing here adds a new controller or permission surface.
+
+### Two different companions, one floor
+
+An application with its own frontend (a Svelte app, say) is not required to write
+`<template data-pf-companion>` at all — `mount({html: ...})` is callable from anywhere, including
+a component's own mount hook, and `Assist\AvatarSets::render()` still supplies the markup if the
+application wants it. An application that already has a different avatar mechanism of its own —
+a plain `<img>`, a hand-built face component — loses nothing by not adopting any of this; none of
+it is required to use `AvatarSets` or the chat page's own `pfAssistant.state()`.
+
 ## What it reads
 
 Every tool only reads, and answers figures over a window — `days` (30 by default, at most 366)
