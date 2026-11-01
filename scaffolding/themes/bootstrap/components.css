@@ -2127,6 +2127,15 @@ a.pf-person:hover { background: var(--pf-subtle); }
     cursor: pointer; color: var(--pf-muted);
 }
 .pf-chat-attach:hover, .pf-chat-attach:focus-within { background: var(--pf-subtle); color: var(--pf-fg); }
+/* The mic (llm.voice, pf-voice.js): same shape as 📎, lit while dictating. */
+.pf-chat-mic {
+    display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 999px;
+    border: 0; cursor: pointer; color: var(--pf-muted); background: transparent; font-size: 1rem;
+}
+.pf-chat-mic:hover, .pf-chat-mic:focus-visible { background: var(--pf-subtle); color: var(--pf-fg); }
+.pf-chat-mic[aria-pressed="true"] { color: var(--pf-bad); animation: pf-chat-mic-pulse 1.4s ease-in-out infinite; }
+@keyframes pf-chat-mic-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .pf-chat-mic[aria-pressed="true"] { animation: none; } }
 .pf-chat-hint { margin-left: auto; font-size: 0.75rem; color: var(--pf-muted); }
 /* Over a theme's own `button[type=submit]`, which is more specific than one class. */
 .pf-chat .pf-chat-send {
