@@ -50,7 +50,7 @@
      * male-grammar form by default ("Είμαι ο βοηθός σου..."), and this maps that exact phrase
      * to its female and neutral equivalents — the male form itself needs no entry, since it is
      * what the model already wrote. An application's assistant says its own stock sentences
-     * ("Είμαι ο βοηθός σου στο GlideDay"); this file does not know them in advance.
+     * ("Είμαι ο βοηθός σου στην Acme"); this file does not know them in advance.
      *
      * @param {string} malePhrase  Exact phrase as the model writes it (case-insensitive).
      * @param {string} femalePhrase

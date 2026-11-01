@@ -177,7 +177,7 @@ test('createVoiceState persists gender and preferred voice under pf-voice-* keys
     voice.setAssistantGender('male');
 
     assert.equal(window.localStorage.getItem('pf-voice-gender'), 'male');
-    assert.equal(window.localStorage.getItem('glideday_assistant_gender'), null, 'no app-named key is written');
+    assert.equal(window.localStorage.getItem('acme_assistant_gender'), null, 'no app-named key is written');
 });
 
 test('setAssistantGender rejects an unknown value, defaulting to female', () => {
