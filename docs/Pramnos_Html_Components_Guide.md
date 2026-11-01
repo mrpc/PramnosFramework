@@ -10,6 +10,7 @@ use_cases:
   - Finding out which reusable HTML components the framework already ships
   - Changing how a component looks in a theme, or adding a theme
   - Attaching a validation message to the field it belongs to
+  - Walking a first-time visitor through a page, one UI element at a time
 ---
 
 # HTML Components Guide
@@ -758,6 +759,40 @@ Meant for what changes because of what the reader went off to do — a message p
 after they followed one of its links in another window. A page with nothing marked fetches
 nothing, focus and visibility on one return are one fetch, and a failed fetch leaves the page as
 it is.
+
+## Spotlight tour — `pf-tour.js`
+
+A step-by-step walkthrough: the page dims, one UI element is cut out in a glowing window, and a
+small card beside it carries that step's text. `window.PfTour.start(steps, options)` — no markup
+to render ahead of time, no CSS to write; it builds its own and tears it down when the tour ends.
+
+```js
+window.PfTour.start([
+    { title: 'Welcome', desc: 'This is your dashboard.', selector: 'main' },
+    { title: 'Search', desc: 'Press Ctrl+K to look anything up.', selector: '.pf-ui-search' },
+    { title: 'All done' },   // no selector: the card alone, centered
+], {
+    onFinish: () => localStorage.setItem('toured-dashboard', '1'),
+});
+```
+
+Each step is `{ title, desc, selector?, avatarHtml? }` — `selector` is a plain CSS selector for
+the element to spotlight (scrolled into view first); omit it for a step with no element to point
+at. `avatarHtml` is raw HTML shown beside the text — yours to escape — for an application with a
+living avatar of its own (`Assist\AvatarSets::render()`, or anything else); without it, the step
+is text only.
+
+`options.voice`, a controller from [`pf-voice.js`](Pramnos_LLM_Analyst_Guide.md#voice)
+(`window.PfVoice.createVoiceState()`), adds a "🔊 Listen" button that reads the current step's
+title and description aloud; omitted, the tour has no voice. `options.onFinish` runs once, when
+the last step's button is pressed, Escape is hit, or the backdrop is clicked — not when
+`window.PfTour.start()` is called again before the first tour finished, which simply replaces it.
+`window.PfTour.stop()` ends a running tour without calling `onFinish` — a page navigating away
+from under it, say.
+
+Only one tour runs at a time, and it carries no content of its own: the steps, their copy and
+which elements they point at are entirely the application's — this is the mechanism, styled
+under `.pf-tour-*` in `components.css`.
 
 ## Date and time
 
