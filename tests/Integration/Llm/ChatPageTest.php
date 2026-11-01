@@ -137,6 +137,12 @@ class ChatPageTest extends LlmTestCase
             $this->assertMatchesRegularExpression('/<time datetime="\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ" data-pf-chat-time>\d{1,2} \w{3} \d{4} \d\d:\d\d UTC<\/time>/', $page, $theme . ': a UTC instant, words for a page without script');
             $this->assertStringContainsString('data-pf-chat-copy="Done."', $page, $theme . ': the answer\'s Markdown, to copy');
             $this->assertStringContainsString('data-pf-chat-role="user" style="display:flex;flex-direction:column;align-items:flex-end', $page, $theme . ': the question on the right');
+            // pf-chat-* classes carry the chat's own look regardless of the host's own
+            // Bootstrap/daisyUI version — they sit alongside the theme-native class, not in
+            // place of it, in every theme.
+            $this->assertStringContainsString('pf-chat-answer', $page, $theme . ': the answer gets its own typography reset');
+            $this->assertStringContainsString('pf-chat-card', $page, $theme . ': the side panels are styled from the token-bridge');
+            $this->assertStringContainsString('pf-chat-btn-ghost', $page, $theme . ': a ghost button (Copy/Listen/Delete)');
         }
 
         // A new conversation: the examples, each filling the box from its attribute
@@ -145,6 +151,7 @@ class ChatPageTest extends LlmTestCase
         foreach (self::THEMES as $theme) {
             $page = (string) $this->page(theme: $theme)->display();
             $this->assertStringContainsString('data-pf-chat-suggestion="What did we spend this week?"', $page, $theme);
+            $this->assertStringContainsString('pf-chat-btn', $page, $theme . ': "New conversation" is styled from the token-bridge too');
         }
     }
 
