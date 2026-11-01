@@ -29,7 +29,7 @@
  * A question is answered by the queue worker; pf-chat.js waits for it in place, and without
  * JavaScript the page refreshes itself until it is answered.
  */
-$c       = ['card' => 'card bg-base-100 border border-base-300', 'muted' => 'text-sm opacity-70', 'bad' => 'text-error', 'btn' => 'btn btn-sm btn-primary', 'btnGhost' => 'btn btn-sm btn-ghost', 'input' => 'textarea textarea-bordered', 'question' => 'rounded-2xl bg-base-200', 'answer' => 'prose max-w-none'];
+$c       = ['card' => 'pf-chat-card card bg-base-100 border border-base-300', 'muted' => 'text-sm opacity-70', 'bad' => 'text-error', 'btn' => 'pf-chat-btn btn btn-sm btn-primary', 'btnGhost' => 'pf-chat-btn-ghost btn btn-sm btn-ghost', 'input' => 'pf-chat-input textarea textarea-bordered', 'question' => 'rounded-2xl bg-base-200', 'answer' => 'pf-chat-answer prose max-w-none'];
 $e       = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $list    = is_array($this->conversations ?? null) ? $this->conversations : [];
 $open    = is_array($this->conversation ?? null) ? $this->conversation : null;

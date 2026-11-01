@@ -2145,7 +2145,14 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-chat .pf-chat-send:hover { background: color-mix(in oklab, var(--pf-chat-accent) 88%, #000); transform: none; }
 .pf-chat .pf-chat-send:disabled { opacity: 0.4; cursor: default; }
 .pf-chat-suggestions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 16px; }
-.pf-chat-suggestions button { border-radius: 999px; }
+/* A full reset, not just the radius: the host's own `.btn-outline-*` default — padding, border,
+   font — is exactly what a Bootstrap 3.3.1 page gets wrong for this button. */
+.pf-chat .pf-chat-suggestions button {
+    padding: 0.35rem 0.85rem; font: inherit; font-size: 0.8125rem; line-height: 1.4;
+    color: var(--pf-fg); background: var(--pf-surface); border: 1px solid var(--pf-line);
+    border-radius: 999px; cursor: pointer;
+}
+.pf-chat .pf-chat-suggestions button:hover { background: var(--pf-subtle); }
 .pf-chat-commands {
     position: absolute; left: 12px; right: 12px; bottom: 100%; z-index: 20; max-height: 260px; overflow: auto;
     margin: 0 0 6px; padding: 6px; list-style: none; border: 1px solid var(--pf-line); border-radius: var(--pf-radius-lg);
@@ -2156,6 +2163,62 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-chat-commands b { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
 .pf-chat-commands span { color: var(--pf-muted); font-size: 0.875rem; }
 .pf-chat-partial { white-space: pre-wrap; }
+
+/* `$c['btn']`/`btnGhost`/`input`/`card` in chat.html.php carry one of these alongside the
+   theme's own class (e.g. `pf-chat-btn btn btn-sm btn-primary`) — the theme-native class stays
+   in the markup for anything that hooks off it, but these, scoped under `.pf-chat`, are what
+   actually governs the pixels: a deterministic look that owes nothing to whatever
+   Bootstrap/daisyUI version (if any) the host page has loaded. */
+.pf-chat .pf-chat-btn, .pf-chat .pf-chat-btn-ghost {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
+    padding: 0.35rem 0.85rem; font: inherit; font-size: 0.8125rem; line-height: 1.4;
+    border: 1px solid transparent; border-radius: var(--pf-radius); cursor: pointer;
+    text-decoration: none;
+}
+.pf-chat .pf-chat-btn { color: var(--pf-accent-fg); background: var(--pf-chat-accent); }
+.pf-chat .pf-chat-btn:hover { background: color-mix(in oklab, var(--pf-chat-accent) 88%, #000); }
+.pf-chat .pf-chat-btn-ghost { color: var(--pf-fg); background: transparent; }
+.pf-chat .pf-chat-btn-ghost:hover { background: var(--pf-subtle); }
+.pf-chat .pf-chat-input {
+    display: block; width: 100%; padding: 0.4rem 0.6rem; font: inherit; color: var(--pf-fg);
+    background: var(--pf-surface); border: 1px solid var(--pf-line); border-radius: var(--pf-radius);
+}
+.pf-chat .pf-chat-input:focus { outline: 2px solid var(--pf-chat-accent); outline-offset: 1px; }
+.pf-chat .pf-chat-card {
+    color: var(--pf-fg); background: var(--pf-surface); border: 1px solid var(--pf-line);
+    border-radius: var(--pf-radius-lg);
+}
+
+/* The assistant's answer — Markdown-rendered, so headings/lists/tables/code are real content,
+   not markup this page controls — gets its own explicit typography instead of inheriting
+   whatever the host page's global heading/list/table/code styles happen to be. */
+.pf-chat-answer { color: var(--pf-fg); font-size: 0.9375rem; line-height: 1.6; }
+.pf-chat-answer > *:first-child { margin-top: 0; }
+.pf-chat-answer > *:last-child { margin-bottom: 0; }
+.pf-chat-answer h1, .pf-chat-answer h2, .pf-chat-answer h3,
+.pf-chat-answer h4, .pf-chat-answer h5, .pf-chat-answer h6 { margin: 1em 0 0.4em; font-weight: 600; line-height: 1.3; }
+.pf-chat-answer h1 { font-size: 1.25rem; }
+.pf-chat-answer h2 { font-size: 1.125rem; }
+.pf-chat-answer h3 { font-size: 1rem; }
+.pf-chat-answer h4, .pf-chat-answer h5, .pf-chat-answer h6 { font-size: 0.9375rem; }
+.pf-chat-answer p { margin: 0 0 0.75em; }
+.pf-chat-answer ul, .pf-chat-answer ol { margin: 0 0 0.75em; padding-left: 1.4em; }
+.pf-chat-answer li { margin: 0.2em 0; }
+.pf-chat-answer a { color: var(--pf-chat-accent); text-decoration: underline; }
+.pf-chat-answer blockquote {
+    margin: 0 0 0.75em; padding-left: 0.85em; border-left: 3px solid var(--pf-line); color: var(--pf-muted);
+}
+.pf-chat-answer code {
+    padding: 0.15em 0.35em; font-size: 0.85em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--pf-subtle); border-radius: 0.3em;
+}
+.pf-chat-answer pre {
+    margin: 0 0 0.75em; padding: 0.75em 1em; overflow-x: auto; background: var(--pf-subtle); border-radius: var(--pf-radius);
+}
+.pf-chat-answer pre code { padding: 0; background: none; }
+.pf-chat-answer table { width: 100%; margin: 0 0 0.75em; border-collapse: collapse; font-size: 0.875em; }
+.pf-chat-answer th, .pf-chat-answer td { padding: 0.4em 0.6em; border: 1px solid var(--pf-line); text-align: left; }
+.pf-chat-answer th { background: var(--pf-subtle); font-weight: 600; }
 
 /* 👍, the note and 👎 under an answer, on one line: a theme's input is a block a row wide. */
 .pf-rating { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }

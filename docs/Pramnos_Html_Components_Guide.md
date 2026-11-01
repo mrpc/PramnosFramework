@@ -11,6 +11,7 @@ use_cases:
   - Changing how a component looks in a theme, or adding a theme
   - Attaching a validation message to the field it belongs to
   - Walking a first-time visitor through a page, one UI element at a time
+  - Embedding Ask AI's chat in a page with its own, unrelated or outdated CSS framework
 ---
 
 # HTML Components Guide
@@ -195,6 +196,38 @@ $datatable->jui = true;          // jQuery UI markup instead of Bootstrap
 
 Two looks, and no route to a third. It is the one component you cannot bring onto a different CSS
 framework without editing the class, and the only one where route 1 does not save you.
+
+### `pf-chat.js`'s own look does not depend on your Bootstrap version
+
+`pf-chat`'s structural elements (the composer, the send/mic/attach buttons, the answer bubble,
+the side panels) never read a CSS framework's own defaults for their look — a `pf-chat-*` class
+carries complete, explicit styling of its own, scoped under `.pf-chat` so it outranks a single
+host class (`.pf-chat .pf-chat-btn` beats `.btn`). What it *does* read is a small bridge of
+custom properties, each with a fallback chain toward whatever design-token convention the host
+page already uses, so the chat still picks up the page's own accent colour, surface and borders:
+
+```css
+.pf-chat {
+    --pf-accent: var(--color-primary, var(--bs-primary, var(--primary-color, #2563eb)));
+    --pf-surface: var(--color-base-100, var(--bs-body-bg, var(--surface, #ffffff)));
+    /* daisyUI's --color-*, then Bootstrap's --bs-*, then this project's own theme.css
+       tokens (the file described above), then a hardcoded default. */
+}
+```
+
+That is why embedding the chat needs no `!important` overrides, whatever the host page's CSS
+is — including a page whose Bootstrap predates the `--bs-*` custom properties entirely (3.x):
+the chain's last two rungs (the project's own tokens, then the hardcoded default) still resolve,
+so the chat renders correctly, just without picking up that page's colours. An application with
+its own design-token names extends the same chain on its own page, before `pf-chat`'s CSS loads:
+
+```css
+.pf-chat { --pf-accent: var(--my-brand-color, var(--bs-primary, var(--primary-color, #2563eb))); }
+```
+
+The theme-native classes (`btn btn-sm btn-primary`, `form-control`, `card`, …) stay in `pf-chat`'s
+own markup alongside the `pf-chat-*` ones — nothing is taken away from an application's own
+JS/CSS that happens to hook off them — they just no longer carry the actual appearance.
 
 ## Why there are two mechanisms
 
