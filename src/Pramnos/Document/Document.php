@@ -848,6 +848,57 @@ class Document extends \Pramnos\Framework\Base
     }
 
     /**
+     * Add hreflang alternates from the {@see \Pramnos\Html\Hreflang} registry — for a page
+     * the router cannot derive alternates for ({@see addAlternatesFromRoute()}), because its
+     * own slug comes from the database or it was declared by hand.
+     *
+     * Tries, in order:
+     * 1. {@see \Pramnos\Html\Hreflang::isSingleLanguage()} — if the path was declared
+     *    single-language, nothing is added, deliberately.
+     * 2. `$resolverKey`, if given and a resolver is registered for it — the database-backed
+     *    case, {@see \Pramnos\Html\Hreflang::resolve()}.
+     * 3. {@see \Pramnos\Html\Hreflang::alternatesForPath()} — a hand-declared group.
+     *
+     * Each resulting URL is relative to this installation's own root — {@see addAlternate()}
+     * is called with `sURL . ltrim($path, '/')`, so a registration only has to carry the path.
+     *
+     * ```php
+     * // A static page covered by a hand-declared group:
+     * $doc->addAlternatesFromHreflang(null, '/syxnes-erwthseis');
+     *
+     * // A database-backed page, resolver registered under 'Jobs@view':
+     * $doc->addAlternatesFromHreflang('Jobs@view', '/jobs/42', ['id' => 42]);
+     * ```
+     *
+     * @param  string|null           $resolverKey      The key a resolver was registered
+     *                                                  under for this page, or null to skip
+     *                                                  straight to the group lookup.
+     * @param  string                $path             The current page's own path.
+     * @param  array<string, mixed>  $resolverParams    Passed to the resolver, if one runs.
+     * @return Document
+     */
+    public function addAlternatesFromHreflang($resolverKey, $path, array $resolverParams = array())
+    {
+        if (\Pramnos\Html\Hreflang::isSingleLanguage($path)) {
+            return $this;
+        }
+
+        $alternates = $resolverKey !== null
+            ? \Pramnos\Html\Hreflang::resolve($resolverKey, $resolverParams)
+            : array();
+
+        if ($alternates === array()) {
+            $alternates = \Pramnos\Html\Hreflang::alternatesForPath($path);
+        }
+
+        foreach ($alternates as $locale => $alternatePath) {
+            $this->addAlternate($locale, sURL . ltrim($alternatePath, '/'));
+        }
+
+        return $this;
+    }
+
+    /**
      * Set the canonical URL for this page.
      *
      * ```php

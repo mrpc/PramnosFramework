@@ -768,10 +768,44 @@ $route = $router->getMatchedRoute($request);
 ```
 
 `addAlternatesFromRoute()` does nothing for a `null` route or one that wasn't registered as part
-of a locale group. A page whose alternates the router cannot derive — a slug that comes from the
-database, say — still needs `addAlternate()` called explicitly; see
-[hreflang and sitemaps — design](Hreflang-And-Sitemap-Design.md) for the registry planned to
-cover that case, and for how this fits into the sitemap too.
+of a locale group.
+
+#### A page whose alternates the router cannot derive — the `Hreflang` registry
+
+A page whose own slug comes from the database, or a hand-maintained family of translated
+URLs, is declared once in `app/hreflang.php` — the same loading convention as `app/search.php`
+([Search Guide](Pramnos_Search_Guide.md)):
+
+```php
+// app/hreflang.php
+use Pramnos\Html\Hreflang;
+
+// Hand-declared, for what no rule can derive
+Hreflang::group(['el' => '/syxnes-erwthseis', 'en' => '/faqs']);
+
+// Database-backed — the controller already knows its own key
+Hreflang::resolver('Jobs@view', fn (array $p) => Ad::find($p['id'])?->urlsByLanguage() ?? []);
+
+// The third state: a page that exists in one language only, stated rather than left uncovered
+Hreflang::singleLanguage('/oroi-xrisis');
+```
+
+A controller feeds its own page into the registry with one call:
+
+```php
+$doc->addAlternatesFromHreflang('Jobs@view', '/job/' . $ad->id, ['id' => $ad->id]);
+```
+
+It tries, in order: `Hreflang::isSingleLanguage()` (nothing added, deliberately), the resolver
+named by the first argument (if one was registered), then a hand-declared group covering the
+path. A resolver that throws, or returns something other than an array, answers with no
+alternates rather than taking the page down — hreflang is a `<head>` enhancement, not something
+a broken registration should be able to fatal a page over.
+
+This and `addAlternatesFromRoute()` are independent: a page is covered by whichever mechanism
+fits — a localized route group when the router already knows the URLs, this registry for
+everything else. See [hreflang and sitemaps — design](Hreflang-And-Sitemap-Design.md) for how
+both feed the sitemap once it exists.
 
 ### Escaping: what the document escapes for you, and what it does not
 

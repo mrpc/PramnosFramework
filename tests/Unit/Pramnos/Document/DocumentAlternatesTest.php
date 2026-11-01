@@ -34,6 +34,7 @@ class DocumentAlternatesTest extends TestCase
     {
         // Leave the in-memory setting as other tests expect it.
         Settings::setSetting('default_language', false, false);
+        \Pramnos\Html\Hreflang::reset();
     }
 
     /**
@@ -183,6 +184,109 @@ class DocumentAlternatesTest extends TestCase
             '<link rel="alternate" hreflang="en" href="' . sURL . 'faqs" />',
             $markup
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // addAlternatesFromHreflang()
+    // -------------------------------------------------------------------------
+
+    /**
+     * A path declared single-language via the Hreflang registry gets no
+     * alternates added, even if a group would otherwise have matched it —
+     * the explicit declaration wins.
+     */
+    public function testAddAlternatesFromHreflangDoesNothingForASingleLanguagePath(): void
+    {
+        // Arrange
+        \Pramnos\Html\Hreflang::singleLanguage('/oroi-xrisis');
+
+        // Act
+        $this->document->addAlternatesFromHreflang(null, '/oroi-xrisis');
+
+        // Assert
+        $this->assertSame('', $this->renderAlternates());
+    }
+
+    /**
+     * With no resolver key, a hand-declared group covering the path is
+     * used — the "declared by hand" case from the design.
+     */
+    public function testAddAlternatesFromHreflangUsesAGroupWhenNoResolverKeyIsGiven(): void
+    {
+        // Arrange
+        \Pramnos\Html\Hreflang::group(['el' => '/syxnes-erwthseis', 'en' => '/faqs']);
+
+        // Act
+        $this->document->addAlternatesFromHreflang(null, '/faqs');
+        $markup = $this->renderAlternates();
+
+        // Assert
+        $this->assertStringContainsString(
+            '<link rel="alternate" hreflang="el" href="' . sURL . 'syxnes-erwthseis" />',
+            $markup
+        );
+        $this->assertStringContainsString(
+            '<link rel="alternate" hreflang="en" href="' . sURL . 'faqs" />',
+            $markup
+        );
+    }
+
+    /**
+     * A resolver registered under the given key is preferred over a group
+     * match — the database-backed case from the design.
+     */
+    public function testAddAlternatesFromHreflangUsesTheResolverWhenGiven(): void
+    {
+        // Arrange
+        \Pramnos\Html\Hreflang::resolver('Jobs@view', function (array $params): array {
+            return ['el' => '/thesi/' . $params['id'], 'en' => '/job/' . $params['id']];
+        });
+
+        // Act
+        $this->document->addAlternatesFromHreflang('Jobs@view', '/job/42', ['id' => 42]);
+        $markup = $this->renderAlternates();
+
+        // Assert
+        $this->assertStringContainsString(
+            '<link rel="alternate" hreflang="el" href="' . sURL . 'thesi/42" />',
+            $markup
+        );
+        $this->assertStringContainsString(
+            '<link rel="alternate" hreflang="en" href="' . sURL . 'job/42" />',
+            $markup
+        );
+    }
+
+    /**
+     * A resolver key that matches nothing falls back to a group lookup by
+     * path, rather than giving up — the two mechanisms compose.
+     */
+    public function testAddAlternatesFromHreflangFallsBackToGroupWhenResolverKeyMatchesNothing(): void
+    {
+        // Arrange
+        \Pramnos\Html\Hreflang::group(['el' => '/syxnes-erwthseis', 'en' => '/faqs']);
+
+        // Act
+        $this->document->addAlternatesFromHreflang('Nothing@here', '/faqs');
+
+        // Assert
+        $this->assertStringContainsString(
+            '<link rel="alternate" hreflang="el" href="' . sURL . 'syxnes-erwthseis" />',
+            $this->renderAlternates()
+        );
+    }
+
+    /**
+     * Nothing registered for this path at all → nothing added, the same
+     * "absent is not empty" contract as the rest of this class.
+     */
+    public function testAddAlternatesFromHreflangDoesNothingWhenNothingIsRegistered(): void
+    {
+        // Act
+        $this->document->addAlternatesFromHreflang(null, '/unregistered-page');
+
+        // Assert
+        $this->assertSame('', $this->renderAlternates());
     }
 
     /**
