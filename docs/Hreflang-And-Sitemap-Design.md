@@ -8,8 +8,9 @@ use_cases:
 
 # hreflang and sitemaps — design
 
-**Status:** design, partially implemented. Localized route groups and `Document` alternates
-(step 10.2–3) have shipped; the `Hreflang`/`Sitemap` registries and `Document::$robots` have not.
+**Status:** design, partially implemented. Localized route groups, `Document` alternates and the
+`Hreflang` registry (steps 10.2–3) have shipped; the `Sitemap` registry and `Document::$robots`
+have not.
 **Last updated:** 1 November 2026
 
 Two features that look separate and are not. They are written up together because the same
@@ -255,13 +256,18 @@ as the model.
 2. **Localized route groups — shipped.** `Router::get()` (and the other verbs) accept an array
    of `locale => path`; `Router::getLocaleSiblings($route)` returns a matched route's siblings.
    See the [Routing Guide](Pramnos_Routing_Guide.md#localized-route-groups).
-3. **`Document` emission on top of them — shipped**, for the structural case only:
+3. **`Document` emission, and the `Hreflang` registry — shipped.**
    `Document::addAlternate()` / `addAlternatesFromRoute()` put hreflang `<link>` tags (and
-   `x-default`) in the `<head>`. See the
-   [Document Guide](Pramnos_Document_Output_Guide.md#hreflang-alternates). Still to come: the
-   `Hreflang` registry (`group()`/`resolver()`/`singleLanguage()`, `app/hreflang.php`) for a
-   database-backed page the router cannot derive alternates for, and `Document::$robots`
-   consolidating the 9 scattered `header('X-Robots-Tag…')`/`<meta name="robots">` call sites
-   named in §1.
+   `x-default`) in the `<head>` for the structural case (§10.2's localized route groups). The
+   `Hreflang` registry (`Pramnos\Html\Hreflang::group()`/`resolver()`/`singleLanguage()`, loaded
+   from `app/hreflang.php` the same way as `Search\Registry`/`app/search.php`) covers everything
+   that mechanism cannot reach — a database-backed slug, a hand-declared family, or a page
+   explicitly stated to exist in one language only — fed into the head with
+   `Document::addAlternatesFromHreflang()`. See the
+   [Document Guide](Pramnos_Document_Output_Guide.md#hreflang-alternates). Still to come:
+   `Document::$robots`, consolidating the 9 scattered `header('X-Robots-Tag…')`/
+   `<meta name="robots">` call sites named in §1 — and the §5 development-mode warning for a
+   controller override without a matching sitemap exclusion, which needs the sitemap to exist
+   first.
 4. The sitemap registry, with the route groups as its first provider — and the group verification
    from §6. Not started.
