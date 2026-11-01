@@ -160,6 +160,29 @@ class Router extends Base implements RouterInterface
     }
 
     /**
+     * Every locale route group across every router built while collecting ({@see
+     * beginCollecting()}), the raw `locale => Route` maps — read **before**
+     * {@see stopCollecting()}, which clears the collected routers.
+     *
+     * A sitemap generator reads this to turn a localized route group into one entry per
+     * locale, each carrying the whole group as its hreflang alternates — the same
+     * reciprocity the `<head>` already gets for free from
+     * {@see getLocaleSiblings()}.
+     *
+     * @return list<array<string, \Pramnos\Routing\Route>>
+     */
+    public static function collectedLocaleGroups(): array
+    {
+        $groups = [];
+        foreach (self::$collected as $router) {
+            foreach ($router->localeGroups as $group) {
+                $groups[] = $group;
+            }
+        }
+        return $groups;
+    }
+
+    /**
      * Stop collecting and return every route that was registered.
      *
      * Merged across routers, because a route file may build more than one — a group of

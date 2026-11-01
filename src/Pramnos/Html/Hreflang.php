@@ -199,6 +199,19 @@ final class Hreflang
         return self::hasDefinitions();
     }
 
+    /**
+     * Every hand-declared group — read-only, for a sitemap generator to turn into entries
+     * the same way the `<head>` already does. Does not include `resolver()`-covered pages:
+     * a resolver needs params the generator cannot enumerate, which is what
+     * {@see \Pramnos\Html\Sitemap} registers a provider for instead.
+     *
+     * @return list<array<string, string>>
+     */
+    public static function groups(): array
+    {
+        return self::$groups;
+    }
+
     /** Whether anything at all has been registered. */
     public static function hasDefinitions(): bool
     {

@@ -160,6 +160,7 @@ class Application extends \Symfony\Component\Console\Application
         // Routing introspection
         $this->add(new \Pramnos\Console\Commands\RouteList());
         $this->add(new \Pramnos\Console\Commands\ApiDocs());
+        $this->add(new \Pramnos\Console\Commands\SitemapGenerate());
         // Scheduled tasks (Phase 4)
         $this->add(new \Pramnos\Console\Commands\ScheduleRun());
         $this->add(new \Pramnos\Console\Commands\ScheduleList());

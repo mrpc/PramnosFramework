@@ -234,6 +234,44 @@ class LocalizedRouteGroupsTest extends TestCase
     }
 
     /**
+     * collectedLocaleGroups() returns every locale group built while
+     * Router::beginCollecting() is active — read before stopCollecting()
+     * clears it, so a generator (sitemap:generate's --routes) can see the
+     * groups a route file declared without dispatching anything in it.
+     */
+    public function testCollectedLocaleGroupsReturnsGroupsBuiltWhileCollecting(): void
+    {
+        // Arrange — beginCollecting() only tracks routers *constructed* after it is called,
+        // so this needs a fresh Router rather than the one built in setUp().
+        Router::beginCollecting();
+        $router = new Router(new \Pramnos\Application\Application('myApp'));
+
+        // Act
+        $router->get(['el' => '/syxnes-erwthseis', 'en' => '/faqs'], fn() => 'faq-page');
+        $groups = Router::collectedLocaleGroups();
+        Router::stopCollecting();
+
+        // Assert
+        $this->assertCount(1, $groups);
+        $this->assertSame(['el', 'en'], array_keys($groups[0]));
+        $this->assertSame('/faqs', $groups[0]['en']->uri);
+    }
+
+    /**
+     * Nothing collected (no locale group registered while collecting, or
+     * collecting never started) answers with an empty list rather than
+     * guessing.
+     */
+    public function testCollectedLocaleGroupsIsEmptyWhenNothingWasCollected(): void
+    {
+        // Act
+        $groups = Router::collectedLocaleGroups();
+
+        // Assert
+        $this->assertSame([], $groups);
+    }
+
+    /**
      * A locale group registered inside Router::group(['prefix' => ...])
      * gets the prefix applied to every locale's URI, the same as an
      * ordinary route — addLocalizedRoute() reuses addSingleRoute() rather
