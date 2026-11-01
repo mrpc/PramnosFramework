@@ -35,6 +35,12 @@
  *   data-pf-chat-memory          — the <details> the `/memory` command opens
  *   data-pf-rating               — an answer's 👍 and 👎 (RatingView): the note 👎 carries is shown
  *                                  on its first press, and sent with the next
+ *   data-pf-chat-voice           — on the page: voice is on (the llm.voice setting); the mic
+ *                                  and 🔊 buttons only do anything when this is present AND
+ *                                  pf-voice.js (with pf-speech-sanitizer.js) is also loaded
+ *   data-pf-chat-mic             — the mic button: dictates into the box
+ *   data-pf-chat-speak="…"       — an answer's 🔊: speaks that text; data-pf-chat-speak-id tells
+ *                                  it apart from every other answer's button so only one speaks
  *
  * `window.PfChat.init(element)` runs it over a conversation placed later — the side panel's
  * `pf-assist.js` does — and each run ends with a `pf-chat:ready` event on the element. It runs once
@@ -327,6 +333,13 @@
         var messages = root.querySelector('[data-pf-chat-messages]');
         var held = [];
         var clock = null;
+        // Dictation + read-aloud (pf-voice.js), one controller shared by the mic button and
+        // every answer's 🔊 button. Declared here, ahead of the composer-only block below,
+        // because 🔊 also has to work on a page with no composer — a shared, read-only
+        // conversation still has answers to listen to.
+        var voice = (window.PfVoice && root.getAttribute('data-pf-chat-voice') !== null)
+            ? window.PfVoice.createVoiceState()
+            : null;
 
         function words(name, fallback) {
             return root.getAttribute('data-say-' + name) || fallback;
@@ -633,6 +646,26 @@
             button.addEventListener('click', function () { copy(button, button.getAttribute('data-pf-chat-copy') || ''); });
         });
 
+        // 🔊 reads one answer aloud; pressing it again, or another answer's button, stops it —
+        // voice.toggleSpeech() already treats "speaking this id again" as stop.
+        if (voice) {
+            Array.prototype.forEach.call(root.querySelectorAll('[data-pf-chat-speak]'), function (button) {
+                var id = button.getAttribute('data-pf-chat-speak-id') || '';
+                var text = button.getAttribute('data-pf-chat-speak') || '';
+
+                button.addEventListener('click', function () {
+                    voice.toggleSpeech(id, text, {
+                        onStart: function () { button.setAttribute('aria-pressed', 'true'); },
+                        onEnd: function () { button.setAttribute('aria-pressed', 'false'); },
+                        onError: function () { button.setAttribute('aria-pressed', 'false'); },
+                    });
+                    if (!voice.speaking) {
+                        button.setAttribute('aria-pressed', 'false');
+                    }
+                });
+            });
+        }
+
         // Over each table in an answer: its cells, tab-separated, which a spreadsheet pastes as cells.
         Array.prototype.forEach.call(root.querySelectorAll('.pf-chat-answer table'), function (table) {
             var button = document.createElement('button');
@@ -867,6 +900,39 @@
             event.preventDefault();
             Array.prototype.forEach.call((event.dataTransfer && event.dataTransfer.files) || [], take);
         });
+
+        // Mic: dictates into the box. Absent without voice support — the markup is there
+        // either way (data-pf-chat-voice), it simply does nothing without pf-voice.js.
+        var mic = form.querySelector('[data-pf-chat-mic]');
+        if (mic && voice) {
+            var setMicState = function (on) {
+                mic.setAttribute('aria-pressed', on ? 'true' : 'false');
+            };
+
+            mic.addEventListener('click', function () {
+                if (voice.dictating) {
+                    voice.stopDictation();
+                    setMicState(false);
+
+                    return;
+                }
+                setMicState(voice.startDictation({
+                    onTranscript: function (result) {
+                        if (box) {
+                            box.value = result.text;
+                        }
+                    },
+                    onSilence: function () { setMicState(false); },
+                    onEnd: function () { setMicState(false); },
+                    onError: function () {
+                        setMicState(false);
+                        if (voice.dictationError) {
+                            say(voice.dictationError, true);
+                        }
+                    },
+                }));
+            });
+        }
 
         if (box) {
             box.addEventListener('paste', function (event) {

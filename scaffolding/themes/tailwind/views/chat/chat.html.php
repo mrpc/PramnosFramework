@@ -97,9 +97,11 @@ $empty   = $open === null && !$waiting;
 $greeting = (string) ($this->greeting ?? '') !== '' ? (string) $this->greeting : t('How can I help?');
 $accent  = \Pramnos\Llm\Chat\Web\ChatLook::accent((string) ($this->accent ?? ''));
 $commands = \Pramnos\Llm\Chat\Web\ChatLook::commands($u, is_array($this->commands ?? null) ? $this->commands : []);
+// Dictation + read-aloud (pf-voice.js), no server side — behind this setting (Pramnos_LLM_Analyst_Guide.md "## Voice").
+$voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false);
 ?>
 <?php if ($waiting): ?><noscript><meta http-equiv="refresh" content="4"></noscript><?php endif; ?>
-<div class="pf-chat<?php echo $empty ? ' pf-chat-empty' : ''; ?> px-4 py-6"<?php echo $accent !== '' ? ' style="--pf-chat-accent:' . $e($accent) . '"' : ''; ?> data-commands="<?php echo $e(json_encode($commands, JSON_UNESCAPED_UNICODE)); ?>"<?php echo (string) ($this->peopleUrl ?? '') !== '' ? ' data-pf-people-url="' . $e($this->peopleUrl) . '"' : ''; ?> data-pf-chat data-page="<?php echo $e($u['page']); ?>" data-asked="<?php echo $e($u['asked']); ?>"<?php echo $sayAttr; ?> data-waiting-lines="<?php echo $e(json_encode($lines, JSON_UNESCAPED_UNICODE)); ?>" data-question-class="<?php echo $e($c['question']); ?>">
+<div class="pf-chat<?php echo $empty ? ' pf-chat-empty' : ''; ?> px-4 py-6"<?php echo $accent !== '' ? ' style="--pf-chat-accent:' . $e($accent) . '"' : ''; ?> data-commands="<?php echo $e(json_encode($commands, JSON_UNESCAPED_UNICODE)); ?>"<?php echo (string) ($this->peopleUrl ?? '') !== '' ? ' data-pf-people-url="' . $e($this->peopleUrl) . '"' : ''; ?> data-pf-chat data-page="<?php echo $e($u['page']); ?>" data-asked="<?php echo $e($u['asked']); ?>"<?php echo $sayAttr; ?> data-waiting-lines="<?php echo $e(json_encode($lines, JSON_UNESCAPED_UNICODE)); ?>" data-question-class="<?php echo $e($c['question']); ?>"<?php echo $voiceOn ? ' data-pf-chat-voice' : ''; ?>>
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <nav class="<?php echo $c['card']; ?>" style="flex:0 0 240px;padding:12px" aria-label="<?php echo $e(t('Conversations')); ?>">
             <a href="<?php echo $e($u['page']); ?>" class="<?php echo $c['btn']; ?>"><?php echo $e(t('New conversation')); ?></a>
@@ -204,6 +206,9 @@ $commands = \Pramnos\Llm\Chat\Web\ChatLook::commands($u, is_array($this->command
                         </div>
                         <?php if (!$mine): ?>
                             <button type="button" class="<?php echo $c['btnGhost']; ?>" data-pf-chat-copy="<?php echo $e($m['content']); ?>" aria-label="<?php echo $e(t('Copy the answer')); ?>">⧉ <?php echo $e(t('Copy')); ?></button>
+                            <?php if ($voiceOn): ?>
+                                <button type="button" class="<?php echo $c['btnGhost']; ?>" aria-pressed="false" data-pf-chat-speak="<?php echo $e($m['content']); ?>" data-pf-chat-speak-id="<?php echo $e((string) ($m['message_id'] ?? '')); ?>" aria-label="<?php echo $e(t('Read the answer aloud')); ?>">🔊 <?php echo $e(t('Listen')); ?></button>
+                            <?php endif; ?>
                             <?php if ($u['rate'] !== '' && !empty($m['message_id'])): ?><?php echo \Pramnos\Llm\Chat\Web\RatingView::buttons($m, $u['rate'], $openId, $token(), $c); ?><?php endif; ?>
                         <?php endif; ?>
                     </article>
@@ -222,6 +227,9 @@ $commands = \Pramnos\Llm\Chat\Web\ChatLook::commands($u, is_array($this->command
                 <label for="chat-ask" class="pf-sr-only"><?php echo $e(t('Your question')); ?></label>
                 <textarea id="chat-ask" name="content" rows="<?php echo $empty ? 3 : 1; ?>" class="pf-chat-input" placeholder="<?php echo $e((string) ($this->placeholder ?? '') !== '' ? $this->placeholder : t('Ask a question…')); ?>" aria-describedby="chat-ask-hint"></textarea>
                 <div class="pf-chat-bar">
+                    <?php if ($voiceOn): ?>
+                        <button type="button" class="pf-chat-mic" data-pf-chat-mic aria-pressed="false" title="<?php echo $e(t('Dictate your question')); ?>">🎤<span class="pf-sr-only"><?php echo $e(t('Dictate your question')); ?></span></button>
+                    <?php endif; ?>
                     <label class="pf-chat-attach" title="<?php echo $e(t('Attach a document')); ?>">📎<span class="pf-sr-only"><?php echo $e(t('Attach a document')); ?></span>
                         <input type="file" name="files[]" multiple accept=".docx,.odt,.txt,.md,.eml,image/*" class="pf-sr-only" data-pf-chat-files>
                     </label>
@@ -321,4 +329,8 @@ $commands = \Pramnos\Llm\Chat\Web\ChatLook::commands($u, is_array($this->command
         </aside>
     </div>
 </div>
+<?php if ($voiceOn): ?>
+<script src="<?php echo $e(assetUrl('assets/js/pf-speech-sanitizer.js')); ?>" defer></script>
+<script src="<?php echo $e(assetUrl('assets/js/pf-voice.js')); ?>" defer></script>
+<?php endif; ?>
 <script src="<?php echo $e(assetUrl('assets/js/pf-chat.js')); ?>" defer></script>

@@ -149,6 +149,46 @@ class ChatPageTest extends LlmTestCase
     }
 
     /**
+     * The mic button, the per-answer 🔊, data-pf-chat-voice and the two voice scripts are drawn
+     * only when llm.voice is on — off by default, so an existing page is unaffected.
+     */
+    #[DataProvider('databases')]
+    public function testVoiceIsBehindItsOwnSetting(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $stamp = \Pramnos\Llm\CallLog::instant(time());
+        $qb    = fn (string $t) => $this->db->queryBuilder()->table($t);
+        $qb('chat_conversations')->insert(['organization_id' => null, 'userid' => 7, 'title' => 'Spend', 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $id = (int) $qb('chat_conversations')->first()->fields['conversation_id'];
+        $qb('chat_messages')->insert(['conversation_id' => $id, 'role' => 'assistant', 'content' => 'Done.', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $_GET = ['c' => (string) $id];
+        \Pramnos\Http\Request::resetInstance();
+
+        // Act / Assert — off by default
+        foreach (self::THEMES as $theme) {
+            $page = (string) $this->page(theme: $theme)->display();
+            $this->assertStringNotContainsString('data-pf-chat-voice', $page, $theme . ': voice is off by default');
+            $this->assertStringNotContainsString('data-pf-chat-mic', $page, $theme);
+            $this->assertStringNotContainsString('data-pf-chat-speak', $page, $theme);
+            $this->assertStringNotContainsString('pf-voice.js', $page, $theme);
+        }
+
+        // Act — llm.voice turned on
+        $this->configure(['voice' => true]);
+        foreach (self::THEMES as $theme) {
+            $page = (string) $this->page(theme: $theme)->display();
+
+            // Assert
+            $this->assertStringContainsString('data-pf-chat-voice', $page, $theme);
+            $this->assertStringContainsString('data-pf-chat-mic', $page, $theme);
+            $this->assertStringContainsString('data-pf-chat-speak="Done." data-pf-chat-speak-id="', $page, $theme . ': the answer can be read aloud, by its own id');
+            $this->assertStringContainsString('pf-speech-sanitizer.js', $page, $theme);
+            $this->assertStringContainsString('pf-voice.js', $page, $theme);
+        }
+    }
+
+    /**
      * The page is the application's own: an empty one is its greeting over one large composer,
      * with its placeholder, its accent colour and its `/` commands beside the page's, and the
      * examples under the composer; an open conversation has its title instead, and no greeting.

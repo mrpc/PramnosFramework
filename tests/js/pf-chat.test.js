@@ -126,7 +126,7 @@ const file = (name, size = 10, type = 'text/plain') => ({ name, size, type });
  *
  * @param {{waiting?: string, answers: Array<object|string|Error>, attributes?: object, parser?: boolean, now?: () => number}} options
  */
-function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, examples = [], before = [], clipboard = null, pfChat = undefined, states = null, pageClass = '' }) {
+function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, examples = [], before = [], clipboard = null, pfChat = undefined, states = null, pageClass = '', pfVoice = undefined, mic = false, speak = null }) {
     const page = element('div', { 'data-pf-chat': '', 'data-asked': '/chat/asked/', 'data-question-class': 'bubble', ...attributes });
     page.className = pageClass;
     examples.forEach((text) => page.appendChild(element('button', { type: 'button', 'data-pf-chat-suggestion': text })));
@@ -145,6 +145,8 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
     const attach = form.appendChild(element('button', { 'data-pf-chat-attach': '' }));
     const chips = form.appendChild(element('span', { 'data-pf-chat-chips': '' }));
     const button = form.appendChild(element('button', { type: 'submit' }));
+    const micButton = mic ? form.appendChild(element('button', { 'data-pf-chat-mic': '' })) : null;
+    const speakButton = speak ? page.appendChild(element('button', { 'data-pf-chat-speak': speak.text, 'data-pf-chat-speak-id': speak.id })) : null;
 
     const requests = [];
     const timers = [];
@@ -154,6 +156,7 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
     const replaced = [];
     const window = {
         PfChat: pfChat,
+        PfVoice: pfVoice,
         navigator: clipboard ? { clipboard } : {},
         location: { href: '/chat' },
         setTimeout: (fn, ms) => { delays.push(ms); return timers.push(fn); },
@@ -192,7 +195,7 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
 
     const suggestions = page.querySelectorAll('[data-pf-chat-suggestion]');
 
-    return { page, messages, form, box, picker, attach, chips, button, requests, timers, delays, intervals, window, sent, replaced, suggestions };
+    return { page, messages, form, box, picker, attach, chips, button, requests, timers, delays, intervals, window, sent, replaced, suggestions, micButton, speakButton };
 }
 
 /** Let every pending promise settle: a few turns, for a fetch that leads to another. */
@@ -916,5 +919,89 @@ test('the analyst\'s picture follows the question: listening, thinking, talking,
     assert.deepEqual(states.slice(0, 3), ['listening', 'thinking', 'talking'], 'writing, asked, answered');
     assert.ok(states.includes('success'), 'and pleased a moment later');
     assert.deepEqual(failing, ['thinking', 'error'], 'a failure troubles it');
+});
+
+/**
+ * The mic button (data-pf-chat-mic) dictates into the box, through whatever window.PfVoice
+ * provides — wired only when data-pf-chat-voice is present and window.PfVoice exists, so a page
+ * without voice turned on, or without the script loaded, has a mic button that does nothing.
+ */
+test('the mic button dictates into the box, through PfVoice', () => {
+    // Arrange
+    let onTranscript;
+    const voice = {
+        dictating: false,
+        dictationError: null,
+        startDictation(options) {
+            onTranscript = options.onTranscript;
+            this.dictating = true;
+            return true;
+        },
+        stopDictation() { this.dictating = false; },
+    };
+    const ui = run({ answers: [], attributes: { 'data-pf-chat-voice': '' }, mic: true, pfVoice: { createVoiceState: () => voice } });
+
+    // Act — starts dictation
+    ui.micButton.click();
+
+    // Assert
+    assert.equal(ui.micButton.getAttribute('aria-pressed'), 'true');
+    assert.equal(voice.dictating, true);
+
+    // Act — a transcript fills the box
+    onTranscript({ text: 'ποια είναι τα κλικ μου' });
+    assert.equal(ui.box.value, 'ποια είναι τα κλικ μου');
+
+    // Act — pressed again, stops
+    ui.micButton.click();
+    assert.equal(ui.micButton.getAttribute('aria-pressed'), 'false');
+    assert.equal(voice.dictating, false);
+});
+
+/**
+ * An answer's 🔊 button (data-pf-chat-speak) speaks that answer's text through PfVoice, by its
+ * own id — so one page can have several answers, each read independently.
+ */
+test('an answer\'s speak button reads it aloud through PfVoice, by its own id', () => {
+    // Arrange
+    const calls = [];
+    const voice = {
+        speaking: false,
+        toggleSpeech(id, text, options) {
+            calls.push([id, text]);
+            this.speaking = true;
+            options.onStart();
+        },
+    };
+    const ui = run({
+        answers: [],
+        attributes: { 'data-pf-chat-voice': '' },
+        speak: { id: '42', text: 'Η απάντηση σου.' },
+        pfVoice: { createVoiceState: () => voice },
+    });
+
+    // Act
+    ui.speakButton.click();
+
+    // Assert
+    assert.deepEqual(calls, [['42', 'Η απάντηση σου.']]);
+    assert.equal(ui.speakButton.getAttribute('aria-pressed'), 'true');
+});
+
+/**
+ * Without data-pf-chat-voice (voice turned off), the mic button — even if a theme always drew
+ * one — is never wired: no PfVoice call happens on click.
+ */
+test('the mic button is not wired when data-pf-chat-voice is absent', () => {
+    // Arrange
+    let called = false;
+    const voice = { startDictation: () => { called = true; return true; } };
+    const ui = run({ answers: [], mic: true, pfVoice: { createVoiceState: () => voice } });
+
+    // Act
+    ui.micButton.click();
+
+    // Assert
+    assert.equal(called, false);
 });
 
