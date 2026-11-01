@@ -247,8 +247,8 @@ as the model.
    criterion. The framework does not offer a `latest N` / `changed since` shape.
 3. **Sharding and the sitemap index** — still open. How the generator names shards, and whether
    the index is regenerated wholesale or incrementally.
-4. ~~**`Document::$robots`**~~ — **decided: in scope**, together with this work. Not built yet —
-   see step 10.3 below.
+4. ~~**`Document::$robots`**~~ — **decided: in scope**, together with this work — shipped, see
+   step 10.3 below for the scope the migration actually covers.
 
 ## 10. Next steps
 
@@ -256,18 +256,26 @@ as the model.
 2. **Localized route groups — shipped.** `Router::get()` (and the other verbs) accept an array
    of `locale => path`; `Router::getLocaleSiblings($route)` returns a matched route's siblings.
    See the [Routing Guide](Pramnos_Routing_Guide.md#localized-route-groups).
-3. **`Document` emission, and the `Hreflang` registry — shipped.**
+3. **`Document` emission, the `Hreflang` registry, and `Document::$robots` — shipped.**
    `Document::addAlternate()` / `addAlternatesFromRoute()` put hreflang `<link>` tags (and
    `x-default`) in the `<head>` for the structural case (§10.2's localized route groups). The
    `Hreflang` registry (`Pramnos\Html\Hreflang::group()`/`resolver()`/`singleLanguage()`, loaded
    from `app/hreflang.php` the same way as `Search\Registry`/`app/search.php`) covers everything
    that mechanism cannot reach — a database-backed slug, a hand-declared family, or a page
    explicitly stated to exist in one language only — fed into the head with
-   `Document::addAlternatesFromHreflang()`. See the
-   [Document Guide](Pramnos_Document_Output_Guide.md#hreflang-alternates). Still to come:
-   `Document::$robots`, consolidating the 9 scattered `header('X-Robots-Tag…')`/
-   `<meta name="robots">` call sites named in §1 — and the §5 development-mode warning for a
-   controller override without a matching sitemap exclusion, which needs the sitemap to exist
-   first.
+   `Document::addAlternatesFromHreflang()`. `Document::setRobots()` gives the robots directive
+   one home, driving both the `<meta name="robots">` tag and the `X-Robots-Tag` header from one
+   value. See the [Document Guide](Pramnos_Document_Output_Guide.md#hreflang-alternates).
+
+   **What the robots migration does not cover.** Of the 9 call sites named in §1, only
+   `StandalonePage::themedPage()` had a `Document` to migrate onto `setRobots()`. The other
+   eight — `DevPanelController`, `DebugGrantController`, `Adminer`, the email open-tracking
+   pixel, a tracked redirect, the plain-HTML branch of `StandalonePage`/`MailAction`, and the
+   404 page — build their response without ever constructing a `Document` (a raw HTML string, a
+   binary image, a redirect with no body), so there was nothing for `setRobots()` to set
+   anything on. They keep their own `header()` call, correctly — `Document::$robots` is the home
+   the concept gets for pages that *do* render through one, not a forced migration of every
+   existing call site. Still to come: the §5 development-mode warning for a controller override
+   without a matching sitemap exclusion, which needs the sitemap to exist first.
 4. The sitemap registry, with the route groups as its first provider — and the group verification
    from §6. Not started.
