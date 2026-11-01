@@ -235,8 +235,10 @@ class SharedLockTest extends BaseTestCase
      */
     public function testHolderIgnoresAnExpiredLease(): void
     {
-        // Arrange
-        $lock = $this->lock(1);
+        // Arrange — a real ttl, comfortably longer than the gap to the next assertion can
+        // ever be under load; the expiry below is forced by hand, not waited out, so a short
+        // ttl here only risked the lease already looking expired before holder() ran.
+        $lock = $this->lock(60);
         $this->assertTrue($lock->acquire());
         $this->assertNotNull($lock->holder());
 
