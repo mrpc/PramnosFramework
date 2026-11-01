@@ -8,8 +8,9 @@ use_cases:
 
 # hreflang and sitemaps — design
 
-**Status:** design. Nothing here is implemented.
-**Last updated:** 31 August 2026
+**Status:** design, partially implemented. Localized route groups and `Document` alternates
+(step 10.2–3) have shipped; the `Hreflang`/`Sitemap` registries and `Document::$robots` have not.
+**Last updated:** 1 November 2026
 
 Two features that look separate and are not. They are written up together because the same
 declaration has to serve both, and because a framework that lets them drift apart produces
@@ -237,19 +238,30 @@ as the model.
 
 ## 9. Open decisions
 
-1. **Where hreflang is delivered** — head only, sitemap only, or both with the all-or-nothing rule
-   for groups (§6).
-2. **How a provider expresses selection** — entirely the application's criterion, or does the
-   framework offer a shape (`latest N`, `changed since`)?
-3. **Sharding and the sitemap index** — how the generator names shards, and whether the index is
-   regenerated wholesale or incrementally.
-4. **`Document::$robots`** — worth introducing alongside this, since the scattered existing sites are
-   the reason indexing and listing keep being confused. In scope or separate?
+1. ~~**Where hreflang is delivered**~~ — **decided:** both head and sitemap, with the
+   all-or-nothing rule for groups (§6). A lean sitemap that omits a group's member would break
+   that member's hreflang, so the sitemap generator (step 4, not built yet) must verify this at
+   generation time.
+2. ~~**How a provider expresses selection**~~ — **decided:** entirely the application's
+   criterion. The framework does not offer a `latest N` / `changed since` shape.
+3. **Sharding and the sitemap index** — still open. How the generator names shards, and whether
+   the index is regenerated wholesale or incrementally.
+4. ~~**`Document::$robots`**~~ — **decided: in scope**, together with this work. Not built yet —
+   see step 10.3 below.
 
 ## 10. Next steps
 
-1. Decide §9.1 first: it determines whether the registry's entries need alternates at all.
-2. **Localized route groups**, which are self-contained and give correct hreflang immediately.
-3. `Document` emission on top of them.
+1. ~~Decide §9.1 first~~ — done, §9 above.
+2. **Localized route groups — shipped.** `Router::get()` (and the other verbs) accept an array
+   of `locale => path`; `Router::getLocaleSiblings($route)` returns a matched route's siblings.
+   See the [Routing Guide](Pramnos_Routing_Guide.md#localized-route-groups).
+3. **`Document` emission on top of them — shipped**, for the structural case only:
+   `Document::addAlternate()` / `addAlternatesFromRoute()` put hreflang `<link>` tags (and
+   `x-default`) in the `<head>`. See the
+   [Document Guide](Pramnos_Document_Output_Guide.md#hreflang-alternates). Still to come: the
+   `Hreflang` registry (`group()`/`resolver()`/`singleLanguage()`, `app/hreflang.php`) for a
+   database-backed page the router cannot derive alternates for, and `Document::$robots`
+   consolidating the 9 scattered `header('X-Robots-Tag…')`/`<meta name="robots">` call sites
+   named in §1.
 4. The sitemap registry, with the route groups as its first provider — and the group verification
-   from §6.
+   from §6. Not started.
