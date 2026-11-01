@@ -14,34 +14,6 @@ live in the [Changelog](version-history/index.md); this page tracks what is
 > *why* and what "done" requires. Anything touching live authentication is
 > verified in a real application before it is merged.
 
-## Search engines
-
-### hreflang, and a sitemap
-
-Under design, written up separately in **[hreflang and Sitemaps — design](Hreflang-And-Sitemap-Design.md)**.
-
-Neither exists. The framework has a full language system and no way for a page to say which URL is
-its equivalent in another language; there is no sitemap generator, route or `<link rel="sitemap">`.
-`robots` has no home either — it is set in several places by different mechanisms (headers,
-meta tags in individual controllers and views) and has no `Document` property. The generated
-`robots.txt` carries a `Sitemap:` line only when the `sitemap_url` setting names one or a
-`sitemap.xml` file exists in the web root.
-
-They are one piece of work rather than two, because the same declaration has to serve both: if a
-sitemap and a page head disagree about which pages are translations of each other, Google discards
-the declaration. And a controller cannot be the place it is declared, because no controller runs
-when a sitemap is generated.
-
-**Done requires:** deciding whether hreflang is delivered in the head, in the sitemap, or both
-under the all-or-nothing rule for language groups; localized route groups, which make reciprocity
-structural and are available because `Routing\Route` already compiles through Symfony; and a
-sitemap generator that shards, since the protocol caps a file at 50,000 URLs and the sites this is
-for have more pages than that.
-
-The design page carries the requirements taken from an application that already does this in
-production across five locales, what its implementation gets wrong, and the conflict between a
-lean sitemap and sitemap-delivered hreflang.
-
 ## Ask AI
 
 ### Voice: speaking a question and hearing the answer

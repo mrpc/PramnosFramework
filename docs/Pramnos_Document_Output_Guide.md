@@ -804,8 +804,7 @@ a broken registration should be able to fatal a page over.
 
 This and `addAlternatesFromRoute()` are independent: a page is covered by whichever mechanism
 fits — a localized route group when the router already knows the URLs, this registry for
-everything else. See [hreflang and sitemaps — design](Hreflang-And-Sitemap-Design.md) for how
-both feed the sitemap once it exists.
+everything else. Both also feed the sitemap automatically — see [Sitemap](#sitemap) below.
 
 ### Robots
 
@@ -825,6 +824,56 @@ redirect — and keep their own `header('X-Robots-Tag: …')` call for exactly t
 no `Document` there for `setRobots()` to set anything on. This property is the home the design
 gives the concept ([hreflang and sitemaps — design](Hreflang-And-Sitemap-Design.md) §1) for every
 page that *does* render through one — new code should reach for `setRobots()`, not `header()`.
+
+### Sitemap
+
+`php pramnos sitemap:generate` writes `sitemap.xml` from three sources — one that needs a new
+declaration, two that don't:
+
+```php
+// app/sitemap.php
+use Pramnos\Html\Sitemap;
+
+Sitemap::provider('ads', function (): \Generator {
+    foreach (Ad::query()->where('published', true)->cursor() as $ad) {
+        yield ['loc' => URL . 'ads/' . $ad->slug, 'lastmod' => $ad->updated_at];
+    }
+});
+```
+
+A provider is a generator — two thousand pages stream to the file, never buffered in memory
+first — and decides **entirely on its own** which pages belong; the framework offers no `latest
+N` / `changed since` shape, because that selection is the application's knowledge, not the
+framework's.
+
+The two sources that need nothing new: every
+[localized route group](Pramnos_Routing_Guide.md#localized-route-groups) in a route file passed
+with `--routes`, and every hand-declared [`Hreflang::group()`](#hreflang-alternates) — "one
+declaration, two consumers," the same promise the `<head>` already keeps. A `resolver()`- or
+`singleLanguage()`-covered page is not auto-included: a resolver needs params the generator
+cannot enumerate, which is exactly why `Sitemap::provider()` exists.
+
+Each entry yields `loc` (required, absolute URL) plus optional `lastmod`, `changefreq`,
+`priority`, and `alternates` (`locale => URL`) for hreflang delivered inside the sitemap itself.
+A group's reciprocity is checked at generation time: if an entry names an alternate URL that
+isn't itself listed anywhere in the sitemap, generation still succeeds but prints a warning
+naming it — Google already discards a non-reciprocal set's hreflang on its own, so failing the
+whole sitemap over it would cost more than it saves.
+
+Past 50,000 URLs (or 50MB), the output shards into `sitemap-1.xml`, `sitemap-2.xml`, … with
+`sitemap.xml` becoming an index that points at them; under the limit, `sitemap.xml` is an
+ordinary `<urlset>` on its own. Every run rewrites every shard from scratch — wholesale, not
+incremental — and deletes any shard a previous, larger run left behind that this one no longer
+needs.
+
+```bash
+php pramnos sitemap:generate                                  # providers + Hreflang groups only
+php pramnos sitemap:generate --routes=src/Api/routes.php      # + every localized route group in it
+php pramnos sitemap:generate --output=www/sitemap.xml --base-url=https://example.com
+```
+
+`--base-url` defaults to the `site_url` setting, then the `sURL` constant. See the
+[Console Guide](Pramnos_Console_Guide.md) for the full option list.
 
 ### Escaping: what the document escapes for you, and what it does not
 

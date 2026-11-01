@@ -8,9 +8,10 @@ use_cases:
 
 # hreflang and sitemaps — design
 
-**Status:** design, partially implemented. Localized route groups, `Document` alternates and the
-`Hreflang` registry (steps 10.2–3) have shipped; the `Sitemap` registry and `Document::$robots`
-have not.
+**Status:** implemented. Localized route groups, `Document` alternates, the `Hreflang` registry,
+`Document::$robots` and the `Sitemap` registry have all shipped (steps 10.2–10.4). What remains
+is the §5 development-mode warning noted at the end of step 10.4, which needs
+`Document::$excludeFromSitemap` — not built.
 **Last updated:** 1 November 2026
 
 Two features that look separate and are not. They are written up together because the same
@@ -245,8 +246,13 @@ as the model.
    generation time.
 2. ~~**How a provider expresses selection**~~ — **decided:** entirely the application's
    criterion. The framework does not offer a `latest N` / `changed since` shape.
-3. **Sharding and the sitemap index** — still open. How the generator names shards, and whether
-   the index is regenerated wholesale or incrementally.
+3. ~~**Sharding and the sitemap index**~~ — **decided:** wholesale regeneration — every run
+   rewrites every shard from scratch, numbered in the order entries are produced
+   (`sitemap-1.xml`, `sitemap-2.xml`, …), deleting any a previous, larger run left behind. No
+   incremental diffing: rewriting a few MB of XML is cheap, and the complexity of tracking which
+   URL lives in which shard across runs isn't worth it for a cost that isn't real. A site under
+   the limit gets one plain `sitemap.xml`, no index — the index only exists once sharding is
+   actually needed.
 4. ~~**`Document::$robots`**~~ — **decided: in scope**, together with this work — shipped, see
    step 10.3 below for the scope the migration actually covers.
 
@@ -275,7 +281,24 @@ as the model.
    binary image, a redirect with no body), so there was nothing for `setRobots()` to set
    anything on. They keep their own `header()` call, correctly — `Document::$robots` is the home
    the concept gets for pages that *do* render through one, not a forced migration of every
-   existing call site. Still to come: the §5 development-mode warning for a controller override
-   without a matching sitemap exclusion, which needs the sitemap to exist first.
+   existing call site.
+4. **The sitemap registry — shipped.** `Pramnos\Html\Sitemap::provider()`, loaded from
+   `app/sitemap.php` the same way as the `Hreflang`/`Search` registries, for a page whose URLs
+   are the application's own knowledge to enumerate. `php pramnos sitemap:generate` combines it
+   with two sources that need no new declaration — every localized route group in a `--routes`
+   file, and every hand-declared `Hreflang::group()` — so "one declaration, two consumers" now
+   covers the sitemap too. `Pramnos\Html\SitemapWriter` streams the XML, shards past 50,000
+   URLs/50MB with an index, and checks §6's all-or-nothing rule at generation time (a warning,
+   not a failure, when an alternate is named but never itself listed). See the
+   [Document Guide](Pramnos_Document_Output_Guide.md#sitemap) and the
+   [Console Guide](Pramnos_Console_Guide.md).
+
+   **Still to come, and explicitly out of scope here:** the §5 development-mode warning for a
+   controller override without a matching sitemap exclusion — it needs
+   `Document::$excludeFromSitemap`, which does not exist. The sitemap generator reads *declared*
+   route groups and registered providers; it has no way to know, from a static route or group
+   declaration alone, that a particular request's controller overrode its alternates without
+   excluding itself from the sitemap — that check can only run inside a request, which is exactly
+   what §5 describes and this step does not build.
 4. The sitemap registry, with the route groups as its first provider — and the group verification
    from §6. Not started.

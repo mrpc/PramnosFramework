@@ -57,6 +57,7 @@ Commands are grouped by a `namespace:` prefix that reflects what they act on:
 | `messages:` | Mass-message delivery | `messages:dispatch` |
 | `mcp:` | The framework's MCP server | `mcp:serve`, `mcp:call`, `mcp:token` |
 | `api:` | API documentation | `api:docs` |
+| `sitemap:` | Sitemap generation ([guide](Pramnos_Document_Output_Guide.md#sitemap)) | `sitemap:generate` |
 | `theme:` | Palette tokens | `theme:build` |
 | `pagecache:` | Full-page cache | `pagecache:purge` |
 | `broadcast:` | WebSocket broadcasting server | `broadcast:serve` |
@@ -475,6 +476,7 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 | `debug:status` | Show the debug configuration (APP_DEBUG, Xdebug, port 9003) | — |
 | `debug:token` | Issue a signed token that opens the debug toolbar for one browser | `--ttl`, `--url/-u` |
 | `api:docs` | Generate an OpenAPI document from `#[Route]` controllers (and RapiDoc HTML) | `--controllers`, `--namespace`, `--routes`, `--output`, `--title`, `--api-version`, `--description`, `--server` (repeatable), `--overrides`, `--allow-empty`, `--no-html` |
+| `sitemap:generate` | Generate `sitemap.xml` from localized route groups, `Hreflang::group()` declarations and registered `Sitemap::provider()`s | `--routes`, `--output`, `--base-url`, `--allow-empty` |
 | `mcp:serve` | Start an MCP server on stdio for an AI assistant | `--log` |
 | `mcp:call [tool]` | Call one MCP tool and print what it returns; omit the tool to list them | `--json`, `--raw` |
 
