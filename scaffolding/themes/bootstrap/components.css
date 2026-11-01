@@ -2208,3 +2208,31 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-tour-next { border: 0; background: var(--pf-accent); color: var(--pf-accent-fg); font-weight: 600; }
 .pf-tour-next:hover { background: color-mix(in oklab, var(--pf-accent) 88%, #000); }
 @media (prefers-reduced-motion: reduce) { .pf-tour-glow { transition: none; } }
+
+/* ── pf-companion.js: a floating companion dock ────────────────────────────────────────────────
+   Shape and positioning only — no pose-specific styling, deliberately: what a pose looks like is
+   the application's own stylesheet reacting to [data-pose="…"], not this file's business. */
+.pf-companion-dock {
+    position: fixed; z-index: 80; width: 56px; height: 56px; cursor: pointer;
+    transition: opacity .3s ease, transform .3s ease;
+}
+.pf-companion-dock--top-left { top: 16px; left: 16px; }
+.pf-companion-dock--top-right { top: 16px; right: 16px; }
+.pf-companion-dock--bottom-left { bottom: 16px; left: 16px; }
+.pf-companion-dock--bottom-right { bottom: 16px; right: 16px; }
+.pf-companion-dock[data-pf-companion-activity="away"] { opacity: .55; }
+.pf-companion-dock .pf-assistant-avatar { width: 100%; height: 100%; }
+@media (prefers-reduced-motion: reduce) { .pf-companion-dock { transition: none; } }
+
+/* pf-companion-debug.js: a generic preview panel for whatever is mounted. */
+.pf-companion-debug-panel {
+    position: fixed; z-index: 95; bottom: 16px; left: 16px; width: min(280px, calc(100vw - 32px));
+    padding: 12px; border-radius: var(--pf-radius-lg); border: 1px solid var(--pf-line);
+    background: var(--pf-surface); color: var(--pf-fg); box-shadow: var(--pf-pop-shadow);
+    font-size: 0.8rem;
+}
+.pf-companion-debug-preview { width: 96px; height: 96px; margin: 0 auto 10px; }
+.pf-companion-debug-states, .pf-companion-debug-poses { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.pf-companion-debug-panel button { padding: 4px 10px; font-size: 0.75rem; border-radius: 999px; border: 1px solid var(--pf-line); background: transparent; color: var(--pf-fg); cursor: pointer; }
+.pf-companion-debug-panel button:hover { background: var(--pf-subtle); }
+.pf-companion-debug-panel input[type="text"] { width: 100%; padding: 4px 8px; margin-bottom: 6px; border: 1px solid var(--pf-line); border-radius: var(--pf-radius); background: var(--pf-surface); color: var(--pf-fg); font-size: 0.75rem; }
