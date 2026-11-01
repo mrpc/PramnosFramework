@@ -36,10 +36,12 @@ minute spoken — costs ten to twenty times the text answer itself. Spoken local
 
 **Phases:**
 
-1. **Dictation and read-aloud.** A microphone button in the composer and a "read it" button on
-   each answer, in the page and the SPA component, behind a feature setting. Transcription and
-   speech in the browser (Web Speech API, `speechSynthesis`). No server side. The page has to
-   say that Chrome's recognition sends the audio to Google, and Firefox has none.
+1. ~~**Dictation and read-aloud.**~~ — **shipped**: `llm.voice`, `pf-voice.js` +
+   `pf-speech-sanitizer.js` + `pf-voice-fillers.js` ([guide](Pramnos_LLM_Analyst_Guide.md#voice)).
+   Also already covers part of phase 3 below: barge-in (an interrupt word stops the assistant
+   instantly, with its own voice filtered out of the microphone first) and gender-aware pitch.
+   Only the vanilla-JS chat page has it; an application's own SPA component still wires its own
+   mic/read buttons to the same scripts.
 2. **Transcription and speech on the server**, each provider a setting the way model providers
    are: `browser`, `api` (an OpenAI-compatible `/audio/transcriptions` and `/audio/speech`, through
    the existing transport, logged and priced in the call log) or `local` (whisper.cpp or
@@ -55,8 +57,8 @@ A speech-to-speech model can later sit in front of this as the voice only, with 
 hands each question to the assistant, if an application needs lower latency and accepts the cost.
 Nothing above is thrown away by that.
 
-**Done requires:** each phase in the page and the SPA, documented in the LLM guide, with tests for
-the endpoint, limits, consent and call-log entries of phase 2.
+**Done requires:** phases 2 and 3, each in the page and the SPA, documented in the LLM guide,
+with tests for the endpoint, limits, consent and call-log entries of phase 2.
 
 ---
 

@@ -4,6 +4,7 @@ use_cases:
   - Letting the AI explain, in plain words, a change in the code behind "it worked yesterday"
   - Giving the analyst its own SQL, files to download and the application's figures
   - Keeping personal data out of what the analyst reads
+  - Adding a microphone and read-aloud to the Ask AI page
 ---
 
 # The administrators' analyst
@@ -186,6 +187,62 @@ calls `stylesheet()` (the conversations dock does). A stylesheet on this server 
 `?v=` its file's time, so a cache or a CDN does not keep an old one.
 `pfAssistant.state('thinking')` sets the state from the application's own script, and
 `pf-assistant:state` (`detail.state`) is dispatched on the document at each change.
+
+## Voice
+
+```php
+'llm' => ['voice' => true],   // default false
+```
+
+Phase 1 of the Roadmap's voice design: a microphone and a "🔊 Listen" button, no server side —
+transcription and speech both run in the browser, over the native Web Speech API. Chrome carries
+recognition through Google's speech service; Firefox has none. Off by default; turning it on adds
+both buttons to the chat page in every theme and loads two scripts: `pf-speech-sanitizer.js`,
+then `pf-voice.js`.
+
+**`pf-voice.js`** — `window.PfVoice.createVoiceState()` returns one controller per page,
+shared by the mic and every answer's 🔊 button:
+
+- `startDictation(options)` / `stopDictation()` / `toggleDictation(options)` — `options.onTranscript`
+  gets `{text, fullFinal, interimPart}` as the reader speaks; a silence of 750ms stops it on its
+  own.
+- `speak(id, text, options)` / `stopSpeech()` / `toggleSpeech(id, text, options)` — `id` tells one
+  answer's button from another's, so pressing a second answer's 🔊 stops the first rather than
+  reading both at once.
+- **Barge-in**: while the assistant is speaking, an interrupt word ("σταμάτα", "στοπ",
+  "περίμενε") stops it instantly — `options.onBargeIn` gets what the reader said, with the
+  assistant's own voice (leaking back into the microphone from the speakers) filtered out first,
+  so it is never mistaken for a new question.
+- `assistantGender` (`'female'|'male'|'neutral'`) and the chosen synthesis voice persist in
+  `localStorage` under `pf-voice-gender` / `pf-voice-preferred` — framework-namespaced keys, not
+  an application's own, since two applications can share an origin.
+
+**`pf-speech-sanitizer.js`** — `window.PfSpeechSanitizer`, what makes the spoken text sound
+natural rather than spelled out or mis-gendered:
+
+- Strips Markdown and emoji, converts `%`/`&`/`+` to spoken words, and transliterates any
+  remaining Latin word to Greek phonetics — without it, a Greek voice spells `"WordPress"`
+  letter by letter.
+- `getAssistantTitle(gender)` / `getAssistantSelfIntroduction(gender, name)` — the grammatically
+  correct Greek title (ο/η βοηθός, or το AI for neutral) and a self-introduction carrying the
+  application's own assistant name.
+- `addGenderPhrases(malePhrase, femalePhrase, neutralPhrase)` — an application registers its own
+  assistant's stock self-description sentences (an LLM answers in the male-grammar form by
+  default; this is what corrects it for a female or neutral persona). The built-in title noun
+  ("ο βοηθός" → "η βοηθός"/"το AI") corrects on its own; anything more specific an application's
+  assistant says about itself needs its own entry.
+- `addTransliteration(pattern, replacement)` — an application's own domain vocabulary (product
+  names, metrics, jargon) spoken in Greek instead of spelled out; the built-in map carries only a
+  handful of universal terms (AI, API, OK, URL).
+
+**`pf-voice-fillers.js`** — `window.PfVoiceFillers.getRandomFiller(delayed)`, 93 immediate and
+34 delayed natural Greek phrases ("Μισό λεπτό να το κοιτάξω...") for a voice conversation to say
+while an answer is still being worked out, never immediately repeating itself.
+
+**Still to come** (Roadmap phases 2–3, not built): transcription and speech run on the server as
+a provider setting (`browser`/`api`/`local`), with size limits, consent and call-log entries; a
+continuous voice-conversation mode with end-of-speech detection and sentence-by-sentence
+streamed speech.
 
 ## What it reads
 
