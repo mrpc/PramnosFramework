@@ -12,13 +12,13 @@ namespace Pramnos\Llm\Chat\Web;
  *
  * ```php
  * 'chat' => [
- *     'name'        => 'Naya',
- *     'greeting'    => 'Hi, I am Naya. What shall we look at?',
- *     'placeholder' => 'Ask Naya…',
+ *     'name'        => 'Aria',
+ *     'greeting'    => 'Hi, I am Aria. What shall we look at?',
+ *     'placeholder' => 'Ask Aria…',
  *     'accent'      => '#7c3aed',
  *     'commands'    => [
  *         ['name' => 'week', 'says' => 'This week in numbers', 'text' => 'How did this week go, against last week?'],
- *         ['name' => 'help', 'says' => 'How Naya works', 'url' => '/help/naya'],
+ *         ['name' => 'help', 'says' => 'How Aria works', 'url' => '/help/aria'],
  *     ],
  * ],
  * ```

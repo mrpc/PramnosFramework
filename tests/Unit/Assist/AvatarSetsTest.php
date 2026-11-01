@@ -72,13 +72,13 @@ final class AvatarSetsTest extends TestCase
     public function testTheApplicationsSet(): void
     {
         // Arrange
-        $file = tempnam(sys_get_temp_dir(), 'naya');
-        file_put_contents($file, '<svg class="naya"></svg>');
+        $file = tempnam(sys_get_temp_dir(), 'aria');
+        file_put_contents($file, '<svg class="aria"></svg>');
         AvatarSets::register('kit', static fn (): string => '<i class="kit"></i>', null, ['greeting' => 900]);
 
         try {
             // Act
-            $this->analyst(['name' => 'Naya', 'avatar_set' => ['markup' => $file, 'css' => '/naya.css', 'states' => ['success' => 500]]]);
+            $this->analyst(['name' => 'Aria', 'avatar_set' => ['markup' => $file, 'css' => '/aria.css', 'states' => ['success' => 500]]]);
             $linkFirst = AvatarSets::stylesheet();
             $first  = AvatarSets::render('thinking');
             $second = AvatarSets::render();
@@ -93,10 +93,10 @@ final class AvatarSetsTest extends TestCase
         }
 
         // Assert
-        $this->assertSame('<link rel="stylesheet" href="/naya.css">', $linkFirst, 'to put before a button; the picture then does not link it again');
+        $this->assertSame('<link rel="stylesheet" href="/aria.css">', $linkFirst, 'to put before a button; the picture then does not link it again');
         $this->assertStringStartsWith('<span class="pf-assistant-avatar pf-assistant--thinking" data-state="thinking"', $first);
-        $this->assertStringContainsString('<svg class="naya"></svg></span>', $first, 'its markup, from the file');
-        $this->assertStringContainsString('aria-label="Naya"', $first);
+        $this->assertStringContainsString('<svg class="aria"></svg></span>', $first, 'its markup, from the file');
+        $this->assertStringContainsString('aria-label="Aria"', $first);
         $this->assertStringContainsString('&quot;success&quot;:500', $first, 'its own duration');
         $this->assertStringNotContainsString('<link', $second, 'the stylesheet once a page');
         $this->assertStringContainsString('<i class="kit"></i>', $named);
@@ -115,7 +115,7 @@ final class AvatarSetsTest extends TestCase
     public function testAPictureDrawnAsDataLeavesTheStylesheetToThePage(): void
     {
         // Arrange
-        $this->analyst(['avatar_set' => ['markup' => '<svg class="naya"></svg>', 'css' => '/naya.css']]);
+        $this->analyst(['avatar_set' => ['markup' => '<svg class="aria"></svg>', 'css' => '/aria.css']]);
 
         // Act
         $data = AvatarSets::render('idle', 32, '', false);
@@ -124,7 +124,7 @@ final class AvatarSetsTest extends TestCase
 
         // Assert
         $this->assertStringStartsWith('<span class="pf-assistant-avatar', $data, 'data: no link');
-        $this->assertSame('<link rel="stylesheet" href="/naya.css">', $page, 'the page still gets it');
+        $this->assertSame('<link rel="stylesheet" href="/aria.css">', $page, 'the page still gets it');
         $this->assertStringNotContainsString('<link', $next, 'and once');
     }
 
@@ -136,16 +136,16 @@ final class AvatarSetsTest extends TestCase
     {
         // Arrange
         $root = sys_get_temp_dir() . '/pfavatar-' . bin2hex(random_bytes(4));
-        mkdir($root . '/naya', 0777, true);
-        file_put_contents($root . '/naya/naya.css', '.naya{}');
-        touch($root . '/naya/naya.css', 1700000000);
+        mkdir($root . '/aria', 0777, true);
+        file_put_contents($root . '/aria/aria.css', '.aria{}');
+        touch($root . '/aria/aria.css', 1700000000);
         $kept = $_SERVER['DOCUMENT_ROOT'] ?? null;
         $_SERVER['DOCUMENT_ROOT'] = $root;
         $links = [];
 
         try {
             // Act
-            foreach (['/naya/naya.css', 'https://cdn.example.com/naya.css', '/naya/naya.css?v=7', '/naya/missing.css'] as $css) {
+            foreach (['/aria/aria.css', 'https://cdn.example.com/aria.css', '/aria/aria.css?v=7', '/aria/missing.css'] as $css) {
                 AvatarSets::reset();
                 $this->analyst(['avatar_set' => ['markup' => '<i></i>', 'css' => $css]]);
                 $links[] = AvatarSets::stylesheet();
@@ -157,10 +157,10 @@ final class AvatarSetsTest extends TestCase
 
         // Assert
         $this->assertSame([
-            '<link rel="stylesheet" href="/naya/naya.css?v=1700000000">',
-            '<link rel="stylesheet" href="https://cdn.example.com/naya.css">',
-            '<link rel="stylesheet" href="/naya/naya.css?v=7">',
-            '<link rel="stylesheet" href="/naya/missing.css">',
+            '<link rel="stylesheet" href="/aria/aria.css?v=1700000000">',
+            '<link rel="stylesheet" href="https://cdn.example.com/aria.css">',
+            '<link rel="stylesheet" href="/aria/aria.css?v=7">',
+            '<link rel="stylesheet" href="/aria/missing.css">',
         ], $links);
     }
 }

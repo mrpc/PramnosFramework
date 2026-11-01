@@ -112,20 +112,20 @@ The application brands the page in `'llm' => ['chat' => […]]`, and the analyst
 
 ```php
 'chat' => [
-    'name'        => 'Naya',                                   // over each answer
-    'greeting'    => 'Hi, I am Naya. What shall we look at?',  // over the empty composer
-    'placeholder' => 'Ask Naya…',
+    'name'        => 'Aria',                                   // over each answer
+    'greeting'    => 'Hi, I am Aria. What shall we look at?',  // over the empty composer
+    'placeholder' => 'Ask Aria…',
     'accent'      => '#7c3aed',                                // the send button, focus ring, chosen command
     'suggestions' => ['How did this week go?'],
     'commands'    => [
         ['name' => 'week', 'says' => 'This week in numbers', 'text' => 'How did this week go, against last week?'],
-        ['name' => 'help', 'says' => 'How Naya works', 'url' => '/help/naya'],
+        ['name' => 'help', 'says' => 'How Aria works', 'url' => '/help/aria'],
     ],
 ],
 ```
 
 Without a `greeting`, an assistant the application named (`name`) introduces itself: "Hi, I am
-Naya. How can I help?". Without a name either, the line is "How can I help?". The framework's
+Aria. How can I help?". Without a name either, the line is "How can I help?". The framework's
 default names ("Ask", "Analyst") belong to a feature, not a persona, so they introduce nobody
 (`ChatLook::greeting()`). Without an `accent`, the theme's primary colour is used. The page's own
 tools (⚙) sit in the top corner of the conversation column.

@@ -329,7 +329,7 @@ class PageAndPanelTest extends LlmTestCase
         try {
             // Act
             $plain = [\Pramnos\Llm\Analyst\Analyst::name(), \Pramnos\Llm\Analyst\Analyst::avatar(), \Pramnos\Llm\Analyst\Analyst::mentions()];
-            $app->applicationInfo['llm'] = ['analyst' => ['name' => 'Naya', 'avatar' => '/img/ai.svg', 'mentions' => ['NAYA', 'ναγια', 'not a word', '']]];
+            $app->applicationInfo['llm'] = ['analyst' => ['name' => 'Aria', 'avatar' => '/img/ai.svg', 'mentions' => ['ARIA', 'αρια', 'not a word', '']]];
             $named = [\Pramnos\Llm\Analyst\Analyst::name(), \Pramnos\Llm\Analyst\Analyst::avatar(), \Pramnos\Llm\Analyst\Analyst::mentions()];
             $panel = Panel::render(true, '/admin/Ai');
             (new \ReflectionProperty(Page::class, 'screen'))->setValue(null, 'ai');
@@ -340,15 +340,15 @@ class PageAndPanelTest extends LlmTestCase
 
         // Assert
         $this->assertSame(['Ask', null, ['ask']], $plain);
-        $this->assertSame(['Naya', '/img/ai.svg', ['ask', 'naya', 'ναγια']], $named, 'lower-case, each a word, once');
-        $this->assertStringContainsString('aria-label="Ask Naya about this page"', $panel);
+        $this->assertSame(['Aria', '/img/ai.svg', ['ask', 'aria', 'αρια']], $named, 'lower-case, each a word, once');
+        $this->assertStringContainsString('aria-label="Ask Aria about this page"', $panel);
         $this->assertStringContainsString('<img src="/img/ai.svg" alt=""', $panel, 'its picture on the button, in the living picture\'s element');
-        $this->assertStringContainsString('Naya</a>', $panel);
-        $this->assertStringContainsString('data-say-failed="Naya could not be opened here."', $panel);
-        $this->assertStringContainsString('title="Open in Naya"', $panel);
+        $this->assertStringContainsString('Aria</a>', $panel);
+        $this->assertStringContainsString('data-say-failed="Aria could not be opened here."', $panel);
+        $this->assertStringContainsString('title="Open in Aria"', $panel);
         $this->assertStringNotContainsString('>Ask<', $panel, 'not Ask anywhere it shows');
         $this->assertStringContainsString('src="/img/ai.svg"', $onAsk);
-        $this->assertStringEndsWith('Naya</a>', $onAsk);
+        $this->assertStringEndsWith('Aria</a>', $onAsk);
     }
 
     /**

@@ -194,7 +194,7 @@ class ChatPageTest extends LlmTestCase
      * examples under the composer; an open conversation has its title instead, and no greeting.
      * In every theme, the same hooks the shared stylesheet styles.
      *
-     * Ask is "Naya" in one application and the analyst in another; a page that said "Ask AI" in
+     * Ask is "Aria" in one application and the analyst in another; a page that said "Ask AI" in
      * the framework's blue over a list of buttons would be nobody's.
      */
     #[DataProvider('databases')]
@@ -203,8 +203,8 @@ class ChatPageTest extends LlmTestCase
         // Arrange
         $this->connectDatabase($type, $host, $port);
         $this->configure(['chat' => [
-            'greeting'    => 'Hi, I am Naya.',
-            'placeholder' => 'Ask Naya…',
+            'greeting'    => 'Hi, I am Aria.',
+            'placeholder' => 'Ask Aria…',
             'accent'      => '#7c3aed',
             'suggestions' => ['What did we spend this week?'],
             'commands'    => [['name' => 'week', 'says' => 'This week', 'text' => 'How did this week go?']],
@@ -224,8 +224,8 @@ class ChatPageTest extends LlmTestCase
 
             // Assert — empty: the greeting, the brand, the commands, the examples after the composer
             $this->assertMatchesRegularExpression('/<div class="pf-chat pf-chat-empty[^"]*" style="--pf-chat-accent:#7c3aed"/', $empty, $theme);
-            $this->assertStringContainsString('<h1>Hi, I am Naya.</h1>', $empty, $theme);
-            $this->assertStringContainsString('placeholder="Ask Naya…"', $empty, $theme);
+            $this->assertStringContainsString('<h1>Hi, I am Aria.</h1>', $empty, $theme);
+            $this->assertStringContainsString('placeholder="Ask Aria…"', $empty, $theme);
             $this->assertStringContainsString('&quot;name&quot;:&quot;week&quot;', $empty, $theme . ': the application\'s command');
             $this->assertStringContainsString('&quot;name&quot;:&quot;scheduled&quot;', $empty, $theme . ': beside the page\'s');
             $this->assertGreaterThan(strpos($empty, 'data-pf-chat-form'), strpos($empty, 'data-pf-chat-suggestion'), $theme . ': the examples under the composer');
@@ -241,11 +241,11 @@ class ChatPageTest extends LlmTestCase
         // not name (the framework's own "Ask") does not, and the line is a plain one
         $_GET = [];
         \Pramnos\Http\Request::resetInstance();
-        $this->configure(['chat' => ['name' => 'Naya']]);
+        $this->configure(['chat' => ['name' => 'Aria']]);
         $named = (string) $this->page()->display();
         $this->configure(['chat' => []]);
         $plain = (string) $this->page()->display();
-        $this->assertStringContainsString('<h1>Hi, I am Naya. How can I help?</h1>', $named);
+        $this->assertStringContainsString('<h1>Hi, I am Aria. How can I help?</h1>', $named);
         $this->assertStringContainsString('<h1>How can I help?</h1>', $plain);
         // A person's own Ask offers nobody to share with: the page gives no address to ask, and
         // asked anyway, the action answers nobody

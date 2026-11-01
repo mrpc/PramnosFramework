@@ -294,7 +294,7 @@ class ConversationsPageTest extends TestCase
         $this->boot($type, $host, $port, $user);
         $this->team();
         $kept = Application::getInstance()->applicationInfo['llm'] ?? null;
-        Application::getInstance()->applicationInfo['llm'] = ['analyst' => ['avatar_set' => ['markup' => '<svg class="naya"></svg>', 'css' => '/naya.css']]];
+        Application::getInstance()->applicationInfo['llm'] = ['analyst' => ['avatar_set' => ['markup' => '<svg class="aria"></svg>', 'css' => '/aria.css']]];
         \Pramnos\Assist\AvatarSets::reset();
         RequestIdentity::seal($this->user('nikos'));
 
@@ -305,9 +305,9 @@ class ConversationsPageTest extends TestCase
         \Pramnos\Assist\AvatarSets::reset();
 
         // Assert
-        $this->assertStringStartsWith('<link rel="stylesheet" href="/naya.css"><div class="pf-conv-dock"', $drawn, 'on the page, before the dock');
-        $this->assertSame(1, substr_count($drawn, 'naya.css'), 'not again inside the props');
-        $this->assertStringContainsString('&lt;svg class=\\&quot;naya\\&quot;&gt;', $drawn, 'the picture itself is in the props');
+        $this->assertStringStartsWith('<link rel="stylesheet" href="/aria.css"><div class="pf-conv-dock"', $drawn, 'on the page, before the dock');
+        $this->assertSame(1, substr_count($drawn, 'aria.css'), 'not again inside the props');
+        $this->assertStringContainsString('&lt;svg class=\\&quot;aria\\&quot;&gt;', $drawn, 'the picture itself is in the props');
     }
 
     /**

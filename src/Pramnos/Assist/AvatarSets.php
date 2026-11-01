@@ -21,13 +21,13 @@ namespace Pramnos\Assist;
  *
  * ```php
  * 'llm' => ['analyst' => ['avatar_set' => [
- *     'markup' => APP_PATH . '/themes/admin/assets/naya/naya.svg',  // a file, a string, or a callable
- *     'css'    => '/themes/admin/assets/naya/naya.css',
+ *     'markup' => APP_PATH . '/themes/admin/assets/aria/aria.svg',  // a file, a string, or a callable
+ *     'css'    => '/themes/admin/assets/aria/aria.css',
  *     'states' => ['success' => 1800, 'greeting' => 2400],          // ms, for the states that end by themselves
  * ]]],
  *
- * AvatarSets::register('naya', $markup, '/assets/naya.css', ['greeting' => 2400]);
- * 'llm' => ['analyst' => ['avatar_set' => 'naya']],
+ * AvatarSets::register('aria', $markup, '/assets/aria.css', ['greeting' => 2400]);
+ * 'llm' => ['analyst' => ['avatar_set' => 'aria']],
  * ```
  *
  * Without one it is the framework's own, `pf`: a round drop with two eyes, in the theme's accent,

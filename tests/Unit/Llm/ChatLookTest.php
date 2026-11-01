@@ -81,14 +81,14 @@ final class ChatLookTest extends TestCase
     public function testTheGreetingIntroducesOnlyANamedAssistant(): void
     {
         // Arrange / Act
-        $own      = ChatLook::greeting(['greeting' => ' Πώς μπορώ να βοηθήσω; ', 'name' => 'Naya']);
-        $named    = ChatLook::greeting(['name' => 'Naya']);
+        $own      = ChatLook::greeting(['greeting' => ' Πώς μπορώ να βοηθήσω; ', 'name' => 'Aria']);
+        $named    = ChatLook::greeting(['name' => 'Aria']);
         $unnamed  = ChatLook::greeting(['name' => '  ']);
         $nothing  = ChatLook::greeting([]);
 
         // Assert
         $this->assertSame('Πώς μπορώ να βοηθήσω;', $own, 'the application\'s line wins');
-        $this->assertSame('Hi, I am Naya. How can I help?', $named);
+        $this->assertSame('Hi, I am Aria. How can I help?', $named);
         $this->assertSame('', $unnamed, 'a blank name is no name');
         $this->assertSame('', $nothing, 'the page then says its plain line');
     }

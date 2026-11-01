@@ -40,7 +40,7 @@ final class Analyst
 
     /**
      * The analyst's name, wherever the administration shows it — the header's button, the side
-     * panel, the Ask page, the conversations: `'llm' => ['analyst' => ['name' => 'Naya']]`, or
+     * panel, the Ask page, the conversations: `'llm' => ['analyst' => ['name' => 'Aria']]`, or
      * `Ask`. The model is told it too.
      */
     public static function name(): string
@@ -53,7 +53,7 @@ final class Analyst
 
     /**
      * The words that call on the analyst after `@` in a conversation, lower-case: `ask` always,
-     * its name, and `'llm' => ['analyst' => ['mentions' => ['naya']]]` — each a word of letters,
+     * its name, and `'llm' => ['analyst' => ['mentions' => ['aria']]]` — each a word of letters,
      * digits and `_`.
      *
      * @return list<string>

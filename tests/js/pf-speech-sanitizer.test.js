@@ -53,8 +53,8 @@ test('getAssistantTitle picks the grammatically correct Greek title per gender',
 });
 
 test('getAssistantSelfIntroduction includes the given name, grammatically agreeing', () => {
-    assert.match(sanitizer.getAssistantSelfIntroduction('female', 'Naya'), /η βοηθός σου στο Naya/);
-    assert.match(sanitizer.getAssistantSelfIntroduction('male', 'Naya'), /ο βοηθός σου στο Naya/);
+    assert.match(sanitizer.getAssistantSelfIntroduction('female', 'Aria'), /η βοηθός σου στο Aria/);
+    assert.match(sanitizer.getAssistantSelfIntroduction('male', 'Aria'), /ο βοηθός σου στο Aria/);
     assert.match(sanitizer.getAssistantSelfIntroduction('neutral'), /σύστημα υποστήριξης/);
 });
 

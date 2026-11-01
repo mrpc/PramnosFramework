@@ -115,18 +115,18 @@ The analyst is called *Ask* unless the application gives it a name of its own:
 
 ```php
 'llm' => ['analyst' => [
-    'name'     => 'Naya',                     // the header's button, the side panel, the Ask page, the conversations
-    'mentions' => ['naya'],                   // words that call it after @ in a conversation, beside @Ask
+    'name'     => 'Aria',                     // the header's button, the side panel, the Ask page, the conversations
+    'mentions' => ['aria'],                   // words that call it after @ in a conversation, beside @Ask
     'avatar'   => '/themes/main/img/ai.svg',  // its picture beside the name
 ]],
 ```
 
 `Analyst::name()`, `mentions()` and `avatar()` read them, and every place the administration shows
 the analyst asks them: the header's button and the side panel (its tab, title, and what a screen
-reader hears — *Ask Naya about this page*), the Ask page's title, the conversation with it and its
+reader hears — *Ask Aria about this page*), the Ask page's title, the conversation with it and its
 *… is thinking*, the composer's `@` suggestion, and the *Open in …* card on an answer. In a
-conversation `@Ask`, `@Naya` and each mention call it, as a word of its own and ignoring case, and
-the mention is drawn as `@Naya`. Its conversation is kept as the bot `Ask` (`Ask::NAME`) whatever it
+conversation `@Ask`, `@Aria` and each mention call it, as a word of its own and ignoring case, and
+the mention is drawn as `@Aria`. Its conversation is kept as the bot `Ask` (`Ask::NAME`) whatever it
 is called; the JSON gives it a `displayName` and an `avatar`. The model is told its name, so it
 answers to it.
 
@@ -155,13 +155,13 @@ under `prefers-reduced-motion`. A set of the application's own is its markup and
 
 ```php
 'llm' => ['analyst' => ['avatar_set' => [
-    'markup' => APP_PATH . '/themes/admin/assets/naya/naya.svg',   // a file, the markup, or a callable
-    'css'    => '/themes/admin/assets/naya/naya.css',              // linked once a page
+    'markup' => APP_PATH . '/themes/admin/assets/aria/aria.svg',   // a file, the markup, or a callable
+    'css'    => '/themes/admin/assets/aria/aria.css',              // linked once a page
     'states' => ['success' => 1800, 'greeting' => 2400],           // ms, for those that end by themselves
 ]]],
 
-\Pramnos\Assist\AvatarSets::register('naya', $markup, '/assets/naya.css', ['greeting' => 2400]);
-'llm' => ['analyst' => ['avatar_set' => 'naya']],
+\Pramnos\Assist\AvatarSets::register('aria', $markup, '/assets/aria.css', ['greeting' => 2400]);
+'llm' => ['analyst' => ['avatar_set' => 'aria']],
 ```
 
 A plain picture (`avatar`) with no set is drawn in the same element and does not move.

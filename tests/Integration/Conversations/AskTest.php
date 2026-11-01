@@ -67,12 +67,12 @@ class AskTest extends TestCase
         // Arrange
         $app  = \Pramnos\Application\Application::getInstance();
         $kept = $app->applicationInfo['llm'] ?? null;
-        $app->applicationInfo['llm'] = ['analyst' => ['name' => 'Naya', 'mentions' => ['ναγια'], 'avatar' => '/img/ai.svg']];
+        $app->applicationInfo['llm'] = ['analyst' => ['name' => 'Aria', 'mentions' => ['αρια'], 'avatar' => '/img/ai.svg']];
 
         try {
             // Act
-            $called = array_map([Ask::class, 'called'], ['@Naya πόσοι;', '@ναγια πόσοι;', '@Ask πόσοι;', '@nayas', 'naya']);
-            $html   = Markdown::render('@NAYA πόσοι;', static fn (): ?string => null);
+            $called = array_map([Ask::class, 'called'], ['@Aria πόσοι;', '@αρια πόσοι;', '@Ask πόσοι;', '@arias', 'aria']);
+            $html   = Markdown::render('@ARIA πόσοι;', static fn (): ?string => null);
             $names  = [Ask::displayName(Ask::NAME), Ask::displayName('Jira')];
         } finally {
             $app->applicationInfo['llm'] = $kept;
@@ -80,8 +80,8 @@ class AskTest extends TestCase
 
         // Assert
         $this->assertSame([true, true, true, false, false], $called, 'its name, its mention, and Ask still');
-        $this->assertSame('<p><span class="pf-conv-mention pf-conv-mention-ask">@Naya</span> πόσοι;</p>', $html);
-        $this->assertSame(['Naya', 'Jira'], $names, 'only the analyst\'s conversation takes its name');
+        $this->assertSame('<p><span class="pf-conv-mention pf-conv-mention-ask">@Aria</span> πόσοι;</p>', $html);
+        $this->assertSame(['Aria', 'Jira'], $names, 'only the analyst\'s conversation takes its name');
     }
 
     /**
