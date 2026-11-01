@@ -139,7 +139,7 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false);
             <?php // The page's own tools, out of the way: a gear with whichever of them the reader has. ?>
             <?php if (!empty($this->settingsUrl) || $u['all'] !== '' || $u['reviews'] !== ''): ?>
                 <details class="pf-ask-gear">
-                    <summary aria-label="<?php echo $e(t('Ask page tools')); ?>" title="<?php echo $e(t('Ask page tools')); ?>" style="list-style:none;cursor:pointer">⚙</summary>
+                    <summary aria-label="<?php echo $e(t('Ask page tools')); ?>" title="<?php echo $e(t('Ask page tools')); ?>" style="list-style:none;cursor:pointer"><span class="pf-chat-gear">⚙</span></summary>
                     <ul class="<?php echo $c['card']; ?>">
                         <?php if (!empty($this->settingsUrl)): ?><li><a href="<?php echo $e($this->settingsUrl); ?>"><?php echo $e(t('Settings')); ?></a></li><?php endif; ?>
                         <?php if ($u['all'] !== ''): ?><li><a href="<?php echo $e($u['all']); ?>"><?php echo $e(t('Other people\'s Ask conversations')); ?></a></li><?php endif; ?>
@@ -267,7 +267,7 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false);
 
             <details data-pf-chat-memory>
 
-            <summary aria-label="<?php echo $e(t('Model, limits and memory')); ?>">⚙ <?php echo $e(t('Model, limits and memory')); ?></summary>
+            <summary aria-label="<?php echo $e(t('Model, limits and memory')); ?>"><span class="pf-chat-gear">⚙</span> <?php echo $e(t('Model, limits and memory')); ?></summary>
             <h2><?php echo $e(t('Model')); ?></h2>
             <p class="<?php echo $c['muted']; ?>"><?php echo $e(($limits['provider'] ?? '') . ' · ' . ($limits['model'] ?? '')); ?></p>
             <h2><?php echo $e(t('Limits')); ?></h2>

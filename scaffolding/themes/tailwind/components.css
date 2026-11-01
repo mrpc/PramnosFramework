@@ -2225,6 +2225,10 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-chat-answer th, .pf-chat-answer td { padding: 0.4em 0.6em; border: 1px solid var(--pf-line); text-align: left; }
 .pf-chat-answer th { background: var(--pf-subtle); font-weight: 600; }
 
+/* The gear glyph (⚙) renders high relative to its baseline in some fonts/OSes; nudged down
+   rather than left to default alignment, which drifted visibly against adjacent text. */
+.pf-chat-gear { display: inline-block; vertical-align: -0.08em; line-height: 1; }
+
 /* 👍, the note and 👎 under an answer, on one line: a theme's input is a block a row wide. */
 .pf-rating { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
 .pf-rating form { display: inline-flex !important; align-items: center; gap: 0.25rem; }
