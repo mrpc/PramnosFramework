@@ -2166,3 +2166,45 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-rating button:focus-visible { outline: 2px solid var(--pf-accent) !important; outline-offset: 2px; }
 .pf-rating button[aria-pressed="true"] { background: color-mix(in oklab, var(--pf-accent) 14%, transparent) !important; border-radius: var(--pf-radius); }
 .pf-rating input[type="text"] { display: inline-block; width: 14rem; height: auto; min-height: 0; padding: 0.25rem 0.5rem; font-size: 0.85rem; }
+
+/* ── pf-tour.js: a spotlight product tour ──────────────────────────────────────────────────────
+   Mechanism only — the steps and their text are an application's own (window.PfTour.start()).
+   Shape and layout on the shared tokens, like the rest of this file. */
+.pf-tour-backdrop { position: fixed; inset: 0; z-index: 90; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; background: transparent; cursor: default; }
+.pf-tour-dim { position: fixed; inset: 0; z-index: 91; width: 100%; height: 100%; pointer-events: none; }
+.pf-tour-dim-fill { fill: rgba(15, 23, 42, 0.72); }
+.pf-tour-glow {
+    position: fixed; z-index: 92; border-radius: 16px; border: 2px solid var(--pf-accent);
+    box-shadow: 0 0 24px color-mix(in oklab, var(--pf-accent) 60%, transparent);
+    pointer-events: none; transition: top .3s ease-out, left .3s ease-out, width .3s ease-out, height .3s ease-out;
+}
+.pf-tour-card {
+    z-index: 93; width: min(360px, calc(100vw - 16px)); padding: 16px; border-radius: var(--pf-radius-lg);
+    border: 1px solid var(--pf-line); background: var(--pf-surface); color: var(--pf-fg); box-shadow: var(--pf-pop-shadow);
+}
+.pf-tour-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--pf-line); }
+.pf-tour-badge { font-size: 0.75rem; font-weight: 600; color: var(--pf-muted); }
+.pf-tour-close { width: 1.75rem; height: 1.75rem; border: 0; border-radius: 999px; background: transparent; color: var(--pf-muted); cursor: pointer; }
+.pf-tour-close:hover, .pf-tour-close:focus-visible { background: var(--pf-subtle); color: var(--pf-fg); }
+.pf-tour-body { display: flex; gap: 12px; align-items: flex-start; margin: 12px 0; }
+.pf-tour-avatar { flex: none; width: 40px; }
+.pf-tour-avatar:empty { display: none; }
+.pf-tour-text { min-width: 0; }
+.pf-tour-title { margin: 0 0 4px; font-size: 1rem; font-weight: 700; }
+.pf-tour-desc { margin: 0; font-size: 0.8rem; color: var(--pf-muted); line-height: 1.5; }
+.pf-tour-dots { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 10px 0; }
+.pf-tour-dot { width: 8px; height: 6px; padding: 0; border: 0; border-radius: 999px; background: var(--pf-line); cursor: pointer; transition: width .2s, background .2s; }
+.pf-tour-dot-active { width: 22px; background: var(--pf-accent); }
+.pf-tour-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid var(--pf-line); }
+.pf-tour-speak { border: 0; background: transparent; color: var(--pf-muted); font-size: 0.8rem; cursor: pointer; padding: 4px 6px; border-radius: var(--pf-radius); }
+.pf-tour-speak:hover, .pf-tour-speak:focus-visible { background: var(--pf-subtle); color: var(--pf-fg); }
+.pf-tour-speak[aria-pressed="true"] { color: var(--pf-accent); font-weight: 600; }
+.pf-tour-nav { display: flex; gap: 6px; }
+.pf-tour-back, .pf-tour-next {
+    padding: 6px 12px; font-size: 0.8rem; border-radius: 999px; cursor: pointer;
+}
+.pf-tour-back { border: 1px solid var(--pf-line); background: transparent; color: var(--pf-fg); }
+.pf-tour-back:hover { background: var(--pf-subtle); }
+.pf-tour-next { border: 0; background: var(--pf-accent); color: var(--pf-accent-fg); font-weight: 600; }
+.pf-tour-next:hover { background: color-mix(in oklab, var(--pf-accent) 88%, #000); }
+@media (prefers-reduced-motion: reduce) { .pf-tour-glow { transition: none; } }
