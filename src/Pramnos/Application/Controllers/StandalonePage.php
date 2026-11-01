@@ -135,9 +135,7 @@ trait StandalonePage
 
             $theme->setContentType('login');
             $doc->title = $title;
-            if (!headers_sent()) {
-                header('X-Robots-Tag: noindex, nofollow');
-            }
+            $doc->setRobots('noindex, nofollow');
 
             $doc->addContent(
                 '<main class="pf-standalone" id="pramnos-standalone"' . $data

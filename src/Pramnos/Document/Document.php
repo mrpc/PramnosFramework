@@ -774,6 +774,42 @@ class Document extends \Pramnos\Framework\Base
     public $canonical = '';
 
     /**
+     * A robots directive for this page — `'noindex, nofollow'`, say — or `null` for none.
+     *
+     * `null`, not `'index, follow'`, is the default a page that never calls
+     * {@see setRobots()} gets: **absence** of a directive already means indexable, and
+     * stating one that matches the default would claim a decision nobody made. Rendering
+     * emits both the `<meta name="robots">` tag and the `X-Robots-Tag` header from this one
+     * value, so the two can no longer disagree the way the framework's scattered
+     * `header('X-Robots-Tag: …')` call sites could.
+     *
+     * Several framework-internal screens — `DevPanelController`, `Adminer`, the email
+     * tracking pixel, a redirect — build their response without ever constructing a
+     * `Document` at all, so this property gives *new* pages a home for the concept; it does
+     * not reach those.
+     *
+     * @var string|null
+     */
+    public $robots = null;
+
+    /**
+     * Set the robots directive for this page.
+     *
+     * ```php
+     * $doc->setRobots('noindex, nofollow');
+     * ```
+     *
+     * @param  string $directive
+     * @return Document
+     */
+    public function setRobots($directive)
+    {
+        $this->robots = (string) $directive;
+
+        return $this;
+    }
+
+    /**
      * Structured-data blocks to emit in the head.
      *
      * @var array<int, array<string, mixed>>
@@ -1218,6 +1254,26 @@ class Document extends \Pramnos\Framework\Base
             . $this->escapeHeadValue($defaultUrl) . '" />';
 
         return "\n        " . implode("\n        ", $parts);
+    }
+
+    /**
+     * The `<meta name="robots">` tag for {@see $robots}, or nothing at all when it is
+     * `null` or blank — the same "absent is not empty" contract as {@see metaTag()}.
+     *
+     * The matching `X-Robots-Tag` header is sent separately, from the same property,
+     * where the document type sends its other headers — a header cannot be added here,
+     * this method only builds body markup.
+     *
+     * @return string
+     */
+    protected function robotsHeadMarkup()
+    {
+        $directive = trim((string) $this->robots);
+        if ($directive === '') {
+            return '';
+        }
+
+        return "\n        " . '<meta name="robots" content="' . $this->escapeHeadValue($directive) . '" />';
     }
 
     /**

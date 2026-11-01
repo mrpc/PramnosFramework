@@ -143,6 +143,13 @@ class Html extends \Pramnos\Document\Document
                 $contentCharset = 'UTF-8';
             }
             header('Content-type: text/html; charset=' . $contentCharset);
+
+            // The X-Robots-Tag header and the <meta name="robots"> tag come from the same
+            // $robots value, so a page can no longer declare one and forget the other.
+            $robotsDirective = trim((string) $this->robots);
+            if ($robotsDirective !== '') {
+                header('X-Robots-Tag: ' . $robotsDirective);
+            }
         }
 
         $langShort = $lang->_('LangShort');
@@ -228,6 +235,10 @@ class Html extends \Pramnos\Document\Document
 
         // Which other languages this page exists in, from addAlternate() / addAlternatesFromRoute().
         $content .= $this->alternateHeadMarkup();
+
+        // Whether this page should be indexed, from setRobots() — the header for the same
+        // value was already sent above, before any output.
+        $content .= $this->robotsHeadMarkup();
 
         // What lets this page's own JavaScript call this application's own API.
         $content .= $this->csrfHeadMarkup();

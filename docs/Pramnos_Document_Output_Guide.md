@@ -807,12 +807,31 @@ fits — a localized route group when the router already knows the URLs, this re
 everything else. See [hreflang and sitemaps — design](Hreflang-And-Sitemap-Design.md) for how
 both feed the sitemap once it exists.
 
+### Robots
+
+```php
+$doc->setRobots('noindex, nofollow');
+```
+
+One call sets both the `<meta name="robots">` tag and the `X-Robots-Tag` header — from the same
+value, so the two can no longer disagree the way a page built with a hand-written `header()`
+call and a hand-written `<meta>` tag could. `$doc->robots` is `null` until `setRobots()` is
+called, and stays that way for a page that never calls it: **absence** of a directive already
+means indexable, so nothing is emitted rather than stating a default nobody decided.
+
+Several framework-internal screens build their response without ever constructing a `Document`
+at all — the DevPanel's own error pages, Adminer, the email open-tracking pixel, a tracked
+redirect — and keep their own `header('X-Robots-Tag: …')` call for exactly that reason: there is
+no `Document` there for `setRobots()` to set anything on. This property is the home the design
+gives the concept ([hreflang and sitemaps — design](Hreflang-And-Sitemap-Design.md) §1) for every
+page that *does* render through one — new code should reach for `setRobots()`, not `header()`.
+
 ### Escaping: what the document escapes for you, and what it does not
 
 Every value the document types put in the `<head>` — `title`, `description`, all six
-`og_*` slots, both meta-tag names and their values, the AMP `canonical`, and every hreflang
-alternate's locale and URL — is escaped when the page renders. You pass raw text; the renderer
-makes it safe.
+`og_*` slots, both meta-tag names and their values, the AMP `canonical`, every hreflang
+alternate's locale and URL, and the robots directive — is escaped when the page renders. You
+pass raw text; the renderer makes it safe.
 
 That matters because of *what* those values usually are: a record's name, operator-written
 copy, a title from the database — the strings least likely to be trusted, in the one part of the
