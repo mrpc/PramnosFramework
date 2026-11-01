@@ -2098,8 +2098,11 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-chat { --pf-chat-accent: var(--pf-accent); --pf-chat-width: 1100px; }
 .pf-chat .pf-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .pf-chat-main { position: relative; display: flex; flex-direction: column; min-height: 70vh; }
-/* The page's own tools (⚙) in the column's top corner, their menu opening towards the edge. */
-.pf-ask-gear { position: absolute; top: 0; right: 0; z-index: 10; }
+/* The page's own tools (⚙) in the column's top corner, their menu opening towards the edge.
+   12px, not 0: the nav/aside columns beside it pad their own content by the same 12px, and
+   main's own box shares their top edge (the row is align-items:flex-start) — 0 sat flush
+   against main's bare edge while they started 12px in, reading as two misaligned elements. */
+.pf-ask-gear { position: absolute; top: 12px; right: 12px; z-index: 10; }
 .pf-ask-gear > summary { list-style: none; cursor: pointer; }
 .pf-ask-gear > ul { position: absolute; right: 0; left: auto; margin: 4px 0 0; padding: 8px 12px; list-style: none; white-space: nowrap; }
 .pf-chat-messages { flex: 1 0 auto; }
