@@ -226,6 +226,9 @@ class Html extends \Pramnos\Document\Document
         // before and meant every application escaped the URL itself or did not.
         $content .= $this->seoHeadMarkup();
 
+        // Which other languages this page exists in, from addAlternate() / addAlternatesFromRoute().
+        $content .= $this->alternateHeadMarkup();
+
         // What lets this page's own JavaScript call this application's own API.
         $content .= $this->csrfHeadMarkup();
 

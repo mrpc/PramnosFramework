@@ -781,6 +781,73 @@ class Document extends \Pramnos\Framework\Base
     protected $structuredData = array();
 
     /**
+     * hreflang alternates for this page, keyed by locale.
+     *
+     * Emitted only when something was actually added — {@see addAlternate()},
+     * {@see addAlternatesFromRoute()} — never collected from ambient state, so
+     * calling neither leaves the head exactly as it was before this existed.
+     *
+     * @var array<string, string>
+     */
+    protected $alternates = array();
+
+    /**
+     * Add one hreflang alternate — another language's URL for this page.
+     *
+     * Include the current page itself under its own locale: a search engine
+     * expects a self-referencing entry in the set, not just the others.
+     *
+     * ```php
+     * $doc->addAlternate('el', URL . 'syxnes-erwthseis')
+     *     ->addAlternate('en', URL . 'faqs');
+     * ```
+     *
+     * @param  string $locale
+     * @param  string $url  Absolute URL.
+     * @return Document
+     */
+    public function addAlternate($locale, $url)
+    {
+        $this->alternates[$locale] = (string) $url;
+
+        return $this;
+    }
+
+    /**
+     * Add every locale sibling of a matched route as an hreflang alternate.
+     *
+     * The one line a front controller adds after dispatch to get hreflang
+     * for a page whose alternates the router already knows, with no slug map
+     * and no registry:
+     *
+     * ```php
+     * $route = $router->getMatchedRoute($request);
+     * \Pramnos\Framework\Factory::getDocument()->addAlternatesFromRoute($router, $route);
+     * ```
+     *
+     * Does nothing for a route that wasn't registered as part of a locale
+     * group ({@see \Pramnos\Routing\Router::getLocaleSiblings()} returns
+     * `[]`) — including when `$route` is null, which is what an unmatched
+     * request gives back.
+     *
+     * @param  \Pramnos\Routing\Router $router
+     * @param  \Pramnos\Routing\Route|null $route
+     * @return Document
+     */
+    public function addAlternatesFromRoute(\Pramnos\Routing\Router $router, ?\Pramnos\Routing\Route $route)
+    {
+        if ($route === null) {
+            return $this;
+        }
+
+        foreach ($router->getLocaleSiblings($route) as $locale => $sibling) {
+            $this->addAlternate($locale, sURL . ltrim($sibling->uri, '/'));
+        }
+
+        return $this;
+    }
+
+    /**
      * Set the canonical URL for this page.
      *
      * ```php
@@ -1067,6 +1134,39 @@ class Document extends \Pramnos\Framework\Base
         }
 
         return $parts === array() ? '' : "\n        " . implode("\n        ", $parts);
+    }
+
+    /**
+     * The hreflang `<link rel="alternate">` tags for every locale added via
+     * {@see addAlternate()}/{@see addAlternatesFromRoute()}, plus one
+     * `x-default` pointing at the `default_language` setting's entry (or the
+     * first one, if that locale wasn't added) — not declared, {@see
+     * docs/Hreflang-And-Sitemap-Design.md §4}.
+     *
+     * Empty string when nothing was added — never emitted from any ambient
+     * or collected state, only from what this Document instance was
+     * explicitly given.
+     *
+     * @return string
+     */
+    protected function alternateHeadMarkup()
+    {
+        if ($this->alternates === array()) {
+            return '';
+        }
+
+        $parts = array();
+        foreach ($this->alternates as $locale => $url) {
+            $parts[] = '<link rel="alternate" hreflang="' . $this->escapeHeadValue($locale)
+                . '" href="' . $this->escapeHeadValue($url) . '" />';
+        }
+
+        $defaultLanguage = \Pramnos\Application\Settings::getSetting('default_language');
+        $defaultUrl = $this->alternates[$defaultLanguage] ?? reset($this->alternates);
+        $parts[] = '<link rel="alternate" hreflang="x-default" href="'
+            . $this->escapeHeadValue($defaultUrl) . '" />';
+
+        return "\n        " . implode("\n        ", $parts);
     }
 
     /**

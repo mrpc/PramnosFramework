@@ -742,12 +742,43 @@ elements on a page is undefined behaviour to a crawler, which is worse than none
 `Pramnos\Html\Seo::canonicalLink($url)` returns the element for a page built without a
 `Document`.
 
+### hreflang alternates
+
+```php
+$doc->addAlternate('el', URL . 'syxnes-erwthseis')
+    ->addAlternate('en', URL . 'faqs');
+```
+
+Each call adds one `<link rel="alternate" hreflang="…" href="…">`. Include the page's own
+locale, not just the others — a search engine expects a self-referencing entry in the set. One
+`hreflang="x-default"` link is added automatically, pointing at the entry whose locale matches
+the `default_language` setting (or the first one added, if that locale was never added).
+
+Nothing is emitted unless `addAlternate()` was called on this request's own `Document` — there
+is no background collection of alternates from elsewhere, so a page that never calls it renders
+exactly as it did before this existed.
+
+For a page registered as a [localized route group](Pramnos_Routing_Guide.md#localized-route-groups)
+(`$router->get(['el' => '/x', 'en' => '/y'], $action)`), the alternates don't need declaring —
+the router already knows them:
+
+```php
+$route = $router->getMatchedRoute($request);
+\Pramnos\Framework\Factory::getDocument()->addAlternatesFromRoute($router, $route);
+```
+
+`addAlternatesFromRoute()` does nothing for a `null` route or one that wasn't registered as part
+of a locale group. A page whose alternates the router cannot derive — a slug that comes from the
+database, say — still needs `addAlternate()` called explicitly; see
+[hreflang and sitemaps — design](Hreflang-And-Sitemap-Design.md) for the registry planned to
+cover that case, and for how this fits into the sitemap too.
 
 ### Escaping: what the document escapes for you, and what it does not
 
 Every value the document types put in the `<head>` — `title`, `description`, all six
-`og_*` slots, both meta-tag names and their values, and the AMP `canonical` — is escaped
-when the page renders. You pass raw text; the renderer makes it safe.
+`og_*` slots, both meta-tag names and their values, the AMP `canonical`, and every hreflang
+alternate's locale and URL — is escaped when the page renders. You pass raw text; the renderer
+makes it safe.
 
 That matters because of *what* those values usually are: a record's name, operator-written
 copy, a title from the database — the strings least likely to be trusted, in the one part of the
