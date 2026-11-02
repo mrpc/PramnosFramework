@@ -253,6 +253,88 @@ class Controller extends \Pramnos\Framework\Base
      *
      * @param string|list<string> $action
      */
+    /**
+     * Whether a non-write action releases the session lock before it runs.
+     *
+     * @see releaseSessionOnRead()
+     */
+    protected bool $releaseSessionOnRead = false;
+
+    /**
+     * Release the session's write lock before any action not in
+     * {@see $writeActions} runs, instead of holding it for the whole request.
+     *
+     * PHP's default file session handler locks the session file for the
+     * entire request. An admin UI where one session routinely has 20-30 tabs
+     * open serializes all of them behind whichever one is slowest (a video
+     * stream, a long poll) — FW-309 measured this up to 150s in production.
+     * A declared write action still keeps the lock for its whole run, since
+     * it may need to write {@see $_SESSION} itself.
+     *
+     * Opt-in per controller, and only takes effect alongside
+     * {@see addWriteAction()}: a controller that never declares a write
+     * action has nothing to release early from, since every action is
+     * already free to write the session for its entire run.
+     *
+     * @return static
+     */
+    public function releaseSessionOnRead(): static
+    {
+        $this->releaseSessionOnRead = true;
+
+        return $this;
+    }
+
+    /**
+     * Close the session's write lock, if one is open, and arm a shutdown
+     * check that logs if the action still wrote to `$_SESSION` afterward.
+     *
+     * A write after `session_write_close()` is never persisted and PHP
+     * gives no warning of it — this turns that silent data loss into a log
+     * line instead, since the action is trusted not to need the lock at all
+     * but has not been audited for it.
+     */
+    private function _releaseSessionLock(string $action): void
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            return;
+        }
+
+        $before = $_SESSION;
+        session_write_close();
+
+        register_shutdown_function(
+            fn() => $this->_warnIfSessionChangedAfterRelease($action, $before)
+        );
+    }
+
+    /**
+     * The safety net {@see _releaseSessionLock()} arms: a write to
+     * `$_SESSION` after `session_write_close()` is never persisted and PHP
+     * raises nothing for it, so this logs it instead of letting it vanish
+     * unnoticed. Split out from `_releaseSessionLock()` so it can run
+     * outside a real shutdown, for tests.
+     */
+    private function _warnIfSessionChangedAfterRelease(string $action, array $before): void
+    {
+        if ($_SESSION === $before) {
+            return;
+        }
+
+        \Pramnos\Logs\Logger::log(
+            sprintf(
+                '%s::%s released the session lock as a read action, '
+                . 'but $_SESSION still changed afterward (lost on close).',
+                static::class,
+                $action
+            ),
+            'session-lock',
+            'log',
+            false,
+            ['type' => 'warning']
+        );
+    }
+
     public function addWriteAction($action): static
     {
         foreach ((array) $action as $act) {
@@ -440,6 +522,9 @@ class Controller extends \Pramnos\Framework\Base
             $this->refuseUnverifiedWrite();
 
             return null;
+        }
+        if ($this->releaseSessionOnRead && !in_array(strtolower((string) $action), $this->writeActions, true)) {
+            $this->_releaseSessionLock((string) $action);
         }
         if ($action == 'display') {
             $this->addBreadcrumb($this->title);

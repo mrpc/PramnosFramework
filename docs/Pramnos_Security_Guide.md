@@ -98,6 +98,37 @@ The bundled views are held to the declarations by `tests/Unit/Application/WriteA
 a link to a declared write action, an `Icon::link()` to one, or a form posting to one without a
 token fails it. A controller's new write action is covered as soon as it is declared.
 
+### Releasing the session lock early: `releaseSessionOnRead()`
+
+PHP's default file session handler holds a write lock on the session for the whole request. In
+an admin UI where one signed-in session has many tabs or background requests open at once, every
+one of them queues behind whichever is slowest — a video stream, a long poll, a heavy report.
+
+A controller that has declared its write actions with `addWriteAction()` can opt in to releasing
+the lock for everything else:
+
+```php
+public function __construct(?\Pramnos\Application\Application $application = null)
+{
+    $this->addWriteAction(['save', 'delete']);
+    $this->releaseSessionOnRead();
+    parent::__construct($application);
+}
+```
+
+`Controller::exec()` then calls `session_write_close()` right after the write-action/CSRF check,
+for any action not in that list — the rest of that action runs with `$_SESSION` still readable in
+memory, but no longer locking out the session's other tabs. A declared write action keeps the
+lock for its whole run, since it may still need to write `$_SESSION` itself.
+
+**The one thing this breaks silently if ignored:** PHP gives no error for a write to `$_SESSION`
+after the lock is released — it is simply not persisted. Opting in is safe once a controller's
+non-write actions are read-only with respect to the session; if one of them still needs to write
+it (a snapshot, a lazily-generated token), either declare it as a write action too or don't opt
+in for that controller yet. As a backstop, the framework logs a warning (`session-lock` log,
+`type => 'warning'`) whenever `$_SESSION` changed after the lock was released anyway, so a missed
+case surfaces instead of vanishing.
+
 ### CsrfMiddleware
 
 Validates the token on `POST`, `PUT`, `PATCH`, `DELETE`. Passes `GET`, `HEAD`, `OPTIONS`, `TRACE` through unchecked,
