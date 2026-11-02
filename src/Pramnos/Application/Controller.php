@@ -253,6 +253,50 @@ class Controller extends \Pramnos\Framework\Base
      *
      * @param string|list<string> $action
      */
+    public function addWriteAction($action): static
+    {
+        foreach ((array) $action as $act) {
+            $this->writeActions[] = strtolower((string) $act);
+        }
+
+        return $this;
+    }
+
+    /**
+     * Actions that write `$_SESSION` on a `GET` and so must keep the session lock, even
+     * though they cannot be (or are not) declared a {@see $writeActions} write.
+     *
+     * @var list<string> Lowercased action names
+     */
+    protected array $sessionActions = [];
+
+    /**
+     * Declare an action that writes `$_SESSION` itself and so needs the lock kept, even
+     * under {@see releaseSessionOnRead()}, without declaring it a CSRF-checked write.
+     *
+     * Two real shapes neither fit {@see addWriteAction()}: an OAuth callback a third-party
+     * provider redirects back to with a `GET` — there is no token to ask that provider to
+     * carry, and the callback still has to write the exchanged tokens/state into the
+     * session — and a console re-authentication that overwrites the session's own user.
+     * Both are already gated by {@see addAuthAction()}; this only keeps the lock for them.
+     *
+     * ```php
+     * $this->addAuthAction(['oauthcallback', 'reauth']);
+     * $this->addSessionAction(['oauthcallback', 'reauth']);
+     * $this->releaseSessionOnRead();
+     * ```
+     *
+     * @param string|list<string> $action
+     */
+    public function addSessionAction($action): static
+    {
+        foreach ((array) $action as $act) {
+            $this->sessionActions[] = strtolower((string) $act);
+        }
+
+        return $this;
+    }
+
     /**
      * Whether a non-write action releases the session lock before it runs.
      *
@@ -261,20 +305,21 @@ class Controller extends \Pramnos\Framework\Base
     protected bool $releaseSessionOnRead = false;
 
     /**
-     * Release the session's write lock before any action not in
-     * {@see $writeActions} runs, instead of holding it for the whole request.
+     * Release the session's write lock before any action runs that is in neither
+     * {@see $writeActions} nor {@see $sessionActions}, instead of holding it for the
+     * whole request.
      *
      * PHP's default file session handler locks the session file for the
      * entire request. An admin UI where one session routinely has 20-30 tabs
      * open serializes all of them behind whichever one is slowest (a video
      * stream, a long poll) — FW-309 measured this up to 150s in production.
-     * A declared write action still keeps the lock for its whole run, since
-     * it may need to write {@see $_SESSION} itself.
+     * A declared write action, or one declared via {@see addSessionAction()},
+     * still keeps the lock for its whole run, since it may need to write
+     * {@see $_SESSION} itself.
      *
-     * Opt-in per controller, and only takes effect alongside
-     * {@see addWriteAction()}: a controller that never declares a write
-     * action has nothing to release early from, since every action is
-     * already free to write the session for its entire run.
+     * Opt-in per controller, and only useful alongside {@see addWriteAction()}: a
+     * controller that never declares a write action has nothing to release early from,
+     * since every action is already free to write the session for its entire run.
      *
      * @return static
      */
@@ -333,15 +378,6 @@ class Controller extends \Pramnos\Framework\Base
             false,
             ['type' => 'warning']
         );
-    }
-
-    public function addWriteAction($action): static
-    {
-        foreach ((array) $action as $act) {
-            $this->writeActions[] = strtolower((string) $act);
-        }
-
-        return $this;
     }
 
     /**
@@ -523,7 +559,10 @@ class Controller extends \Pramnos\Framework\Base
 
             return null;
         }
-        if ($this->releaseSessionOnRead && !in_array(strtolower((string) $action), $this->writeActions, true)) {
+        $lowerAction = strtolower((string) $action);
+        if ($this->releaseSessionOnRead
+            && !in_array($lowerAction, $this->writeActions, true)
+            && !in_array($lowerAction, $this->sessionActions, true)) {
             $this->_releaseSessionLock((string) $action);
         }
         if ($action == 'display') {

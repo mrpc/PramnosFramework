@@ -129,6 +129,18 @@ in for that controller yet. As a backstop, the framework logs a warning (`sessio
 `type => 'warning'`) whenever `$_SESSION` changed after the lock was released anyway, so a missed
 case surfaces instead of vanishing.
 
+**Some session-writing actions cannot be declared a write action at all.** An OAuth callback a
+third-party provider redirects back to with a `GET` has no CSRF token to carry — there is no form
+submission to attach one to — and still has to write the exchanged tokens or flow state into the
+session. A console re-authentication that overwrites the session's own user is the same shape.
+Declare these with `addSessionAction()` instead, which keeps the lock without asking for a token:
+
+```php
+$this->addAuthAction(['oauthcallback', 'reauth']);
+$this->addSessionAction(['oauthcallback', 'reauth']);  // keep the lock; not CSRF-checked
+$this->releaseSessionOnRead();
+```
+
 ### CsrfMiddleware
 
 Validates the token on `POST`, `PUT`, `PATCH`, `DELETE`. Passes `GET`, `HEAD`, `OPTIONS`, `TRACE` through unchecked,

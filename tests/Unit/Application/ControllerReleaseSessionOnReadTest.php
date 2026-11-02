@@ -20,6 +20,11 @@ use Pramnos\Logs\Logger;
  *
  * A write action keeps the lock for its whole run, since it may need to write `$_SESSION`
  * itself — and a controller that never opts in is unaffected, same as before this feature.
+ *
+ * Not every session-writing action is, or can be, a declared write action: an OAuth
+ * callback a provider redirects back to with a `GET` can carry no CSRF token at all. Such
+ * an action is declared via {@see Controller::addSessionAction()} instead, which keeps the
+ * lock without asking for a token.
  */
 #[CoversClass(Controller::class)]
 class ControllerReleaseSessionOnReadTest extends TestCase
@@ -48,8 +53,9 @@ class ControllerReleaseSessionOnReadTest extends TestCase
         return new class ($optIn) extends Controller {
             public function __construct(bool $optIn)
             {
-                $this->addAuthAction(['show', 'save']);
+                $this->addAuthAction(['show', 'save', 'oauthcallback']);
                 $this->addWriteAction('save');
+                $this->addSessionAction('oauthcallback');
                 if ($optIn) {
                     $this->releaseSessionOnRead();
                 }
@@ -63,6 +69,12 @@ class ControllerReleaseSessionOnReadTest extends TestCase
             public function save(): string
             {
                 return 'saved';
+            }
+
+            /** A GET-only OAuth callback: cannot carry a CSRF token, must still write $_SESSION. */
+            public function oauthcallback(): string
+            {
+                return 'called back';
             }
 
             public function auth($action)
@@ -109,6 +121,24 @@ class ControllerReleaseSessionOnReadTest extends TestCase
         // Assert
         $this->assertSame('saved', $result);
         $this->assertSame(PHP_SESSION_ACTIVE, session_status(), 'a write action is not released early');
+    }
+
+    /**
+     * Opted in: an action declared via `addSessionAction()` (an OAuth callback, a console
+     * re-authentication) keeps the lock even though it is on neither `writeActions` nor a
+     * `POST` — it is not, and cannot be, CSRF-checked, but still writes `$_SESSION` itself.
+     */
+    public function testOptedInSessionActionKeepsTheLock(): void
+    {
+        // Arrange
+        $controller = $this->controller(optIn: true);
+
+        // Act
+        $result = $controller->exec('oauthcallback');
+
+        // Assert
+        $this->assertSame('called back', $result);
+        $this->assertSame(PHP_SESSION_ACTIVE, session_status(), 'a declared session action is not released early');
     }
 
     /** Not opted in: behaviour is exactly what it was before this feature — lock held throughout. */
