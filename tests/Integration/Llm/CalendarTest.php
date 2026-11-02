@@ -24,8 +24,25 @@ class CalendarTest extends LlmTestCase
 {
     use ChatDatabase;
 
+    /**
+     * Pinned around {@see testTodayIsInThePrompt}'s real `ask()` calls: {@see
+     * \Pramnos\Llm\Chat\BaseAssistant::timezone()} answers the server's own default zone, not the
+     * fixture's hardcoded Europe/Athens — the two agree all day except the ~2-hour window between
+     * UTC midnight and Athens midnight, where "today" has already turned over in one zone but not
+     * the other. A CI run landing inside that window is how this test failed on a UTC-zoned
+     * container without any application bug behind it.
+     */
+    private string $zone = 'UTC';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->zone = date_default_timezone_get();
+    }
+
     protected function tearDown(): void
     {
+        date_default_timezone_set($this->zone);
         $this->disconnectDatabase();
         parent::tearDown();
     }
@@ -80,6 +97,7 @@ class CalendarTest extends LlmTestCase
     public function testTodayIsInThePrompt(string $type, string $host, int $port): void
     {
         // Arrange
+        date_default_timezone_set('Europe/Athens');
         $calendar = $this->calendar($type, $host, $port, 43);
         $empty    = $calendar->context();
         $today    = (new \DateTimeImmutable('now', new \DateTimeZone('Europe/Athens')))->format('Y-m-d');
