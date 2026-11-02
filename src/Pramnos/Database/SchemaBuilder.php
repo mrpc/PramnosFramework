@@ -35,22 +35,35 @@ class SchemaBuilder
     private static array $deferredCapabilities = [];
 
     /**
-     * Tables and columns found to exist, per connection, for the life of the process.
+     * Tables and columns found to exist, per connection, for up to {@see FOUND_TTL}.
      *
      * `hasTable()` and `hasColumn()` are catalogue queries, and code that guards on an optional
      * table asks the same question on every call: one profile counted 5,195 of them in a single
      * test class, 11.5% of its time. Only a table that **was found** is remembered. A missing
      * one is asked again every time, so a migration that creates it is seen at once — no stale
-     * "no" can hide a table. A stale "yes" needs the table dropped behind the builder's back,
-     * so every DDL method here forgets the connection's answers, and so does the migration
-     * runner around each migration ({@see forgetWhatExists()}).
+     * "no" can hide a table. A stale "yes" needs the table dropped behind the builder's back —
+     * every DDL method here forgets the connection's answers, the migration runner forgets
+     * around each migration ({@see forgetWhatExists()}), and a query that then fails on the
+     * missing relation forgets too ({@see Database::forgetIfARelationIsMissing()}).
+     *
+     * None of those three reach a *different* process: a migration's own `forgetWhatExists()`
+     * clears that console run's memory, never a PHP-FPM worker's, and the query-failure path
+     * depends on recognising the driver's own wording for "no such relation" — not guaranteed
+     * once `lc_messages` is not English. A worker that cached "yes" while a table existed, for a
+     * table a migration then dropped or merged away behind it, could otherwise believe it forever.
+     * The TTL is the one invalidation that reaches across processes without needing to be told:
+     * every entry is re-asked of the catalogue at least this often, so the worst case is "stale
+     * for at most {@see FOUND_TTL} seconds", never "stale until the next deploy restarts it".
      *
      * A WeakMap keyed on the connection: two databases never answer for each other, and a
      * connection that is let go takes its answers with it.
      *
-     * @var \WeakMap<Database, array<string, true>>|null
+     * @var \WeakMap<Database, array<string, int>>|null Each value is the Unix time it was found.
      */
     private static ?\WeakMap $found = null;
+
+    /** How long a positive `hasTable()`/`hasColumn()` answer is trusted before being asked again. */
+    private const FOUND_TTL = 300;
 
     /** @var Database */
     protected $db;
@@ -542,7 +555,7 @@ class SchemaBuilder
         $resolved = $this->resolveTable($table);
         $schema   = $schema ?? $this->resolveSchema();
         $key      = $schema . '|' . $resolved;
-        if (isset(self::$found[$this->db][$key])) {
+        if ($this->remembered($key)) {
             return true;
         }
         $sql    = $this->getGrammar()->compileHasTable($resolved, $schema);
@@ -568,7 +581,7 @@ class SchemaBuilder
         $resolved = $this->resolveTable($table);
         $schema   = $schema ?? $this->resolveSchema();
         $key      = $schema . '|' . $resolved . '|' . $column;
-        if (isset(self::$found[$this->db][$key])) {
+        if ($this->remembered($key)) {
             return true;
         }
         $sql    = $this->getGrammar()->compileHasColumn($resolved, $column, $schema);
@@ -596,13 +609,21 @@ class SchemaBuilder
         }
     }
 
-    /** Remember that this table or column exists on this connection. */
+    /** Remember that this table or column exists on this connection, from now. */
     private function rememberFound(string $key): void
     {
         self::$found ??= new \WeakMap();
         $known       = self::$found[$this->db] ?? [];
-        $known[$key] = true;
+        $known[$key] = time();
         self::$found[$this->db] = $known;
+    }
+
+    /** Whether this key was found on this connection within {@see FOUND_TTL}. */
+    private function remembered(string $key): bool
+    {
+        $at = self::$found[$this->db][$key] ?? null;
+
+        return $at !== null && time() - $at < self::FOUND_TTL;
     }
 
     /**

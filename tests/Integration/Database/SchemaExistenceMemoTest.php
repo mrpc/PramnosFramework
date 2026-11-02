@@ -102,6 +102,38 @@ class SchemaExistenceMemoTest extends DatabaseTestCase
     }
 
     /**
+     * A found table is asked again once the TTL has passed — the one invalidation that reaches
+     * a worker process the migration runner's `forgetWhatExists()` never touches, and that a
+     * query failure's own self-heal cannot be relied on to touch either (its regex matches the
+     * driver's English wording for "no such relation", not every locale's). Backdating the
+     * remembered timestamp stands in for "the TTL passed" without sleeping the test.
+     */
+    public function testAFoundTableIsAskedAgainAfterTheTtlExpires(): void
+    {
+        // Arrange
+        $this->createScratchElsewhere();
+        $this->assertTrue($this->db->schema()->hasTable('sem_scratch'));
+        $this->dropScratchElsewhere();
+        $found = new \ReflectionProperty(SchemaBuilder::class, 'found');
+
+        // Act — still within the TTL: remembered
+        $stillFresh = $this->db->schema()->hasTable('sem_scratch');
+        // Backdate every remembered timestamp of this connection past the TTL — the key's exact
+        // shape (schema-qualified or not) is the grammar's own business, not this test's.
+        $byConnection = $found->getValue();
+        $known        = $byConnection[$this->db];
+        foreach ($known as $k => $v) {
+            $known[$k] = time() - 301;
+        }
+        $byConnection[$this->db] = $known;
+        $afterTtl = $this->db->schema()->hasTable('sem_scratch');
+
+        // Assert
+        $this->assertTrue($stillFresh, 'remembered: the drop was real but the TTL had not passed');
+        $this->assertFalse($afterTtl, 'the TTL passed: the catalogue was asked again and the table is gone');
+    }
+
+    /**
      * A missing table is never remembered: created a moment later, it is seen at once — a
      * remembered "no" would hide a table a migration just made.
      */

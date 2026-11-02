@@ -448,20 +448,27 @@ if ($schema->hasIndex('users', 'idx_users_email')) {
 }
 ```
 
-`hasTable()` and `hasColumn()` remember a table or column they **found**, per connection, for
-the life of the process. Code that guards on an optional table can ask on every call and pay
-one catalogue query a process. A missing table is never remembered, so one a migration creates
-is seen at once. The answers are forgotten:
+`hasTable()` and `hasColumn()` remember a table or column they **found**, per connection, for up
+to 5 minutes. Code that guards on an optional table can ask on every call and pay one catalogue
+query a process. A missing table is never remembered, so one a migration creates is seen at
+once. The answers are forgotten:
 - by every DDL method of the builder;
 - by any `DROP`, `ALTER` or `RENAME` the same connection runs, hand-written included;
-- by the migration runner, before and after each migration.
+- by the migration runner, before and after each migration;
+- after 5 minutes, regardless — see below.
 
 A table dropped by **another** connection or process is caught three ways:
-- a query that fails because the table is not there (MySQL 1146, PostgreSQL 42P01) makes the
-  connection forget, so the process is wrong once and right from then on;
+- a query that fails because the table is not there (MySQL 1146, PostgreSQL 42P01, or the
+  driver's own wording for "no such relation") makes the connection forget, so the process is
+  wrong once and right from then on — this depends on recognising that wording, which is not
+  guaranteed once `lc_messages` is not English;
 - a migration moves the schema generation, which restarts the orchestrator's daemons and makes
   any worker loop forget between tasks — see the Workers and Daemons Guide;
-- and by hand, after DDL through a second connection in the same process:
+- and the 5-minute TTL on every positive answer, which needs nothing of the above: a long-lived
+  PHP-FPM worker that cached "yes" while a table existed is asked again within 5 minutes of a
+  migration elsewhere dropping or merging it away, not left believing it forever.
+
+And by hand, after DDL through a second connection in the same process:
 
 ```php
 \Pramnos\Database\SchemaBuilder::forgetWhatExists();      // every connection
