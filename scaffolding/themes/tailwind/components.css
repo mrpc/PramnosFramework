@@ -452,7 +452,12 @@ a.pf-stat-tile:hover { border-color: var(--color-primary, #2563eb); }
 .pf-datatable .dataTables_wrapper::after { content: ""; display: block; clear: both; }
 .pf-datatable .dataTables_length, .pf-datatable .dataTables_filter { margin-bottom: .75rem; }
 .pf-datatable .dataTables_length label, .pf-datatable .dataTables_filter label { display: inline-flex; align-items: center; gap: .5rem; font-weight: 400; }
-.pf-datatable .dataTables_length select { width: auto; }
+/* min-width (not width: auto) and appearance: menulist: daisyUI 5.7.22's
+   appearance: base-select on .select sized this to the selected value alone
+   and dropped the open popup's background (Chrome's experimental
+   Customizable Select API). menulist opts this select back into the plain
+   native popup, which every browser renders with one. */
+.pf-datatable .dataTables_length select { min-width: 4.5rem; appearance: menulist; }
 .pf-datatable .dataTables_filter { float: right; }
 .pf-datatable .dataTables_filter input { width: auto; margin-left: 0; }
 .pf-datatable .dataTables_info { float: left; padding-top: .75rem; font-size: .875rem; opacity: .7; }
