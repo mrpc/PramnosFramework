@@ -8,6 +8,23 @@ namespace Pramnos\Application;
 class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiList\ApiListSource, \JsonSerializable
 {
     /**
+     * FW-310 — how long `_save()`'s column introspection trusts its own cached answer.
+     *
+     * Migration-driven schema changes are not the risk this bounds: `MigrationRunner`
+     * flushes this same cache ({@see \Pramnos\Database\Database::forgetAllColumns()})
+     * right after any batch that ran something, so that case is exactly as fresh as
+     * before. What this bounds is schema altered by raw DDL outside `migrate` — nothing
+     * in the framework can see that happen, cached or not, so a short, named ceiling is
+     * the deliberate trade against paying a full `information_schema` query on every
+     * `_save()` call (measured at ~165k calls / 9.7ms mean in one production install).
+     *
+     * ponytail: 60s staleness window for schema changed outside migrate/SchemaBuilder;
+     * upgrade path if that is ever too slow: a DDL hook (Postgres event trigger / a
+     * binlog listener) that flushes this cache the moment such a change actually happens.
+     */
+    private const WRITE_PATH_COLUMN_CACHE_TTL = 60;
+
+    /**
      * Model name
      * @var string
      */
@@ -458,36 +475,29 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
 
                 $sql = $this->columnIntrospectionSql($this->getFullTableName());
 
-                // Deliberately uncached — the `false` is the point of this comment.
+                // FW-310 — cached, but on a much shorter leash than the read paths below.
                 //
-                // The read paths below introspect with `query($sql, true, 3600, …)`,
-                // so a listing pays for this once an hour rather than once a request.
-                // This one is the **write** path, and the asymmetry is not an
-                // oversight: a stale schema here means the loop below never sees a
-                // newly added column, so `_save()` writes every row without it. That
-                // is silent data loss, discovered later and unrecoverable, against a
-                // saving of one query per table per request.
+                // The read paths introspect with `query($sql, true, 3600, …)`: a listing
+                // pays for this once an hour rather than once a request, and a migration
+                // (`MigrationRunner::forgetAllColumns()`) flushes that cache the moment
+                // it runs, so they already see a new column immediately after `migrate`.
+                // This is the **write** path, and a stale answer here is worse than one
+                // on a read path: the loop below would never see a newly added column, so
+                // `_save()` writes every row without it — silent data loss, discovered
+                // later and unrecoverable, not a column merely missing from a list.
                 //
-                // A stale schema on a read path costs a column missing from a list.
-                //
-                // That used to say "visible, harmless, and fixed by waiting", and
-                // "harmless" is what stopped anybody thinking about it. It is harmless to
-                // a reader that walks the row; every generated controller and every
-                // hand-written payload indexes it **by name**, so a missing key is an
-                // undefined-key warning printed ahead of the body — which makes a JSON
-                // response unparseable and produces a screen that says it could not load
-                // anything, with no status, because nothing refused.
-                //
-                // The window is closed at the other end now: `MigrationRunner` flushes
-                // every table's column cache after a batch that ran anything, so a
-                // migration writing raw DDL no longer leaves this stale. What remains is
-                // a schema changed by hand outside `migrate`, which is what
-                // `cache:clear` is for.
-                //
-                // The key is still built so the two paths can be told apart in the
-                // query log, and so anybody enabling this has one less thing to write.
+                // That asymmetry used to mean staying fully uncached here — paying a full
+                // `information_schema` query on every `_save()` call, measured at ~165k
+                // calls / 9.7ms mean (FW-310) in one production install, almost all of it
+                // for schema that had not changed at all: a migration already flushes this
+                // exact cache, so that case was never the risk. What remained was schema
+                // altered by raw DDL outside `migrate`, which no cache invalidation in this
+                // framework can ever observe — caching this at all, for any duration,
+                // trades a bounded, named staleness window against that one case instead
+                // of paying full introspection for a risk the cache usually isn't carrying.
+                // See {@see WRITE_PATH_COLUMN_CACHE_TTL}.
                 $cacheKey = $database->columnCacheKey($this->getFullTableName());
-                $result = $database->query($sql, false, 3600, $cacheKey);
+                $result = $database->query($sql, true, self::WRITE_PATH_COLUMN_CACHE_TTL, $cacheKey);
                 $slot = $this->columnCacheSlot();
                 self::$columnCache[$slot] = array();
                 while ($result->fetch()) {
