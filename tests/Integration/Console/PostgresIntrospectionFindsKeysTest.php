@@ -516,6 +516,58 @@ class PostgresIntrospectionFindsKeysTest extends TestCase
         }
     }
 
+    /**
+     * **The generated `data()` puts the primary key last in `$fields`, not
+     * first, so a column's own search box and a header-click sort target the field
+     * the browser's column number actually means.**
+     *
+     * `Datasource::getList()` reads `columns[N][search]`/`order[].column` straight
+     * into `$fields[N]`, with no notion of a field that is in the list but was never
+     * declared as a `Datatable` column. The old `data()` put the primary key at
+     * `$fields[0]` to build each row's link, without a matching `addColumn()` for
+     * it — so the browser's column 0 (the first *visible* field, `station_id` on
+     * this fixture) and `$fields[0]` (the PK) disagreed, and the same for every
+     * column after it. Typing into any column's own search box returned nothing,
+     * and clicking a header sorted the wrong column.
+     */
+    public function testGeneratedControllerPutsThePrimaryKeyLastInTheFieldList(): void
+    {
+        // Arrange
+        $appDir         = ROOT . DS . INCLUDES . DS . 'PgKeysTestApp';
+        $path           = $appDir . DS . 'Controllers';
+        $controllerFile = $path . DS . 'PgkStream.php';
+        $viewDir        = ROOT . DS . INCLUDES . DS . 'Views' . DS . 'pgkstream';
+
+        try {
+            // Act
+            $generated = $this->command->exposeMvcController(
+                'PgkStream', 'pgk_streams', $path, $controllerFile
+            );
+
+            // Assert — $fields ends with the primary key, not starts with it.
+            // pgk_streams' non-PK columns are station_id, url, active (3 of them),
+            // so the PK's own position is index 3 — the literal $row[3] below.
+            preg_match('/\$fields\s*=\s*\[(.*?)\];/', $generated, $m);
+            $this->assertNotEmpty($m, 'the generated data() must declare $fields');
+            $this->assertStringEndsWith(
+                "'id'", trim($m[1]),
+                '$fields must end with the primary key, not start with it'
+            );
+
+            // Assert — the PK is read and dropped by its known numeric position,
+            // not by array_shift()/array_pop() (see data()'s own docblock for why
+            // neither is safe here: Datasource::getList() appends a DT_RowId string
+            // key after every numeric one).
+            $this->assertStringNotContainsString('array_shift($row)', $generated);
+            $this->assertStringNotContainsString('array_pop($row)', $generated);
+            $this->assertStringContainsString('$row[3]', $generated);
+        } finally {
+            $this->rrmdir($appDir);
+            $this->rrmdir($viewDir);
+            @rmdir(ROOT . DS . INCLUDES . DS . 'Views');
+        }
+    }
+
     /** Recursively removes a directory this test created, leaving nothing behind. */
     private function rrmdir(string $dir): void
     {

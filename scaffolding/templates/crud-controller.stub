@@ -130,12 +130,17 @@ class {{ className }} extends \Pramnos\Application\Controller
      * the theme.
      *
      * The DataTable posts its paging/search/order parameters to this URL;
-     * Datasource::getList() reads them from the request and builds the SQL, so
-     * we only declare the field list (aligned with the addColumn order in
-     * display(): the primary key comes first so we can build the row links,
-     * then the visible columns). The primary key is dropped from each row after
-     * we have used it, so the remaining values line up with the visible
-     * columns, and an Actions cell is appended.
+     * Datasource::getList() reads a column's own search box and a header-click
+     * sort by indexing straight into the field list with the browser's own
+     * column number — it has no notion of a field that is not a declared
+     * column. So the field list here is exactly the addColumn order in
+     * display(), column for column, and the primary key (needed to build each
+     * row's link, but never shown as its own column) is appended *last*,
+     * past every index the browser ever sends a column for, rather than put
+     * first where it would have pushed every real column one index ahead of
+     * what the browser actually asked for. The primary key is read off each
+     * row by that known position, then dropped, and an Actions cell is
+     * appended.
      */
     public function data(): void
     {
@@ -150,11 +155,13 @@ class {{ className }} extends \Pramnos\Application\Controller
 
         $dataKey = array_key_exists('data', $result) ? 'data' : 'aaData';
         foreach ($result[$dataKey] as &$row) {
-            $id      = (int) $row[0];
+            // Not array_pop(): Datasource::getList() appends a 'DT_RowId'
+            // *string* key after every numeric one, so the actual last element
+            // is that copy of $row[0], not the primary key — read by this
+            // fixed, known position instead.
+            $id      = (int) $row[{{ pkFieldIndex }}];
+            unset($row[{{ pkFieldIndex }}]);
             $showUrl = sURL . '{{ className }}/show/' . $id;
-            // Drop the primary key so the remaining values align with the
-            // visible columns declared in display().
-            array_shift($row);
 
             // The first visible column opens the record. A row whose only way in is
             // the last cell makes the whole row a target people click with nothing

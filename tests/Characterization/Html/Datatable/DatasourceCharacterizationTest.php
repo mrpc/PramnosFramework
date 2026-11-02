@@ -222,6 +222,83 @@ class DatasourceCharacterizationTest extends TestCase
     }
 
     /**
+     * A column's own search box targets the field at its `$fields` index,
+     * with no adjustment for a field that is in the list but not a declared column.
+     *
+     * `create:crud` used to put the primary key first in `$fields` so a generated
+     * `data()` could build each row's link, without ever declaring it as a
+     * `Datatable` column — so the browser's column 0 (the first *visible* field,
+     * `title` here) and `$fields[0]` (the PK) disagreed, and every column's own
+     * search box filtered the wrong field. The fix moved the PK to the *end* of
+     * `$fields` instead, past every index a browser with N declared columns ever
+     * sends; this pins that shape works: searching the browser's column 0 with
+     * `$fields = ['title', 'amount', 'id']` must filter on `title`, not `id`.
+     */
+    public function testRenderAppliesColumnSearchAtTheDeclaredFieldsIndex(): void
+    {
+        // Arrange — 'Beta' is distinct from 'Alpha'/'AlphaX', so a filter that
+        // somehow reached `amount` or `id` instead would not coincidentally match it.
+        $this->setPost([
+            'iDisplayStart' => '0',
+            'iDisplayLength' => '10',
+            'sSearch_0' => 'Beta',
+            'bSearchable_0' => 'true',
+            'sEcho' => '11',
+        ]);
+
+        $datasource = new Datasource();
+
+        // Act — the PK last, as the generator now emits it, not first
+        $result = $datasource->render(
+            'dt_orders',
+            ['title', 'amount', 'id'],
+            false,
+            '',
+            '',
+            false
+        );
+
+        // Assert
+        $this->assertCount(1, $result['aaData'], "column 0's own search must match the one 'Beta' row");
+        $this->assertSame('Beta', $result['aaData'][0][0]);
+        $this->assertEqualsWithDelta(8.75, (float) $result['aaData'][0][1], 0.001);
+    }
+
+    /**
+     * A header-click sort targets the field at its `$fields` index the
+     * same way; this is the ordering half of the same fix.
+     */
+    public function testRenderAppliesColumnSortAtTheDeclaredFieldsIndex(): void
+    {
+        // Arrange — sort by the browser's column 0 ('title'), descending
+        $this->setPost([
+            'iDisplayStart' => '0',
+            'iDisplayLength' => '10',
+            'iSortCol_0' => '0',
+            'sSortDir_0' => 'desc',
+            'iSortingCols' => '1',
+            'sEcho' => '12',
+        ]);
+
+        $datasource = new Datasource();
+
+        // Act
+        $result = $datasource->render(
+            'dt_orders',
+            ['title', 'amount', 'id'],
+            false,
+            '',
+            '',
+            false
+        );
+
+        // Assert — titles in reverse alphabetical order: Gamma, Beta, AlphaX, Alpha
+        $this->assertCount(4, $result['aaData']);
+        $this->assertSame('Gamma', $result['aaData'][0][0]);
+        $this->assertSame('Beta', $result['aaData'][1][0]);
+    }
+
+    /**
      * Ensures distinctField mode returns unique values for that field.
      */
     public function testRenderDistinctFieldReturnsUniqueRows(): void

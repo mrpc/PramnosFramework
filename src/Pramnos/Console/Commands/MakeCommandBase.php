@@ -3590,13 +3590,26 @@ $routeTokens = [
         }
         $firstNonPkField = '';
 
-        // DataTable column chain + the aligned field list for data(). The
-        // primary key is fetched first (so data() can build the row links) and
-        // is NOT shown as its own column; then one visible column per non-PK
-        // column, and finally a non-sortable/non-searchable HTML "Actions"
-        // column. $dataFields order mirrors the addColumn() order (PK first).
+        // DataTable column chain + the aligned field list for data(). One visible
+        // column per non-PK column, then a non-sortable/non-searchable HTML
+        // "Actions" column — $dataFields order mirrors the addColumn() order
+        // exactly, column for column, which is what makes the rest of this method
+        // safe to index by the browser's own column number.
+        //
+        // The primary key is NOT $dataFields[0]. `Datasource::getList()` reads a
+        // column's own search box and a header-click sort by indexing straight
+        // into $fields with the browser's column number (`columns[N][search]`,
+        // `order[].column`) — it has no notion of a field that exists in the
+        // list but not as a declared column. A PK prepended there, as this used
+        // to do "so data() can build the row links", put every real column one
+        // index ahead of what the browser actually asked for: typing into any
+        // column's own search box returned nothing, and clicking a header
+        // sorted the wrong column. The PK is appended instead, past every index
+        // the browser ever sends a column for, where Datasource's per-column
+        // loops touch it only if something explicitly asks for that index -
+        // which a browser with no column declared for it never does.
         $columnCalls = [];
-        $dataFields  = ["'" . $primaryKey . "'"];
+        $dataFields  = [];
 
         foreach ($columns as $col) {
             $colName = $col['name'];
@@ -3700,9 +3713,20 @@ $routeTokens = [
             $firstNonPkField = $primaryKey;
         }
 
+        // The PK's own slot in $fields, past every column index the browser
+        // will ever send — see the comment where $dataFields was declared. Its
+        // numeric position in each returned row is baked into the generated
+        // data() as a literal: Datasource::getList() appends a 'DT_RowId'
+        // *string* key after every numeric one ({@see Datasource::render()}),
+        // so array_pop() would remove that instead of the PK, and array_search()
+        // on a value is not exact once two columns can hold the same value.
+        $pkFieldIndex = count($dataFields);
+        $dataFields[] = "'" . $primaryKey . "'";
+
         // Always finish the chain with the non-sortable/non-searchable HTML
         // Actions column and assemble the chain body injected into the stub as
-        // `$dt->{{ datatableColumns }};`.
+        // `$dt->{{ datatableColumns }};`. Not part of $dataFields: data() appends
+        // its cell straight to each row, after the query loop, not from a field.
         $columnCalls[]    = "addColumn('Actions', true, false, false, 'html')";
         $datatableColumns = implode("\n           ->", $columnCalls);
         $dataFieldsToken  = implode(', ', $dataFields);
@@ -3723,6 +3747,7 @@ $routeTokens = [
             'bootstrapFlag'      => $bootstrapFlag,
             'datatableColumns'   => $datatableColumns,
             'dataFields'         => $dataFieldsToken,
+            'pkFieldIndex'       => (string) $pkFieldIndex,
             'firstNonPkField'    => $firstNonPkField,
             'primaryKey'         => $primaryKey,
             'loadForeignContent' => $loadForeignContent,
