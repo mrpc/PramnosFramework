@@ -2,9 +2,11 @@
 
 /build export-ignore
 /tests export-ignore
-# brand/favicons ships (the scaffolder copies it at runtime); the logo lockups
-# and regeneration source art are docs-only and excluded from the dist tarball.
-/brand/logos export-ignore
+# brand/favicons AND brand/logos ship — Init::scaffoldLogo()/scaffoldFavicons() copy
+# from both at scaffold time, so excluding either leaves `init` silently unable to
+# write www/assets/img/logo.png (its own no-op-when-absent branch treated that as an
+# acceptable trimmed install, which it wasn't — found in the wild, no scaffolded
+# project ever got a logo). Only the regeneration source art is docs-only.
 /brand/favicon-source export-ignore
 /brand/README.md export-ignore
 .gitattributes export-ignore
