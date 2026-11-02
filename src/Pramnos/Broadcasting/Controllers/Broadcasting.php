@@ -56,6 +56,12 @@ class Broadcasting extends Controller
     {
         parent::__construct($application);
         $this->addaction('postAuth');
+        // postAuth() only reads $_SESSION (through User::getCurrentUser()), never writes it,
+        // and carries no addWriteAction()/CSRF protection of its own — a cross-origin client
+        // signs requests with the Pusher protocol's own HMAC, not a same-origin cookie token.
+        // Releasing the lock early stops a client's auth round trip queueing behind another
+        // request on the same session, measured in production at 1.7-1.9s apiece.
+        $this->releaseSessionOnRead();
     }
 
     /**

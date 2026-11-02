@@ -510,4 +510,23 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame([true, 'ένα κείμενο'], [$closed, $body], 'a member is sent the file itself, and the request ends there');
         $this->assertSame($kept['body']['id'], Files::get($kept['body']['id'])['id']);
     }
+
+    /**
+     * Every read action here opted into `releaseSessionOnRead()` — measured in production,
+     * `conversations` (polled often from an open tab) queued behind other requests on the
+     * same session at 1.7-1.9s apiece. Nothing here writes `$_SESSION`: `me()` only reads it
+     * (through `User::current()`), and every write stays protected, keeping its lock, through
+     * the unchanged `addWriteAction(self::WRITES)` declaration.
+     *
+     * No database needed — this is the constructor's own bookkeeping, not a request.
+     */
+    public function testReleaseSessionOnReadIsEnabled(): void
+    {
+        // Act
+        $controller = new Chat(Application::getInstance());
+
+        // Assert
+        $property = new \ReflectionProperty($controller, 'releaseSessionOnRead');
+        $this->assertTrue($property->getValue($controller));
+    }
 }

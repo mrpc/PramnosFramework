@@ -70,6 +70,12 @@ class Conversations extends Controller
     {
         $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'preview', 'gifs', 'refs', 'emergencykey'], self::WRITES));
         $this->addWriteAction(self::WRITES);
+        // Every read action here — including `conversations`, polled often from an open tab —
+        // only reads $_SESSION (through User::current()/Session::staticIsLogged()), never writes
+        // it, so the session lock has nothing to protect and releasing it early stops these
+        // requests queueing behind each other and behind any write action this session makes
+        // elsewhere, same as the other screens already opted into this.
+        $this->releaseSessionOnRead();
         parent::__construct($application);
     }
 

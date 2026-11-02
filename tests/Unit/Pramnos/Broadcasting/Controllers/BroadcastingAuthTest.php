@@ -694,4 +694,25 @@ class BroadcastingAuthTest extends TestCase
             }
         };
     }
+
+    /**
+     * `postAuth()` opted into `releaseSessionOnRead()` — measured in production at 1.7-1.9s
+     * per call, queueing behind another request on the same session because nothing here
+     * ever writes `$_SESSION`: `currentUser()` only reads it (through
+     * `User::getCurrentUser()`), and this endpoint carries no CSRF token of its own to
+     * protect — a cross-origin client signs with the Pusher protocol's own HMAC instead.
+     *
+     * Through the real constructor, not the test doubles above: those skip
+     * `Controller::__construct()` entirely (to avoid building an `Application`), which is
+     * exactly where `releaseSessionOnRead()` is called.
+     */
+    public function testPostAuthReleasesTheSessionLockOnRead(): void
+    {
+        // Act
+        $controller = new Broadcasting(\Pramnos\Application\Application::getInstance());
+
+        // Assert
+        $property = new \ReflectionProperty($controller, 'releaseSessionOnRead');
+        $this->assertTrue($property->getValue($controller));
+    }
 }
