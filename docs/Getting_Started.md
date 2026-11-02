@@ -20,7 +20,19 @@ The recommended way to start a new project is to use the **Pramnos Application**
    composer create-project mrpc/pramnos-application my-app
    ```
 
-Alternatively, if you prefer to manage the process manually or add the framework to an existing project:
+**This one-liner cannot carry `init`'s flags** (`--app-style`, `--ui-system`, `--docker`, …):
+the skeleton's `composer.json` runs `init` from `post-create-project-cmd` with no arguments, and
+Composer does not forward `create-project`'s own trailing CLI arguments to that script. If you
+already know you want `tailwind`, `spa`, or anything else non-default, use the manual path below
+and pass the flags to `init` directly — this is not a style preference, it is the only way to
+set them from the command line. Running `create-project` itself with `--no-interaction`, or from
+a non-interactive shell (STDIN not a TTY — common in scripts and CI), also silently skips `init`'s
+wizard and takes every default (`scaffold_theme` becomes `plain-css`) with no warning that your
+intended choices were never applied; `project:switch-ui <theme>` fixes the theme after the fact,
+but other defaults (database type, features) need `init`'s flags from the start.
+
+Alternatively, if you prefer to manage the process manually, want to pass `init`'s options
+explicitly, or are adding the framework to an existing project:
 
 1. Create your project directory:
    ```bash
