@@ -154,6 +154,94 @@ class LanguageTest extends \PHPUnit\Framework\TestCase
     }
 
     /**
+     * FW-311 — an exact repeat call (same language, same path) once already loaded
+     * must not re-merge the file, so it cannot undo a string added since.
+     *
+     * Measured in production: an application's own (unrelated) legacy bootstrap
+     * quirk called load() twice for the same language on every admin request, and
+     * the second call's include()+merge was the single most expensive line in that
+     * bootstrap. This asserts the fix by its effect rather than by timing: if the
+     * second load() actually re-read the file and re-merged it, the file's original
+     * 'greeting' would overwrite the override added between the two calls — addlang()
+     * merges with the *new* value winning, so a real second read is directly visible
+     * this way, with nothing to mock and nothing timing-sensitive to assert.
+     */
+    public function testLoadSkipsAnExactRepeat(): void
+    {
+        // Arrange
+        $tmpDir  = sys_get_temp_dir() . '/pramnos_lang_test_' . bin2hex(random_bytes(4));
+        $langDir = $tmpDir . '/language';
+        @mkdir($langDir, 0777, true);
+        file_put_contents(
+            $langDir . '/testlang.php',
+            "<?php\n\$lang = ['greeting' => 'Hello from testlang'];\n"
+        );
+
+        try {
+            $this->object->load('testlang', $tmpDir);
+            $this->object->addlang(['greeting' => 'Overridden since the first load']);
+
+            // Act — an exact repeat of the first call
+            $result = $this->object->load('testlang', $tmpDir);
+
+            // Assert
+            $this->assertTrue($result, 'a skipped repeat still reports success');
+            $strings = $this->object->getlang();
+            $this->assertSame(
+                'Overridden since the first load',
+                $strings['greeting'],
+                'a real second merge would have put the file\'s original string back'
+            );
+        } finally {
+            @unlink($langDir . '/testlang.php');
+            @rmdir($langDir);
+            @rmdir($tmpDir);
+        }
+    }
+
+    /**
+     * The same language name from a *different* path is not an exact repeat, and
+     * must still merge — an addon's own catalogue under the same language name is
+     * exactly this shape.
+     */
+    public function testLoadDoesNotSkipTheSameLanguageFromADifferentPath(): void
+    {
+        // Arrange — two separate directories, same language file name, different content
+        $tmpDirA  = sys_get_temp_dir() . '/pramnos_lang_test_' . bin2hex(random_bytes(4));
+        $tmpDirB  = sys_get_temp_dir() . '/pramnos_lang_test_' . bin2hex(random_bytes(4));
+        @mkdir($tmpDirA . '/language', 0777, true);
+        @mkdir($tmpDirB . '/language', 0777, true);
+        file_put_contents(
+            $tmpDirA . '/language/testlang.php',
+            "<?php\n\$lang = ['greeting' => 'From A'];\n"
+        );
+        file_put_contents(
+            $tmpDirB . '/language/testlang.php',
+            "<?php\n\$lang = ['farewell' => 'From B'];\n"
+        );
+
+        try {
+            $this->object->load('testlang', $tmpDirA);
+
+            // Act — same language name, a different path
+            $result = $this->object->load('testlang', $tmpDirB);
+
+            // Assert — both catalogues' keys are present, so the second call merged
+            $this->assertTrue($result);
+            $strings = $this->object->getlang();
+            $this->assertArrayHasKey('greeting', $strings);
+            $this->assertArrayHasKey('farewell', $strings, 'a different path must not be skipped as a repeat');
+        } finally {
+            @unlink($tmpDirA . '/language/testlang.php');
+            @rmdir($tmpDirA . '/language');
+            @rmdir($tmpDirA);
+            @unlink($tmpDirB . '/language/testlang.php');
+            @rmdir($tmpDirB . '/language');
+            @rmdir($tmpDirB);
+        }
+    }
+
+    /**
      * Language::getFlag() must return false when no flag PNG exists for the
      * current language.
      *

@@ -31,6 +31,17 @@ class Language extends Base
     private $languagePath = '';
 
     /**
+     * The `$path` argument {@see load()} last succeeded with for `$_lang`.
+     *
+     * Paired with `$_lang` to recognise an exact repeat call — not just the same
+     * language name, since a different `$path` genuinely merges a different
+     * catalogue (an addon's own, for instance) and must not be skipped.
+     *
+     * @var string
+     */
+    private $_lastLoadedPath = null;
+
+    /**
      * The one language object, or null before anything asked for one.
      *
      * A property rather than a `static` local inside `getInstance()`, because a static
@@ -121,6 +132,16 @@ class Language extends Base
 
     /**
      * Load a language file
+     *
+     * FW-311 — an exact repeat (same language, same path) once this instance
+     * already holds its strings returns immediately rather than `include`-ing
+     * the file and merging it again: measured at ~10.6ms on a warm worker, the
+     * most expensive single line in one application's admin bootstrap, which
+     * calls this twice for the same language by an unrelated legacy quirk of
+     * its own. Does not change the behaviour {@see using()}'s own docblock
+     * warns against — loading a *different* language still merges onto
+     * whatever is already loaded, exactly as before.
+     *
      * @param string $language  Language to load
      * @param string $path      Path to load from
      * @param bool $setDefault  Set this language as default
@@ -130,6 +151,15 @@ class Language extends Base
     {
         if ($language == '') {
             $language = $this->_lang;
+        }
+
+        if ($language === $this->_lang
+            && $path === $this->_lastLoadedPath
+            && $this->_strings !== []) {
+            if ($setDefault == true) {
+                $this->setLang($language);
+            }
+            return true;
         }
 
         if ($path == '') {
@@ -194,6 +224,11 @@ class Language extends Base
         if (isset($lang)) {
             if ($setDefault == true) {
                 $this->setLang($language);
+                // Paired with _lang, not set independently: an exact repeat is only
+                // recognised once both agree, so a setDefault=false merge in between
+                // (a secondary catalogue, not a language switch) cannot be mistaken
+                // for one and skipped.
+                $this->_lastLoadedPath = $path;
             }
             $this->addlang($lang);
             $this->addFrameworkCatalogue($language, (array) $lang);
