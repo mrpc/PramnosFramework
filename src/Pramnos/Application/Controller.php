@@ -345,6 +345,16 @@ class Controller extends \Pramnos\Framework\Base
             return;
         }
 
+        // Seed the synchronizer CSRF token before the lock closes. `Session::getCsrfToken()`
+        // writes it to `$_SESSION` lazily, on whichever request first asks for one — and a
+        // read action that releases the lock before any write action ever reaches
+        // `CsrfMiddleware::tokenField()` would otherwise render that token into a form from
+        // memory without ever persisting it. Every subsequent write action then fails
+        // `isVerifiedWrite()` with nothing to compare against — found in production by this
+        // method's own safety net below, on a controller's first read action after it opted
+        // into `releaseSessionOnRead()`.
+        \Pramnos\Http\Session::getInstance()->getCsrfToken();
+
         $before = $_SESSION;
         session_write_close();
 

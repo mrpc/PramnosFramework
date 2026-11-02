@@ -186,6 +186,34 @@ class ControllerReleaseSessionOnReadTest extends TestCase
         unset($_SESSION['late_write']);
     }
 
+    /**
+     * `Session::getCsrfToken()` writes `$_SESSION['csrf_token']` lazily, on whichever
+     * request first asks for one. Found in production: a controller's read actions never
+     * called it themselves, so releasing the lock before they ran meant that first write
+     * never persisted — `CsrfMiddleware::tokenField()` still rendered a token from memory,
+     * but every later write action failed `isVerifiedWrite()` against nothing to compare.
+     * `_releaseSessionLock()` now seeds it itself, before closing, so this can't recur on
+     * any controller that opts in.
+     */
+    public function testReleasingTheLockSeedsTheCsrfTokenSoALaterWriteCanVerifyIt(): void
+    {
+        // Arrange — as if this session had never rendered a CSRF field before.
+        unset($_SESSION['csrf_token']);
+        $controller = $this->controller(optIn: true);
+
+        // Act — a plain read action, never itself calling getCsrfToken()
+        $controller->exec('show');
+
+        // Assert — re-open the session store to read what was actually persisted,
+        // not what a stale in-memory $_SESSION from before the close would show.
+        session_start();
+        $this->assertArrayHasKey(
+            'csrf_token',
+            $_SESSION,
+            'a read action that releases the lock must still persist the token it rendered'
+        );
+    }
+
     private function post(): void
     {
         $_SERVER['REQUEST_METHOD'] = 'POST';

@@ -124,10 +124,18 @@ lock for its whole run, since it may still need to write `$_SESSION` itself.
 **The one thing this breaks silently if ignored:** PHP gives no error for a write to `$_SESSION`
 after the lock is released — it is simply not persisted. Opting in is safe once a controller's
 non-write actions are read-only with respect to the session; if one of them still needs to write
-it (a snapshot, a lazily-generated token), either declare it as a write action too or don't opt
-in for that controller yet. As a backstop, the framework logs a warning (`session-lock` log,
-`type => 'warning'`) whenever `$_SESSION` changed after the lock was released anyway, so a missed
-case surfaces instead of vanishing.
+something of its own, either declare it as a write action too or don't opt in for that controller
+yet. As a backstop, the framework logs a warning (`session-lock` log, `type => 'warning'`)
+whenever `$_SESSION` changed after the lock was released anyway, so a missed case surfaces
+instead of vanishing.
+
+One such write is already handled: `Session::getCsrfToken()` writes `$_SESSION['csrf_token']`
+lazily, on whichever request first asks for one — a template calling
+`CsrfMiddleware::tokenField()` from a plain read action. Found in production without this: a
+controller whose read actions never called it directly rendered a token from memory that never
+persisted, so every write action submitted afterward failed CSRF verification against nothing to
+compare. `releaseSessionOnRead()` now seeds that token itself before closing the lock, so this
+can't recur on any controller that opts in — nothing to declare for it.
 
 **Some session-writing actions cannot be declared a write action at all.** An OAuth callback a
 third-party provider redirects back to with a `GET` has no CSRF token to carry — there is no form
