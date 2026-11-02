@@ -46,6 +46,38 @@ class NamespaceResolverTest extends TestCase
     }
 
     // =========================================================================
+    // getProperCompoundClassName()
+    // =========================================================================
+
+    /**
+     * A snake_case table name is PascalCased word by word, not just at its first
+     * character — 'server_groups' → 'ServerGroup', not 'Server_group'. This is the
+     * class name a foreign key resolved only from a referenced table's name (no
+     * explicit class name available for it) must land on, to agree with the class
+     * `create:model`/`create:crud` would generate for that table directly.
+     */
+    public function testGetProperCompoundClassNameStudlyCasesASnakeCaseName(): void
+    {
+        $result = NamespaceResolver::getProperCompoundClassName('server_groups', true);
+        $this->assertSame('ServerGroup', $result);
+    }
+
+    public function testGetProperCompoundClassNameStudlyCasesForViews(): void
+    {
+        $result = NamespaceResolver::getProperCompoundClassName('notification_rules', false);
+        $this->assertSame('NotificationRules', $result);
+    }
+
+    /** A single-word name behaves exactly like getProperClassName(). */
+    public function testGetProperCompoundClassNameAgreesWithGetProperClassNameOnASingleWord(): void
+    {
+        $this->assertSame(
+            NamespaceResolver::getProperClassName('users', true),
+            NamespaceResolver::getProperCompoundClassName('users', true)
+        );
+    }
+
+    // =========================================================================
     // getModelTableName()
     // =========================================================================
 

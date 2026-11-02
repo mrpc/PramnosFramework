@@ -50,6 +50,30 @@ class PgKeysProbe extends MakeCommandBase
         return $this->spaFieldsFor($table);
     }
 
+    /** Runs the real MVC generator and returns the controller file it wrote. */
+    public function exposeMvcController(
+        string $name,
+        string $tableName,
+        string $path,
+        string $controllerFile
+    ): string {
+        [$columns, $foreignKeys] = $this->introspectTableAsWizardColumns($tableName);
+        $this->createControllerAndViewsFromWizard(
+            $name,
+            'PgKeysTestApp\\Controllers',
+            'PgKeysTestApp\\Models',
+            $name,
+            $name,
+            $tableName,
+            $path,
+            $columns,
+            $foreignKeys,
+            $controllerFile
+        );
+
+        return (string) file_get_contents($controllerFile);
+    }
+
     public function exposePrimaryKey(string $table): string
     {
         return $this->primaryKeyFor($table);
@@ -421,6 +445,88 @@ class PostgresIntrospectionFindsKeysTest extends TestCase
             $this->db->query('DROP TABLE IF EXISTS pgk_widgets CASCADE');
             $this->db->forgetColumns('pgk_widgets');
         }
+    }
+
+    /**
+     * **The generated MVC controller references the real primary key and the real FK
+     * class name, not a guess at either.**
+     *
+     * Two faults, both in `createControllerAndViewsFromWizard()`:
+     *
+     * 1. It called the pure naming-convention helper directly instead of
+     *    `primaryKeyFor()`, so a PostgreSQL table whose key is `id` (this fixture's
+     *    `pgk_streams`) generated a controller whose DataTable `data()` field list and
+     *    `$isNew` check both addressed `pgk_streamid` — a column that does not exist.
+     *    The list view would then fail on first load ("column pgk_streamid does not
+     *    exist"), and the edit view's `$isNew` check would always be true, so saving an
+     *    edit would insert a duplicate row instead of updating. The model generator
+     *    already asked `primaryKeyFor()` for this; only the controller/view generator
+     *    disagreed with it.
+     * 2. Its FK map (feeding `fkOptions()`) named the referenced table's model class
+     *    with `getProperClassName()`, which only capitalises the first letter of a
+     *    compound name — `pgk_stations` → `Pgk_station`, not `PgkStation` — fatal with
+     *    "class not found" the first time that FK's picker loads.
+     */
+    public function testGeneratedControllerReferencesTheRealPrimaryKey(): void
+    {
+        // Arrange — createControllerAndViewsFromWizard() writes the controller exactly
+        // where told, but createViewsFromWizard() (called internally, same appName='')
+        // always resolves its own view directory under ROOT/INCLUDES/Views/<name>.
+        $appDir         = ROOT . DS . INCLUDES . DS . 'PgKeysTestApp';
+        $path           = $appDir . DS . 'Controllers';
+        $controllerFile = $path . DS . 'PgkStream.php';
+        $viewDir        = ROOT . DS . INCLUDES . DS . 'Views' . DS . 'pgkstream';
+
+        try {
+            // Act
+            $generated = $this->command->exposeMvcController(
+                'PgkStream', 'pgk_streams', $path, $controllerFile
+            );
+
+            // Assert — the real key is there, the guessed one is nowhere in the file.
+            $this->assertStringContainsString(
+                "'id'", $generated,
+                'the data() field list must address the real primary key'
+            );
+            $this->assertStringNotContainsString(
+                'pgk_streamid', $generated,
+                'the convention guess must not appear anywhere in the generated controller'
+            );
+
+            // Assert — the FK map in fkOptions() names the real class of the
+            // compound-named referenced table ('pgk_stations' → 'PgkStation'), not
+            // 'Pgk_station': getProperClassName() only capitalised the first letter
+            // and left the underscore in place, which fatals with "class not found"
+            // the first time this FK's <select>/picker loads.
+            $this->assertStringContainsString(
+                '\\PgKeysTestApp\\Models\\PgkStation', $generated,
+                "the FK map must reference the real class 'PgkStation', not 'Pgk_station'"
+            );
+            $this->assertStringNotContainsString(
+                'Pgk_station', $generated,
+                'the flattened convention guess must not appear in the FK map'
+            );
+        } finally {
+            $this->rrmdir($appDir);
+            $this->rrmdir($viewDir);
+            // Best-effort: createViewsFromWizard() created the shared Views/ directory
+            // itself (mkdir(..., recursive: true)); remove it only if it is now empty,
+            // so a concurrent test's own view directory under it is left alone.
+            @rmdir(ROOT . DS . INCLUDES . DS . 'Views');
+        }
+    }
+
+    /** Recursively removes a directory this test created, leaving nothing behind. */
+    private function rrmdir(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+        foreach (array_diff(scandir($dir), ['.', '..']) as $entry) {
+            $full = $dir . DS . $entry;
+            is_dir($full) ? $this->rrmdir($full) : @unlink($full);
+        }
+        @rmdir($dir);
     }
 }
 

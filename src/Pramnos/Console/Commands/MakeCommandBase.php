@@ -1899,8 +1899,16 @@ abstract class MakeCommandBase extends Command
 
     protected function spaForeignKeyTarget(array $foreignKey): array
     {
-        $table  = preg_replace('/^#PREFIX#/', '', (string) $foreignKey['on']);
-        $entity = strtolower(self::getProperClassName($table, true));
+        $table = preg_replace('/^#PREFIX#/', '', (string) $foreignKey['on']);
+        // Not getProperClassName(): this builds a REST path segment, which keeps a
+        // compound table's underscores (`server_groups` → `server_group`) rather
+        // than the PHP class name's StudlyCase (`ServerGroup`) — the API side's
+        // own routes are named from the table this way, snake_case and singular.
+        $entity = strtolower(
+            \Pramnos\General\StringHelper::isPlural($table)
+                ? \Pramnos\General\StringHelper::singularize($table)
+                : $table
+        );
 
         $labelKey = 'name';
         try {
@@ -2817,9 +2825,10 @@ abstract class MakeCommandBase extends Command
             // edit and delete actions are built from this, so a wrong answer
             // produces views that list correctly and cannot write.
             //
-            // The wizard paths keep using getSingularPrimaryKey(), and should:
-            // there the table does not exist yet and the migration about to be
-            // written is what will name its key.
+            // createControllerAndViewsFromWizard() now asks the same way for
+            // both its own branches — including the one where the table does
+            // not exist yet, since primaryKeyFor() itself falls back to this
+            // exact convention when there is nothing to introspect.
             $primaryKey = $this->primaryKeyFor($tableName);
 
             return $this->createViewsFromWizard(
@@ -3552,7 +3561,15 @@ $routeTokens = [
     ): string {
         $date       = date('d/m/Y H:i');
         $viewName   = strtolower($name);
-        $primaryKey = $this->getSingularPrimaryKey($tableName);
+        // Asked of the table, not guessed from its name — the same fix
+        // {@see createView()} already applies, for the same reason: the
+        // convention gets a PostgreSQL table's real primary key wrong far
+        // more often than it looks (3 of 88 single-column keys in one
+        // application's schema). `primaryKeyFor()` falls back to this exact
+        // convention itself when the table does not exist yet or
+        // introspection fails, so this is safe for the schema-first wizard
+        // path too — it is not only for an existing table.
+        $primaryKey = $this->primaryKeyFor($tableName);
         $ui         = $this->detectUiSetup();
         $useSelect2 = !empty($ui['select2']);
         // The generated list view uses the framework's server-side DataTable
@@ -3624,7 +3641,7 @@ $routeTokens = [
                     $fkClass = '\\Pramnos\\User\\User';
                     $fkPk    = 'userid';
                 } else {
-                    $foreignModel = self::getProperClassName($refTable, true);
+                    $foreignModel = self::getProperCompoundClassName($refTable, true);
                     $fkClass      = '\\' . $modelNameSpace . '\\' . $foreignModel;
                     $fkPk         = $fk['references'] ?? 'id';
                 }
@@ -3641,7 +3658,7 @@ $routeTokens = [
                         $loadForeignContent .= "            \$view->{$colName}SelectedText = \${$colName}Selected->username ?? \$model->{$colName};\n";
                         $loadForeignContent .= "        }\n";
                     } else {
-                        $foreignModel = self::getProperClassName($refTable, true);
+                        $foreignModel = self::getProperCompoundClassName($refTable, true);
                         $loadForeignContent .= "        if (\$model->{$colName}) {\n";
                         $loadForeignContent .= "            \${$colName}Selected = new \\{$modelNameSpace}\\{$foreignModel}(\$this);\n";
                         $loadForeignContent .= "            \${$colName}Selected->load(\$model->{$colName});\n";
@@ -3654,7 +3671,7 @@ $routeTokens = [
                     if ($isUserFk) {
                         $loadForeignContent .= "        \$view->userList = \\Pramnos\\User\\User::getUsers();\n";
                     } else {
-                        $foreignModel = self::getProperClassName($refTable, true);
+                        $foreignModel = self::getProperCompoundClassName($refTable, true);
                         $varName      = lcfirst($foreignModel) . 'List';
                         $loadForeignContent .= "        \${$varName} = new \\{$modelNameSpace}\\{$foreignModel}(\$this);\n";
                         $loadForeignContent .= "        \$view->{$varName} = \${$varName}->getList();\n";
@@ -4033,9 +4050,12 @@ PHP;
                 } else {
                     // Small-table fallback: native <select> eagerly populated from
                     // the controller-provided list variable.
+                    // Must match createControllerAndViewsFromWizard()'s own $varName for
+                    // this same column exactly — both sides compute it from $refTable
+                    // independently, and the controller sets $view->{$varName}.
                     $listVar = $isUserFk
                         ? 'userList'
-                        : lcfirst(self::getProperClassName($refTable, true)) . 'List';
+                        : lcfirst(self::getProperCompoundClassName($refTable, true)) . 'List';
                     $out .= $ind . '    <label for="' . $colName . '"' . $labelAttr . '>' . $display . '</label>' . "\n";
                     $out .= $ind . '    <select id="' . $colName . '" name="' . $colName . '"' . $selectAttr . $required . '>' . "\n";
                     $out .= $ind . '        <option value="">-- Select ' . $display . ' --</option>' . "\n";
@@ -4584,6 +4604,21 @@ PHP;
     public static function getProperClassName($name, $forceSingular = true)
     {
         return NamespaceResolver::getProperClassName($name, $forceSingular);
+    }
+
+    /**
+     * The PHP class name a table/entity name actually resolves to — PascalCased word by
+     * word, not flattened like {@see getProperClassName()}. See
+     * {@see NamespaceResolver::getProperCompoundClassName()} for why the two differ and
+     * when each is the right one.
+     *
+     * @param string $name
+     * @param bool   $forceSingular
+     * @return string
+     */
+    public static function getProperCompoundClassName($name, $forceSingular = true)
+    {
+        return NamespaceResolver::getProperCompoundClassName($name, $forceSingular);
     }
 
     /**

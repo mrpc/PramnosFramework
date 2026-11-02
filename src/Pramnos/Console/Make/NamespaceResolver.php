@@ -37,6 +37,37 @@ class NamespaceResolver
     }
 
     /**
+     * Convert a raw table/entity name to the PHP class name that actually names it —
+     * 'server_groups' → 'ServerGroup', not 'Server_group'.
+     *
+     * **Not {@see getProperClassName()}.** That method flattens a compound name to a
+     * single lower-cased word by design — documented at
+     * {@see \Pramnos\Console\Commands\MakeCommandBase::spaFileName()} as deliberate for
+     * the slugs and REST path segments several generators build from it, which want
+     * `server_group`, not `ServerGroup`. A foreign key resolved only from a referenced
+     * table's name (no explicit class name is available for it) needs the actual class
+     * name a generator would give that table, which is this method — used for that one
+     * purpose, by `createControllerAndViewsFromWizard()`'s foreign-key handling.
+     *
+     * @param string $name          Raw table or entity name
+     * @param bool   $forceSingular True for a model class name; false for a view/controller one
+     */
+    public static function getProperCompoundClassName(string $name, bool $forceSingular = true): string
+    {
+        if ($forceSingular) {
+            $base = \Pramnos\General\StringHelper::isPlural($name)
+                ? \Pramnos\General\StringHelper::singularize($name)
+                : $name;
+        } else {
+            $base = \Pramnos\General\StringHelper::isPlural($name)
+                ? $name
+                : \Pramnos\General\StringHelper::pluralize($name);
+        }
+
+        return str_replace(' ', '', ucwords(str_replace(['_', '-'], ' ', $base)));
+    }
+
+    /**
      * Derive the conventional table name (with the #PREFIX# placeholder) from an entity name.
      *
      * Always returns a plural lowercase name with the placeholder prefix.
