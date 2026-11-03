@@ -1461,6 +1461,27 @@ On PostgreSQL, `DatabaseInspector::getReplicationStatus()` reports `pg_stat_repl
 client address, state, sync state and lag in seconds — and the DevPanel's database page
 renders it.
 
+### Targeting a replica for one job, without the global split
+
+The `read`/`write` config above changes routing for **every** query the application runs —
+too broad a switch to flip just because one batch job can tolerate a few seconds of
+replication lag while the rest of the site cannot (a save-then-immediate-read page, for
+instance). `replicaConnection()` gives one caller its own handle instead, leaving every
+other `Database` instance untouched:
+
+```php
+$replica = $db->replicaConnection('db-replica'); // same user/password/database/type as $db
+$rows = $replica->queryBuilder()->table('page_views')->where('day', $yesterday)->get();
+```
+
+- Omit the hostname (and optional `$port`) to fall back to the `read` block's own hostname/
+  port, if one is configured — `$db->replicaConnection()`.
+- The returned instance is read-only: any write statement throws a `RuntimeException`
+  before it reaches the server, rather than a replica refusing it with a less legible
+  database-level error.
+- It is a fresh, independent connection — never the live link `$db` already holds — so `$db`
+  itself is left exactly as it was.
+
 See [One server to several](Pramnos_Multi_Server_Guide.md) for the rest of what changes
 when an application stops being on one machine.
 

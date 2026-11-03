@@ -309,6 +309,13 @@ class Database extends \Pramnos\Framework\Base
     private bool $ownsConnection = true;
 
     /**
+     * True on an instance returned by {@see replicaConnection()}: every write statement
+     * going through {@see getConnection()} throws instead of running, since the whole
+     * point of a replica connection is that writes do not belong on it.
+     */
+    private bool $readOnly = false;
+
+    /**
      * Active prepared statements indexed by statement ID.
      * Used by prepare() / execute() for both MySQL and PostgreSQL.
      * @var array
@@ -450,7 +457,7 @@ class Database extends \Pramnos\Framework\Base
      */
     public function getConnectionLink()
     {
-        return $this->_dbConnection ?: $this->getConnection(true);
+        return $this->_dbConnection ?: $this->getConnection(!$this->readOnly);
     }
 
     /**
@@ -461,6 +468,13 @@ class Database extends \Pramnos\Framework\Base
      */
     public function getConnection($isWrite = false)
     {
+        if ($isWrite && $this->readOnly) {
+            throw new \RuntimeException(
+                'This Database instance is a read-only replica connection (see '
+                . 'replicaConnection()) and refuses to run a write statement.'
+            );
+        }
+
         $role = $isWrite ? 'write' : 'read';
         $link = $isWrite ? $this->_writeConnection : $this->_readConnection;
 
@@ -4497,6 +4511,56 @@ class Database extends \Pramnos\Framework\Base
                 'SET SESSION TRANSACTION ISOLATION LEVEL ' . ($previous ?? 'REPEATABLE READ')
             );
         }
+    }
+
+    /**
+     * A second, read-only Database instance pointed at a replica -- same user, password,
+     * database and type as this one, so nothing is re-entered by the caller, only the host
+     * (and optionally the port) differ.
+     *
+     * Independent of the global `read`/`write` config split this class already supports
+     * (see {@see connectToReplica()}): that split changes routing for *every* query the
+     * application runs, which is too broad a switch to flip for one batch job that can
+     * tolerate replication lag while the rest of the site cannot. This instead gives that
+     * one caller its own handle, explicitly, leaving every other `Database` instance
+     * untouched.
+     *
+     * The returned instance is a fresh connection, never sharing the live link this one
+     * already holds -- a cloned instance normally does (see {@see $ownsConnection}), which
+     * is correct when the two share a server, but wrong here since they do not. Every write
+     * statement on it throws instead of running (see {@see getConnection()}), rather than
+     * reaching a replica and failing there with a less legible database-level error.
+     *
+     * @param  string|null $hostname Replica host; defaults to the "read" database setting's
+     *                                hostname, if one is configured.
+     * @param  int|null    $port     Replica port; defaults to the "read" setting's port, or
+     *                                this instance's own port if neither is set.
+     * @return self A new, read-only instance, already connected -- this one is left untouched.
+     * @throws \InvalidArgumentException When no hostname is given and none is configured.
+     * @throws \RuntimeException When the replica cannot be reached.
+     */
+    public function replicaConnection(?string $hostname = null, ?int $port = null): self
+    {
+        $hostname ??= $this->readConfig['hostname'] ?? null;
+        if ($hostname === null) {
+            throw new \InvalidArgumentException(
+                'No replica hostname given, and none configured under the "read" database '
+                . 'settings.'
+            );
+        }
+        $port ??= $this->readConfig['port'] ?? $this->port;
+
+        $replica = clone $this;
+        $replica->__wakeup();
+        $replica->ownsConnection = true;
+        $replica->server = $hostname;
+        $replica->port = $port;
+        $replica->readOnly = true;
+        $replica->readConfig = [];
+        $replica->writeConfig = [];
+        $replica->connect(true);
+
+        return $replica;
     }
 
     /**
