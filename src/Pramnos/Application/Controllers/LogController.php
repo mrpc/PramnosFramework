@@ -410,7 +410,7 @@ class LogController extends Controller
             // Render HTML output
             return $this->logViewer->renderHtml($result);
         } catch (\Exception $e) {
-            return $this->logViewer->renderError("Error reading log file: " . htmlspecialchars($e->getMessage()));
+            return $this->logViewer->renderError("Error reading log file: " . $e->getMessage());
         }
     }
 

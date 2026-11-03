@@ -549,7 +549,7 @@ class DevPanelController extends Controller
             echo $viewer->renderHtml($viewer->getLogContent());
         } catch (\Throwable $exception) {
             echo $viewer->renderError(
-                'Error reading log file: ' . htmlspecialchars($exception->getMessage())
+                'Error reading log file: ' . $exception->getMessage()
             );
         }
 

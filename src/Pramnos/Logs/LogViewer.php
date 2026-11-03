@@ -1071,7 +1071,7 @@ class LogViewer
 
                 // Add timestamp
                 if (isset($data['timestamp'])) {
-                    $html .= '<span class="timestamp">' . $this->highlightText($data['timestamp'], $search) . '</span>';
+                    $html .= '<span class="timestamp">' . $this->highlightText(htmlspecialchars($data['timestamp']), $search) . '</span>';
                 }
 
                 // Add message content
@@ -1688,7 +1688,7 @@ HTML;
     </head><body>
     <div class="error-message">
         <i class="fas fa-exclamation-circle"></i>
-        ' . $message . '
+        ' . htmlspecialchars($message) . '
     </div>
     </body></html>';
     }
