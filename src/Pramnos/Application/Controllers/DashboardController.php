@@ -727,11 +727,17 @@ class DashboardController extends Controller
      * What a view needs to draw one card: its place in the layout, its heading, its settings and
      * the choices for them, and its inside drawn with those settings.
      *
-     * @param array{id: string, size: string, settings?: array<string, mixed>} $item
+     * `$item['draw'] === false` for a tab not shown yet: its inside is left out, drawn when it is
+     * first opened. In the item and not a parameter, so an override with the original signature
+     * keeps loading — a parameter added to an overridable method is a fatal in every subclass. An
+     * override that took a third `bool $draw` and passes it on is honoured too.
+     *
+     * @param array{id: string, size: string, settings?: array<string, mixed>, draw?: bool} $item
      * @return array<string, mixed>
      */
-    protected function cardFor(\Pramnos\Dashboard\Widget $widget, array $item, bool $draw = true): array
+    protected function cardFor(\Pramnos\Dashboard\Widget $widget, array $item): array
     {
+        $draw     = ($item['draw'] ?? true) !== false && (func_num_args() < 3 || func_get_arg(2) !== false);
         $settings = (array) ($item['settings'] ?? []);
         $options  = [];
         $fields   = [];
@@ -771,7 +777,7 @@ class DashboardController extends Controller
     {
         $tabs = [];
         foreach ($group['tabs'] as $tab) {
-            $card   = $this->cardFor($widgets[$tab['id']], ['id' => $tab['id'], 'size' => $group['size'], 'settings' => $tab['settings']], $tab['id'] === $group['active']);
+            $card   = $this->cardFor($widgets[$tab['id']], ['id' => $tab['id'], 'size' => $group['size'], 'settings' => $tab['settings'], 'draw' => $tab['id'] === $group['active']]);
             $tabs[] = $card;
         }
 

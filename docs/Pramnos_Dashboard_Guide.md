@@ -438,6 +438,22 @@ on these attributes: `data-pf-widget-group` on the frame, `data-pf-tabs` on the 
 holds its card's settings form (`card_settings.html.php`, the same partial `card.html.php`
 uses), and its contents go in `data-pf-tab-body`.
 
+### What a card carries, from an application's controller
+
+`DashboardController::cardFor(Widget $widget, array $item)` builds what the view draws for one
+card — heading, settings, fields and its inside — and an application's controller may override it
+to add its own keys:
+
+```php
+protected function cardFor(\Pramnos\Dashboard\Widget $widget, array $item): array
+{
+    return parent::cardFor($widget, $item) + ['subtitle' => $widget->subtitle()];
+}
+```
+
+A tab not shown yet comes with `$item['draw'] === false` and no `html`; it is drawn when it is first
+opened. Pass `$item` on unchanged and that keeps working.
+
 ## Presets: named layouts, saved and shared
 
 A preset is a named layout of a board. Applying one **copies** it into the person's own layout,
