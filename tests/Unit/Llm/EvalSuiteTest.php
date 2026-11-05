@@ -246,4 +246,112 @@ class EvalSuiteTest extends LlmTestCase
         $this->assertStringContainsString('answer no  rounds 0  (', $tester->getDisplay());
         $this->assertSame(1, $tester->execute(['fixtures' => $this->dir . '/none']));
     }
+
+    /**
+     * A public skill's eval file — `{"evals": [{"id", "prompt", "expected_output", "assertions"}]}` —
+     * is read as cases, and its plain-language assertions are graded by the model as a judge, in
+     * one call, with the expected output shown to it; the ones not met are listed.
+     */
+    public function testPlainLanguageAssertionsAreGradedByAJudge(): void
+    {
+        // Arrange
+        file_put_contents($this->dir . '/evals.json', json_encode(['skill_name' => 'crm', 'evals' => [
+            ['id' => 'churn', 'prompt' => 'Who is drifting away?', 'expected_output' => 'A cohort and an action', 'assertions' => ['Names a cohort', 'Proposes an email']],
+        ]]));
+        $this->answer([[200, self::says('The March cohort is drifting.')], [200, self::says('{"met": [true, false]}')]]);
+
+        // Act
+        $report = Suite::fromDirectory($this->dir)->run('S.');
+        $case   = $report->cases[0];
+
+        // Assert
+        $this->assertSame('evals#churn', $case['name']);
+        $this->assertSame(0.5, $case['assertions']);
+        $this->assertSame(['Proposes an email'], $case['unmet']);
+        $judged = (string) $this->sent[1]['body']['messages'][1]['content'];
+        $this->assertStringContainsString('A cohort and an action', $judged, 'the judge sees what a good answer looks like');
+        $this->assertStringContainsString('1. Names a cohort', $judged);
+        $this->assertSame(0.5, $report->toArray()['summary']['assertions']);
+    }
+
+    /**
+     * A skill's cases: `use_skill` runs for real — its answer is the skill's instructions — and the
+     * tools it adds answer their canned results, never running; `skill_used` is 1 when the model
+     * turned the expected skill on, and the gates hold it over the cases that score it.
+     */
+    public function testASkillIsTurnedOnAndScored(): void
+    {
+        // Arrange — the application's tools grouped into skills, the CRM one with a method
+        $registry = (new \Pramnos\Llm\ToolRegistry())->add(['crm_lookup' => self::tools()['count_orders'] + ['skills' => ['crm']]] + ['list_users' => self::tools()['list_users']])
+            ->defineSkill('crm', 'Customers', [], 'Start from the cohort.');
+        $tools = $registry->tools([], []) + $registry->skillTool([]);
+        $suite = (new Suite([['name' => 'drift', 'user_query' => 'Who drifts?', 'tool_results' => ['crm_lookup' => 'Acme']]]))
+            ->withTools(array_keys($tools), 'crm');
+        $this->answer([
+            [200, self::calls([['use_skill', ['skill' => 'crm']]])],
+            [200, self::calls([['crm_lookup', ['period' => 'x']]])],
+            [200, self::says('Acme.')],
+        ]);
+
+        // Act
+        $report = $suite->run('S.', $tools);
+
+        // Assert
+        $tool = array_values(array_filter($this->sent[1]['body']['messages'], static fn (array $m): bool => ($m['role'] ?? '') === 'tool'));
+        $this->assertStringContainsString("Turned on crm: crm_lookup.\n\nStart from the cohort.", (string) $tool[0]['content'], 'use_skill ran for real');
+        $last = array_values(array_filter($this->sent[2]['body']['messages'], static fn (array $m): bool => ($m['role'] ?? '') === 'tool'));
+        $this->assertSame('Acme', (string) end($last)['content'], 'the added tool answered its canned result');
+        $this->assertSame(1.0, $report->cases[0]['skill_used']);
+        $this->assertSame(1.0, $report->toArray()['summary']['skill_used']);
+        // The gate: over the cases that score it, and only when both sides do
+        $worse = new Report([['tool_accuracy' => 1.0, 'argument_fidelity' => 1.0, 'rounds' => 3, 'skill_used' => 0.0]]);
+        $this->assertSame(['skill_used fell from 100.0% to 0.0% (more than 5 points).'], $worse->regressions($report));
+        $this->assertSame([], $worse->regressions(new Report([['tool_accuracy' => 1.0, 'argument_fidelity' => 1.0, 'rounds' => 3]])), 'a baseline from before skills');
+        $this->assertArrayNotHasKey('expected_skill', (new Suite([['user_query' => 'q', 'expected_skill' => 'x']]))->withTools([], null)->run('S.', [])->cases[0] + [], 'not scored twice');
+    }
+
+    /**
+     * The command with `--skills`: each skill folder's evals/ asked with the setup's tools grouped
+     * into skills; a baseline written and compared per skill, beside the cases; `--skill` names one;
+     * an unknown skill, or no skill with cases, fails.
+     */
+    public function testTheCommandAsksEachSkillsEvals(): void
+    {
+        // Arrange — a skill folder with its evals, the setup's tools, the skills folder in app.php
+        mkdir($this->dir . '/skills/crm/evals', 0777, true);
+        file_put_contents($this->dir . '/skills/crm/SKILL.md', "---\ndescription: Customers\ntools: [count_orders]\n---\nStart from the cohort.");
+        file_put_contents($this->dir . '/skills/crm/evals/drift.json', json_encode(['user_query' => 'How many orders?', 'expected_tool_calls' => ['use_skill', 'count_orders']]));
+        file_put_contents($this->dir . '/setup.php', '<?php return ["system" => "S.", "tools" => ' . var_export(array_map(static fn (array $t): array => array_diff_key($t, ['run' => 1]) + ['skills' => ['crm']], self::tools()), true) . '];');
+        $this->configure(['chat' => ['skills_path' => $this->dir . '/skills']]);
+        $tester = new CommandTester(new LlmEval());
+        $good   = [[200, self::calls([['use_skill', ['skill' => 'crm']]])], [200, self::calls([['count_orders', []]])], [200, self::says('42.')]];
+
+        try {
+            // Act / Assert — written beside the cases, then compared
+            $this->answer($good);
+            $this->assertSame(0, $tester->execute(['--skills' => true, '--setup' => $this->dir . '/setup.php', '--write-baseline' => true]));
+            $this->assertFileExists($this->dir . '/skills/crm/evals/baseline.json');
+            $this->answer($good);
+            $this->assertSame(0, $tester->execute(['--skill' => 'crm', '--setup' => $this->dir . '/setup.php']));
+            $this->assertStringContainsString('skill used', $tester->getDisplay());
+            $this->assertStringContainsString('skill used 100.0%', $tester->getDisplay());
+            // A model that no longer turns it on regresses
+            $this->answer([[200, self::says('No idea.')]]);
+            $this->assertSame(1, $tester->execute(['--skill' => 'crm', '--setup' => $this->dir . '/setup.php']));
+            $this->assertStringContainsString('Regression: skill_used fell', $tester->getDisplay());
+            // Unknown skill; and no skill with cases
+            $this->assertSame(1, $tester->execute(['--skill' => 'nope']));
+            unlink($this->dir . '/skills/crm/evals/drift.json');
+            unlink($this->dir . '/skills/crm/evals/baseline.json');
+            $this->assertSame(1, $tester->execute(['--skills' => true]));
+            $this->assertStringContainsString('No skill has eval cases', $tester->getDisplay());
+        } finally {
+            foreach (array_merge(glob($this->dir . '/skills/crm/evals/*') ?: [], glob($this->dir . '/skills/crm/*.md') ?: []) as $f) {
+                unlink($f);
+            }
+            rmdir($this->dir . '/skills/crm/evals');
+            rmdir($this->dir . '/skills/crm');
+            rmdir($this->dir . '/skills');
+        }
+    }
 }

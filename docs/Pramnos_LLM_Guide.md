@@ -430,6 +430,7 @@ nothing, and gets the same results every time; only the model varies. A case may
 |---|---|
 | `tool_accuracy`, `argument_fidelity` | the mean falls by more than 5 points of 100 (`Report::ACCURACY_DROP`) |
 | `rounds` | the mean rises by more than a fifth (`Report::ROUNDS_RISE`): the same answers costing more |
+| `skill_used`, `assertions` | the mean, over the cases that score it, falls by more than 5 points |
 
 ```bash
 # tests/llm-eval/setup.php returns ['system' => …, 'tools' => …, 'client' => fn () => new Client(…)]
@@ -462,6 +463,44 @@ jobs:
 
 In code, `(new Suite($cases))->run($systemPrompt, $tools)` returns the `Report`; compare two with
 `$report->regressions($baseline)`.
+
+### Assertions graded by a judge
+
+Some questions cannot be checked mechanically, such as "names a cohort" or "proposes a win-back
+email". A case can carry `assertions`, which are plain-language checks, and the model grades them
+as a judge in one call per case. `expected_output`, if present, is shown to the judge as what a
+good answer looks like. The score `assertions` is the share met, and the ones not met are listed
+in `unmet`. Files in the public Agent Skills shape are read as they are:
+
+```json
+{"skill_name": "crm", "evals": [
+  {"id": "churn", "prompt": "Who is drifting away?", "expected_output": "A cohort, and an action for it",
+   "assertions": ["Names a cohort", "Proposes a win-back email"]}
+]}
+```
+
+Each entry becomes a case named `<file>#<id>`, with `prompt` as its `user_query`. Grading costs one
+more call per case with assertions.
+
+### A skill's own evals
+
+A [skill folder](Pramnos_LLM_Tools_Guide.md#skills-with-a-method-skill-files) can keep its cases in
+`evals/*.json`, and `llm:eval` asks them as a conversation would, with the setup's tools grouped
+into skills:
+
+```bash
+./yourapp llm:eval --skills --setup=tests/llm-eval/setup.php                    # every skill with evals/
+./yourapp llm:eval --skill=crm-loyalty --setup=tests/llm-eval/setup.php --write-baseline
+```
+
+A case that names no `available_tools` is offered all of them: the tools of no skill, `use_skill`,
+and through it the skills' own tools. `use_skill` really runs, so turning a skill on hands over its
+instructions, while the tools it adds answer their canned results as usual. A case that names no
+`expected_skill` is expected to turn on its own skill, and the score `skill_used` says whether it
+did, because a skill the model never turns on is text nobody reads. Each skill is compared with its
+own `evals/baseline.json`, and `skill_used` and `assertions` are gated like accuracy, over the
+cases that score them. A baseline written before these scores existed does not fail on them. The
+setup may give a `context` (`['userid' => …]`) for tools with permissions.
 
 ## The call log and costs
 

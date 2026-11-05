@@ -226,7 +226,8 @@ class DashboardController extends Controller
     /** One of this controller's actions for a board — with `?board=` unless it is its own. */
     protected function boardUrl(string $action, string $board): string
     {
-        $url = adminUrl($this->dashboardRoute() . '/' . $action);
+        // `display` is the controller's own address: the one its menu item names.
+        $url = adminUrl($this->dashboardRoute() . ($action === 'display' ? '' : '/' . $action));
 
         return $board === $this->dashboardArea ? $url : $url . (str_contains($url, '?') ? '&' : '?') . 'board=' . rawurlencode($board);
     }

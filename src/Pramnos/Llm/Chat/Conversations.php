@@ -1029,10 +1029,9 @@ class Conversations
         foreach ($notes as $skill => $note) {
             $registry->describeSkill((string) $skill, (string) $note);
         }
-        // The application's skill files: a specialist's method, with the tools that go with it.
-        foreach ($files as $name => $skill) {
-            $registry->defineSkill($name, $skill['description'], $skill['tools'], $skill['instructions']);
-        }
+        // The application's skill files: a specialist's method, the tools that go with it, and
+        // its references, read on demand.
+        Skills::declare($registry, $files);
         $context = $this->scope?->context() ?? [];
 
         return $registry->tools($context, []) + $registry->skillTool($context);

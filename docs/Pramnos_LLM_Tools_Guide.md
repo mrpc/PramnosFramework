@@ -195,8 +195,31 @@ tools. A skill with neither is not offered. Skill files turn skills on unless ap
 `'skills' => false`. The files are the application's configuration, trusted as its system prompt
 is: anyone who can write them can already change what the model is told.
 
+**A skill as a folder.** A skill can also be `<slug>/SKILL.md`, which is the shape public Agent
+Skills come in, and it can sit beside file skills:
+
+```
+app/skills/
+  copywriting.md
+  crm-loyalty/
+    SKILL.md
+    references/winback-emails.md     # read on demand
+    references/calendar.txt
+    evals/churn.json                 # llm:eval --skill=crm-loyalty
+```
+
+`references/*.md` and `*.txt` are not handed over with the skill. `use_skill` returns the body and
+then a list of the references, by file name and title (each file's first heading, or else its
+first line). The model reads one with `read_skill_reference(skill, file)`, a tool offered only
+while a skill that has references is on. It reads only a file the folder's `references/` listed,
+only inside that folder once links are followed, and only up to 64 KB
+(`Skills::REFERENCE_MAX`), noting where it was cut. That keeps the body short, and loads templates,
+calendars and examples only when they are needed. `evals/` holds the skill's eval cases, as
+described in the [LLM guide](Pramnos_LLM_Guide.md#a-skills-own-evals).
+
 Outside a conversation, `ToolRegistry::defineSkill($name, $description, $tools, $instructions)`
-does the same, and `Chat\Skills::load($folder)` reads such a folder.
+does the same, `Chat\Skills::load($folder)` reads such a folder, and `Chat\Skills::declare($registry)`
+declares it, reader included.
 
 ## Tools from other MCP servers
 
