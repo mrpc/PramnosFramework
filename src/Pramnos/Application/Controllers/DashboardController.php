@@ -48,7 +48,7 @@ class DashboardController extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction(['display', 'card', 'activeusers', 'apistats', 'dbstats', 'database', 'cache', 'cacheitem', 'clearcache', 'savelayout', 'resetlayout',
-            'applypreset', 'savepreset', 'deletepreset', 'presetdefault', 'copyboard', 'presets', 'newboard', 'boardsettings', 'deleteboard']);
+            'applypreset', 'savepreset', 'deletepreset', 'presetdefault', 'copyboard', 'presets', 'newboard', 'boardsettings', 'deleteboard', 'people']);
         // POST with the session's token, or refused before the action runs: see Controller::exec().
         $this->addWriteAction(['clearcache', 'savelayout', 'resetlayout', 'applypreset', 'savepreset', 'deletepreset', 'presetdefault', 'copyboard', 'newboard', 'boardsettings', 'deleteboard']);
         parent::__construct($application);
@@ -165,8 +165,11 @@ class DashboardController extends Controller
             'copy'    => $this->boardUrl('copyboard', $board),
             'list'    => $this->boardUrl('presets', $this->dashboardArea),
         ];
-        $view->roles     = $this->roleNames();
-        $view->csrfField = \Pramnos\Http\Middleware\CsrfMiddleware::tokenField();
+        $view->roles         = $this->usertypeChoices($board);
+        $view->organizations     = $this->organizationChoices();
+        $view->organizationLabel = \Pramnos\Dashboard\Presets::organizations()?->label() ?? 'Organisation';
+        $view->peopleUrl     = $view->managesPresets ? $this->boardUrl('people', $board) : '';
+        $view->csrfField     = \Pramnos\Http\Middleware\CsrfMiddleware::tokenField();
 
         // A person's own board: its name over it, and — for its owner — its settings.
         $view->userBoard = is_object($user) && \Pramnos\Dashboard\UserBoards::isUserBoard($board) ? $this->userBoards()->find($board, $user) : null;
@@ -375,9 +378,11 @@ class DashboardController extends Controller
         if (!is_object($user) || !$this->managesPresets($user)) {
             $this->addError('Only an administrator copies a board to somebody else.');
         } else {
-            $receiver = $target > 1 ? $this->account($target) : null;
-            if ($receiver === null || (int) ($receiver->userid ?? 0) !== $target) {
-                $this->addError('There is no such account.');
+            $receiver = $target > 1 && $target !== (int) $user->userid ? $this->account($target) : null;
+            // The picker offers only these; a hand-made post is held to the same.
+            if ($receiver === null || (int) ($receiver->userid ?? 0) !== $target
+                || (int) ($receiver->active ?? 0) !== 1 || (int) ($receiver->usertype ?? 0) < $this->boardFloor($board)) {
+                $this->addError('There is no such account that can open this dashboard.');
             } else {
                 $kept = $this->layouts()->save($receiver, $this->layouts()->for($user, $board), $board);
                 \Pramnos\Auth\AuditLog::record('dashboard.board_copied', (int) $user->userid, $target, ['board' => $board, 'cards' => count($kept)], 'dashboard', $board);
@@ -419,7 +424,7 @@ class DashboardController extends Controller
         $view            = $this->getView('dashboard');
         $view->presets   = $this->presetStore()->all();
         $view->owners    = $names;
-        $view->roles     = $this->roleNames();
+        $view->roles     = $this->usertypeChoices($this->dashboardArea);
         $view->csrfField = \Pramnos\Http\Middleware\CsrfMiddleware::tokenField();
         $view->urls      = ['delete' => $this->boardUrl('deletepreset', $this->dashboardArea), 'default' => $this->boardUrl('presetdefault', $this->dashboardArea)];
 
@@ -515,19 +520,117 @@ class DashboardController extends Controller
     }
 
     /**
-     * The roles a preset may be shared with or made the default for: the framework's, and any
-     * app.php adds.
+     * The types a preset or a board may be shared with, or a preset made the default for — the
+     * application's own usertypes ({@see \Pramnos\User\UserTypes}, `'usertypes'` in app.php), level =>
+     * label, from the board's floor up: nobody below it can open the board at all. Lowest first.
      *
-     * @return list<string>
+     * @return array<int, string>
      */
-    protected function roleNames(): array
+    protected function usertypeChoices(string $board): array
     {
-        $app = \Pramnos\Application\Application::currentInstance();
+        $floor   = $this->boardFloor($board);
+        $choices = [];
+        foreach (\Pramnos\User\UserTypes::labels() as $level => $label) {
+            if ((int) $level >= $floor && !in_array((int) $level, \Pramnos\User\UserTypes::EXACT, true)) {
+                $choices[(int) $level] = (string) $label;
+            }
+        }
+        ksort($choices);
 
-        return array_values(array_unique(array_merge(
-            array_keys(\Pramnos\User\Roles::DEFAULTS),
-            array_map('strval', array_keys(is_object($app) ? (array) ($app->applicationInfo['roles'] ?? []) : []))
-        )));
+        return $choices;
+    }
+
+    /**
+     * The usertype from which a board can be opened: the administration area's floor, or the
+     * board's `min_role` where that is higher.
+     */
+    protected function boardFloor(string $board): int
+    {
+        $floor = $this->adminFloor();
+        $app   = \Pramnos\Application\Application::currentInstance();
+        $role  = is_object($app) ? ($app->applicationInfo['dashboard']['boards'][$board]['min_role'] ?? null) : null;
+        if (is_string($role) && $role !== '') {
+            try {
+                $floor = max($floor, \Pramnos\Dashboard\Presets::roleLevel($role));
+            } catch (\Throwable) {
+                // A role nobody defined raises nothing here; the board refuses on its own.
+            }
+        }
+
+        return $floor;
+    }
+
+    /**
+     * The organisations a preset or a board may be shared with, id => name — from the application's
+     * {@see \Pramnos\Dashboard\OrganizationSource}; none where it has none, or says `false`, so the
+     * choice is not offered.
+     *
+     * @return array<int|string, string>
+     */
+    protected function organizationChoices(): array
+    {
+        try {
+            return \Pramnos\Dashboard\Presets::organizations()?->choices() ?? [];
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Dashboard organisations unavailable: ' . $e->getMessage(), 'dashboard');
+
+            return [];
+        }
+    }
+
+    /**
+     * People an administrator may copy a board to, for the picker — `GET …/people?q=ann`: at least
+     * two letters of a name, surname, username or email; at most 15; only active accounts that
+     * can open the board, never oneself. Each {userid, name, username, email, type}.
+     */
+    public function people(): mixed
+    {
+        \Pramnos\Framework\Factory::getDocument('json');
+        $user = \Pramnos\User\User::current();
+        if (!is_object($user) || !$this->managesPresets($user)) {
+            return \Pramnos\Http\Response::json(['error' => 'Only an administrator looks people up here.'], 403);
+        }
+        $q = trim((string) ($_GET['q'] ?? ''));
+        if (mb_strlen($q) < 2) {
+            return \Pramnos\Http\Response::json(['people' => []]);
+        }
+        $people = [];
+        foreach ($this->peopleMatching($q, $this->boardFloor($this->board()), (int) $user->userid) as $row) {
+            $name     = trim((string) ($row['firstname'] ?? '') . ' ' . (string) ($row['lastname'] ?? ''));
+            $people[] = [
+                'userid'   => (int) $row['userid'],
+                'name'     => $name !== '' ? $name : (string) $row['username'],
+                'username' => (string) $row['username'],
+                'email'    => (string) ($row['email'] ?? ''),
+                'type'     => \Pramnos\User\UserTypes::label((int) $row['usertype']),
+            ];
+        }
+
+        return \Pramnos\Http\Response::json(['people' => $people]);
+    }
+
+    /**
+     * Active accounts from a usertype up, matching some text, but one — the picker's rows.
+     *
+     * @return list<array<string, mixed>>
+     */
+    protected function peopleMatching(string $q, int $floor, int $except): array
+    {
+        // Bound, not built into the query; a `%` typed only widens the search.
+        $like = '%' . $q . '%';
+        try {
+            return array_values(\Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('users')
+                ->select(['userid', 'username', 'email', 'firstname', 'lastname', 'usertype'])
+                ->where('active', 1)->where('usertype', '>=', $floor)->where('userid', '!=', $except)->where('userid', '>', 1)
+                ->where(static function ($w) use ($like): void {
+                    $w->whereLike('username', $like)->orWhereLike('email', $like)->orWhereLike('firstname', $like)->orWhereLike('lastname', $like);
+                })
+                ->orderBy('username')->limit(15)->getAllOrFail());
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Dashboard people lookup failed: ' . $e->getMessage(), 'dashboard');
+
+            return [];
+        }
     }
 
     /** An account by id, for copying a board to it; null when there is none. */
@@ -553,11 +656,13 @@ class DashboardController extends Controller
     {
         $referer = (string) ($_SERVER['HTTP_REFERER'] ?? '');
         $site    = defined('sURL') ? (string) \sURL : '';
-        if ($site !== '' && str_starts_with($referer, $site)) {
-            return $referer;
-        }
+        $back    = $site !== '' && str_starts_with($referer, $site)
+            ? (string) strtok($referer, '#')
+            : ($board === $this->dashboardArea ? $this->dashboardHome() : $this->boardUrl('display', $board));
+        // The dialog's tab the form was on, so the page opens it again on its way back.
+        $tab = (string) ($_POST['_tab'] ?? '');
 
-        return $board === $this->dashboardArea ? $this->dashboardHome() : $this->boardUrl('display', $board);
+        return preg_match('/^[a-z]{1,16}$/', $tab) === 1 ? $back . '#pf-presets=' . $tab : $back;
     }
 
     /**

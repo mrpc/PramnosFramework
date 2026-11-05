@@ -314,7 +314,7 @@ class DashboardUserBoardsMySQLTest extends TestCase
         $controller->failing = false;
         $id = (new UserBoards($this->db))->create($owner, 'Mine');
         $_GET  = ['board' => UserBoards::name($id)];
-        $_POST = ['name' => 'Mine', 'visibility' => Presets::ORGANIZATION, 'audience_org' => 'x'];
+        $_POST = ['name' => 'Mine', 'visibility' => Presets::ORGANIZATION, 'audience_org' => 'bad id!'];
         $controller->boardsettings();
         NavRegistry::reset();
         Application::getInstance()->registerDefaultNavItems([]);

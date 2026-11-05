@@ -2051,4 +2051,18 @@ return [
     'Move this tab right' => 'Μετακίνηση της καρτέλας δεξιά',
     'Take this tab out of the group' => 'Αφαίρεση της καρτέλας από την ομάδα',
     'Settings of this tab' => 'Ρυθμίσεις αυτής της καρτέλας',
+    // The presets and dashboards dialog, in tabs.
+    'From a user type up' => 'Από έναν τύπο χρήστη και πάνω',
+    'Members of: %s' => 'Μέλη: %s',
+    'New dashboard' => 'Νέος πίνακας',
+    'My dashboard' => 'Ο πίνακάς μου',
+    'Copy to a user' => 'Αντιγραφή σε χρήστη',
+    'From this user type up' => 'Από αυτόν τον τύπο χρήστη και πάνω',
+    'Default for a user type' => 'Προεπιλογή για έναν τύπο χρήστη',
+    'No user type' => 'Κανένας τύπος χρήστη',
+    'The user' => 'Ο χρήστης',
+    'Name, username or email' => 'Όνομα, όνομα χρήστη ή email',
+    'Only active users who can open this dashboard are offered. Their dashboard is replaced with yours.' => 'Προτείνονται μόνο ενεργοί χρήστες που μπορούν να ανοίξουν αυτόν τον πίνακα. Ο πίνακάς τους αντικαθίσταται από τον δικό σας.',
+    'There is no such account that can open this dashboard.' => 'Δεν υπάρχει τέτοιος λογαριασμός που να μπορεί να ανοίξει αυτόν τον πίνακα.',
+    'Only an administrator looks people up here.' => 'Μόνο ένας διαχειριστής αναζητά χρήστες εδώ.',
 ];

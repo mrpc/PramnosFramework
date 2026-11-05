@@ -34,7 +34,7 @@ class DashboardPresetsMySQLTest extends TestCase
     protected const ADMIN = 990201;
 
     /** A manager they are shared with. */
-    protected const MANAGER = 990202;
+    public const MANAGER = 990202;
 
     /** Somebody below every role. */
     protected const STAFF = 990203;
@@ -141,7 +141,7 @@ class DashboardPresetsMySQLTest extends TestCase
         $errors = 0;
 
         // Act
-        foreach ([['', Presets::PRIVATE, null], ['X', 'friends', null], ['X', Presets::ROLE, 'nope'], ['X', Presets::ORGANIZATION, 'abc']] as [$name, $visibility, $audience]) {
+        foreach ([['', Presets::PRIVATE, null], ['X', 'friends', null], ['X', Presets::ROLE, 'nope'], ['X', Presets::ORGANIZATION, 'bad id!']] as [$name, $visibility, $audience]) {
             try {
                 $store->save($admin, 'admin', $name, [], $visibility, $audience);
             } catch (\InvalidArgumentException) {
@@ -320,8 +320,9 @@ class DashboardPresetsMySQLTest extends TestCase
      */
     public function testAnAdministratorsPresetActions(): void
     {
-        // Arrange — an account to copy to, and a store that fails on demand
-        $manager    = self::person(self::MANAGER, 80);
+        // Arrange — an account to copy to (active, at the administration's floor), and a store that fails on demand
+        $manager         = self::person(self::MANAGER, 98);
+        $manager->active = 1;
         $controller = new class (null, $manager) extends LayoutDashboardController {
             /** Whether the store should fail. */
             public bool $failing = false;
@@ -372,7 +373,7 @@ class DashboardPresetsMySQLTest extends TestCase
         $copied = array_column((new Layouts($this->db))->for($manager, 'admin'), 'id');
         $_POST = ['userid' => '424242'];
         $controller->copyboard();
-        $_POST = ['name' => 'X', 'visibility' => Presets::ORGANIZATION, 'audience_org' => 'abc'];
+        $_POST = ['name' => 'X', 'visibility' => Presets::ORGANIZATION, 'audience_org' => 'bad id!'];
         $controller->savepreset();
         $controller->failing = true;
         $_POST = ['name' => 'Y'];
@@ -391,7 +392,7 @@ class DashboardPresetsMySQLTest extends TestCase
         $this->assertSame(['health'], $copied, 'the administrator\'s board, on the manager\'s');
         $this->assertSame(\sURL . 'wcm', $back, 'back to the page the form was on');
         $errors = json_encode($_SESSION['_errors'] ?? $_SESSION);
-        foreach (['There is no such account.', 'Choose the organisation to share it with.', 'The preset could not be saved.'] as $said) {
+        foreach (['There is no such account that can open this dashboard.', 'Choose the organisation to share it with.', 'The preset could not be saved.'] as $said) {
             $this->assertStringContainsString($said, (string) $errors);
         }
     }
@@ -433,6 +434,218 @@ class DashboardPresetsMySQLTest extends TestCase
             $this->assertSame(\Pramnos\Application\Controllers\DashboardController::class, $controller::class);
         } finally {
             Settings::setSetting('authserver_organization_table', '', false);
+        }
+    }
+
+    /**
+     * The person picker: only active accounts that can open the board, never oneself, matched on
+     * name, username or email from two letters; nobody but an administrator may ask; and a copy
+     * posted by hand to somebody the picker would not offer is refused all the same.
+     */
+    public function testThePeoplePickerOffersOnlyWhoCanOpenTheBoard(): void
+    {
+        // Arrange — the floor is the administration's (98 unless set); three accounts around it
+        \Pramnos\User\User::setupDb();
+        $users = $this->db->queryBuilder();
+        $ids   = [];
+        foreach ([['alice', 98, 1, 'Alice', 'Smith'], ['albert', 98, 0, 'Albert', 'Off'], ['alcarl', 10, 1, 'Carl', 'Low']] as [$name, $type, $active, $first, $last]) {
+            $this->db->queryBuilder()->table('users')->insert(['username' => 'pfpick_' . $name, 'email' => $name . '@example.com', 'firstname' => $first, 'lastname' => $last,
+                'usertype' => $type, 'active' => $active, 'sex' => 0, 'birthdate' => 0, 'modified' => 0]);
+            $ids[$name] = (int) $this->db->getInsertId();
+        }
+        $controller = new LayoutDashboardController(null);
+        $admin      = self::person(self::ADMIN, 99);
+
+        try {
+            // Act
+            \Pramnos\Http\RequestIdentity::seal(self::person(self::MANAGER, 80), 'test');
+            $refused = $controller->people();
+            \Pramnos\Http\RequestIdentity::seal($admin, 'test');
+            $_GET = ['q' => 'a'];
+            $tooShort = json_decode((string) $controller->people()->getBody(), true);
+            $_GET = ['q' => 'pfpick_al'];
+            $found = json_decode((string) $controller->people()->getBody(), true);
+            $_GET = ['q' => 'SMITH'];
+            $bySurname = json_decode((string) $controller->people()->getBody(), true);
+            (new Layouts($this->db))->save($admin, [['id' => 'health']], 'admin');
+            $_POST = ['userid' => (string) $ids['alcarl']];
+            $controller->copyboard();
+            $_POST = ['userid' => (string) $ids['alice']];
+            $controller->copyboard();
+            $copied = (new Layouts($this->db))->savedFor($ids['alice'], 'admin');
+
+            // Assert
+            $this->assertSame(403, $refused->getStatusCode());
+            $this->assertSame([], $tooShort['people']);
+            $this->assertSame(['pfpick_alice'], array_column($found['people'], 'username'), 'not the inactive one, not the one below the floor');
+            $this->assertSame(['userid' => $ids['alice'], 'name' => 'Alice Smith', 'username' => 'pfpick_alice', 'email' => 'alice@example.com', 'type' => 'Super Administrator'], $found['people'][0]);
+            $this->assertSame(['pfpick_alice'], array_column($bySurname['people'], 'username'), 'by surname, ignoring case');
+            $this->assertStringContainsString('There is no such account that can open this dashboard.', (string) json_encode($_SESSION['_errors'] ?? []));
+            $this->assertSame(['health'], array_column((array) $copied, 'id'), 'the one the picker offers gets the copy');
+        } finally {
+            $this->db->queryBuilder()->table('users')->whereIn('userid', array_values($ids))->delete();
+            $this->db->queryBuilder()->table('#PREFIX#usersettings')->whereIn('userid', array_values($ids))->delete();
+        }
+    }
+
+    /**
+     * Sharing with a user type: the audience is the type's number, held from that number up; a
+     * type can be a default too; and the dialog is offered the application's own types from the
+     * board's floor up, labelled as app.php names them.
+     */
+    public function testSharingWithAUserTypeFromTheApplicationsOwnTypes(): void
+    {
+        // Arrange
+        Application::getInstance()->applicationInfo['usertypes'] = [99 => 'Root', 98 => 'Super', 90 => 'Administrator', 50 => 'Management', 0 => 'Customer'];
+        $store = new Presets($this->db);
+        $id    = $store->save(self::person(self::ADMIN, 99), 'admin', 'Ops', [['id' => 'health']], Presets::ROLE, '90');
+        $store->setDefaultForRole($id, '90');
+        $controller = new LayoutDashboardController(null);
+        \Pramnos\Http\RequestIdentity::seal(self::person(self::ADMIN, 99), 'test');
+
+        // Act
+        $manager = array_column($store->visibleTo(self::person(self::MANAGER, 80), 'admin'), 'name');
+        $admin90 = array_column($store->visibleTo(self::person(self::STAFF, 95), 'admin'), 'name');
+        $default = $store->defaultLayoutFor(self::person(self::STAFF, 95), 'admin');
+        $controller->display();
+
+        // Assert
+        $this->assertSame([], $manager, 'below 90');
+        $this->assertSame(['Ops'], $admin90, '95 is from 90 up');
+        $this->assertSame([['id' => 'health', 'size' => 'full', 'settings' => []]], $default);
+        $this->assertSame([98 => 'Super', 99 => 'Root'], $controller->view->roles, 'from the floor (98) up, the application\'s names');
+    }
+
+    /**
+     * Organisations are the application's to say: its own kind through a source class, named its
+     * own way, sharing and membership through it; `false` offers no such choice and refuses it.
+     */
+    public function testOrganisationsAreTheApplicationsOwnOrNone(): void
+    {
+        // Arrange — a water utility's own groups
+        $source = new class implements \Pramnos\Dashboard\OrganizationSource {
+            /** Its own word. */
+            public function label(): string { return 'Utility'; }
+
+            /** Two utilities. */
+            public function choices(): array { return ['u7' => 'North', 'u8' => 'South']; }
+
+            /** The manager belongs to the north one. */
+            public function isMember(object $user, string $id): bool { return (int) $user->userid === DashboardPresetsMySQLTest::MANAGER && $id === 'u7'; }
+        };
+        Application::getInstance()->applicationInfo['dashboard'] = ['organizations' => $source];
+        $store = new Presets($this->db);
+        $store->save(self::person(self::ADMIN, 99), 'admin', 'North', [['id' => 'health']], Presets::ORGANIZATION, 'u7');
+        $controller = new LayoutDashboardController(null);
+        \Pramnos\Http\RequestIdentity::seal(self::person(self::ADMIN, 99), 'test');
+        $controller->display();
+        $offered = [$controller->view->organizations, $controller->view->organizationLabel];
+
+        // Act
+        $member    = array_column($store->visibleTo(self::person(self::MANAGER, 80), 'admin'), 'name');
+        $notMember = array_column($store->visibleTo(self::person(self::STAFF, 80), 'admin'), 'name');
+        Application::getInstance()->applicationInfo['dashboard'] = ['organizations' => false];
+        $controller->display();
+        $none    = $controller->view->organizations;
+        $refused = null;
+        try {
+            $store->save(self::person(self::ADMIN, 99), 'admin', 'X', [], Presets::ORGANIZATION, 'u7');
+        } catch (\InvalidArgumentException $e) {
+            $refused = $e;
+        }
+        $hidden = array_column($store->visibleTo(self::person(self::MANAGER, 80), 'admin'), 'name');
+
+        // Assert
+        $this->assertSame([['u7' => 'North', 'u8' => 'South'], 'Utility'], $offered);
+        $this->assertSame(['North'], $member);
+        $this->assertSame([], $notMember);
+        $this->assertSame([], $none, 'false: no such choice');
+        $this->assertInstanceOf(\InvalidArgumentException::class, $refused);
+        $this->assertSame([], $hidden, 'and nothing shared with one is seen');
+        $this->assertInstanceOf(\Pramnos\Dashboard\FrameworkOrganizations::class, (static function () {
+            Application::getInstance()->applicationInfo['dashboard'] = [];
+
+            return Presets::organizations();
+        })(), 'unsaid: the framework\'s own');
+    }
+
+    /**
+     * The framework's own organisations: by name, and membership read where the permission system
+     * reads it — active and unexpired only. And the floors: a board's `min_role` raises the types
+     * it offers, a role nobody defined leaves them; a source that fails offers none; a people
+     * lookup that fails answers nobody.
+     */
+    public function testTheFrameworksOrganisationsAndWhatFailingLeaves(): void
+    {
+        // Arrange — two organisations, a membership table of the test's own
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\AuthServer\CreateOrganizationsTable::class], $this->db);
+        $this->db->queryBuilder()->table('#PREFIX#organizations')->insert(['name' => 'PF Zeta']);
+        $zeta = (int) $this->db->getInsertId();
+        $this->db->queryBuilder()->table('#PREFIX#organizations')->insert(['name' => 'PF Alpha']);
+        $alpha = (int) $this->db->getInsertId();
+        $schema = $this->db->schema();
+        $schema->dropTableIfExists('authserver.pf_dash_members2');
+        $schema->createTable('authserver.pf_dash_members2', function ($table) {
+            $table->integer('userid');
+            $table->integer('organization_id');
+            $table->boolean('is_active')->default(true);
+            $table->string('expires_at', 32)->nullable();
+        });
+        Settings::setSetting('authserver_organization_table', 'pf_dash_members2', false);
+        $this->db->queryBuilder()->table('authserver.pf_dash_members2')->insert(['userid' => self::MANAGER, 'organization_id' => $zeta, 'is_active' => true]);
+        $this->db->queryBuilder()->table('authserver.pf_dash_members2')->insert(['userid' => self::STAFF, 'organization_id' => $zeta, 'is_active' => false]);
+        $orgs = new \Pramnos\Dashboard\FrameworkOrganizations();
+        $controller = new LayoutDashboardController(null);
+        \Pramnos\Http\RequestIdentity::seal(self::person(self::ADMIN, 99), 'test');
+
+        try {
+            // Act
+            $choices  = array_intersect_key($orgs->choices(), [$zeta => 1, $alpha => 1]);
+            $member   = $orgs->isMember(self::person(self::MANAGER, 80), (string) $zeta);
+            $inactive = $orgs->isMember(self::person(self::STAFF, 80), (string) $zeta);
+            $notId    = $orgs->isMember(self::person(self::MANAGER, 80), 'x');
+            Application::getInstance()->applicationInfo['dashboard'] = ['boards' => ['pf-high' => ['min_role' => 'root'], 'pf-odd' => ['min_role' => 'ghost']],
+                'organizations' => new class implements \Pramnos\Dashboard\OrganizationSource {
+                    /** A word. */
+                    public function label(): string { return 'X'; }
+
+                    /** It fails. */
+                    public function choices(): array { throw new \RuntimeException('down'); }
+
+                    /** Nobody. */
+                    public function isMember(object $user, string $id): bool { return false; }
+                }];
+            $high = (new \ReflectionMethod($controller, 'usertypeChoices'))->invoke($controller, 'pf-high');
+            $odd  = (new \ReflectionMethod($controller, 'usertypeChoices'))->invoke($controller, 'pf-odd');
+            $failing = (new \ReflectionMethod($controller, 'organizationChoices'))->invoke($controller);
+            $previous = Database::getInstance();
+            $reference = &Database::getInstance();
+            $reference = new class extends Database {
+                /** No table answers. */
+                public function queryBuilder(): \Pramnos\Database\QueryBuilder { throw new \RuntimeException('down'); }
+            };
+            $_GET = ['q' => 'anybody'];
+            $nobody = json_decode((string) $controller->people()->getBody(), true);
+            $downChoices = $orgs->choices();
+            $downMember  = $orgs->isMember(self::person(self::MANAGER, 80), (string) $zeta);
+            $reference = $previous;
+
+            // Assert
+            $this->assertSame([$alpha => 'PF Alpha', $zeta => 'PF Zeta'], $choices, 'by name');
+            $this->assertSame('Organisation', $orgs->label());
+            $this->assertTrue($member);
+            $this->assertFalse($inactive);
+            $this->assertFalse($notId);
+            $this->assertSame([99], array_keys($high), 'a board for root offers root only');
+            $this->assertSame([98, 99], array_keys($odd), 'a role nobody defined leaves the floor as it was');
+            $this->assertSame([], $failing);
+            $this->assertSame(['people' => []], $nobody);
+            $this->assertSame([], $downChoices, 'a database that fails: no organisations, not an error');
+            $this->assertFalse($downMember);
+        } finally {
+            Settings::setSetting('authserver_organization_table', '', false);
+            $schema->dropTableIfExists('authserver.pf_dash_members2');
+            $this->db->queryBuilder()->table('#PREFIX#organizations')->whereIn('organization_id', [$zeta, $alpha])->delete();
         }
     }
 }

@@ -2572,15 +2572,118 @@
                 if (dialog.close) { dialog.close(); } else { dialog.removeAttribute('open'); }
             }
         });
-        // The presets dialog: its forms post and come back, so opening and closing it is all.
-        document.addEventListener('click', function (e) {
-            var target = e.target && e.target.closest ? e.target.closest('[data-pf-dashboard-presets], [data-pf-dashboard-presets-close]') : null;
-            var dialog = target ? document.querySelector('[data-pf-dashboard-presets-dialog]') : null;
+        // The presets dialog: its forms post and come back. The script opens and closes it, shows
+        // one tab at a time, shows a field only for the choice it belongs to, finds a person by
+        // name, and opens it again on the tab a form came back from (#pf-presets=save).
+        function presetsDialog() { return document.querySelector('[data-pf-dashboard-presets-dialog]'); }
+        function openPresets(tab) {
+            var dialog = presetsDialog();
             if (!dialog) { return; }
-            if (target.hasAttribute('data-pf-dashboard-presets')) {
-                if (dialog.showModal) { dialog.showModal(); } else { dialog.setAttribute('open', ''); }
+            if (dialog.showModal) { if (!dialog.open) { dialog.showModal(); } } else { dialog.setAttribute('open', ''); }
+            if (tab) { presetsTab(dialog, tab); }
+        }
+        function presetsTab(dialog, key) {
+            var strip = dialog.querySelector('[data-pf-presets-tabs]');
+            var activeClass = (strip && strip.getAttribute('data-active-class')) || 'active';
+            var known = false;
+            Array.prototype.forEach.call(dialog.querySelectorAll('[data-pf-presets-tab]'), function (tab) {
+                var on = tab.getAttribute('data-pf-presets-tab') === key;
+                known = known || on;
+                tab.classList.toggle(activeClass, on);
+                tab.setAttribute('aria-selected', on ? 'true' : 'false');
+            });
+            if (!known) { return; }
+            Array.prototype.forEach.call(dialog.querySelectorAll('[data-pf-presets-pane]'), function (pane) {
+                pane.hidden = pane.getAttribute('data-pf-presets-pane') !== key;
+            });
+        }
+        /** Show each [data-pf-show-when="field=value"] only for that choice, its fields off while hidden. */
+        function showWhenChosen(form) {
+            Array.prototype.forEach.call(form.querySelectorAll('[data-pf-show-when]'), function (el) {
+                var rule = String(el.getAttribute('data-pf-show-when')).split('=');
+                var field = form.querySelector('[name="' + rule[0] + '"]');
+                var on = !!field && field.value === rule[1];
+                el.hidden = !on;
+                Array.prototype.forEach.call(el.querySelectorAll('input, select, textarea'), function (f) { f.disabled = !on; });
+            });
+        }
+        Array.prototype.forEach.call(document.querySelectorAll('[data-pf-dashboard-presets-dialog] form'), showWhenChosen);
+        document.addEventListener('change', function (e) {
+            var form = e.target && e.target.closest ? e.target.closest('[data-pf-dashboard-presets-dialog] form') : null;
+            if (form) { showWhenChosen(form); }
+        });
+        document.addEventListener('click', function (e) {
+            var target = e.target && e.target.closest ? e.target.closest('[data-pf-dashboard-presets], [data-pf-dashboard-presets-close], [data-pf-presets-tab], [data-pf-person-pick]') : null;
+            var dialog = target ? presetsDialog() : null;
+            if (!dialog) { return; }
+            if (target.hasAttribute('data-pf-presets-tab')) {
+                presetsTab(dialog, target.getAttribute('data-pf-presets-tab'));
+            } else if (target.hasAttribute('data-pf-person-pick')) {
+                pickPerson(target);
+            } else if (target.hasAttribute('data-pf-dashboard-presets')) {
+                openPresets(null);
             } else if (dialog.close) { dialog.close(); } else { dialog.removeAttribute('open'); }
         });
+        var back = /[#&]pf-presets=([a-z]{1,16})/.exec(String(window.location && window.location.hash || ''));
+        if (back) {
+            openPresets(back[1]);
+            if (window.history && window.history.replaceState) { window.history.replaceState(null, '', String(window.location.href).split('#')[0]); }
+        }
+
+        // The person picker: two letters or more ask the server (who may open this board, active,
+        // not oneself); choosing one fills the form's userid — nothing typed reaches it unchecked.
+        var personTimer = null;
+        function pickPerson(button) {
+            var form = button.closest('form');
+            var id = form.querySelector('[data-pf-person-id]');
+            var search = form.querySelector('[data-pf-person-search]');
+            var list = form.querySelector('[data-pf-person-results]');
+            var submit = form.querySelector('[data-pf-person-submit]');
+            id.value = button.getAttribute('data-pf-person-pick');
+            search.value = button.getAttribute('data-name') || '';
+            list.hidden = true;
+            list.textContent = '';
+            if (submit) { submit.disabled = false; }
+        }
+        document.addEventListener('input', function (e) {
+            var search = e.target && e.target.hasAttribute && e.target.hasAttribute('data-pf-person-search') ? e.target : null;
+            if (!search) { return; }
+            var form = search.closest('form');
+            var list = form.querySelector('[data-pf-person-results]');
+            var id = form.querySelector('[data-pf-person-id]');
+            var submit = form.querySelector('[data-pf-person-submit]');
+            id.value = '';
+            if (submit) { submit.disabled = true; }
+            if (personTimer) { window.clearTimeout(personTimer); }
+            var q = String(search.value || '').trim();
+            if (q.length < 2) { list.hidden = true; list.textContent = ''; return; }
+            personTimer = window.setTimeout(function () {
+                var url = search.getAttribute('data-url');
+                window.fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'q=' + encodeURIComponent(q), { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+                    .then(function (r) { return r.ok ? r.json() : { people: [] }; })
+                    .then(function (data) {
+                        list.textContent = '';
+                        (data.people || []).forEach(function (person) {
+                            var li = document.createElement('li');
+                            var button = document.createElement('button');
+                            button.type = 'button';
+                            button.className = list.getAttribute('data-pick-class') || '';
+                            button.setAttribute('data-pf-person-pick', String(person.userid));
+                            button.setAttribute('data-name', person.name);
+                            button.textContent = person.name + ' (' + person.username + ')' + (person.email ? ' · ' + person.email : '') + (person.type ? ' · ' + person.type : '');
+                            li.appendChild(button);
+                            list.appendChild(li);
+                        });
+                        list.hidden = (data.people || []).length === 0;
+                    })
+                    .catch(function () { list.hidden = true; });
+            }, 250);
+        });
+        document.addEventListener('submit', function (e) {
+            var form = e.target && e.target.hasAttribute && e.target.hasAttribute('data-pf-person-form') ? e.target : null;
+            var id = form ? form.querySelector('[data-pf-person-id]') : null;
+            if (id && !id.value) { e.preventDefault(); }
+        }, true);
         document.addEventListener('input', function (e) {
             var search = e.target && e.target.hasAttribute && e.target.hasAttribute('data-pf-dashboard-catalogue-search') ? e.target : null;
             if (!search) { return; }

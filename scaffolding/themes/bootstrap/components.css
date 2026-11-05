@@ -2320,3 +2320,12 @@ a.pf-person:hover { background: var(--pf-subtle); }
 /* A card dragged over a group's strip, which takes it when let go; a tab being dragged. */
 .pf-dashboard-tabs-target { outline: 2px dashed currentColor; outline-offset: 2px; }
 .pf-dashboard-tab-dragging { opacity: .5; }
+/* The presets and dashboards dialog: one width in every theme, its tabs, forms and footer. */
+.pf-dashboard-presets-dialog { width: min(640px, 95vw); }
+.pf-dashboard-presets { padding: 1rem; }
+.pf-dashboard-presets-list { list-style: none; padding: 0; margin: 0 0 .5rem; max-height: 45vh; overflow: auto; }
+.pf-dashboard-form { display: grid; gap: .6rem; }
+.pf-dashboard-inline-form { display: inline-flex; gap: .25rem; align-items: center; }
+.pf-dashboard-people { list-style: none; padding: 0; margin: 0; max-height: 14rem; overflow: auto; }
+.pf-dashboard-person { display: block; width: 100%; text-align: left; background: none; border: 0; padding: .35rem .5rem; cursor: pointer; }
+.pf-dashboard-presets-foot { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-top: 1rem; padding-top: .75rem; border-top: 1px solid rgba(127, 127, 127, .25); }

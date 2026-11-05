@@ -460,9 +460,29 @@ in `pramnos.dashboard_presets`. Who sees one is the saver's choice:
 | Who sees it | `visibility` | `audience` |
 |---|---|---|
 | Only me | `private` | — |
-| From a role up | `role` | the role, e.g. `manager`: everybody at that usertype or above |
-| An organisation | `organization` | its id: its active members |
+| From a user type up | `role` | the usertype it starts at, e.g. `90`: everybody at that usertype or above (a role's name, `manager`, is read too) |
+| Members of an organisation | `organization` | its id: its members, as the application's organisation source says |
 | Everyone | `everyone` | — |
+
+**The user types** offered are the application's own: `'usertypes' => [90 => 'Administrator',
+98 => 'Super Administrator', 99 => 'Root', …]` in app.php (`Pramnos\User\UserTypes`; an
+application with its own list writes `'usertypes' => \App\User::getAllUserTypes()`). Only the types
+from the board's floor up are offered, because nobody below it could open the board. That floor is
+the administration's, or the board's `min_role` where that is higher. The same list serves *Set as
+default*.
+
+**Organisations are the application's to define.** An application whose people are grouped
+differently (water utilities, branches, schools) gives its own source:
+
+```php
+'dashboard' => ['organizations' => \App\Dashboard\Utilities::class],   // implements Dashboard\OrganizationSource
+'dashboard' => ['organizations' => false],                                // no such choice at all
+```
+
+`OrganizationSource` has three methods: `label()` (what one is called, for the dialog, translated
+by the view), `choices()` (id => name) and `isMember($user, $id)`. Without a source, the framework's
+own organisations are used (`FrameworkOrganizations`, active ones by name, with membership read where
+the permission system reads it), and the choice appears only when there are any.
 
 The owner deletes their own presets, and an administrator (the `admin` role) may delete any.
 
@@ -477,8 +497,18 @@ Each role and board has one default preset, and marking another preset moves the
 person holds several roles, the highest one with a default wins.
 
 **Copy my dashboard to somebody.** An administrator can copy their own board to another account
-to set someone up. The copy replaces that person's layout for the board, is cleaned for them, and
-is recorded in the audit log as `dashboard.board_copied`.
+to set someone up. The person is chosen by name, username or email from a picker
+(`Dashboard/people?q=…`, administrators only). It offers at most 15 active accounts that can open
+the board, never the administrator themselves. The server holds a submitted id to the same rule.
+The copy replaces that person's layout for the board, is cleaned for them, and is recorded in the
+audit log as `dashboard.board_copied`.
+
+**The dialog** is in tabs: *Presets*, *Save as preset*, *New dashboard*, *My dashboard* (on one's
+own board only) and *Copy to a user* (administrators only). A field that belongs to one choice,
+such as the user type for *From a user type up*, appears and is sent only for that choice. After a
+form posts, the page reopens the dialog on the tab it was sent from (`#pf-presets=save`).
+`presets_dialog.html.php` is the partial to copy for a theme of one's own. The script reads only
+its `data-pf-*` attributes, which the file's docblock lists.
 
 The administration's list of every saved preset is `/admin/Dashboard/presets`, linked as
 *All presets* from the dialog. The dialog's actions are ordinary forms (`applypreset`,

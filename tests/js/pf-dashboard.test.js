@@ -28,8 +28,8 @@ const settle = async () => { for (let i = 0; i < 6; i++) { await new Promise((r)
  *
  * @param {boolean} ok Whether the server accepts the saves
  */
-function page(ok = true, cardUrl = '') {
-    const { window, document } = createDom({ meta: { csrf: 't0ken' } });
+function page(ok = true, cardUrl = '', before = null, url = 'https://app.test/') {
+    const { window, document } = createDom({ url, meta: { csrf: 't0ken' } });
     // The fake DOM does not parse HTML: a div given the server's card builds the one element it
     // names — `<section data-pf-widget="x" data-size="m">` — enough for the script to place it.
     const create = document.createElement;
@@ -111,6 +111,8 @@ function page(ok = true, cardUrl = '') {
         saves.push({ url, headers: init.headers, body: JSON.parse(init.body) });
         return Promise.resolve({ ok, status: ok ? 200 : 403, json: () => Promise.resolve({}) });
     };
+    // What a test puts on the page before the script reads it.
+    if (before) { before(el, document, window); }
     loadScript(SOURCE, window);
     // After pf-utils, which defines its own: a card drawn in is handed to it.
     window.pfCharts = { draw: (root) => charted.push(root) };
@@ -887,4 +889,106 @@ test('a tab is dragged along its strip, and out of its group', async () => {
     assert.deepEqual(out.slice(3).map((w) => w.id), ['tabs:d2', 'two']);
     assert.deepEqual(out[3].tabs.map((t) => t.id), ['three', 'one']);
     assert.equal(p.window.reloaded, 1);
+});
+
+
+/**
+ * The presets dialog as the views draw it: tabs, a form whose role field shows only for "from a
+ * type up", and the person picker.
+ */
+function presetsDialog(el) {
+    const dialog = el('dialog', { 'data-pf-dashboard-presets-dialog': '' });
+    const strip = el('div', { 'data-pf-presets-tabs': '', 'data-active-class': 'active' }, dialog);
+    ['list', 'save', 'copy'].forEach((key, i) => {
+        const tab = el('button', { 'data-pf-presets-tab': key }, strip);
+        if (i === 0) { tab.classList.add('active'); }
+    });
+    ['list', 'save', 'copy'].forEach((key, i) => { el('div', { 'data-pf-presets-pane': key }, dialog).hidden = i > 0; });
+    const pane = (key) => dialog.querySelector(`[data-pf-presets-pane="${key}"]`);
+    const save = el('form', {}, pane('save'));
+    const visibility = el('select', { name: 'visibility' }, save);
+    visibility.value = 'private';
+    const roleLabel = el('label', { 'data-pf-show-when': 'visibility=role' }, save);
+    el('select', { name: 'audience_role' }, roleLabel);
+    const copy = el('form', { 'data-pf-person-form': '' }, pane('copy'));
+    el('input', { type: 'hidden', name: 'userid', 'data-pf-person-id': '' }, copy).value = '';
+    el('input', { type: 'search', 'data-pf-person-search': '', 'data-url': '/admin/Dashboard/people' }, copy);
+    el('ul', { 'data-pf-person-results': '', 'data-pick-class': 'pick' }, copy).hidden = true;
+    const submit = el('button', { type: 'submit', 'data-pf-person-submit': '' }, copy);
+    submit.disabled = true;
+    el('button', { 'data-pf-dashboard-presets-close': '' }, dialog);
+    return dialog;
+}
+
+/**
+ * The dialog's tabs show one pane at a time; a field for one choice shows, and counts, only for
+ * it; and a form coming back opens the dialog on its tab (#pf-presets=save), the hash then cleared.
+ */
+test('the presets dialog: its tabs, a field for one choice, and reopening on a tab', async () => {
+    // Arrange — the page as a form's post-redirect left it
+    let dialog = null;
+    const p = page(true, '', (el) => { dialog = presetsDialog(el); }, 'https://app.test/admin/Dashboard#pf-presets=save');
+    const pane = (key) => dialog.querySelector(`[data-pf-presets-pane="${key}"]`);
+    const role = dialog.querySelector('[data-pf-show-when]');
+
+    // Assert — reopened on the save tab, the role field hidden and off for "only me"
+    assert.equal(dialog.hasAttribute('open'), true);
+    assert.equal(pane('save').hidden, false);
+    assert.equal(pane('list').hidden, true);
+    assert.equal(dialog.querySelector('[data-pf-presets-tab="save"]').classList.contains('active'), true);
+    assert.equal(role.hidden, true);
+    assert.equal(role.querySelector('select').disabled, true, 'a hidden field is not posted');
+    assert.equal(p.window.location.hash, '', 'the hash cleared');
+
+    // Act — another tab, then "from a type up"
+    p.click(dialog.querySelector('[data-pf-presets-tab="list"]'));
+    const listShown = !pane('list').hidden && pane('save').hidden;
+    const select = dialog.querySelector('[name="visibility"]');
+    select.value = 'role';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+
+    // Assert
+    assert.equal(listShown, true);
+    assert.equal(role.hidden, false);
+    assert.equal(role.querySelector('select').disabled, false);
+});
+
+/**
+ * The person picker asks the server from two letters, lists who it answers, and a choice fills the
+ * form's userid and lets it be sent; without a choice the form is not sent.
+ */
+test('the person picker finds a person by name and fills the form', async () => {
+    // Arrange
+    let dialog = null;
+    const p = page(true, '', (el) => { dialog = presetsDialog(el); });
+    const asked = [];
+    p.window.fetch = (url) => {
+        asked.push(url);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ people: [{ userid: 42, name: 'Alice Smith', username: 'alice', email: 'a@x.gr', type: 'Administrator' }] }) });
+    };
+    p.window.setTimeout = (fn) => { fn(); return 1; };
+    p.window.clearTimeout = () => {};
+    const search = dialog.querySelector('[data-pf-person-search]');
+    const form = dialog.querySelector('[data-pf-person-form]');
+    const submit = form.querySelector('[data-pf-person-submit]');
+
+    // Act — one letter asks nothing; two ask; sending before a choice is held back
+    search.value = 'a';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    search.value = 'al';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+    const held = new Event('submit', { bubbles: true, cancelable: true });
+    form.dispatchEvent(held);
+    const pick = form.querySelector('[data-pf-person-pick]');
+    p.click(pick);
+
+    // Assert
+    assert.deepEqual(asked, ['/admin/Dashboard/people?q=al']);
+    assert.equal(held.defaultPrevented, true, 'no person chosen: not sent');
+    assert.equal(pick === null, false);
+    assert.equal(form.querySelector('[data-pf-person-id]').value, '42');
+    assert.equal(search.value, 'Alice Smith');
+    assert.equal(submit.disabled, false);
+    assert.equal(form.querySelector('[data-pf-person-results]').hidden, true);
 });

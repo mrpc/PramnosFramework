@@ -4,11 +4,11 @@
  * who sees it, whose default it is — and the forms to change the default or delete it.
  *
  * Variables: $this->presets (rows of pramnos.dashboard_presets), $this->owners (userid => username),
- * $this->roles, $this->csrfField, $this->urls ['delete', 'default'].
+ * $this->roles (usertype => label), $this->csrfField, $this->urls ['delete', 'default'].
  */
 $e = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $t = static fn (string $words): string => function_exists('t') ? (string) t($words) : $words;
-$shown = ['private' => $t('Only me'), 'role' => $t('From a role up'), 'organization' => $t('An organisation'), 'everyone' => $t('Everyone')];
+$shown = ['private' => $t('Only me'), 'role' => $t('From a user type up'), 'organization' => $t('An organisation'), 'everyone' => $t('Everyone')];
 $field = (string) ($this->csrfField ?? '');
 ?>
 <div class="px-4 py-6">
@@ -19,7 +19,7 @@ $field = (string) ($this->csrfField ?? '');
     <table class="table table-sm">
         <thead><tr>
             <th><?php echo $e($t('Board')); ?></th><th><?php echo $e($t('Name')); ?></th><th><?php echo $e($t('Saved by')); ?></th>
-            <th><?php echo $e($t('Who sees it')); ?></th><th><?php echo $e($t('Default for a role')); ?></th><th></th>
+            <th><?php echo $e($t('Who sees it')); ?></th><th><?php echo $e($t('Default for a user type')); ?></th><th></th>
         </tr></thead>
         <tbody>
         <?php foreach ($this->presets as $row): ?>
@@ -31,10 +31,10 @@ $field = (string) ($this->csrfField ?? '');
             <td>
                 <form method="post" action="<?php echo $e($this->urls['default'] . (str_contains($this->urls['default'], '?') ? '&' : '?') . 'board=' . rawurlencode((string) $row['board'])); ?>" style="display:inline-flex;gap:.25rem"><?php echo $field; ?>
                     <input type="hidden" name="preset" value="<?php echo (int) $row['presetid']; ?>"><input type="hidden" name="back" value="list">
-                    <select name="role" class="select select-sm select-bordered" style="width:auto" aria-label="<?php echo $e($t('Default for a role')); ?>">
-                        <option value=""><?php echo $e($t('No role')); ?></option>
-                        <?php foreach ((array) $this->roles as $role): ?>
-                        <option value="<?php echo $e($role); ?>"<?php echo ($row['default_for_role'] ?? '') === $role ? ' selected' : ''; ?>><?php echo $e($role); ?></option>
+                    <select name="role" class="select select-sm select-bordered" style="width:auto" aria-label="<?php echo $e($t('Default for a user type')); ?>">
+                        <option value=""><?php echo $e($t('No user type')); ?></option>
+                        <?php foreach ((array) $this->roles as $level => $label): ?>
+                        <option value="<?php echo (int) $level; ?>"<?php echo (string) ($row['default_for_role'] ?? '') === (string) $level ? ' selected' : ''; ?>><?php echo $e($t((string) $label)); ?></option>
                         <?php endforeach; ?>
                     </select>
                     <button type="submit" class="btn btn-sm btn-ghost"><?php echo $e($t('Set as default')); ?></button>

@@ -33,10 +33,10 @@ final class Presets
     /** Seen by its owner only. */
     public const PRIVATE = 'private';
 
-    /** Seen from a role up: `audience` is the role. */
+    /** Seen from a role up: `audience` is the usertype it starts at (`90`), or a role's name. */
     public const ROLE = 'role';
 
-    /** Seen by the members of an organisation: `audience` is its id. */
+    /** Seen by the members of an organisation — the application's kind ({@see organizations()}): `audience` is its id. */
     public const ORGANIZATION = 'organization';
 
     /** Seen by everybody who has the board. */
@@ -152,7 +152,7 @@ final class Presets
             return false;
         }
         if ($role !== null) {
-            \Pramnos\User\Roles::level($role);
+            self::roleLevel($role);
             $this->db()->queryBuilder()->table(self::TABLE)->where('board', (string) $row['board'])
                 ->where('default_for_role', $role)->update(['default_for_role' => null]);
         }
@@ -177,8 +177,8 @@ final class Presets
                 continue;
             }
             try {
-                $at = \Pramnos\User\Roles::level($role);
-                if ($at > $level && \Pramnos\User\Roles::atLeast($user, $role)) {
+                $at = self::roleLevel($role);
+                if ($at > $level && self::holdsRole($user, $role)) {
                     [$best, $level] = [$row, $at];
                 }
             } catch (\Throwable) {
@@ -212,7 +212,7 @@ final class Presets
         return match ((string) ($row['visibility'] ?? self::PRIVATE)) {
             self::EVERYONE     => $me > 1,
             self::ROLE         => $audience !== '' && self::holdsRole($user, $audience),
-            self::ORGANIZATION => ctype_digit($audience) && self::isMember($me, (int) $audience),
+            self::ORGANIZATION => $audience !== '' && (self::organizations()?->isMember($user, $audience) ?? false),
             default            => false,
         };
     }
@@ -229,20 +229,27 @@ final class Presets
         return match ($visibility) {
             self::PRIVATE, self::EVERYONE => null,
             self::ROLE => (static function () use ($audience): string {
-                \Pramnos\User\Roles::level($audience);
+                self::roleLevel($audience);
 
                 return $audience;
             })(),
-            self::ORGANIZATION => ctype_digit($audience) && (int) $audience > 0
+            self::ORGANIZATION => self::organizations() !== null && preg_match('/^[A-Za-z0-9_.:-]{1,64}$/', $audience) === 1
                 ? $audience
                 : throw new \InvalidArgumentException('Choose the organisation to share it with.'),
             default => throw new \InvalidArgumentException('Unknown visibility: ' . $visibility),
         };
     }
 
-    /** Whether a person holds a role, false for one nobody defined. */
-    private static function holdsRole(object $user, string $role): bool
+    /**
+     * Whether a person holds a role: a usertype (`90`, from the application's own types —
+     * {@see \Pramnos\User\UserTypes}) is held from that number up; a role's name (`manager`) as
+     * {@see \Pramnos\User\Roles} says; one nobody defined is held by nobody.
+     */
+    public static function holdsRole(object $user, string $role): bool
     {
+        if (ctype_digit($role)) {
+            return (int) ($user->usertype ?? 0) >= (int) $role;
+        }
         try {
             return \Pramnos\User\Roles::atLeast($user, $role);
         } catch (\Throwable) {
@@ -250,29 +257,32 @@ final class Presets
         }
     }
 
-    /** Whether a person is an active member of an organisation; false without the table. */
-    private static function isMember(int $userId, int $organizationId): bool
+    /** The usertype a role starts at: its number, or a role's level; an exception for one nobody defined. */
+    public static function roleLevel(string $role): int
     {
-        if ($userId < 2) {
-            return false;
-        }
-        try {
-            $db    = \Pramnos\Framework\Factory::getDatabase();
-            $table = \Pramnos\Auth\Role::membershipTable();
-            if (!$db->schema()->hasTable($table)) {
-                return false;
-            }
-            $row = $db->queryBuilder()->table($table)->where('userid', $userId)
-                ->where(\Pramnos\Auth\Role::organizationColumn(), $organizationId)->where('is_active', true)->first();
-            if (!$row || $row->numRows === 0) {
-                return false;
-            }
-            $expires = $row->fields['expires_at'] ?? null;
+        return ctype_digit($role) ? (int) $role : \Pramnos\User\Roles::level($role);
+    }
 
-            return $expires === null || $expires === '' || strtotime((string) $expires) > time();
-        } catch (\Throwable) {
-            return false;
+    /**
+     * What an organisation is here: the application's {@see OrganizationSource} (`'dashboard' =>
+     * ['organizations' => Class::class]`), the framework's own when it says nothing, or null when
+     * it says `false` — then nothing is shared with one, and the choice is not offered.
+     */
+    public static function organizations(): ?OrganizationSource
+    {
+        $app    = \Pramnos\Application\Application::currentInstance();
+        $chosen = is_object($app) ? ($app->applicationInfo['dashboard']['organizations'] ?? null) : null;
+        if ($chosen === false) {
+            return null;
         }
+        if ($chosen instanceof OrganizationSource) {
+            return $chosen;
+        }
+        if (is_string($chosen) && is_a($chosen, OrganizationSource::class, true)) {
+            return new $chosen();
+        }
+
+        return new FrameworkOrganizations();
     }
 
     /**

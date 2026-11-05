@@ -218,4 +218,33 @@ class DashboardCardViewTest extends TestCase
         $this->assertMatchesRegularExpression('#data-pf-tab-panel="sales".*data-pf-widget-settings.*<option value="30" selected>.*data-pf-tab-body#s', $html, 'its form above its body');
         $this->assertStringContainsString('pf-dashboard-full', $html);
     }
+
+    /**
+     * The presets and dashboards dialog: its tabs as the person may use them, the user types it is
+     * given, and an organisation choice — under the application's own word — only where there are
+     * organisations; the picker pointed at the people endpoint.
+     */
+    #[DataProvider('themes')]
+    public function testThePresetsDialog(string $theme): void
+    {
+        // Arrange
+        $vars = ['presets' => [['id' => 'app:Ops', 'name' => 'Ops', 'kind' => 'app', 'mine' => false, 'visibility' => 'everyone', 'audience' => null, 'default_for_role' => null]],
+            'presetUrls' => ['apply' => '/a', 'save' => '/s', 'delete' => '/d', 'default' => '/f', 'copy' => '/c', 'list' => '/l'],
+            'managesPresets' => true, 'roles' => [90 => 'Administrator', 99 => 'Root'], 'organizations' => [], 'organizationLabel' => 'Utility',
+            'peopleUrl' => '/people', 'csrfField' => '<input type="hidden" name="_csrf_token" value="t">', 'userBoard' => null, 'boardUrls' => ['new' => '/n']];
+
+        // Act
+        $without = self::draw(self::dir($theme) . '/presets_dialog.html.php', $vars);
+        $with    = self::draw(self::dir($theme) . '/presets_dialog.html.php', ['organizations' => ['u7' => 'North'], 'managesPresets' => false] + $vars);
+
+        // Assert
+        $this->assertStringContainsString('data-pf-presets-tab="copy"', $without, 'an administrator copies to a user');
+        $this->assertStringNotContainsString('data-pf-presets-tab="mine"', $without, 'not on one\'s own board');
+        $this->assertStringContainsString('<option value="90">Administrator</option>', $without);
+        $this->assertStringNotContainsString('value="organization"', $without, 'no organisations: no such choice');
+        $this->assertStringContainsString('data-url="/people"', $without);
+        $this->assertStringContainsString('value="organization">Members of: Utility</option>', $with, 'the application\'s own word');
+        $this->assertStringContainsString('<option value="u7">North</option>', $with);
+        $this->assertStringNotContainsString('data-pf-presets-tab="copy"', $with, 'not an administrator');
+    }
 }

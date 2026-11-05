@@ -1,145 +1,175 @@
 <?php
 /**
- * The presets of a board (bootstrap theme): apply one, save the board as one and say who sees it,
- * delete your own; an administrator also makes one the default for a role and copies their board
- * to somebody. Plain forms, each posting with the session's token and coming back to the page.
+ * The presets and dashboards dialog of a board (bootstrap theme), in tabs: the presets to apply
+ * (and delete, or make a type's default), saving this board as one, a new dashboard of one's
+ * own, one's own board's settings, and — for an administrator — copying it to somebody, picked by
+ * name. Plain forms, each posting with the session's token and coming back to the page with this
+ * dialog open on the tab used (`#pf-presets=save`).
  *
- * Also a dashboard of one's own: make one (empty or from a preset), and — on one's own — rename it,
- * say who has it in their menu, delete it.
+ * A theme overrides it by copying it. The script reads: data-pf-presets-tabs (data-active-class)
+ * and data-pf-presets-tab / data-pf-presets-pane, data-pf-show-when="field=value" on a field
+ * shown only for a choice, and data-pf-person-search (data-url) / data-pf-person-results /
+ * data-pf-person-id on the picker.
  *
- * Variables (from admin_dashboard.html.php's view): $this->presets, $this->presetUrls,
- * $this->managesPresets, $this->roles, $this->csrfField, $this->userBoard, $this->boardUrls.
+ * Variables: $this->presets, presetUrls, managesPresets, roles (usertype => label, from the
+ * board's floor up), organizations (id => name; none, no such choice) and organizationLabel
+ * (what the application calls one), peopleUrl, csrfField,
+ * userBoard, boardUrls.
  */
 $e = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $t = static fn (string $words): string => function_exists('t') ? (string) t($words) : $words;
-$urls  = (array) ($this->presetUrls ?? []);
-$field = (string) ($this->csrfField ?? '');
-$shown = [
-    'private'      => $t('Only me'),
-    'role'         => $t('From a role up'),
-    'organization' => $t('An organisation'),
-    'everyone'     => $t('Everyone'),
-];
+$urls      = (array) ($this->presetUrls ?? []);
+$boardUrls = (array) ($this->boardUrls ?? []);
+$field     = (string) ($this->csrfField ?? '');
+$types     = (array) ($this->roles ?? []);
+$orgs      = (array) ($this->organizations ?? []);
+// What the application calls one — an organisation, or its own word.
+$orgWord   = $t((string) ($this->organizationLabel ?? 'Organisation'));
+$own       = $this->userBoard ?? null;
+$mine      = is_array($own) && !empty($own['mine']);
+$admin     = !empty($this->managesPresets);
+$shown = ['private' => $t('Only me'), 'role' => $t('From a user type up'), 'everyone' => $t('Everyone')];
+if ($orgs !== []) {
+    $shown = ['private' => $shown['private'], 'role' => $shown['role'], 'organization' => sprintf($t('Members of: %s'), $orgWord), 'everyone' => $shown['everyone']];
+}
+$typeLabel = static fn ($audience): string => ctype_digit((string) $audience) && isset($types[(int) $audience]) ? $t((string) $types[(int) $audience]) : (ctype_digit((string) $audience) && isset($orgs[(int) $audience]) ? (string) $orgs[(int) $audience] : (string) $audience);
+$tabs = ['list' => $t('Presets'), 'save' => $t('Save as preset'), 'new' => $t('New dashboard')];
+if ($mine) {
+    $tabs['mine'] = $t('My dashboard');
+}
+if ($admin) {
+    $tabs['copy'] = $t('Copy to a user');
+}
+/** The fields that say who sees something, for a form: the choice, then a type or an organisation. */
+$whoSees = static function (array $now = []) use ($e, $t, $shown, $types, $orgs, $orgWord): string {
+    $html = '<label class="form-label small mb-1 d-block">' . $e($t('Who sees it')) . '<select name="visibility" class="form-select form-select-sm">';
+    foreach ($shown as $value => $label) {
+        $html .= '<option value="' . $e($value) . '"' . (($now['visibility'] ?? 'private') === $value ? ' selected' : '') . '>' . $e($label) . '</option>';
+    }
+    $html .= '</select></label>';
+    $html .= '<label class="form-label small mb-1 d-block" data-pf-show-when="visibility=role">' . $e($t('From this user type up')) . '<select name="audience_role" class="form-select form-select-sm">';
+    foreach ($types as $level => $label) {
+        $html .= '<option value="' . (int) $level . '"' . ((string) ($now['audience'] ?? '') === (string) $level ? ' selected' : '') . '>' . $e($t((string) $label)) . '</option>';
+    }
+    $html .= '</select></label>';
+    if ($orgs !== []) {
+        $html .= '<label class="form-label small mb-1 d-block" data-pf-show-when="visibility=organization">' . $e($orgWord) . '<select name="audience_org" class="form-select form-select-sm">';
+        foreach ($orgs as $id => $name) {
+            $html .= '<option value="' . $e($id) . '"' . ((string) ($now['audience'] ?? '') === (string) $id ? ' selected' : '') . '>' . $e($name) . '</option>';
+        }
+        $html .= '</select></label>';
+    }
+
+    return $html;
+};
 ?>
-<dialog class="border-0 rounded-3 shadow p-0" data-pf-dashboard-presets-dialog aria-labelledby="pf-dashboard-presets-title">
-    <div style="padding:1rem;max-width:40rem">
+<dialog class="border-0 rounded-3 shadow p-0 pf-dashboard-presets-dialog" data-pf-dashboard-presets-dialog aria-labelledby="pf-dashboard-presets-title">
+    <div class="pf-dashboard-presets">
         <h3 id="pf-dashboard-presets-title"><?php echo $e($t('Presets and dashboards')); ?></h3>
-        <?php if (empty($this->presets)): ?>
-        <p class="small text-body-secondary"><?php echo $e($t('No presets yet.')); ?></p>
-        <?php else: ?>
-        <ul style="list-style:none;padding:0;margin:.5rem 0;max-height:40vh;overflow:auto">
-            <?php foreach ($this->presets as $preset): ?>
-            <li class="d-flex flex-wrap align-items-center gap-2 py-2 border-bottom" data-pf-dashboard-preset="<?php echo $e($preset['id']); ?>">
-                <div style="flex:1;min-width:10rem">
-                    <strong><?php echo $e($preset['kind'] === 'app' ? $t((string) $preset['name']) : $preset['name']); ?></strong>
-                    <div class="small text-body-secondary">
-                        <?php echo $e($preset['kind'] === 'app' ? $t('From the application') : ($preset['mine'] ? $t('Yours') : $t('Shared with you'))); ?>
-                        <?php if ($preset['kind'] === 'saved'): ?> · <?php echo $e($shown[$preset['visibility']] ?? $preset['visibility']); ?><?php echo $preset['audience'] !== null ? ' (' . $e($preset['audience']) . ')' : ''; ?><?php endif; ?>
-                        <?php if (!empty($preset['default_for_role'])): ?> · <span class="badge text-bg-secondary"><?php echo $e(sprintf($t('Default for %s'), $preset['default_for_role'])); ?></span><?php endif; ?>
+        <div class="nav nav-tabs mb-3" role="tablist" data-pf-presets-tabs data-active-class="active">
+            <?php $first = true; foreach ($tabs as $key => $label): ?>
+            <button type="button" role="tab" class="nav-link<?php echo $first ? ' active' : ''; ?>" data-pf-presets-tab="<?php echo $e($key); ?>" aria-selected="<?php echo $first ? 'true' : 'false'; ?>"><?php echo $e($label); ?></button>
+            <?php $first = false; endforeach; ?>
+        </div>
+
+        <div role="tabpanel" data-pf-presets-pane="list">
+            <?php if (empty($this->presets)): ?>
+            <p class="small text-body-secondary"><?php echo $e($t('No presets yet.')); ?></p>
+            <?php else: ?>
+            <ul class="pf-dashboard-presets-list">
+                <?php foreach ($this->presets as $preset): ?>
+                <li class="d-flex flex-wrap align-items-center gap-2 py-2 border-bottom" data-pf-dashboard-preset="<?php echo $e($preset['id']); ?>">
+                    <div style="flex:1;min-width:10rem">
+                        <strong><?php echo $e($preset['kind'] === 'app' ? $t((string) $preset['name']) : $preset['name']); ?></strong>
+                        <div class="small text-body-secondary">
+                            <?php echo $e($preset['kind'] === 'app' ? $t('From the application') : ($preset['mine'] ? $t('Yours') : $t('Shared with you'))); ?>
+                            <?php if ($preset['kind'] === 'saved'): ?> · <?php echo $e($shown[$preset['visibility']] ?? $t((string) $preset['visibility'])); ?><?php echo $preset['audience'] !== null ? ' (' . $e($typeLabel($preset['audience'])) . ')' : ''; ?><?php endif; ?>
+                            <?php if (!empty($preset['default_for_role'])): ?> · <span class="badge text-bg-secondary"><?php echo $e(sprintf($t('Default for %s'), $typeLabel($preset['default_for_role']))); ?></span><?php endif; ?>
+                        </div>
                     </div>
-                </div>
-                <form method="post" action="<?php echo $e($urls['apply'] ?? ''); ?>" style="display:inline"><?php echo $field; ?>
-                    <input type="hidden" name="preset" value="<?php echo $e($preset['id']); ?>">
-                    <button type="submit" class="btn btn-sm btn-primary" data-confirm="<?php echo $e($t('Replace your dashboard with this preset?')); ?>"><?php echo $e($t('Apply')); ?></button>
-                </form>
-                <?php if ($preset['kind'] === 'saved' && ($preset['mine'] || !empty($this->managesPresets))): ?>
-                <form method="post" action="<?php echo $e($urls['delete'] ?? ''); ?>" style="display:inline"><?php echo $field; ?>
-                    <input type="hidden" name="preset" value="<?php echo $e($preset['id']); ?>">
-                    <button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="<?php echo $e($t('Delete this preset?')); ?>"><?php echo $e($t('Delete')); ?></button>
-                </form>
-                <?php endif; ?>
-                <?php if ($preset['kind'] === 'saved' && !empty($this->managesPresets)): ?>
-                <form method="post" action="<?php echo $e($urls['default'] ?? ''); ?>" style="display:inline-flex;gap:.25rem"><?php echo $field; ?>
-                    <input type="hidden" name="preset" value="<?php echo $e($preset['id']); ?>">
-                    <select name="role" class="form-select form-select-sm" aria-label="<?php echo $e($t('Default for a role')); ?>" style="width:auto">
-                        <option value=""><?php echo $e($t('No role')); ?></option>
-                        <?php foreach ((array) ($this->roles ?? []) as $role): ?>
-                        <option value="<?php echo $e($role); ?>"<?php echo ($preset['default_for_role'] ?? '') === $role ? ' selected' : ''; ?>><?php echo $e($role); ?></option>
+                    <form method="post" action="<?php echo $e($urls['apply'] ?? ''); ?>"><?php echo $field; ?>
+                        <input type="hidden" name="_tab" value="list"><input type="hidden" name="preset" value="<?php echo $e($preset['id']); ?>">
+                        <button type="submit" class="btn btn-sm btn-primary" data-confirm="<?php echo $e($t('Replace your dashboard with this preset?')); ?>"><?php echo $e($t('Apply')); ?></button>
+                    </form>
+                    <?php if ($preset['kind'] === 'saved' && ($preset['mine'] || $admin)): ?>
+                    <form method="post" action="<?php echo $e($urls['delete'] ?? ''); ?>"><?php echo $field; ?>
+                        <input type="hidden" name="_tab" value="list"><input type="hidden" name="preset" value="<?php echo $e($preset['id']); ?>">
+                        <button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="<?php echo $e($t('Delete this preset?')); ?>"><?php echo $e($t('Delete')); ?></button>
+                    </form>
+                    <?php endif; ?>
+                    <?php if ($preset['kind'] === 'saved' && $admin): ?>
+                    <form method="post" action="<?php echo $e($urls['default'] ?? ''); ?>" class="pf-dashboard-inline-form"><?php echo $field; ?>
+                        <input type="hidden" name="_tab" value="list"><input type="hidden" name="preset" value="<?php echo $e($preset['id']); ?>">
+                        <select name="role" class="form-select form-select-sm" aria-label="<?php echo $e($t('Default for a user type')); ?>" style="width:auto">
+                            <option value=""><?php echo $e($t('No user type')); ?></option>
+                            <?php foreach ($types as $level => $label): ?>
+                            <option value="<?php echo (int) $level; ?>"<?php echo (string) ($preset['default_for_role'] ?? '') === (string) $level ? ' selected' : ''; ?>><?php echo $e($t((string) $label)); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button type="submit" class="btn btn-sm btn-outline-secondary"><?php echo $e($t('Set as default')); ?></button>
+                    </form>
+                    <?php endif; ?>
+                </li>
+                <?php endforeach; ?>
+            </ul>
+            <?php endif; ?>
+        </div>
+
+        <div role="tabpanel" data-pf-presets-pane="save" hidden>
+            <form method="post" action="<?php echo $e($urls['save'] ?? ''); ?>" class="pf-dashboard-form"><?php echo $field; ?>
+                <input type="hidden" name="_tab" value="save">
+                <label class="form-label small mb-1 d-block"><?php echo $e($t('Name')); ?><input type="text" name="name" required maxlength="120" class="form-control form-control-sm"></label>
+                <?php echo $whoSees(); ?>
+                <div><button type="submit" class="btn btn-sm btn-primary"><?php echo $e($t('Save as preset')); ?></button></div>
+            </form>
+        </div>
+
+        <div role="tabpanel" data-pf-presets-pane="new" hidden>
+            <form method="post" action="<?php echo $e($boardUrls['new'] ?? ''); ?>" class="pf-dashboard-form"><?php echo $field; ?>
+                <input type="hidden" name="_tab" value="new">
+                <label class="form-label small mb-1 d-block"><?php echo $e($t('Name')); ?><input type="text" name="name" required maxlength="120" class="form-control form-control-sm"></label>
+                <label class="form-label small mb-1 d-block"><?php echo $e($t('Start from')); ?>
+                    <select name="preset" class="form-select form-select-sm">
+                        <option value=""><?php echo $e($t('An empty dashboard')); ?></option>
+                        <?php foreach ((array) ($this->presets ?? []) as $preset): ?>
+                        <option value="<?php echo $e($preset['id']); ?>"><?php echo $e($preset['kind'] === 'app' ? $t((string) $preset['name']) : $preset['name']); ?></option>
                         <?php endforeach; ?>
-                    </select>
-                    <button type="submit" class="btn btn-sm btn-outline-secondary"><?php echo $e($t('Set as default')); ?></button>
-                </form>
-                <?php endif; ?>
-            </li>
-            <?php endforeach; ?>
-        </ul>
+                    </select></label>
+                <div><button type="submit" class="btn btn-sm btn-primary"><?php echo $e($t('Make it')); ?></button></div>
+            </form>
+        </div>
+
+        <?php if ($mine): ?>
+        <div role="tabpanel" data-pf-presets-pane="mine" hidden>
+            <form method="post" action="<?php echo $e($boardUrls['settings'] ?? ''); ?>" class="pf-dashboard-form"><?php echo $field; ?>
+                <input type="hidden" name="_tab" value="mine">
+                <label class="form-label small mb-1 d-block"><?php echo $e($t('Name')); ?><input type="text" name="name" required maxlength="120" class="form-control form-control-sm" value="<?php echo $e($own['name']); ?>"></label>
+                <?php echo $whoSees(['visibility' => $own['visibility'] ?? 'private', 'audience' => $own['audience'] ?? '']); ?>
+                <div><button type="submit" class="btn btn-sm btn-primary"><?php echo $e($t('Save')); ?></button></div>
+            </form>
+            <form method="post" action="<?php echo $e($boardUrls['delete'] ?? ''); ?>" style="margin-top:1rem"><?php echo $field; ?>
+                <button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="<?php echo $e($t('Delete this dashboard, for everybody who has it?')); ?>"><?php echo $e($t('Delete this dashboard')); ?></button>
+            </form>
+        </div>
         <?php endif; ?>
 
-        <h4><?php echo $e($t('Save this dashboard as a preset')); ?></h4>
-        <form method="post" action="<?php echo $e($urls['save'] ?? ''); ?>" style="display:grid;gap:.5rem"><?php echo $field; ?>
-            <label class="form-label small mb-1"><?php echo $e($t('Name')); ?>
-                <input type="text" name="name" required maxlength="120" class="form-control form-control-sm"></label>
-            <label class="form-label small mb-1"><?php echo $e($t('Who sees it')); ?>
-                <select name="visibility" class="form-select form-select-sm">
-                    <?php foreach ($shown as $value => $label): ?>
-                    <option value="<?php echo $e($value); ?>"><?php echo $e($label); ?></option>
-                    <?php endforeach; ?>
-                </select></label>
-            <label class="form-label small mb-1"><?php echo $e($t('The role, for "From a role up"')); ?>
-                <select name="audience_role" class="form-select form-select-sm">
-                    <?php foreach ((array) ($this->roles ?? []) as $role): ?>
-                    <option value="<?php echo $e($role); ?>"><?php echo $e($role); ?></option>
-                    <?php endforeach; ?>
-                </select></label>
-            <label class="form-label small mb-1"><?php echo $e($t('The organisation id, for "An organisation"')); ?>
-                <input type="number" name="audience_org" min="1" class="form-control form-control-sm"></label>
-            <div><button type="submit" class="btn btn-sm btn-primary"><?php echo $e($t('Save as preset')); ?></button></div>
-        </form>
-
-
-        <?php $boardUrls = (array) ($this->boardUrls ?? []); $own = $this->userBoard ?? null; ?>
-        <?php if (is_array($own) && !empty($own['mine'])): ?>
-        <h4><?php echo $e($t('This dashboard')); ?></h4>
-        <form method="post" action="<?php echo $e($boardUrls['settings'] ?? ''); ?>" style="display:grid;gap:.5rem"><?php echo $field; ?>
-            <label class="form-label small mb-1"><?php echo $e($t('Name')); ?>
-                <input type="text" name="name" required maxlength="120" class="form-control form-control-sm" value="<?php echo $e($own['name']); ?>"></label>
-            <label class="form-label small mb-1"><?php echo $e($t('Who has it in their menu')); ?>
-                <select name="visibility" class="form-select form-select-sm">
-                    <?php foreach ($shown as $value => $label): ?>
-                    <option value="<?php echo $e($value); ?>"<?php echo ($own['visibility'] ?? '') === $value ? ' selected' : ''; ?>><?php echo $e($label); ?></option>
-                    <?php endforeach; ?>
-                </select></label>
-            <label class="form-label small mb-1"><?php echo $e($t('The role, for "From a role up"')); ?>
-                <select name="audience_role" class="form-select form-select-sm">
-                    <?php foreach ((array) ($this->roles ?? []) as $role): ?>
-                    <option value="<?php echo $e($role); ?>"<?php echo ($own['audience'] ?? '') === $role ? ' selected' : ''; ?>><?php echo $e($role); ?></option>
-                    <?php endforeach; ?>
-                </select></label>
-            <label class="form-label small mb-1"><?php echo $e($t('The organisation id, for "An organisation"')); ?>
-                <input type="number" name="audience_org" min="1" class="form-control form-control-sm" value="<?php echo ($own['visibility'] ?? '') === 'organization' ? $e($own['audience']) : ''; ?>"></label>
-            <div><button type="submit" class="btn btn-sm btn-primary"><?php echo $e($t('Save')); ?></button></div>
-        </form>
-        <form method="post" action="<?php echo $e($boardUrls['delete'] ?? ''); ?>" style="margin-top:.5rem"><?php echo $field; ?>
-            <button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="<?php echo $e($t('Delete this dashboard, for everybody who has it?')); ?>"><?php echo $e($t('Delete this dashboard')); ?></button>
-        </form>
+        <?php if ($admin): ?>
+        <div role="tabpanel" data-pf-presets-pane="copy" hidden>
+            <form method="post" action="<?php echo $e($urls['copy'] ?? ''); ?>" class="pf-dashboard-form" data-pf-person-form><?php echo $field; ?>
+                <input type="hidden" name="_tab" value="copy">
+                <input type="hidden" name="userid" value="" data-pf-person-id>
+                <label class="form-label small mb-1 d-block"><?php echo $e($t('The user')); ?>
+                    <input type="search" class="form-control form-control-sm" autocomplete="off" data-pf-person-search data-url="<?php echo $e($this->peopleUrl ?? ''); ?>" placeholder="<?php echo $e($t('Name, username or email')); ?>"></label>
+                <ul class="list-group pf-dashboard-people" data-pf-person-results data-pick-class="list-group-item list-group-item-action" hidden></ul>
+                <p class="small text-body-secondary"><?php echo $e($t('Only active users who can open this dashboard are offered. Their dashboard is replaced with yours.')); ?></p>
+                <div><button type="submit" class="btn btn-sm btn-outline-secondary" data-pf-person-submit disabled data-confirm="<?php echo $e($t('Replace their dashboard with yours?')); ?>"><?php echo $e($t('Copy')); ?></button></div>
+            </form>
+        </div>
         <?php endif; ?>
 
-        <h4><?php echo $e($t('A new dashboard of your own')); ?></h4>
-        <form method="post" action="<?php echo $e($boardUrls['new'] ?? ''); ?>" style="display:grid;gap:.5rem"><?php echo $field; ?>
-            <label class="form-label small mb-1"><?php echo $e($t('Name')); ?>
-                <input type="text" name="name" required maxlength="120" class="form-control form-control-sm"></label>
-            <label class="form-label small mb-1"><?php echo $e($t('Start from')); ?>
-                <select name="preset" class="form-select form-select-sm">
-                    <option value=""><?php echo $e($t('An empty dashboard')); ?></option>
-                    <?php foreach ((array) ($this->presets ?? []) as $preset): ?>
-                    <option value="<?php echo $e($preset['id']); ?>"><?php echo $e($preset['kind'] === 'app' ? $t((string) $preset['name']) : $preset['name']); ?></option>
-                    <?php endforeach; ?>
-                </select></label>
-            <div><button type="submit" class="btn btn-sm btn-primary"><?php echo $e($t('Make it')); ?></button></div>
-        </form>
-
-        <?php if (!empty($this->managesPresets)): ?>
-        <h4><?php echo $e($t('Copy my dashboard to somebody')); ?></h4>
-        <form method="post" action="<?php echo $e($urls['copy'] ?? ''); ?>" style="display:flex;gap:.5rem;align-items:end"><?php echo $field; ?>
-            <label class="form-label small mb-1"><?php echo $e($t('Their user id')); ?>
-                <input type="number" name="userid" min="2" required class="form-control form-control-sm"></label>
-            <button type="submit" class="btn btn-sm btn-outline-secondary" data-confirm="<?php echo $e($t('Replace their dashboard with yours?')); ?>"><?php echo $e($t('Copy')); ?></button>
-        </form>
-        <?php endif; ?>
-
-        <?php if (!empty($this->managesPresets) && !empty($urls['list'])): ?>
-        <p><a class="btn btn-sm btn-link" href="<?php echo $e($urls['list']); ?>"><?php echo $e($t('All presets')); ?></a></p>
-        <?php endif; ?>
-        <p style="margin-top:1rem"><button type="button" class="btn btn-sm btn-outline-secondary" data-pf-dashboard-presets-close><?php echo $e($t('Close')); ?></button></p>
+        <div class="pf-dashboard-presets-foot">
+            <?php if ($admin && !empty($urls['list'])): ?><a class="btn btn-sm btn-link" href="<?php echo $e($urls['list']); ?>"><?php echo $e($t('All presets')); ?></a><?php endif; ?>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-pf-dashboard-presets-close><?php echo $e($t('Close')); ?></button>
+        </div>
     </div>
 </dialog>
