@@ -625,6 +625,177 @@ class OAuth2MiddlewareTest extends TestCase
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
+    // ── JWT access tokens: stored under their jti ────────────────────────────
+
+    /**
+     * A database whose only row is stored under sha256($storedAs), recording every lookup.
+     *
+     * The digest asked for is the whole point of these tests, so it is captured from the
+     * `token_lookup` condition rather than assumed; `first()` and `update()` answer only when
+     * the last digest asked for is the row's.
+     *
+     * @param list<string> $lookups Filled with every token_lookup digest the code asked for.
+     */
+    private function mockDbWithRowStoredAs(string $storedAs, array &$lookups): \Pramnos\Database\Database
+    {
+        $db = $this->createMock(\Pramnos\Database\Database::class);
+        $qb = $this->getMockBuilder(\Pramnos\Database\QueryBuilder::class)
+                   ->disableOriginalConstructor()
+                   ->getMock();
+        $wanted = \Pramnos\User\Token::lookup($storedAs);
+        $last   = null;
+
+        $qb->method('table')->willReturn($qb);
+        $qb->method('leftJoin')->willReturn($qb);
+        $qb->method('select')->willReturn($qb);
+        $qb->method('where')->willReturnCallback(
+            function ($column, $value = null) use ($qb, &$lookups, &$last) {
+                if (str_ends_with((string) $column, 'token_lookup')) {
+                    $lookups[] = $last = $value;
+                }
+
+                return $qb;
+            }
+        );
+        // Closures by reference, not arrow functions: those would capture $last's initial null.
+        $qb->method('first')->willReturnCallback(function () use (&$last, $wanted) {
+            return $last === $wanted ? $this->makeResult(1, [
+                'tokenid' => 7, 'userid' => 42, 'applicationid' => 3, 'tokentype' => 'access_token',
+                'status' => 1, 'expires' => time() + 3600, 'scope' => '["conversations"]', 'lastused' => 0,
+            ]) : $this->makeResult(0);
+        });
+        $qb->method('update')->willReturnCallback(function () use (&$last, $wanted) {
+            return $last === $wanted ? 1 : 0;
+        });
+        $db->method('queryBuilder')->willReturn($qb);
+
+        return $db;
+    }
+
+    /**
+     * An RS256 JWT carrying $jti, signed with $privateKeyPem.
+     */
+    private function jwtWithId(string $jti, string $privateKeyPem): string
+    {
+        return \Pramnos\Auth\JWT::encode(
+            ['jti' => $jti, 'sub' => '42', 'exp' => time() + 3600, 'scopes' => ['conversations']],
+            $privateKeyPem,
+            'RS256'
+        );
+    }
+
+    /**
+     * This installation's private key, which `./dockertest` creates before the suite.
+     */
+    private function installationPrivateKey(): string
+    {
+        $path = (new \Pramnos\Auth\OAuth2\OAuth2ServerFactory($this->controller))->getPrivateKeyPath();
+        if (!is_readable($path)) {
+            $this->markTestSkipped('No OAuth2 key pair: run `pramnos oauth:keys`.');
+        }
+
+        return (string) file_get_contents($path);
+    }
+
+    /**
+     * A JWT access token this server issued validates: its row is found under its jti.
+     *
+     * The server stores an issued JWT's row under sha256(jti), not sha256(the whole JWT), and
+     * the middleware hashed only the presented string — so no JWT it had issued ever
+     * validated, not even a second after issue.
+     */
+    public function testAJwtThisServerIssuedIsFoundByItsJti(): void
+    {
+        // Arrange
+        $jti     = bin2hex(random_bytes(20));
+        $lookups = [];
+        $this->injectMockDatabase($this->mockDbWithRowStoredAs($jti, $lookups));
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $this->jwtWithId($jti, $this->installationPrivateKey());
+        $mw = $this->makeTestableMiddleware();
+
+        // Act
+        $result = $mw->validateAccessToken(['conversations']);
+
+        // Assert
+        $this->assertIsArray($result, 'the JWT must validate');
+        $this->assertSame(42, (int) $result['userid']);
+        $this->assertNull($mw->lastError);
+        // The jti is tried after the whole string, so an opaque token keeps its single lookup
+        $this->assertSame(\Pramnos\User\Token::lookup($jti), end($lookups));
+    }
+
+    /**
+     * A JWT signed by anybody else is not trusted for its jti, even when the jti is real.
+     *
+     * The jti identifies a live row; read without checking the signature, anyone who learned
+     * one could wrap it in a JWT of their own and be its owner.
+     */
+    public function testAJwtWithAForeignSignatureIsRefusedEvenWithARealJti(): void
+    {
+        // Arrange — a real row's jti, signed with a key this installation never issued
+        $jti     = bin2hex(random_bytes(20));
+        $lookups = [];
+        $this->injectMockDatabase($this->mockDbWithRowStoredAs($jti, $lookups));
+        openssl_pkey_export(openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]), $foreign);
+        $this->installationPrivateKey(); // skip, not pass, where there is no key pair to compare with
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $this->jwtWithId($jti, $foreign);
+        $mw = $this->makeTestableMiddleware();
+
+        // Act
+        $result = $mw->validateAccessToken();
+
+        // Assert
+        $this->assertFalse($result);
+        $this->assertSame('unauthorized', $mw->lastError['type'] ?? null);
+        // The jti's digest was never even asked for
+        $this->assertNotContains(\Pramnos\User\Token::lookup($jti), $lookups);
+    }
+
+    /**
+     * Revoking a JWT this server issued revokes its row, found the same way.
+     *
+     * `revokeToken()` had the same lookup, so revoking a JWT reported failure and left the
+     * token working.
+     */
+    public function testRevokingAJwtRevokesTheRowStoredUnderItsJti(): void
+    {
+        // Arrange
+        $jti     = bin2hex(random_bytes(20));
+        $lookups = [];
+        $this->injectMockDatabase($this->mockDbWithRowStoredAs($jti, $lookups));
+        $mw = new OAuth2Middleware($this->controller);
+
+        // Act
+        $revoked = $mw->revokeToken($this->jwtWithId($jti, $this->installationPrivateKey()));
+
+        // Assert
+        $this->assertTrue($revoked);
+        $this->assertSame(\Pramnos\User\Token::lookup($jti), end($lookups));
+    }
+
+    /**
+     * A token that only looks like a JWT is looked up once, as itself.
+     *
+     * Three dot-separated parts that do not verify are not an error: they are an opaque token
+     * that happens to contain dots, and the one lookup that can match it still runs.
+     */
+    public function testAThreePartTokenThatIsNotAJwtIsLookedUpAsItself(): void
+    {
+        // Arrange
+        $lookups = [];
+        $this->injectMockDatabase($this->mockDbWithRowStoredAs('a.b.c', $lookups));
+        $this->installationPrivateKey();
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer a.b.c';
+        $mw = $this->makeTestableMiddleware();
+
+        // Act
+        $result = $mw->validateAccessToken();
+
+        // Assert
+        $this->assertIsArray($result);
+        $this->assertSame([\Pramnos\User\Token::lookup('a.b.c')], $lookups, 'exactly one lookup');
+    }
+
     /**
      * Inject a Database mock into the singleton so that Factory::getDatabase()
      * returns it during the test.

@@ -92,11 +92,18 @@ class OAuth2Middleware
     public function revokeToken(string $token): bool
     {
         $db = \Pramnos\Framework\Factory::getDatabase();
-        return (bool) $db->queryBuilder()
-            ->table('#PREFIX#usertokens')
-            ->where('token_lookup', \Pramnos\User\Token::lookup((string) $token))
-            ->where('tokentype', 'access_token')
-            ->update(['status' => 0]);
+        foreach ($this->storedValuesFor($token) as $stored) {
+            $revoked = (bool) $db->queryBuilder()
+                ->table('#PREFIX#usertokens')
+                ->where('token_lookup', \Pramnos\User\Token::lookup($stored))
+                ->where('tokentype', 'access_token')
+                ->update(['status' => 0]);
+            if ($revoked) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -126,20 +133,26 @@ class OAuth2Middleware
         $db  = \Pramnos\Framework\Factory::getDatabase();
         $now = time();
 
-        $result = $db->queryBuilder()
-            ->table('usertokens ut')
-            ->leftJoin('#PREFIX#applications a', 'ut.applicationid = a.appid')
-            ->select('ut.*, a.name AS client_name')
-            ->where('ut.token_lookup', \Pramnos\User\Token::lookup($token))
-            ->where('ut.tokentype', 'access_token')
-            ->where('ut.status', 1)
-            ->first();
+        $row = null;
+        foreach ($this->storedValuesFor($token) as $stored) {
+            $result = $db->queryBuilder()
+                ->table('usertokens ut')
+                ->leftJoin('#PREFIX#applications a', 'ut.applicationid = a.appid')
+                ->select('ut.*, a.name AS client_name')
+                ->where('ut.token_lookup', \Pramnos\User\Token::lookup($stored))
+                ->where('ut.tokentype', 'access_token')
+                ->where('ut.status', 1)
+                ->first();
 
-        if (!$result || $result->numRows == 0) {
-            return false;
+            if ($result && $result->numRows > 0) {
+                $row = $result->fields;
+                break;
+            }
         }
 
-        $row = $result->fields;
+        if ($row === null) {
+            return false;
+        }
 
         if ((int)$row['expires'] !== 0 && (int)$row['expires'] <= $now) {
             return false;
@@ -151,6 +164,66 @@ class OAuth2Middleware
             ->update(['lastused' => $now]);
 
         return $row;
+    }
+
+    /**
+     * The values a presented token can be stored under, in the order to try them.
+     *
+     * The token itself first: an opaque token is stored as itself. Then, for a JWT, its `jti`:
+     * the access tokens this server issues are JWTs, and the row behind one is stored under its
+     * identifier, not under the whole signed string — so hashing the presented string alone
+     * matched no row and every Bearer request was refused.
+     *
+     * The `jti` is taken only from a JWT whose signature verifies against this installation's
+     * public key. Read unverified, anybody who learned one token's identifier could wrap it in
+     * a JWT of their own and be authenticated — or revoke it — as its owner.
+     *
+     * @return list<string>
+     */
+    protected function storedValuesFor(string $token): array
+    {
+        $values = [$token];
+        if (substr_count($token, '.') !== 2) {
+            return $values;
+        }
+
+        $key = $this->verificationKey();
+        if ($key === '') {
+            return $values;
+        }
+
+        try {
+            $claims = \Pramnos\Auth\JWT::decode($token, $key, ['RS256']);
+        } catch (\Throwable) {
+            // Forged, expired or not ours: only the opaque lookup is left, and it will not match.
+            return $values;
+        }
+
+        $jti = $claims->jti ?? null;
+        if (is_string($jti) && $jti !== '' && $jti !== $token) {
+            $values[] = $jti;
+        }
+
+        return $values;
+    }
+
+    /**
+     * The key this server's access tokens verify against: its public key, or the public half of
+     * its private key when the public file is missing — tokens are signed with the private key,
+     * so that half is the right key whichever file is on disk.
+     */
+    private function verificationKey(): string
+    {
+        $public = $this->factory->getPublicKeyPath();
+        if (is_readable($public) && ($pem = (string) file_get_contents($public)) !== '') {
+            return $pem;
+        }
+
+        $private = $this->factory->getPrivateKeyPath();
+        $key     = is_readable($private) ? openssl_pkey_get_private((string) file_get_contents($private)) : false;
+        $details = $key !== false ? openssl_pkey_get_details($key) : false;
+
+        return is_array($details) ? (string) ($details['key'] ?? '') : '';
     }
 
     private function getAuthorizationHeader(): string

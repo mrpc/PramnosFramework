@@ -115,6 +115,25 @@ own endpoints — should use `UnifiedAuthMiddleware`, which accepts a Bearer tok
 optional there: a cookie is sent by the browser automatically, so without it any
 site could make authenticated calls on the user's behalf.
 
+### Validating this server's OAuth2 access tokens
+
+`Pramnos\Auth\OAuth2\OAuth2Middleware::validateAccessToken($scopes)` checks a Bearer token
+issued by this installation's OAuth2 server (any grant — authorization code, device code,
+client credentials) and returns its `usertokens` row, or answers 401/403:
+
+```php
+$mw  = new \Pramnos\Auth\OAuth2\OAuth2Middleware($this);
+$row = $mw->validateAccessToken(['conversations']);   // false after a 401/403
+```
+
+The access tokens this server issues are RS256 JWTs, and the row behind one is stored under
+its `jti`, not under the whole signed string. So the middleware looks a token up as itself
+first (an opaque token), then — only if its signature verifies against this installation's
+key — under its `jti`. The signature check is what makes the second lookup safe: without it,
+anybody who learned one token's identifier could wrap it in a JWT of their own. The key is
+`app/keys/public.key`, or the public half of `private.key` when the public file is missing.
+`revokeToken($token)` finds the row the same way.
+
 ## The password-reset token
 
 `Auth\Controllers\Account` stores it in `userdetails` rather than in a table of its own — the
