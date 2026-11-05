@@ -1534,8 +1534,7 @@ class Oauth extends Controller
                 $redirectParams['state'] = $params['state'];
             }
             $this->clearFormActionAllowance();
-            $this->application->setRedirect($params['redirect_uri'] . '?' . http_build_query($redirectParams));
-            $this->application->redirect();
+            $this->returnToClient($params['redirect_uri'] . '?' . http_build_query($redirectParams));
         }
     }
 
@@ -1620,12 +1619,67 @@ class Oauth extends Controller
             $redirectParams['state'] = $params['state'];
         }
         $this->clearFormActionAllowance();
-        // Through the application, so the destination is recorded where a test can read it:
-        // a bare header() leaves nothing on the CLI, and this redirect *is* the code. Set,
-        // then performed with no argument, because `redirect($url)` writes its URL to the
-        // development `redirects` log — and this URL carries the code.
-        $this->application->setRedirect($params['redirect_uri'] . '?' . http_build_query($redirectParams));
-        $this->application->redirect();
+        $this->returnToClient($params['redirect_uri'] . '?' . http_build_query($redirectParams));
+    }
+
+    /**
+     * Send the browser back to the client's callback: a redirect, or a page for an app's scheme.
+     *
+     * An `http(s)` callback gets a 302 through the application, so the destination is recorded
+     * where a test can read it — a bare header() leaves nothing on the CLI, and this redirect
+     * *is* the code. Set, then performed with no argument, because `redirect($url)` writes its
+     * URL to the development `redirects` log, and this URL carries the code.
+     *
+     * Any other scheme is a native application's (`myapp://oauth/callback`), and a 302 to it
+     * leaves the browser to improvise: a prompt, an error page, or — when nothing on that
+     * machine has registered the scheme — a blank tab, with the sign-in finished and nothing to
+     * say so. That one gets a page instead ({@see appReturnPage()}): it opens the application
+     * itself and keeps a link to press when the browser will not.
+     */
+    private function returnToClient(string $url): void
+    {
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+        if ($scheme === 'http' || $scheme === 'https') {
+            $this->application->setRedirect($url);
+            $this->application->redirect();
+
+            return;
+        }
+
+        // Not setRedirect(): render() performs a recorded redirect, and this page is the answer.
+        if (!headers_sent()) {
+            // The page carries the code; nothing between here and the browser may keep it.
+            header('Cache-Control: no-store');
+            header('Referrer-Policy: no-referrer');
+        }
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = t('Returning to the application');
+        $doc->addContent($this->appReturnPage($url));
+    }
+
+    /**
+     * The page that hands an authorization back to a native application.
+     *
+     * Opens the callback by script and offers it as a link, because whether a browser launches
+     * an application without a click differs between browsers and operating systems. Protected,
+     * so an application can word or style it; the inline script is given the request's CSP
+     * nonce when the document renders.
+     *
+     * @param string $url The client's callback with `code` (or `error`) and `state`
+     */
+    protected function appReturnPage(string $url): string
+    {
+        $href = htmlspecialchars($url, ENT_QUOTES);
+
+        return '<div class="pf-oauth-return">'
+            . '<h1>' . htmlspecialchars(t('Returning to the application'), ENT_QUOTES) . '</h1>'
+            . '<p>' . htmlspecialchars(t('If the application did not open, use the button below. You can close this tab afterwards.'), ENT_QUOTES) . '</p>'
+            . '<p><a class="btn btn-primary" href="' . $href . '">' . htmlspecialchars(t('Open the application'), ENT_QUOTES) . '</a></p>'
+            . '</div>'
+            // HEX flags: the URL sits inside a <script> element and must not be able to close it.
+            . '<script>window.location.href='
+            . json_encode($url, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES)
+            . ';</script>';
     }
 
     /**

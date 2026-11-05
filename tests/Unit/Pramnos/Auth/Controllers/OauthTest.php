@@ -307,6 +307,79 @@ class OauthTest extends TestCase
         $this->assertNotEmpty($token);
     }
     
+    /**
+     * Arrange a signed-in user 55 and a client whose callback is a native app's custom scheme.
+     */
+    private function arrangeAppSchemeConsent(string $decision): \Pramnos\Application\Application
+    {
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_GET['client_id']     = 'app_scheme_client';
+        $_GET['response_type'] = 'code';
+        $_GET['redirect_uri']  = 'myapp://oauth/callback';
+        $_GET['state']         = 'xyz';
+        $_POST['authorize']    = $decision;
+        if (!defined('UNITTESTING')) {
+            define('UNITTESTING', true);
+        }
+        global $unittesting_logged;
+        $unittesting_logged = true;
+        $user = new \Pramnos\User\User();
+        $user->userid   = 55;
+        $user->username = 'test';
+        $user->email    = 'test@test.com';
+        $user->language = \Pramnos\Framework\Factory::getLanguage()->currentlang();
+        $this->db->queryBuilder()->table('users')->insert(['usertype' => 0, 'sex' => 0, 'birthdate' => 0, 'modified' => 0, 'userid' => 55, 'username' => 'test', 'email' => 'test@test.com', 'active' => 1]);
+        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'Desktop App', 'status' => 1, 'apikey' => 'app_scheme_client', 'apisecret' => '', 'callback' => 'myapp://oauth/callback']);
+        $app = \Pramnos\Application\Application::getInstance();
+        $app->currentUser = clone $user;
+        $app->setRedirect(null);
+        \Pramnos\Document\Document::reset();
+
+        return $app;
+    }
+
+    /**
+     * Approving for a native app's custom-scheme callback answers with a page, not a bare 302.
+     *
+     * A 302 to `myapp://…` leaves the browser to improvise, and where nothing has registered the
+     * scheme the visitor is left on a blank tab with the sign-in finished and nothing to say so.
+     * The page opens the app itself and keeps a link carrying the code and state.
+     */
+    public function testAnAppSchemeCallbackGetsAPageThatOpensTheApp(): void
+    {
+        // Arrange
+        $app = $this->arrangeAppSchemeConsent('yes');
+
+        // Act — no ApplicationClosedException: the request ends with a page
+        $this->controller->authorize();
+        $page = (string) \Pramnos\Framework\Factory::getDocument()->getContent();
+
+        // Assert — no redirect recorded, or render() would turn the page back into a 302
+        $this->assertNull($app->getRedirect());
+        $this->assertMatchesRegularExpression('~href="myapp://oauth/callback\?code=[^"&]+&amp;state=xyz"~', $page,
+            'a link to press when the browser does not open the app');
+        $this->assertStringContainsString('window.location.href="myapp://oauth/callback?code=', $page, 'the script that opens it');
+        // The code on the page is the one stored
+        $this->assertNotEmpty($this->db->queryBuilder()->table('usertokens')->where('userid', 55)->where('tokentype', 'auth_code')->first());
+    }
+
+    /**
+     * Refusing for a custom-scheme callback hands `access_denied` back the same way.
+     */
+    public function testARefusalForAnAppSchemeCallbackGetsThePageToo(): void
+    {
+        // Arrange
+        $app = $this->arrangeAppSchemeConsent('no');
+
+        // Act
+        $this->controller->authorize();
+        $page = (string) \Pramnos\Framework\Factory::getDocument()->getContent();
+
+        // Assert
+        $this->assertNull($app->getRedirect());
+        $this->assertStringContainsString('href="myapp://oauth/callback?error=access_denied&amp;state=xyz"', $page);
+    }
+
     public function testTokenWithJwtClientAssertion(): void
     {
         $_SERVER['REQUEST_METHOD'] = 'POST';
