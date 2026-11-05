@@ -229,6 +229,13 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\LlmPrune());
         $this->add(new \Pramnos\Console\Commands\LlmRoutines());
         $this->add(new \Pramnos\Console\Commands\LlmEval());
+        // Skills taken from catalogues: off until read, never updated by themselves.
+        $this->add(new \Pramnos\Console\Commands\SkillSearch());
+        $this->add(new \Pramnos\Console\Commands\SkillAdd());
+        $this->add(new \Pramnos\Console\Commands\SkillEnable());
+        $this->add(new \Pramnos\Console\Commands\SkillOutdated());
+        $this->add(new \Pramnos\Console\Commands\SkillUpdate());
+        $this->add(new \Pramnos\Console\Commands\SkillList());
         // The other half of the same table: `Email::queue()` writes a message there instead of
         // opening an SMTP connection in somebody's request, and this is what delivers it.
         $this->add(new \Pramnos\Console\Commands\MailFlush());

@@ -35,6 +35,9 @@ namespace Pramnos\Llm\Chat;
  */
 final class Skills
 {
+    /** @var array<string, true> Skills whose unknown tools have been logged in this process */
+    private static array $saidUnknown = [];
+
     /** The tool that reads a skill's reference file, offered while a skill that has any is on. */
     public const READER = 'read_skill_reference';
 
@@ -48,15 +51,20 @@ final class Skills
      * come in — beside its `references/` (`*.md`, `*.txt`: details read on demand, not handed over
      * with the skill) and its `evals/` (`*.json` cases for `llm:eval --skills`).
      *
-     * @return array<string, array{description: string, tools: list<string>, instructions: string, folder: string|null, references: array<string, string>, evals: string|null}>
+     * A skill taken from a catalogue is left out while its {@see SkillLock} entry is off — unless
+     * `$evenOff`, for the commands that list and govern them.
+     *
+     * @return array<string, array{description: string, tools: list<string>, instructions: string, folder: string|null, references: array<string, string>, evals: string|null, enabled: bool}>
      */
-    public static function load(?string $folder = null): array
+    public static function load(?string $folder = null, bool $evenOff = false): array
     {
         $folder ??= self::folder();
         if ($folder === null || !is_dir($folder)) {
             return [];
         }
         $root   = rtrim($folder, '/');
+        // Skills taken from a catalogue are off until a person has read them (SkillLock).
+        $lock   = new SkillLock($root);
         $skills = [];
         $found  = array_merge(
             array_map(static fn (string $f): array => [$f, null], glob($root . '/*.md') ?: []),
@@ -70,6 +78,10 @@ final class Skills
                 \Pramnos\Logs\Logger::log('Skill file ' . basename($file) . ': "' . $name . '" is not a name a skill can have; it was left out.', 'llm');
                 continue;
             }
+            $enabled = $own === null || $lock->allows(basename($own));
+            if (!$enabled && !$evenOff) {
+                continue;
+            }
             $skills[$name] = [
                 'description'  => is_string($meta['description'] ?? null) ? (string) $meta['description'] : '',
                 'tools'        => \Pramnos\Support\FrontMatter::names($meta['tools'] ?? []),
@@ -77,6 +89,7 @@ final class Skills
                 'folder'       => $own,
                 'references'   => $own !== null ? self::references($own) : [],
                 'evals'        => $own !== null && is_dir($own . '/evals') ? $own . '/evals' : null,
+                'enabled'      => $enabled,
             ];
         }
         ksort($skills);
@@ -114,6 +127,13 @@ final class Skills
         $skills ??= self::load();
         $withReferences = [];
         foreach ($skills as $name => $skill) {
+            // A tool a skill names that nobody declared is said, once — a misspelt name otherwise
+            // makes a skill open less than its author meant, without a word.
+            $unknown = array_values(array_filter($skill['tools'], static fn (string $tool): bool => !$registry->has($tool)));
+            if ($unknown !== [] && !isset(self::$saidUnknown[$name])) {
+                self::$saidUnknown[$name] = true;
+                \Pramnos\Logs\Logger::log('Skill ' . $name . ' names tools nobody declared: ' . implode(', ', $unknown) . '.', 'llm');
+            }
             $registry->defineSkill($name, $skill['description'], $skill['tools'], self::instructions($skill));
             if (($skill['references'] ?? []) !== []) {
                 $withReferences[$name] = $skill;

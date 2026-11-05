@@ -221,6 +221,43 @@ Outside a conversation, `ToolRegistry::defineSkill($name, $description, $tools, 
 does the same, `Chat\Skills::load($folder)` reads such a folder, and `Chat\Skills::declare($registry)`
 declares it, reader included.
 
+### Skills from catalogues
+
+Published skills, which are GitHub repositories of `<skill>/SKILL.md` folders, are taken into the
+skills folder with the `skill:*` commands. Such a skill is instructions to a model that can reach the
+application's data, so it is treated as untrusted until a person has read it. After that it is the
+application's configuration like any other.
+
+```bash
+./yourapp skill:search email                                     # in the catalogues
+./yourapp skill:add coreyhaines31/marketingskills/skills/email-sequence@<commit>
+./yourapp skill:enable email-sequence                            # after reading it
+./yourapp skill:outdated                                          # what changed upstream, or here
+./yourapp skill:update email-sequence                            # never automatic; off again after
+./yourapp skill:list --setup=tests/llm-eval/setup.php            # on/off, and unknown tool names
+```
+
+- **Only text is taken.** `SKILL.md`, `references/*.md|*.txt` and `evals/*.json` are taken, each up to
+  256 KB and at most 200 files. Scripts, images and everything else are listed as left out, never
+  written and never run.
+- **Locked.** `skills.lock.json` in the skills folder records each skill's source, the commit it was
+  taken at, the hash of its files and its licence (from GitHub). A copy of what was taken is kept in
+  the skill's `.pf-base/`.
+- **Off until read.** A skill that is taken starts off and is not offered to the model until
+  `skill:enable`, which records the hash that was read. `skill:enable --off` turns it off again. A skill
+  with no lock entry is the application's own and is on.
+- **Never updated by itself.** `skill:outdated` reports which skills changed upstream (the last commit
+  touching the folder) and which changed here (hash ≠ lock). `skill:update` takes upstream's version,
+  or `--ref`, and turns the skill off again until it is read. A skill changed here is not overwritten:
+  upstream's copy is put in `.pf-upstream/` and each file is reported as changed here, upstream or both,
+  against `.pf-base/`, for a merge by hand. `--force` takes upstream's copy and loses the local changes.
+- **Unknown tool names are reported.** `skill:list --setup=…` lists the tools a skill names that the
+  application does not declare, and a conversation logs them once.
+
+The catalogues searched are `'llm' => ['chat' => ['skill_catalogues' => ['owner/repo', …]]]`, or
+`coreyhaines31/marketingskills` and `anthropics/knowledge-work-plugins`. A `GITHUB_TOKEN` in the
+environment raises GitHub's rate limit, and none is needed for public repositories.
+
 ## Tools from other MCP servers
 
 The framework is also an MCP **client**. An application connects to external MCP servers, and
