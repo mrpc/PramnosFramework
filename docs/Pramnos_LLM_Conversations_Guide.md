@@ -196,7 +196,10 @@ an answer others read, a scheduled run and a conversation opened from a report a
 learned from, and so is one whose data no connection may take. At most ten changes a pass, within
 the limits; what it cannot read changes nothing, and a failure never fails the answer. What it
 keeps is marked `learned` and shown so on the memory list, where the person forgets it like any
-other. With the [profile](Pramnos_LLM_Person_Guide.md#a-profile-that-changes-only-on-the-persons-word) on, the same call
+other. It keeps only what would still be true and useful in an unrelated conversation a month later.
+It does not keep a request or a task, a problem reported, the filter of one question ("only
+today's") or anything about one particular record. Those go into every prompt from then on, and
+searching past conversations already finds them. With the [profile](Pramnos_LLM_Person_Guide.md#a-profile-that-changes-only-on-the-persons-word) on, the same call
 proposes to it what the person plainly said about who they are and the people in their life: a
 proposal, which the next answer asks them to confirm.
 

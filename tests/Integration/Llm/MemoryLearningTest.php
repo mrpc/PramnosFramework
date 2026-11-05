@@ -160,6 +160,13 @@ class MemoryLearningTest extends LlmTestCase
         $this->assertSame(['learned', 'learned'], array_column($memory->all(), 'source'), 'what it kept or corrected is marked');
         $this->assertSame([], $memory->shared(), 'learning never writes what the organisation shares');
         $this->assertStringContainsString('Everything is about \"me\"', json_encode($this->sent[0]['body']['messages'][0]['content']));
+        // What is one task's, not the person's, is named as not to keep (FW-322): the month test,
+        // and a request, a reported problem, one question's filter, one record
+        $prompt = (string) $this->sent[0]['body']['messages'][0]['content'];
+        $this->assertStringContainsString('in an unrelated conversation next month', $prompt);
+        $this->assertStringContainsString('Never keep: a request or a task', $prompt);
+        $this->assertStringContainsString('the filter or scope of one question', $prompt);
+        $this->assertStringContainsString('one particular account, record, invoice or customer', $prompt);
         $this->assertSame(['kept' => 0, 'corrected' => 0, 'forgotten' => 0, 'proposed' => 0], $garbled);
         $this->assertSame(['kept' => 0, 'corrected' => 0, 'forgotten' => 0, 'proposed' => 0], $nothing);
         $this->assertSame(['kept' => 0, 'corrected' => 0, 'forgotten' => 0, 'proposed' => 0], $silent, 'nothing said, no call');
