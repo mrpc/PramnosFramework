@@ -158,8 +158,9 @@ final class SystemMailTemplates
             'auth.new_signin' => [
                 'title'        => 'New sign-in notice',
                 'description'  => 'Sent to an account after a sign-in from somewhere it has '
-                    . 'not been seen before. Nobody is waiting for it.',
-                'placeholders' => ['when', 'timestamp', 'sitename'],
+                    . 'not been seen before. Nobody is waiting for it. {device} names the browser '
+                    . 'and the kind of device, and the application first when it was an OAuth client.',
+                'placeholders' => ['when', 'timestamp', 'sitename', 'device'],
             ],
             'auth.security_change' => [
                 'title'        => 'Security change notice',
