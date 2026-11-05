@@ -797,4 +797,80 @@ class UserCharacterizationTest extends TestCase
         $this->assertArrayNotHasKey('fw319plan', $mine->otherinfo, 'a declared column is not a detail');
         $this->assertSame('premium', $stored, 'saving the subclass kept the value');
     }
+
+    /**
+     * A save writes only the columns the code changed since the load — never one it did not touch.
+     *
+     * The safeguard behind FW-319: an UPDATE that wrote every column wrote whatever the object
+     * held, so a column left at its default by a load that missed it — or changed in the database
+     * by somebody else since — was overwritten without anybody touching it. Diffed against what
+     * the object held when it loaded, an untouched column is not in the UPDATE at all.
+     */
+    public function testASaveWritesOnlyTheColumnsThatChangedSinceTheLoad(): void
+    {
+        // Arrange — a user, loaded, then changed in the database behind the object's back
+        $username = 'guard_' . bin2hex(random_bytes(4));
+        $user = new User();
+        $user->username = $username;
+        $user->email    = $username . '@example.com';
+        $user->mobile   = '6900000000';
+        $user->save();
+        $userId = (int) $user->userid;
+        User::clearUserCache();
+        $stale = new User($userId);
+        $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->update(['mobile' => '6911111111']);
+
+        try {
+            // Act — the stale object changes another column and saves
+            $stale->firstname = 'Changed';
+            $stale->save();
+            $row = $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->first()->fields;
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#userdetails')->where('userid', $userId)->delete();
+            $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->delete();
+            User::clearUserCache();
+        }
+
+        // Assert
+        $this->assertSame([], $stale->_errors, 'the save succeeded');
+        $this->assertSame('Changed', $row['firstname'], 'the column the code changed was written');
+        $this->assertSame('6911111111', $row['mobile'], 'the column it did not touch kept the database\'s value');
+    }
+
+    /**
+     * A save that changed nothing in the row runs no UPDATE, still writes the details, and still
+     * says so when the user no longer exists.
+     */
+    public function testASaveWithNothingChangedInTheRowStillWritesTheDetails(): void
+    {
+        // Arrange
+        $username = 'guard_' . bin2hex(random_bytes(4));
+        $user = new User();
+        $user->username = $username;
+        $user->email    = $username . '@example.com';
+        $user->save();
+        $userId = (int) $user->userid;
+        User::clearUserCache();
+        $loaded = new User($userId);
+        $gone   = new User($userId);
+
+        try {
+            // Act — only a detail changes; then a save of a user deleted since it loaded
+            $loaded->guardcolour = 'green';
+            $loaded->save();
+            User::clearUserCache();
+            $colour = (new User($userId))->guardcolour;
+            $this->db->queryBuilder()->table('#PREFIX#userdetails')->where('userid', $userId)->delete();
+            $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->delete();
+            $gone->save();
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#userdetails')->where('userid', $userId)->delete();
+            $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->delete();
+            User::clearUserCache();
+        }
+
+        // Assert
+        $this->assertSame('green', $colour, 'the detail was written without an UPDATE of the row');
+        $this->assertSame(['There is no user ' . $userId . ' to save: it does not exist.'], $gone->_errors, 'a user deleted since it loaded is still refused');
+    }
 }

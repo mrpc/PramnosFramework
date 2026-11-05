@@ -361,6 +361,17 @@ its own. Check `$user->userid > 1` after constructing when the id should exist. 
 no row to update — the user was deleted after it loaded — writes nothing, details included, and
 leaves `There is no user N to save: it does not exist.` in `$user->_errors`.
 
+#### A save writes only what changed since the load
+
+An existing user's `save()` updates only the columns whose value differs from what the object
+held when it loaded; a save that changed none runs no `UPDATE` of the row and still writes the
+details. A column the code did not touch is therefore never written — not when somebody else
+changed it in the database since the load, and not when a load left it at the class's default.
+That second case is the one that matters: a column a subclass declares, missed by a load for any
+reason, would otherwise be written back as its default over the stored value. A subclass whose own
+`load()` does not go through the base class's has no such baseline, and its saves write every
+column.
+
 #### A second load of the same user comes from memory
 
 `load()` keeps what it read for the process, up to a thousand users, and a second

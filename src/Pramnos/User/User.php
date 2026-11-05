@@ -60,6 +60,19 @@ class User extends \Pramnos\Framework\Base implements
     protected $_initialUserData = array();
 
     /**
+     * Each column as this object held it when it loaded — the baseline an UPDATE is diffed
+     * against, so a save writes only the columns that changed since (see {@see writtenOnUpdate()}).
+     *
+     * Not `_initialUserData`, which is the database row: a column the object never received —
+     * left at its default by a load that missed it — differs from the row, and diffing against
+     * the row would write that default over the value. Diffed against what the object held, a
+     * column nobody touched is not written at all.
+     *
+     * @var array<string, mixed>
+     */
+    private array $_loadedValues = array();
+
+    /**
      * Builds the `field => ['old' => …, 'new' => …]` map {@see emitChange()} and the
      * `creating`/`updating` listeners expect, by comparing what is about to be written
      * ($itemdata, already through {@see _alterFields()}) against {@see $_initialUserData}.
@@ -78,17 +91,44 @@ class User extends \Pramnos\Framework\Base implements
                 : null;
             $new = $item['value'];
 
-            // Same comparison Model::getChanges() uses: numeric-aware (int/float/numeric
-            // string that mean the same value do not count as a change), strict otherwise.
-            $changed = (is_numeric($old) && is_numeric($new))
-                ? (float) $old !== (float) $new
-                : $old !== $new;
-
-            if ($changed) {
+            if (self::differs($old, $new)) {
                 $changes[$field] = array('old' => $old, 'new' => $new);
             }
         }
         return $changes;
+    }
+
+    /**
+     * Whether two values of a column differ — the comparison Model::getChanges() uses:
+     * numeric-aware (int/float/numeric string that mean the same value do not count as a
+     * change), strict otherwise.
+     */
+    private static function differs(mixed $old, mixed $new): bool
+    {
+        return (is_numeric($old) && is_numeric($new))
+            ? (float) $old !== (float) $new
+            : $old !== $new;
+    }
+
+    /**
+     * The fields an UPDATE writes: those that changed since the object loaded, and those it
+     * has no baseline for (a column a subclass's own load() did not go through
+     * {@see fillFromRows()} for — written as before).
+     *
+     * The safeguard behind FW-319: a save writes what the code changed, never a column it did
+     * not touch. A column left at its default by a load that missed it is then not written over
+     * the stored value, whatever made the load miss it.
+     *
+     * @param  array $itemdata As built by {@see _save()}
+     * @return array
+     */
+    private function writtenOnUpdate(array $itemdata): array
+    {
+        return array_values(array_filter(
+            $itemdata,
+            fn (array $item): bool => !array_key_exists($item['fieldName'], $this->_loadedValues)
+                || self::differs($this->_loadedValues[$item['fieldName']], $item['value'])
+        ));
     }
 
     /**
@@ -920,14 +960,20 @@ class User extends \Pramnos\Framework\Base implements
                 );
             }
         } else {
-            $updated = $database->updateTableData(
-                $database->prefix . "users", $itemdata,
-                "`userid` = " . $this->userid
-            );
-            if (!$updated) {
-                $error = $database->getError();
-                $this->addError($error['message']);
-                return $this;
+            // Only what changed since the load; nothing changed means no UPDATE, but the row
+            // must still be there for the details below.
+            $written = $this->writtenOnUpdate($itemdata);
+            $updated = null;
+            if ($written !== array()) {
+                $updated = $database->updateTableData(
+                    $database->prefix . "users", $written,
+                    "`userid` = " . $this->userid
+                );
+                if (!$updated) {
+                    $error = $database->getError();
+                    $this->addError($error['message']);
+                    return $this;
+                }
             }
             /*
              * An UPDATE of nobody is not a save.
@@ -936,8 +982,8 @@ class User extends \Pramnos\Framework\Base implements
              * row is looked for before anything is said. One that is not there — deleted since
              * it loaded — gets no details written against its id either.
              */
-            if ($updated instanceof \Pramnos\Database\Result
-                && (int) $updated->getAffectedRows() === 0
+            if (($written === array()
+                    || ($updated instanceof \Pramnos\Database\Result && (int) $updated->getAffectedRows() === 0))
                 && $database->queryBuilder()->table(self::usersTable())->where('userid', (int) $this->userid)->count() === 0
             ) {
                 $this->addError('There is no user ' . (int) $this->userid . ' to save: it does not exist.');
@@ -960,6 +1006,7 @@ class User extends \Pramnos\Framework\Base implements
         }
         foreach ($itemdata as $item) {
             $this->_initialUserData[$item['fieldName']] = $item['value'];
+            $this->_loadedValues[$item['fieldName']]    = $item['value'];
         }
         $this->fireEvent($wasNew ? 'created' : 'updated');
 
@@ -1112,6 +1159,10 @@ class User extends \Pramnos\Framework\Base implements
             $this->$key = $value;
         }
         $this->_initialUserData = $row;
+        $this->_loadedValues    = array();
+        foreach (array_keys($row) as $key) {
+            $this->_loadedValues[$key] = $this->$key;
+        }
 
         foreach ($details as [$fieldname, $value]) { //This should load all special settings
             $fixname = substr($fieldname, 3);
