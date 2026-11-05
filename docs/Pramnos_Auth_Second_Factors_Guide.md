@@ -400,6 +400,14 @@ address: nobody recognises their own, and printing one invites exactly the
 compare-with-last-time habit this feature refuses to encourage. The address is in the
 audit log, for an administrator investigating an incident — the right audience for it.
 
+A sign-in made for an OAuth client (`oauth/authorize` sent the person to sign in) names the
+client by its registered name before the device: *Acme Desktop (Chrome on Linux)*. A
+desktop client's browser is the engine it embeds, so the device alone names a browser the person
+never opened. The device is kept beside the name because both come from the client: anyone who
+registers a client chooses its name. Whether the device is new is still decided by the fingerprint
+alone. `NewSignInAlert::rememberClient()` keeps the name in the session for up to half an hour, and
+the next sign-in in that session uses it once. A stored template reads it as `{device}`.
+
 It offers one action — *if this was not you, change your password* — and no link. A link
 in an unexpected security email is the shape of the attack it warns about.
 

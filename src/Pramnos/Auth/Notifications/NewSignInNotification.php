@@ -58,13 +58,24 @@ class NewSignInNotification implements NotificationInterface
     private string $siteName;
 
     /**
+     * The registered OAuth client the sign-in was for, by its name, or empty.
+     *
+     * @var string
+     */
+    private string $client;
+
+    /**
      * @param string $fingerprint As produced by {@see SignInFingerprint}
      * @param int    $when        Unix timestamp; defaults to now
      * @param string $siteName    Shown in the subject; falls back to the URL
+     * @param string $client      The OAuth client application the sign-in was for, by its
+     *                            registered name — shown before the browser, which for a desktop
+     *                            client is only its embedded engine
      */
-    public function __construct(string $fingerprint, int $when = 0, string $siteName = '')
+    public function __construct(string $fingerprint, int $when = 0, string $siteName = '', string $client = '')
     {
         $this->fingerprint = $fingerprint;
+        $this->client      = trim($client);
         $this->when        = $when > 0 ? $when : time();
         $this->siteName    = $siteName !== ''
             ? $siteName
@@ -154,7 +165,7 @@ class NewSignInNotification implements NotificationInterface
             'title' => t('New sign-in to your account'),
             'body'  => t(
                 'From %s. If this was not you, change your password now.',
-                SignInFingerprint::describe($this->fingerprint)
+                $this->device()
             ),
             'tag'   => 'newsignin',
         );
@@ -205,7 +216,7 @@ class NewSignInNotification implements NotificationInterface
 
     public function toMail(mixed $notifiable): array
     {
-        $device = SignInFingerprint::describe($this->fingerprint);
+        $device = $this->device();
         $time   = date('j M Y, H:i T', $this->when);
 
         $safeDevice = htmlspecialchars($device, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -246,8 +257,22 @@ class NewSignInNotification implements NotificationInterface
                 'when'      => date('Y-m-d H:i', $this->when),
                 'timestamp' => $this->when,
                 'sitename'  => $this->siteName,
+                'device'    => $this->device(),
             ),
         );
+    }
+
+    /**
+     * What signed in, as the person reads it: the browser and the kind of device — and, for a
+     * sign-in to an OAuth client, the client's registered name before them: «Acme Desktop
+     * (Chrome on Linux)». The device stays: a desktop client's browser is its embedded engine, and
+     * both the name and the agent are the client's own words.
+     */
+    public function device(): string
+    {
+        $device = SignInFingerprint::describe($this->fingerprint);
+
+        return $this->client === '' ? $device : t('%s (%s)', $this->client, $device);
     }
 
     /**

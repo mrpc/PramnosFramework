@@ -52,6 +52,15 @@ class NewSignInAlert
     public const POLICY_SETTING = 'auth_newsignin_policy';
 
     /**
+     * Where the OAuth client a sign-in is for waits in the session, between the authorization
+     * request that sent the person to sign in and the sign-in itself ({@see rememberClient()}).
+     */
+    public const CLIENT_SESSION_KEY = 'pf_signin_client';
+
+    /** How long that client is taken as the one the next sign-in is for, in seconds. */
+    public const CLIENT_TTL = 1800;
+
+    /**
      * What a sign-in from an unrecognised device has to *do*, beyond being reported.
      *
      * Telling somebody after the fact is the weakest useful response: by the time the mail
@@ -356,6 +365,8 @@ class NewSignInAlert
      */
     public static function checkAndNotify(int $userId, ?\Pramnos\Database\Database $database = null): bool
     {
+        // Taken whether or not anything is sent, so it cannot label a later sign-in.
+        $client = self::pendingClient();
         try {
             if (!self::isEnabledFor($userId, $database)) {
                 return false;
@@ -376,7 +387,7 @@ class NewSignInAlert
 
             (new \Pramnos\Notification\Notifier())->sendNow(
                 $user,
-                new Notifications\NewSignInNotification($fingerprint)
+                new Notifications\NewSignInNotification($fingerprint, 0, '', $client)
             );
 
             return true;
@@ -388,6 +399,32 @@ class NewSignInAlert
 
             return false;
         }
+    }
+
+    /**
+     * Remember that the next sign-in in this session is for an OAuth client, by its registered
+     * name: `oauth/authorize` calls it before sending somebody to sign in, so the alert names the
+     * application they signed in to and not only the browser it embeds. Kept for
+     * {@see CLIENT_TTL}; an abandoned authorization does not name a later, ordinary sign-in.
+     */
+    public static function rememberClient(string $name): void
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return;
+        }
+        $_SESSION[self::CLIENT_SESSION_KEY] = array('name' => mb_substr($name, 0, 120), 'at' => time());
+    }
+
+    /** The OAuth client this sign-in is for, by name, or empty — taken from the session once. */
+    private static function pendingClient(): string
+    {
+        $pending = $_SESSION[self::CLIENT_SESSION_KEY] ?? null;
+        unset($_SESSION[self::CLIENT_SESSION_KEY]);
+
+        return is_array($pending) && (int) ($pending['at'] ?? 0) >= time() - self::CLIENT_TTL
+            ? (string) ($pending['name'] ?? '')
+            : '';
     }
 
     /**

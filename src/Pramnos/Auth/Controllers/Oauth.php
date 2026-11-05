@@ -184,6 +184,9 @@ class Oauth extends Controller
                 // arrived, was ignored, and a user who signed in here landed on the
                 // dashboard instead of back at the authorization request — the flow
                 // completed and lost its purpose on the way.
+                // The new-sign-in alert names the application signed in to, not only the
+                // browser it embeds (a desktop client's is its engine).
+                \Pramnos\Auth\NewSignInAlert::rememberClient((string) ($client['name'] ?? ''));
                 $this->redirect(\Pramnos\Auth\SecurityPolicy::loginUrl($returnUrl));
                 return;
             }

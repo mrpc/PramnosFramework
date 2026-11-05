@@ -2065,6 +2065,8 @@ return [
     'Only active users who can open this dashboard are offered. Their dashboard is replaced with yours.' => 'Προτείνονται μόνο ενεργοί χρήστες που μπορούν να ανοίξουν αυτόν τον πίνακα. Ο πίνακάς τους αντικαθίσταται από τον δικό σας.',
     'There is no such account that can open this dashboard.' => 'Δεν υπάρχει τέτοιος λογαριασμός που να μπορεί να ανοίξει αυτόν τον πίνακα.',
     'Only an administrator looks people up here.' => 'Μόνο ένας διαχειριστής αναζητά χρήστες εδώ.',
+    // The new-sign-in alert: an OAuth client's name, then the device (FW-320)
+    '%s (%s)' => '%s (%s)',
     // Stored skills (Pramnos\Llm\Chat\StoredSkills, Web\KeepsSkills)
     '%s and up' => '%s και πάνω',
     'For %s and up' => 'Για %s και πάνω',

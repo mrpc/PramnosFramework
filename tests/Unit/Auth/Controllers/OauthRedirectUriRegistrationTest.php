@@ -540,6 +540,9 @@ class OauthRedirectUriRegistrationTest extends TestCase
         // Assert
         $this->assertStringContainsString('login?return=', $out);
         $this->assertStringNotContainsString('return_url=', $out);
+        // And the client is remembered for the new-sign-in alert, by its registered name (FW-320)
+        $this->assertSame('A Client', $_SESSION[\Pramnos\Auth\NewSignInAlert::CLIENT_SESSION_KEY]['name'] ?? null);
+        unset($_SESSION[\Pramnos\Auth\NewSignInAlert::CLIENT_SESSION_KEY]);
     }
 
     /**
