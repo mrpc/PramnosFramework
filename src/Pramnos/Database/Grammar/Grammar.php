@@ -407,6 +407,12 @@ abstract class Grammar implements GrammarInterface
                     $part .= $where['sql'];
                     break;
 
+                case 'InSub':
+                case 'NotInSub':
+                    $part .= $this->quoteIfCaseSensitive($where['column']) . ($where['type'] === 'InSub' ? ' IN (' : ' NOT IN (')
+                        . $this->compileSelect($where['sub']) . ')';
+                    break;
+
                 case 'Exists':
                     $part .= 'EXISTS (' . $this->compileSelect($where['sub']) . ')';
                     break;

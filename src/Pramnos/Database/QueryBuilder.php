@@ -420,6 +420,73 @@ class QueryBuilder
     }
 
     /**
+     * Add a "where in" clause over a subquery: `column IN (SELECT …)`, in one round trip and in
+     * every dialect — a closure that builds it on a new builder, or a builder already made.
+     *
+     * ```php
+     * $qb->table('#PREFIX#searchlog')
+     *     ->whereInSub('searchid', fn (QueryBuilder $q) => $q->table('#PREFIX#searches')->select('searchid')->where('hash', ''))
+     *     ->delete();
+     * ```
+     *
+     * A method of its own rather than `whereIn()` taking a closure too: `whereIn()`'s `array`
+     * parameter cannot be widened without breaking every subclass that redeclares it.
+     *
+     * @param \Closure(QueryBuilder): mixed|QueryBuilder $query
+     * @return $this
+     */
+    public function whereInSub(string $column, \Closure|QueryBuilder $query, string $boolean = 'and', bool $not = false)
+    {
+        if ($query instanceof \Closure) {
+            $sub = new static($this->db, $this->grammar);
+            $query($sub);
+            $query = $sub;
+        }
+        $type = $not ? 'NotInSub' : 'InSub';
+        $sub  = $query;
+        $this->wheres[] = compact('type', 'column', 'sub', 'boolean');
+        // The subquery's bindings, where its placeholders are: in the where slot, in order.
+        foreach ($sub->getBindings() as $binding) {
+            $this->bindings['where'][] = $binding;
+        }
+
+        return $this;
+    }
+
+    /**
+     * `column NOT IN (SELECT …)` — {@see whereInSub()}.
+     *
+     * @param \Closure(QueryBuilder): mixed|QueryBuilder $query
+     * @return $this
+     */
+    public function whereNotInSub(string $column, \Closure|QueryBuilder $query, string $boolean = 'and')
+    {
+        return $this->whereInSub($column, $query, $boolean, true);
+    }
+
+    /**
+     * `OR column IN (SELECT …)` — {@see whereInSub()}.
+     *
+     * @param \Closure(QueryBuilder): mixed|QueryBuilder $query
+     * @return $this
+     */
+    public function orWhereInSub(string $column, \Closure|QueryBuilder $query)
+    {
+        return $this->whereInSub($column, $query, 'or');
+    }
+
+    /**
+     * `OR column NOT IN (SELECT …)` — {@see whereInSub()}.
+     *
+     * @param \Closure(QueryBuilder): mixed|QueryBuilder $query
+     * @return $this
+     */
+    public function orWhereNotInSub(string $column, \Closure|QueryBuilder $query)
+    {
+        return $this->whereInSub($column, $query, 'or', true);
+    }
+
+    /**
      * Add a "where not in" clause.
      *
      * @param string $column

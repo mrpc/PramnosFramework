@@ -508,6 +508,21 @@ $result = $db->queryBuilder()
     ->get();
 ```
 
+#### `whereInSub(string $column, Closure|QueryBuilder $query): static`
+
+`column IN (SELECT …)` in one statement, in every dialect, with the subquery's bound values where
+its placeholders are. The subquery can be a closure that builds it on a new builder, or a builder
+already made. `whereNotInSub()`, `orWhereInSub()` and `orWhereNotInSub()` are the other forms.
+
+```php
+$db->queryBuilder()->table('#PREFIX#searchlog')
+    ->whereInSub('searchid', fn (QueryBuilder $q) => $q->table('#PREFIX#searches')->select('searchid')->where('hash', ''))
+    ->delete();
+```
+
+`whereIn()` itself takes a list only. Its `array` parameter cannot also take a closure without
+breaking every subclass that redeclares it, so a closure passed to it is a `TypeError`.
+
 ### Joins
 
 #### `join(string $table, string $first, string $operator, string $second, string $type = 'inner'): static`

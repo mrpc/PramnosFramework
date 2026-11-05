@@ -1969,4 +1969,80 @@ class QueryBuilderPostgreSQLTest extends DatabaseTestCase
         sort($names);
         $this->assertSame(['Apple', 'Banana', 'Carrot', 'Daikon', 'Elderberry'], $names);
     }
+
+    // =========================================================================
+    // whereInSub() and the rest (FW-323)
+    // =========================================================================
+
+    /**
+     * `column IN (SELECT …)` from a closure, between other conditions: the subquery's bound
+     * values land where its placeholders are, so the conditions before and after it still bind
+     * to theirs. One round trip, instead of reading the ids into PHP first.
+     */
+    public function testWhereInSubFiltersByASubqueryAndKeepsTheBindingsInOrder(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $this->seedTags();
+
+        // Act — active, tagged organic or rare, and under 2.00
+        $rows = $this->db->queryBuilder()->select(['name'])->from('qb_products')
+            ->where('active', 1)
+            ->whereInSub('id', static function (\Pramnos\Database\QueryBuilder $sub): void {
+                $sub->select(['product_id'])->from('qb_tags')->whereIn('tag', ['organic', 'rare']);
+            })
+            ->where('price', '<', 2)
+            ->orderBy('id')->get()->fetchAll();
+
+        // Assert — Carrot; Elderberry is rare but costs 3.00
+        $this->assertSame(['Carrot'], array_column($rows, 'name'));
+    }
+
+    /**
+     * `NOT IN`, from a builder made beforehand, and `OR … IN`.
+     */
+    public function testWhereNotInSubAndOrWhereInSub(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $this->seedTags();
+        $tagged = $this->db->queryBuilder()->select(['product_id'])->from('qb_tags');
+
+        // Act
+        $untagged = $this->db->queryBuilder()->select(['name'])->from('qb_products')
+            ->whereNotInSub('id', $tagged)->orderBy('id')->get()->fetchAll();
+        $either = $this->db->queryBuilder()->select(['name'])->from('qb_products')
+            ->where('name', 'Banana')
+            ->orWhereInSub('id', fn (\Pramnos\Database\QueryBuilder $sub) => $sub->select(['product_id'])->from('qb_tags')->where('tag', 'sweet'))
+            ->orderBy('id')->get()->fetchAll();
+        $notSweet = $this->db->queryBuilder()->select(['name'])->from('qb_products')
+            ->where('category', 'fruit')
+            ->orWhereNotInSub('id', fn (\Pramnos\Database\QueryBuilder $sub) => $sub->select(['product_id'])->from('qb_tags'))
+            ->orderBy('id')->get()->fetchAll();
+
+        // Assert
+        $this->assertSame(['Banana', 'Daikon'], array_column($untagged, 'name'));
+        $this->assertSame(['Apple', 'Banana'], array_column($either, 'name'));
+        $this->assertSame(['Apple', 'Banana', 'Daikon', 'Elderberry'], array_column($notSweet, 'name'), 'every fruit, or untagged');
+    }
+
+    /**
+     * A DELETE narrowed by a subquery — the shape that was written out of habit and failed with
+     * a TypeError: the rows go, the others stay.
+     */
+    public function testADeleteNarrowedByASubquery(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $this->seedTags();
+
+        // Act — the vegetables' tags
+        $this->db->queryBuilder()->table('qb_tags')
+            ->whereInSub('product_id', fn (\Pramnos\Database\QueryBuilder $sub) => $sub->select(['id'])->from('qb_products')->where('category', 'veggie'))
+            ->delete();
+        $left = $this->db->queryBuilder()->select(['tag'])->from('qb_tags')->orderBy('tag')->get()->fetchAll();
+
+        // Assert — Carrot's two are gone
+        $this->assertSame(['popular', 'rare', 'sweet'], array_column($left, 'tag'));
+    }
 }
