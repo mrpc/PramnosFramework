@@ -964,7 +964,10 @@ test('the person picker finds a person by name and fills the form', async () => 
     const asked = [];
     p.window.fetch = (url) => {
         asked.push(url);
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ people: [{ userid: 42, name: 'Alice Smith', username: 'alice', email: 'a@x.gr', type: 'Administrator' }] }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ people: [
+            { userid: 42, name: 'Alice Smith', username: 'alice', email: 'a@x.gr', type: 'Administrator' },
+            { userid: 43, name: 'admin@x.gr', username: 'admin@x.gr', email: 'admin@x.gr', type: 'Root' },
+        ] }) });
     };
     p.window.setTimeout = (fn) => { fn(); return 1; };
     p.window.clearTimeout = () => {};
@@ -981,12 +984,14 @@ test('the person picker finds a person by name and fills the form', async () => 
     const held = new Event('submit', { bubbles: true, cancelable: true });
     form.dispatchEvent(held);
     const pick = form.querySelector('[data-pf-person-pick]');
+    const labels = form.querySelectorAll('[data-pf-person-pick]').map((b) => b.textContent);
     p.click(pick);
 
     // Assert
     assert.deepEqual(asked, ['/admin/Dashboard/people?q=al']);
     assert.equal(held.defaultPrevented, true, 'no person chosen: not sent');
     assert.equal(pick === null, false);
+    assert.deepEqual(labels, ['Alice Smith (alice) · a@x.gr · Administrator', 'admin@x.gr · Root'], 'nothing said twice');
     assert.equal(form.querySelector('[data-pf-person-id]').value, '42');
     assert.equal(search.value, 'Alice Smith');
     assert.equal(submit.disabled, false);

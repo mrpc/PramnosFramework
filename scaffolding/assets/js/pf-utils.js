@@ -2670,7 +2670,12 @@
                             button.className = list.getAttribute('data-pick-class') || '';
                             button.setAttribute('data-pf-person-pick', String(person.userid));
                             button.setAttribute('data-name', person.name);
-                            button.textContent = person.name + ' (' + person.username + ')' + (person.email ? ' · ' + person.email : '') + (person.type ? ' · ' + person.type : '');
+                            // Name, the username only where it says something more, the email, the type.
+                            var label = [person.name];
+                            if (person.username && person.username !== person.name && person.username !== person.email) { label[0] += ' (' + person.username + ')'; }
+                            if (person.email && person.email !== person.name && person.email !== person.username) { label.push(person.email); }
+                            if (person.type) { label.push(person.type); }
+                            button.textContent = label.join(' · ');
                             li.appendChild(button);
                             list.appendChild(li);
                         });

@@ -167,7 +167,7 @@ class DashboardController extends Controller
         ];
         $view->roles         = $this->usertypeChoices($board);
         $view->organizations     = $this->organizationChoices();
-        $view->organizationLabel = \Pramnos\Dashboard\Presets::organizations()?->label() ?? 'Organisation';
+        $view->organizationLabel = $this->organizationLabel();
         $view->peopleUrl     = $view->managesPresets ? $this->boardUrl('people', $board) : '';
         $view->csrfField     = \Pramnos\Http\Middleware\CsrfMiddleware::tokenField();
 
@@ -572,9 +572,23 @@ class DashboardController extends Controller
         try {
             return \Pramnos\Dashboard\Presets::organizations()?->choices() ?? [];
         } catch (\Throwable $e) {
-            \Pramnos\Logs\Logger::log('Dashboard organisations unavailable: ' . $e->getMessage(), 'dashboard');
+            // Named, class and all, where it is found: a source that fails otherwise just shows no
+            // organisation choice, and nobody can tell why.
+            \Pramnos\Logs\Logger::log('Dashboard organisation source failed in choices(): ' . $e::class . ': ' . $e->getMessage() . ' at ' . $e->getFile() . ':' . $e->getLine(), 'dashboard');
 
             return [];
+        }
+    }
+
+    /** What the application calls an organisation, for the dialog; `Organisation` when its source fails. */
+    protected function organizationLabel(): string
+    {
+        try {
+            return \Pramnos\Dashboard\Presets::organizations()?->label() ?? 'Organisation';
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Dashboard organisation source failed: ' . $e::class . ': ' . $e->getMessage() . ' at ' . $e->getFile() . ':' . $e->getLine(), 'dashboard');
+
+            return 'Organisation';
         }
     }
 

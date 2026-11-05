@@ -2328,3 +2328,7 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-dashboard-people { list-style: none; padding: 0; margin: 0; max-height: 14rem; overflow: auto; }
 .pf-dashboard-person { display: block; width: 100%; text-align: left; background: none; border: 0; padding: .35rem .5rem; cursor: pointer; }
 .pf-dashboard-presets-foot { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-top: 1rem; padding-top: .75rem; border-top: 1px solid rgba(127, 127, 127, .25); }
+/* A field for one choice, hidden: a theme's display utility (Bootstrap's d-block is !important)
+   must not keep it showing. And the tools' symbols (⧉ ⇱ ⚙) from a font that has them. */
+[data-pf-show-when][hidden] { display: none !important; }
+.pf-dashboard-tools button, .pf-dashboard-tools .btn { font-family: "Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols 2", "DejaVu Sans", sans-serif; }

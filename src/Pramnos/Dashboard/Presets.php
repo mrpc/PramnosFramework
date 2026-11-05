@@ -212,7 +212,7 @@ final class Presets
         return match ((string) ($row['visibility'] ?? self::PRIVATE)) {
             self::EVERYONE     => $me > 1,
             self::ROLE         => $audience !== '' && self::holdsRole($user, $audience),
-            self::ORGANIZATION => $audience !== '' && (self::organizations()?->isMember($user, $audience) ?? false),
+            self::ORGANIZATION => $audience !== '' && self::isMemberOf($user, $audience),
             default            => false,
         };
     }
@@ -268,6 +268,21 @@ final class Presets
      * ['organizations' => Class::class]`), the framework's own when it says nothing, or null when
      * it says `false` — then nothing is shared with one, and the choice is not offered.
      */
+    /**
+     * Whether a person belongs to an organisation, as the source says — a source that fails is
+     * logged (the `dashboard` log) and answers no, rather than failing every dashboard drawn.
+     */
+    private static function isMemberOf(object $user, string $id): bool
+    {
+        try {
+            return self::organizations()?->isMember($user, $id) ?? false;
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Dashboard organisation source failed in isMember(): ' . $e::class . ': ' . $e->getMessage(), 'dashboard');
+
+            return false;
+        }
+    }
+
     public static function organizations(): ?OrganizationSource
     {
         $app    = \Pramnos\Application\Application::currentInstance();

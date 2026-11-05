@@ -606,18 +606,19 @@ class DashboardPresetsMySQLTest extends TestCase
             $notId    = $orgs->isMember(self::person(self::MANAGER, 80), 'x');
             Application::getInstance()->applicationInfo['dashboard'] = ['boards' => ['pf-high' => ['min_role' => 'root'], 'pf-odd' => ['min_role' => 'ghost']],
                 'organizations' => new class implements \Pramnos\Dashboard\OrganizationSource {
-                    /** A word. */
-                    public function label(): string { return 'X'; }
+                    /** It fails. */
+                    public function label(): string { throw new \RuntimeException('down'); }
 
                     /** It fails. */
                     public function choices(): array { throw new \RuntimeException('down'); }
 
-                    /** Nobody. */
-                    public function isMember(object $user, string $id): bool { return false; }
+                    /** It fails. */
+                    public function isMember(object $user, string $id): bool { throw new \TypeError('needs a controller'); }
                 }];
             $high = (new \ReflectionMethod($controller, 'usertypeChoices'))->invoke($controller, 'pf-high');
             $odd  = (new \ReflectionMethod($controller, 'usertypeChoices'))->invoke($controller, 'pf-odd');
             $failing = (new \ReflectionMethod($controller, 'organizationChoices'))->invoke($controller);
+            $failingLabel = (new \ReflectionMethod($controller, 'organizationLabel'))->invoke($controller);
             $previous = Database::getInstance();
             $reference = &Database::getInstance();
             $reference = new class extends Database {
@@ -639,6 +640,8 @@ class DashboardPresetsMySQLTest extends TestCase
             $this->assertSame([99], array_keys($high), 'a board for root offers root only');
             $this->assertSame([98, 99], array_keys($odd), 'a role nobody defined leaves the floor as it was');
             $this->assertSame([], $failing);
+            $this->assertSame('Organisation', $failingLabel, 'a source that fails: the default word, logged');
+            $this->assertFalse(Presets::canSee(['ownerid' => 1, 'visibility' => Presets::ORGANIZATION, 'audience' => '7'], self::person(self::MANAGER, 80)), 'a membership check that throws: not a member, not a failed page');
             $this->assertSame(['people' => []], $nobody);
             $this->assertSame([], $downChoices, 'a database that fails: no organisations, not an error');
             $this->assertFalse($downMember);
