@@ -64,6 +64,9 @@ class MediaObjectQueryBuilderTest extends DatabaseTestCase
         $application->database = $db;
 
         (new \Pramnos\Framework\Migrations\Core\CreateMediaTables($application))->up();
+        // getList() names the owner of each item, which reads `users`: made here rather than
+        // trusted to be left by a class that ran earlier.
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Auth\CreateUsersTable::class], $db);
 
         $db->close();
     }
