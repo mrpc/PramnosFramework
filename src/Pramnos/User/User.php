@@ -149,6 +149,27 @@ class User extends \Pramnos\Framework\Base implements
     }
 
     /**
+     * Record columns a method wrote to the row itself, outside {@see _save()}, as the save's
+     * baseline — otherwise a later save setting the column back to its loaded value would see no
+     * change and not write it: `deactivate()`, then `active = 1` and `save()`, left the user off.
+     *
+     * Only for an object that has a baseline: one without (a subclass's own load()) writes every
+     * column anyway, and a partial baseline would make it skip the rest.
+     *
+     * @param array<string, mixed> $columns
+     */
+    private function wroteDirectly(array $columns): void
+    {
+        if ($this->_loadedValues === array()) {
+            return;
+        }
+        foreach ($columns as $column => $value) {
+            $this->_loadedValues[$column]    = $value;
+            $this->_initialUserData[$column] = $value;
+        }
+    }
+
+    /**
      * Whether `apiListPaginate()` counts the matching rows.
      *
      * On, a page comes with its total — two queries, a `COUNT` and the page. Off, only the page:
@@ -343,6 +364,7 @@ class User extends \Pramnos\Framework\Base implements
                 ->table(self::usersTable())
                 ->where('userid', $this->userid)
                 ->update(['active' => 1]);
+            $this->wroteDirectly(['active' => $this->active]);
             $database->cacheflush('userlist');
             if (is_array(self::$_usercache) && isset(self::$_usercache[$this->userid])) {
                 unset(self::$_usercache[$this->userid]);
@@ -365,6 +387,7 @@ class User extends \Pramnos\Framework\Base implements
                 ->table(self::usersTable())
                 ->where('userid', $this->userid)
                 ->update(['active' => 0]);
+            $this->wroteDirectly(['active' => $this->active]);
             $database->cacheflush('userlist');
             if (is_array(self::$_usercache) && isset(self::$_usercache[$this->userid])) {
                 unset(self::$_usercache[$this->userid]);
@@ -3214,6 +3237,7 @@ class User extends \Pramnos\Framework\Base implements
                 ->update(['password' => $hash]);
 
             $this->password = $hash;
+            $this->wroteDirectly(['password' => $hash]);
 
             // Recorded: a password hash changing without the password changing is the kind
             // of thing an audit should be able to explain later.

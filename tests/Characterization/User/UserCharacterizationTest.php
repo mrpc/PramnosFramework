@@ -907,4 +907,40 @@ class UserCharacterizationTest extends TestCase
         // Assert
         $this->assertSame('06900000000', $row['mobile'], 'equal as numbers, different as text — written');
     }
+
+    /**
+     * A column a method wrote to the row itself is the save's baseline from then on: deactivate(),
+     * then `active = 1` and save(), leaves the user active.
+     *
+     * deactivate() writes `active` directly. Diffed against the value loaded before it, setting 1
+     * back looked like no change, and the user stayed off.
+     */
+    public function testAColumnWrittenDirectlyIsWrittenBackBySave(): void
+    {
+        // Arrange
+        $username = 'guard_' . bin2hex(random_bytes(4));
+        $user = new User();
+        $user->username = $username;
+        $user->email    = $username . '@example.com';
+        $user->active   = 1;
+        $user->save();
+        $userId = (int) $user->userid;
+        User::clearUserCache();
+        $loaded = new User($userId);
+
+        try {
+            // Act
+            $loaded->deactivate();
+            $loaded->active = 1;
+            $loaded->save();
+            $active = $this->db->queryBuilder()->table('#PREFIX#users')->select(['active'])->where('userid', $userId)->first()->fields['active'];
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#userdetails')->where('userid', $userId)->delete();
+            $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->delete();
+            User::clearUserCache();
+        }
+
+        // Assert
+        $this->assertEquals(1, (int) $active, 'the save wrote active back after deactivate()');
+    }
 }
