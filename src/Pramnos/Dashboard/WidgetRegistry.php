@@ -69,6 +69,7 @@ final class WidgetRegistry
      */
     public static function all(?string $board = null): array
     {
+        $board  = self::catalogueOf($board);
         $config = self::config($board);
 
         $widgets = self::framework($config['framework'] ?? true);
@@ -104,7 +105,8 @@ final class WidgetRegistry
      */
     public static function config(?string $board = null): array
     {
-        $app = \Pramnos\Application\Application::currentInstance();
+        $board = self::catalogueOf($board);
+        $app   = \Pramnos\Application\Application::currentInstance();
         $top = is_object($app) ? (array) ($app->applicationInfo['dashboard'] ?? []) : [];
         $own = $board !== null && is_array($top['boards'][$board] ?? null) ? $top['boards'][$board] : null;
         if ($own === null) {
@@ -114,6 +116,15 @@ final class WidgetRegistry
         $merged['cards'] = array_replace((array) ($top['cards'] ?? []), (array) ($own['cards'] ?? []));
 
         return $merged;
+    }
+
+    /**
+     * The board whose catalogue a board offers: a person's own board ({@see UserBoards}) offers the
+     * administration dashboard's; any other, its own.
+     */
+    private static function catalogueOf(?string $board): ?string
+    {
+        return UserBoards::isUserBoard($board) ? UserBoards::CATALOGUE : $board;
     }
 
     /**
@@ -224,6 +235,7 @@ final class WidgetRegistry
      */
     public static function defaultIds(?string $board): ?array
     {
+        $board = self::catalogueOf($board);
         if ($board === null) {
             return null;
         }

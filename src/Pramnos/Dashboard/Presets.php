@@ -136,7 +136,7 @@ final class Presets
             $query->where('ownerid', (int) ($user->userid ?? 0));
         }
 
-        return (bool) $query->delete();
+        return self::affected($query->delete()) > 0;
     }
 
     /**
@@ -157,8 +157,8 @@ final class Presets
                 ->where('default_for_role', $role)->update(['default_for_role' => null]);
         }
 
-        return (bool) $this->db()->queryBuilder()->table(self::TABLE)->where('presetid', $id)
-            ->update(['default_for_role' => $role, 'updated_at' => time()]);
+        return self::affected($this->db()->queryBuilder()->table(self::TABLE)->where('presetid', $id)
+            ->update(['default_for_role' => $role, 'updated_at' => time()])) > 0;
     }
 
     /**
@@ -217,8 +217,12 @@ final class Presets
         };
     }
 
-    /** The audience a visibility keeps, checked. */
-    private static function audience(string $visibility, ?string $audience): ?string
+    /**
+     * The audience a visibility keeps, checked — shared with {@see UserBoards}.
+     *
+     * @throws \InvalidArgumentException For an unknown visibility, or a wrong audience for it
+     */
+    public static function audience(string $visibility, ?string $audience): ?string
     {
         $audience = trim((string) $audience);
 
@@ -313,6 +317,12 @@ final class Presets
 
             return [];
         }
+    }
+
+    /** How many rows a write changed: a Result's count, never just "it ran". */
+    private static function affected(mixed $result): int
+    {
+        return is_object($result) && method_exists($result, 'getAffectedRows') ? (int) $result->getAffectedRows() : (int) (bool) $result;
     }
 
     private function db(): Database

@@ -275,6 +275,7 @@ id. Arguments after `section` are optional and are normally passed by name.
 | `group` | `?string` | `null` | Heading this item sits under in a sidebar (`People`, `System`, `Access`). |
 | `badge` | `?\Closure` | `null` | `fn (int $userId): int` — a count shown beside the label. |
 | `when` | `?\Closure` | `null` | `fn (?User $user): bool` — asked at render time; hidden when it returns false or throws. |
+| `ability` | `?string` | `null` | For an Admin item, the ability that decides it under `admin_access = permissions` when it is not the item's own id. A person's own dashboard opens with `admin.dashboard`. |
 
 Three methods read the badge: `badgeCount(int $userId): int`, `badgeLabel(int $userId): string`
 (which writes anything over 99 as `99+`), and `badgeHtml(int $userId): string`, the markup a
@@ -291,7 +292,7 @@ passes. "Signed in" means a user object **and** a live session.
 1. `guestOnly` and signed in → hidden.
 2. `requireAuth` and not signed in → hidden.
 3. **Usertype.** For an Admin item when `admin_access` is `permissions` or `mixed`, the item is
-   shown only when `AdminAccess::allows($user, $item->id, $item->minUserType)` — the same
+   shown only when `AdminAccess::allows($user, $item->ability ?? $item->id, $item->minUserType)` — the same
    question the screen itself asks. Otherwise, a `minUserType > 0` hides the item from guests
    and from users below it.
 4. **Permission**, only for a signed-in user: an explicit deny hides the item; an allow or no
@@ -309,6 +310,24 @@ permission name nobody has granted yet would otherwise empty the menu.
 !!! note "Pass the features"
     `$enabledFeatures` defaults to `[]`. Call `getForUser($user)` without it and every item
     with a `feature` — Messages, Ask AI, Applications, Tokens, Roles, Queue — disappears.
+
+### Items that depend on who is looking
+
+Some items exist only for one person, such as the dashboards someone made for themselves.
+`NavRegistry::provide()` takes a closure that is called each time a menu is drawn, with the user
+(or null), and returns that person's items:
+
+```php
+NavRegistry::provide(static fn (?User $user): array => $user === null ? [] : [
+    new NavItem('admin.reports.mine', 'My reports', adminUrl('Reports/mine'), NavSection::Admin,
+        20, requireAuth: true, ability: 'admin.reports'),
+]);
+```
+
+Provided items go through every rule above, like registered ones. A provider that throws adds
+nothing, and the rest of the menu still draws. `all()` and `AdminAccess::abilities()` list
+registered items only, so a provided item never becomes a grantable screen. Keep a provider
+cheap, because it runs on every page that draws the menu.
 
 ### `parent` and `group`
 

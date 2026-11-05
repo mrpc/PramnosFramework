@@ -52,6 +52,20 @@ class NavRegistry
     /** @var array<string, NavItem> All registered items, keyed by id. */
     private static array $items = [];
 
+    /** @var list<\Closure> Callables that give items for one user, asked when a menu is drawn. */
+    private static array $providers = [];
+
+    /**
+     * Add items that depend on who is looking — a person's own dashboards — asked each time a menu
+     * is drawn, with the user (or null). They go through the same rules as registered items.
+     *
+     * @param \Closure(?User): list<NavItem> $provider
+     */
+    public static function provide(\Closure $provider): void
+    {
+        static::$providers[] = $provider;
+    }
+
     // =========================================================================
     // Registration
     // =========================================================================
@@ -84,7 +98,8 @@ class NavRegistry
      */
     public static function reset(): void
     {
-        static::$items = [];
+        static::$items     = [];
+        static::$providers = [];
     }
 
     /**
@@ -133,7 +148,20 @@ class NavRegistry
     {
         $result = [];
 
-        foreach (static::$items as $item) {
+        $items = static::$items;
+        foreach (static::$providers as $provider) {
+            try {
+                foreach ((array) $provider($user) as $provided) {
+                    if ($provided instanceof NavItem) {
+                        $items[$provided->id] = $provided;
+                    }
+                }
+            } catch (\Throwable) {
+                // A provider that fails adds nothing; the rest of the menu still draws.
+            }
+        }
+
+        foreach ($items as $item) {
             if (!static::isVisible($item, $user, $enabledFeatures)) {
                 continue;
             }
@@ -174,7 +202,7 @@ class NavRegistry
         // `admin_access = permissions`, the grant that opens it. The same question the
         // screen asks, by the same name, so a link cannot show what the screen refuses.
         if ($item->section === NavSection::Admin && \Pramnos\Auth\AdminAccess::usesPermissions()) {
-            if (!$isLoggedIn || !\Pramnos\Auth\AdminAccess::allows($user, $item->id, $item->minUserType)) {
+            if (!$isLoggedIn || !\Pramnos\Auth\AdminAccess::allows($user, $item->ability ?? $item->id, $item->minUserType)) {
                 return false;
             }
         } elseif ($item->minUserType > 0) {

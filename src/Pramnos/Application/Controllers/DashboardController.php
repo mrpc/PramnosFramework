@@ -48,9 +48,9 @@ class DashboardController extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction(['display', 'card', 'activeusers', 'apistats', 'dbstats', 'database', 'cache', 'cacheitem', 'clearcache', 'savelayout', 'resetlayout',
-            'applypreset', 'savepreset', 'deletepreset', 'presetdefault', 'copyboard', 'presets']);
+            'applypreset', 'savepreset', 'deletepreset', 'presetdefault', 'copyboard', 'presets', 'newboard', 'boardsettings', 'deleteboard']);
         // POST with the session's token, or refused before the action runs: see Controller::exec().
-        $this->addWriteAction(['clearcache', 'savelayout', 'resetlayout', 'applypreset', 'savepreset', 'deletepreset', 'presetdefault', 'copyboard']);
+        $this->addWriteAction(['clearcache', 'savelayout', 'resetlayout', 'applypreset', 'savepreset', 'deletepreset', 'presetdefault', 'copyboard', 'newboard', 'boardsettings', 'deleteboard']);
         parent::__construct($application);
     }
 
@@ -92,7 +92,7 @@ class DashboardController extends Controller
      * @param string $title A heading over it; '' for none
      * @throws \InvalidArgumentException For a board app.php does not list: its saves would land elsewhere
      */
-    public function renderBoard(string $board, string $title = ''): string
+    protected function renderBoard(string $board, string $title = ''): string
     {
         if (!$this->isBoard($board)) {
             throw new \InvalidArgumentException('No dashboard board "' . $board . '": add it under \'dashboard\' => [\'boards\' => [...]] in app.php.');
@@ -106,6 +106,17 @@ class DashboardController extends Controller
         $view->boardTitle = $title;
 
         return (string) $view->display('admin_dashboard');
+    }
+
+    /**
+     * A board drawn by a dashboard controller — {@see renderBoard()}, reached from outside without
+     * a public instance method, which on a controller would read as an action.
+     *
+     * @throws \InvalidArgumentException For a board app.php does not list
+     */
+    public static function boardFor(self $controller, string $board, string $title = ''): string
+    {
+        return $controller->renderBoard($board, $title);
     }
 
     /**
@@ -157,6 +168,17 @@ class DashboardController extends Controller
         $view->roles     = $this->roleNames();
         $view->csrfField = \Pramnos\Http\Middleware\CsrfMiddleware::tokenField();
 
+        // A person's own board: its name over it, and — for its owner — its settings.
+        $view->userBoard = is_object($user) && \Pramnos\Dashboard\UserBoards::isUserBoard($board) ? $this->userBoards()->find($board, $user) : null;
+        if ($view->userBoard !== null) {
+            $view->boardTitle = (string) $view->userBoard['name'];
+        }
+        $view->boardUrls = [
+            'new'      => $this->boardUrl('newboard', $board),
+            'settings' => $this->boardUrl('boardsettings', $board),
+            'delete'   => $this->boardUrl('deleteboard', $board),
+        ];
+
         return $view;
     }
 
@@ -171,10 +193,15 @@ class DashboardController extends Controller
         return $asked !== '' && $this->isBoard($asked) ? $asked : $this->dashboardArea;
     }
 
-    /** Whether a name is a board: this controller's own, or one app.php lists. */
+    /** Whether a name is a board: this controller's own, one app.php lists, or a person's own that this person sees. */
     protected function isBoard(string $board): bool
     {
-        return $board === $this->dashboardArea || in_array($board, \Pramnos\Dashboard\WidgetRegistry::boards(), true);
+        if ($board === $this->dashboardArea || in_array($board, \Pramnos\Dashboard\WidgetRegistry::boards(), true)) {
+            return true;
+        }
+        $user = \Pramnos\User\User::current();
+
+        return \Pramnos\Dashboard\UserBoards::isUserBoard($board) && is_object($user) && $this->userBoards()->find($board, $user) !== null;
     }
 
     /**
@@ -398,6 +425,84 @@ class DashboardController extends Controller
         $view->urls      = ['delete' => $this->boardUrl('deletepreset', $this->dashboardArea), 'default' => $this->boardUrl('presetdefault', $this->dashboardArea)];
 
         return $view->display('presets');
+    }
+
+    // ── A person's own boards ─────────────────────────────────────────────────
+
+    /**
+     * Make a dashboard of one's own — empty, or from a preset of the board the form was on — and
+     * go to it. It is in its owner's menu from now on.
+     */
+    public function newboard(): void
+    {
+        $user  = \Pramnos\User\User::current();
+        $board = $this->board();
+        if (!is_object($user)) {
+            $this->redirect($this->dashboardHome());
+
+            return;
+        }
+        $preset = (string) ($_POST['preset'] ?? '') !== '' ? $this->presetStore()->find((string) $_POST['preset'], $user, $board) : null;
+        try {
+            $id = $this->userBoards()->create($user, (string) ($_POST['name'] ?? ''), $preset['layout'] ?? null);
+        } catch (\InvalidArgumentException $e) {
+            $this->addError($e->getMessage());
+            $this->redirect($this->backToBoard($board));
+
+            return;
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Dashboard board not made: ' . $e->getMessage(), 'dashboard');
+            $this->addError('The dashboard could not be made.');
+            $this->redirect($this->backToBoard($board));
+
+            return;
+        }
+        $this->addMessage('Your new dashboard is ready: choose Customise to add its cards.');
+        $this->redirect($this->boardUrl('display', \Pramnos\Dashboard\UserBoards::name($id)));
+    }
+
+    /** Rename one's own board and say who has it in their menu. */
+    public function boardsettings(): void
+    {
+        $user  = \Pramnos\User\User::current();
+        $board = $this->board();
+        $row   = is_object($user) && \Pramnos\Dashboard\UserBoards::isUserBoard($board) ? $this->userBoards()->find($board, $user) : null;
+        if ($row === null || !$row['mine']) {
+            $this->addError('Only its owner changes a dashboard.');
+        } else {
+            $visibility = (string) ($_POST['visibility'] ?? \Pramnos\Dashboard\Presets::PRIVATE);
+            try {
+                $this->userBoards()->update((int) $row['boardid'], $user, (string) ($_POST['name'] ?? ''), $visibility, (string) match ($visibility) {
+                    \Pramnos\Dashboard\Presets::ROLE         => $_POST['audience_role'] ?? '',
+                    \Pramnos\Dashboard\Presets::ORGANIZATION => $_POST['audience_org'] ?? '',
+                    default                                    => '',
+                });
+                $this->addMessage('The dashboard is saved.');
+            } catch (\InvalidArgumentException $e) {
+                $this->addError($e->getMessage());
+            }
+        }
+        $this->redirect($this->backToBoard($board));
+    }
+
+    /** Delete one's own board — or any, for an administrator — and go back to the dashboard. */
+    public function deleteboard(): void
+    {
+        $user  = \Pramnos\User\User::current();
+        $board = $this->board();
+        $row   = is_object($user) && \Pramnos\Dashboard\UserBoards::isUserBoard($board) ? $this->userBoards()->find($board, $user) : null;
+        if ($row !== null && $this->userBoards()->delete((int) $row['boardid'], $user, $this->managesPresets($user))) {
+            $this->addMessage('The dashboard is deleted.');
+        } else {
+            $this->addError('That dashboard is not yours to delete.');
+        }
+        $this->redirect($this->dashboardHome());
+    }
+
+    /** The store of people's own boards. */
+    protected function userBoards(): \Pramnos\Dashboard\UserBoards
+    {
+        return new \Pramnos\Dashboard\UserBoards();
     }
 
     /** Whether this person manages every preset — sets defaults, copies boards: an administrator. */

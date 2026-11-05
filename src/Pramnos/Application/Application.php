@@ -1569,6 +1569,23 @@ class Application extends Base
             NavSection::Admin, 1, requireAuth: true, minUserType: $floor,
             icon: 'gauge',
         ));
+        // The dashboards a person made, or was shared, under Dashboard — asked when the menu is
+        // drawn, since they are this person's.
+        NavRegistry::provide(static function (?\Pramnos\User\User $user) use ($admin, $floor): array {
+            if ($user === null || (int) ($user->userid ?? 0) < 2) {
+                return [];
+            }
+            $items = [];
+            foreach ((new \Pramnos\Dashboard\UserBoards())->visibleTo($user) as $position => $board) {
+                $items[] = new NavItem(
+                    'admin.dashboard.' . $board['board'], (string) $board['name'], $admin('Dashboard?board=' . $board['board']),
+                    NavSection::Admin, 1 + $position, requireAuth: true, minUserType: $floor, icon: 'gauge',
+                    parent: 'admin.dashboard', ability: 'admin.dashboard',
+                );
+            }
+
+            return $items;
+        });
 
         // The help pages, with the `help` feature and where the project has the screen —
         // `src/Admin/Controllers/Help.php`.

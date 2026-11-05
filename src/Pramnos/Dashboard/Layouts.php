@@ -40,8 +40,31 @@ final class Layouts
      */
     public function for(object $user, string $area = 'admin'): array
     {
+        $saved = $this->savedFor((int) ($user->userid ?? 0), $area);
+        if ($saved !== null) {
+            return self::clean($saved, $user, $area);
+        }
+        // A person's own board: where its owner left it, for somebody it was shared with.
+        if (UserBoards::isUserBoard($area)) {
+            return self::clean((new UserBoards($this->db))->startingLayout($user, $area), $user, $area);
+        }
+        // Nothing saved: the preset an administrator made the default for this person's role, then
+        // the board's own default.
+        $preset = (new Presets($this->db))->defaultLayoutFor($user, $area);
+
+        return $preset !== null ? self::clean($preset, $user, $area) : self::defaults($user, $area);
+    }
+
+    /**
+     * A person's saved layout of an area, as kept — not cleaned — or null when they saved none,
+     * or the table is not there yet.
+     *
+     * @return list<mixed>|null
+     */
+    public function savedFor(int $userId, string $area): ?array
+    {
         try {
-            $rows = $this->table()->select(['value'])->where('userid', (int) ($user->userid ?? 0))->where('setting', self::SETTING . $area)
+            $rows = $this->table()->select(['value'])->where('userid', $userId)->where('setting', self::SETTING . $area)
                 ->limit(1)->getAllOrFail();
         } catch (\Throwable $e) {
             // No table yet — `migrate` has not run. The default still draws; saving will say what is wrong.
@@ -50,14 +73,7 @@ final class Layouts
         }
         $saved = $rows === [] ? null : json_decode((string) ($rows[0]['value'] ?? ''), true);
 
-        if (is_array($saved)) {
-            return self::clean($saved, $user, $area);
-        }
-        // Nothing saved: the preset an administrator made the default for this person's role, then
-        // the board's own default.
-        $preset = (new Presets($this->db))->defaultLayoutFor($user, $area);
-
-        return $preset !== null ? self::clean($preset, $user, $area) : self::defaults($user, $area);
+        return is_array($saved) ? array_values($saved) : null;
     }
 
     /**

@@ -380,7 +380,8 @@ actions of its own. That controller is the one `'dashboard' => ['controller' => 
 application's `Controllers\Dashboard`, or the framework's, whichever is a `DashboardController`
 first. `?board=` may name only a board app.php lists; anything else is the controller's own
 board, so a save never lands under a name no screen draws. `Board::render()` throws for a board
-app.php does not list.
+app.php does not list. It reaches `DashboardController::boardFor($controller, $board, $title)`,
+which is static so that no public instance method on the controller reads as an action.
 
 A board is open to anybody signed in, and each card still asks its own `allowed()`. A board can
 raise the bar with `'boards' => ['wcm' => ['min_role' => 'manager']]`: below it, the board draws
@@ -434,6 +435,27 @@ The administration's list of every saved preset is `/admin/Dashboard/presets`, l
 `savepreset`, `deletepreset`, `presetdefault`, `copyboard`) that post with the session's token,
 take `?board=`, and return to the page they came from. In PHP, `Dashboard\Presets` exposes
 `visibleTo()`, `save()`, `delete()`, `setDefaultForRole()` and `defaultLayoutFor()`.
+
+## A dashboard of one's own, in the menu
+
+Anybody who uses the administration dashboard can make another dashboard for themselves:
+*Presets and dashboards* → *A new dashboard of your own* → a name, and optionally a preset to
+start from. It appears in their menu under **Dashboard**, offers the administration
+dashboard's cards (the `admin` board's catalogue), and they arrange it as any board: Customise,
+add, move, resize.
+
+The owner can rename it and choose who has it in their menu, with the same choices as a preset:
+only me, from a role up, an organisation's members, or everyone. Everybody who sees it arranges it
+for themselves. Someone opening a dashboard that was shared with them starts from the owner's
+arrangement, cleaned for what they may have, and from their first change onward it is their own.
+The owner deletes it, or an administrator does, and every viewer's arrangement goes with it.
+
+Such a board is named `my-{id}` wherever a board name goes (`?board=my-7`) and is kept in
+`pramnos.dashboard_boards`. In PHP, `Dashboard\UserBoards` exposes `create()`, `update()`,
+`delete()`, `find()`, `visibleTo()` and `startingLayout()`. The menu entries come from a
+`NavRegistry::provide()` closure that the framework registers, using `ability: 'admin.dashboard'`,
+so whoever may open the dashboard sees their boards — see the
+[navigation guide](Pramnos_Theme_Navigation_Guide.md#items-that-depend-on-who-is-looking).
 
 ## Each person's layout
 

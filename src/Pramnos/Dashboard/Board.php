@@ -33,7 +33,7 @@ final class Board
      */
     public static function render(string $board, string $title = ''): string
     {
-        return self::controller()->renderBoard($board, $title);
+        return \Pramnos\Application\Controllers\DashboardController::boardFor(self::controller(), $board, $title);
     }
 
     /** The dashboard controller a board's controls are sent to. */

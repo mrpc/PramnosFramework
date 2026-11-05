@@ -238,7 +238,7 @@ class DashboardLayoutsMySQLTest extends TestCase
             $_GET  = ['board' => 'pf-wcm'];
             $_POST = ['layout' => json_encode([['id' => 'sales', 'size' => 'l'], ['id' => 'health']])];
             $saved = json_decode((string) $controller->savelayout()->getBody(), true);
-            $controller->renderBoard('pf-wcm', 'Overview');
+            DashboardController::boardFor($controller, 'pf-wcm', 'Overview');
             $view = $controller->view;
             $_GET = ['board' => 'pf-root'];
             $refused = $controller->savelayout();
@@ -247,7 +247,7 @@ class DashboardLayoutsMySQLTest extends TestCase
             $controller->savelayout();
             $thrown = null;
             try {
-                $controller->renderBoard('pf-nobody');
+                DashboardController::boardFor($controller, 'pf-nobody');
             } catch (\InvalidArgumentException $e) {
                 $thrown = $e;
             }

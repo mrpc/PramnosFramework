@@ -89,6 +89,11 @@ readonly class NavItem
          * @var (callable(?\Pramnos\User\User): bool)|null
          */
         public ?\Closure $when = null,
+        /**
+         * The administration ability that decides it under `admin_access = permissions`, when it
+         * is not the item's own id — a person's dashboard in the menu opens with `admin.dashboard`.
+         */
+        public ?string $ability = null,
     ) {}
 
     /**

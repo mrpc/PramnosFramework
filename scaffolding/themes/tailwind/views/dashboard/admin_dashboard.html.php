@@ -15,7 +15,8 @@
  *   $this->resetUrl — string  where it goes back to the default (POST)
  *   $this->presets, presetUrls, managesPresets, roles, csrfField — the board's presets, for presets_dialog.html.php
  *   $this->embedded — bool    drawn inside another screen (Board::render()): no page heading or frame
- *   $this->boardTitle — string a heading over an embedded board; '' for none
+ *   $this->boardTitle — string the board's heading (a person's own board's name, or Board::render()'s title); '' for the default
+ *   $this->userBoard, boardUrls — a person's own board (or null), and its new/settings/delete actions, for presets_dialog.html.php
  *   ($this->activeUsers, dbStats, apiStats, healthResults — the figures, for a view of the older shape)
  */
 $e = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
@@ -23,7 +24,7 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
 ?>
 <div class="<?php echo !empty($this->embedded) ? 'pf-dashboard-embed' : 'px-4 py-6'; ?>">
     <div class="flex items-center gap-2 mb-4">
-        <?php if (empty($this->embedded)): ?><h2 class="text-2xl font-semibold"><?php echo $e($t('Dashboard')); ?></h2><?php elseif (($this->boardTitle ?? '') !== ''): ?><h3 class="text-xl font-semibold"><?php echo $e($this->boardTitle); ?></h3><?php endif; ?>
+        <?php if (empty($this->embedded)): ?><h2 class="text-2xl font-semibold"><?php echo $e(($this->boardTitle ?? '') !== '' ? $this->boardTitle : $t('Dashboard')); ?></h2><?php elseif (($this->boardTitle ?? '') !== ''): ?><h3 class="text-xl font-semibold"><?php echo $e($this->boardTitle); ?></h3><?php endif; ?>
         <button type="button" class="btn btn-sm btn-ghost ms-auto" data-pf-dashboard-edit aria-pressed="false"><?php echo $e($t('Customise')); ?></button>
     </div>
 
@@ -34,7 +35,7 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
             <button type="button" class="btn btn-sm btn-primary" data-pf-dashboard-catalogue><?php echo $e($t('Add a card')); ?></button>
             <?php endif; ?>
             <?php if (isset($this->presetUrls)): ?>
-            <button type="button" class="btn btn-sm btn-ghost" data-pf-dashboard-presets><?php echo $e($t('Presets')); ?></button>
+            <button type="button" class="btn btn-sm btn-ghost" data-pf-dashboard-presets><?php echo $e($t('Presets and dashboards')); ?></button>
             <?php endif; ?>
             <span class="ms-auto"><?php echo \Pramnos\Html\Icon::postControl($this->resetUrl, $e($t('Back to the default')), ['class' => 'btn btn-sm btn-ghost', 'data-confirm' => $t('Go back to the default dashboard?')]); ?></span>
             <button type="button" class="btn btn-sm btn-primary" data-pf-dashboard-done><?php echo $e($t('Done')); ?></button>

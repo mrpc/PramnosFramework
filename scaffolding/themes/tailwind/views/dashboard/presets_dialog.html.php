@@ -4,8 +4,11 @@
  * delete your own; an administrator also makes one the default for a role and copies their board
  * to somebody. Plain forms, each posting with the session's token and coming back to the page.
  *
+ * Also a dashboard of one's own: make one (empty or from a preset), and — on one's own — rename it,
+ * say who has it in their menu, delete it.
+ *
  * Variables (from admin_dashboard.html.php's view): $this->presets, $this->presetUrls,
- * $this->managesPresets, $this->roles, $this->csrfField.
+ * $this->managesPresets, $this->roles, $this->csrfField, $this->userBoard, $this->boardUrls.
  */
 $e = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $t = static fn (string $words): string => function_exists('t') ? (string) t($words) : $words;
@@ -20,7 +23,7 @@ $shown = [
 ?>
 <dialog class="modal" data-pf-dashboard-presets-dialog aria-labelledby="pf-dashboard-presets-title">
     <div style="padding:1rem;max-width:40rem">
-        <h3 id="pf-dashboard-presets-title"><?php echo $e($t('Presets')); ?></h3>
+        <h3 id="pf-dashboard-presets-title"><?php echo $e($t('Presets and dashboards')); ?></h3>
         <?php if (empty($this->presets)): ?>
         <p class="text-sm opacity-70"><?php echo $e($t('No presets yet.')); ?></p>
         <?php else: ?>
@@ -81,6 +84,48 @@ $shown = [
             <label class="label-text text-sm"><?php echo $e($t('The organisation id, for "An organisation"')); ?>
                 <input type="number" name="audience_org" min="1" class="input input-sm input-bordered"></label>
             <div><button type="submit" class="btn btn-sm btn-primary"><?php echo $e($t('Save as preset')); ?></button></div>
+        </form>
+
+
+        <?php $boardUrls = (array) ($this->boardUrls ?? []); $own = $this->userBoard ?? null; ?>
+        <?php if (is_array($own) && !empty($own['mine'])): ?>
+        <h4><?php echo $e($t('This dashboard')); ?></h4>
+        <form method="post" action="<?php echo $e($boardUrls['settings'] ?? ''); ?>" style="display:grid;gap:.5rem"><?php echo $field; ?>
+            <label class="label-text text-sm"><?php echo $e($t('Name')); ?>
+                <input type="text" name="name" required maxlength="120" class="input input-sm input-bordered" value="<?php echo $e($own['name']); ?>"></label>
+            <label class="label-text text-sm"><?php echo $e($t('Who has it in their menu')); ?>
+                <select name="visibility" class="select select-sm select-bordered">
+                    <?php foreach ($shown as $value => $label): ?>
+                    <option value="<?php echo $e($value); ?>"<?php echo ($own['visibility'] ?? '') === $value ? ' selected' : ''; ?>><?php echo $e($label); ?></option>
+                    <?php endforeach; ?>
+                </select></label>
+            <label class="label-text text-sm"><?php echo $e($t('The role, for "From a role up"')); ?>
+                <select name="audience_role" class="select select-sm select-bordered">
+                    <?php foreach ((array) ($this->roles ?? []) as $role): ?>
+                    <option value="<?php echo $e($role); ?>"<?php echo ($own['audience'] ?? '') === $role ? ' selected' : ''; ?>><?php echo $e($role); ?></option>
+                    <?php endforeach; ?>
+                </select></label>
+            <label class="label-text text-sm"><?php echo $e($t('The organisation id, for "An organisation"')); ?>
+                <input type="number" name="audience_org" min="1" class="input input-sm input-bordered" value="<?php echo ($own['visibility'] ?? '') === 'organization' ? $e($own['audience']) : ''; ?>"></label>
+            <div><button type="submit" class="btn btn-sm btn-primary"><?php echo $e($t('Save')); ?></button></div>
+        </form>
+        <form method="post" action="<?php echo $e($boardUrls['delete'] ?? ''); ?>" style="margin-top:.5rem"><?php echo $field; ?>
+            <button type="submit" class="btn btn-sm btn-error btn-outline" data-confirm="<?php echo $e($t('Delete this dashboard, for everybody who has it?')); ?>"><?php echo $e($t('Delete this dashboard')); ?></button>
+        </form>
+        <?php endif; ?>
+
+        <h4><?php echo $e($t('A new dashboard of your own')); ?></h4>
+        <form method="post" action="<?php echo $e($boardUrls['new'] ?? ''); ?>" style="display:grid;gap:.5rem"><?php echo $field; ?>
+            <label class="label-text text-sm"><?php echo $e($t('Name')); ?>
+                <input type="text" name="name" required maxlength="120" class="input input-sm input-bordered"></label>
+            <label class="label-text text-sm"><?php echo $e($t('Start from')); ?>
+                <select name="preset" class="select select-sm select-bordered">
+                    <option value=""><?php echo $e($t('An empty dashboard')); ?></option>
+                    <?php foreach ((array) ($this->presets ?? []) as $preset): ?>
+                    <option value="<?php echo $e($preset['id']); ?>"><?php echo $e($preset['kind'] === 'app' ? $t((string) $preset['name']) : $preset['name']); ?></option>
+                    <?php endforeach; ?>
+                </select></label>
+            <div><button type="submit" class="btn btn-sm btn-primary"><?php echo $e($t('Make it')); ?></button></div>
         </form>
 
         <?php if (!empty($this->managesPresets)): ?>
