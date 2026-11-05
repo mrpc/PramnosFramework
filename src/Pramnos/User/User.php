@@ -111,9 +111,9 @@ class User extends \Pramnos\Framework\Base implements
     }
 
     /**
-     * The fields an UPDATE writes: those that changed since the object loaded, and those it
-     * has no baseline for (a column a subclass's own load() did not go through
-     * {@see fillFromRows()} for — written as before).
+     * The fields an UPDATE writes: those that changed since the object loaded — the same rule
+     * as {@see \Pramnos\Application\Model}'s `writesColumn()`. Every field when the object has no
+     * baseline (a subclass's own load() that does not go through {@see fillFromRows()}).
      *
      * The safeguard behind FW-319: a save writes what the code changed, never a column it did
      * not touch. A column left at its default by a load that missed it is then not written over
@@ -124,11 +124,28 @@ class User extends \Pramnos\Framework\Base implements
      */
     private function writtenOnUpdate(array $itemdata): array
     {
-        return array_values(array_filter(
-            $itemdata,
-            fn (array $item): bool => !array_key_exists($item['fieldName'], $this->_loadedValues)
-                || self::differs($this->_loadedValues[$item['fieldName']], $item['value'])
-        ));
+        if ($this->_loadedValues === array()) {
+            return $itemdata;
+        }
+
+        return array_values(array_filter($itemdata, function (array $item): bool {
+            $now = $item['value'];
+            // A column the load did not see has nothing to compare with: written when the object
+            // holds a value for it, not when it is empty — as Model::writesColumn() does.
+            if (!array_key_exists($item['fieldName'], $this->_loadedValues)) {
+                return $now !== null;
+            }
+            $loaded = $this->_loadedValues[$item['fieldName']];
+            if ($loaded === $now) {
+                return false;
+            }
+            if ($loaded === null || $now === null) {
+                return true;
+            }
+            // As text, not as numbers: `5` loaded and `'5'` set is no change, but `'0690'` over
+            // `'690'` is one — a numeric comparison would drop a mobile's leading zero.
+            return !(is_scalar($loaded) && is_scalar($now)) || (string) $loaded !== (string) $now;
+        }));
     }
 
     /**

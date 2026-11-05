@@ -368,7 +368,13 @@ held when it loaded; a save that changed none runs no `UPDATE` of the row and st
 details. A column the code did not touch is therefore never written — not when somebody else
 changed it in the database since the load, and not when a load left it at the class's default.
 That second case is the one that matters: a column a subclass declares, missed by a load for any
-reason, would otherwise be written back as its default over the stored value. A subclass whose own
+reason, would otherwise be written back as its default over the stored value.
+
+A column counts as changed by the rule `Model` uses for the same purpose: a value identical to
+the loaded one is no change; null on either side of a non-null is one; two scalars are compared as
+text — `5` loaded and `'5'` set is no change, `'0690'` over `'690'` is one, and `true` over MySQL's
+`'1'` is none while `false` over `'0'` is written (the same value, so harmless). A value that
+really changed is always written; only one that means the same may be skipped. A subclass whose own
 `load()` does not go through the base class's has no such baseline, and its saves write every
 column.
 

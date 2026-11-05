@@ -464,4 +464,38 @@ class UserPostgreSQLCharacterizationTest extends TestCase
         $this->assertSame('green', $colour, 'the detail was written without an UPDATE of the row');
         $this->assertSame(['There is no user ' . $userId . ' to save: it does not exist.'], $gone->_errors, 'a user deleted since it loaded is still refused');
     }
+
+    /**
+     * A value that differs only as text is written: a leading zero added to a mobile is a change.
+     *
+     * The save compares as text, as Model::writesColumn() does — compared as numbers, `'0690…'`
+     * and `'690…'` are equal, and the new value would never reach the row.
+     */
+    public function testALeadingZeroIsAChangeTheSaveWrites(): void
+    {
+        // Arrange
+        $username = 'guard_' . bin2hex(random_bytes(4));
+        $user = new User();
+        $user->username = $username;
+        $user->email    = $username . '@example.com';
+        $user->mobile   = '6900000000';
+        $user->save();
+        $userId = (int) $user->userid;
+        User::clearUserCache();
+        $loaded = new User($userId);
+
+        try {
+            // Act
+            $loaded->mobile = '06900000000';
+            $loaded->save();
+            $row = $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->first()->fields;
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#userdetails')->where('userid', $userId)->delete();
+            $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->delete();
+            User::clearUserCache();
+        }
+
+        // Assert
+        $this->assertSame('06900000000', $row['mobile'], 'equal as numbers, different as text — written');
+    }
 }
