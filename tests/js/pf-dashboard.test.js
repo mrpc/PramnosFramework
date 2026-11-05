@@ -659,3 +659,24 @@ test('the title row refuses the browser\'s own gestures while it waits', async (
     assert.equal(head.style.userSelect, 'none');
     assert.equal(head.style.webkitUserSelect, 'none');
 });
+
+/**
+ * The presets dialog opens from its button and closes from its own: its forms post and come back,
+ * so opening and closing it is all the script does for it.
+ */
+test('the presets dialog opens and closes', () => {
+    // Arrange
+    const p = page();
+    const open = p.el('button', { 'data-pf-dashboard-presets': '' }, p.bar);
+    const dialog = p.el('dialog', { 'data-pf-dashboard-presets-dialog': '' });
+    const close = p.el('button', { 'data-pf-dashboard-presets-close': '' }, dialog);
+
+    // Act
+    p.click(open);
+    const opened = dialog.hasAttribute('open');
+    p.click(close);
+
+    // Assert — without showModal (the fake DOM), the open attribute is the state
+    assert.equal(opened, true);
+    assert.equal(dialog.hasAttribute('open'), false);
+});

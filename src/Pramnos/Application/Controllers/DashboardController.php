@@ -47,9 +47,10 @@ class DashboardController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'card', 'activeusers', 'apistats', 'dbstats', 'database', 'cache', 'cacheitem', 'clearcache', 'savelayout', 'resetlayout']);
+        $this->addAuthAction(['display', 'card', 'activeusers', 'apistats', 'dbstats', 'database', 'cache', 'cacheitem', 'clearcache', 'savelayout', 'resetlayout',
+            'applypreset', 'savepreset', 'deletepreset', 'presetdefault', 'copyboard', 'presets']);
         // POST with the session's token, or refused before the action runs: see Controller::exec().
-        $this->addWriteAction(['clearcache', 'savelayout', 'resetlayout']);
+        $this->addWriteAction(['clearcache', 'savelayout', 'resetlayout', 'applypreset', 'savepreset', 'deletepreset', 'presetdefault', 'copyboard']);
         parent::__construct($application);
     }
 
@@ -142,6 +143,20 @@ class DashboardController extends Controller
         $view->cardUrl    = $this->boardUrl('card', $board);
         $view->resetUrl   = $this->boardUrl('resetlayout', $board);
 
+        // The presets this person may apply, and what they may do with them.
+        $view->presets         = is_object($user) ? $this->presetStore()->visibleTo($user, $board) : [];
+        $view->managesPresets  = is_object($user) && $this->managesPresets($user);
+        $view->presetUrls      = [
+            'apply'   => $this->boardUrl('applypreset', $board),
+            'save'    => $this->boardUrl('savepreset', $board),
+            'delete'  => $this->boardUrl('deletepreset', $board),
+            'default' => $this->boardUrl('presetdefault', $board),
+            'copy'    => $this->boardUrl('copyboard', $board),
+            'list'    => $this->boardUrl('presets', $this->dashboardArea),
+        ];
+        $view->roles     = $this->roleNames();
+        $view->csrfField = \Pramnos\Http\Middleware\CsrfMiddleware::tokenField();
+
         return $view;
     }
 
@@ -226,6 +241,219 @@ class DashboardController extends Controller
         $site    = defined('sURL') ? (string) \sURL : '';
         $back    = $board !== $this->dashboardArea && $site !== '' && str_starts_with($referer, $site) ? $referer : $this->dashboardHome();
         $this->redirect($back);
+    }
+
+    // ── Presets ───────────────────────────────────────────────────────────────
+
+    /**
+     * Apply a preset to the signed-in person's board — a copy into their own layout, so later
+     * changes are theirs. Cards they may not have are dropped and counted.
+     */
+    public function applypreset(): void
+    {
+        $user  = \Pramnos\User\User::current();
+        $board = $this->board();
+        if (!is_object($user) || $this->boardRefused($board, $user)) {
+            $this->redirect($this->backToBoard($board));
+
+            return;
+        }
+        $preset = $this->presetStore()->find((string) ($_POST['preset'] ?? ''), $user, $board);
+        if ($preset === null) {
+            $this->addError('That preset is not available.');
+        } else {
+            $kept    = $this->layouts()->save($user, $preset['layout'], $board);
+            $dropped = count(array_unique(array_filter(array_map(
+                static fn ($item): string => is_array($item) ? (string) ($item['id'] ?? '') : (string) $item,
+                $preset['layout']
+            )))) - count($kept);
+            $this->addMessage(sprintf(t('The preset "%s" is on your dashboard.'), $preset['name']));
+            if ($dropped > 0) {
+                $this->addMessage(sprintf(t('%d cards of this preset are not available to you.'), $dropped));
+            }
+        }
+        $this->redirect($this->backToBoard($board));
+    }
+
+    /** Save the signed-in person's current board as a preset, shown to whom they chose. */
+    public function savepreset(): void
+    {
+        $user  = \Pramnos\User\User::current();
+        $board = $this->board();
+        if (is_object($user) && !$this->boardRefused($board, $user)) {
+            try {
+                $this->presetStore()->save(
+                    $user,
+                    $board,
+                    (string) ($_POST['name'] ?? ''),
+                    $this->layouts()->for($user, $board),
+                    $visibility = (string) ($_POST['visibility'] ?? \Pramnos\Dashboard\Presets::PRIVATE),
+                    // One field per kind of audience, so the form needs no script to swap them.
+                    (string) ($_POST['audience'] ?? match ($visibility) {
+                        \Pramnos\Dashboard\Presets::ROLE         => $_POST['audience_role'] ?? '',
+                        \Pramnos\Dashboard\Presets::ORGANIZATION => $_POST['audience_org'] ?? '',
+                        default                                    => '',
+                    })
+                );
+                $this->addMessage('The preset is saved.');
+            } catch (\InvalidArgumentException $e) {
+                $this->addError($e->getMessage());
+            } catch (\Throwable $e) {
+                \Pramnos\Logs\Logger::log('Dashboard preset not saved: ' . $e->getMessage(), 'dashboard');
+                $this->addError('The preset could not be saved.');
+            }
+        }
+        $this->redirect($this->backToBoard($board));
+    }
+
+    /** Delete a saved preset: its owner's, or any for somebody who manages presets. */
+    public function deletepreset(): void
+    {
+        $user  = \Pramnos\User\User::current();
+        $board = $this->board();
+        if (is_object($user)) {
+            $deleted = $this->presetStore()->delete((int) ($_POST['preset'] ?? 0), $user, $this->managesPresets($user));
+            $deleted ? $this->addMessage('The preset is deleted.') : $this->addError('That preset is not yours to delete.');
+        }
+        $this->redirect((string) ($_POST['back'] ?? '') === 'list' ? $this->boardUrl('presets', $this->dashboardArea) : $this->backToBoard($board));
+    }
+
+    /** Make a saved preset what a new board starts from for a role, or stop (an empty role). */
+    public function presetdefault(): void
+    {
+        $user  = \Pramnos\User\User::current();
+        $board = $this->board();
+        if (is_object($user) && $this->managesPresets($user)) {
+            $role = trim((string) ($_POST['role'] ?? ''));
+            try {
+                $this->presetStore()->setDefaultForRole((int) ($_POST['preset'] ?? 0), $role !== '' ? $role : null);
+                $this->addMessage('The default is set.');
+            } catch (\InvalidArgumentException $e) {
+                $this->addError($e->getMessage());
+            }
+        } else {
+            $this->addError('Only an administrator sets a default.');
+        }
+        $this->redirect((string) ($_POST['back'] ?? '') === 'list' ? $this->boardUrl('presets', $this->dashboardArea) : $this->backToBoard($board));
+    }
+
+    /**
+     * Copy the signed-in administrator's board to another person — setting somebody up. The copy is
+     * cleaned for its receiver, and recorded in the audit log.
+     */
+    public function copyboard(): void
+    {
+        $user   = \Pramnos\User\User::current();
+        $board  = $this->board();
+        $target = (int) ($_POST['userid'] ?? 0);
+        if (!is_object($user) || !$this->managesPresets($user)) {
+            $this->addError('Only an administrator copies a board to somebody else.');
+        } else {
+            $receiver = $target > 1 ? $this->account($target) : null;
+            if ($receiver === null || (int) ($receiver->userid ?? 0) !== $target) {
+                $this->addError('There is no such account.');
+            } else {
+                $kept = $this->layouts()->save($receiver, $this->layouts()->for($user, $board), $board);
+                \Pramnos\Auth\AuditLog::record('dashboard.board_copied', (int) $user->userid, $target, ['board' => $board, 'cards' => count($kept)], 'dashboard', $board);
+                $this->addMessage(sprintf(t('Your dashboard was copied to %s.'), (string) ($receiver->username ?? $target)));
+            }
+        }
+        $this->redirect($this->backToBoard($board));
+    }
+
+    /** The administration's list of every saved preset, with who sees it and whose default it is. */
+    public function presets(): mixed
+    {
+        if ($this->requireMinUserType($this->adminFloor())) {
+            return null;
+        }
+        $user = \Pramnos\User\User::current();
+        if (!is_object($user) || !$this->managesPresets($user)) {
+            $this->addError('Only an administrator manages presets.');
+            $this->redirect($this->dashboardHome());
+
+            return null;
+        }
+        \Pramnos\Framework\Factory::getDocument()->title = t('Dashboard presets');
+        $owners = [];
+        foreach ($this->presetStore()->all() as $row) {
+            $owners[(int) $row['ownerid']] = true;
+        }
+        $names = [];
+        try {
+            if ($owners !== []) {
+                foreach (\Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('users')->select(['userid', 'username'])
+                    ->whereIn('userid', array_keys($owners))->getAllOrFail() as $row) {
+                    $names[(int) $row['userid']] = (string) $row['username'];
+                }
+            }
+        } catch (\Throwable) {
+            // Without the names the list still answers, by id.
+        }
+        $view            = $this->getView('dashboard');
+        $view->presets   = $this->presetStore()->all();
+        $view->owners    = $names;
+        $view->roles     = $this->roleNames();
+        $view->csrfField = \Pramnos\Http\Middleware\CsrfMiddleware::tokenField();
+        $view->urls      = ['delete' => $this->boardUrl('deletepreset', $this->dashboardArea), 'default' => $this->boardUrl('presetdefault', $this->dashboardArea)];
+
+        return $view->display('presets');
+    }
+
+    /** Whether this person manages every preset — sets defaults, copies boards: an administrator. */
+    protected function managesPresets(object $user): bool
+    {
+        try {
+            return \Pramnos\User\Roles::atLeast($user, \Pramnos\User\Roles::ADMIN);
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * The roles a preset may be shared with or made the default for: the framework's, and any
+     * app.php adds.
+     *
+     * @return list<string>
+     */
+    protected function roleNames(): array
+    {
+        $app = \Pramnos\Application\Application::currentInstance();
+
+        return array_values(array_unique(array_merge(
+            array_keys(\Pramnos\User\Roles::DEFAULTS),
+            array_map('strval', array_keys(is_object($app) ? (array) ($app->applicationInfo['roles'] ?? []) : []))
+        )));
+    }
+
+    /** An account by id, for copying a board to it; null when there is none. */
+    protected function account(int $userId): ?object
+    {
+        try {
+            $user = new \Pramnos\User\User($userId);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return (int) ($user->userid ?? 0) === $userId ? $user : null;
+    }
+
+    /** The store of presets. */
+    protected function presetStore(): \Pramnos\Dashboard\Presets
+    {
+        return new \Pramnos\Dashboard\Presets();
+    }
+
+    /** Where to go back to after a board's form: the screen it was drawn in, or the dashboard. */
+    protected function backToBoard(string $board): string
+    {
+        $referer = (string) ($_SERVER['HTTP_REFERER'] ?? '');
+        $site    = defined('sURL') ? (string) \sURL : '';
+        if ($site !== '' && str_starts_with($referer, $site)) {
+            return $referer;
+        }
+
+        return $board === $this->dashboardArea ? $this->dashboardHome() : $this->boardUrl('display', $board);
     }
 
     /**

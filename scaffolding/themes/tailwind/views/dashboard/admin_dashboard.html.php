@@ -13,6 +13,7 @@
  *   $this->cardUrl  — string  where one card is drawn alone (GET ?id=)
  *   $this->saveUrl  — string  where a layout is saved (POST, JSON)
  *   $this->resetUrl — string  where it goes back to the default (POST)
+ *   $this->presets, presetUrls, managesPresets, roles, csrfField — the board's presets, for presets_dialog.html.php
  *   $this->embedded — bool    drawn inside another screen (Board::render()): no page heading or frame
  *   $this->boardTitle — string a heading over an embedded board; '' for none
  *   ($this->activeUsers, dbStats, apiStats, healthResults — the figures, for a view of the older shape)
@@ -31,6 +32,9 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
             <span class="text-sm"><?php echo $e($t('Move, resize, set or hide each card; add the ones you want.')); ?></span>
             <?php if (!empty($this->catalogue)): ?>
             <button type="button" class="btn btn-sm btn-primary" data-pf-dashboard-catalogue><?php echo $e($t('Add a card')); ?></button>
+            <?php endif; ?>
+            <?php if (isset($this->presetUrls)): ?>
+            <button type="button" class="btn btn-sm btn-ghost" data-pf-dashboard-presets><?php echo $e($t('Presets')); ?></button>
             <?php endif; ?>
             <span class="ms-auto"><?php echo \Pramnos\Html\Icon::postControl($this->resetUrl, $e($t('Back to the default')), ['class' => 'btn btn-sm btn-ghost', 'data-confirm' => $t('Go back to the default dashboard?')]); ?></span>
             <button type="button" class="btn btn-sm btn-primary" data-pf-dashboard-done><?php echo $e($t('Done')); ?></button>
@@ -64,5 +68,8 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
             <button type="button" class="btn btn-sm btn-ghost" data-pf-dashboard-catalogue-close><?php echo $e($t('Close')); ?></button>
         </div>
     </dialog>
+    <?php endif; ?>
+<?php if (isset($this->presetUrls)): ?>
+    <?php $this->insert('presets_dialog'); ?>
     <?php endif; ?>
 </div>

@@ -2432,6 +2432,15 @@
                 if (dialog.close) { dialog.close(); } else { dialog.removeAttribute('open'); }
             }
         });
+        // The presets dialog: its forms post and come back, so opening and closing it is all.
+        document.addEventListener('click', function (e) {
+            var target = e.target && e.target.closest ? e.target.closest('[data-pf-dashboard-presets], [data-pf-dashboard-presets-close]') : null;
+            var dialog = target ? document.querySelector('[data-pf-dashboard-presets-dialog]') : null;
+            if (!dialog) { return; }
+            if (target.hasAttribute('data-pf-dashboard-presets')) {
+                if (dialog.showModal) { dialog.showModal(); } else { dialog.setAttribute('open', ''); }
+            } else if (dialog.close) { dialog.close(); } else { dialog.removeAttribute('open'); }
+        });
         document.addEventListener('input', function (e) {
             var search = e.target && e.target.hasAttribute && e.target.hasAttribute('data-pf-dashboard-catalogue-search') ? e.target : null;
             if (!search) { return; }

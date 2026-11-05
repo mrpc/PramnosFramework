@@ -387,6 +387,54 @@ raise the bar with `'boards' => ['wcm' => ['min_role' => 'manager']]`: below it,
 nothing and its saves answer 403. Drawn this way, the view gets `$this->embedded = true` and
 `$this->boardTitle`, and draws no page heading or frame.
 
+## Presets: named layouts, saved and shared
+
+A preset is a named layout of a board. Applying one **copies** it into the person's own layout,
+so their later changes are theirs and the preset stays as it was. The *Presets* button in the
+customise bar opens the board's presets.
+
+**The application's presets** come from app.php, by board and name, and every person who has
+the board sees them:
+
+```php
+'dashboard' => ['boards' => ['wcm' => ['presets' => [
+    'Operations' => ['wcm.map', 'wcm.stats'],                    // ids, at their own widths
+    'Management' => [['id' => 'wcm.stats', 'size' => 'full']],  // or items, as a layout keeps them
+]]]],
+```
+
+**A person's presets** are saved from the dialog (*Save as preset*) as the board stands, and kept
+in `pramnos.dashboard_presets`. Who sees one is the saver's choice:
+
+| Who sees it | `visibility` | `audience` |
+|---|---|---|
+| Only me | `private` | — |
+| From a role up | `role` | the role, e.g. `manager`: everybody at that usertype or above |
+| An organisation | `organization` | its id: its active members |
+| Everyone | `everyone` | — |
+
+The owner deletes their own presets, and an administrator (the `admin` role) may delete any.
+
+**A preset is cleaned for whoever applies it.** A card the receiver may not have is dropped,
+not shown, and the page says how many were left out ("2 cards of this preset are not available
+to you"). Sharing therefore never opens a card that a person's permissions keep closed.
+
+**A role's default.** An administrator can make a saved preset what a new board starts from for
+a role (*Set as default*). It applies to anybody of that role or above who has no layout of their
+own and to anybody who resets to the default, and it takes precedence over the board's `default`.
+Each role and board has one default preset, and marking another preset moves the mark. When a
+person holds several roles, the highest one with a default wins.
+
+**Copy my dashboard to somebody.** An administrator can copy their own board to another account
+to set someone up. The copy replaces that person's layout for the board, is cleaned for them, and
+is recorded in the audit log as `dashboard.board_copied`.
+
+The administration's list of every saved preset is `/admin/Dashboard/presets`, linked as
+*All presets* from the dialog. The dialog's actions are ordinary forms (`applypreset`,
+`savepreset`, `deletepreset`, `presetdefault`, `copyboard`) that post with the session's token,
+take `?board=`, and return to the page they came from. In PHP, `Dashboard\Presets` exposes
+`visibleTo()`, `save()`, `delete()`, `setDefaultForRole()` and `defaultLayoutFor()`.
+
 ## Each person's layout
 
 "Customise" shows each card's tools:

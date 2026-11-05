@@ -50,7 +50,14 @@ final class Layouts
         }
         $saved = $rows === [] ? null : json_decode((string) ($rows[0]['value'] ?? ''), true);
 
-        return is_array($saved) ? self::clean($saved, $user, $area) : self::defaults($user, $area);
+        if (is_array($saved)) {
+            return self::clean($saved, $user, $area);
+        }
+        // Nothing saved: the preset an administrator made the default for this person's role, then
+        // the board's own default.
+        $preset = (new Presets($this->db))->defaultLayoutFor($user, $area);
+
+        return $preset !== null ? self::clean($preset, $user, $area) : self::defaults($user, $area);
     }
 
     /**
@@ -64,7 +71,7 @@ final class Layouts
         $userId = (int) ($user->userid ?? 0);
         $this->table()->where('userid', $userId)->where('setting', self::SETTING . $area)->delete();
         if ($layout === null) {
-            return self::defaults($user, $area);
+            return $this->for($user, $area);
         }
 
         $clean = self::clean($layout, $user, $area);
