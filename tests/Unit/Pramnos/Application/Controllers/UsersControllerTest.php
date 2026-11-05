@@ -1641,10 +1641,88 @@ next", ['mail'])->toMail(null)['body'] ?? '';
         // Act
         $this->controller->sendnotification();
 
+        // Assert — the outcome is about the mail, either way: this suite has no mail server,
+        // so a refused send is the honest answer, but never a complaint about channels.
+        $outcome = (string) ($_SESSION['users_success'] ?? $_SESSION['users_error'] ?? '');
+        $this->assertStringContainsString('mail', $outcome, 'the old form must still mean mail');
+        $this->assertStringNotContainsString('Choose at least one', $outcome,
+            'the old form must not start failing as "chose nothing"');
+    }
+
+    /**
+     * A mail the server refused is reported as not sent, with the mailer's reason.
+     *
+     * The Notifier catches every channel's failure so the next one is still tried, so the
+     * controller's own catch never ran: a refused SMTP send left a failed row in the mail log
+     * and told the operator «Message sent on mail». The operator is the only person who can
+     * act on it, and only if the screen tells the truth.
+     */
+    public function testAMailTheServerRefusedIsNotReportedAsSent(): void
+    {
+        // Arrange — no SMTP host: Email::send() returns false with a reason, it does not throw
+        $saved = \Pramnos\Application\Settings::getSetting('smtp_host');
+        \Pramnos\Application\Settings::setSetting('smtp_host', '', false);
+        $_GET['_option']   = 3;
+        $_POST['subject']  = 'About your account';
+        $_POST['message']  = 'Something an operator typed.';
+        $_POST['channels'] = ['mail'];
+
+        try {
+            // Act
+            $this->controller->sendnotification();
+        } finally {
+            \Pramnos\Application\Settings::setSetting('smtp_host', (string) $saved, false);
+        }
+
         // Assert
-        $this->assertArrayNotHasKey('users_error', $_SESSION,
-            'the old form must not start failing');
-        $this->assertStringContainsString('mail', (string) ($_SESSION['users_success'] ?? ''));
+        $this->assertArrayNotHasKey('users_success', $_SESSION, 'a refused mail is not "sent"');
+        $error = (string) ($_SESSION['users_error'] ?? '');
+        $this->assertStringContainsString('Not sent on mail', $error);
+        // The mailer's own reason, so the operator knows it is the server and not the address
+        $this->assertStringContainsString('smtp_host is empty', $error);
+        $this->assertStringContainsString('users/view/3', (string) $this->redirectUrl);
+    }
+
+    /**
+     * When one channel fails and another delivers, both halves are reported.
+     *
+     * «Not sent» alone would make the operator send the in-app notice twice; «sent» alone is
+     * the original bug. The site notice goes to the database, which this suite has.
+     */
+    public function testAPartialSendReportsWhatFailedAndWhatWent(): void
+    {
+        // Arrange
+        $saved = \Pramnos\Application\Settings::getSetting('smtp_host');
+        \Pramnos\Application\Settings::setSetting('smtp_host', '', false);
+        $_GET['_option']   = 3;
+        $_POST['subject']  = 'About your account';
+        $_POST['message']  = 'Something an operator typed.';
+        $_POST['channels'] = ['mail', 'database'];
+        // A database channel that delivers: this suite has no notifications table, and the
+        // point is the report of a mixed outcome, not the in-app store.
+        $appMock = $this->createMock(Application::class);
+        $appMock->method('redirect')->willReturnCallback(function ($url) {
+            $this->redirectUrl = $url;
+        });
+        $controller = new class ($appMock) extends UsersController {
+            /** A Notifier whose database channel accepts everything. */
+            protected function notifier(): \Pramnos\Notification\Notifier
+            {
+                return parent::notifier()->registerChannel('database', DeliveringChannel::class);
+            }
+        };
+
+        try {
+            // Act
+            $controller->sendnotification();
+        } finally {
+            \Pramnos\Application\Settings::setSetting('smtp_host', (string) $saved, false);
+        }
+
+        // Assert
+        $error = (string) ($_SESSION['users_error'] ?? '');
+        $this->assertStringContainsString('Not sent on mail', $error);
+        $this->assertStringContainsString('Sent on database', $error);
     }
 
     /**
@@ -1899,6 +1977,15 @@ next", ['mail'])->toMail(null)['body'] ?? '';
 /**
  * Exposes the protected collector so it can be asserted without a rendered page.
  */
+/** A notification channel that accepts every message and does nothing with it. */
+class DeliveringChannel implements \Pramnos\Notification\ChannelInterface
+{
+    /** Delivered, as far as the Notifier can tell. */
+    public function send(mixed $notifiable, \Pramnos\Notification\NotificationInterface $notification): void
+    {
+    }
+}
+
 class UsersProbe extends \Pramnos\Application\Controllers\UsersController
 {
     public function __construct()

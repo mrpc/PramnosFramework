@@ -1171,21 +1171,46 @@ class UsersController extends Controller
         try {
             $notification = $this->composeMessage($subject, $message, $channels);
 
-            (new \Pramnos\Notification\Notifier())->sendNow($user, $notification);
+            $notifier = $this->notifier();
+            $notifier->sendNow($user, $notification);
+
+            // The Notifier catches each channel's failure so the others are still tried; what
+            // failed is read back here, or a mail the server refused is reported as sent.
+            $failed = $notifier->failures();
+            $sent   = array_values(array_diff($channels, array_keys($failed)));
 
             \Pramnos\Auth\ActivityLog::record($id, 'operator_message_sent', [
                 'subject'  => $subject,
                 'by'       => $operator ? (int) $operator->userid : 0,
                 'channels' => $channels,
-                'sent'     => true,
+                'sent'     => $failed === [],
+                'failed'   => array_keys($failed),
             ]);
 
-            $_SESSION['users_success'] = 'Message sent on ' . implode(', ', $channels) . '.';
+            if ($failed === []) {
+                $_SESSION['users_success'] = 'Message sent on ' . implode(', ', $channels) . '.';
+            } else {
+                $reasons = [];
+                foreach ($failed as $channel => $reason) {
+                    $reasons[] = 'Not sent on ' . $channel . ': ' . rtrim($reason, '. ')
+                        . ($channel === 'mail' ? ' (see the emails log for this user)' : '') . '.';
+                }
+                $_SESSION['users_error'] = implode(' ', $reasons)
+                    . ($sent === [] ? '' : ' Sent on ' . implode(', ', $sent) . '.');
+            }
         } catch (\Throwable $ex) {
             $_SESSION['users_error'] = 'Could not send: ' . $ex->getMessage();
         }
 
         $this->redirect(adminUrl('users/view/') . $id);
+    }
+
+    /**
+     * The Notifier that delivers an operator's message; a seam for a channel of an application's own.
+     */
+    protected function notifier(): \Pramnos\Notification\Notifier
+    {
+        return new \Pramnos\Notification\Notifier();
     }
 
     /**

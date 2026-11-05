@@ -146,7 +146,19 @@ class MailChannel implements ChannelInterface
             return;
         }
 
-        $email->send();
+        /*
+         * A mailer that answered false is a failure, and said out loud.
+         *
+         * `Email::send()` reports a refused SMTP connection by returning false and writing a
+         * failed row to the mail log — it does not throw. Returning normally here made the
+         * Notifier count it as delivered, and an administration screen told its operator «sent»
+         * for a mail whose own log row said failed. Thrown, the Notifier logs it, records it in
+         * {@see \Pramnos\Notification\Notifier::failures()} and still tries the next channel.
+         */
+        if ($email->send() === false) {
+            $reason = method_exists($email, 'getLastError') ? trim((string) $email->getLastError()) : '';
+            throw new \RuntimeException($reason !== '' ? $reason : 'The mail was not sent.');
+        }
     }
 
     /**

@@ -52,6 +52,13 @@ class Notifier
     private bool $throwOnChannelFailure = false;
 
     /**
+     * The channels that failed during the last {@see sendNow()}, name => error message.
+     *
+     * @var array<string, string>
+     */
+    private array $failures = [];
+
+    /**
      * Map of short channel aliases to channel class names.
      * @var array<string, class-string<ChannelInterface>>
      */
@@ -87,6 +94,8 @@ class Notifier
      */
     public function sendNow(mixed $notifiable, NotificationInterface $notification): void
     {
+        $this->failures = [];
+
         // In the recipient's language, not the sender's.
         //
         // A notification is the one piece of text in an application that is not for whoever
@@ -120,6 +129,9 @@ class Notifier
                     try {
                         $channel->send($notifiable, $notification);
                     } catch (\Throwable $exception) {
+                        // Recorded here, not in channelFailed(): a subclass overriding that
+                        // must not make a failure invisible to the caller.
+                        $this->failures[$channelName] = $exception->getMessage();
                         $this->channelFailed($channelName, $notification, $exception);
                     }
                 }
@@ -191,6 +203,22 @@ class Notifier
              */
             'notifier'
         );
+    }
+
+    /**
+     * The channels that failed during the last {@see sendNow()}, as name => error message.
+     *
+     * Empty means every channel in `via()` either delivered or had nothing to do. This is how a
+     * caller that must report an outcome — an operator pressing Send — learns that the mail did
+     * not go out, without {@see throwOnChannelFailure()} abandoning the channels after it.
+     * Reset at the start of each `sendNow()`, so after `send()` it describes the last
+     * notifiable only.
+     *
+     * @return array<string, string>
+     */
+    public function failures(): array
+    {
+        return $this->failures;
     }
 
     /**

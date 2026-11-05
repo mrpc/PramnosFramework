@@ -394,6 +394,32 @@ class NotifierTest extends TestCase
     }
 
     /**
+     * A failed channel is reported by failures(), and the next sendNow() starts clean.
+     *
+     * The loop catches so the next channel is still tried, which made a failure invisible to
+     * the caller: an administration screen told its operator «sent» for a mail the server
+     * refused. failures() is how that caller learns it without giving up the other channels.
+     */
+    public function testFailuresNamesTheChannelThatFailedAndResetsOnTheNextSend(): void
+    {
+        // Arrange
+        SpyChannel::$calls = [];
+        $notifier = new Notifier();
+        $notifier->registerChannel('boom', ThrowingChannel::class);
+        $notifier->registerChannel('spy', SpyChannel::class);
+
+        // Act
+        $notifier->sendNow(new StubNotifiable(), new ThrowingThenSpyNotification());
+        $afterFailure = $notifier->failures();
+        $notifier->sendNow(new StubNotifiable(), new SingleSpyChannelNotification());
+
+        // Assert — only the failing channel is named, with the channel's own message
+        $this->assertSame(['boom' => 'the gateway is down'], $afterFailure);
+        // A send where everything delivered must not still report the previous one's failure
+        $this->assertSame([], $notifier->failures());
+    }
+
+    /**
      * `throwOnChannelFailure()` asks for the opposite, for a caller that must know.
      *
      * A queue worker deciding whether to retry the job, or an administration screen that told

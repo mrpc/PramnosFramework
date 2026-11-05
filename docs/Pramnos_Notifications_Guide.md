@@ -442,8 +442,29 @@ what.
 That is the same rule `PushChannel` already applies to its own batch one level down, for the
 same reason: one failed delivery must not take down whatever else was queued behind it.
 
-For a caller that must know instead — a queue worker deciding whether to retry, an
-administration screen that told an operator "sent" — ask for the exception:
+A mail the server refused counts as a channel that threw: `Email::send()` answers `false`
+rather than raising, and `MailChannel` turns that into a `RuntimeException` carrying the
+mailer's own reason (`getLastError()`), so it is logged and reported like any other failure.
+
+For a caller that must report the outcome but still wants every channel tried — an
+administration screen telling an operator what went out — read `failures()` after the send.
+It lists the channels that failed in the last `sendNow()`, name => message, and is empty when
+everything delivered:
+
+```php
+$notifier = new Notifier();
+$notifier->sendNow($user, $notification);
+
+foreach ($notifier->failures() as $channel => $reason) {
+    // 'mail' => 'SMTP not configured: smtp_host is empty.'
+}
+```
+
+`UsersController::sendnotification()` does exactly this, so *Send a message* says *Not sent on
+mail: …* with the reason when the mail failed, and which channels did go out.
+
+For a caller that must stop at the first failure instead — a queue worker deciding whether to
+retry — ask for the exception:
 
 ```php
 (new Notifier())->throwOnChannelFailure()->sendNow($user, $notification);

@@ -46,6 +46,48 @@ class MailChannelTest extends TestCase
     }
 
     /**
+     * A mailer that answers false is a failure the channel raises, with the mailer's reason.
+     *
+     * `Email::send()` reports a refused SMTP connection by returning false, not by throwing.
+     * Returning normally made the Notifier count the mail as delivered — and an operator's
+     * screen said «sent» for a mail whose own log row said failed.
+     */
+    public function testAMailerThatAnswersFalseIsRaisedWithItsReason(): void
+    {
+        // Arrange
+        $failing = new FailingEmail('Connection could not be established with host 127.0.0.1');
+
+        // Assert
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Connection could not be established');
+
+        // Act
+        (new MailChannel($failing))->send(
+            new MailNotifiable('alice@example.com'),
+            new SimpleMailNotification(['subject' => 'S', 'body' => 'B'])
+        );
+    }
+
+    /**
+     * A false with no reason still raises, with a sentence rather than an empty message.
+     */
+    public function testAMailerThatAnswersFalseWithoutAReasonStillRaises(): void
+    {
+        // Arrange
+        $failing = new FailingEmail('');
+
+        // Assert — an empty exception message would leave the operator's screen saying nothing
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('The mail was not sent.');
+
+        // Act
+        (new MailChannel($failing))->send(
+            new MailNotifiable('alice@example.com'),
+            new SimpleMailNotification(['subject' => 'S', 'body' => 'B'])
+        );
+    }
+
+    /**
      * The message is recorded as the notifiable account's — its id as the `database` channel
      * routes it — so the mail log lists it under the account, whatever address it went to; a
      * notifiable with no id records none.
@@ -472,6 +514,23 @@ class SpyEmail extends Email
 
         return $this;
     }
+}
+
+/** A mailer that refuses every send, as Email does when the SMTP server cannot be reached. */
+class FailingEmail extends SpyEmail
+{
+    /**
+     * @param string $reason What getLastError() reports.
+     */
+    public function __construct(private string $reason)
+    {
+    }
+
+    /** Always refused. */
+    public function send() { $this->sendCount++; return false; }
+
+    /** The reason given to the constructor. */
+    public function getLastError() { return $this->reason; }
 }
 
 /** A notification that declares every optional mail option. */
