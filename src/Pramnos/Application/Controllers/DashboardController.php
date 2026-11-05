@@ -413,7 +413,7 @@ class DashboardController extends Controller
         $names = [];
         try {
             if ($owners !== []) {
-                foreach (\Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('users')->select(['userid', 'username'])
+                foreach (\Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#users')->select(['userid', 'username'])
                     ->whereIn('userid', array_keys($owners))->getAllOrFail() as $row) {
                     $names[(int) $row['userid']] = (string) $row['username'];
                 }
@@ -633,7 +633,7 @@ class DashboardController extends Controller
         // Bound, not built into the query; a `%` typed only widens the search.
         $like = '%' . $q . '%';
         try {
-            return array_values(\Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('users')
+            return array_values(\Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#users')
                 ->select(['userid', 'username', 'email', 'firstname', 'lastname', 'usertype'])
                 ->where('active', 1)->where('usertype', '>=', $floor)->where('userid', '!=', $except)->where('userid', '>', 1)
                 ->where(static function ($w) use ($like): void {
