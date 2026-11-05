@@ -115,6 +115,9 @@ class ApplicationService
         if (array_key_exists('trusted', $input) && $schema->hasColumn('applications', 'trusted')) {
             $fields['trusted'] = (int) $input['trusted'] === 1 ? 1 : 0;
         }
+        if (array_key_exists('app_return_page', $input) && $schema->hasColumn('applications', 'app_return_page')) {
+            $fields['app_return_page'] = (int) $input['app_return_page'] === 1 ? 1 : 0;
+        }
 
         // The lifetimes, likewise only when sent: blank is the server default, stored as NULL.
         foreach (['access_token_ttl', 'refresh_token_ttl'] as $ttl) {

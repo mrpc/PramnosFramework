@@ -69,6 +69,13 @@ class Application extends \Pramnos\Application\Model
     public int $trusted = 0;
 
     /**
+     * @var int How a custom-scheme callback is answered after consent: 0 = a 302 (default, what an
+     *          in-app browser intercepts), 1 = a page that opens the app and links to it (a
+     *          desktop app that opens the system browser). `http(s)` callbacks are always a 302.
+     */
+    public int $app_return_page = 0;
+
+    /**
      * @var int OAuth2 client type: 1 = confidential (holds a secret), 0 = public.
      *
      * Not `$public` above, which is about being listed in a directory. Defaults to

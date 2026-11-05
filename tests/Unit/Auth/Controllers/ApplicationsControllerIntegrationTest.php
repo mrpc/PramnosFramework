@@ -343,6 +343,44 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
     }
 
     /**
+     * The return-page switch is saved when the form sends it, and left alone when it does not.
+     *
+     * Same rule as `trusted`: the bundled forms post a hidden 0 behind the checkbox, so an older
+     * copy of the form without the field must not turn a desktop client's page back off.
+     */
+    public function testAppReturnPageIsSavedOnlyWhenTheFormSendsIt(): void
+    {
+        // Arrange
+        $schema = $this->createMock(\Pramnos\Database\SchemaBuilder::class);
+        $schema->method('hasColumn')->willReturn(true);
+        $this->dbMock->method('schema')->willReturn($schema);
+        $this->queryBuilderMock->method('first')->willReturn((object) ['numRows' => 1, 'fields' => ['appid' => 1]]);
+        $written = [];
+        $this->queryBuilderMock->method('update')->willReturnCallback(function (array $fields) use (&$written) {
+            $written[] = $fields;
+
+            return true;
+        });
+
+        foreach ([['1', 1], ['0', 0], [null, null]] as [$posted, $expected]) {
+            $_POST = ['name' => 'Desktop app', 'appid' => '1'] + ($posted !== null ? ['app_return_page' => $posted] : []);
+
+            // Act
+            ob_start();
+            $this->controller->save();
+            ob_end_clean();
+
+            // Assert
+            $fields = end($written);
+            if ($expected === null) {
+                $this->assertArrayNotHasKey('app_return_page', $fields, 'a form without the field leaves it as it is');
+            } else {
+                $this->assertSame($expected, $fields['app_return_page']);
+            }
+        }
+    }
+
+    /**
      * The token lifetimes are saved when sent — a number, or NULL for the server's default.
      */
     public function testTokenLifetimesAreSavedWhenSent(): void

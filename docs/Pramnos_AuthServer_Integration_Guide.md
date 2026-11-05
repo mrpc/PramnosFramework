@@ -784,15 +784,20 @@ URL parser applies, and this value reaches a `Location` header and a CSP `form-a
 source. The admin screen says so when you paste one; the endpoint refuses it on the request
 as well, because a client with nothing registered has no registration to check.
 
-**A custom-scheme callback is answered with a page, not a 302.** After the consent screen
-(approve or refuse), an `http(s)` callback gets a plain redirect. Any other scheme gets a short
-page, *Returning to the application*: a script opens the callback, and a button links to it
-for when the browser will not launch the app without a click. A bare 302 to `myapp://…`
-leaves the browser to improvise, and where nothing on that machine has registered the scheme
-the visitor ends on a blank tab with no sign that the sign-in worked. The page is sent with
-`Cache-Control: no-store` and `Referrer-Policy: no-referrer`, because it carries the code.
-Override `Oauth::appReturnPage(string $url): string` in your `Oauth` controller to word or
-style it.
+**A custom-scheme callback can be answered with a page instead of a 302.** After the consent
+screen (approve or refuse), every callback gets a plain redirect by default. That is what an
+in-app browser (Android Custom Tabs, iOS `ASWebAuthenticationSession`) intercepts as the
+user's own navigation, so a mobile app should keep it.
+
+A desktop application that opens the *system* browser can turn on **Return to the app** on
+its application (`applications.app_return_page = 1`). Its custom-scheme callback then gets a
+short page, *Returning to the application*: a script opens the callback, and a button links to
+it for when the browser will not launch the app without a click. With a bare 302 to a scheme
+nothing on that machine has registered, the visitor ends on a blank tab with no sign that the
+sign-in worked. The page is sent with `Cache-Control: no-store` and
+`Referrer-Policy: no-referrer`, because it carries the code. `http(s)` callbacks are always
+redirected, whatever the setting. Override `Oauth::appReturnPage(string $url): string` in your
+`Oauth` controller to word or style the page.
 
 !!! note "An older installation may still have a 255-character ceiling"
     `create_applications_table` declares `text`, but on a database whose `applications`

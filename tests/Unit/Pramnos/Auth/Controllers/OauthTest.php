@@ -309,8 +309,10 @@ class OauthTest extends TestCase
     
     /**
      * Arrange a signed-in user 55 and a client whose callback is a native app's custom scheme.
+     *
+     * @param int $returnPage The client's `app_return_page`: 1 asks for the page, 0 for the 302.
      */
-    private function arrangeAppSchemeConsent(string $decision): \Pramnos\Application\Application
+    private function arrangeAppSchemeConsent(string $decision, int $returnPage = 1): \Pramnos\Application\Application
     {
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $_GET['client_id']     = 'app_scheme_client';
@@ -329,7 +331,7 @@ class OauthTest extends TestCase
         $user->email    = 'test@test.com';
         $user->language = \Pramnos\Framework\Factory::getLanguage()->currentlang();
         $this->db->queryBuilder()->table('users')->insert(['usertype' => 0, 'sex' => 0, 'birthdate' => 0, 'modified' => 0, 'userid' => 55, 'username' => 'test', 'email' => 'test@test.com', 'active' => 1]);
-        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'Desktop App', 'status' => 1, 'apikey' => 'app_scheme_client', 'apisecret' => '', 'callback' => 'myapp://oauth/callback']);
+        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'Desktop App', 'status' => 1, 'apikey' => 'app_scheme_client', 'apisecret' => '', 'callback' => 'myapp://oauth/callback', 'app_return_page' => $returnPage]);
         $app = \Pramnos\Application\Application::getInstance();
         $app->currentUser = clone $user;
         $app->setRedirect(null);
@@ -339,7 +341,7 @@ class OauthTest extends TestCase
     }
 
     /**
-     * Approving for a native app's custom-scheme callback answers with a page, not a bare 302.
+     * A client that asked for it gets a page for its custom-scheme callback, not a bare 302.
      *
      * A 302 to `myapp://…` leaves the browser to improvise, and where nothing has registered the
      * scheme the visitor is left on a blank tab with the sign-in finished and nothing to say so.
@@ -361,6 +363,29 @@ class OauthTest extends TestCase
         $this->assertStringContainsString('window.location.href="myapp://oauth/callback?code=', $page, 'the script that opens it');
         // The code on the page is the one stored
         $this->assertNotEmpty($this->db->queryBuilder()->table('usertokens')->where('userid', 55)->where('tokentype', 'auth_code')->first());
+    }
+
+    /**
+     * A client that did not ask is still sent a 302 to its custom scheme — the default.
+     *
+     * An in-app browser (Android Custom Tabs, iOS ASWebAuthenticationSession) intercepts the
+     * redirect as the user's own navigation; a script on a page that loads afterwards may need
+     * an extra tap on Android. So the page is a client's choice, and the redirect stays as it was.
+     */
+    public function testACustomSchemeIsStillRedirectedUnlessTheClientAskedForThePage(): void
+    {
+        // Arrange
+        $app = $this->arrangeAppSchemeConsent('yes', 0);
+
+        // Act
+        try {
+            $this->controller->authorize();
+            $this->fail('approving must end the request with a redirect');
+        } catch (\Pramnos\Application\ApplicationClosedException $e) {
+            // Assert
+            $this->assertSame(302, $e->getStatusCode());
+        }
+        $this->assertStringStartsWith('myapp://oauth/callback?code=', (string) $app->getRedirect());
     }
 
     /**

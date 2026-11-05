@@ -161,6 +161,16 @@ $accessTypes = [0 => 'REST (API Key)', 1 => 'OAuth2', 2 => 'Legacy API Only'];
                             </div>
                             <div class="form-text">Skips the consent screen: users signing in to it are not asked to approve its scopes. For your own first-party applications only — never for one a third party runs.</div>
                         </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold d-block">Return to the app</label>
+                            <input type="hidden" name="app_return_page" value="0">
+                            <div class="form-check form-switch mt-1">
+                                <input class="form-check-input" type="checkbox" name="app_return_page" value="1" id="chk_app_return_page"
+                                    <?php echo ((int)($app['app_return_page'] ?? 0) === 1) ? 'checked' : ''; ?>>
+                                <label class="form-check-label" for="chk_app_return_page">A page instead of a redirect, for a custom-scheme callback</label>
+                            </div>
+                            <div class="form-text">For a desktop application that opens the system browser: the page opens the app and offers a button, where a redirect to a scheme nothing has registered leaves a blank tab. Leave off for a mobile app — its in-app browser expects the redirect.</div>
+                        </div>
                     </div>
                 </div></div>
             </div>

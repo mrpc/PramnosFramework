@@ -130,6 +130,14 @@ $card = 'bg-base-100 rounded-xl shadow-xs border border-base-300 p-5 mb-4';
                             <span class="text-sm text-base-content/80">First-party — no consent screen</span>
                         </label>
                         <p class="text-xs text-base-content/60 mt-1">Skips the consent screen: users signing in to it are not asked to approve its scopes. For your own first-party applications only — never for one a third party runs.</p></div>
+                    <div><label class="<?php echo $lbl; ?>">Return to the app</label>
+                        <input type="hidden" name="app_return_page" value="0">
+                        <label class="flex items-center gap-2 mt-1 cursor-pointer">
+                            <input type="checkbox" name="app_return_page" value="1" class="w-4 h-4"
+                                <?php echo ((int)($app['app_return_page'] ?? 0) === 1) ? 'checked' : ''; ?>>
+                            <span class="text-sm text-base-content/80">A page instead of a redirect, for a custom-scheme callback</span>
+                        </label>
+                        <p class="text-xs text-base-content/60 mt-1">For a desktop application that opens the system browser: the page opens the app and offers a button, where a redirect to a scheme nothing has registered leaves a blank tab. Leave off for a mobile app — its in-app browser expects the redirect.</p></div>
                 </div>
             </div>
         </div>

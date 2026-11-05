@@ -40,6 +40,9 @@ class Oauth extends Controller
 
     private OAuth2ServerFactory $oauth2Factory;
 
+    /** Whether this request's client asked for a page rather than a 302 to its custom scheme. */
+    private bool $returnWithPage = false;
+
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         parent::__construct($application);
@@ -122,6 +125,7 @@ class Oauth extends Controller
             $this->validateAuthorizeParams($params);
 
             $client      = $this->loadClient($params['client_id']);
+            $this->returnWithPage = (int) ($client['app_return_page'] ?? 0) === 1;
 
             // The client's Allowed Scopes, before anybody is asked to consent to one it may
             // not have. An empty list is no restriction.
@@ -1630,16 +1634,18 @@ class Oauth extends Controller
      * *is* the code. Set, then performed with no argument, because `redirect($url)` writes its
      * URL to the development `redirects` log, and this URL carries the code.
      *
-     * Any other scheme is a native application's (`myapp://oauth/callback`), and a 302 to it
-     * leaves the browser to improvise: a prompt, an error page, or — when nothing on that
-     * machine has registered the scheme — a blank tab, with the sign-in finished and nothing to
-     * say so. That one gets a page instead ({@see appReturnPage()}): it opens the application
-     * itself and keeps a link to press when the browser will not.
+     * Any other scheme is a native application's (`myapp://oauth/callback`), and it is a 302 too
+     * unless the client's `app_return_page` is 1. A 302 is what an in-app browser (Android Custom
+     * Tabs, iOS ASWebAuthenticationSession) intercepts as the user's own navigation, so it stays
+     * the default. A desktop application that opens the *system* browser asks for the page
+     * ({@see appReturnPage()}) instead: there a 302 to a scheme nothing on that machine has
+     * registered ends on a blank tab, with the sign-in finished and nothing to say so. The page
+     * opens the application itself and keeps a link to press when the browser will not.
      */
     private function returnToClient(string $url): void
     {
         $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
-        if ($scheme === 'http' || $scheme === 'https') {
+        if (!$this->returnWithPage || $scheme === 'http' || $scheme === 'https') {
             $this->application->setRedirect($url);
             $this->application->redirect();
 

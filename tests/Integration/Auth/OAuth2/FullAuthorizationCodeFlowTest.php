@@ -1131,6 +1131,8 @@ class FullAuthorizationCodeFlowTest extends TestCase
             \Pramnos\Framework\Migrations\AuthServer\AddIsConfidentialToApplications::class,
             // A client's own token lifetimes.
             \Pramnos\Framework\Migrations\AuthServer\AddTokenLifetimesToApplications::class,
+            // Whether a custom-scheme callback gets a page instead of a 302.
+            \Pramnos\Framework\Migrations\AuthServer\AddAppReturnPageToApplications::class,
             \Pramnos\Framework\Migrations\Oauth\CreateOauthconnectionsTable::class,
             // A refresh holds a lock in `pramnos.locks`, and refuses to go ahead without one.
             \Pramnos\Framework\Migrations\Core\CreateLocksTable::class,

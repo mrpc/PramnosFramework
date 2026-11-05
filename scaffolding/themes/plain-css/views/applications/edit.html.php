@@ -144,6 +144,16 @@ $inp = 'width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizin
                         </label>
                         <p style="font-size:11px;color:#888;margin-top:4px">Skips the consent screen: users signing in to it are not asked to approve its scopes. For your own first-party applications only — never for one a third party runs.</p>
                     </div>
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">Return to the app</label>
+                        <input type="hidden" name="app_return_page" value="0">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:6px">
+                            <input type="checkbox" name="app_return_page" value="1"
+                                <?php echo ((int)($app['app_return_page'] ?? 0) === 1) ? 'checked' : ''; ?>>
+                            <span style="font-size:13px">A page instead of a redirect, for a custom-scheme callback</span>
+                        </label>
+                        <p style="font-size:11px;color:#888;margin-top:4px">For a desktop application that opens the system browser: the page opens the app and offers a button, where a redirect to a scheme nothing has registered leaves a blank tab. Leave off for a mobile app — its in-app browser expects the redirect.</p>
+                    </div>
                 </div>
             </div>
         </div>

@@ -71,6 +71,7 @@ final class Schema
             \Pramnos\Framework\Migrations\AuthServer\AddIsConfidentialToApplications::class,
             \Pramnos\Framework\Migrations\AuthServer\AddTrustedToApplications::class,
             \Pramnos\Framework\Migrations\AuthServer\AddTokenLifetimesToApplications::class,
+            \Pramnos\Framework\Migrations\AuthServer\AddAppReturnPageToApplications::class,
         ],
         /*
          * The table's own shape, and not the foreign keys.
