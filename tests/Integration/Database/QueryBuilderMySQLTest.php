@@ -2005,4 +2005,43 @@ class QueryBuilderMySQLTest extends DatabaseTestCase
         // Assert — Carrot's two are gone
         $this->assertSame(['popular', 'rare', 'sweet'], array_column($left, 'tag'));
     }
+
+    /**
+     * With `throwOnError` (the database settings' strict mode), a read or a write against a table
+     * that does not exist throws QueryException — count(), max(), getAll() and delete() — instead
+     * of answering 0, NULL, [] or "done" (FW-325). An application turns it on in its settings; the
+     * default keeps each driver's historical answer.
+     */
+    public function testStrictModeThrowsForATableThatDoesNotExist(): void
+    {
+        // Arrange
+        $was = $this->db->throwOnError;
+        $this->db->throwOnError = true;
+        $missing = 'no_such_table_' . bin2hex(random_bytes(3));
+        $thrown  = [];
+
+        try {
+            // Act
+            foreach ([
+                'count'  => fn () => $this->db->queryBuilder()->table($missing)->count(),
+                'max'    => fn () => $this->db->queryBuilder()->table($missing)->max('id'),
+                'getAll' => fn () => $this->db->queryBuilder()->table($missing)->getAll(),
+                'delete' => fn () => $this->db->queryBuilder()->table($missing)->where('id', 1)->delete(),
+            ] as $name => $call) {
+                try {
+                    $call();
+                    $thrown[$name] = 'nothing';
+                } catch (\Pramnos\Database\QueryException) {
+                    $thrown[$name] = 'QueryException';
+                } catch (\Throwable $e) {
+                    $thrown[$name] = $e::class;
+                }
+            }
+        } finally {
+            $this->db->throwOnError = $was;
+        }
+
+        // Assert — every one says so, as the same exception on every driver
+        $this->assertSame(['count' => 'QueryException', 'max' => 'QueryException', 'getAll' => 'QueryException', 'delete' => 'QueryException'], $thrown);
+    }
 }
