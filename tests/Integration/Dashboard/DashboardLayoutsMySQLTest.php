@@ -277,6 +277,40 @@ class DashboardLayoutsMySQLTest extends TestCase
     }
 
     /**
+     * A group of tabs, through the controller: drawn with its active tab's card and the others left
+     * to be drawn when opened; a card in it counts as placed in the catalogue; and its inside is
+     * answered alone for a tab opened for the first time (`part=body`), with its saved settings.
+     */
+    public function testAGroupOfTabsIsDrawnWithItsActiveTabOnly(): void
+    {
+        // Arrange
+        WidgetRegistry::register(\Pramnos\Tests\Unit\Dashboard\SalesWidget::class);
+        $controller = new LayoutDashboardController(null);
+        \Pramnos\Http\RequestIdentity::seal(self::me(), 'test');
+        (new Layouts($this->db))->save(self::me(), [
+            ['id' => 'tabs:pf1', 'size' => 'full', 'active' => 'database', 'title' => 'Ops',
+                'tabs' => [['id' => 'sales', 'settings' => ['period' => '30']], ['id' => 'database']]],
+        ]);
+
+        // Act
+        $controller->display();
+        $group = $controller->view->widgets[0];
+        $catalogue = $controller->view->catalogue;
+        $_GET = ['id' => 'sales', 'part' => 'body'];
+        $body = $controller->card();
+        $_GET = [];
+
+        // Assert
+        $this->assertTrue($group['group']);
+        $this->assertSame(['tabs:pf1', 'full', 'Ops', 'database'], [$group['id'], $group['size'], $group['title'], $group['active']]);
+        $this->assertSame(['sales', 'database'], array_column($group['tabs'], 'id'));
+        $this->assertNull($group['tabs'][0]['html'], 'not the active tab: drawn when opened');
+        $this->assertStringContainsString('pf-stat-tile', (string) $group['tabs'][1]['html'], 'the active tab, drawn');
+        $this->assertTrue($catalogue['sales']['placed'], 'a card in a group is on the board');
+        $this->assertSame([200, '<p>sales over 30</p>'], [$body->getStatusCode(), (string) $body->getBody()], 'its inside, with its saved settings');
+    }
+
+    /**
      * One card alone: drawn with this person's saved width and settings, its inside drawn with
      * them; one they have not placed, with the widget's own; one they may not have, or nobody
      * signed in, is 404.

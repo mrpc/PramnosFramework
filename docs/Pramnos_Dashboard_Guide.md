@@ -388,6 +388,47 @@ raise the bar with `'boards' => ['wcm' => ['min_role' => 'manager']]`: below it,
 nothing and its saves answer 403. Drawn this way, the view gets `$this->embedded = true` and
 `$this->boardTitle`, and draws no page heading or frame.
 
+## Tabs: several cards in one frame
+
+Cards can share one frame, with one tab per card. Only the active tab's card is drawn. The others
+are drawn by the server the first time they are opened (`card?id=…&part=body`), so a heavy card
+costs nothing until someone looks at it. Each person's active tab is kept with their layout,
+like a width.
+
+**As a default or a preset**, write a group where a card would go:
+
+```php
+'boards' => ['wcm' => [
+    'default' => ['wcm.stats', ['tabs' => ['wcm.map', 'wcm.status.location', 'wcm.status.deya', 'wcm.consumption'], 'title' => '']],
+    'presets' => ['Operations' => ['wcm.stats', ['tabs' => ['wcm.map', 'wcm.consumption']]]],
+]],
+```
+
+A group spans the board unless it is given a `size`. In a layout it is kept as
+`{id: 'tabs:…', size, tabs: [{id, settings}, …], active, title}`, and it is cleaned like its
+cards. A tab the person may not have is dropped, a card appears once in the whole layout, a group
+left with one card becomes that card, and an empty group is removed.
+
+**While customising**, a group moves, resizes and hides as one card. A card's tools include
+*Group into tabs with the next card*, which joins it to the card after it, or into the group
+after it. A group's tools move its active tab left or right, or take it out of the group, after
+which it becomes a card again just after the group. A card's own settings are kept while it is in
+a group. To change them, take the card out of the group.
+
+**A card's script and a hidden tab.** A card drawn into a hidden panel has no size until it is
+shown, so a map, for example, draws at 0×0. When a tab becomes visible, and when a card or a
+group is resized, the script fires `pf:dashboard:shown` on the card's element. The event bubbles,
+and `event.detail.id` is the card's id:
+
+```js
+document.addEventListener('pf:dashboard:shown', (e) => { if (e.detail.id === 'wcm.map') { map.invalidateSize(); } });
+```
+
+**A theme draws its own tabs** by copying `views/dashboard/tabs.html.php`. The script relies only
+on these attributes: `data-pf-widget-group` on the frame, `data-pf-tabs` on the strip (with
+`data-active-class`, the theme's class for the active tab), `data-pf-tab` on each tab, and
+`data-pf-tab-panel` on each panel (with `data-pf-tab-lazy` until the panel is drawn).
+
 ## Presets: named layouts, saved and shared
 
 A preset is a named layout of a board. Applying one **copies** it into the person's own layout,

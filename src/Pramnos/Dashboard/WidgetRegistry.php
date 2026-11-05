@@ -228,12 +228,28 @@ final class WidgetRegistry
     }
 
     /**
-     * The ids a new board has, in its order — a board's `default` list — or null when it gives none
-     * and each card's own default applies.
+     * The ids a new board has, in its order — a board's `default` list, its groups' tabs among
+     * them — or null when it gives none and each card's own default applies.
      *
      * @return list<string>|null
      */
     public static function defaultIds(?string $board): ?array
+    {
+        $entries = self::defaultEntries($board);
+        if ($entries === null) {
+            return null;
+        }
+
+        return array_column(Layouts::cards(array_map(static fn ($entry) => is_array($entry) ? $entry : ['id' => (string) $entry], $entries)), 'id');
+    }
+
+    /**
+     * A board's `default` list as app.php writes it: ids, and groups of tabs —
+     * `['wcm.stats', ['tabs' => ['wcm.map', 'wcm.status'], 'title' => 'Areas']]`. Null without one.
+     *
+     * @return list<string|array<string, mixed>>|null
+     */
+    public static function defaultEntries(?string $board): ?array
     {
         $board = self::catalogueOf($board);
         if ($board === null) {
@@ -242,7 +258,7 @@ final class WidgetRegistry
         $app  = \Pramnos\Application\Application::currentInstance();
         $list = is_object($app) ? ($app->applicationInfo['dashboard']['boards'][$board]['default'] ?? null) : null;
 
-        return is_array($list) ? array_values(array_map('strval', $list)) : null;
+        return is_array($list) ? array_values(array_filter($list, static fn ($entry): bool => is_string($entry) || is_array($entry))) : null;
     }
 
     /**

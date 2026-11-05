@@ -330,6 +330,65 @@ class WidgetRegistryTest extends TestCase
     }
 
     /**
+     * A group of tabs is cleaned like its cards: a tab this person may not have is dropped, a card
+     * appears once in the whole layout, a group left with one card is that card at the group's
+     * width, an empty group goes, `active` is one of its tabs, and its id is kept or made.
+     */
+    public function testAGroupOfTabsIsCleanedForItsViewer(): void
+    {
+        // Arrange — `health` only root may have; `database` twice
+        Application::getInstance()->applicationInfo['dashboard'] = ['cards' => ['health' => ['min_role' => 'root']]];
+        $staff = self::user(80);
+        $layout = [
+            ['id' => 'tabs:abc', 'size' => 'l', 'tabs' => ['database', ['id' => 'users.active'], 'health'], 'active' => 'health', 'title' => str_repeat('x', 130)],
+            ['tabs' => ['database'], 'size' => 's'],
+            ['tabs' => ['nope', 'health']],
+            ['id' => 'tabs:bad id!', 'tabs' => ['api.performance', 'users.active']],
+        ];
+
+        // Act
+        $clean = Layouts::clean($layout, $staff);
+
+        // Assert — the first group keeps the two it may have, active falls back to the first
+        $this->assertSame('tabs:abc', $clean[0]['id']);
+        $this->assertSame(['database', 'users.active'], array_column($clean[0]['tabs'], 'id'));
+        $this->assertSame('database', $clean[0]['active'], 'health was dropped, so the first tab is active');
+        $this->assertSame(120, mb_strlen($clean[0]['title']));
+        $this->assertSame('l', $clean[0]['size']);
+        // database was already placed: that group is left empty and goes; nope+health likewise;
+        // the last keeps one card (users.active is placed) and becomes that card
+        $this->assertCount(2, $clean);
+        $this->assertSame(['id' => 'api.performance', 'size' => 'm', 'settings' => []], $clean[1], 'one card left: the card, at its own width');
+        $this->assertTrue(Layouts::isGroup($clean[0]));
+        $this->assertSame(['database', 'users.active', 'api.performance'], array_column(Layouts::cards($clean), 'id'));
+    }
+
+    /**
+     * A board's `default` list can hold a group of tabs: a new board has it, in its place, with its
+     * own id; its tabs count as the board's defaults.
+     */
+    public function testABoardsDefaultsCanHoldTabs(): void
+    {
+        // Arrange
+        WidgetRegistry::register(OrdersWidget::class);
+        Application::getInstance()->applicationInfo['dashboard'] = ['boards' => ['wcm' => [
+            'default' => ['orders', ['tabs' => ['database', 'health'], 'title' => 'Areas']],
+        ]]];
+
+        // Act
+        $new = Layouts::defaults(self::user(99), 'wcm');
+
+        // Assert
+        $this->assertSame('orders', $new[0]['id']);
+        $this->assertStringStartsWith('tabs:', $new[1]['id']);
+        $this->assertSame(['database', 'health'], array_column($new[1]['tabs'], 'id'));
+        $this->assertSame('Areas', $new[1]['title']);
+        $this->assertSame('full', $new[1]['size'], 'a group with no width given spans the board');
+        $this->assertSame(['orders', 'database', 'health'], WidgetRegistry::defaultIds('wcm'));
+        $this->assertTrue(WidgetRegistry::byDefault(WidgetRegistry::get('health', 'wcm'), 'wcm'));
+    }
+
+    /**
      * The framework's cards say their tile labels in the page's language: every label goes
      * through Figures::words(), which asks the translator.
      */

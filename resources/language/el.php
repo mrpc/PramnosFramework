@@ -2045,4 +2045,9 @@ return [
     'That dashboard is not yours to delete.' => 'Αυτός ο πίνακας δεν είναι δικός σας για να τον διαγράψετε.',
     'A dashboard needs a name of up to 120 characters.' => 'Ένας πίνακας χρειάζεται όνομα έως 120 χαρακτήρες.',
     'The dashboard is back to the default.' => 'Ο πίνακας επέστρεψε στην προεπιλογή.',
+    // Dashboard cards grouped as tabs.
+    'Group into tabs with the next card' => 'Ομαδοποίηση σε καρτέλες με την επόμενη κάρτα',
+    'Move this tab left' => 'Μετακίνηση της καρτέλας αριστερά',
+    'Move this tab right' => 'Μετακίνηση της καρτέλας δεξιά',
+    'Take this tab out of the group' => 'Αφαίρεση της καρτέλας από την ομάδα',
 ];

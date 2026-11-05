@@ -680,3 +680,112 @@ test('the presets dialog opens and closes', () => {
     assert.equal(opened, true);
     assert.equal(dialog.hasAttribute('open'), false);
 });
+
+/**
+ * A group of cards as tabs, added to a page: the frame, its tools, a strip of tabs and a panel per
+ * card — the active one drawn, the others waiting to be drawn.
+ */
+function group(p, id, tabs, active) {
+    const section = p.el('section', { 'data-pf-widget': id, 'data-pf-widget-group': '', 'data-size': 'full', 'data-active': active, 'data-title': 'Ops' }, p.board);
+    const tools = p.el('div', { 'data-pf-widget-tools': '' }, section);
+    ['-1', '1'].forEach((step) => p.el('button', { 'data-pf-tab-move': step }, tools));
+    p.el('button', { 'data-pf-tab-ungroup': '' }, tools);
+    p.el('button', { 'data-pf-widget-resize': '' }, tools);
+    const strip = p.el('div', { 'data-pf-tabs': '', 'data-active-class': 'active' }, section);
+    tabs.forEach((tab) => {
+        const button = p.el('button', { 'data-pf-tab': tab }, strip);
+        if (tab === active) { button.classList.add('active'); }
+    });
+    tabs.forEach((tab) => {
+        const panel = p.el('div', tab === active ? { 'data-pf-tab-panel': tab, 'data-settings': '{"period":"30"}' } : { 'data-pf-tab-panel': tab, 'data-pf-tab-lazy': '' }, section);
+        panel.hidden = tab !== active;
+    });
+    return section;
+}
+
+/**
+ * A group is saved as one item with its tabs and active tab; opening another tab shows it, draws
+ * it by its inside (part=body) the first time, tells its script it is shown, and saves the active
+ * tab with the layout.
+ */
+test('a group of tabs is saved as one item, and opening a tab draws and shows it', async () => {
+    // Arrange
+    const p = page(true, '/admin/Dashboard/card');
+    const g = group(p, 'tabs:x1', ['map', 'stats'], 'map');
+    const shown = [];
+    p.board.addEventListener('pf:dashboard:shown', (e) => shown.push(e.detail.id));
+
+    // Act
+    p.click(g.querySelector('[data-pf-tab="stats"]'));
+    await settle();
+
+    // Assert — the panel shown, drawn from the server's inside, the event, the save
+    const panel = g.querySelector('[data-pf-tab-panel="stats"]');
+    assert.equal(panel.hidden, false);
+    assert.equal(g.querySelector('[data-pf-tab-panel="map"]').hidden, true);
+    assert.deepEqual(p.drawn, ['/admin/Dashboard/card?id=stats&part=body']);
+    assert.equal(panel.hasAttribute('data-pf-tab-lazy'), false);
+    assert.deepEqual(shown, ['stats']);
+    assert.equal(g.querySelector('[data-pf-tab="stats"]').classList.contains('active'), true, 'the theme\'s own active class');
+    const saved = p.saves[0].body.layout[3];
+    assert.deepEqual(saved, { id: 'tabs:x1', size: 'full', active: 'stats', title: 'Ops', tabs: [{ id: 'map', settings: { period: '30' } }, { id: 'stats', settings: {} }] });
+});
+
+/** "Group into tabs with the next card" makes the two one group, saved, and the page redrawn. */
+test('grouping a card with the next one saves a group and reloads', async () => {
+    // Arrange
+    const p = page();
+    p.el('button', { 'data-pf-widget-group-next': '' }, p.cards.a.querySelector('[data-pf-widget-tools]'));
+
+    // Act
+    p.click(p.cards.a.querySelector('[data-pf-widget-group-next]'));
+    await settle();
+
+    // Assert
+    const layout = p.saves[0].body.layout;
+    assert.deepEqual(layout.map((w) => w.id), ['', 'c'], 'the group, given its id by the server, then c');
+    assert.deepEqual(layout[0].tabs.map((t) => t.id), ['a', 'b']);
+    assert.equal(layout[0].active, 'a');
+    assert.equal(p.window.reloaded, 1);
+});
+
+/**
+ * A group's active tab moves along the strip — the tab and its panel, saved — and taken out it
+ * becomes a card after the group, saved and the page redrawn.
+ */
+test('a tab moves along its strip, and is taken out of its group', async () => {
+    // Arrange
+    const p = page();
+    const g = group(p, 'tabs:x2', ['one', 'two', 'three'], 'one');
+
+    // Act — move the active tab right, then take it out
+    p.click(g.querySelector('[data-pf-tab-move="1"]'));
+    await settle();
+    const moved = p.saves[0].body.layout[3].tabs.map((t) => t.id);
+    p.click(g.querySelector('[data-pf-tab-ungroup]'));
+    await settle();
+
+    // Assert
+    assert.deepEqual(moved, ['two', 'one', 'three']);
+    const after = p.saves[1].body.layout;
+    assert.deepEqual(after.slice(3).map((w) => w.id), ['tabs:x2', 'one']);
+    assert.deepEqual(after[3].tabs.map((t) => t.id), ['two', 'three']);
+    assert.equal(p.window.reloaded, 1);
+});
+
+/** Resizing a group tells its visible tab's script it has a new size. */
+test('resizing a group tells its visible tab it is shown at a new size', async () => {
+    // Arrange
+    const p = page();
+    const g = group(p, 'tabs:x3', ['map', 'stats'], 'map');
+    const shown = [];
+    p.board.addEventListener('pf:dashboard:shown', (e) => shown.push(e.detail.id));
+
+    // Act
+    p.click(g.querySelector('[data-pf-widget-resize]'));
+    await settle();
+
+    // Assert
+    assert.deepEqual(shown, ['map']);
+    assert.equal(g.getAttribute('data-size'), 's', 'full goes round to small');
+});

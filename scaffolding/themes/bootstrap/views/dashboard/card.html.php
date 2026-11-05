@@ -29,6 +29,7 @@ $shown = static fn (array $field): bool => array_reduce(array_keys((array) ($fie
                 <button type="button" class="btn btn-outline-secondary" data-pf-widget-move="1" aria-label="<?php echo $e($t('Move down')); ?>">&darr;</button>
                 <button type="button" class="btn btn-outline-secondary" data-pf-widget-resize aria-label="<?php echo $e($t('Width')); ?>">&harr;</button>
                 <?php if ($fields): ?><button type="button" class="btn btn-outline-secondary" data-pf-widget-settings-toggle aria-expanded="false" aria-label="<?php echo $e($t('Settings')); ?>">&#9881;</button><?php endif; ?>
+                <button type="button" class="btn btn-outline-secondary" data-pf-widget-group-next aria-label="<?php echo $e($t('Group into tabs with the next card')); ?>">&#10697;</button>
                 <button type="button" class="btn btn-outline-secondary" data-pf-widget-hide aria-label="<?php echo $e($t('Hide')); ?>">&times;</button>
             </div>
         </div>

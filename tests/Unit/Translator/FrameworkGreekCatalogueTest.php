@@ -21,7 +21,7 @@ final class FrameworkGreekCatalogueTest extends TestCase
     /** Where the phrases are, relative to the repository. */
     private const SOURCES = [
         'scaffolding/themes/*/views/{login,OAuth2,twofactor,register,passkey,device,sso,profile,organization,home,status,partials,messages}/*.php',
-        'scaffolding/themes/*/views/dashboard/{dashboard,admin_dashboard,card,presets_dialog,presets}.html.php',
+        'scaffolding/themes/*/views/dashboard/{dashboard,admin_dashboard,card,presets_dialog,presets,tabs}.html.php',
         'src/Pramnos/Dashboard/*.php',
         'src/Pramnos/Dashboard/Widgets/*.php',
         'src/Pramnos/Dashboard/Channels/*.php',

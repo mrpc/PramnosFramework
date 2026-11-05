@@ -2311,3 +2311,9 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-companion-debug-panel button { padding: 4px 10px; font-size: 0.75rem; border-radius: 999px; border: 1px solid var(--pf-line); background: transparent; color: var(--pf-fg); cursor: pointer; }
 .pf-companion-debug-panel button:hover { background: var(--pf-subtle); }
 .pf-companion-debug-panel input[type="text"] { width: 100%; padding: 4px 8px; margin-bottom: 6px; border: 1px solid var(--pf-line); border-radius: var(--pf-radius); background: var(--pf-surface); color: var(--pf-fg); font-size: 0.75rem; }
+
+/* A group of dashboard cards as tabs. The theme's own tabs draw the strip; these are for a view
+   that uses the framework's tab classes instead, as the plain theme does. */
+.pf-dashboard-tab-strip { display: flex; flex-wrap: wrap; gap: .25rem; margin-bottom: .75rem; }
+.pf-dashboard-tab-strip .pf-dashboard-tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: .4rem .75rem; cursor: pointer; font: inherit; color: inherit; }
+.pf-dashboard-tab-strip .pf-dashboard-tab.is-active { border-bottom-color: currentColor; font-weight: 600; }

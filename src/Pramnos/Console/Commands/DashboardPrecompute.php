@@ -82,7 +82,8 @@ class DashboardPrecompute extends Command
             $layouts = [];
         }
         foreach ($layouts as $layout) {
-            foreach ($layout as $item) {
+            // A group's tabs are cards too.
+            foreach (Layouts::cards($layout) as $item) {
                 $id = (string) ($item['id'] ?? '');
                 if (isset($shared[$id])) {
                     $want($shared[$id], (array) ($item['settings'] ?? []));

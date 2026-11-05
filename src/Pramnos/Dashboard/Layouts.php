@@ -111,12 +111,14 @@ final class Layouts
      */
     public static function defaults(?object $user, ?string $board = null): array
     {
-        $available = WidgetRegistry::available($user, $board);
-        $ids       = WidgetRegistry::defaultIds($board) ?? array_keys($available);
-        $layout    = [];
-        foreach ($ids as $id) {
-            $widget = $available[$id] ?? null;
-            if ($widget !== null && WidgetRegistry::byDefault($widget, $board)) {
+        // A board that lists its defaults: those, in that order — groups of tabs among them.
+        $entries = WidgetRegistry::defaultEntries($board);
+        if ($entries !== null) {
+            return self::clean(array_map(static fn ($entry) => is_array($entry) ? $entry : ['id' => (string) $entry], $entries), $user, $board);
+        }
+        $layout = [];
+        foreach (WidgetRegistry::available($user, $board) as $id => $widget) {
+            if (WidgetRegistry::byDefault($widget, $board)) {
                 $layout[] = ['id' => (string) $id, 'size' => self::size($widget->size()), 'settings' => Widget::cleanSettings($widget, [])];
             }
         }
@@ -126,28 +128,108 @@ final class Layouts
 
     /**
      * A layout as it may be kept: widgets this person may have on the board, each once, at a
-     * known width.
+     * known width — and groups of them as tabs.
      *
-     * @return list<array{id: string, size: string, settings: array<string, mixed>}>
+     * A group is `{id: 'tabs:…', size, tabs: [{id, settings}, …], active, title}` (tabs may be
+     * given as ids). Its tabs are cleaned like cards: one this person may not have is dropped, and
+     * a card appears once in the whole layout, in a group or not. A group left with one card is
+     * that card, at the group's width; one left with none goes. `active` is one of its tabs — the
+     * first, unless it names another.
+     *
+     * @return list<array<string, mixed>>
      */
     public static function clean(mixed $layout, ?object $user, ?string $board = null): array
     {
         $available = WidgetRegistry::available($user, $board);
+        $seen      = [];
         $clean     = [];
-        foreach (is_array($layout) ? $layout : [] as $item) {
+        $card      = static function (mixed $item, ?string $size = null) use ($available, &$seen): ?array {
             $id = is_array($item) ? (string) ($item['id'] ?? '') : (is_string($item) ? $item : '');
-            if (!isset($available[$id]) || isset($clean[$id])) {
+            if (!isset($available[$id]) || isset($seen[$id])) {
+                return null;
+            }
+            $seen[$id] = true;
+
+            return [
+                'id'       => $id,
+                'size'     => Widget::normalSize($size ?? (is_array($item) ? ($item['size'] ?? null) : null)) ?? self::size($available[$id]->size()),
+                'settings' => Widget::cleanSettings($available[$id], is_array($item) ? ($item['settings'] ?? []) : []),
+            ];
+        };
+        foreach (is_array($layout) ? $layout : [] as $item) {
+            if (!is_array($item) || !isset($item['tabs'])) {
+                if (($one = $card($item)) !== null) {
+                    $clean[] = $one;
+                }
                 continue;
             }
-            $size       = Widget::normalSize(is_array($item) ? ($item['size'] ?? null) : null);
-            $clean[$id] = [
-                'id'       => $id,
-                'size'     => $size ?? self::size($available[$id]->size()),
-                'settings' => Widget::cleanSettings($available[$id], is_array($item) ? ($item['settings'] ?? []) : []),
+            $size = Widget::normalSize($item['size'] ?? null);
+            $tabs = [];
+            foreach (is_array($item['tabs']) ? $item['tabs'] : [] as $tab) {
+                if (($one = $card($tab, $size ?? Widget::MEDIUM)) !== null) {
+                    $tabs[] = ['id' => $one['id'], 'settings' => $one['settings']];
+                }
+            }
+            if ($tabs === []) {
+                continue;
+            }
+            if (count($tabs) === 1) {
+                $clean[] = ['id' => $tabs[0]['id'], 'size' => $size ?? self::size($available[$tabs[0]['id']]->size()), 'settings' => $tabs[0]['settings']];
+                continue;
+            }
+            $ids      = array_column($tabs, 'id');
+            $clean[]  = [
+                'id'     => self::groupId($item['id'] ?? null, $ids),
+                'size'   => $size ?? Widget::FULL,
+                'tabs'   => $tabs,
+                'active' => in_array($item['active'] ?? null, $ids, true) ? (string) $item['active'] : $ids[0],
+                'title'  => mb_substr(trim((string) ($item['title'] ?? '')), 0, 120),
             ];
         }
 
-        return array_values($clean);
+        return $clean;
+    }
+
+    /** Whether a layout item is a group of tabs. */
+    public static function isGroup(array $item): bool
+    {
+        return isset($item['tabs']) && is_array($item['tabs']);
+    }
+
+    /**
+     * Every card of a layout, its groups' tabs among them, as `{id, size, settings}` — a tab at
+     * its group's width.
+     *
+     * @return list<array{id: string, size: string, settings: array<string, mixed>}>
+     */
+    public static function cards(array $layout): array
+    {
+        $cards = [];
+        foreach ($layout as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            if (!self::isGroup($item)) {
+                $cards[] = ['id' => (string) ($item['id'] ?? ''), 'size' => (string) ($item['size'] ?? Widget::MEDIUM), 'settings' => (array) ($item['settings'] ?? [])];
+                continue;
+            }
+            foreach ($item['tabs'] as $tab) {
+                $id = is_array($tab) ? (string) ($tab['id'] ?? '') : (string) $tab;
+                $cards[] = ['id' => $id, 'size' => (string) ($item['size'] ?? Widget::MEDIUM), 'settings' => is_array($tab) ? (array) ($tab['settings'] ?? []) : []];
+            }
+        }
+
+        return $cards;
+    }
+
+    /** A group's id as kept: `tabs:` and up to 32 letters or digits, or one made from its cards. */
+    private static function groupId(mixed $given, array $ids): string
+    {
+        if (is_string($given) && preg_match('/^tabs:[a-z0-9]{1,32}$/', $given) === 1) {
+            return $given;
+        }
+
+        return 'tabs:' . substr(md5(implode(',', $ids)), 0, 12);
     }
 
     /** A widget's own width, or {@see Widget::MEDIUM} for one it does not know. */

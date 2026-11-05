@@ -2238,10 +2238,37 @@
         function settingsOf(card) {
             try { var parsed = JSON.parse(card.getAttribute('data-settings') || '{}'); return parsed && typeof parsed === 'object' ? parsed : {}; } catch (err) { return {}; }
         }
-        function layout() {
-            return cards().map(function (card) {
+        function panels(group) { return Array.prototype.slice.call(group.querySelectorAll('[data-pf-tab-panel]')); }
+        function isGroup(card) { return card.hasAttribute('data-pf-widget-group'); }
+        /** One item of the layout as the server keeps it: a card, or a group of them as tabs. */
+        function itemOf(card) {
+            if (!isGroup(card)) {
                 return { id: card.getAttribute('data-pf-widget'), size: sizeOf(card), settings: settingsOf(card) };
+            }
+            return {
+                id: card.getAttribute('data-pf-widget'), size: sizeOf(card), active: card.getAttribute('data-active') || '',
+                title: card.getAttribute('data-title') || '',
+                tabs: panels(card).map(function (panel) { return { id: panel.getAttribute('data-pf-tab-panel'), settings: settingsOf(panel) }; }),
+            };
+        }
+        function layout() { return cards().map(itemOf); }
+        /** Every card id on the board, the tabs of its groups among them. */
+        function placedIds() {
+            var ids = [];
+            cards().forEach(function (card) {
+                if (isGroup(card)) { panels(card).forEach(function (p) { ids.push(p.getAttribute('data-pf-tab-panel')); }); } else { ids.push(card.getAttribute('data-pf-widget')); }
             });
+            return ids;
+        }
+        /** Tell a card's script it is visible now, or at a new size: `pf:dashboard:shown`, bubbling. */
+        function shown(el, id) {
+            var Ev = window.CustomEvent;
+            if (el && typeof Ev === 'function') { el.dispatchEvent(new Ev('pf:dashboard:shown', { bubbles: true, detail: { id: id } })); }
+        }
+        /** The card a resize reached: itself, or a group's visible tab. */
+        function shownAfterResize(card) {
+            if (!isGroup(card)) { shown(card, card.getAttribute('data-pf-widget')); return; }
+            panels(card).forEach(function (panel) { if (!panel.hidden) { shown(panel, panel.getAttribute('data-pf-tab-panel')); } });
         }
 
         /** The server's drawing of one card, as an element — or null. */
@@ -2289,8 +2316,9 @@
         function save(then) {
             var headers = window.pfApiHeaders ? window.pfApiHeaders({ 'Content-Type': 'application/json' }) : { 'Content-Type': 'application/json' };
             if (empty) { empty.hidden = cards().length > 0; }
+            var kept = then && then.layout ? then.layout : (then && then.add ? layout().concat([then.add]) : layout());
             return window.fetch(board.getAttribute('data-save'), {
-                method: 'POST', credentials: 'same-origin', headers: headers, body: JSON.stringify({ layout: then && then.add ? layout().concat([then.add]) : layout() }),
+                method: 'POST', credentials: 'same-origin', headers: headers, body: JSON.stringify({ layout: kept }),
             }).then(function (r) {
                 if (!r.ok) { throw new Error('HTTP ' + r.status); }
                 return r.json();
@@ -2314,6 +2342,94 @@
         if (editButton) { editButton.addEventListener('click', function () { setEditing(!editing); }); }
         var done = document.querySelector('[data-pf-dashboard-done]');
         if (done) { done.addEventListener('click', function () { setEditing(false); if (editButton && editButton.focus) { editButton.focus(); } }); }
+
+        // A group's tabs: the one clicked is shown, drawn by the server the first time (its inside,
+        // card?id=…&part=body), and remembered as the group's active tab with the layout.
+        function showTab(group, id) {
+            group.setAttribute('data-active', id);
+            // The theme's own class for the active tab, named on the strip.
+            var strip = group.querySelector('[data-pf-tabs]');
+            var activeClass = (strip && strip.getAttribute('data-active-class')) || 'active';
+            Array.prototype.forEach.call(group.querySelectorAll('[data-pf-tab]'), function (tab) {
+                var on = tab.getAttribute('data-pf-tab') === id;
+                tab.setAttribute('aria-selected', on ? 'true' : 'false');
+                tab.classList.toggle(activeClass, on);
+            });
+            var panel = null;
+            panels(group).forEach(function (p) {
+                p.hidden = p.getAttribute('data-pf-tab-panel') !== id;
+                if (!p.hidden) { panel = p; }
+            });
+            if (!panel) { return; }
+            if (!panel.hasAttribute('data-pf-tab-lazy') || !cardUrl) {
+                shown(panel, id);
+                return;
+            }
+            panel.removeAttribute('data-pf-tab-lazy');
+            var url = cardUrl + (cardUrl.indexOf('?') >= 0 ? '&' : '?') + 'id=' + encodeURIComponent(id) + '&part=body';
+            window.fetch(url, { credentials: 'same-origin', headers: { Accept: 'text/html' } })
+                .then(function (r) { if (!r.ok) { throw new Error('HTTP ' + r.status); } return r.text(); })
+                .then(function (html) {
+                    panel.innerHTML = html;
+                    activateFetched(panel, function () {
+                        if (window.pfCharts && window.pfCharts.draw) { window.pfCharts.draw(panel); }
+                        shown(panel, id);
+                    });
+                })
+                .catch(function () { panel.setAttribute('data-pf-tab-lazy', ''); say(SAY.failed); });
+        }
+        board.addEventListener('click', function (e) {
+            var tab = e.target.closest ? e.target.closest('[data-pf-tab]') : null;
+            if (!tab) { return; }
+            var group = tab.closest('[data-pf-widget-group]');
+            if (!group || group.getAttribute('data-active') === tab.getAttribute('data-pf-tab')) { return; }
+            showTab(group, tab.getAttribute('data-pf-tab'));
+            save();
+        });
+
+        // Grouping, while customising: a card with the next one into tabs; a group's active tab
+        // moved along its strip, or taken out after the group. The server draws the new shape.
+        board.addEventListener('click', function (e) {
+            var button = e.target.closest ? e.target.closest('[data-pf-widget-group-next], [data-pf-tab-move], [data-pf-tab-ungroup]') : null;
+            if (!button) { return; }
+            var card = button.closest('[data-pf-widget]');
+            var list = cards();
+            var at   = list.indexOf(card);
+            var items = layout();
+            if (button.hasAttribute('data-pf-widget-group-next')) {
+                var next = items[at + 1];
+                if (!next) { return; }
+                var first = items[at];
+                var tabs  = [{ id: first.id, settings: first.settings || {} }].concat(next.tabs ? next.tabs : [{ id: next.id, settings: next.settings || {} }]);
+                items.splice(at, 2, { id: next.tabs ? next.id : '', size: next.tabs ? next.size : 'full', active: first.id, title: next.title || '', tabs: tabs });
+                save({ layout: items, reload: true });
+                return;
+            }
+            var group  = items[at];
+            var active = group.active || (group.tabs[0] && group.tabs[0].id);
+            var index  = group.tabs.map(function (t) { return t.id; }).indexOf(active);
+            if (button.hasAttribute('data-pf-tab-move')) {
+                var to = index + parseInt(button.getAttribute('data-pf-tab-move'), 10);
+                if (index < 0 || to < 0 || to >= group.tabs.length) { return; }
+                var stripTabs  = card.querySelectorAll('[data-pf-tab]');
+                var cardPanels = panels(card);
+                var strip = stripTabs[index].parentNode;
+                if (to < index) {
+                    strip.insertBefore(stripTabs[index], stripTabs[to]);
+                    cardPanels[index].parentNode.insertBefore(cardPanels[index], cardPanels[to]);
+                } else {
+                    strip.insertBefore(stripTabs[index], stripTabs[to].nextSibling);
+                    cardPanels[index].parentNode.insertBefore(cardPanels[index], cardPanels[to].nextSibling);
+                }
+                if (button.focus) { button.focus(); }
+                save();
+                return;
+            }
+            var out = group.tabs.splice(index, 1)[0];
+            group.active = group.tabs[0] ? group.tabs[0].id : '';
+            items.splice(at + 1, 0, { id: out.id, size: group.size, settings: out.settings || {} });
+            save({ layout: items, reload: true });
+        });
 
         board.addEventListener('click', function (e) {
             var button = e.target.closest ? e.target.closest('[data-pf-widget-move], [data-pf-widget-resize], [data-pf-widget-hide], [data-pf-widget-settings-toggle]') : null;
@@ -2341,6 +2457,7 @@
                 card.setAttribute('data-size', size);
                 card.classList.toggle('pf-dashboard-full', size === 'full');
                 say(title + ': ' + NAMES[size]);
+                shownAfterResize(card);
             } else {
                 var next = cards()[cards().indexOf(card) + 1] || cards()[cards().indexOf(card) - 1];
                 card.parentNode.removeChild(card);
@@ -2391,14 +2508,14 @@
         function catalogue() { return document.querySelector('[data-pf-dashboard-catalogue-dialog]'); }
         function addCard(id) {
             var dialog = catalogue();
-            if (!id || board.querySelector('[data-pf-widget="' + id + '"]')) { return; }
+            if (!id || placedIds().indexOf(id) >= 0) { return; }
             if (dialog && dialog.close && dialog.open) { dialog.close(); }
             say(id + ': ' + SAY.added);
             save(cardUrl ? { add: { id: id }, redraw: { id: id, card: null } } : { add: { id: id }, reload: true })
                 .then(refreshCatalogue);
         }
         function refreshCatalogue() {
-            var placed = cards().map(function (card) { return card.getAttribute('data-pf-widget'); });
+            var placed = placedIds();
             Array.prototype.forEach.call(document.querySelectorAll('select[data-pf-dashboard-add] option[value]'), function (option) {
                 if (option.value) { option.hidden = placed.indexOf(option.value) >= 0; }
             });
@@ -2598,6 +2715,7 @@
                     card.removeChild(badge);
                     card.classList.remove('pf-dashboard-resizing');
                     card.style.outline = '';
+                    shownAfterResize(card);
                 }
                 if (JSON.stringify(layout()) !== before) {
                     say((card.getAttribute('aria-label') || '') + ': ' + (resizing ? NAMES[sizeOf(card)] : (cards().indexOf(card) + 1) + ' / ' + cards().length));

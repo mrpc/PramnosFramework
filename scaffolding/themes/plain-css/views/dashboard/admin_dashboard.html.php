@@ -6,7 +6,8 @@
  *
  * Variables:
  *   $this->widgets  — array[] {id, size (s|m|l|full), title, link|null, settings, options, html},
- *                     each drawn by card.html.php
+ *                     each drawn by card.html.php — or a group of them as tabs {group: true, id,
+ *                     size, title, active, tabs}, drawn by tabs.html.php
  *   $this->addable  — array   id => title: the widgets this person may add (a view of the older shape)
  *   $this->catalogue — array  id => {title, description, placed}: every card this person may have,
  *                     for the catalogue to add from (a dialog, searched)
@@ -45,7 +46,7 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
     <p class="pf-visually-hidden" data-pf-dashboard-status aria-live="polite"></p>
     <div class="pf-dashboard" data-pf-dashboard data-save="<?php echo $e($this->saveUrl); ?>" data-card="<?php echo $e($this->cardUrl ?? ''); ?>" data-pf-dashboard-say="<?php echo $e(json_encode(['saved' => $t('saved'), 'hidden' => $t('hidden'), 'added' => $t('added'), 'failed' => $t('The dashboard could not be saved.'), 'sizes' => ['s' => $t('small'), 'm' => $t('medium'), 'l' => $t('large'), 'full' => $t('full width')]], JSON_UNESCAPED_UNICODE)); ?>">
         <?php foreach ($this->widgets as $widget): ?>
-        <?php $this->insert('card', ['widget' => $widget]); ?>
+        <?php $this->insert(!empty($widget['group']) ? 'tabs' : 'card', ['widget' => $widget]); ?>
         <?php endforeach; ?>
         <p class="pf-muted pf-dashboard-full" data-pf-dashboard-empty<?php echo $this->widgets ? ' hidden' : ''; ?>><?php echo $e($t('Your dashboard is empty: choose Customise, then add a card.')); ?></p>
     </div>

@@ -135,10 +135,10 @@ class DashboardController extends Controller
         // in place is lost.
         $drawn = [];
         foreach ($layout as $item) {
-            $drawn[] = $this->cardFor($widgets[$item['id']], $item);
+            $drawn[] = \Pramnos\Dashboard\Layouts::isGroup($item) ? $this->groupFor($item, $widgets) : $this->cardFor($widgets[$item['id']], $item);
         }
         $view->widgets    = $drawn;
-        $placed           = array_column($layout, 'id');
+        $placed           = array_column(\Pramnos\Dashboard\Layouts::cards($layout), 'id');
         $view->addable    = array_map(static fn ($w) => $w->title(), array_diff_key($widgets, array_flip($placed)));
         // Every card this person may have, with what it shows and whether it is on the board: a
         // catalogue to search, which shows a card again once it is hidden.
@@ -290,10 +290,8 @@ class DashboardController extends Controller
             $this->addError('That preset is not available.');
         } else {
             $kept    = $this->layouts()->save($user, $preset['layout'], $board);
-            $dropped = count(array_unique(array_filter(array_map(
-                static fn ($item): string => is_array($item) ? (string) ($item['id'] ?? '') : (string) $item,
-                $preset['layout']
-            )))) - count($kept);
+            $asked   = \Pramnos\Dashboard\Layouts::cards(array_map(static fn ($item) => is_array($item) ? $item : ['id' => (string) $item], $preset['layout']));
+            $dropped = count(array_unique(array_filter(array_column($asked, 'id')))) - count(\Pramnos\Dashboard\Layouts::cards($kept));
             $this->addMessage(sprintf(t('The preset "%s" is on your dashboard.'), $preset['name']));
             if ($dropped > 0) {
                 $this->addMessage(sprintf(t('%d cards of this preset are not available to you.'), $dropped));
@@ -589,8 +587,14 @@ class DashboardController extends Controller
             return \Pramnos\Http\Response::make('', 404);
         }
 
-        $saved = array_column($this->layouts()->for($user, $board), null, 'id')[$id]
+        $saved = array_column(\Pramnos\Dashboard\Layouts::cards($this->layouts()->for($user, $board)), null, 'id')[$id]
             ?? \Pramnos\Dashboard\Layouts::clean([['id' => $id]], $user, $board)[0];
+        // A tab opened for the first time: its inside only, for the group's frame to hold.
+        if (($_GET['part'] ?? '') === 'body') {
+            return \Pramnos\Http\Response::make($this->drawWidget($widgets[$id]->configure((array) $saved['settings'])), 200)
+                ->withHeader('Content-Type', 'text/html; charset=utf-8')
+                ->withHeader('Cache-Control', 'no-store');
+        }
         $view         = $this->getView('dashboard');
         $view->widget = $this->cardFor($widgets[$id], $saved);
 
@@ -606,7 +610,7 @@ class DashboardController extends Controller
      * @param array{id: string, size: string, settings?: array<string, mixed>} $item
      * @return array<string, mixed>
      */
-    protected function cardFor(\Pramnos\Dashboard\Widget $widget, array $item): array
+    protected function cardFor(\Pramnos\Dashboard\Widget $widget, array $item, bool $draw = true): array
     {
         $settings = (array) ($item['settings'] ?? []);
         $options  = [];
@@ -628,9 +632,36 @@ class DashboardController extends Controller
             'options'  => $options,
             // name => {input: select|text|date|number, label, values, when}
             'fields'   => $fields,
-            'html'     => $this->drawWidget($widget->configure($settings)),
+            // Null for a tab not shown yet: drawn when it is first opened.
+            'html'     => $draw ? $this->drawWidget($widget->configure($settings)) : null,
             // When a shared card's figures were worked out; null for a card drawn now.
-            'at'       => $widget->shared() ? $this->drawnAt : null,
+            'at'       => $draw && $widget->shared() ? $this->drawnAt : null,
+        ];
+    }
+
+    /**
+     * What a view needs to draw a group of tabs: its place, its heading, and each tab's card —
+     * the active one drawn, the others drawn when first opened (`card?id=…&part=body`).
+     *
+     * @param array{id: string, size: string, tabs: list<array{id: string, settings: array<string, mixed>}>, active: string, title: string} $group
+     * @param array<string, \Pramnos\Dashboard\Widget> $widgets
+     * @return array<string, mixed>
+     */
+    protected function groupFor(array $group, array $widgets): array
+    {
+        $tabs = [];
+        foreach ($group['tabs'] as $tab) {
+            $card   = $this->cardFor($widgets[$tab['id']], ['id' => $tab['id'], 'size' => $group['size'], 'settings' => $tab['settings']], $tab['id'] === $group['active']);
+            $tabs[] = $card;
+        }
+
+        return [
+            'group'  => true,
+            'id'     => $group['id'],
+            'size'   => $group['size'],
+            'title'  => $group['title'],
+            'active' => $group['active'],
+            'tabs'   => $tabs,
         ];
     }
 
