@@ -334,4 +334,58 @@ class UserPostgreSQLCharacterizationTest extends TestCase
         $this->assertNotContains('_cache', $rows, 'a private scalar that was never loaded');
         $this->assertNotContains('_model', $rows);
     }
+
+    /**
+     * A subclass loaded after the base class, for the same account in the same request, holds
+     * the database's values in the columns it declares (FW-319).
+     *
+     * The cache held a snapshot of the object that loaded the account. A column the base class
+     * does not declare goes through __set() into `otherinfo`, so the snapshot taken by
+     * `new User($id)` — which signing in runs — had no such column at the top level. The subclass
+     * that loaded the same account next restored that snapshot and kept its declared column at
+     * its default, and its next save() wrote the default back: an application lost every paid
+     * subscription signed in that way. The diff saw nothing, because its baseline came from the
+     * same snapshot.
+     */
+    public function testASubclassLoadedAfterTheBaseClassHoldsItsOwnColumns(): void
+    {
+        // Arrange — a column only the subclass declares
+        $table = $this->db->prefix . 'users';
+        try {
+            $this->db->query('ALTER TABLE ' . $table . ' ADD COLUMN fw319plan VARCHAR(20) NULL');
+        } catch (\Throwable) {
+            // Left by an interrupted run; the test needs it either way.
+        }
+        $username = 'fw319_' . bin2hex(random_bytes(4));
+        $user = new User();
+        $user->username = $username;
+        $user->email    = $username . '@example.com';
+        $user->save();
+        $userId = (int) $user->userid;
+        $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->update(['fw319plan' => 'premium']);
+        User::clearUserCache();
+        $subclass = new class () extends User {
+            /** The column the application declares, and the base class does not. */
+            public $fw319plan = '';
+        };
+
+        try {
+            // Act — the base class first, as signing in does, then the application's class
+            new User($userId);
+            $mine = new $subclass($userId);
+            $mine->save();
+            User::clearUserCache();
+            $stored = (new $subclass($userId))->fw319plan;
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#userdetails')->where('userid', $userId)->delete();
+            $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->delete();
+            $this->db->query('ALTER TABLE ' . $table . ' DROP COLUMN fw319plan');
+            User::clearUserCache();
+        }
+
+        // Assert
+        $this->assertSame('premium', $mine->fw319plan, 'the subclass reads its column from the cached row, not the base class\'s snapshot');
+        $this->assertArrayNotHasKey('fw319plan', $mine->otherinfo, 'a declared column is not a detail');
+        $this->assertSame('premium', $stored, 'saving the subclass kept the value');
+    }
 }

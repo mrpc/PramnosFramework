@@ -1055,14 +1055,14 @@ class User extends \Pramnos\Framework\Base implements
             return false;
         }
 
-        if (is_array(self::$_usercache) && isset(self::$_usercache[$uid])) {
-            // The snapshot holds every property by its plain name, `_initialUserData` — the
-            // row's columns, _save()'s diffing baseline — among them: a hit rebuilds exactly
-            // what the miss built.
-            foreach (self::$_usercache[$uid] as $key => $value) {
-                $this->$key = $value;
-            }
-            return $this;
+        // The cache holds the rows, not the object: a hit is rebuilt by the same code as a miss.
+        // A snapshot of the object was taken in the class that loaded it — `new User($id)` at
+        // sign-in put a subclass's own columns into `otherinfo` — and restored into a subclass
+        // in the same request left those declared columns at their defaults, which its next
+        // save() wrote back blank (FW-319).
+        $cached = is_array(self::$_usercache) ? (self::$_usercache[$uid] ?? null) : null;
+        if (is_array($cached) && isset($cached['row'], $cached['details'])) {
+            return $this->fillFromRows($cached['row'], $cached['details']);
         }
         $database = \Pramnos\Framework\Factory::getDatabase();
         $result = $database->queryBuilder()
@@ -1072,12 +1072,7 @@ class User extends \Pramnos\Framework\Base implements
         if ($result === false || $result === null || $result->numRows == 0) {
             return false;
         }
-        $this->_isnew = false;
-        foreach (array_keys($result->fields) as $key) {
-            $this->$key = $result->fields[$key];
-        }
-        $this->_initialUserData = $result->fields;
-
+        $row = $result->fields;
 
         // Cached alongside the users row, in the same category and for the same
         // ten seconds. They are read together for the same user on every
@@ -1089,13 +1084,41 @@ class User extends \Pramnos\Framework\Base implements
             ->table(self::userDetailsTable())
             ->where('userid', $uid)
             ->get(true, 10, 'userlist');
-        while ($result->fetch()) { //This should load all special settings
-            $fixname = substr($result->fields['fieldname'], 3);
+        $details = array();
+        while ($result->fetch()) {
+            $details[] = array((string) $result->fields['fieldname'], $result->fields['value']);
+        }
+
+        if (!is_array(self::$_usercache)) {
+            self::$_usercache = array();
+        }
+        self::$_usercache[$uid] = array('row' => $row, 'details' => $details);
+        self::trimCache(self::$_usercache);
+
+        return $this->fillFromRows($row, $details);
+    }
+
+    /**
+     * Set this object from a users row and its userdetails rows — the one way {@see load()}
+     * builds a user, from the database or from its cache.
+     *
+     * @param array<string, mixed>        $row     The users row
+     * @param list<array{0: string, 1: mixed}> $details Each userdetails row's fieldname and value
+     */
+    private function fillFromRows(array $row, array $details): static
+    {
+        $this->_isnew = false;
+        foreach ($row as $key => $value) {
+            $this->$key = $value;
+        }
+        $this->_initialUserData = $row;
+
+        foreach ($details as [$fieldname, $value]) { //This should load all special settings
+            $fixname = substr($fieldname, 3);
             if ($fixname != 'originalOtherinfo'
                 && substr($fixname, 0, 1) != '_'
-                && substr($result->fields['fieldname'], 0, 1) != '_') {
-                $this->otherinfo[$result->fields['fieldname']]
-                    = $result->fields['value'];
+                && substr($fieldname, 0, 1) != '_') {
+                $this->otherinfo[$fieldname] = $value;
             }
         }
         $this->originalOtherinfo = $this->otherinfo;
@@ -1107,10 +1130,6 @@ class User extends \Pramnos\Framework\Base implements
         }
 
         if ($this->avatarurl === '' or $this->avatarurl === NULL) {
-            // Until 2026-08-14 this was `sURL . 'media/img/pramnoscms/noavatar.jpg'` — a path
-            // into a deprecated CMS's asset folder for a file the framework has never
-            // shipped. Every user without an avatar got a URL that 404s.
-            //
             // The framework cannot supply a default image it does not have, so the fallback
             // is configuration: set `defaultAvatarUrl` in the application settings to a file
             // that exists. Left unset, this stays empty and the template decides — which is
@@ -1121,19 +1140,6 @@ class User extends \Pramnos\Framework\Base implements
             );
         }
 
-        if ($this->_isnew == false) {
-            if (!is_array(self::$_usercache)) {
-                self::$_usercache = array();
-            }
-            // `get_object_vars()`, not `(array) $this`: the cast names a protected or private
-            // property with PHP's NUL-byte mangling ("\0*\0originalOtherinfo"), and restoring
-            // that key made a new public property of that literal name instead of setting the
-            // real one (FW-303). A password waiting for its first save is never copied.
-            $snapshot = get_object_vars($this);
-            unset($snapshot['_pendingPlainPassword']);
-            self::$_usercache[$uid] = $snapshot;
-            self::trimCache(self::$_usercache);
-        }
         return $this;
     }
 
@@ -1833,7 +1839,9 @@ class User extends \Pramnos\Framework\Base implements
                 $info['ip'] = substr((string) $ip, 0, 45);
             }
 
-            $json = json_encode($info);
+            // Unescaped: a translated label (`%s σε %s`) escaped to `\u03c3` is refused by a
+            // bytea `deviceinfo` column's insert on every sign-in (FW-319).
+            $json = json_encode($info, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
             // An unencodable value would put the literal `false` in a TEXT column that
             // Token::load() then tries to decode. A token created without device

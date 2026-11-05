@@ -1328,8 +1328,8 @@ class UserCoverageTest extends TestCase
      * Tests that load() uses the static _usercache when the user is already
      * cached there (lines 648-651).
      *
-     * This verifies the _usercache read path is exercised: properties are
-     * copied from the cache array without hitting the database.
+     * This verifies the _usercache read path is exercised: the object is rebuilt
+     * from the cached rows without hitting the database.
      */
     #[Test]
     public function testLoadUsesStaticUsercacheWhenAvailable(): void
@@ -1339,9 +1339,9 @@ class UserCoverageTest extends TestCase
         $user = $this->createUser();
         $uid  = $user->userid;
 
-        // Populate the cache with a known username value
-        $cachedData               = (array) $user;
-        $cachedData['username']   = 'cached_username_' . $uid;
+        // Populate the cache with a known username value — the users row and the
+        // userdetails rows, the shape load() caches
+        $cachedData = ['row' => ['userid' => $uid, 'username' => 'cached_username_' . $uid], 'details' => [['favourite', 'blue']]];
 
         $ref = new \ReflectionClass(User::class);
         $p   = $ref->getProperty('_usercache');
@@ -1355,6 +1355,7 @@ class UserCoverageTest extends TestCase
         // Assert: the cached username was used, not the DB value
         $this->assertEquals('cached_username_' . $uid, $fresh->username,
             'load() must return cached data from _usercache when present');
+        $this->assertSame('blue', $fresh->otherinfo['favourite'] ?? null, 'the cached details are rebuilt too');
 
         // Cleanup: clear the cache
         $p->setValue(null, null);

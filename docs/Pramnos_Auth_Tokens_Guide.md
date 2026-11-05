@@ -325,6 +325,11 @@ writes the new row:
 - every other live `web_session` token from **this same browser**, matched on the device
   fingerprint inside `deviceinfo`.
 
+`deviceinfo` is JSON — `device` (the fingerprint), `label` (the device in words, in the
+language of the request) and `ip` — written with letters and slashes unescaped, so a Greek label
+is stored as its letters and the value holds no backslash a `bytea` column would read as an
+escape.
+
 The fingerprint and nothing else. `deviceinfo` also carries the address the token was
 issued from, and matching on the whole stored value would leave the older token valid after
 a router reboot between two sessions — the dynamic-address problem that `SignInFingerprint`

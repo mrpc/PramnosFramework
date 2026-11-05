@@ -364,9 +364,17 @@ leaves `There is no user N to save: it does not exist.` in `$user->_errors`.
 #### A second load of the same user comes from memory
 
 `load()` keeps what it read for the process, up to a thousand users, and a second
-`new User($id)` is built from that, with no query. It is the same object a load from the database
-gives: the columns, the details (`otherinfo`), `originalOtherinfo` (so a save writes only the
+`new User($id)` is built from that, with no query. What it keeps is the rows — the `users` row and
+the `userdetails` rows — not the object, and a hit is built by the same code as a load from the
+database: the columns, the details (`otherinfo`), `originalOtherinfo` (so a save writes only the
 details that changed) and `_initialUserData`, the baseline `save()` compares with.
+
+That is what makes the cache safe to share with a subclass. A column an application's
+`User` subclass declares is a property on that class and a detail (`otherinfo`, through
+`__set()`) on the base class; the framework itself loads a `\Pramnos\User\User` at sign-in, and
+the application's class loading the same account afterwards must still see its own columns as
+properties. A snapshot of whichever object loaded first could not give it that — and a save
+would write the defaults back.
 `User::clearUserCache()` empties it, and a save of that user drops their entry.
 
 #### `getCurrentUser()` is a read

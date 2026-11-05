@@ -177,4 +177,36 @@ class DeviceInfoTest extends TestCase
             $info['device']
         );
     }
+
+    /**
+     * A translated label is written as its letters, not as `\uXXXX` escapes (FW-319).
+     *
+     * The label is translated, and a Greek one escaped by json_encode() puts a backslash before
+     * every letter — which a PostgreSQL bytea `deviceinfo` column reads as an escape and refuses,
+     * so every sign-in failed to record its token. With no backslash, the value is the same
+     * JSON to every reader.
+     *
+     * @return void
+     */
+    public function testATranslatedLabelIsWrittenAsItsLetters(): void
+    {
+        // Arrange
+        $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            . 'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36';
+        $language = \Pramnos\Translator\Language::getInstance();
+        $strings  = $language->_strings;
+        $language->addlang(['%s on %s' => '%s σε %s']);
+
+        try {
+            // Act
+            $raw = $this->build();
+        } finally {
+            $language->_strings = $strings;
+        }
+
+        // Assert
+        $this->assertStringContainsString('Chrome σε Windows', $raw, 'the label is stored as the reader sees it');
+        $this->assertStringNotContainsString('\\', $raw, 'nothing a bytea column would read as an escape');
+        $this->assertSame('Chrome σε Windows', json_decode($raw, true)['label'] ?? null, 'and it is still the same JSON');
+    }
 }
