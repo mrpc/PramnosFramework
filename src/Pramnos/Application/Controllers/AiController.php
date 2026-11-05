@@ -42,6 +42,7 @@ class AiController extends Controller
     // The analyst's scheduled tasks and reports, at `Ai/scheduled`, where the application lets
     // the analyst schedule (its routineRefusal()).
     use \Pramnos\Llm\Chat\Web\SchedulesTasks;
+    use \Pramnos\Llm\Chat\Web\KeepsSkills;
     use \Pramnos\Llm\Chat\Web\SharesConversations {
         shared as protected sharedInAsk;
     }
@@ -61,11 +62,13 @@ class AiController extends Controller
     {
         $this->addAuthAction(['display', 'all', 'settings', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'cancel', 'delete', 'forget', 'consent', 'api', 'export',
             'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'report',
+            'skills', 'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject',
             'share', 'unshare', 'shared', 'people', 'act', 'approve', 'reject', 'rate', 'reviews', 'reviewed', 'download', 'printable', 'pin']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
         // `api` checks its own token, from the X-CSRF-Token header, since it also answers GET and DELETE.
         $this->addWriteAction(['save', 'check', 'ask', 'cancel', 'delete', 'forget', 'consent',
-            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'reviewed', 'pin']);
+            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'reviewed', 'pin',
+            'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject']);
         parent::__construct($application);
     }
 
@@ -122,6 +125,8 @@ class AiController extends Controller
             'forget'  => adminUrl('Ai/forget/'),
             // The analyst's scheduled tasks, where the application lets it schedule.
             'scheduled' => $this->analystSchedules() ? adminUrl('Ai/scheduled') : '',
+            // Skills of a role and the analyst's own, where the application turned them on.
+            'skills'    => \Pramnos\Llm\Chat\StoredSkills::enabled() ? adminUrl('Ai/skills') : '',
             // Everybody's conversations, read only, for whoever reads them all.
             'all'       => $this->readsAll($this->reader()) ? adminUrl('Ai/all') : '',
             'share'     => adminUrl('Ai/share/'),
@@ -634,6 +639,12 @@ class AiController extends Controller
     protected function taskConversations(): \Pramnos\Llm\Chat\Conversations
     {
         return \Pramnos\Llm\Analyst\Analyst::conversations($this->adminId());
+    }
+
+    /** `Ai/skills`, or `Ai/<action>`. */
+    protected function skillsUrl(string $action = ''): string
+    {
+        return adminUrl('Ai/' . ($action === '' ? 'skills' : $action));
     }
 
     /** `Ai/scheduled`, or `Ai/<action>`. */

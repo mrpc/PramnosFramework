@@ -24,6 +24,7 @@ class ChatPageController extends Controller
 {
     use \Pramnos\Llm\Chat\Concerns\TakesQuestions;
     use SchedulesTasks;
+    use KeepsSkills;
     use SharesConversations;
     use ActsOnLists;
     use RatesAnswers;
@@ -31,10 +32,12 @@ class ChatPageController extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction(['display', 'ask', 'asked', 'cancel', 'delete', 'forget', 'consent', 'report',
-            'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'shared', 'people', 'act', 'approve', 'reject', 'rate', 'download', 'printable', 'pin', 'connect', 'disconnect', 'connected']);
+            'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe',
+            'skills', 'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject', 'share', 'unshare', 'shared', 'people', 'act', 'approve', 'reject', 'rate', 'download', 'printable', 'pin', 'connect', 'disconnect', 'connected']);
         // POST with the session's token: each of these spends, forgets or changes a schedule.
         $this->addWriteAction(['ask', 'cancel', 'delete', 'forget', 'consent',
-            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'pin', 'connect', 'disconnect']);
+            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe',
+            'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'pin', 'connect', 'disconnect']);
         parent::__construct($application);
     }
 

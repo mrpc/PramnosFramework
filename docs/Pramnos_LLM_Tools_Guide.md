@@ -2,6 +2,7 @@
 use_cases:
   - Letting a model answer with the application's tools, declared once with their metadata
   - Grouping many tools in skills the model turns on as it needs them
+  - Letting administrators write skills for a role, and each person keep their own
   - Connecting the application, or each person, to external MCP servers
   - Running a model's reads at once, and each change once per answer
   - Handing part of an answer to a subagent, or letting the model search the web
@@ -257,6 +258,49 @@ application's configuration like any other.
 The catalogues searched are `'llm' => ['chat' => ['skill_catalogues' => ['owner/repo', …]]]`, or
 `coreyhaines31/marketingskills` and `anthropics/knowledge-work-plugins`. A `GITHUB_TOKEN` in the
 environment raises GitHub's rate limit, and none is needed for public repositories.
+
+### Skills of a role, and each person's own
+
+Skills can also be kept in the database, so people write them without a developer. They have the
+same shape as a skill file: a name, the line the model chooses by, the tools and the method.
+
+```php
+// app/app.php
+'llm' => ['chat' => ['stored_skills' => true]],   // off unless turned on
+```
+
+| Level | Who writes it | Who is offered it | Named |
+|---|---|---|---|
+| Application | a developer, as a file | everybody | its name |
+| Role | an administrator | everybody from that usertype, or role, up | `role:<name>` |
+| A person's own | the person | that person, in their own conversations | `mine:<name>` |
+
+They are kept at **My skills**: `chat/skills` for Ask AI and `Ai/skills` for the analyst
+(`Pramnos\Llm\Chat\Web\KeepsSkills`, a trait any controller serving the scheduled page can use too).
+In a conversation, Ask can keep a way of working as a skill with `propose_skill`. It does this only
+when the person asks for it or agrees. The skill is kept as a draft and offered only after its person
+turns it on. Memory works differently: it keeps facts and is always in the context, while a skill is
+a method handed over only when a question needs it.
+
+Four rules hold whatever is written in a skill:
+
+- **A skill gives no right.** It opens only the tools the answer already has, filtered for its
+  reader as always. A tool it lists that the reader may not use is left out.
+- **The application comes first.** The prefixes keep a stored skill from taking an application
+  skill's name. Each method is handed over marked as a role's or the person's own, under the
+  application's rules and skills.
+- **A person's own skill stays in their own conversations.** Its body is what they would have typed.
+  An answer others read too (`@Ask` in a channel) and a scheduled run take only role skills, and
+  only those of the least privileged reader's role (`Turn::rightsOf()`).
+- **An offer becomes a role's skill only on an administrator's word.** A person can offer one of
+  theirs to a role. The offer is a copy that waits (`pending`) until an administrator approves it;
+  if turned down, the offer is deleted and their own skill stays. Writing a role's skill and deciding
+  offers takes `'llm' => ['chat' => ['skills_floor' => …]]`, the admin role's usertype by default.
+  Saving, deleting, approving and turning down role skills is recorded in the audit log
+  (`ai.role_skill_*`).
+
+They live in `pramnos.chat_skills`, with a `status` of `on`, `off`, `draft` or `pending`.
+`Pramnos\Llm\Chat\StoredSkills` reads and writes them for code of the application's own.
 
 ## Tools from other MCP servers
 

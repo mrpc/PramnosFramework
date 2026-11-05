@@ -166,6 +166,52 @@ class SkillsTest extends LlmTestCase
     }
 
     /**
+     * A person's own skill kept in the database (StoredSkills) is offered as `mine:<name>`, hands
+     * over its method marked as theirs, and opens only the tools the answer already has — one it
+     * lists that the person may not use is left out: a skill gives no right.
+     */
+    #[DataProvider('databases')]
+    public function testAStoredSkillOpensOnlyToolsTheAnswerAlreadyHas(string $type, string $host, int $port): void
+    {
+        // Arrange — a person, and their skill listing a tool the assistant has and one it has not
+        $this->connectDatabase($type, $host, $port);
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Llm\CreateChatSkillsTable::class], $this->db);
+        $this->configure(['chat' => ['stored_skills' => true]]);
+        $name = 'stored_' . bin2hex(random_bytes(3));
+        $user = new \Pramnos\User\User();
+        $user->username = $name;
+        $user->email    = $name . '@example.com';
+        $user->save();
+        $id = (int) $user->userid;
+        (new \Pramnos\Llm\Chat\StoredSkills($this->db))->save($user, ['name' => 'churn', 'description' => 'Who is drifting away',
+            'tools' => ['crm_lookup', 'sql'], 'body' => 'Start from the cohort.']);
+        $this->answer([
+            [200, self::calls([['use_skill', ['skill' => 'mine:churn']]])],
+            [200, self::says('Done.')],
+        ]);
+
+        try {
+            // Act
+            (new Conversations(self::assistant()))->as(new Scope($id, null))->ask(null, 'Who is drifting away?');
+        } finally {
+            $this->db->queryBuilder()->table(\Pramnos\Llm\Chat\StoredSkills::TABLE)->where('userid', $id)->delete();
+            $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $id)->delete();
+            \Pramnos\User\User::clearUserCache();
+        }
+
+        // Assert
+        $first       = self::offered($this->sent[0]);
+        $description = $this->sent[0]['body']['tools'][array_search('use_skill', $first, true)]['function']['description'];
+        $this->assertStringContainsString('mine:churn (Who is drifting away)', $description, 'offered under its own prefix');
+        $tools      = array_values(array_filter($this->sent[1]['body']['messages'], static fn (array $m): bool => ($m['role'] ?? '') === 'tool'));
+        $toolAnswer = (string) end($tools)['content'];
+        $this->assertStringContainsString('Turned on mine:churn: crm_lookup.', $toolAnswer, 'only the tool the answer has');
+        $this->assertStringContainsString('wrote for themselves', $toolAnswer, 'its method marked as the person\'s own');
+        $this->assertContains('crm_lookup', self::offered($this->sent[1]));
+        $this->assertNotContains('sql', self::offered($this->sent[1]), 'a skill gives no right');
+    }
+
+    /**
      * A worker rebuilding the tools for one parallel call gets every tool, grouped or not: the
      * call it runs was offered once its skill was on.
      */

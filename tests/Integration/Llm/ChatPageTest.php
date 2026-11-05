@@ -746,7 +746,7 @@ class PageFixture extends ChatPageController
         $view = new class (new \Pramnos\Application\Controller(), $dir, $name) extends \Pramnos\Application\View {
             public function display($tpl = '', $render = false)
             {
-                $file = $this->path . '/' . $this->name . '.html.php';
+                $file = $this->path . '/' . ($tpl !== '' ? $tpl : $this->name) . '.html.php';
                 ob_start();
                 \Closure::bind(function () use ($file): void {
                     include $file;

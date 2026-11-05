@@ -407,7 +407,7 @@ class Conversations
         $routines  = new Routines($this);
         $artifacts = new Artifacts($this->scope);
         // The same services the tools write through: what they made is linked to the conversation below.
-        $tools     = $this->grouped($this->buildTools($turn, $memory, $routines, $artifacts));
+        $tools     = $this->grouped($this->buildTools($turn, $memory, $routines, $artifacts), $turn);
 
         // Reads asked for at once run at once, shared with the `llm_tool` workers, where the
         // application turned it on: a worker builds these same tools again from this.
@@ -990,7 +990,9 @@ class Conversations
                 // Kept with a conversation the person can open: a scheduled run has none yet.
                 + self::inSkill($artifacts->tools(), 'artifacts', ['save_artifact'])
                 // And changes to approve, where the application turned them on: nobody approves in a run.
-                + (new Proposals($this->scope))->tools($artifacts))
+                + (new Proposals($this->scope))->tools($artifacts)
+                // A way of working kept as one of the person's skills, on their word.
+                + (new StoredSkills())->tools($this->scope))
             // The person's profile, calendar and journal, where the application turned each on.
             + $this->personalTools());
 
@@ -1014,12 +1016,19 @@ class Conversations
      * @param array<string, array<string, mixed>> $tools
      * @return array<string, array<string, mixed>>
      */
-    private function grouped(array $tools): array
+    private function grouped(array $tools, ?Turn $turn = null): array
     {
         $chat  = \Pramnos\Llm\Llm::config('chat', []);
         $files = Skills::load();
+        // A role's and the person's own (StoredSkills): only the tools the answer already has — a
+        // skill opens nothing its reader may not use — and never under a name of the files'.
+        $stored = [];
+        foreach ($turn !== null ? (new StoredSkills())->forTurn($turn) : [] as $name => $skill) {
+            $skill['tools'] = array_values(array_filter($skill['tools'], static fn (string $tool): bool => isset($tools[$tool])));
+            $stored[$name]  = $skill;
+        }
         // Skill files mean skills: a method is no use if nothing can turn it on.
-        $skills = is_array($chat) && array_key_exists('skills', $chat) ? (bool) $chat['skills'] : (count($tools) > self::SKILLS_FROM || $files !== []);
+        $skills = is_array($chat) && array_key_exists('skills', $chat) ? (bool) $chat['skills'] : (count($tools) > self::SKILLS_FROM || $files !== [] || $stored !== []);
         if (!$skills) {
             return $tools;
         }
@@ -1031,7 +1040,7 @@ class Conversations
         }
         // The application's skill files: a specialist's method, the tools that go with it, and
         // its references, read on demand.
-        Skills::declare($registry, $files);
+        Skills::declare($registry, $files + $stored);
         $context = $this->scope?->context() ?? [];
 
         return $registry->tools($context, []) + $registry->skillTool($context);
