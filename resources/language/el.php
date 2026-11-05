@@ -2068,6 +2068,8 @@ return [
     // The new-sign-in alert: an OAuth client's name, then the device (FW-320)
     '%s (%s)' => '%s (%s)',
     // Stored skills (Pramnos\Llm\Chat\StoredSkills, Web\KeepsSkills)
+    'Your own skills' => 'Οι δικές σας ειδικότητες',
+    'No role skills yet.' => 'Καμία ειδικότητα ρόλου ακόμα.',
     '%s and up' => '%s και πάνω',
     'For %s and up' => 'Για %s και πάνω',
     'A skill is a way of working Ask is handed when a question needs it. It opens nothing you may not already use.' => 'Μια ειδικότητα είναι ένας τρόπος δουλειάς που δίνεται στο Ask όταν τον χρειάζεται μια ερώτηση. Δεν ανοίγει τίποτα που δεν μπορείτε ήδη να χρησιμοποιήσετε.',

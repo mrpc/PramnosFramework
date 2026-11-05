@@ -94,7 +94,7 @@ $card   = static function (array $skill, bool $offer, bool $decide) use ($c, $e,
         </div>
     </form>
 
-    <h2 class="<?php echo $c['h2']; ?>"><?php echo $e($t('Yours')); ?></h2>
+    <h2 class="<?php echo $c['h2']; ?>"><?php echo $e($t('Your own skills')); ?></h2>
     <?php if (empty($this->mine)): ?><p class="<?php echo $c['muted']; ?>"><?php echo $e($t('None yet. Write one above, or ask Ask to keep a way of working as a skill.')); ?></p><?php endif; ?>
     <?php foreach ((array) ($this->mine ?? []) as $skill) { echo $card($skill, true, false); } ?>
 
@@ -105,7 +105,7 @@ $card   = static function (array $skill, bool $offer, bool $decide) use ($c, $e,
 
     <?php if (!empty($this->manage)): ?>
     <h2 class="<?php echo $c['h2']; ?>"><?php echo $e($t('Roles\' skills')); ?></h2>
-    <?php if (empty($this->roles)): ?><p class="<?php echo $c['muted']; ?>"><?php echo $e($t('None yet.')); ?></p><?php endif; ?>
+    <?php if (empty($this->roles)): ?><p class="<?php echo $c['muted']; ?>"><?php echo $e($t('No role skills yet.')); ?></p><?php endif; ?>
     <?php foreach ((array) ($this->roles ?? []) as $skill) { echo $card($skill, false, $skill['status'] === 'pending'); } ?>
     <?php endif; ?>
 <?php endif; ?>
