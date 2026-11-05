@@ -86,6 +86,42 @@ final class Report
         return $out;
     }
 
+    /**
+     * Several runs of the same cases, as one: each case's scores averaged over the runs — a judge's
+     * grades and a model's choices vary from run to run, and a gate on one run fails on noise. An
+     * assertion is listed as unmet with how many runs missed it; a case is `ok` only if every run
+     * was, and out of rounds if any run was.
+     *
+     * @param list<self> $runs Of the same cases, in the same order
+     */
+    public static function average(array $runs): self
+    {
+        if ($runs === []) {
+            return new self([]);
+        }
+        $count  = count($runs);
+        $merged = [];
+        foreach ($runs[0]->cases as $at => $first) {
+            $all  = array_map(static fn (self $run): array => $run->cases[$at] ?? [], $runs);
+            $case = $first;
+            foreach (['tool_accuracy', 'argument_fidelity', 'final_state', 'rounds', ...self::MEASURED] as $score) {
+                if (array_key_exists($score, $first)) {
+                    $case[$score] = array_sum(array_map(static fn (array $c): float => (float) ($c[$score] ?? 0), $all)) / $count;
+                }
+            }
+            $case['ok']            = !in_array(false, array_map(static fn (array $c): bool => !empty($c['ok']), $all), true);
+            $case['out_of_rounds'] = in_array(true, array_map(static fn (array $c): bool => !empty($c['out_of_rounds']), $all), true);
+            if (array_key_exists('unmet', $first)) {
+                $missed = array_count_values(array_merge(...array_map(static fn (array $c): array => (array) ($c['unmet'] ?? []), $all)));
+                $case['unmet'] = array_map(static fn (string $a, int $n): string => $a . ' (' . $n . '/' . $count . ')', array_keys($missed), $missed);
+            }
+            $case['runs'] = $count;
+            $merged[]     = $case;
+        }
+
+        return new self($merged);
+    }
+
     /** Whether any case scores this. */
     public function scored(string $score): bool
     {

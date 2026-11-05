@@ -502,6 +502,18 @@ own `evals/baseline.json`, and `skill_used` and `assertions` are gated like accu
 cases that score them. A baseline written before these scores existed does not fail on them. The
 setup may give a `context` (`['userid' => …]`) for tools with permissions.
 
+A skill's cases are asked with 16 rounds, as a conversation is, unless `--rounds` says otherwise.
+Plain fixtures keep 6. A case that stopped at the limit, either forced to answer in its last round
+or still calling tools, is marked `(hit the round limit)` and its scores are of a cut answer. A
+tool with no `tool_results` answers `ok`, which a model may take as a reason to keep looking, so
+give the tools a case needs a realistic result.
+
+**Noise.** The judge's grades, and a model's choices, vary from run to run, often by 15 to 30 points
+on a single case, while the mean is steadier. `--repeat=N` asks every case N times and scores the
+mean (`Report::average()`). An assertion appears as unmet with how many runs missed it, and that is
+what a baseline should be written from before the 5-point gate means anything. `-v` prints what
+each case called and the assertions it missed.
+
 ## The call log and costs
 
 `llm_calls` holds every call — failures especially, each with a sentence in `error`. The cost is

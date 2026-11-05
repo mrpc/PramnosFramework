@@ -354,4 +354,44 @@ class EvalSuiteTest extends LlmTestCase
             rmdir($this->dir . '/skills');
         }
     }
+
+    /**
+     * `--repeat` asks each case that many times and scores the mean — a judge's grades vary from
+     * run to run; `-v` prints what each case called and the assertions it missed, with how many
+     * runs missed each; a case stopped at the limit of rounds says so.
+     */
+    public function testRepeatVerboseAndTheRoundLimit(): void
+    {
+        // Arrange — one case with two assertions, graded differently on two runs
+        file_put_contents($this->dir . '/evals.json', json_encode(['evals' => [['id' => 'x', 'prompt' => 'Who drifts?', 'assertions' => ['Names a cohort', 'Proposes an email']]]]));
+        $tester = new CommandTester(new LlmEval());
+        $this->answer([
+            [200, self::says('The March cohort.')], [200, self::says('{"met": [true, false]}')],
+            [200, self::says('The March cohort.')], [200, self::says('{"met": [true, true]}')],
+        ]);
+
+        // Act
+        $code = $tester->execute(['fixtures' => $this->dir, '--repeat' => '2'], ['verbosity' => \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_VERBOSE]);
+        $shown = $tester->getDisplay();
+        $this->answer([[200, self::calls([['list_users', []]])]]);
+        file_put_contents($this->dir . '/evals.json', json_encode(['user_query' => 'Users?', 'available_tools' => ['list_users']]));
+        file_put_contents($this->dir . '/setup.php', '<?php return ["tools" => ' . var_export(array_map(static fn (array $t): array => array_diff_key($t, ['run' => 1]), self::tools()), true) . '];');
+        $tester->execute(['fixtures' => $this->dir, '--setup' => $this->dir . '/setup.php', '--rounds' => '1']);
+        $refused = $tester->getDisplay();
+        $this->answer([[200, self::calls([['list_users', []]])], [200, self::says('Two.')]]);
+        $tester->execute(['fixtures' => $this->dir, '--setup' => $this->dir . '/setup.php', '--rounds' => '2']);
+        $cut = $tester->getDisplay();
+        unlink($this->dir . '/setup.php');
+
+        // Assert
+        $this->assertSame(0, $code);
+        $this->assertStringContainsString('assertions 75%', $shown, 'the mean of 50% and 100%');
+        $this->assertStringContainsString('unmet: Proposes an email (1/2)', $shown);
+        $this->assertStringContainsString('(hit the round limit)', $cut, 'forced to answer in its last round');
+        $this->assertStringContainsString('(hit the round limit)', $refused, 'still calling tools when it stopped');
+        $averaged = Report::average([new Report([['name' => 'a', 'ok' => true, 'tool_accuracy' => 1.0, 'argument_fidelity' => 1.0, 'final_state' => 1.0, 'rounds' => 2]]),
+            new Report([['name' => 'a', 'ok' => false, 'tool_accuracy' => 0.0, 'argument_fidelity' => 1.0, 'final_state' => 0.0, 'rounds' => 4, 'out_of_rounds' => true]])]);
+        $this->assertSame([0.5, 3.0, false, true, 2], [$averaged->cases[0]['tool_accuracy'], $averaged->cases[0]['rounds'], $averaged->cases[0]['ok'], $averaged->cases[0]['out_of_rounds'], $averaged->cases[0]['runs']]);
+        $this->assertSame([], Report::average([])->cases);
+    }
 }

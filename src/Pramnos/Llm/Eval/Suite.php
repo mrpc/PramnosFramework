@@ -189,6 +189,9 @@ final class Suite
             'argument_fidelity' => self::fidelity((array) ($case['expected_arguments'] ?? []), $calls),
             'final_state'       => !empty($answer['ok']) && $missing === [] ? 1.0 : 0.0,
             'rounds'            => (int) ($answer['rounds'] ?? 0),
+            // Stopped at the limit of rounds rather than answering: the scores are of a cut answer.
+            // — forced to answer in its last round, or refused still calling tools.
+            'out_of_rounds'     => !empty($answer['out_of_rounds']) || (empty($answer['ok']) && $calls !== []),
         ];
         // Assertions in plain words, as public skill evals write them: graded by the model as a judge.
         $assertions = array_values(array_filter(array_map('strval', (array) ($case['assertions'] ?? [])), static fn (string $a): bool => trim($a) !== ''));

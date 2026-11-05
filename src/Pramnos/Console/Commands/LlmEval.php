@@ -35,7 +35,11 @@ use Symfony\Component\Console\Output\OutputInterface;
  * ({@see \Pramnos\Llm\Chat\Skills}), asked as a conversation asks: the setup's tools grouped into
  * skills, with `use_skill` and the skills' own tools. A case naming no `available_tools` is offered
  * all of them, and one naming no `expected_skill` is expected to turn on its own skill — scored as
- * `skill_used`. Each skill is compared with its own `evals/baseline.json`.
+ * `skill_used`. Each skill is compared with its own `evals/baseline.json`, and asked with 16 rounds,
+ * as a conversation is, unless `--rounds` says otherwise.
+ *
+ * `--repeat=N` asks every case N times and scores the mean ({@see Report::average()}): a judge's
+ * grades vary from run to run. `-v` prints what each case called and the assertions it missed.
  */
 class LlmEval extends Command
 {
@@ -49,7 +53,8 @@ class LlmEval extends Command
             ->addOption('setup', null, InputOption::VALUE_REQUIRED, 'PHP file returning [system, tools, client]')
             ->addOption('baseline', null, InputOption::VALUE_REQUIRED, 'JSON file to compare with')
             ->addOption('write-baseline', null, InputOption::VALUE_NONE, 'Write the scores to --baseline instead of comparing')
-            ->addOption('rounds', null, InputOption::VALUE_REQUIRED, 'Rounds each answer may take', '6');
+            ->addOption('rounds', null, InputOption::VALUE_REQUIRED, 'Rounds each answer may take (6; with --skills, 16 as in a conversation)')
+            ->addOption('repeat', null, InputOption::VALUE_REQUIRED, 'Ask each case this many times and score the mean', '1');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -59,9 +64,11 @@ class LlmEval extends Command
             $setup = is_file((string) $file) ? (array) (require (string) $file) : [];
         }
         $client = isset($setup['client']) && is_callable($setup['client']) ? $setup['client'] : null;
-        $rounds = max(1, (int) $input->getOption('rounds'));
+        $skills = $input->getOption('skills') || $input->getOption('skill') !== null;
+        // A skill's cases are asked as a conversation asks them, with as many rounds as it has.
+        $rounds = max(1, (int) ($input->getOption('rounds') ?? ($skills ? 16 : 6)));
 
-        if ($input->getOption('skills') || $input->getOption('skill') !== null) {
+        if ($skills) {
             return $this->skills($input, $output, $setup, $client, $rounds);
         }
 
@@ -73,7 +80,7 @@ class LlmEval extends Command
             return Command::FAILURE;
         }
 
-        $report = $suite->run((string) ($setup['system'] ?? ''), (array) ($setup['tools'] ?? []), $client, $rounds);
+        $report = $this->repeated($input, static fn (): Report => $suite->run((string) ($setup['system'] ?? ''), (array) ($setup['tools'] ?? []), $client, $rounds));
         $this->print($report, $output);
 
         $baseline = $input->getOption('baseline');
@@ -112,7 +119,7 @@ class LlmEval extends Command
             }
             $asked++;
             $output->writeln('<info>' . $name . '</info>');
-            $report = $suite->run((string) ($setup['system'] ?? ''), $tools, $client, $rounds);
+            $report = $this->repeated($input, static fn (): Report => $suite->run((string) ($setup['system'] ?? ''), $tools, $client, $rounds));
             $this->print($report, $output);
             $baseline = $skill['evals'] . '/baseline.json';
             if ($input->getOption('write-baseline') || is_file($baseline)) {
@@ -128,21 +135,49 @@ class LlmEval extends Command
         return $failed ? Command::FAILURE : Command::SUCCESS;
     }
 
-    /** Each case's scores, then the means. */
+    /**
+     * A run, or `--repeat` runs averaged ({@see Report::average()}).
+     *
+     * @param callable(): Report $run
+     */
+    private function repeated(InputInterface $input, callable $run): Report
+    {
+        $times = max(1, (int) $input->getOption('repeat'));
+        if ($times === 1) {
+            return $run();
+        }
+        $runs = [];
+        for ($i = 0; $i < $times; $i++) {
+            $runs[] = $run();
+        }
+
+        return Report::average($runs);
+    }
+
+    /** Each case's scores, then the means; with -v, what each called and the assertions it missed. */
     private function print(Report $report, OutputInterface $output): void
     {
         foreach ($report->cases as $case) {
             $output->writeln(sprintf(
-                '%s  tools %d%%  arguments %d%%  answer %s  rounds %d%s%s',
+                '%s  tools %d%%  arguments %d%%  answer %s  rounds %s%s%s%s',
                 $case['name'],
                 (int) round($case['tool_accuracy'] * 100),
                 (int) round($case['argument_fidelity'] * 100),
-                $case['final_state'] >= 1 ? 'ok' : 'no',
-                $case['rounds'],
-                (array_key_exists('skill_used', $case) ? '  skill ' . ($case['skill_used'] >= 1 ? 'used' : 'not used') : '')
+                isset($case['runs']) ? sprintf('%d%%', (int) round($case['final_state'] * 100)) : ($case['final_state'] >= 1 ? 'ok' : 'no'),
+                isset($case['runs']) ? sprintf('%.1f', $case['rounds']) : (string) $case['rounds'],
+                (array_key_exists('skill_used', $case) ? (isset($case['runs']) ? sprintf('  skill used %d%%', (int) round($case['skill_used'] * 100)) : '  skill ' . ($case['skill_used'] >= 1 ? 'used' : 'not used')) : '')
                     . (array_key_exists('assertions', $case) ? sprintf('  assertions %d%%', (int) round($case['assertions'] * 100)) : ''),
-                $case['ok'] ? '' : '  (' . $case['says'] . ')'
+                !empty($case['out_of_rounds']) ? '  (hit the round limit)' : '',
+                $case['ok'] ? '' : '  (' . ($case['says'] ?? '') . ')'
             ));
+            if ($output->isVerbose()) {
+                if (($case['called'] ?? []) !== []) {
+                    $output->writeln('    called: ' . implode(', ', (array) $case['called']));
+                }
+                foreach ((array) ($case['unmet'] ?? []) as $unmet) {
+                    $output->writeln('    unmet: ' . $unmet);
+                }
+            }
         }
         $summary = $report->toArray()['summary'];
         $output->writeln(sprintf(
