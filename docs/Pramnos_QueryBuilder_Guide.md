@@ -508,6 +508,11 @@ $result = $db->queryBuilder()
     ->get();
 ```
 
+An empty list is no row for `whereIn()` and every row for `whereNotIn()`. They compile to
+`1 = 0` and `1 = 1`, because `IN ()` is not SQL. A list of ids from a query that found nothing
+needs no `if ($ids)` in front of it. A `DELETE` with `whereNotIn('id', [])` therefore deletes every
+row its other conditions allow.
+
 #### `whereInSub(string $column, Closure|QueryBuilder $query): static`
 
 `column IN (SELECT …)` in one statement, in every dialect, with the subquery's bound values where

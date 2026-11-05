@@ -364,6 +364,12 @@ abstract class Grammar implements GrammarInterface
 
                 case 'In':
                 case 'NotIn':
+                    // An empty list is no row for IN and every row for NOT IN — `IN ()` is not SQL
+                    // in any dialect, and a list from a query that found nothing is common.
+                    if ($where['values'] === []) {
+                        $part .= $where['type'] === 'In' ? '1 = 0' : '1 = 1';
+                        break;
+                    }
                     $placeholders   = array_map(fn($v) => $this->getPlaceholder($v), $where['values']);
                     $operator       = $where['type'] === 'In' ? 'IN' : 'NOT IN';
                     $part .= $this->quoteIfCaseSensitive($where['column']) . ' ' . $operator . ' (' . implode(', ', $placeholders) . ')';

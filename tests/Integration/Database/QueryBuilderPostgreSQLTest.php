@@ -2084,4 +2084,31 @@ class QueryBuilderPostgreSQLTest extends DatabaseTestCase
         // Assert — every one says so, as the same exception on every driver
         $this->assertSame(['count' => 'QueryException', 'max' => 'QueryException', 'getAll' => 'QueryException', 'delete' => 'QueryException'], $thrown);
     }
+
+    /**
+     * An empty list (FW-326): `whereIn(col, [])` matches no row and `whereNotIn(col, [])` every row,
+     * in a SELECT and a DELETE, beside other conditions and in the OR forms — `IN ()` was a syntax
+     * error, and a list from a query that found nothing is common.
+     */
+    public function testAnEmptyListMatchesNoRowForInAndEveryRowForNotIn(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $names = fn ($query): array => array_column($query->orderBy('id')->get()->fetchAll(), 'name');
+
+        // Act
+        $none     = $names($this->db->queryBuilder()->select(['name'])->from('qb_products')->whereIn('id', []));
+        $all      = $names($this->db->queryBuilder()->select(['name'])->from('qb_products')->whereNotIn('id', [])->where('category', 'veggie'));
+        $orNone   = $names($this->db->queryBuilder()->select(['name'])->from('qb_products')->where('name', 'Apple')->orWhereIn('id', []));
+        $orAll    = $names($this->db->queryBuilder()->select(['name'])->from('qb_products')->where('name', 'Apple')->orWhereNotIn('id', []));
+        $this->db->queryBuilder()->table('qb_products')->whereIn('id', [])->delete();
+        $left     = $this->db->queryBuilder()->table('qb_products')->count();
+
+        // Assert
+        $this->assertSame([], $none);
+        $this->assertSame(['Carrot', 'Daikon'], $all, 'every row, still narrowed by the rest');
+        $this->assertSame(['Apple'], $orNone);
+        $this->assertCount(5, $orAll);
+        $this->assertSame(5, $left, 'a delete of an empty list deletes nothing');
+    }
 }
