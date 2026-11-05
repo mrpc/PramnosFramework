@@ -288,7 +288,8 @@ $user->loadByToken($tokenString, 'auth');
 
 ### Web-session tokens, and how they stop
 
-A `web_session` token is created on every successful web login and lives in
+A `web_session` token is created on every successful web login — the built-in lifecycle or an
+application's user addon (`Addon\User\User`) alike — and lives in
 `$_SESSION['usertoken']`, so same-origin AJAX is authenticated without a Bearer token.
 One login, one row.
 

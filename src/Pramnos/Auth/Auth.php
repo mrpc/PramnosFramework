@@ -588,6 +588,7 @@ class Auth extends \Pramnos\Framework\Base
         // After either path, so an application's own user addon gets the marker too.
         if (!empty($response['status']) && (int) ($response['uid'] ?? 0) > 1) {
             LoginMarker::set((bool) ($response['remember'] ?? true));
+            $this->startWebSession((int) $response['uid']);
         }
 
         // Whichever branch established the session, serve the rest of this request
@@ -608,6 +609,27 @@ class Auth extends \Pramnos\Framework\Base
         $this->loginMethod = null;
 
         return $response;
+    }
+
+    /**
+     * The web-session token, after whichever path signed the visitor in.
+     *
+     * It is what `Application::exec()` attributes each request to in `usertokens` /
+     * `tokenactions`, what *sign out everywhere* and a revoked session act on, and what the
+     * page head's `<meta name="csrf">` waited for. Created only on the built-in path, an
+     * application signing in through a user addon (`Addon\User\User`) had none of those: no
+     * page carried the CSRF tag, so every write `pf-utils.js` sends — saving a dashboard's
+     * layout, marking a notification read — was refused. Best-effort: a sign-in is not
+     * refused because the token row could not be written.
+     */
+    private function startWebSession(int $userId): void
+    {
+        $remoteIp = \Pramnos\Http\Request::clientIp();
+        try {
+            (new \Pramnos\User\User($userId))->createWebSessionToken($remoteIp !== '' ? $remoteIp : null);
+        } catch (\Throwable $ex) {
+            \Pramnos\Logs\Logger::log('Web-session token creation failed: ' . $ex->getMessage());
+        }
     }
 
     /**
@@ -719,17 +741,6 @@ class Auth extends \Pramnos\Framework\Base
         // notification is not worth failing a login for.
         NewSignInAlert::checkAndNotify((int) $info['uid']);
 
-        // Create the web-session token so per-request activity is attributed in
-        // usertokens/tokenactions (Application::exec() logs each request against
-        // $_SESSION['usertoken']). Built-in path only; best-effort.
-        if ((int) $info['uid'] > 1) {
-            try {
-                (new \Pramnos\User\User((int) $info['uid']))
-                    ->createWebSessionToken($remoteIp !== '' ? $remoteIp : null);
-            } catch (\Throwable $ex) {
-                \Pramnos\Logs\Logger::log('Web-session token creation failed: ' . $ex->getMessage());
-            }
-        }
     }
 
     /**

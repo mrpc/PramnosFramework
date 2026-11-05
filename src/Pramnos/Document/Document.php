@@ -1035,7 +1035,12 @@ class Document extends \Pramnos\Framework\Base
         $refresh = "\n        " . '<meta name="csrf-refresh" content="'
             . $this->escapeHeadValue(\Pramnos\Http\SiteUrl::to('Csrf')) . '" />';
 
-        if (session_status() !== PHP_SESSION_ACTIVE || !isset($_SESSION['usertoken'])) {
+        // A signed-in session: its web-session token, or — for a session that predates one, or
+        // an application whose login does not create it — the account id every login path
+        // writes. Not a user lookup: this runs on every page, and a guest page must not mint
+        // a token (that write is what makes the page uncacheable).
+        $signedIn = isset($_SESSION['usertoken']) || (int) ($_SESSION['uid'] ?? 0) > 1;
+        if (session_status() !== PHP_SESSION_ACTIVE || !$signedIn) {
             return $refresh;
         }
 

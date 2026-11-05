@@ -181,7 +181,9 @@ Token lookup order per request:
 
 A signed-in page already carries the synchronizer token: the document's `<head>` emits
 `<meta name="csrf" content="…">` whenever a session is running and somebody is signed in
-(`Document::csrfHeadMarkup()`). Send it back as a header:
+(`Document::csrfHeadMarkup()`) — a session holding a web-session token, or the account id
+(`$_SESSION['uid'] > 1`) that every login path writes, including a user addon's
+(`Addon\User\User`). A guest page carries no tag and mints no token. Send it back as a header:
 
 ```javascript
 fetch('/api/data', {

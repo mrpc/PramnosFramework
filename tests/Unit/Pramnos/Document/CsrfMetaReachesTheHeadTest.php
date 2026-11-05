@@ -44,13 +44,13 @@ class CsrfMetaReachesTheHeadTest extends TestCase
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
-        unset($_SESSION['usertoken'], $_SESSION['csrf_token']);
+        unset($_SESSION['usertoken'], $_SESSION['csrf_token'], $_SESSION['uid']);
     }
 
     protected function tearDown(): void
     {
         Document::_setContent('');
-        unset($_SESSION['usertoken'], $_SESSION['csrf_token']);
+        unset($_SESSION['usertoken'], $_SESSION['csrf_token'], $_SESSION['uid']);
     }
 
     /**
@@ -74,6 +74,42 @@ class CsrfMetaReachesTheHeadTest extends TestCase
             $output,
             'the tag pf-utils.js reads must be on the page'
         );
+    }
+
+    /**
+     * A session signed in without a web-session token still carries the CSRF tag.
+     *
+     * An application signing in through a user addon had no web-session token, so no page
+     * printed the tag and every write pf-utils.js sends was refused. The account id every
+     * login path writes is enough to know the page is a signed-in one.
+     */
+    public function testASignedInSessionWithoutAWebSessionTokenCarriesTheToken(): void
+    {
+        // Arrange — what Addon\User\User::onLogin() leaves, and no usertoken
+        $_SESSION['uid']        = 42;
+        $_SESSION['csrf_token'] = 'e5f6a7b8';
+
+        // Act
+        $output = (new Html())->render();
+
+        // Assert
+        $this->assertStringContainsString('<meta name="csrf" content="e5f6a7b8" />', $output);
+    }
+
+    /**
+     * The anonymous account's id (1) is not a signed-in session.
+     */
+    public function testTheAnonymousAccountIdIsNotASignedInSession(): void
+    {
+        // Arrange — some paths keep uid = 1 for a guest
+        $_SESSION['uid'] = 1;
+
+        // Act
+        $output = (new Html())->render();
+
+        // Assert — no tag, and no token minted for a guest page
+        $this->assertStringNotContainsString('name="csrf"', $output);
+        $this->assertArrayNotHasKey('csrf_token', $_SESSION);
     }
 
     /**
