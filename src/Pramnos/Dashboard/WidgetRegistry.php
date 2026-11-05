@@ -13,6 +13,8 @@ namespace Pramnos\Dashboard;
  * 'dashboard' => [
  *     'widgets'   => [\App\Widgets\OpenOrders::class],
  *     'framework' => false,   // leave out the framework's own (users, API, database, health)
+ *     // or keep them in the catalogue but off a new dashboard:
+ *     // 'framework_default' => false,
  * ],
  *
  * // or in code, from a service provider
@@ -137,12 +139,26 @@ final class WidgetRegistry
     /**
      * Whether a new dashboard has the card: `'dashboard' => ['cards' => ['logs.errors' =>
      * ['default' => false]]]` in app.php, or the widget's own {@see Widget::byDefault()}.
+     *
+     * `'dashboard' => ['framework_default' => false]` keeps the framework's cards in the
+     * catalogue and off a new dashboard, all of them — including one a later framework version
+     * adds, which a list of ids under `cards` would silently miss. A card the application names
+     * with `'default' => true` is still placed, and the application's own cards are untouched.
      */
     public static function byDefault(Widget $widget): bool
     {
         $default = self::card($widget->id())['default'] ?? null;
+        if (is_bool($default)) {
+            return $default;
+        }
 
-        return is_bool($default) ? $default : $widget->byDefault();
+        $app = \Pramnos\Application\Application::currentInstance();
+        if (is_object($app) && ($app->applicationInfo['dashboard']['framework_default'] ?? true) === false
+            && in_array($widget::class, self::FRAMEWORK, true)) {
+            return false;
+        }
+
+        return $widget->byDefault();
     }
 
     /**

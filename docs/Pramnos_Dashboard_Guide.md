@@ -267,6 +267,23 @@ ids — only those, in that order, so taking one card does not bring the develop
 ],
 ```
 
+To offer the framework's cards in the catalogue but put none of them on a new dashboard, say so
+once rather than per id — a list of ids under `cards` goes stale the day the framework adds a
+card, which then appears on new dashboards with nobody having chosen it:
+
+```php
+'dashboard' => [
+    'framework_default' => false,
+    'cards' => ['health' => ['default' => true]],   // a framework card you do want placed
+],
+```
+
+The application's own cards keep their own default. The catalogue dialog is hidden by
+`components.css` while closed even when it carries a theme's `.card` (a `display: flex` card
+otherwise outranks the browser's own rule), and the grip falls back to a symbol font for the ⠿
+glyph a theme font may not have. An mvc application never scaffolded from a theme gets that
+stylesheet with `project:resync --css --all` (bootstrap's copy when `scaffold_theme` is unset).
+
 The framework's cards say their tile labels through `t()` (`Figures::words()`), and the dashboard
 translates each card's title, so a translation of the words puts the cards in the page's language.
 

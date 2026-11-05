@@ -530,7 +530,12 @@ a.pf-stat-tile:hover { border-color: var(--color-primary, #2563eb); }
 /* Dragging by the grip and resizing by the corner (pf-utils.js, pointer events). The lifted card
    follows the pointer above the page; a dashed placeholder keeps its place. */
 .pf-dashboard > [data-pf-widget] { position: relative; }
-.pf-dashboard-grip { cursor: grab; touch-action: none; user-select: none; }
+.pf-dashboard-grip { cursor: grab; touch-action: none; user-select: none;
+    /* ⠿ is a Braille pattern, and a theme font without the block (Poppins, Inter) draws tofu. */
+    font-family: "Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols 2", "DejaVu Sans", sans-serif; }
+/* The catalogue dialog may carry a theme's .card; a .card that is display:flex outranks the
+   browser's dialog:not([open]) { display: none } and leaves the catalogue standing open. */
+[data-pf-dashboard-catalogue-dialog]:not([open]) { display: none; }
 .pf-dashboard > .pf-dashboard-dragging {
     position: fixed; z-index: 60; margin: 0; pointer-events: none;
     transform: rotate(1deg) scale(1.02); opacity: .92; box-shadow: 0 18px 40px rgb(0 0 0 / .25);

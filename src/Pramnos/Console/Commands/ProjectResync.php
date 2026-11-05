@@ -152,7 +152,7 @@ class ProjectResync extends Command
         // (a dialog, a calendar) is otherwise unstyled in every project scaffolded before it, and
         // protected, because a project may have changed its copy.
         if ($onlyCss || $allGroups) {
-            $files = array_merge($files, $this->collectComponentStyles($scaffoldingDir, $base));
+            $files = array_merge($files, $this->collectComponentStyles($scaffoldingDir, $base, $onlyCss));
         }
         if ($onlyComponents) {
             $files = array_merge(
@@ -625,14 +625,24 @@ class ProjectResync extends Command
      */
     /**
      * The scaffolded theme's components.css, for `<webroot>/assets/css/components.css` — from
-     * the theme app.php names in `scaffold_theme`, none when it names none or one the framework
-     * does not ship.
+     * the theme app.php names in `scaffold_theme`, none when it names one the framework does
+     * not ship.
      *
+     * With no `scaffold_theme`: nothing in the default set, but `bootstrap`'s when `--css` was
+     * asked for by name. An mvc application that was never scaffolded from a theme can still
+     * draw the framework's components (dashboard cards, a stat tile), and they need the styles;
+     * asking for them is the signal, and a plain resync does not drop a file into every such
+     * project's web root.
+     *
+     * @param bool $asked `--css` was given
      * @return list<array{content: string, dest: string, exec: bool, protect: bool}>
      */
-    private function collectComponentStyles(string $scaffoldingDir, string $base): array
+    private function collectComponentStyles(string $scaffoldingDir, string $base, bool $asked = false): array
     {
         $theme  = (string) ($this->appConfig($base)['scaffold_theme'] ?? '');
+        if ($theme === '' && $asked) {
+            $theme = 'bootstrap';
+        }
         $source = $scaffoldingDir . '/themes/' . basename($theme) . '/components.css';
         if ($theme === '' || !is_file($source)) {
             return [];

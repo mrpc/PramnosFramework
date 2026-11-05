@@ -37,7 +37,8 @@ class ThemeComponentsStylesheetTest extends TestCase
     }
 
     /**
-     * No rule in components.css reaches beyond the framework's own `pf-*` hooks: nothing for
+     * No rule in components.css reaches beyond the framework's own `pf-*` hooks (a `.pf-` class or a
+     * `[data-pf-…]` attribute): nothing for
      * `html`, `body`, `:root` or the theme's own screens, which belong to the page an
      * application owns. Keyframes named `pf-…` are a component's own movement.
      */
@@ -54,7 +55,8 @@ class ThemeComponentsStylesheetTest extends TestCase
         $selectors = array_map('trim', explode(',', implode(',', $m[1])));
         $foreign   = array_values(array_filter(
             $selectors,
-            static fn (string $s): bool => $s !== '' && !preg_match('/^(a)?\.pf-(?!home|ui-)/', $s)
+            // `[data-pf-…]` is the framework's own hook too: the markup a component's script reads.
+            static fn (string $s): bool => $s !== '' && !preg_match('/^(a)?\.pf-(?!home|ui-)|^\[data-pf-/', $s)
         ));
 
         // Assert

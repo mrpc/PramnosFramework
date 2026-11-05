@@ -224,6 +224,35 @@ class WidgetRegistryTest extends TestCase
     }
 
     /**
+     * `framework_default => false` keeps every framework card in the catalogue and off a new
+     * dashboard, without naming them; a card named `default => true` is still placed, and the
+     * application's own cards keep their own default.
+     *
+     * The alternative was one `['default' => false]` per framework id, which goes stale the day
+     * the framework adds a card — it appears on new dashboards with nobody having chosen it.
+     */
+    public function testFrameworkDefaultFalseKeepsTheFrameworksCardsOffANewDashboard(): void
+    {
+        // Arrange
+        WidgetRegistry::register(OrdersWidget::class);
+        Application::getInstance()->applicationInfo['dashboard'] = [
+            'framework_default' => false,
+            'cards'             => ['health' => ['default' => true], 'orders' => ['default' => true]],
+        ];
+
+        // Act
+        $offered = array_keys(WidgetRegistry::available(self::user(99)));
+        $new     = array_column(Layouts::defaults(self::user(99)), 'id');
+
+        // Assert — still offered in the catalogue
+        $this->assertContains('users.active', $offered);
+        // …not placed on a new dashboard, unless named
+        $this->assertNotContains('users.active', $new);
+        $this->assertContains('health', $new, 'named default true: placed anyway');
+        $this->assertContains('orders', $new, 'the application\'s own card is untouched');
+    }
+
+    /**
      * The framework's cards say their tile labels in the page's language: every label goes
      * through Figures::words(), which asks the translator.
      */

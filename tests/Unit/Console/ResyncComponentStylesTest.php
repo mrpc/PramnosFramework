@@ -100,4 +100,32 @@ final class ResyncComponentStylesTest extends TestCase
         $this->assertFileDoesNotExist($this->base . '/www/assets/css/components.css');
         $this->assertStringContainsString('Nothing to sync', $display);
     }
+
+    /**
+     * With no `scaffold_theme`, `--css` asked by name takes bootstrap's copy (added with `--all`,
+     * as every missing file is); a plain resync writes nothing.
+     *
+     * An mvc application never scaffolded from a theme still draws the framework's components
+     * (dashboard cards, a stat tile) and needs their styles; a resync that did not ask must not
+     * drop a file into every such project's web root.
+     */
+    public function testWithoutAThemeAskingForCssTakesBootstrapsCopy(): void
+    {
+        // Arrange — an app.php with no scaffold_theme at all
+        file_put_contents($this->base . '/app/app.php', "<?php return ['app_style' => 'mvc'];");
+        $dest = $this->base . '/www/assets/css/components.css';
+
+        // Act — first a plain resync, then --css by name
+        $this->resync(['--all' => true]);
+        $writtenByPlain = is_file($dest);
+        $this->resync(['--css' => true, '--all' => true]);
+
+        // Assert
+        $this->assertFalse($writtenByPlain, 'a resync that did not ask writes no components.css');
+        $this->assertSame(
+            (string) file_get_contents(ROOT . '/scaffolding/themes/bootstrap/components.css'),
+            (string) file_get_contents($dest),
+            '--css with no theme named takes bootstrap\'s'
+        );
+    }
 }
