@@ -13,14 +13,16 @@
  *   $this->cardUrl  — string  where one card is drawn alone (GET ?id=)
  *   $this->saveUrl  — string  where a layout is saved (POST, JSON)
  *   $this->resetUrl — string  where it goes back to the default (POST)
+ *   $this->embedded — bool    drawn inside another screen (Board::render()): no page heading or frame
+ *   $this->boardTitle — string a heading over an embedded board; '' for none
  *   ($this->activeUsers, dbStats, apiStats, healthResults — the figures, for a view of the older shape)
  */
 $e = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $t = static fn (string $words): string => function_exists('t') ? (string) t($words) : $words;
 ?>
-<div class="px-4 py-6">
+<div class="<?php echo !empty($this->embedded) ? 'pf-dashboard-embed' : 'px-4 py-6'; ?>">
     <div class="flex items-center gap-2 mb-4">
-        <h2 class="text-2xl font-semibold"><?php echo $e($t('Dashboard')); ?></h2>
+        <?php if (empty($this->embedded)): ?><h2 class="text-2xl font-semibold"><?php echo $e($t('Dashboard')); ?></h2><?php elseif (($this->boardTitle ?? '') !== ''): ?><h3 class="text-xl font-semibold"><?php echo $e($this->boardTitle); ?></h3><?php endif; ?>
         <button type="button" class="btn btn-sm btn-ghost ms-auto" data-pf-dashboard-edit aria-pressed="false"><?php echo $e($t('Customise')); ?></button>
     </div>
 

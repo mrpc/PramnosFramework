@@ -364,6 +364,29 @@ A board's layouts are kept apart from the others, under `dashboard.{board}` in `
 and are cleaned against that board's catalogue. A `DashboardController` subclass sets its board with
 `protected string $dashboardArea = 'wcm';`.
 
+### A board inside any screen
+
+A board need not be a page of its own. Any screen can draw one above or instead of its own
+content:
+
+```php
+// in the WCM screen's action
+$html = \Pramnos\Dashboard\Board::render('wcm', 'Overview');   // '' when the board is not theirs
+```
+
+It works as the dashboard does: Customise, then move, resize, add from the board's catalogue. Its
+controls talk to the application's dashboard controller with `?board=wcm`, so the screen needs no
+actions of its own. That controller is the one `'dashboard' => ['controller' => …]` names, the
+application's `Controllers\Dashboard`, or the framework's, whichever is a `DashboardController`
+first. `?board=` may name only a board app.php lists; anything else is the controller's own
+board, so a save never lands under a name no screen draws. `Board::render()` throws for a board
+app.php does not list.
+
+A board is open to anybody signed in, and each card still asks its own `allowed()`. A board can
+raise the bar with `'boards' => ['wcm' => ['min_role' => 'manager']]`: below it, the board draws
+nothing and its saves answer 403. Drawn this way, the view gets `$this->embedded = true` and
+`$this->boardTitle`, and draws no page heading or frame.
+
 ## Each person's layout
 
 "Customise" shows each card's tools:

@@ -96,6 +96,7 @@ class DashboardLayoutsMySQLTest extends TestCase
     {
         $this->db->queryBuilder()->table('#PREFIX#usersettings')->where('userid', self::ME)->where('setting', 'like', Layouts::SETTING . '%')->delete();
         \Pramnos\Http\RequestIdentity::reset();
+        $_GET = [];
         Figures::forget();
         $_POST = [];
     }
@@ -212,6 +213,67 @@ class DashboardLayoutsMySQLTest extends TestCase
         $this->assertContains('The dashboard is back to the default.', $_SESSION['_messages'] ?? [], 'reset says so');
         $this->assertStringEndsWith('LayoutDashboardController', (string) $controller->redirectedTo);
         $this->assertSame(Layouts::defaults(self::me()), (new Layouts($this->db))->for(self::me()));
+    }
+
+    /**
+     * A board app.php lists, used through the controller with `?board=`: saved under its own
+     * setting and cleaned against its own catalogue, drawn embedded with its controls pointing back
+     * with `?board=`, refused below its `min_role`; a name nobody listed is the controller's own
+     * board for a request, and an error for Board::render().
+     */
+    public function testABoardIsUsedThroughTheControllerWithItsName(): void
+    {
+        // Arrange
+        $app  = \Pramnos\Application\Application::getInstance();
+        $info = $app->applicationInfo;
+        $app->applicationInfo['dashboard'] = ['boards' => [
+            'pf-wcm'  => ['framework' => false, 'widgets' => [\Pramnos\Tests\Unit\Dashboard\SalesWidget::class], 'default' => ['sales']],
+            'pf-root' => ['min_role' => 'root'],
+        ]];
+        $controller = new LayoutDashboardController(null);
+        \Pramnos\Http\RequestIdentity::seal(self::me(), 'test');
+
+        try {
+            // Act — save on the board, with a framework card it does not offer
+            $_GET  = ['board' => 'pf-wcm'];
+            $_POST = ['layout' => json_encode([['id' => 'sales', 'size' => 'l'], ['id' => 'health']])];
+            $saved = json_decode((string) $controller->savelayout()->getBody(), true);
+            $controller->renderBoard('pf-wcm', 'Overview');
+            $view = $controller->view;
+            $_GET = ['board' => 'pf-root'];
+            $refused = $controller->savelayout();
+            $_GET = ['board' => 'pf-nobody'];
+            $_POST = ['layout' => json_encode([['id' => 'database']])];
+            $controller->savelayout();
+            $thrown = null;
+            try {
+                $controller->renderBoard('pf-nobody');
+            } catch (\InvalidArgumentException $e) {
+                $thrown = $e;
+            }
+
+            // Assert — the board's own setting, cleaned against its catalogue
+            $this->assertSame([['id' => 'sales', 'size' => 'l']], array_map(static fn ($i) => array_intersect_key($i, ['id' => 1, 'size' => 1]), $saved['layout']));
+            $this->assertSame(['sales'], array_column((new Layouts($this->db))->for(self::me(), 'pf-wcm'), 'id'));
+            // Embedded, titled, and its controls carry the board
+            $this->assertTrue($view->embedded);
+            $this->assertSame('Overview', $view->boardTitle);
+            $this->assertStringEndsWith('LayoutDashboardController/savelayout?board=pf-wcm', $view->saveUrl);
+            $this->assertStringEndsWith('LayoutDashboardController/card?board=pf-wcm', $view->cardUrl);
+            $this->assertSame(403, $refused->getStatusCode(), 'below the board\'s min_role');
+            // An unlisted name is the controller's own board, not a new one
+            $this->assertSame(['database'], array_column((new Layouts($this->db))->for(self::me()), 'id'));
+            $this->assertInstanceOf(\InvalidArgumentException::class, $thrown);
+            // Board::render() goes through the controller app.php names
+            $app->applicationInfo['dashboard']['controller'] = LayoutDashboardController::class;
+            $this->assertInstanceOf(LayoutDashboardController::class, \Pramnos\Dashboard\Board::controller());
+            $this->assertSame('', \Pramnos\Dashboard\Board::render('pf-wcm'), 'the stub view draws nothing; no error');
+            \Pramnos\Http\RequestIdentity::reset();
+            $this->assertSame('', \Pramnos\Dashboard\Board::render('pf-wcm'), 'nobody signed in: nothing');
+        } finally {
+            $app->applicationInfo = $info;
+            $_GET = [];
+        }
     }
 
     /**

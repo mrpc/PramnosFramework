@@ -70,12 +70,55 @@ class DashboardController extends Controller
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = 'Admin Dashboard';
 
+        $view = $this->boardView($this->board());
+
+        // The figures as views of the older shape read them — worked out only if one does: the
+        // cards of today read their own, and the health checks are not run for nobody.
+        $view->activeUsers   = new \Pramnos\Dashboard\Widgets\LazyFigures(static fn (): array => \Pramnos\Dashboard\Widgets\Figures::activeUsers());
+        $view->dbStats       = new \Pramnos\Dashboard\Widgets\LazyFigures(static fn (): array => \Pramnos\Dashboard\Widgets\Figures::database());
+        $view->apiStats      = new \Pramnos\Dashboard\Widgets\LazyFigures(static fn (): array => \Pramnos\Dashboard\Widgets\Figures::api());
+        $view->healthResults = new \Pramnos\Dashboard\Widgets\LazyFigures(static fn (): array => \Pramnos\Dashboard\Widgets\Figures::health());
+
+        return $view->display('admin_dashboard');
+    }
+
+    /**
+     * A board drawn inside another screen — what {@see \Pramnos\Dashboard\Board::render()} returns:
+     * the same view as the dashboard page, without its heading and page frame, its controls
+     * talking to this controller with `?board=`.
+     *
+     * @param string $board A board app.php lists, or this controller's own
+     * @param string $title A heading over it; '' for none
+     * @throws \InvalidArgumentException For a board app.php does not list: its saves would land elsewhere
+     */
+    public function renderBoard(string $board, string $title = ''): string
+    {
+        if (!$this->isBoard($board)) {
+            throw new \InvalidArgumentException('No dashboard board "' . $board . '": add it under \'dashboard\' => [\'boards\' => [...]] in app.php.');
+        }
+        $user = \Pramnos\User\User::current();
+        if ($this->boardRefused($board, is_object($user) ? $user : null)) {
+            return '';
+        }
+        $view             = $this->boardView($board);
+        $view->embedded   = true;
+        $view->boardTitle = $title;
+
+        return (string) $view->display('admin_dashboard');
+    }
+
+    /**
+     * The dashboard view of one board, filled for the signed-in person: their cards drawn, the
+     * catalogue, and the addresses its controls post to.
+     */
+    protected function boardView(string $board): object
+    {
         $view = $this->getView('dashboard');
 
         // This person's widgets, in their order and widths, each drawn — and the ones they may add.
         $user    = \Pramnos\User\User::current();
-        $layout  = is_object($user) ? $this->layouts()->for($user, $this->dashboardArea) : [];
-        $widgets = \Pramnos\Dashboard\WidgetRegistry::available(is_object($user) ? $user : null, $this->dashboardArea);
+        $layout  = is_object($user) ? $this->layouts()->for($user, $board) : [];
+        $widgets = \Pramnos\Dashboard\WidgetRegistry::available(is_object($user) ? $user : null, $board);
         // Built here and assigned once: a View's properties are magic, and appending to one
         // in place is lost.
         $drawn = [];
@@ -92,18 +135,58 @@ class DashboardController extends Controller
             $catalogue[$id] = ['title' => $widget->title(), 'description' => $widget->description(), 'placed' => in_array($id, $placed, true)];
         }
         $view->catalogue  = $catalogue;
-        $view->saveUrl    = adminUrl($this->dashboardRoute() . '/savelayout');
-        $view->cardUrl    = adminUrl($this->dashboardRoute() . '/card');
-        $view->resetUrl   = adminUrl($this->dashboardRoute() . '/resetlayout');
+        $view->board      = $board;
+        $view->embedded   = false;
+        $view->boardTitle = '';
+        $view->saveUrl    = $this->boardUrl('savelayout', $board);
+        $view->cardUrl    = $this->boardUrl('card', $board);
+        $view->resetUrl   = $this->boardUrl('resetlayout', $board);
 
-        // The figures as views of the older shape read them — worked out only if one does: the
-        // cards of today read their own, and the health checks are not run for nobody.
-        $view->activeUsers   = new \Pramnos\Dashboard\Widgets\LazyFigures(static fn (): array => \Pramnos\Dashboard\Widgets\Figures::activeUsers());
-        $view->dbStats       = new \Pramnos\Dashboard\Widgets\LazyFigures(static fn (): array => \Pramnos\Dashboard\Widgets\Figures::database());
-        $view->apiStats      = new \Pramnos\Dashboard\Widgets\LazyFigures(static fn (): array => \Pramnos\Dashboard\Widgets\Figures::api());
-        $view->healthResults = new \Pramnos\Dashboard\Widgets\LazyFigures(static fn (): array => \Pramnos\Dashboard\Widgets\Figures::health());
+        return $view;
+    }
 
-        return $view->display('admin_dashboard');
+    /**
+     * The board a request is about: `?board=` when it names one app.php lists, this controller's
+     * own otherwise — never a name nobody described, whose layout no screen would draw.
+     */
+    protected function board(): string
+    {
+        $asked = (string) ($_GET['board'] ?? $_POST['board'] ?? '');
+
+        return $asked !== '' && $this->isBoard($asked) ? $asked : $this->dashboardArea;
+    }
+
+    /** Whether a name is a board: this controller's own, or one app.php lists. */
+    protected function isBoard(string $board): bool
+    {
+        return $board === $this->dashboardArea || in_array($board, \Pramnos\Dashboard\WidgetRegistry::boards(), true);
+    }
+
+    /**
+     * Whether this person may not use a board: nobody signed in, or below a board's `min_role` in
+     * app.php. Anybody signed in otherwise — this controller's own pages keep their own floor,
+     * and each card on any board still asks its own allowed().
+     */
+    protected function boardRefused(string $board, ?object $user): bool
+    {
+        if ($user === null) {
+            return true;
+        }
+        if ($board === $this->dashboardArea) {
+            return false;
+        }
+        $app  = \Pramnos\Application\Application::currentInstance();
+        $role = is_object($app) ? ($app->applicationInfo['dashboard']['boards'][$board]['min_role'] ?? null) : null;
+
+        return is_string($role) && $role !== '' && !\Pramnos\User\Roles::atLeast($user, $role);
+    }
+
+    /** One of this controller's actions for a board — with `?board=` unless it is its own. */
+    protected function boardUrl(string $action, string $board): string
+    {
+        $url = adminUrl($this->dashboardRoute() . '/' . $action);
+
+        return $board === $this->dashboardArea ? $url : $url . (str_contains($url, '?') ? '&' : '?') . 'board=' . rawurlencode($board);
     }
 
     /**
@@ -117,21 +200,32 @@ class DashboardController extends Controller
         if (!is_object($user)) {
             return \Pramnos\Http\Response::json(['error' => 'Sign in first.'], 401);
         }
+        $board = $this->board();
+        if ($this->boardRefused($board, $user)) {
+            return \Pramnos\Http\Response::json(['error' => 'This board is not yours to change.'], 403);
+        }
         $body   = json_decode((string) file_get_contents('php://input'), true);
         $layout = is_array($body) && array_key_exists('layout', $body) ? $body['layout'] : json_decode((string) ($_POST['layout'] ?? ''), true);
 
-        return \Pramnos\Http\Response::json(['layout' => $this->layouts()->save($user, is_array($layout) ? $layout : [], $this->dashboardArea)]);
+        return \Pramnos\Http\Response::json(['layout' => $this->layouts()->save($user, is_array($layout) ? $layout : [], $board)]);
     }
 
-    /** Forget the signed-in person's layout, so the default applies again, say so, and go back to it. */
+    /**
+     * Forget the signed-in person's layout, so the default applies again, say so, and go back to
+     * it — to the screen a board was drawn in, for one that is not this controller's own.
+     */
     public function resetlayout(): void
     {
-        $user = \Pramnos\User\User::current();
-        if (is_object($user)) {
-            $this->layouts()->save($user, null, $this->dashboardArea);
+        $user  = \Pramnos\User\User::current();
+        $board = $this->board();
+        if (is_object($user) && !$this->boardRefused($board, $user)) {
+            $this->layouts()->save($user, null, $board);
             $this->addMessage('The dashboard is back to the default.');
         }
-        $this->redirect($this->dashboardHome());
+        $referer = (string) ($_SERVER['HTTP_REFERER'] ?? '');
+        $site    = defined('sURL') ? (string) \sURL : '';
+        $back    = $board !== $this->dashboardArea && $site !== '' && str_starts_with($referer, $site) ? $referer : $this->dashboardHome();
+        $this->redirect($back);
     }
 
     /**
@@ -151,18 +245,19 @@ class DashboardController extends Controller
      */
     public function card(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->adminFloor())) {
+        $user  = \Pramnos\User\User::current();
+        $board = $this->board();
+        if ($board === $this->dashboardArea && $this->requireMinUserType($this->adminFloor())) {
             return null;
         }
-        $user    = \Pramnos\User\User::current();
         $id      = (string) ($id ?: ($_GET['id'] ?? ''));
-        $widgets = \Pramnos\Dashboard\WidgetRegistry::available(is_object($user) ? $user : null, $this->dashboardArea);
-        if (!is_object($user) || !isset($widgets[$id])) {
+        $widgets = \Pramnos\Dashboard\WidgetRegistry::available(is_object($user) ? $user : null, $board);
+        if (!is_object($user) || $this->boardRefused($board, $user) || !isset($widgets[$id])) {
             return \Pramnos\Http\Response::make('', 404);
         }
 
-        $saved = array_column($this->layouts()->for($user, $this->dashboardArea), null, 'id')[$id]
-            ?? \Pramnos\Dashboard\Layouts::clean([['id' => $id]], $user, $this->dashboardArea)[0];
+        $saved = array_column($this->layouts()->for($user, $board), null, 'id')[$id]
+            ?? \Pramnos\Dashboard\Layouts::clean([['id' => $id]], $user, $board)[0];
         $view         = $this->getView('dashboard');
         $view->widget = $this->cardFor($widgets[$id], $saved);
 
