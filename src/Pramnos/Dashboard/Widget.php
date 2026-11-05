@@ -297,6 +297,18 @@ abstract class Widget
         return '';
     }
 
+    /**
+     * The boards it is offered on, by name; null for every board. A board's own `widgets` list in
+     * app.php is the other way to put a card on one board only — this is for a card registered in
+     * code, or listed at the top level, that belongs to one screen.
+     *
+     * @return list<string>|null
+     */
+    public function boards(): ?array
+    {
+        return null;
+    }
+
     /** A width as it may be kept: one of {@see SIZES}; the older `half` is {@see MEDIUM}. */
     public static function normalSize(mixed $size): ?string
     {

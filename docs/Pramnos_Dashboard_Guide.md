@@ -332,6 +332,38 @@ dashboard and the analyst give the same numbers. `email` counts the send history
 query over the `date` index — every message has a row there whatever became of it, tracked or not.
 `logs.errors` reads `Logs\LogAnalytics::summary()`, as the log dashboard does.
 
+## Boards: a dashboard for each screen
+
+A board is a dashboard with a name, its own catalogue and its own defaults. Each person
+arranges each board separately. The administration dashboard is the board `admin`, and a board
+app.php does not describe is the top-level configuration above, as it always was.
+
+```php
+'dashboard' => [
+    'boards' => [
+        'wcm' => [
+            'widgets'   => [\App\Widgets\WcmMap::class, \App\Widgets\WcmStats::class],
+            'framework' => false,                    // none of the framework's cards on this board
+            'default'   => ['wcm.stats', 'wcm.map'], // what a new board has, in this order
+            'cards'     => ['wcm.map' => ['min_role' => 'manager']],
+        ],
+    ],
+],
+```
+
+A board's keys replace the top level's where it names them, so it names only what differs:
+`widgets`, `framework`, `framework_default`, `default` and `presets`. `cards` is merged by id over
+the top level's. With a `default` list, that list alone decides what a new board has, in its
+order. Without one, each card's own default applies, as at the top level.
+
+A card can also choose its boards itself, which suits one registered in code:
+`public function boards(): ?array { return ['wcm']; }`. It is then offered on those boards only.
+The default, `null`, means every board.
+
+A board's layouts are kept apart from the others, under `dashboard.{board}` in `usersettings`,
+and are cleaned against that board's catalogue. A `DashboardController` subclass sets its board with
+`protected string $dashboardArea = 'wcm';`.
+
 ## Each person's layout
 
 "Customise" shows each card's tools:

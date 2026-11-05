@@ -69,6 +69,25 @@ final class SalesWidget extends Widget
     }
 }
 
+/** A card that belongs to one screen's board: offered on `wcm` only. */
+final class WcmMapWidget extends Widget
+{
+    /** Its id. */
+    public function id(): string { return 'wcm.map'; }
+
+    /** Its heading. */
+    public function title(): string { return 'Map'; }
+
+    /** Its inside. */
+    public function render(): string { return '<p>map</p>'; }
+
+    /** Anybody signed in. */
+    public function allowed(?object $user): bool { return $user !== null; }
+
+    /** The WCM board only. */
+    public function boards(): ?array { return ['wcm']; }
+}
+
 /** A widget whose rule throws: offered to nobody. */
 final class BrokenRuleWidget extends Widget
 {
@@ -250,6 +269,64 @@ class WidgetRegistryTest extends TestCase
         $this->assertNotContains('users.active', $new);
         $this->assertContains('health', $new, 'named default true: placed anyway');
         $this->assertContains('orders', $new, 'the application\'s own card is untouched');
+    }
+
+    /**
+     * A board app.php describes has its own catalogue and defaults; the top level is untouched.
+     *
+     * The WCM screen's board offers its own cards and none of the framework's, starts with its
+     * `default` list in that order, and keeps card tuning merged over the top level's. A card
+     * whose boards() names `wcm` is on that board and no other. A board app.php does not list
+     * (`admin` here) is the top level, exactly as before boards existed.
+     */
+    public function testABoardHasItsOwnCatalogueAndDefaults(): void
+    {
+        // Arrange
+        WidgetRegistry::register(WcmMapWidget::class);
+        Application::getInstance()->applicationInfo['dashboard'] = [
+            'widgets' => [OrdersWidget::class],
+            'cards'   => ['orders' => ['min_role' => 'root']],
+            'boards'  => ['wcm' => [
+                'framework' => false,
+                'widgets'   => [SalesWidget::class, OrdersWidget::class],
+                'default'   => ['sales', 'wcm.map'],
+                'cards'     => ['sales' => ['min_role' => 'manager']],
+            ]],
+        ];
+
+        // Act
+        $wcm      = array_keys(WidgetRegistry::available(self::user(99), 'wcm'));
+        $admin    = array_keys(WidgetRegistry::available(self::user(99), 'admin'));
+        $newWcm   = array_column(Layouts::defaults(self::user(99), 'wcm'), 'id');
+        $staffWcm = array_keys(WidgetRegistry::available(self::user(10), 'wcm'));
+
+        // Assert — the board's own cards, the code-registered one meant for it, no framework card
+        $this->assertSame(['sales', 'orders', 'wcm.map'], $wcm);
+        $this->assertNotContains('wcm.map', $admin, 'a card for the wcm board is not offered elsewhere');
+        $this->assertContains('users.active', $admin, 'admin is the top level: the framework\'s cards');
+        // The default list decides, in its order — not the registry's
+        $this->assertSame(['sales', 'wcm.map'], $newWcm);
+        // Card tuning: the board's over the top level's, the top level's kept where it says nothing
+        $this->assertNotContains('sales', $staffWcm, 'the board\'s min_role');
+        $this->assertNotContains('orders', $staffWcm, 'the top level\'s min_role still holds on the board');
+        $this->assertSame(['wcm'], WidgetRegistry::boards());
+    }
+
+    /**
+     * A layout saved on a board is cleaned against that board, not the top level.
+     */
+    public function testALayoutIsCleanedAgainstItsBoard(): void
+    {
+        // Arrange
+        Application::getInstance()->applicationInfo['dashboard'] = [
+            'boards' => ['wcm' => ['framework' => false, 'widgets' => [SalesWidget::class]]],
+        ];
+
+        // Act
+        $clean = Layouts::clean([['id' => 'users.active'], ['id' => 'sales', 'size' => 'l']], self::user(99), 'wcm');
+
+        // Assert — the framework card the board does not offer is dropped
+        $this->assertSame(['sales'], array_column($clean, 'id'));
     }
 
     /**

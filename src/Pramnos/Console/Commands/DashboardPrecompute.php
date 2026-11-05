@@ -62,7 +62,7 @@ class DashboardPrecompute extends Command
     /** Work out the current application's shared cards for an area. */
     private function precompute(string $area, OutputInterface $output): int
     {
-        $shared     = array_filter(WidgetRegistry::all(), static fn (Widget $widget): bool => $widget->shared());
+        $shared     = array_filter(WidgetRegistry::all($area), static fn (Widget $widget): bool => $widget->shared());
         $controller = $this->controller();
         $wanted     = [];
         $want       = static function (Widget $widget, array $settings) use (&$wanted, $controller): void {

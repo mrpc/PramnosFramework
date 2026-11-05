@@ -15,6 +15,8 @@ namespace Pramnos\Dashboard;
  *     'framework' => false,   // leave out the framework's own (users, API, database, health)
  *     // or keep them in the catalogue but off a new dashboard:
  *     // 'framework_default' => false,
+ *     // a board of its own, for a screen: its cards, and the ones a new board has, in order
+ *     'boards' => ['wcm' => ['widgets' => [WcmMap::class], 'framework' => false, 'default' => ['wcm.map']]],
  * ],
  *
  * // or in code, from a service provider
@@ -58,12 +60,16 @@ final class WidgetRegistry
      * Every widget, by id: the framework's, then app.php's, then the registered — a later one
      * under the same id winning.
      *
+     * For a board ({@see board()}), its own `framework` and `widgets` replace the top-level ones
+     * where it names them, and a widget whose {@see Widget::boards()} leaves the board out is not
+     * offered on it. A board app.php does not describe — `admin`, unless it is listed — is the
+     * top level, exactly as before boards existed.
+     *
      * @return array<string, Widget>
      */
-    public static function all(): array
+    public static function all(?string $board = null): array
     {
-        $app    = \Pramnos\Application\Application::currentInstance();
-        $config = is_object($app) ? (array) ($app->applicationInfo['dashboard'] ?? []) : [];
+        $config = self::config($board);
 
         $widgets = self::framework($config['framework'] ?? true);
         foreach ((array) ($config['widgets'] ?? []) as $class) {
@@ -74,8 +80,53 @@ final class WidgetRegistry
                 \Pramnos\Logs\Logger::log('Dashboard widget ' . (is_string($class) ? $class : gettype($class)) . ' is not a ' . Widget::class . '; it was left out.', 'dashboard');
             }
         }
+        $widgets = array_replace($widgets, self::$registered);
+        if ($board === null) {
+            return $widgets;
+        }
 
-        return array_replace($widgets, self::$registered);
+        return array_filter($widgets, static function (Widget $widget) use ($board): bool {
+            $boards = $widget->boards();
+
+            return $boards === null || in_array($board, $boards, true);
+        });
+    }
+
+    /**
+     * What app.php says for a board: `'dashboard' => ['boards' => ['wcm' => [...]]]`, its keys over
+     * the top level's — so a board names only what differs. The top level for a board it does
+     * not list, and for none.
+     *
+     * Keys a board may carry: `widgets`, `framework`, `framework_default`, `cards` (merged by id
+     * over the top level's), `default` (the ids a new board has, in order) and `presets`.
+     *
+     * @return array<string, mixed>
+     */
+    public static function config(?string $board = null): array
+    {
+        $app = \Pramnos\Application\Application::currentInstance();
+        $top = is_object($app) ? (array) ($app->applicationInfo['dashboard'] ?? []) : [];
+        $own = $board !== null && is_array($top['boards'][$board] ?? null) ? $top['boards'][$board] : null;
+        if ($own === null) {
+            return $top;
+        }
+        $merged          = array_replace($top, $own);
+        $merged['cards'] = array_replace((array) ($top['cards'] ?? []), (array) ($own['cards'] ?? []));
+
+        return $merged;
+    }
+
+    /**
+     * The boards app.php describes, by name — what `?board=` may name besides a controller's own.
+     *
+     * @return list<string>
+     */
+    public static function boards(): array
+    {
+        $app    = \Pramnos\Application\Application::currentInstance();
+        $boards = is_object($app) ? ($app->applicationInfo['dashboard']['boards'] ?? []) : [];
+
+        return is_array($boards) ? array_values(array_map('strval', array_keys($boards))) : [];
     }
 
     /**
@@ -112,21 +163,21 @@ final class WidgetRegistry
     }
 
     /** One widget by id, or null. */
-    public static function get(string $id): ?Widget
+    public static function get(string $id, ?string $board = null): ?Widget
     {
-        return self::all()[$id] ?? null;
+        return self::all($board)[$id] ?? null;
     }
 
     /**
-     * The widgets this person may have.
+     * The widgets this person may have, on a board or at the top level.
      *
      * @return array<string, Widget>
      */
-    public static function available(?object $user): array
+    public static function available(?object $user, ?string $board = null): array
     {
-        return array_filter(self::all(), static function (Widget $widget) use ($user): bool {
+        return array_filter(self::all($board), static function (Widget $widget) use ($user, $board): bool {
             try {
-                $role = self::card($widget->id())['min_role'] ?? null;
+                $role = self::card($widget->id(), $board)['min_role'] ?? null;
 
                 // app.php can raise the bar on a card, never lower it: the card's own rule still holds.
                 return $widget->allowed($user) && (!is_string($role) || $role === '' || \Pramnos\User\Roles::atLeast($user, $role));
@@ -145,20 +196,41 @@ final class WidgetRegistry
      * adds, which a list of ids under `cards` would silently miss. A card the application names
      * with `'default' => true` is still placed, and the application's own cards are untouched.
      */
-    public static function byDefault(Widget $widget): bool
+    public static function byDefault(Widget $widget, ?string $board = null): bool
     {
-        $default = self::card($widget->id())['default'] ?? null;
+        // A board that lists its defaults decides alone: those, and nothing else.
+        $list = self::defaultIds($board);
+        if ($list !== null) {
+            return in_array($widget->id(), $list, true);
+        }
+
+        $default = self::card($widget->id(), $board)['default'] ?? null;
         if (is_bool($default)) {
             return $default;
         }
 
-        $app = \Pramnos\Application\Application::currentInstance();
-        if (is_object($app) && ($app->applicationInfo['dashboard']['framework_default'] ?? true) === false
-            && in_array($widget::class, self::FRAMEWORK, true)) {
+        if ((self::config($board)['framework_default'] ?? true) === false && in_array($widget::class, self::FRAMEWORK, true)) {
             return false;
         }
 
         return $widget->byDefault();
+    }
+
+    /**
+     * The ids a new board has, in its order — a board's `default` list — or null when it gives none
+     * and each card's own default applies.
+     *
+     * @return list<string>|null
+     */
+    public static function defaultIds(?string $board): ?array
+    {
+        if ($board === null) {
+            return null;
+        }
+        $app  = \Pramnos\Application\Application::currentInstance();
+        $list = is_object($app) ? ($app->applicationInfo['dashboard']['boards'][$board]['default'] ?? null) : null;
+
+        return is_array($list) ? array_values(array_map('strval', $list)) : null;
     }
 
     /**
@@ -168,10 +240,9 @@ final class WidgetRegistry
      *
      * @return array<string, mixed>
      */
-    private static function card(string $id): array
+    private static function card(string $id, ?string $board = null): array
     {
-        $app   = \Pramnos\Application\Application::currentInstance();
-        $cards = is_object($app) ? ($app->applicationInfo['dashboard']['cards'] ?? []) : [];
+        $cards = self::config($board)['cards'] ?? [];
 
         return is_array($cards) && is_array($cards[$id] ?? null) ? $cards[$id] : [];
     }

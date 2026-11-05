@@ -50,7 +50,7 @@ final class Layouts
         }
         $saved = $rows === [] ? null : json_decode((string) ($rows[0]['value'] ?? ''), true);
 
-        return is_array($saved) ? self::clean($saved, $user) : self::defaults($user);
+        return is_array($saved) ? self::clean($saved, $user, $area) : self::defaults($user, $area);
     }
 
     /**
@@ -64,10 +64,10 @@ final class Layouts
         $userId = (int) ($user->userid ?? 0);
         $this->table()->where('userid', $userId)->where('setting', self::SETTING . $area)->delete();
         if ($layout === null) {
-            return self::defaults($user);
+            return self::defaults($user, $area);
         }
 
-        $clean = self::clean($layout, $user);
+        $clean = self::clean($layout, $user, $area);
         $this->table()->insert([
             'userid'     => $userId,
             'setting'    => self::SETTING . $area,
@@ -81,15 +81,19 @@ final class Layouts
 
     /**
      * The layout of somebody who has saved none: every widget they may have that is on by default,
-     * at its own width, in the registry's order.
+     * at its own width — in the board's `default` order where it lists one, the registry's
+     * otherwise.
      *
      * @return list<array{id: string, size: string, settings: array<string, mixed>}>
      */
-    public static function defaults(?object $user): array
+    public static function defaults(?object $user, ?string $board = null): array
     {
-        $layout = [];
-        foreach (WidgetRegistry::available($user) as $id => $widget) {
-            if (WidgetRegistry::byDefault($widget)) {
+        $available = WidgetRegistry::available($user, $board);
+        $ids       = WidgetRegistry::defaultIds($board) ?? array_keys($available);
+        $layout    = [];
+        foreach ($ids as $id) {
+            $widget = $available[$id] ?? null;
+            if ($widget !== null && WidgetRegistry::byDefault($widget, $board)) {
                 $layout[] = ['id' => (string) $id, 'size' => self::size($widget->size()), 'settings' => Widget::cleanSettings($widget, [])];
             }
         }
@@ -98,13 +102,14 @@ final class Layouts
     }
 
     /**
-     * A layout as it may be kept: widgets this person may have, each once, at a known width.
+     * A layout as it may be kept: widgets this person may have on the board, each once, at a
+     * known width.
      *
      * @return list<array{id: string, size: string, settings: array<string, mixed>}>
      */
-    public static function clean(mixed $layout, ?object $user): array
+    public static function clean(mixed $layout, ?object $user, ?string $board = null): array
     {
-        $available = WidgetRegistry::available($user);
+        $available = WidgetRegistry::available($user, $board);
         $clean     = [];
         foreach (is_array($layout) ? $layout : [] as $item) {
             $id = is_array($item) ? (string) ($item['id'] ?? '') : (is_string($item) ? $item : '');

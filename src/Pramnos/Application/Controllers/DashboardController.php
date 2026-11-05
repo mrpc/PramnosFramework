@@ -75,7 +75,7 @@ class DashboardController extends Controller
         // This person's widgets, in their order and widths, each drawn — and the ones they may add.
         $user    = \Pramnos\User\User::current();
         $layout  = is_object($user) ? $this->layouts()->for($user, $this->dashboardArea) : [];
-        $widgets = \Pramnos\Dashboard\WidgetRegistry::available(is_object($user) ? $user : null);
+        $widgets = \Pramnos\Dashboard\WidgetRegistry::available(is_object($user) ? $user : null, $this->dashboardArea);
         // Built here and assigned once: a View's properties are magic, and appending to one
         // in place is lost.
         $drawn = [];
@@ -156,13 +156,13 @@ class DashboardController extends Controller
         }
         $user    = \Pramnos\User\User::current();
         $id      = (string) ($id ?: ($_GET['id'] ?? ''));
-        $widgets = \Pramnos\Dashboard\WidgetRegistry::available(is_object($user) ? $user : null);
+        $widgets = \Pramnos\Dashboard\WidgetRegistry::available(is_object($user) ? $user : null, $this->dashboardArea);
         if (!is_object($user) || !isset($widgets[$id])) {
             return \Pramnos\Http\Response::make('', 404);
         }
 
         $saved = array_column($this->layouts()->for($user, $this->dashboardArea), null, 'id')[$id]
-            ?? \Pramnos\Dashboard\Layouts::clean([['id' => $id]], $user)[0];
+            ?? \Pramnos\Dashboard\Layouts::clean([['id' => $id]], $user, $this->dashboardArea)[0];
         $view         = $this->getView('dashboard');
         $view->widget = $this->cardFor($widgets[$id], $saved);
 
