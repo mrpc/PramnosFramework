@@ -229,6 +229,7 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\LlmPrune());
         $this->add(new \Pramnos\Console\Commands\LlmRoutines());
         $this->add(new \Pramnos\Console\Commands\LlmEval());
+        $this->add(new \Pramnos\Console\Commands\LlmMemoryReview());
         // Skills taken from catalogues: off until read, never updated by themselves.
         $this->add(new \Pramnos\Console\Commands\SkillSearch());
         $this->add(new \Pramnos\Console\Commands\SkillAdd());

@@ -1,0 +1,14 @@
+{
+    "_about": "Cases for `llm:eval --memory`: what the person said, and whether anything should be kept about them. \"nothing\" — one task's request, a reported problem, one question's filter, one record; \"keep\" — what holds in an unrelated conversation next month.",
+    "cases": [
+        {"said": "The receipt should not have been stored here. Please investigate the post-transaction code and open a Jira issue for it.", "expect": "nothing"},
+        {"said": "Same thing again on another user's invoice tab, add it as a comment on that issue.", "expect": "nothing"},
+        {"said": "I only care about today's items that have not been posted yet.", "expect": "nothing"},
+        {"said": "No, the inverse: show the records that have nothing in professionaltolocation from a foreign country.", "expect": "nothing"},
+        {"said": "Invoice 48213 for customer 7710 was charged twice, can you check?", "expect": "nothing"},
+        {"said": "Show me last week's sales by market.", "expect": "nothing"},
+        {"said": "Please always give me amounts without VAT, that's how we report internally.", "expect": "keep"},
+        {"said": "I'm the sales lead for the UK, so most of my questions are about that market.", "expect": "keep"},
+        {"said": "Give me the short answer first and the details after, I read these on my phone.", "expect": "keep"}
+    ]
+}

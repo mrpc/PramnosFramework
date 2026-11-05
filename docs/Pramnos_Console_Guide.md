@@ -464,6 +464,7 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 | `audience:prune-events` | Delete rule run-log rows older than `audience.rule_log_days` (90; 0 keeps them) and segment stays that ended more than `audience.segment_history_days` ago (365). Each person event is the change log's to keep. Scheduled daily | `--days` (the rule log's) |
 | `rules:run` | Start the rules whose schedule is due this minute: each takes everybody who matches, in the queue. Scheduled every minute | — |
 | `llm:prune` / `llm:routines` | Drop language-model call log rows older than the kept window / ask the scheduled questions that are due | `--days` / — |
+| `llm:memory-review` | Read the memories Ask learned by itself again, by the test learning applies now, and list those that fail it with the reason; forget only the ids named | `--user`, `--forget=3,5` |
 | `broadcast:serve` | WebSocket broadcasting server (Pusher-compatible) | `--host`, `--port/-p`, `--app-key`, `--channels` (defaults from `broadcasting.websocket.listen_host`/`listen_port`/`app_key` and `broadcasting.ingest`, else `127.0.0.1`, `6001`, `pramnos-local`), `--log-file` |
 
 **Diagnostics and tooling**

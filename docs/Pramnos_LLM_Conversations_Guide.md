@@ -199,7 +199,12 @@ keeps is marked `learned` and shown so on the memory list, where the person forg
 other. It keeps only what would still be true and useful in an unrelated conversation a month later.
 It does not keep a request or a task, a problem reported, the filter of one question ("only
 today's") or anything about one particular record. Those go into every prompt from then on, and
-searching past conversations already finds them. With the [profile](Pramnos_LLM_Person_Guide.md#a-profile-that-changes-only-on-the-persons-word) on, the same call
+searching past conversations already finds them. `llm:eval --memory` scores the test against a model: each case is
+something said and whether anything should be kept about it (`nothing` or `keep`), from the
+framework's own cases (`resources/llm-eval/memory-learn.json`) or a file of the application's.
+`llm:memory-review` reads what was learned before by the same test. It lists the memories that fail
+it, each with the reason, and forgets nothing unless given ids (`--forget=3,5`), and then only
+learned ones. Memories a person asked to be kept are not reviewed. With the [profile](Pramnos_LLM_Person_Guide.md#a-profile-that-changes-only-on-the-persons-word) on, the same call
 proposes to it what the person plainly said about who they are and the people in their life: a
 proposal, which the next answer asks them to confirm.
 

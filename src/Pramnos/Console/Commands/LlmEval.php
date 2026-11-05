@@ -54,7 +54,8 @@ class LlmEval extends Command
             ->addOption('baseline', null, InputOption::VALUE_REQUIRED, 'JSON file to compare with')
             ->addOption('write-baseline', null, InputOption::VALUE_NONE, 'Write the scores to --baseline instead of comparing')
             ->addOption('rounds', null, InputOption::VALUE_REQUIRED, 'Rounds each answer may take (6; with --skills, 16 as in a conversation)')
-            ->addOption('repeat', null, InputOption::VALUE_REQUIRED, 'Ask each case this many times and score the mean', '1');
+            ->addOption('repeat', null, InputOption::VALUE_REQUIRED, 'Ask each case this many times and score the mean', '1')
+            ->addOption('memory', null, InputOption::VALUE_OPTIONAL, 'Score memory learning instead: a JSON file of {said, expect: nothing|keep} cases (the framework\'s own by default)', false);
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -64,6 +65,9 @@ class LlmEval extends Command
             $setup = is_file((string) $file) ? (array) (require (string) $file) : [];
         }
         $client = isset($setup['client']) && is_callable($setup['client']) ? $setup['client'] : null;
+        if ($input->getOption('memory') !== false) {
+            return $this->memory($input, $output, $client);
+        }
         $skills = $input->getOption('skills') || $input->getOption('skill') !== null;
         // A skill's cases are asked as a conversation asks them, with as many rounds as it has.
         $rounds = max(1, (int) ($input->getOption('rounds') ?? ($skills ? 16 : 6)));
@@ -86,6 +90,39 @@ class LlmEval extends Command
         $baseline = $input->getOption('baseline');
 
         return $baseline === null ? Command::SUCCESS : $this->compare($report, (string) $baseline, (bool) $input->getOption('write-baseline'), $output);
+    }
+
+    /** The framework's own memory-learning cases. */
+    public const MEMORY_CASES = __DIR__ . '/../../../../resources/llm-eval/memory-learn.json';
+
+    /**
+     * Memory learning, scored: for each case, what the person said and whether anything should be
+     * kept about them (`expect`: `nothing` or `keep`), asked by the test learning applies
+     * ({@see \Pramnos\Llm\Chat\Memory::wouldKeep()}). Fails when any case misses.
+     *
+     * @param (callable(): \Pramnos\Llm\Client)|null $client
+     */
+    private function memory(InputInterface $input, OutputInterface $output, ?callable $client): int
+    {
+        $file  = (string) ($input->getOption('memory') ?: self::MEMORY_CASES);
+        $cases = is_file($file) ? (array) (json_decode((string) file_get_contents($file), true)['cases'] ?? []) : [];
+        if ($cases === []) {
+            $output->writeln('<error>No memory cases in ' . $file . '.</error>');
+
+            return Command::FAILURE;
+        }
+        $missed = 0;
+        foreach ($cases as $case) {
+            $kept   = \Pramnos\Llm\Chat\Memory::wouldKeep($client !== null ? $client() : new \Pramnos\Llm\Client(), (string) ($case['said'] ?? ''));
+            $wanted = (string) ($case['expect'] ?? 'nothing') === 'keep';
+            $ok     = $wanted === ($kept !== []);
+            $missed += $ok ? 0 : 1;
+            $output->writeln(($ok ? '<info>ok</info>   ' : '<error>miss</error> ') . mb_substr((string) $case['said'], 0, 80)
+                . ($kept !== [] ? ' → kept: ' . implode(' | ', array_column($kept, 'memory')) : ($wanted ? ' → kept nothing' : '')));
+        }
+        $output->writeln(sprintf('%d of %d as expected.', count($cases) - $missed, count($cases)));
+
+        return $missed === 0 ? Command::SUCCESS : Command::FAILURE;
     }
 
     /**

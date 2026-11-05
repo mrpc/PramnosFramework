@@ -63,6 +63,21 @@ class Memory
 
     public const SNIPPET = 400;
 
+    /**
+     * What is worth keeping about a person: the test learning applies to what they said
+     * ({@see learn()}), and a review to what was learned before it ({@see review()}).
+     */
+    public const LASTS = 'Keep only durable facts they STATED about themselves, their role or their work, and preferences about how they want answers — '
+        . 'not questions, not data the assistant can look up, not guesses. '
+        . 'The test for each one: would it still be true, and would it help, in an unrelated conversation next month? If not, do not keep it. '
+        . 'Never keep: a request or a task ("open a Jira issue", "investigate the code", "add it as a comment"); a problem they reported; '
+        . 'the filter or scope of one question ("only today\'s items", "only the ones not yet posted", "the inverse of that"); '
+        . 'anything about one particular account, record, invoice or customer. Past conversations can be searched for those. '
+        . 'Keep, for example: "prefers amounts without VAT", "is the sales lead for the UK", "wants the short answer first".';
+
+    /** How many memories one review call reads. */
+    public const REVIEW_BATCH = 40;
+
     private ?bool $mayShare = null;
 
     public function __construct(private readonly Scope $scope)
@@ -218,13 +233,7 @@ class Memory
         }
         // What the organisation shares is not learned into, corrected or forgotten here: see mayShare().
         $prompt = 'You keep the memory of an assistant. Read what the person just said, beside what is remembered. '
-            . 'Keep only durable facts they STATED about themselves, their role or their work, and preferences about how they want answers — '
-            . 'not questions, not data the assistant can look up, not guesses. '
-            . 'The test for each one: would it still be true, and would it help, in an unrelated conversation next month? If not, do not keep it. '
-            . 'Never keep: a request or a task ("open a Jira issue", "investigate the code", "add it as a comment"); a problem they reported; '
-            . 'the filter or scope of one question ("only today\'s items", "only the ones not yet posted", "the inverse of that"); '
-            . 'anything about one particular account, record, invoice or customer. Past conversations can be searched for those. '
-            . 'Keep, for example: "prefers amounts without VAT", "is the sales lead for the UK", "wants the short answer first". '
+            . self::LASTS . ' '
             . 'If something they said changes a memory, correct it (the latest word wins). '
             . 'If they took something back, forget it. Usually there is nothing to change: then answer {"changes": []}. '
             . 'Everything is about "me". '
@@ -271,6 +280,65 @@ class Memory
         }
 
         return $done;
+    }
+
+    /**
+     * What a model would keep of something said, by the test learning applies ({@see LASTS}): the
+     * `keep` changes only, nothing written — what `llm:eval --memory` scores.
+     *
+     * @return list<array{kind: string, memory: string}>
+     */
+    public static function wouldKeep(\Pramnos\Llm\Client $client, string $said): array
+    {
+        $prompt = 'You keep the memory of an assistant. Read what the person just said. ' . self::LASTS
+            . ' Usually there is nothing to keep: then answer {"changes": []}. '
+            . 'Answer JSON only: {"changes": [{"op": "keep", "kind": "fact|preference", "memory": "one sentence"}]}.';
+        $json = self::json($client->askCheaply($prompt, [['role' => 'user', 'content' => json_encode(['remembered' => [], 'said' => mb_substr($said, 0, 4000)], JSON_UNESCAPED_UNICODE)]]));
+        $kept = [];
+        foreach ((array) ($json['changes'] ?? []) as $change) {
+            if (($change['op'] ?? '') === 'keep' && trim((string) ($change['memory'] ?? '')) !== '') {
+                $kept[] = ['kind' => (string) ($change['kind'] ?? 'fact'), 'memory' => (string) $change['memory']];
+            }
+        }
+
+        return $kept;
+    }
+
+    /**
+     * Which of these memories fail the test learning applies now ({@see LASTS}), by id with the
+     * reason — what `llm:memory-review` proposes to forget. Nothing is forgotten here.
+     *
+     * @param list<array{memory_id: int, kind: string, content: string}> $memories
+     * @return array<int, string> memory_id => why
+     */
+    public static function review(\Pramnos\Llm\Client $client, array $memories): array
+    {
+        $prompt = 'These memories were kept about people by an assistant. Apply this test to each: ' . self::LASTS
+            . ' List only those that fail it, each with a short reason. Answer JSON only: {"forget": [{"id": 3, "why": "a one-off request"}]}; '
+            . '{"forget": []} when all pass.';
+        $out = [];
+        foreach (array_chunk($memories, self::REVIEW_BATCH) as $batch) {
+            $ids  = array_flip(array_map(static fn (array $m): int => (int) $m['memory_id'], $batch));
+            $list = array_map(static fn (array $m): array => ['id' => (int) $m['memory_id'], 'kind' => $m['kind'], 'memory' => $m['content']], $batch);
+            $json = self::json($client->askCheaply($prompt, [['role' => 'user', 'content' => json_encode($list, JSON_UNESCAPED_UNICODE)]]));
+            foreach ((array) ($json['forget'] ?? []) as $one) {
+                $id = (int) ($one['id'] ?? 0);
+                if (isset($ids[$id])) {
+                    $out[$id] = trim((string) ($one['why'] ?? ''));
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /** The JSON object in a cheap call's answer, or none. */
+    private static function json(array $answer): array
+    {
+        $reply = (string) ($answer['reply'] ?? '');
+        $json  = json_decode((string) (preg_match('/\{.*\}/s', $reply, $m) === 1 ? $m[0] : $reply), true);
+
+        return is_array($json) ? $json : [];
     }
 
     /** Forget one thing the organisation shares. False when there was none by that id, or this person may not ({@see mayShare()}). */
