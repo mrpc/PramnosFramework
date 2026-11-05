@@ -1008,15 +1008,18 @@ class Conversations
     /**
      * Where `'llm' => ['chat' => ['skills' => true]]`: the tools of no skill, and `use_skill` for
      * the rest — a skill's tools are added to the answer once the model turns it on, so a model
-     * with many tools starts from a short list. Off, every tool, as they are.
+     * with many tools starts from a short list. Off, every tool, as they are. On by default past
+     * {@see SKILLS_FROM} tools, or when the application has skill files ({@see Skills}).
      *
      * @param array<string, array<string, mixed>> $tools
      * @return array<string, array<string, mixed>>
      */
     private function grouped(array $tools): array
     {
-        $chat   = \Pramnos\Llm\Llm::config('chat', []);
-        $skills = is_array($chat) && array_key_exists('skills', $chat) ? (bool) $chat['skills'] : count($tools) > self::SKILLS_FROM;
+        $chat  = \Pramnos\Llm\Llm::config('chat', []);
+        $files = Skills::load();
+        // Skill files mean skills: a method is no use if nothing can turn it on.
+        $skills = is_array($chat) && array_key_exists('skills', $chat) ? (bool) $chat['skills'] : (count($tools) > self::SKILLS_FROM || $files !== []);
         if (!$skills) {
             return $tools;
         }
@@ -1025,6 +1028,10 @@ class Conversations
         $notes    = self::SKILLS + (method_exists($this->assistant, 'skills') ? (array) $this->assistant->skills() : []);
         foreach ($notes as $skill => $note) {
             $registry->describeSkill((string) $skill, (string) $note);
+        }
+        // The application's skill files: a specialist's method, with the tools that go with it.
+        foreach ($files as $name => $skill) {
+            $registry->defineSkill($name, $skill['description'], $skill['tools'], $skill['instructions']);
         }
         $context = $this->scope?->context() ?? [];
 

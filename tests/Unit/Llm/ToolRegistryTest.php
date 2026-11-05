@@ -117,6 +117,45 @@ class ToolRegistryTest extends LlmTestCase
     }
 
     /**
+     * A skill declared as a file declares one: `use_skill` hands back its instructions after the
+     * tools it turned on; a skill of instructions only is offered with no tool; one whose tools
+     * the person lacks is offered for its instructions alone, and one with neither is not; a tool
+     * a skill lists from another skill comes with it; and a tool of no skill, listed, stays offered
+     * always.
+     */
+    public function testASkillWithInstructionsHandsThemToTheModel(): void
+    {
+        // Arrange
+        $registry = self::registry()
+            ->defineSkill('crm-loyalty', 'Retention and loyalty', ['read_mail', 'clock', 'nope'], "# Method\nStart from the cohort.")
+            ->defineSkill('copywriting', 'Words that sell', [], 'Write short.')
+            ->defineSkill('reports-method', '', ['echo'], 'Read the trend first.')
+            ->defineSkill('empty', 'Nothing in it', ['echo']);
+
+        // Act
+        $tool     = $registry->skillTool(['userid' => 8])['use_skill'];
+        $offered  = $tool['parameters']['properties']['skill']['enum'];
+        $crm      = ($tool['run'])(['skill' => 'crm-loyalty']);
+        $copy     = ($tool['run'])(['skill' => 'copywriting']);
+        $method   = ($tool['run'])(['skill' => 'reports-method']);
+        $expands  = array_keys(($tool['expands'])(['skill' => 'crm-loyalty']));
+        $always   = array_keys($registry->tools(['userid' => 8], []));
+        $manifest = $registry->manifest(['userid' => 8]);
+
+        // Assert
+        $this->assertSame("Turned on crm-loyalty: read_mail, clock.\n\n# Method\nStart from the cohort.", $crm, 'the tools, then the method');
+        $this->assertSame("Turned on copywriting.\n\nWrite short.", $copy, 'instructions alone');
+        $this->assertSame("Turned on reports-method.\n\nRead the trend first.", $method, 'its tool withheld, its instructions offered');
+        $this->assertNotContains('empty', $offered, 'no tool they may use and no instructions: not offered');
+        $this->assertContains('copywriting', $offered);
+        $this->assertSame(['read_mail', 'clock'], $expands, 'read_mail is the mail skill\'s, opened by this one too; nope is not declared');
+        $this->assertContains('clock', $always, 'a tool of no skill, listed by one, is offered always');
+        $this->assertNotContains('read_mail', $always);
+        $this->assertStringContainsString('- copywriting: Words that sell', $manifest);
+        $this->assertStringNotContainsString('copywriting: Words that sell (', $manifest, 'no tool list for a skill of none');
+    }
+
+    /**
      * Tools already in the client's shape keep their own flags, and take the registry's metadata
      * for what they do not say; an entry with nothing to run is left out.
      */

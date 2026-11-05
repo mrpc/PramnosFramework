@@ -45,6 +45,12 @@ final class ToolRegistry
     /** @var array<string, string> What each skill is for, by name */
     private array $skillNotes = [];
 
+    /** @var array<string, string> A skill's instructions, by name: the method its use_skill hands the model */
+    private array $skillBodies = [];
+
+    /** @var array<string, list<string>> Tools a skill opens beside those whose metadata names it, by skill */
+    private array $skillTools = [];
+
     /** @var (callable(string, array<string, mixed>): bool)|null */
     private $can;
 
@@ -116,6 +122,27 @@ final class ToolRegistry
         return $this;
     }
 
+    /**
+     * Declare a skill as a file declares one: what it is for, the tools it opens beside those whose
+     * metadata names it, and its instructions — handed to the model by `use_skill` when the skill is
+     * turned on, so a method is in the context only when it is needed. A skill with instructions
+     * and no tool this person may use is still offered; one with neither is not.
+     *
+     * The instructions are the application's own configuration, trusted as a system prompt is.
+     *
+     * @param list<string> $tools Tool names; one not declared here is ignored
+     */
+    public function defineSkill(string $skill, string $description = '', array $tools = [], string $instructions = ''): static
+    {
+        if ($description !== '') {
+            $this->skillNotes[$skill] = $description;
+        }
+        $this->skillTools[$skill]  = array_values(array_unique(array_merge($this->skillTools[$skill] ?? [], array_map('strval', $tools))));
+        $this->skillBodies[$skill] = trim($instructions);
+
+        return $this;
+    }
+
     /** Whether a tool of this name is declared. */
     public function has(string $name): bool
     {
@@ -159,9 +186,26 @@ final class ToolRegistry
                 $skills[$skill][] = $name;
             }
         }
+        // A declared skill's own list, and a skill of instructions only, with no tool at all.
+        foreach ($this->skillTools as $skill => $names) {
+            $skills[$skill] = array_values(array_unique(array_merge($skills[$skill] ?? [], array_filter($names, fn (string $n): bool => isset($this->tools[$n])))));
+        }
         ksort($skills);
 
         return $skills;
+    }
+
+    /** The skills a tool is in: its metadata's, and those that list it. @return list<string> */
+    private function skillsOf(string $name): array
+    {
+        $skills = $this->metadata($name)['skills'];
+        foreach ($this->skillTools as $skill => $names) {
+            if (in_array($name, $names, true)) {
+                $skills[] = $skill;
+            }
+        }
+
+        return array_values(array_unique($skills));
     }
 
     /**
@@ -177,8 +221,10 @@ final class ToolRegistry
         $out = [];
         foreach ($this->tools as $name => $tool) {
             $meta = $this->metadata($name);
+            // A tool its metadata puts in no skill is offered always, a skill that lists it
+            // notwithstanding: listing it says what the skill opens, not that it is now held back.
             if (!$this->permitted($meta['permissions'], $context)
-                || ($skills !== null && $meta['skills'] !== [] && array_intersect($meta['skills'], $skills) === [])) {
+                || ($skills !== null && $meta['skills'] !== [] && array_intersect($this->skillsOf($name), $skills) === [])) {
                 continue;
             }
             $out[$name] = array_filter([
@@ -207,7 +253,7 @@ final class ToolRegistry
         $lines = [];
         foreach ($this->available($context) as $skill => $names) {
             $note    = $this->skillNotes[$skill] ?? '';
-            $lines[] = '- ' . $skill . ($note !== '' ? ': ' . $note : '') . ' (' . implode(', ', $names) . ')';
+            $lines[] = '- ' . $skill . ($note !== '' ? ': ' . $note : '') . ($names !== [] ? ' (' . implode(', ', $names) . ')' : '');
         }
 
         return $lines === [] ? '' : "Skills you can turn on with use_skill, when a question needs them:\n" . implode("\n", $lines);
@@ -233,14 +279,27 @@ final class ToolRegistry
                 array_keys($available)
             )) . '.',
             'parameters'  => Tools::schema(['properties' => ['skill' => ['type' => 'string', 'enum' => array_keys($available)]], 'required' => ['skill']]),
-            'run'         => static fn (array $arguments): string => isset($available[(string) ($arguments['skill'] ?? '')])
-                ? 'Turned on ' . $arguments['skill'] . ': ' . implode(', ', $available[(string) $arguments['skill']]) . '.'
+            'run'         => fn (array $arguments): string => isset($available[(string) ($arguments['skill'] ?? '')])
+                ? $this->turnedOn((string) $arguments['skill'], $available[(string) $arguments['skill']])
                 : 'Error: there is no skill called ' . ($arguments['skill'] ?? '') . '.',
             // The skill's own tools: the ones of no skill are offered already.
             'expands'     => fn (array $arguments): array => isset($available[(string) ($arguments['skill'] ?? '')])
                 ? array_intersect_key($this->tools($context, [(string) $arguments['skill']]), array_flip($available[(string) $arguments['skill']]))
                 : [],
         ]];
+    }
+
+    /**
+     * What `use_skill` answers: the tools turned on, then the skill's instructions, if it has any.
+     *
+     * @param list<string> $tools
+     */
+    private function turnedOn(string $skill, array $tools): string
+    {
+        $said = 'Turned on ' . $skill . ($tools !== [] ? ': ' . implode(', ', $tools) : '') . '.';
+        $body = $this->skillBodies[$skill] ?? '';
+
+        return $body !== '' ? $said . "\n\n" . $body : $said;
     }
 
     /**
@@ -254,7 +313,8 @@ final class ToolRegistry
         $available = [];
         foreach ($this->skills() as $skill => $names) {
             $mine = array_values(array_filter($names, fn (string $name): bool => $this->permitted($this->metadata($name)['permissions'], $context)));
-            if ($mine !== []) {
+            // Instructions alone are worth turning on — a method needs no tool; neither is not.
+            if ($mine !== [] || ($this->skillBodies[$skill] ?? '') !== '') {
                 $available[$skill] = $mine;
             }
         }

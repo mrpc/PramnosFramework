@@ -127,6 +127,45 @@ class SkillsTest extends LlmTestCase
     }
 
     /**
+     * A skill the application wrote as a file: its presence turns skills on, the model sees it by
+     * its description, and turning it on hands the model the file's method with the tools it lists
+     * — the method in the context only from then on.
+     */
+    #[DataProvider('databases')]
+    public function testASkillFileHandsItsMethodToTheModelWhenTurnedOn(string $type, string $host, int $port): void
+    {
+        // Arrange — a skill file opening the assistant's crm tool, and no `skills` setting
+        $dir = sys_get_temp_dir() . '/pf-skills-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        file_put_contents($dir . '/crm-loyalty.md', "---\nname: crm-loyalty\ndescription: Retention and loyalty\ntools: [crm_lookup]\n---\nStart from the cohort, not the campaign.");
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => ['skills_path' => $dir]]);
+        $this->answer([
+            [200, self::calls([['use_skill', ['skill' => 'crm-loyalty']]])],
+            [200, self::says('Done.')],
+        ]);
+
+        try {
+            // Act
+            (new Conversations(self::assistant()))->as(new Scope(7, null))->ask(null, 'Who is drifting away?');
+        } finally {
+            unlink($dir . '/crm-loyalty.md');
+            rmdir($dir);
+        }
+
+        // Assert — grouped because of the file; the method only after use_skill
+        $first = self::offered($this->sent[0]);
+        $this->assertContains('use_skill', $first);
+        $this->assertNotContains('crm_lookup', $first);
+        $description = $this->sent[0]['body']['tools'][array_search('use_skill', $first, true)]['function']['description'];
+        $this->assertStringContainsString('crm-loyalty (Retention and loyalty)', $description);
+        $this->assertStringNotContainsString('Start from the cohort', (string) json_encode($this->sent[0]['body']['messages']), 'not in the context before');
+        $toolAnswer = array_values(array_filter($this->sent[1]['body']['messages'], static fn (array $m): bool => ($m['role'] ?? '') === 'tool'));
+        $this->assertStringContainsString("Turned on crm-loyalty: crm_lookup.\n\nStart from the cohort, not the campaign.", (string) end($toolAnswer)['content']);
+        $this->assertContains('crm_lookup', self::offered($this->sent[1]));
+    }
+
+    /**
      * A worker rebuilding the tools for one parallel call gets every tool, grouped or not: the
      * call it runs was offered once its skill was on.
      */

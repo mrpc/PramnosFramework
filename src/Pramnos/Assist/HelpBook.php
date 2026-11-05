@@ -451,29 +451,7 @@ final class HelpBook
     /** @return array{slug: string, title: string, section: string, questions: list<string>, updated: string, order: ?int, requires: list<string>, screens: list<string>, whatsnew: list<string>, body: string, framework: bool} */
     private static function read(string $file, string $slug, bool $framework): array
     {
-        $text   = str_replace(["\r\n", "\r"], "\n", (string) file_get_contents($file));
-        $meta   = [];
-        $body   = $text;
-
-        if (preg_match('/^---\n(.*?)\n---\n?(.*)$/s', $text, $m) === 1) {
-            $body = $m[2];
-            $key  = '';
-            foreach (explode("\n", $m[1]) as $line) {
-                if (preg_match('/^([A-Za-z_]+):\s*(.*)$/', $line, $pair) === 1) {
-                    $key   = strtolower($pair[1]);
-                    $value = trim($pair[2]);
-                    // `[a, b]` is a list on one line.
-                    $meta[$key] = preg_match('/^\[(.*)\]$/', $value, $list) === 1
-                        ? array_values(array_filter(array_map(static fn (string $v): string => trim($v, " \"'"), explode(',', $list[1])), static fn (string $v): bool => $v !== ''))
-                        : (trim($value, " \"'") === '' ? [] : trim($value, " \"'"));
-                } elseif ($key !== '' && preg_match('/^\s*-\s+(.*)$/', $line, $item) === 1) {
-                    $meta[$key]   = is_array($meta[$key]) ? $meta[$key] : [];
-                    $meta[$key][] = trim($item[1], " \"'");
-                }
-            }
-        }
-
-        $body  = trim($body);
+        ['meta' => $meta, 'body' => $body] = \Pramnos\Support\FrontMatter::parse((string) file_get_contents($file));
         $title = is_string($meta['title'] ?? null) ? $meta['title'] : '';
         if ($title === '' && preg_match('/^#\s+(.+)$/m', $body, $heading) === 1) {
             $title = trim($heading[1]);
@@ -505,8 +483,6 @@ final class HelpBook
      */
     private static function names(mixed $value): array
     {
-        $names = is_array($value) ? $value : [$value];
-
-        return array_values(array_filter(array_map('trim', array_map('strval', $names)), static fn (string $n): bool => $n !== ''));
+        return \Pramnos\Support\FrontMatter::names($value);
     }
 }

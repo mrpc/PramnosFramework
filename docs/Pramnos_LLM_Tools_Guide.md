@@ -158,6 +158,46 @@ Marking costs nothing while it is off, so mark tools as you write them. A tool w
 [parallel call](#tools-that-run-at-once) builds every tool (`Conversations::toolsFor()`), grouped
 or not.
 
+### Skills with a method: skill files
+
+A skill can also carry instructions, which is a specialist's method and not only a group of tools.
+The model receives them only when it turns the skill on, so a conversation that does not need the
+method does not pay for it. Name a folder, and each `<slug>.md` in it is one skill (the Agent
+Skills pattern):
+
+```php
+'llm' => ['chat' => ['skills_path' => 'app/skills']],   // under the application's root, or absolute
+```
+
+```markdown
+---
+name: crm-loyalty
+description: Retention and loyalty: who is drifting away, and what to do for each
+tools: [audience_segments, audience_why, retention]
+---
+# How a CRM and loyalty marketer works
+Start from the cohort, not the campaign. …
+```
+
+- `name` is what `use_skill` takes; without it, the file's name is used. A name with spaces or
+  other characters a skill cannot have is logged and the file is skipped.
+- `description` is the line the model chooses by, in `use_skill`'s description and in the
+  manifest. It takes precedence over a note from the assistant's `skills()`.
+- `tools` are the tools the skill opens, in addition to those whose metadata already names it. A
+  tool listed here that belongs to another skill is offered when either skill is on. A tool that
+  belongs to no skill stays offered all the time, because listing it says what the skill uses, not
+  that it should be held back. A name that is not a declared tool is ignored.
+- The body follows `Turned on crm-loyalty: audience_segments, …` in `use_skill`'s answer.
+
+A skill with instructions and no tool is offered too, as a method alone (copywriting, say). A
+skill whose tools the person lacks is still offered for its instructions, with none of those
+tools. A skill with neither is not offered. Skill files turn skills on unless app.php says
+`'skills' => false`. The files are the application's configuration, trusted as its system prompt
+is: anyone who can write them can already change what the model is told.
+
+Outside a conversation, `ToolRegistry::defineSkill($name, $description, $tools, $instructions)`
+does the same, and `Chat\Skills::load($folder)` reads such a folder.
+
 ## Tools from other MCP servers
 
 The framework is also an MCP **client**. An application connects to external MCP servers, and
