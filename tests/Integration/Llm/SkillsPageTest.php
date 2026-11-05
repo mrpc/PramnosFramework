@@ -200,4 +200,25 @@ class SkillsPageTest extends LlmTestCase
         $this->assertCount(4, $nobody->redirectedTo, 'every one sent to sign in');
         $this->assertStringContainsString('chat', $nobody->redirectedTo[0]);
     }
+
+    /**
+     * A skill's tools are chosen from those the person's Ask has, not typed; and the roles a skill
+     * may be for are those that reach this Ask — `skills_roles` narrows them to exactly the listed.
+     */
+    #[DataProvider('databases')]
+    public function testToolsAreChosenAndRolesAreThoseThatReachAsk(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->arrange($type, $host, $port);
+        $this->configure(['chat' => ['stored_skills' => true, 'skills_roles' => [90]]]);
+
+        // Act
+        $html = (string) $this->page('admin')->skills();
+
+        // Assert
+        $this->assertStringContainsString('data-pf-skill-tools', $html, 'a list to choose from');
+        $this->assertMatchesRegularExpression('/<input type="checkbox" name="tools\[\]" value="[a-z_]+"/', $html);
+        $this->assertStringContainsString('value="role:90"', $html, 'the role listed');
+        $this->assertStringNotContainsString('value="role:10"', $html, 'not one the application left out');
+    }
 }

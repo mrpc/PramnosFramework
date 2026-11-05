@@ -56,7 +56,8 @@ trait KeepsSkills
         $view->roles   = $view->enabled && $manage ? $store->roles() : [];
         $view->manage  = $manage;
         $view->skill   = $skill;
-        $view->roleChoices = \Pramnos\User\UserTypes::labels();
+        $view->roleChoices = $this->skillRoleChoices();
+        $view->tools   = $view->enabled ? $this->skillTools() : [];
         $view->urls    = ['page' => $this->skillsUrl(), 'action' => $this->skillsUrl('%s'), 'chat' => $this->taskChatUrl()];
 
         return $view->display('skills');
@@ -121,6 +122,58 @@ trait KeepsSkills
     public function skillreject(mixed $id = null): mixed
     {
         return $this->skillDone(fn (object $user, int $skill): bool => (new StoredSkills())->reject($user, $skill), $id, 'Turned down.');
+    }
+
+    /**
+     * The roles a skill may be for, usertype => label: the application's types that reach this
+     * page's Ask — from {@see skillRolesFloor()} up — or exactly those `'llm' => ['chat' =>
+     * ['skills_roles' => [98, 99]]]` lists.
+     *
+     * @return array<int, string>
+     */
+    protected function skillRoleChoices(): array
+    {
+        $chat  = \Pramnos\Llm\Llm::config('chat', []);
+        $only  = is_array($chat) && is_array($chat['skills_roles'] ?? null) ? array_map('intval', $chat['skills_roles']) : null;
+        $floor = $this->skillRolesFloor();
+
+        return array_filter(\Pramnos\User\UserTypes::labels(),
+            static fn (string $label, int $type): bool => $type >= $floor && ($only === null || in_array($type, $only, true)), ARRAY_FILTER_USE_BOTH);
+    }
+
+    /** The lowest usertype that reaches this page's Ask: nobody's floor for Ask AI. */
+    protected function skillRolesFloor(): int
+    {
+        return 0;
+    }
+
+    /**
+     * The tools this person's Ask has, name => what it does, to choose a skill's from; none when
+     * they cannot be listed, and the form takes names typed instead.
+     *
+     * @return array<string, string>
+     */
+    protected function skillTools(): array
+    {
+        try {
+            $chat  = $this->taskConversations();
+            $scope = $this->taskScope();
+            if ($scope === null) {
+                return [];
+            }
+            $tools = $chat->toolsFor(new \Pramnos\Llm\Chat\Turn($scope, null, false, [], [], [], $chat));
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Skills page could not list the tools: ' . $e->getMessage(), 'llm');
+
+            return [];
+        }
+        $out = [];
+        foreach ($tools as $name => $tool) {
+            $out[(string) $name] = mb_substr((string) strtok((string) ($tool['description'] ?? ''), "\n"), 0, 140);
+        }
+        ksort($out);
+
+        return $out;
     }
 
     /** `chat/skills`, or `chat/<action>`. */

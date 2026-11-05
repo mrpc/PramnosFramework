@@ -11,7 +11,8 @@
  *   $this->roles       — every role's skill, pending first (empty unless $this->manage)
  *   $this->manage      — whether this person writes a role's skills and approves offers
  *   $this->skill       — the one open to edit, or null
- *   $this->roleChoices — usertype => label, the roles a skill is for, from that one up
+ *   $this->roleChoices — usertype => label: the roles that reach this Ask, a skill is for from one up
+ *   $this->tools       — name => what it does: the tools this person's Ask has, to choose from
  *   $this->urls        — page, action (with %s for the action's name), chat
  */
 $c      = ['page' => 'container py-4 d-flex flex-column gap-3', 'card' => 'card card-body', 'muted' => 'text-muted small', 'bad' => 'text-danger small', 'btn' => 'btn btn-sm btn-primary', 'btnGhost' => 'btn btn-sm btn-outline-secondary', 'danger' => 'btn btn-sm btn-outline-danger', 'input' => 'form-control form-control-sm', 'select' => 'form-select form-select-sm', 'textarea' => 'form-control', 'badge' => 'badge text-bg-secondary', 'row' => 'd-flex flex-wrap align-items-center gap-2', 'field' => 'd-flex flex-column gap-1 small', 'answer' => '', 'h1' => 'h3', 'h2' => 'h5'];
@@ -21,78 +22,123 @@ $token  = static fn (): string => \Pramnos\Http\Session::getInstance()->getToken
 $u      = (is_array($this->urls ?? null) ? $this->urls : []) + ['page' => sURL . 'chat/skills', 'action' => sURL . 'chat/%s', 'chat' => sURL . 'chat'];
 $act    = static fn (string $action): string => str_replace('%s', $action, (string) $u['action']);
 $roles  = (array) ($this->roleChoices ?? []);
+$tools  = (array) ($this->tools ?? []);
 $open   = is_array($this->skill ?? null) ? $this->skill : null;
 $states = ['on' => 'On', 'off' => 'Off', 'draft' => 'Draft', 'pending' => 'Waiting for approval'];
 $roleOf = static fn (?string $role): string => $role === null ? '' : (ctype_digit($role) && isset($roles[(int) $role]) ? $t($roles[(int) $role]) : $role);
-/** One skill's card: what it is, its state, and what may be done with it. */
-$card   = static function (array $skill, bool $offer, bool $decide) use ($c, $e, $t, $token, $act, $u, $roles, $states, $roleOf): string {
-    $id   = (int) $skill['id'];
-    $html = '<div class="' . $c['card'] . '" data-pf-skill="' . $id . '"><div class="' . $c['row'] . '"><strong>' . $e($skill['name']) . '</strong>'
-        . ' <span class="' . $c['badge'] . '">' . $e($t($states[$skill['status']] ?? $skill['status'])) . '</span>'
-        . ($skill['role'] !== null ? ' <span class="' . $c['muted'] . '">' . $e($t('For %s and up', $roleOf($skill['role']))) . '</span>' : '')
-        . '</div><p class="' . $c['muted'] . '">' . $e($skill['description']) . '</p>'
-        . ($skill['tools'] !== [] ? '<p class="' . $c['muted'] . '">' . $e($t('Tools: %s', implode(', ', $skill['tools']))) . '</p>' : '')
-        . '<details><summary>' . $e($t('The method')) . '</summary><pre style="white-space:pre-wrap">' . $e($skill['body']) . '</pre></details>'
-        . '<div class="' . $c['row'] . '">';
+$grid   = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));gap:12px';
+$field  = 'display:flex;flex-direction:column;gap:6px';
+$full   = 'width:100%;max-width:none';
+$split  = 'display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:12px';
+$post   = static fn (string $action, int $id, string $label, string $class, string $extra = ''): string =>
+    '<form method="post" action="' . $e($act($action)) . '" style="display:inline">' . $token() . '<input type="hidden" name="skill_id" value="' . $id . '">' . $extra
+    . '<button class="' . $class . '">' . $e($label) . '</button></form>';
+/** One skill: what it is and its state on the left, what may be done with it on the right, its method under. */
+$card   = static function (array $skill, bool $offer, bool $decide) use ($c, $e, $t, $token, $act, $u, $roles, $states, $roleOf, $split, $post): string {
+    $id      = (int) $skill['id'];
+    $actions = '';
     if ($decide) {
-        $html .= '<form method="post" action="' . $e($act('skillapprove')) . '">' . $token() . '<input type="hidden" name="skill_id" value="' . $id . '"><button class="' . $c['btn'] . '">' . $e($t('Approve')) . '</button></form>'
-            . '<form method="post" action="' . $e($act('skillreject')) . '">' . $token() . '<input type="hidden" name="skill_id" value="' . $id . '"><button class="' . $c['danger'] . '">' . $e($t('Turn down')) . '</button></form>';
+        $actions .= $post('skillapprove', $id, $t('Approve'), $c['btn']) . $post('skillreject', $id, $t('Turn down'), $c['danger']);
     } elseif ($skill['status'] !== 'pending') {
-        $on    = $skill['status'] === 'on';
-        $html .= '<form method="post" action="' . $e($act('skillturn')) . '">' . $token() . '<input type="hidden" name="skill_id" value="' . $id . '">'
-            . ($on ? '' : '<input type="hidden" name="on" value="1">')
-            . '<button class="' . ($on ? $c['btnGhost'] : $c['btn']) . '">' . $e($t($on ? 'Turn off' : ($skill['status'] === 'draft' ? 'Keep and turn on' : 'Turn on'))) . '</button></form>'
+        $on       = $skill['status'] === 'on';
+        $actions .= $post('skillturn', $id, $t($on ? 'Turn off' : ($skill['status'] === 'draft' ? 'Keep and turn on' : 'Turn on')), $on ? $c['btnGhost'] : $c['btn'], $on ? '' : '<input type="hidden" name="on" value="1">')
             . '<a class="' . $c['btnGhost'] . '" href="' . $e($u['page'] . '?skill=' . $id) . '">' . $e($t('Edit')) . '</a>';
     }
     if ($offer && $roles !== []) {
-        $html .= '<form method="post" action="' . $e($act('skillshare')) . '" class="' . $c['row'] . '">' . $token() . '<input type="hidden" name="skill_id" value="' . $id . '">'
+        $actions .= '<form method="post" action="' . $e($act('skillshare')) . '" style="display:inline-flex;gap:6px">' . $token() . '<input type="hidden" name="skill_id" value="' . $id . '">'
             . '<select name="role" class="' . $c['select'] . '" aria-label="' . $e($t('Offer to a role')) . '">';
         foreach ($roles as $level => $label) {
-            $html .= '<option value="' . (int) $level . '">' . $e($t($label)) . '</option>';
+            $actions .= '<option value="' . (int) $level . '">' . $e($t($label)) . '</option>';
         }
-        $html .= '</select><button class="' . $c['btnGhost'] . '">' . $e($t('Offer to a role')) . '</button></form>';
+        $actions .= '</select><button class="' . $c['btnGhost'] . '">' . $e($t('Offer to a role')) . '</button></form>';
     }
-    $html .= '<form method="post" action="' . $e($act('skilldelete')) . '">' . $token() . '<input type="hidden" name="skill_id" value="' . $id . '"><button class="' . $c['danger'] . '">' . $e($t('Delete')) . '</button></form>';
+    $actions .= $post('skilldelete', $id, $t('Delete'), $c['danger']);
 
-    return $html . '</div></div>';
+    return '<div class="' . $c['card'] . '" data-pf-skill="' . $id . '" data-pf-skill-status="' . $e($skill['status']) . '">'
+        . '<div style="' . $split . '"><div style="min-width:0;flex:1 1 16rem">'
+        . '<div class="' . $c['row'] . '"><strong>' . $e($skill['name']) . '</strong> <span class="' . $c['badge'] . '">' . $e($t($states[$skill['status']] ?? $skill['status'])) . '</span>'
+        . ($skill['role'] !== null ? ' <span class="' . $c['muted'] . '">' . $e($t('For %s and up', $roleOf($skill['role']))) . '</span>' : '') . '</div>'
+        . '<div class="' . $c['muted'] . '">' . $e($skill['description']) . '</div>'
+        . ($skill['tools'] !== [] ? '<div class="' . $c['muted'] . '">' . $e($t('Tools: %s', implode(', ', $skill['tools']))) . '</div>' : '')
+        . '</div><div class="' . $c['row'] . '" style="justify-content:flex-end">' . $actions . '</div></div>'
+        . '<details style="margin-top:8px"><summary class="' . $c['muted'] . '">' . $e($t('The method')) . '</summary><pre style="white-space:pre-wrap;margin:8px 0 0">' . $e($skill['body']) . '</pre></details>'
+        . '</div>';
 };
+$chosen = array_flip($open['tools'] ?? []);
 ?>
 <div class="<?php echo $c['page']; ?>" data-pf-skills>
-    <div class="<?php echo $c['row']; ?>">
-        <h1 class="<?php echo $c['h1']; ?>"><?php echo $e($t('My skills')); ?></h1>
-        <a href="<?php echo $e($u['chat']); ?>" class="<?php echo $c['btnGhost']; ?>"><?php echo $e($t('Back to the conversations')); ?></a>
+    <div style="<?php echo $split; ?>;align-items:center">
+        <h1 class="<?php echo $c['h1']; ?>" style="margin:0"><?php echo $e($t('My skills')); ?></h1>
+        <a href="<?php echo $e($u['chat']); ?>" class="<?php echo $c['btnGhost']; ?>">&larr; <?php echo $e($t('Back to the conversations')); ?></a>
     </div>
 <?php if (empty($this->enabled)): ?>
     <p class="<?php echo $c['muted']; ?>"><?php echo $e($t('Skills are not turned on here.')); ?></p>
 <?php else: ?>
     <p class="<?php echo $c['muted']; ?>"><?php echo $e($t('A skill is a way of working Ask is handed when a question needs it. It opens nothing you may not already use.')); ?></p>
 
-    <form method="post" action="<?php echo $e($act('skillsave')); ?>" class="<?php echo $c['card']; ?>" data-pf-skill-form>
-        <?php echo $token(); ?>
-        <?php if ($open !== null): ?><input type="hidden" name="skill_id" value="<?php echo (int) $open['id']; ?>"><?php endif; ?>
-        <h2 class="<?php echo $c['h2']; ?>"><?php echo $e($t($open !== null ? 'Edit a skill' : 'A new skill')); ?></h2>
-        <label class="<?php echo $c['field']; ?>"><?php echo $e($t('Name')); ?>
-            <input name="name" required maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9_.\-]*" class="<?php echo $c['input']; ?>" value="<?php echo $e($open['name'] ?? ''); ?>" placeholder="weekly-sales"></label>
-        <label class="<?php echo $c['field']; ?>"><?php echo $e($t('What it is for')); ?>
-            <input name="description" required maxlength="300" class="<?php echo $c['input']; ?>" value="<?php echo $e($open['description'] ?? ''); ?>"></label>
-        <label class="<?php echo $c['field']; ?>"><?php echo $e($t('Tools it uses, by name')); ?>
-            <input name="tools" class="<?php echo $c['input']; ?>" value="<?php echo $e(implode(', ', $open['tools'] ?? [])); ?>"></label>
-        <label class="<?php echo $c['field']; ?>"><?php echo $e($t('The method')); ?>
-            <textarea name="body" required rows="8" class="<?php echo $c['textarea']; ?>"><?php echo $e($open['body'] ?? ''); ?></textarea></label>
-        <?php if (!empty($this->manage) && ($open === null || $open['level'] === 'role')): ?>
-        <label class="<?php echo $c['field']; ?>"><?php echo $e($t('For')); ?>
-            <select name="for" class="<?php echo $c['select']; ?>">
-                <option value="user"><?php echo $e($t('Me')); ?></option>
-                <?php foreach ($roles as $level => $label): ?>
-                <option value="role:<?php echo (int) $level; ?>"<?php echo ($open['role'] ?? null) === (string) $level ? ' selected' : ''; ?>><?php echo $e($t('%s and up', $t($label))); ?></option>
-                <?php endforeach; ?>
-            </select></label>
-        <?php endif; ?>
-        <div class="<?php echo $c['row']; ?>">
-            <button class="<?php echo $c['btn']; ?>"><?php echo $e($t('Save')); ?></button>
-            <?php if ($open !== null): ?><a class="<?php echo $c['btnGhost']; ?>" href="<?php echo $e($u['page']); ?>"><?php echo $e($t('Cancel')); ?></a><?php endif; ?>
-        </div>
-    </form>
+    <details class="<?php echo $c['card']; ?>"<?php echo $open !== null || empty($this->mine) ? ' open' : ''; ?> data-pf-skill-editor>
+        <summary class="<?php echo $c['btn']; ?>" style="display:inline-block;cursor:pointer;list-style:none"><?php echo $e($t($open !== null ? 'Edit a skill' : 'A new skill')); ?></summary>
+        <form method="post" action="<?php echo $e($act('skillsave')); ?>" data-pf-skill-form style="display:flex;flex-direction:column;gap:16px;margin-top:16px">
+            <?php echo $token(); ?>
+            <?php if ($open !== null): ?><input type="hidden" name="skill_id" value="<?php echo (int) $open['id']; ?>"><?php endif; ?>
+            <div style="<?php echo $grid; ?>">
+                <label style="<?php echo $field; ?>"><span><?php echo $e($t('Name')); ?></span>
+                    <input name="name" required maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9_.\-]*" class="<?php echo $c['input']; ?>" style="<?php echo $full; ?>" value="<?php echo $e($open['name'] ?? ''); ?>" placeholder="weekly-sales">
+                    <small class="<?php echo $c['muted']; ?>"><?php echo $e($t('Lowercase Latin letters, digits and dashes.')); ?></small></label>
+                <label style="<?php echo $field; ?>"><span><?php echo $e($t('What it is for')); ?></span>
+                    <input name="description" required maxlength="300" class="<?php echo $c['input']; ?>" style="<?php echo $full; ?>" value="<?php echo $e($open['description'] ?? ''); ?>" placeholder="<?php echo $e($t('The weekly sales figures, by market')); ?>">
+                    <small class="<?php echo $c['muted']; ?>"><?php echo $e($t('One line. Ask chooses the skill by it.')); ?></small></label>
+            </div>
+            <fieldset style="<?php echo $field; ?>;border:0;padding:0;margin:0">
+                <legend style="margin-bottom:6px"><?php echo $e($t('Tools it uses')); ?></legend>
+                <?php if ($tools === []): ?>
+                    <input name="tools" class="<?php echo $c['input']; ?>" style="<?php echo $full; ?>" value="<?php echo $e(implode(', ', $open['tools'] ?? [])); ?>">
+                    <small class="<?php echo $c['muted']; ?>"><?php echo $e($t('Their names, separated by commas.')); ?></small>
+                <?php else: ?>
+                    <input type="search" class="<?php echo $c['input']; ?>" style="<?php echo $full; ?>" placeholder="<?php echo $e($t('Find a tool')); ?>" aria-label="<?php echo $e($t('Find a tool')); ?>" data-pf-skill-tool-filter>
+                    <div style="max-height:16rem;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(14rem,1fr));gap:4px 12px;padding:4px 0" data-pf-skill-tools>
+                        <?php foreach ($tools as $name => $does): ?>
+                        <label title="<?php echo $e($does); ?>" style="display:flex;gap:6px;align-items:flex-start" data-pf-skill-tool="<?php echo $e(mb_strtolower($name . ' ' . $does)); ?>">
+                            <input type="checkbox" name="tools[]" value="<?php echo $e($name); ?>"<?php echo isset($chosen[$name]) ? ' checked' : ''; ?>>
+                            <span><code><?php echo $e($name); ?></code></span></label>
+                        <?php endforeach; ?>
+                        <?php foreach (array_diff(array_keys($chosen), array_keys($tools)) as $name): ?>
+                        <input type="hidden" name="tools[]" value="<?php echo $e($name); ?>">
+                        <?php endforeach; ?>
+                    </div>
+                    <small class="<?php echo $c['muted']; ?>"><?php echo $e($t('Only the tools you may use: a skill opens nothing more.')); ?></small>
+                    <script nonce="<?php echo $e(defined('PAGE_NONCE') ? PAGE_NONCE : ''); ?>">
+                    (function () {
+                        var find = document.querySelector('[data-pf-skill-tool-filter]');
+                        if (!find) { return; }
+                        find.addEventListener('input', function () {
+                            var q = find.value.trim().toLowerCase();
+                            document.querySelectorAll('[data-pf-skill-tool]').forEach(function (row) {
+                                row.hidden = q !== '' && row.getAttribute('data-pf-skill-tool').indexOf(q) === -1;
+                            });
+                        });
+                    })();
+                    </script>
+                <?php endif; ?>
+            </fieldset>
+            <label style="<?php echo $field; ?>"><span><?php echo $e($t('The method')); ?></span>
+                <textarea name="body" required rows="14" class="<?php echo $c['textarea']; ?>" style="<?php echo $full; ?>;font-family:ui-monospace,monospace" placeholder="<?php echo $e($t("1. Start from last week's figures.\n2. Compare them with the same week last year.\n3. Say what changed most, and why it may have.")); ?>"><?php echo $e($open['body'] ?? ''); ?></textarea>
+                <small class="<?php echo $c['muted']; ?>"><?php echo $e($t('Markdown. Step by step, as you would want to be told it.')); ?></small></label>
+            <?php if (!empty($this->manage) && ($open === null || $open['level'] === 'role')): ?>
+            <label style="<?php echo $field; ?>"><span><?php echo $e($t('For')); ?></span>
+                <select name="for" class="<?php echo $c['select']; ?>">
+                    <option value="user"><?php echo $e($t('Me')); ?></option>
+                    <?php foreach ($roles as $level => $label): ?>
+                    <option value="role:<?php echo (int) $level; ?>"<?php echo ($open['role'] ?? null) === (string) $level ? ' selected' : ''; ?>><?php echo $e($t('%s and up', $t($label))); ?></option>
+                    <?php endforeach; ?>
+                </select></label>
+            <?php endif; ?>
+            <div class="<?php echo $c['row']; ?>">
+                <button class="<?php echo $c['btn']; ?>"><?php echo $e($t('Save')); ?></button>
+                <?php if ($open !== null): ?><a class="<?php echo $c['btnGhost']; ?>" href="<?php echo $e($u['page']); ?>"><?php echo $e($t('Cancel')); ?></a><?php endif; ?>
+            </div>
+        </form>
+    </details>
 
     <h2 class="<?php echo $c['h2']; ?>"><?php echo $e($t('Your own skills')); ?></h2>
     <?php if (empty($this->mine)): ?><p class="<?php echo $c['muted']; ?>"><?php echo $e($t('None yet. Write one above, or ask Ask to keep a way of working as a skill.')); ?></p><?php endif; ?>

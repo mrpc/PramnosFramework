@@ -215,6 +215,16 @@ every prompt in the organisation. Outside an organisation there is nobody to sha
 option has no effect. Searching is case-insensitive; on
 MySQL it also ignores accents, as its collation does, and on PostgreSQL it does not.
 
+**Everybody's memory, for whoever reads everybody's conversations.** `Ai/memories` lists who has
+memories, with how many and the latest. Each organisation's shared memory is listed apart. Opening a
+person shows their memories, each with its kind and where it came from (`learned`, or asked to be
+remembered). Each one can be corrected or deleted there (`Pramnos\Llm\Chat\MemoryAdmin`). Only
+somebody who reads everybody's Ask conversations reaches the page (`Review::readsAll()`:
+`admin.ai.all`, or root in usertype mode). It is linked from the gear of the analyst's page.
+Memory is personal data read on somebody else's behalf, so each opening, correction and deletion
+goes to the audit log with the person it was about: `ai.memory_viewed`, `ai.memory_corrected`,
+`ai.memory_deleted`.
+
 ## Artifacts: tables, lists and texts kept from an answer
 
 The model is given `save_artifact`, and uses it when an answer is a table of more than a few

@@ -62,13 +62,13 @@ class AiController extends Controller
     {
         $this->addAuthAction(['display', 'all', 'settings', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'cancel', 'delete', 'forget', 'consent', 'api', 'export',
             'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'report',
-            'skills', 'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject',
+            'skills', 'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject', 'memories', 'memorycorrect', 'memorydelete',
             'share', 'unshare', 'shared', 'people', 'act', 'approve', 'reject', 'rate', 'reviews', 'reviewed', 'download', 'printable', 'pin']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
         // `api` checks its own token, from the X-CSRF-Token header, since it also answers GET and DELETE.
         $this->addWriteAction(['save', 'check', 'ask', 'cancel', 'delete', 'forget', 'consent',
             'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'reviewed', 'pin',
-            'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject']);
+            'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject', 'memorycorrect', 'memorydelete']);
         parent::__construct($application);
     }
 
@@ -127,6 +127,8 @@ class AiController extends Controller
             'scheduled' => $this->analystSchedules() ? adminUrl('Ai/scheduled') : '',
             // Skills of a role and the analyst's own, where the application turned them on.
             'skills'    => \Pramnos\Llm\Chat\StoredSkills::enabled() ? adminUrl('Ai/skills') : '',
+            // Everybody's Ask memory, for whoever reads everybody's conversations.
+            'memories'  => $this->readsAll($this->reader()) ? adminUrl('Ai/memories') : '',
             // Everybody's conversations, read only, for whoever reads them all.
             'all'       => $this->readsAll($this->reader()) ? adminUrl('Ai/all') : '',
             'share'     => adminUrl('Ai/share/'),
@@ -312,6 +314,71 @@ class AiController extends Controller
         $user = \Pramnos\User\User::getCurrentUser();
 
         return is_object($user) ? $user : null;
+    }
+
+    /**
+     * `Ai/memories` — everybody's Ask memory ({@see \Pramnos\Llm\Chat\MemoryAdmin}), for whoever
+     * reads everybody's conversations: who has memories, and with `?person=&org=&space=` one
+     * person's (0, an organisation's shared ones) to correct or delete. Each reading is in the
+     * audit log.
+     */
+    public function memories(): mixed
+    {
+        $me = $this->reader();
+        if (!$this->readsAll($me)) {
+            ($this->application ?? \Pramnos\Application\Application::currentInstance())?->notFound();
+
+            return null;
+        }
+        $admin  = new \Pramnos\Llm\Chat\MemoryAdmin();
+        $person = isset($_GET['person']) ? (int) $_GET['person'] : null;
+        $org    = isset($_GET['org']) && $_GET['org'] !== '' ? (int) $_GET['org'] : null;
+        $space  = (string) ($_GET['space'] ?? \Pramnos\Llm\Chat\Scope::CHAT);
+
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = t('Ask memory');
+        $view           = $this->getView('ai');
+        $view->people   = $admin->people();
+        $view->person   = $person;
+        $view->org      = $org;
+        $view->space    = $space;
+        $view->memories = $person === null ? [] : $admin->of($me, $person, $org, $space);
+        $view->urls     = ['page' => adminUrl('Ai/memories'), 'correct' => adminUrl('Ai/memorycorrect'), 'delete' => adminUrl('Ai/memorydelete'), 'chat' => adminUrl('Ai')];
+
+        return $view->display('memories');
+    }
+
+    /** Correct one memory's words: `memory_id` and `content` in the form. */
+    public function memorycorrect(): mixed
+    {
+        return $this->memoryDone(fn (object $me, int $id): bool => (new \Pramnos\Llm\Chat\MemoryAdmin())->correct($me, $id, (string) ($_POST['content'] ?? '')), 'Saved.');
+    }
+
+    /** Delete one memory: `memory_id` in the form. */
+    public function memorydelete(): mixed
+    {
+        return $this->memoryDone(fn (object $me, int $id): bool => (new \Pramnos\Llm\Chat\MemoryAdmin())->delete($me, $id), 'Deleted.');
+    }
+
+    /**
+     * Run a memory action for whoever reads everybody's conversations, say how it went, and go
+     * back to the person's memories (`back` in the form).
+     *
+     * @param callable(object, int): bool $do
+     */
+    private function memoryDone(callable $do, string $done): mixed
+    {
+        $me = $this->reader();
+        if ($me === null || !$this->readsAll($me)) {
+            ($this->application ?? \Pramnos\Application\Application::currentInstance())?->notFound();
+
+            return null;
+        }
+        $do($me, (int) ($_POST['memory_id'] ?? 0)) ? $this->addMessage(t($done)) : $this->addError(t('There is no such memory.'));
+        $back = (string) ($_POST['back'] ?? '');
+        $this->redirect(adminUrl('Ai/memories') . (preg_match('/^\?[A-Za-z0-9=&_-]*$/', $back) === 1 ? $back : ''));
+
+        return null;
     }
 
     /** Whether an account reads every administrator's Ask conversations — `admin.ai.all`, root's in usertype mode. */
@@ -639,6 +706,12 @@ class AiController extends Controller
     protected function taskConversations(): \Pramnos\Llm\Chat\Conversations
     {
         return \Pramnos\Llm\Analyst\Analyst::conversations($this->adminId());
+    }
+
+    /** A role's skill is for the types that reach the analyst: from its floor up. */
+    protected function skillRolesFloor(): int
+    {
+        return $this->adminFloor();
     }
 
     /** `Ai/skills`, or `Ai/<action>`. */

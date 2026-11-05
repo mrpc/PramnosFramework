@@ -73,6 +73,8 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
     'scheduled' => is_array($this->urls ?? null) ? '' : $url('chat/scheduled'),
     // Their skills (Pramnos\Llm\Chat\StoredSkills), where the application turned them on.
     'skills' => is_array($this->urls ?? null) || !\Pramnos\Llm\Chat\StoredSkills::enabled() ? '' : $url('chat/skills'),
+    // Everybody's memory: the analyst's page names it, for whoever reads everybody's conversations.
+    'memories' => '',
     // Other people's Ask conversations, read only — the analyst's, for whoever reads them all.
     'all' => '',
     // Sharing a conversation or an artifact; a page that names its own addresses names these too, or has none.
@@ -108,7 +110,6 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false);
         <nav class="<?php echo $c['card']; ?>" style="flex:0 0 240px;padding:12px" aria-label="<?php echo $e(t('Conversations')); ?>">
             <a href="<?php echo $e($u['page']); ?>" class="<?php echo $c['btn']; ?>"><?php echo $e(t('New conversation')); ?></a>
             <?php if ($u['scheduled'] !== ''): ?><a href="<?php echo $e($u['scheduled']); ?>" class="<?php echo $c['btnGhost']; ?>"><?php echo $e(t('Scheduled')); ?></a><?php endif; ?>
-            <?php if ($u['skills'] !== ''): ?><a href="<?php echo $e($u['skills']); ?>" class="<?php echo $c['btnGhost']; ?>"><?php echo $e(t('My skills')); ?></a><?php endif; ?>
             <ul style="list-style:none;padding:0;margin:12px 0 0">
                 <?php if ($list === []): ?>
                     <li class="<?php echo $c['muted']; ?>"><?php echo $e(t('Nothing asked yet.')); ?></li>
@@ -140,13 +141,15 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false);
                 <?php echo \Pramnos\Llm\Chat\Web\ShareView::recipients(is_array($this->shares ?? null) ? $this->shares : [], $u['unshare'], $openId, $token(), $c); ?>
             <?php endif; ?>
             <?php // The page's own tools, out of the way: a gear with whichever of them the reader has. ?>
-            <?php if (!empty($this->settingsUrl) || $u['all'] !== '' || $u['reviews'] !== ''): ?>
+            <?php if (!empty($this->settingsUrl) || $u['all'] !== '' || $u['reviews'] !== '' || $u['skills'] !== '' || $u['memories'] !== ''): ?>
                 <details class="pf-ask-gear">
                     <summary aria-label="<?php echo $e(t('Ask page tools')); ?>" title="<?php echo $e(t('Ask page tools')); ?>" style="list-style:none;cursor:pointer"><span class="pf-chat-gear">⚙</span></summary>
                     <ul class="<?php echo $c['card']; ?>">
                         <?php if (!empty($this->settingsUrl)): ?><li><a href="<?php echo $e($this->settingsUrl); ?>"><?php echo $e(t('Settings')); ?></a></li><?php endif; ?>
                         <?php if ($u['all'] !== ''): ?><li><a href="<?php echo $e($u['all']); ?>"><?php echo $e(t('Other people\'s Ask conversations')); ?></a></li><?php endif; ?>
                         <?php if ($u['reviews'] !== ''): ?><li><a href="<?php echo $e($u['reviews']); ?>"><?php echo $e(t('Answers to review')); ?></a></li><?php endif; ?>
+                        <?php if ($u['skills'] !== ''): ?><li><a href="<?php echo $e($u['skills']); ?>"><?php echo $e(t('My skills')); ?></a></li><?php endif; ?>
+                        <?php if ($u['memories'] !== ''): ?><li><a href="<?php echo $e($u['memories']); ?>"><?php echo $e(t('Everybody\'s Ask memory')); ?></a></li><?php endif; ?>
                     </ul>
                 </details>
             <?php endif; ?>

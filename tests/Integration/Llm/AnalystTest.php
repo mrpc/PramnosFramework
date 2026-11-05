@@ -551,6 +551,67 @@ class AnalystTest extends LlmTestCase
     }
 
     /**
+     * `Ai/memories` — everybody's Ask memory, for whoever reads everybody's conversations: who has
+     * memories (a person, and an organisation's shared ones), one person's opened — the reading in
+     * the audit log — corrected and deleted, each in the audit log too; a 404 to anybody else.
+     */
+    #[DataProvider('databases')]
+    public function testEverybodysMemoryIsReadAndCorrectedByWhoeverReadsEverything(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->seed();
+        $stamp = gmdate('Y-m-d H:i:s');
+        $this->insert('chat_memory', ['organization_id' => null, 'userid' => 8, 'kind' => 'preference', 'content' => 'Amounts <without> VAT', 'space' => Scope::CHAT, 'source' => 'learned', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $this->insert('chat_memory', ['organization_id' => null, 'userid' => 8, 'kind' => 'fact', 'content' => 'Runs sales in the UK', 'space' => Scope::CHAT, 'source' => 'model', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $this->insert('chat_memory', ['organization_id' => 1, 'userid' => 0, 'kind' => 'fact', 'content' => 'The newsroom closes at 22:00', 'space' => Scope::CHAT, 'source' => 'model', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $ids = array_map('intval', array_column($this->db->queryBuilder()->table('chat_memory')->where('userid', 8)->orderBy('memory_id')->getAllOrFail(), 'memory_id'));
+        $super = new AnalystScreen();
+        $super->reading = (object) ['userid' => 8, 'usertype' => 98, 'active' => 1];
+
+        // Act
+        $_GET  = [];
+        $list  = (string) (new AnalystScreen())->memories();
+        $pages = [];
+        foreach (['plain-css', 'tailwind', 'bootstrap'] as $theme) {
+            $_GET = ['person' => '8', 'org' => '', 'space' => Scope::CHAT];
+            $pages[$theme] = (string) (new AnalystScreen($theme))->memories();
+        }
+        $_POST  = ['memory_id' => (string) $ids[1], 'content' => 'Runs sales in the UK and Ireland', 'back' => '?person=8&org=&space=chat'];
+        $screen = new AnalystScreen();
+        $screen->memorycorrect();
+        $_POST = ['memory_id' => (string) $ids[0]];
+        $screen->memorydelete();
+        $_POST = ['memory_id' => '999999'];
+        $screen->memorydelete();
+        $_POST = [];
+        try {
+            $super->memories();
+            $refused = 200;
+        } catch (\Pramnos\Application\ApplicationClosedException $e) {
+            $refused = $e->getStatusCode();
+        }
+        $left   = $this->db->queryBuilder()->table('chat_memory')->where('userid', 8)->getAllOrFail();
+        $events = array_count_values(array_column($this->db->queryBuilder()->table('authserver.audit_log')->where('event_type', 'like', 'ai.memory_%')->getAllOrFail(), 'event_type'));
+
+        // Assert
+        $this->assertStringContainsString('Shared by organisation 1', $list, 'what an organisation shares, apart');
+        $this->assertStringContainsString('person=8', $list);
+        foreach ($pages as $theme => $page) {
+            $this->assertStringContainsString('Amounts &lt;without&gt; VAT', $page, $theme . ': escaped');
+            $this->assertStringContainsString('Learned', $page, $theme . ': where it came from');
+            $this->assertStringContainsString('name="content"', $page, $theme . ': to correct');
+        }
+        $this->assertSame(['Saved.', 'Deleted.'], $screen->messages);
+        $this->assertSame(['There is no such memory.'], $screen->errors);
+        $this->assertStringEndsWith('Ai/memories?person=8&org=&space=chat', $screen->redirectedTo[0], 'back to the person');
+        $this->assertSame(['Runs sales in the UK and Ireland'], array_column(array_values($left), 'content'));
+        ksort($events);
+        $this->assertSame(['ai.memory_corrected' => 1, 'ai.memory_deleted' => 1, 'ai.memory_viewed' => 3], $events, 'each reading, correction and deletion');
+        $this->assertSame(404, $refused, 'nobody else');
+    }
+
+    /**
      * Anybody who does not read them all — a superuser, 98 — gets a 404, and the Ask page offers
      * them no link; a conversation that does not exist is a 404 to root too.
      */

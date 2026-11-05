@@ -277,6 +277,11 @@ same shape as a skill file: a name, the line the model chooses by, the tools and
 
 They are kept at **My skills**: `chat/skills` for Ask AI and `Ai/skills` for the analyst
 (`Pramnos\Llm\Chat\Web\KeepsSkills`, a trait any controller serving the scheduled page can use too).
+The page is linked from the gear of the Ask page. A skill's tools are chosen from the tools that
+person's Ask has (`skillTools()`).
+A role's skill can be for the usertypes that reach that Ask: the analyst's floor and up on `Ai/skills`,
+every type on `chat/skills`. `'llm' => ['chat' => ['skills_roles' => [98, 99]]]` limits the choice to
+exactly those types, and a controller can override `skillRoleChoices()` or `skillRolesFloor()`.
 In a conversation, Ask can keep a way of working as a skill with `propose_skill`. It does this only
 when the person asks for it or agrees. The skill is kept as a draft and offered only after its person
 turns it on. Memory works differently: it keeps facts and is always in the context, while a skill is
