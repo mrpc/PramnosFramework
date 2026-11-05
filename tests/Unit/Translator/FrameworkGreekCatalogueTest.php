@@ -21,7 +21,11 @@ final class FrameworkGreekCatalogueTest extends TestCase
     /** Where the phrases are, relative to the repository. */
     private const SOURCES = [
         'scaffolding/themes/*/views/{login,OAuth2,twofactor,register,passkey,device,sso,profile,organization,home,status,partials,messages}/*.php',
-        'scaffolding/themes/*/views/dashboard/dashboard.html.php',
+        'scaffolding/themes/*/views/dashboard/{dashboard,admin_dashboard,card}.html.php',
+        'src/Pramnos/Dashboard/*.php',
+        'src/Pramnos/Dashboard/Widgets/*.php',
+        'src/Pramnos/Dashboard/Channels/*.php',
+        'src/Pramnos/Application/Controllers/DashboardController.php',
         'src/Pramnos/Auth/Controllers/{Account,TwoFactorAuth,Device,Passkey}.php',
         'src/Pramnos/Auth/Notifications/{SecondFactorCode,NewSignIn,NewDeviceAuthLink,SecurityChange}Notification.php',
         'src/Pramnos/Security/CookieConsent.php',
@@ -73,6 +77,32 @@ final class FrameworkGreekCatalogueTest extends TestCase
 
         // Assert
         $this->assertSame([], $missing, 'Phrases with no Greek line in resources/language/el.php');
+    }
+
+    /**
+     * Every framework dashboard card's title and description has a Greek line.
+     *
+     * They are returned as plain strings and translated where the dashboard draws them, so the
+     * `t()` sweep above never sees them: a new card showed its name in English on a Greek site.
+     */
+    public function testEveryFrameworkCardsTitleAndDescriptionHasAGreekLine(): void
+    {
+        // Arrange
+        $greek = include dirname(__DIR__, 3) . '/resources/language/el.php';
+
+        // Act
+        $missing = [];
+        foreach (\Pramnos\Dashboard\WidgetRegistry::FRAMEWORK as $class) {
+            $card = new $class();
+            foreach ([$card->title(), $card->description()] as $phrase) {
+                if ($phrase !== '' && !isset($greek[$phrase])) {
+                    $missing[] = $phrase;
+                }
+            }
+        }
+
+        // Assert
+        $this->assertSame([], $missing, 'Dashboard card titles/descriptions with no Greek line');
     }
 
     /**
