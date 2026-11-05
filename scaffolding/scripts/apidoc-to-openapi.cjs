@@ -237,7 +237,7 @@ class ApiDocToOpenAPIConverter {
       // @apiPermission
       const permMatch = line.match(/@apiPermission\s+(.+)/);
       if (permMatch) {
-        endpoint.permission = permMatch[1];
+        endpoint.permission = endpoint.permission ? endpoint.permission + ', ' + permMatch[1] : permMatch[1];
         continue;
       }
 
@@ -346,31 +346,45 @@ class ApiDocToOpenAPIConverter {
       }
 
       // @apiError
-      const errorMatch = line.match(/@apiError\s+\{([^}]+)\}\s+(\S+)(?:\s+(.+))?/);
+      // @apiError {Type} field desc  /  @apiError (Error 403) Field desc
+      const errorMatch = line.match(/@apiError\s+(?:\((?:Error\s+)?(\d{3})\)\s*)?(?:\{([^}]+)\}\s*)?(\S+)(?:\s+(.+))?/);
       if (errorMatch) {
         endpoint.error.push({
-          type: errorMatch[1],
-          field: errorMatch[2],
-          description: errorMatch[3] || ''
+          status: errorMatch[1] ? parseInt(errorMatch[1], 10) : null,
+          type: errorMatch[2] || '',
+          field: errorMatch[3],
+          description: errorMatch[4] || ''
         });
-        currentSection = null;
+        currentSection = 'error';
         continue;
       }
 
       // Continue multiline descriptions
       if (currentSection === 'description' && !line.startsWith('@')) {
-        endpoint.description += (line ? ' ' + line : '\n');
+        // A Markdown list item or a blank line keeps its line break
+        const text = line.trim();
+        if (!text) {
+          endpoint.description = endpoint.description.replace(/\n*$/, '\n\n');
+        } else {
+          const sep = /\n$/.test(endpoint.description) ? '' : (/^([-*]|\d+\.)\s/.test(text) ? '\n' : ' ');
+          endpoint.description += sep + text;
+        }
       } else if (currentSection === 'deprecated' && !line.startsWith('@')) {
         endpoint.deprecatedMessage += (line ? ' ' + line : '\n');
       } else if (currentSection === 'param' && !line.startsWith('@')) {
         const lastParam = endpoint.params[endpoint.params.length - 1];
         if (lastParam) {
-          lastParam.description += (line ? '\n' + line : '\n');
+          lastParam.description += (line ? ' ' + line.trim() : '\n');
         }
       } else if (currentSection === 'body' && !line.startsWith('@')) {
         const lastBody = endpoint.body[endpoint.body.length - 1];
         if (lastBody) {
-          lastBody.description += (line ? '\n' + line : '\n');
+          lastBody.description += (line ? ' ' + line.trim() : '\n');
+        }
+      } else if (currentSection === 'error' && !line.startsWith('@')) {
+        const lastError = endpoint.error[endpoint.error.length - 1];
+        if (lastError && line) {
+          lastError.description += ' ' + line.trim();
         }
       } else if (currentSection === 'successExample' && line) {
         endpoint.currentExampleContent += line + '\n';
@@ -396,6 +410,15 @@ class ApiDocToOpenAPIConverter {
   }
 
   convertTypeToOpenAPI(apiDocType) {
+    // {Number=0,1} / {String="a","b"}: the type plus its allowed values
+    const allowed = apiDocType.match(/^([^=]+)=(.+)$/);
+    if (allowed) {
+      const schema = this.convertTypeToOpenAPI(allowed[1].trim());
+      const numeric = schema.type === 'number' || schema.type === 'integer';
+      schema.enum = allowed[2].split(',').map(v => v.trim().replace(/^"|"$/g, ''))
+        .map(v => (numeric ? Number(v) : v));
+      return schema;
+    }
     const typeMap = {
       'String': 'string',
       'Number': 'number',
@@ -632,16 +655,21 @@ class ApiDocToOpenAPIConverter {
       };
     }
 
-    // Add common error responses
-    pathItem[endpoint.method].responses['400'] = {
-      description: 'Bad Request'
-    };
-    pathItem[endpoint.method].responses['401'] = {
-      description: 'Unauthorized'
-    };
-    pathItem[endpoint.method].responses['500'] = {
-      description: 'Internal Server Error'
-    };
+    // Common error responses, and each documented @apiError (Error NNN) under its status
+    const statusText = { 400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found', 409: 'Conflict', 500: 'Internal Server Error' };
+    const errorsByStatus = { 400: [], 401: [], 500: [] };
+    endpoint.error.forEach(err => {
+      if (!err.status) return;
+      (errorsByStatus[err.status] = errorsByStatus[err.status] || []).push(err);
+    });
+    Object.keys(errorsByStatus).forEach(status => {
+      const errors = errorsByStatus[status];
+      let description = statusText[status] || 'Error';
+      if (errors.length > 0) {
+        description += '\n\n' + errors.map(e => `- \`${e.field}\`: ${e.description}`).join('\n');
+      }
+      pathItem[endpoint.method].responses[String(status)] = { description };
+    });
 
     return pathItem;
   }
@@ -667,7 +695,10 @@ class ApiDocToOpenAPIConverter {
       const bodyObj = {};
       endpoint.body.forEach(param => {
         if (!param.optional) {
-          bodyObj[param.name] = param.defaultValue || (param.type === 'String' ? 'value' : 0);
+          const schema = this.convertTypeToOpenAPI(param.type);
+          bodyObj[param.name] = param.defaultValue
+            || (schema.enum ? schema.enum[0] : (schema.type === 'array' ? [schema.items && schema.items.type === 'string' ? 'value' : 0]
+              : (schema.type === 'string' ? 'value' : (schema.type === 'boolean' ? false : 0))));
         }
       });
       bodyExample = JSON.stringify(bodyObj, null, 2);

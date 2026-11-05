@@ -512,6 +512,21 @@ silently. It turns off telemetry and the AI agent, which Scalar has on by defaul
 proxy, because Scalar's example proxy routes "Test Request" calls through their server. It loads no
 fonts from Scalar's server either. The "Generate SDKs & MCP" button cannot be hidden.
 
+### What the apidoc converter reads
+
+`scripts/apidoc-to-openapi.cjs` turns the `@api…` comment blocks of an apidoc-based project into
+the OpenAPI document. A few forms are worth knowing:
+
+| Written | In the document |
+|---|---|
+| `{Number=0,1}`, `{String="day","week"}` | the type with an `enum`; numbers stay numbers |
+| `@apiError (Error 403) NoAccess You may not…` | a `403` response listing `` `NoAccess`: You may not… ``; `400`, `401` and `500` are always there |
+| `@apiPermission` more than once | every permission, joined with commas |
+| a parameter's or a description's continuation lines | joined with a space; in a description, a blank line starts a paragraph and `- `, `* ` or `1. ` starts a list item |
+
+A code sample's body sends a list as a list (`[0]`, `["value"]`), an enum as its first value and a
+boolean as `false`.
+
 ## Configuration
 
 ### Console Application Setup

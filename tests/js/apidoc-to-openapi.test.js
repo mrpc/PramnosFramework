@@ -100,3 +100,94 @@ describe('the docs page', () => {
         assert.match(scalar, /<title>Shop &lt;\/script&gt;<\/title>/);
     });
 });
+
+describe('what an apidoc block says reaches the document', () => {
+    test('allowed values become the type and its enum, numbers as numbers', () => {
+        // Arrange & Act — `{Number=0,1}` was a string defaulting to "0"
+        const numbers = parser().convertTypeToOpenAPI('Number=0,1');
+        const words   = parser().convertTypeToOpenAPI('String="day","week"');
+
+        // Assert
+        assert.deepEqual(numbers, { type: 'number', enum: [0, 1] });
+        assert.deepEqual(words, { type: 'string', enum: ['day', 'week'] });
+    });
+
+    test('an error documented under its status is a response of that status, listed', () => {
+        // Arrange — `(Error 403)` without a {Type} did not match at all
+        const converter = parser();
+        const endpoint  = converter.parseApiDocBlock(block([
+            '@api {get} /things Things',
+            '@apiError (Error 403) NoAccess You may not see them',
+            '            for this organisation',
+            '@apiError (Error 400) {String} BadFilter The filter is wrong',
+        ]));
+
+        // Act
+        const responses = converter.buildOpenAPIPath(endpoint).get.responses;
+
+        // Assert — documented statuses added, the usual three still there; continuation joined
+        assert.equal(responses['403'].description, 'Forbidden\n\n- `NoAccess`: You may not see them for this organisation');
+        assert.equal(responses['400'].description, 'Bad Request\n\n- `BadFilter`: The filter is wrong');
+        assert.equal(responses['401'].description, 'Unauthorized');
+        assert.equal(responses['500'].description, 'Internal Server Error');
+    });
+
+    test('every permission is kept, not only the last', () => {
+        // Arrange & Act
+        const endpoint = parser().parseApiDocBlock(block(['@api {get} /x X', '@apiPermission admin', '@apiPermission owner']));
+
+        // Assert
+        assert.equal(endpoint.permission, 'admin, owner');
+    });
+
+    test('a parameter\'s continuation lines lose their alignment', () => {
+        // Arrange & Act
+        const endpoint = parser().parseApiDocBlock(block([
+            '@api {post} /x X',
+            '@apiBody {String} name The name,',
+            '                 as the person writes it',
+        ]));
+
+        // Assert
+        assert.equal(endpoint.body[0].description, 'The name, as the person writes it');
+    });
+
+    test('a description keeps its paragraphs and its list items', () => {
+        // Arrange & Act
+        const endpoint = parser().parseApiDocBlock(block([
+            '@api {get} /x X',
+            '@apiDescription First line',
+            'goes on.',
+            '',
+            'Second paragraph:',
+            '- one',
+            '- two',
+        ]));
+
+        // Assert
+        assert.equal(endpoint.description.trim(), 'First line goes on.\n\nSecond paragraph:\n- one\n- two');
+    });
+
+    test('a sample body sends a list as a list, an enum\'s first value and a boolean as false', () => {
+        // Arrange
+        const converter = parser();
+        const endpoint  = converter.parseApiDocBlock(block([
+            '@api {post} /x X',
+            '@apiBody {Number[]} ids The ids',
+            '@apiBody {String[]} tags The tags',
+            '@apiBody {Number=2,3} level The level',
+            '@apiBody {Boolean} on Whether',
+            '@apiBody {Array} raw Anything',
+        ]));
+
+        // Act — `{Array}` without items crashed here
+        const python = converter.generateCodeSamples(endpoint).find((s) => s.lang === 'Python').source;
+
+        // Assert
+        assert.match(python, /'ids': \[\s*0\s*\]/);
+        assert.match(python, /'tags': \[\s*'value'\s*\]/);
+        assert.match(python, /'level': 2/);
+        assert.match(python, /'on': false/);
+        assert.match(python, /'raw': \[\s*0\s*\]/);
+    });
+});
