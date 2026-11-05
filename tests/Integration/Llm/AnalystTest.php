@@ -21,6 +21,7 @@ use Pramnos\Tests\Unit\Llm\LlmTestCase;
  * addresses and phone numbers — and every aggregate tool's answer is checked for not one of
  * them, since the provider that reads it is a third party.
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(\Pramnos\Llm\Chat\MemoryAdmin::class)]
 #[CoversClass(Analyst::class)]
 #[CoversClass(AnalystAssistant::class)]
 #[CoversClass(\Pramnos\Llm\Analyst\Tools\AdminTool::class)]
