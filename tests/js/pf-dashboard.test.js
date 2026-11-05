@@ -50,6 +50,19 @@ function page(ok = true, cardUrl = '') {
                     const tools = create('div');
                     tools.setAttribute('data-pf-widget-tools', '');
                     section.appendChild(tools);
+                    // A card that carries its own style and scripts, as a map does: drawn with
+                    // the card request's nonce, which is not the page's.
+                    if (html.includes('data-with-scripts')) {
+                        const style = create('style');
+                        style.setAttribute('nonce', 'card-response-nonce');
+                        style.textContent = '#map{height:70vh}';
+                        const lib = create('script');
+                        lib.setAttribute('src', '/js/leaflet.js');
+                        lib.setAttribute('nonce', 'card-response-nonce');
+                        const init = create('script');
+                        init.textContent = 'drawMap()';
+                        [style, lib, init].forEach((n) => section.appendChild(n));
+                    }
                     node.appendChild(section);
                 }
             },
@@ -81,6 +94,8 @@ function page(ok = true, cardUrl = '') {
         return section;
     };
     const cards = { a: card('a', 'half'), b: card('b', 'full'), c: card('c', 'half') };
+    // The page's own nonce, on a script of the page, as the CSP injector leaves it.
+    el('script', { nonce: 'page-n0nce' }, document.head || document.body);
     el('p', { 'data-pf-dashboard-empty': '' }, board).hidden = true;
 
     const saves = [];
@@ -90,7 +105,8 @@ function page(ok = true, cardUrl = '') {
         if (init.method !== 'POST') {
             drawn.push(url);
             const id = decodeURIComponent(String(url).split('id=')[1] || '');
-            return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('<section class="card" data-pf-widget="' + id + '" data-size="s">drawn</section>') });
+            const extra = id === 'map' ? ' data-with-scripts' : '';
+            return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('<section class="card" data-pf-widget="' + id + '" data-size="s"' + extra + '>drawn</section>') });
         }
         saves.push({ url, headers: init.headers, body: JSON.parse(init.body) });
         return Promise.resolve({ ok, status: ok ? 200 : 403, json: () => Promise.resolve({}) });
@@ -385,6 +401,43 @@ test('adding a card draws it in place', async () => {
     assert.deepEqual(p.charted, [fresh]);
     assert.equal(p.window.reloaded, undefined);
     assert.equal(option.hidden, true, 'no longer offered — hidden, not removed');
+});
+
+/**
+ * A card added live runs its scripts and styles as a page load would.
+ *
+ * innerHTML never runs a script, and the card's markup carries the card request's nonce, which
+ * the page's policy refuses — a map card stayed empty and 0px tall until a reload. Each is made
+ * again with the page's nonce, in order, a script with a src waited for before the next; the
+ * charts and the `pf:dashboard:card` event come after all of them.
+ */
+test('a card added live runs its scripts and styles with the page\'s nonce', async () => {
+    // Arrange
+    const p = page(true, '/admin/Dashboard/card');
+    p.el('option', { value: 'map' }, p.add);
+    const events = [];
+    p.board.addEventListener('pf:dashboard:card', (e) => events.push(e.detail.id));
+    p.click(p.edit);
+    p.add.value = 'map';
+
+    // Act — drawn, and the library not loaded yet
+    p.add.dispatchEvent(new Event('change'));
+    await settle();
+    const fresh = p.board.querySelector('[data-pf-widget="map"]');
+    const before = fresh.querySelectorAll('script, style').map((n) => [n.tagName, n.getAttribute('nonce')]);
+    const lib = fresh.querySelector('script[src]');
+    lib.onload();
+
+    // Assert — style and library re-made with the page's nonce, the inline script waiting for it
+    assert.deepEqual(before, [['STYLE', 'page-n0nce'], ['SCRIPT', 'page-n0nce'], ['SCRIPT', null]],
+        'the inline script is not re-made until the library has loaded');
+    assert.equal(fresh.querySelector('style').textContent, '#map{height:70vh}');
+    const after = fresh.querySelectorAll('script').map((n) => n.getAttribute('nonce'));
+    assert.deepEqual(after, ['page-n0nce', 'page-n0nce']);
+    assert.equal(fresh.querySelectorAll('script')[1].textContent, 'drawMap()');
+    // Charts and the event only once every script has run
+    assert.deepEqual(p.charted, [fresh]);
+    assert.deepEqual(events, ['map']);
 });
 
 /**

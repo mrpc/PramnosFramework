@@ -68,6 +68,17 @@ application's own dashboard controller hands it over with `$widget->setControlle
 classes. A widget that throws becomes a short note on its card and a line in the
 `dashboard` log, and the rest of the dashboard still draws.
 
+**A card with its own scripts or styles.** A card's `render()` may include `<script>` and
+`<style>` elements, such as a map library and the code that draws the map. On a full page load they
+run as usual. A card that arrives later, added from the catalogue or redrawn after its settings
+change, is fetched alone and put in with `innerHTML`, which runs no script. Its markup would also
+carry the card request's CSP nonce, not the page's. So `pf-utils.js` re-creates each of them in
+order with the page's nonce, waits for a script with a `src` to load before the next one, and
+then fires `pf:dashboard:card` on the card (it bubbles; `event.detail.id` is the card's id) for
+anything else that has to be set up once the card is on the board. An inline `style="…"`
+attribute is not covered: a nonce cannot apply to an attribute, so put sizes in a `<style>`
+element or a stylesheet.
+
 ## Slow cards: shared figures
 
 A card that reads every log, or sums a month of API calls, should not do so on every dashboard

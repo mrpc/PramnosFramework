@@ -74,6 +74,54 @@
     var SELF_SRC = document.currentScript && document.currentScript.src ? document.currentScript.src : '';
 
     /**
+     * The page's CSP nonce, read while this script runs: a browser hides the attribute afterwards,
+     * and `.nonce` is the only way to read it. What markup fetched later is given, so its scripts
+     * and styles run under the page's policy — {@see activateFetched}.
+     */
+    var PAGE_NONCE = (function () {
+        var read = function (el) {
+            return el ? (el.nonce || (typeof el.getAttribute === 'function' ? el.getAttribute('nonce') : '') || '') : '';
+        };
+        try {
+            return read(document.currentScript)
+                || read(typeof document.querySelector === 'function' ? document.querySelector('script[nonce]') : null);
+        } catch (e) {
+            return ''; // not worth failing the whole file over: fetched markup then runs without one
+        }
+    })();
+
+    /**
+     * Make the <script>s and <style>s of markup put in with innerHTML take effect.
+     *
+     * innerHTML never runs a script, and markup drawn by another request carries *that* response's
+     * nonce, which the page's policy refuses — silently, a card left empty and 0px tall until a
+     * reload. So each is re-created, in document order, with the page's nonce; a script with a
+     * `src` is waited for before the next runs, as the parser would. `then` runs once all have.
+     * The markup is this application's own, from a same-origin request made for this person.
+     */
+    function activateFetched(root, then) {
+        var nodes = Array.prototype.slice.call(root.querySelectorAll('script, style'));
+        var i = 0;
+        (function next() {
+            while (i < nodes.length) {
+                var old = nodes[i++];
+                if (!old.parentNode) { continue; }
+                var tag = old.tagName.toLowerCase();
+                var el  = document.createElement(tag);
+                Array.prototype.forEach.call(old.attributes, function (a) { if (a.name !== 'nonce') { el.setAttribute(a.name, a.value); } });
+                if (PAGE_NONCE) { el.setAttribute('nonce', PAGE_NONCE); el.nonce = PAGE_NONCE; }
+                el.textContent = old.textContent;
+                var waits = tag === 'script' && el.getAttribute('src');
+                if (waits) { el.async = false; el.onload = el.onerror = next; }
+                old.parentNode.insertBefore(el, old);
+                old.parentNode.removeChild(old);
+                if (waits) { return; }
+            }
+            if (then) { then(); }
+        })();
+    }
+
+    /**
      * The headers a same-origin call to this application's own API needs.
      *
      * The API expects an `apikey` header, which a page cannot carry: anything the
@@ -2227,7 +2275,15 @@
             if (old && old.parentNode) { old.parentNode.insertBefore(fresh, old); old.parentNode.removeChild(old); } else { board.insertBefore(fresh, empty || null); }
             showTools(fresh, editing);
             if (empty) { empty.hidden = true; }
-            if (window.pfCharts && window.pfCharts.draw) { window.pfCharts.draw(fresh); }
+            // Its scripts and styles, as a page load would have run them; then the charts, and an
+            // event for whatever else a card needs set up once it is on the board.
+            activateFetched(fresh, function () {
+                if (window.pfCharts && window.pfCharts.draw) { window.pfCharts.draw(fresh); }
+                var Ev = window.CustomEvent;
+                if (typeof Ev === 'function') {
+                    fresh.dispatchEvent(new Ev('pf:dashboard:card', { bubbles: true, detail: { id: fresh.getAttribute('data-pf-widget') } }));
+                }
+            });
         }
 
         function save(then) {
