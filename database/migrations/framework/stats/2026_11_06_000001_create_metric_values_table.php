@@ -17,8 +17,10 @@ use Pramnos\Database\Migration;
  * show. None of the four logs holds a value per period and breakdown, with a unique key to read it
  * back by.
  *
- * A plain table, not a hypertable, also on TimescaleDB: a few thousand rows per metric and year,
- * and `metrics:compute --recompute` rewrites closed periods, which a compressed chunk refuses.
+ * A plain table by default, also on TimescaleDB: a few thousand rows per metric and year, and
+ * `metrics:compute --recompute` rewrites closed periods, which a compressed chunk refuses. Its
+ * primary key is the natural one and holds `period_start`, so an installation that wants a
+ * hypertable declares it in app.php and runs `timescale:ensure` — see the Metrics guide.
  */
 class CreateMetricValuesTable extends Migration
 {
@@ -39,7 +41,6 @@ class CreateMetricValuesTable extends Migration
 
         $schema->createTable('stats.metric_values', function ($table) {
             $table->comment('The values of the application\'s metrics, per grain, period and breakdown');
-            $table->bigIncrements('valueid');
             $table->string('metric', 100)->comment('The metric\'s name, as its catalogue declares it');
             $table->string('grain', 8)->comment('day, week, month, quarter or year');
             $table->date('period_start')->comment('The period\'s first day, in the metrics\' time zone');
@@ -50,7 +51,7 @@ class CreateMetricValuesTable extends Migration
             $table->string('source', 10)->default('computed')->comment('computed, snapshot (a level) or imported');
             $table->smallInteger('final')->default(0)->comment('1 once the period is closed: never computed again unless asked');
             $table->integer('computed_at')->default(0);
-            $table->unique(['metric', 'grain', 'period_start', 'dims_hash'], 'uq_metric_values_period');
+            $table->primary(['metric', 'grain', 'period_start', 'dims_hash']);
             $table->index(['metric', 'grain', 'final'], 'idx_metric_values_final');
         });
     }

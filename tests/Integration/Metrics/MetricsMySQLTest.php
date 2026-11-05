@@ -331,4 +331,40 @@ class MetricsMySQLTest extends TestCase
         $this->assertStringContainsString('test.broken@month: no table', $failed[1]);
         $this->assertSame(0, $none[0], 'nothing declared: nothing to do');
     }
+    /**
+     * Where TimescaleDB is, an installation may make the values a hypertable on `period_start`
+     * — declared in app.php's `hypertables`, done by `timescale:ensure` — since the primary key
+     * holds the time column; computing, importing and reading go on as before.
+     */
+    public function testTheValuesMayBeAHypertable(): void
+    {
+        // Arrange
+        if ($this->db->type !== 'postgresql' || !$this->db->capabilities()->hasTimescaleDB()) {
+            $this->markTestSkipped('TimescaleDB only.');
+        }
+        $schema = $this->db->schema();
+        $schema->dropTableIfExists(Metrics::TABLE);
+        \Pramnos\Framework\Testing\Schema::ensure([CreateMetricValuesTable::class], $this->db);
+        \Pramnos\Database\HypertableRegistry::loadOverridesFromConfig([Metrics::TABLE => ['time_column' => 'period_start', 'chunk_interval' => '1 year']]);
+        $this->order('2026-09-01 09:00:00', 'north', 1);
+
+        try {
+            // Act
+            $done = \Pramnos\Database\HypertableRegistry::apply($schema, Metrics::TABLE);
+            Metrics::compute(['test.orders'], ['month'], '2026-09-01', '2026-09-30', false, self::at('2026-11-06 12:00'));
+            Metrics::compute(['test.orders'], ['month'], '2026-09-01', '2026-09-30', true, self::at('2026-11-06 13:00'));
+            Metrics::import('test.active', 'month', '2026-08-01', [], 31);
+            Metrics::import('test.active', 'month', '2026-08-01', [], 32);
+
+            // Assert
+            $this->assertContains('converted to hypertable', $done);
+            $this->assertTrue($schema->hasHypertable(Metrics::TABLE));
+            $this->assertSame(1.0, Metrics::value('test.orders', 'month', '2026-09-01'), 'recomputed over its own rows');
+            $this->assertSame(32.0, Metrics::value('test.active', 'month', '2026-08-01'), 'an import replaces, not duplicates');
+        } finally {
+            \Pramnos\Database\HypertableRegistry::reset();
+            $schema->dropTableIfExists(Metrics::TABLE);
+            \Pramnos\Framework\Testing\Schema::ensure([CreateMetricValuesTable::class], $this->db);
+        }
+    }
 }

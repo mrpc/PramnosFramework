@@ -191,8 +191,47 @@ On MySQL the table is `stats_metric_values`.
 
 - **Why `stats`:** these are the business's figures, so they get a schema of their own, apart
   from the engine's state (`pramnos.*`) and sign-in (`authserver.*`).
-- **Why not a hypertable on TimescaleDB:** the table holds a few thousand rows per metric and
-  year, and `--recompute` rewrites closed periods, which a compressed chunk refuses.
+- **Why a plain table by default, also on TimescaleDB:** the table holds a few thousand rows per
+  metric and year. A hypertable is optional; see below.
+
+### TimescaleDB
+
+**The values as a hypertable.** The table is plain by default. Its primary key is the natural
+one, `(metric, grain, period_start, dims_hash)`, and it holds the time column, so an
+installation can make it a hypertable on `period_start` with two steps:
+
+```php
+// app/app.php
+'hypertables' => [
+    'stats.metric_values' => ['time_column' => 'period_start', 'chunk_interval' => '1 year'],
+],
+```
+
+```bash
+php bin/pramnos timescale:ensure --table=stats.metric_values
+```
+
+Leave `compress_after` unset. `--recompute` and `Metrics::import()` rewrite rows of closed
+periods, and a compressed chunk refuses those writes.
+
+**Why there are no continuous aggregates over the values.** A continuous aggregate rolls a fine
+grain up into a coarser one, for example days into months, and that roll-up gives the right
+number for only one of the three kinds of metric:
+
+- **A distinct metric does not roll up.** The month's unique customers are not its days' unique
+  customers added together. That is exactly the error this design exists to prevent.
+- **A level does not roll up.** The month's level is how things stood when the month closed,
+  not the sum or the average of its days.
+- **A sum would roll up, but gains nothing.** Every grain is already computed from its source,
+  over its own half-open window in the metrics' time zone, so the month is exact even when some
+  of its days were never computed or were imported. An aggregate over a few thousand rows saves
+  no time worth having.
+
+Continuous aggregates belong on the high-volume tables underneath: an application hypertable of
+events (logins, readings, page views) with an aggregate per day, which a metric's source then
+reads instead of the raw rows. That is where TimescaleDB saves work, and the source decides it.
+The business's own tables (customers, orders, invoices) change state, so they stay ordinary
+tables, and their metrics read them as they are.
 
 ## Periods: `Window`
 
