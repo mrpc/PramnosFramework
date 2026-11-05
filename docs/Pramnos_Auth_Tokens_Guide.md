@@ -134,6 +134,13 @@ anybody who learned one token's identifier could wrap it in a JWT of their own. 
 `app/keys/public.key`, or the public half of `private.key` when the public file is missing.
 `revokeToken($token)` finds the row the same way.
 
+The rule lives in one place, `OAuth2ServerFactory::accessTokenId($token)` (the verified `jti`,
+or null), beside `refreshTokenId()`; every component that turns a presented access token into
+its row goes through it — the middleware, `/oauth/introspect`, `/oauth/revoke`, logout and
+the token-exchange grant — so they cannot disagree about whether a token is live. One
+consequence: `oauth:keys --force` ends every access token signed with the old pair everywhere,
+not only at resource servers that check the signature themselves.
+
 ## The password-reset token
 
 `Auth\Controllers\Account` stores it in `userdetails` rather than in a table of its own — the

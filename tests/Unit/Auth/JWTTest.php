@@ -592,6 +592,27 @@ class JWTTest extends TestCase
         JWT::decode($jwt, $key, ['HS256']);
     }
 
+    /**
+     * A fractional `nbf`/`iat` from earlier in the current second is not "in the future".
+     *
+     * RFC 7519 allows a fractional NumericDate and the OAuth2 server writes one. time() is
+     * whole seconds, so a token issued at …289.83 compared as later than …289 and was refused
+     * for the rest of that second — every access token, when presented straight after issue.
+     */
+    public function testAFractionalIssueTimeInTheCurrentSecondIsAccepted(): void
+    {
+        // Arrange — just under a second ahead of time(), i.e. still within the current second
+        $key  = str_repeat('f', 32);
+        $now  = time() + 0.999;
+        $jwt  = JWT::encode(['uid' => 7, 'nbf' => $now, 'iat' => $now, 'exp' => time() + 600], $key, 'HS256');
+
+        // Act
+        $decoded = JWT::decode($jwt, $key, ['HS256']);
+
+        // Assert
+        $this->assertSame(7, $decoded->uid);
+    }
+
     // =========================================================================
     // encode() — additional features
     // =========================================================================

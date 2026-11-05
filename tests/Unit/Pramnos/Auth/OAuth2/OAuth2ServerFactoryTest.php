@@ -401,4 +401,44 @@ class OAuth2ServerFactoryTest extends TestCase
         $this->assertStringContainsString('is not readable by this process (user nobody)', $message);
         $this->assertStringContainsString('--owner=<user>', $message);
     }
+
+    /**
+     * accessTokenId() reads the jti only of a JWT signed with this server's own pair.
+     *
+     * Verified against public.key when it exists; a JWT signed by any other key yields
+     * nothing, so its jti can never become a database key for somebody else's token.
+     */
+    public function testAccessTokenIdVerifiesAgainstThePublicKey(): void
+    {
+        // Arrange — both halves of a fresh pair on disk
+        $factory = new OAuth2ServerFactory($this->controller, $this->privateKeyPath, $this->publicKeyPath, 'k');
+        $factory->generateKeyPair();
+        $ours = \Pramnos\Auth\JWT::encode(['jti' => 'abc', 'exp' => time() + 60], (string) file_get_contents($this->privateKeyPath), 'RS256');
+        openssl_pkey_export(openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]), $foreign);
+        $theirs = \Pramnos\Auth\JWT::encode(['jti' => 'abc', 'exp' => time() + 60], $foreign, 'RS256');
+
+        // Act & Assert
+        $this->assertSame('abc', $factory->accessTokenId($ours));
+        $this->assertNull($factory->accessTokenId($theirs), 'a foreign signature yields no jti');
+        $this->assertNull($factory->accessTokenId('opaque-token'), 'not a JWT');
+    }
+
+    /**
+     * Without public.key the public half of private.key verifies; without either, nothing does.
+     */
+    public function testAccessTokenIdFallsBackToThePrivateKeyAndThenToNothing(): void
+    {
+        // Arrange — a pair, then the public file removed
+        $factory = new OAuth2ServerFactory($this->controller, $this->privateKeyPath, $this->publicKeyPath, 'k');
+        $factory->generateKeyPair();
+        $jwt = \Pramnos\Auth\JWT::encode(['jti' => 'abc', 'exp' => time() + 60], (string) file_get_contents($this->privateKeyPath), 'RS256');
+        unlink($this->publicKeyPath);
+
+        // Act & Assert — the private key's public half still verifies
+        $this->assertSame('abc', $factory->accessTokenId($jwt));
+
+        // …and with no key at all there is nothing to verify against
+        unlink($this->privateKeyPath);
+        $this->assertNull($factory->accessTokenId($jwt));
+    }
 }

@@ -34,21 +34,53 @@ class OauthTokenIdentityTest extends TestCase
         $rc         = new \ReflectionClass(TokenResolvingOauth::class);
         $controller = $rc->newInstanceWithoutConstructor();
         $controller->rows = $rowsByToken;
+        // The factory reads a JWT's verified jti; built on the installation's default key paths.
+        (new \ReflectionProperty(Oauth::class, 'oauth2Factory'))->setValue(
+            $controller,
+            new \Pramnos\Auth\OAuth2\OAuth2ServerFactory($this->createMock(\Pramnos\Application\Controller::class))
+        );
 
         return $controller;
     }
 
-    /** Build a JWT-shaped string carrying the given claims. */
-    private function jwt(array $claims): string
+    /**
+     * A JWT carrying the given claims, signed with this installation's key unless one is given.
+     */
+    private function jwt(array $claims, ?string $privateKeyPem = null): string
     {
-        $encode = static fn (array $data): string => rtrim(
-            strtr(base64_encode(json_encode($data)), '+/', '-_'),
-            '='
-        );
+        if ($privateKeyPem === null) {
+            $path = \Pramnos\Auth\OAuth2\OAuth2ServerFactory::defaultPrivateKeyPath();
+            if (!is_readable($path)) {
+                $this->markTestSkipped('No OAuth2 key pair: run `pramnos oauth:keys`.');
+            }
+            $privateKeyPem = (string) file_get_contents($path);
+        }
 
-        return $encode(['alg' => 'RS256', 'typ' => 'JWT'])
-            . '.' . $encode($claims)
-            . '.' . rtrim(strtr(base64_encode('not-a-real-signature'), '+/', '-_'), '=');
+        return \Pramnos\Auth\JWT::encode($claims + ['exp' => time() + 3600], $privateKeyPem, 'RS256');
+    }
+
+    /**
+     * A JWT signed with any other key is not trusted for its jti, even a stored one.
+     *
+     * The jti is a database key for a live token; read without the signature, anybody who
+     * learned one could wrap it in a JWT of their own and have it introspected as active or
+     * revoked. Only the literal lookup runs, and matches nothing.
+     */
+    public function testAJwtWithAForeignSignatureIsNotFoundByItsJti(): void
+    {
+        // Arrange — a stored jti, in a JWT signed by a key this installation never issued
+        openssl_pkey_export(openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]), $foreign);
+        $this->jwt([]); // skip, not pass, where there is no installation key to compare with
+        $jwt        = $this->jwt(['jti' => 'the-opaque-identifier'], $foreign);
+        $controller = $this->controller(['the-opaque-identifier' => ['status' => 1]]);
+
+        // Act
+        $row = $controller->find($jwt);
+
+        // Assert
+        $this->assertNull($row);
+        $this->assertSame([$jwt], $controller->lookups, 'the jti was never looked up');
+        $this->assertNull($controller->jti($jwt));
     }
 
     /**

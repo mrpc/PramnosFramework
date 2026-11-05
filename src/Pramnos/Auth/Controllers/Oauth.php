@@ -789,11 +789,10 @@ class Oauth extends Controller
      *     refresh tokens — which are League's encrypted payload, stored by that id.
      *
      *
-     * The signature is not verified, and that is deliberate: the stored row is the
-     * authority on whether a token is active, and a `jti` is only useful to
-     * somebody who already holds the token it came from. Requiring verification
-     * would also make every token issued before a key rotation introspect as dead
-     * while it was still perfectly valid.
+     * The `jti` is read only from a JWT whose signature verifies against this server's key
+     * ({@see OAuth2ServerFactory::accessTokenId()}), the same rule `OAuth2Middleware` and the
+     * token-exchange grant apply. Unverified, anybody who learned one token's identifier could
+     * wrap it in a JWT of their own and have it introspected as active, or revoke it.
      *
      * @return array<string, mixed>|null The row, or null when nothing matches
      */
@@ -873,32 +872,13 @@ class Oauth extends Controller
     }
 
     /**
-     * The `jti` claim of a JWT, or null when the value is not one.
+     * The `jti` of a JWT this server signed, or null when the value is not one.
      *
-     * Decode only. The claim is used as a database key and nothing is trusted
-     * because it was in there — see {@see findIntrospectableToken()} for why the
-     * signature is deliberately not checked here.
+     * Verified, not merely decoded: see {@see OAuth2ServerFactory::accessTokenId()}.
      */
     protected function extractJwtId(string $token): ?string
     {
-        $parts = explode('.', $token);
-        if (count($parts) !== 3) {
-            return null;
-        }
-
-        $payload = base64_decode(strtr($parts[1], '-_', '+/'), false);
-        if ($payload === false) {
-            return null;
-        }
-
-        $claims = json_decode($payload, true);
-        if (!is_array($claims)) {
-            return null;
-        }
-
-        $jti = $claims['jti'] ?? null;
-
-        return is_string($jti) && $jti !== '' ? $jti : null;
+        return $this->oauth2Factory->accessTokenId($token);
     }
 
     // ── UserInfo ──────────────────────────────────────────────────────────────

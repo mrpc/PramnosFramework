@@ -24,6 +24,14 @@ class TokenExchangeGrant extends AbstractGrant
     /** The exchanged token's lifetime: sixty days. */
     public const LIFETIME = 'P60D';
 
+    /**
+     * @param \Pramnos\Auth\OAuth2\OAuth2ServerFactory|null $factory Reads a presented JWT's
+     *        verified `jti`; without it only a token stored as itself is found.
+     */
+    public function __construct(private readonly ?\Pramnos\Auth\OAuth2\OAuth2ServerFactory $factory = null)
+    {
+    }
+
     private const ACCESS_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token';
 
     /**
@@ -81,16 +89,17 @@ class TokenExchangeGrant extends AbstractGrant
     /**
      * The active access-token row a presented token is, issued to this client; null otherwise.
      *
-     * Looked up as presented, then by its `jti` — a token from the token endpoint is stored by it.
+     * Looked up as presented, then by its verified `jti` — a token from the token endpoint is stored by it.
      *
      * @return array<string, mixed>|null
      */
     private function activeAccessToken(string $token, string $clientId): ?array
     {
+        // The jti only of a JWT signed by this server: see OAuth2ServerFactory::accessTokenId().
         $candidates = [$token];
-        $claims     = \Pramnos\Auth\JWT::decodeUnverified($token);
-        if (is_object($claims) && is_string($claims->jti ?? null) && $claims->jti !== '') {
-            $candidates[] = $claims->jti;
+        $jti        = $this->factory?->accessTokenId($token);
+        if ($jti !== null && $jti !== $token) {
+            $candidates[] = $jti;
         }
 
         foreach ($candidates as $stored) {

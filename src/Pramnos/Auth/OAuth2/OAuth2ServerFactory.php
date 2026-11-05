@@ -149,7 +149,7 @@ class OAuth2ServerFactory
         $deviceGrant->setRefreshTokenTTL($refresh);
         $server->enableGrantType($deviceGrant, $access);
         $server->enableGrantType(new \Pramnos\Auth\OAuth2\Grants\JwtBearerGrant(), $access);
-        $server->enableGrantType(new \Pramnos\Auth\OAuth2\Grants\TokenExchangeGrant(), $access);
+        $server->enableGrantType(new \Pramnos\Auth\OAuth2\Grants\TokenExchangeGrant($this), $access);
 
         return $server;
     }
@@ -222,6 +222,59 @@ class OAuth2ServerFactory
         $id = is_array($payload) ? ($payload['refresh_token_id'] ?? null) : null;
 
         return is_string($id) && $id !== '' ? $id : null;
+    }
+
+    /**
+     * The id an access token is stored under, or null when the value is not one of ours.
+     *
+     * The access tokens this server issues are RS256 JWTs, and the row behind one is stored
+     * under its `jti` — so, as with a refresh token, the value a client presents never matches
+     * a row as it is.
+     *
+     * The `jti` is taken only from a JWT whose signature verifies against this server's key.
+     * Read unverified, anybody who learned one token's identifier could wrap it in a JWT of
+     * their own and be authenticated, introspected or revoked as its owner. Replacing the key
+     * pair (`oauth:keys --force`) therefore ends every token signed with the old one, as it
+     * already does for every resource server that checks the signature itself.
+     */
+    public function accessTokenId(string $token): ?string
+    {
+        if (substr_count($token, '.') !== 2) {
+            return null;
+        }
+
+        $key = $this->verificationKey();
+        if ($key === '') {
+            return null;
+        }
+
+        try {
+            $claims = \Pramnos\Auth\JWT::decode($token, $key, ['RS256']);
+        } catch (\Throwable) {
+            // Forged, expired or not ours.
+            return null;
+        }
+
+        $jti = $claims->jti ?? null;
+
+        return is_string($jti) && $jti !== '' ? $jti : null;
+    }
+
+    /**
+     * The key this server's tokens verify against: its public key, or the public half of its
+     * private key when the public file is missing — the tokens are signed with the private
+     * key, so that half is the right key whichever file is on disk.
+     */
+    private function verificationKey(): string
+    {
+        if (is_readable($this->publicKeyPath) && ($pem = (string) file_get_contents($this->publicKeyPath)) !== '') {
+            return $pem;
+        }
+
+        $key     = is_readable($this->privateKeyPath) ? openssl_pkey_get_private((string) file_get_contents($this->privateKeyPath)) : false;
+        $details = $key !== false ? openssl_pkey_get_details($key) : false;
+
+        return is_array($details) ? (string) ($details['key'] ?? '') : '';
     }
 
     /**

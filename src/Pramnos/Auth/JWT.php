@@ -191,20 +191,25 @@ class JWT
                 throw new \Exception('Signature verification failed');
             }
 
+            // `nbf` and `iat` are compared by their whole second. RFC 7519 allows a fractional
+            // NumericDate and the OAuth2 server writes one (`1793872289.83`), while time() is
+            // whole seconds — so a token issued earlier in the current second compared as
+            // issued in the future and was refused until the clock ticked over.
+
             // Check if the nbf if it is defined. This is the time that the
             // token can actually be used. If it's not yet that time, abort.
-            if (isset($payload->nbf) && $payload->nbf > (time() + self::$leeway)) {
+            if (isset($payload->nbf) && (int) floor((float) $payload->nbf) > (time() + self::$leeway)) {
                 throw new \UnexpectedValueException(
-                    'Cannot handle token prior to ' . date(\DateTime::ISO8601, $payload->nbf)
+                    'Cannot handle token prior to ' . date(\DateTime::ISO8601, (int) $payload->nbf)
                 );
             }
 
             // Check that this token has been created before 'now'. This prevents
             // using tokens that have been created for later use (and haven't
             // correctly used the nbf claim).
-            if (isset($payload->iat) && $payload->iat > (time() + self::$leeway)) {
+            if (isset($payload->iat) && (int) floor((float) $payload->iat) > (time() + self::$leeway)) {
                 throw new \UnexpectedValueException(
-                    'Cannot handle token prior to ' . date(\DateTime::ISO8601, $payload->iat)
+                    'Cannot handle token prior to ' . date(\DateTime::ISO8601, (int) $payload->iat)
                 );
             }
 
