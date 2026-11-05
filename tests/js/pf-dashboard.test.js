@@ -967,6 +967,7 @@ test('the person picker finds a person by name and fills the form', async () => 
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ people: [
             { userid: 42, name: 'Alice Smith', username: 'alice', email: 'a@x.gr', type: 'Administrator' },
             { userid: 43, name: 'admin@x.gr', username: 'admin@x.gr', email: 'admin@x.gr', type: 'Root' },
+            { userid: 44, name: 'Admin Admin', username: 'uw@x.gr', email: 'uw@x.gr', type: 'Administrator' },
         ] }) });
     };
     p.window.setTimeout = (fn) => { fn(); return 1; };
@@ -991,7 +992,8 @@ test('the person picker finds a person by name and fills the form', async () => 
     assert.deepEqual(asked, ['/admin/Dashboard/people?q=al']);
     assert.equal(held.defaultPrevented, true, 'no person chosen: not sent');
     assert.equal(pick === null, false);
-    assert.deepEqual(labels, ['Alice Smith (alice) · a@x.gr · Administrator', 'admin@x.gr · Root'], 'nothing said twice');
+    assert.deepEqual(labels, ['Alice Smith (alice) · a@x.gr · Administrator', 'admin@x.gr · Root', 'Admin Admin · uw@x.gr · Administrator'],
+        'nothing said twice, and always one identifier: a username that is the email still tells two Admins apart');
     assert.equal(form.querySelector('[data-pf-person-id]').value, '42');
     assert.equal(search.value, 'Alice Smith');
     assert.equal(submit.disabled, false);

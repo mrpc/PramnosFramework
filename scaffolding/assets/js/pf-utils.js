@@ -2670,10 +2670,13 @@
                             button.className = list.getAttribute('data-pick-class') || '';
                             button.setAttribute('data-pf-person-pick', String(person.userid));
                             button.setAttribute('data-name', person.name);
-                            // Name, the username only where it says something more, the email, the type.
+                            // Name; the username in brackets only where it says something more; always
+                            // one identifier — the email, or the username without one — so two people
+                            // of the same name are told apart; then the type.
                             var label = [person.name];
                             if (person.username && person.username !== person.name && person.username !== person.email) { label[0] += ' (' + person.username + ')'; }
-                            if (person.email && person.email !== person.name && person.email !== person.username) { label.push(person.email); }
+                            var identifier = person.email || person.username;
+                            if (identifier && identifier !== person.name) { label.push(identifier); }
                             if (person.type) { label.push(person.type); }
                             button.textContent = label.join(' · ');
                             li.appendChild(button);
