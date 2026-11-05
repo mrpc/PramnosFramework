@@ -2365,14 +2365,19 @@
                 shown(panel, id);
                 return;
             }
+            drawTab(panel, id);
+        }
+        /** A tab's inside, drawn by the server with its saved settings, into its body. */
+        function drawTab(panel, id) {
             panel.removeAttribute('data-pf-tab-lazy');
+            var body = panel.querySelector('[data-pf-tab-body]') || panel;
             var url = cardUrl + (cardUrl.indexOf('?') >= 0 ? '&' : '?') + 'id=' + encodeURIComponent(id) + '&part=body';
-            window.fetch(url, { credentials: 'same-origin', headers: { Accept: 'text/html' } })
+            return window.fetch(url, { credentials: 'same-origin', headers: { Accept: 'text/html' } })
                 .then(function (r) { if (!r.ok) { throw new Error('HTTP ' + r.status); } return r.text(); })
                 .then(function (html) {
-                    panel.innerHTML = html;
-                    activateFetched(panel, function () {
-                        if (window.pfCharts && window.pfCharts.draw) { window.pfCharts.draw(panel); }
+                    body.innerHTML = html;
+                    activateFetched(body, function () {
+                        if (window.pfCharts && window.pfCharts.draw) { window.pfCharts.draw(body); }
                         shown(panel, id);
                     });
                 })
@@ -2390,9 +2395,19 @@
         // Grouping, while customising: a card with the next one into tabs; a group's active tab
         // moved along its strip, or taken out after the group. The server draws the new shape.
         board.addEventListener('click', function (e) {
-            var button = e.target.closest ? e.target.closest('[data-pf-widget-group-next], [data-pf-tab-move], [data-pf-tab-ungroup]') : null;
+            var button = e.target.closest ? e.target.closest('[data-pf-widget-group-next], [data-pf-tab-move], [data-pf-tab-ungroup], [data-pf-tab-settings-toggle]') : null;
             if (!button) { return; }
             var card = button.closest('[data-pf-widget]');
+            if (button.hasAttribute('data-pf-tab-settings-toggle')) {
+                // The active tab's own settings form, in its panel.
+                var open = panels(card).filter(function (p) { return !p.hidden; })[0];
+                var tabForm = open ? open.querySelector('[data-pf-widget-settings]') : null;
+                if (tabForm) {
+                    tabForm.hidden = !tabForm.hidden;
+                    button.setAttribute('aria-expanded', tabForm.hidden ? 'false' : 'true');
+                }
+                return;
+            }
             var list = cards();
             var at   = list.indexOf(card);
             var items = layout();
@@ -2490,7 +2505,9 @@
             var form = e.target && e.target.hasAttribute && e.target.hasAttribute('data-pf-widget-settings') ? e.target : null;
             if (!form) { return; }
             e.preventDefault();
-            var card = form.closest('[data-pf-widget]');
+            // A card's own form, or a tab's: its settings go on the tab's panel.
+            var tabPanel = form.closest('[data-pf-tab-panel]');
+            var card = tabPanel || form.closest('[data-pf-widget]');
             var settings = {};
             Array.prototype.forEach.call(form.querySelectorAll('[name]'), function (field) {
                 var label = field.closest ? field.closest('[data-pf-when]') : null;
@@ -2498,6 +2515,12 @@
             });
             card.setAttribute('data-settings', JSON.stringify(settings));
             say((card.getAttribute('aria-label') || '') + ': ' + SAY.saved);
+            if (tabPanel) {
+                // Kept with the layout, then the tab's inside drawn again with them, in place.
+                form.hidden = true;
+                save().then(function () { if (cardUrl) { return drawTab(tabPanel, tabPanel.getAttribute('data-pf-tab-panel')); } window.location.reload(); });
+                return;
+            }
             save(cardUrl ? { redraw: { id: card.getAttribute('data-pf-widget'), card: card } } : { reload: true });
         });
 
@@ -2611,6 +2634,63 @@
             document.addEventListener('selectstart', refuse);
         });
 
+        // A tab dragged while customising: along its strip it changes place; let go outside its
+        // group, it is taken out as a card after the group. A press that does not move is a click.
+        board.addEventListener('pointerdown', function (ev) {
+            if (!editing || ev.button > 0 || !ev.target.closest) { return; }
+            var tab = ev.target.closest('[data-pf-tab]');
+            var group = tab ? tab.closest('[data-pf-widget-group]') : null;
+            if (!group) { return; }
+            var start = { x: ev.clientX, y: ev.clientY };
+            var dragging = false;
+            function moveTab(e) {
+                if (!dragging && Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y) >= 6) {
+                    dragging = true;
+                    tab.classList.add('pf-dashboard-tab-dragging');
+                }
+            }
+            function dropTab(e) {
+                document.removeEventListener('pointermove', moveTab);
+                document.removeEventListener('pointerup', dropTab);
+                document.removeEventListener('pointercancel', dropTab);
+                tab.classList.remove('pf-dashboard-tab-dragging');
+                if (!dragging) { return; }
+                var under = (document.elementsFromPoint ? document.elementsFromPoint(e.clientX, e.clientY) : []);
+                var onTab = under.map(function (el) { return el.closest ? el.closest('[data-pf-tab]') : null; })
+                    .filter(function (t) { return t && t !== tab && t.closest('[data-pf-widget-group]') === group; })[0];
+                var inGroup = under.some(function (el) { return el.closest && el.closest('[data-pf-widget-group]') === group; });
+                var items = layout();
+                var at = cards().indexOf(group);
+                var item = items[at];
+                var id = tab.getAttribute('data-pf-tab');
+                var from = item.tabs.map(function (t) { return t.id; }).indexOf(id);
+                if (onTab) {
+                    var rect = onTab.getBoundingClientRect();
+                    var to = item.tabs.map(function (t) { return t.id; }).indexOf(onTab.getAttribute('data-pf-tab'));
+                    var after = e.clientX > rect.left + rect.width / 2;
+                    var moved = item.tabs.splice(from, 1)[0];
+                    to = item.tabs.map(function (t) { return t.id; }).indexOf(onTab.getAttribute('data-pf-tab')) + (after ? 1 : 0);
+                    item.tabs.splice(to, 0, moved);
+                    // The strip and the panels in the new order, without a reload.
+                    var stripEl = tab.parentNode;
+                    item.tabs.forEach(function (t) {
+                        stripEl.appendChild(group.querySelector('[data-pf-tab="' + t.id + '"]'));
+                        var panel = group.querySelector('[data-pf-tab-panel="' + t.id + '"]');
+                        panel.parentNode.appendChild(panel);
+                    });
+                    save();
+                } else if (!inGroup) {
+                    var out = item.tabs.splice(from, 1)[0];
+                    if (item.active === id) { item.active = item.tabs[0] ? item.tabs[0].id : ''; }
+                    items.splice(at + 1, 0, { id: out.id, size: item.size, settings: out.settings || {} });
+                    save({ layout: items, reload: true });
+                }
+            }
+            document.addEventListener('pointermove', moveTab);
+            document.addEventListener('pointerup', dropTab);
+            document.addEventListener('pointercancel', dropTab);
+        });
+
         /** Lift a card by a grip, or take its corner; answers the handler of the pointer's moves. */
         function begin(ev, grip) {
             var card     = grip.closest('[data-pf-widget]');
@@ -2684,8 +2764,23 @@
                 }
                 frame = window.requestAnimationFrame(scroll);
             }
+            // Over a group's strip of tabs, a card is put into the group when let go.
+            var strip = null;
+            function stripUnder() {
+                if (resizing || isGroup(card)) { return null; }
+                var found = (document.elementsFromPoint ? document.elementsFromPoint(last.x, last.y) : []).map(function (el) {
+                    return el.closest ? el.closest('[data-pf-tabs]') : null;
+                }).filter(function (s) { return s && s.closest('[data-pf-widget-group]') !== card; })[0];
+                return found || null;
+            }
             function move(e) {
                 last = { x: e.clientX, y: e.clientY };
+                var over = stripUnder();
+                if (over !== strip) {
+                    if (strip) { strip.classList.remove('pf-dashboard-tabs-target'); }
+                    strip = over;
+                    if (strip) { strip.classList.add('pf-dashboard-tabs-target'); }
+                }
                 if (resizing) {
                     var span = (rect.width + (e.clientX - ev.clientX) + gap) / (colWidth + gap);
                     var size = dashboardMath.sizeForSpan(span, cols, sizeOf(card));
@@ -2696,7 +2791,8 @@
                 }
                 card.style.left = (e.clientX - offset.x) + 'px';
                 card.style.top = (e.clientY - offset.y) + 'px';
-                placeHere();
+                // Over a strip it is going into the group: its place on the board stays as it was.
+                if (!strip) { placeHere(); }
             }
             function up() {
                 document.removeEventListener('pointermove', move);
@@ -2716,6 +2812,19 @@
                     card.classList.remove('pf-dashboard-resizing');
                     card.style.outline = '';
                     shownAfterResize(card);
+                }
+                if (strip) {
+                    // Into the group whose strip it was let go over, as its active tab.
+                    strip.classList.remove('pf-dashboard-tabs-target');
+                    var target = strip.closest('[data-pf-widget-group]');
+                    var items  = layout();
+                    var mine   = itemOf(card);
+                    var into   = items.filter(function (it) { return it.id === target.getAttribute('data-pf-widget'); })[0];
+                    items = items.filter(function (it) { return it.id !== mine.id; });
+                    into.tabs.push({ id: mine.id, settings: mine.settings || {} });
+                    into.active = mine.id;
+                    save({ layout: items, reload: true });
+                    return;
                 }
                 if (JSON.stringify(layout()) !== before) {
                     say((card.getAttribute('aria-label') || '') + ': ' + (resizing ? NAMES[sizeOf(card)] : (cards().indexOf(card) + 1) + ' / ' + cards().length));

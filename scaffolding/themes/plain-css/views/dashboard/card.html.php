@@ -33,22 +33,7 @@ $shown = static fn (array $field): bool => array_reduce(array_keys((array) ($fie
                 <button type="button" class="btn btn-outline-secondary btn-sm" data-pf-widget-hide aria-label="<?php echo $e($t('Hide')); ?>">&times;</button>
             </div>
         </div>
-        <?php if ($fields): ?>
-        <form class="pf-dashboard-settings pf-ui-row" data-pf-widget-settings hidden>
-            <?php foreach ($fields as $name => $field): ?>
-            <label class="small"<?php echo $field['when'] ? ' data-pf-when="' . $e(json_encode((object) $field['when'])) . '"' . ($shown($field) ? '' : ' hidden') : ''; ?>><?php echo $e($t((string) ($field['label'] ?? ucfirst(str_replace('_', ' ', (string) $name))))); ?>
-                <?php if ($field['input'] === 'select'): ?>
-                <select class="form-control pf-ui-input-sm" name="<?php echo $e($name); ?>">
-                    <?php foreach ($field['values'] as $value => $label): ?><option value="<?php echo $e($value); ?>"<?php echo (string) ($settings[$name] ?? '') === (string) $value ? ' selected' : ''; ?>><?php echo $e($t((string) $label)); ?></option><?php endforeach; ?>
-                </select>
-                <?php else: ?>
-                <input class="form-control pf-ui-input-sm" type="<?php echo $e($field['input']); ?>" name="<?php echo $e($name); ?>" value="<?php echo $e(is_scalar($settings[$name] ?? null) ? $settings[$name] : ''); ?>">
-                <?php endif; ?>
-            </label>
-            <?php endforeach; ?>
-            <button type="submit" class="btn btn-primary btn-sm"><?php echo $e($t('Apply')); ?></button>
-        </form>
-        <?php endif; ?>
+        <?php $this->insert('card_settings', ['widget' => $widget]); ?>
         <?php echo $widget['html'] !== '' ? $widget['html'] : '<p class="pf-muted">' . $e($t('Nothing to show today.')) . '</p>'; ?>
     </div>
     <span class="pf-dashboard-size-handle" data-pf-widget-size-handle aria-hidden="true" title="<?php echo $e($t('Drag to resize')); ?>" hidden></span>

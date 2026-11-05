@@ -409,11 +409,18 @@ A group spans the board unless it is given a `size`. In a layout it is kept as
 cards. A tab the person may not have is dropped, a card appears once in the whole layout, a group
 left with one card becomes that card, and an empty group is removed.
 
-**While customising**, a group moves, resizes and hides as one card. A card's tools include
-*Group into tabs with the next card*, which joins it to the card after it, or into the group
-after it. A group's tools move its active tab left or right, or take it out of the group, after
-which it becomes a card again just after the group. A card's own settings are kept while it is in
-a group. To change them, take the card out of the group.
+**While customising**, a group moves, resizes and hides as one card. Grouping can be done by
+dragging or with buttons, and the buttons work from a keyboard:
+
+- Drag a card by its grip onto a group's strip of tabs, and when let go it becomes that group's
+  active tab. The strip is outlined while it would take the card. The card button *Group into tabs
+  with the next card* does the same with the card after it, or joins the group after it.
+- Drag a tab along its strip to change its place, without a reload. Drag it out of its group and
+  let go, and it becomes a card again just after the group. The group's buttons move the active tab
+  left or right, or take it out.
+- A group's gear opens the active tab's own settings, the same form as the card has on its own.
+  Applying saves them with the layout and redraws that tab's contents in place, with no need to
+  take the card out of the group first.
 
 **A card's script and a hidden tab.** A card drawn into a hidden panel has no size until it is
 shown, so a map, for example, draws at 0×0. When a tab becomes visible, and when a card or a
@@ -427,7 +434,9 @@ document.addEventListener('pf:dashboard:shown', (e) => { if (e.detail.id === 'wc
 **A theme draws its own tabs** by copying `views/dashboard/tabs.html.php`. The script relies only
 on these attributes: `data-pf-widget-group` on the frame, `data-pf-tabs` on the strip (with
 `data-active-class`, the theme's class for the active tab), `data-pf-tab` on each tab, and
-`data-pf-tab-panel` on each panel (with `data-pf-tab-lazy` until the panel is drawn).
+`data-pf-tab-panel` on each panel (with `data-pf-tab-lazy` until the panel is drawn). Each panel
+holds its card's settings form (`card_settings.html.php`, the same partial `card.html.php`
+uses), and its contents go in `data-pf-tab-body`.
 
 ## Presets: named layouts, saved and shared
 

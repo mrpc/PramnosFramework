@@ -2050,4 +2050,5 @@ return [
     'Move this tab left' => 'Μετακίνηση της καρτέλας αριστερά',
     'Move this tab right' => 'Μετακίνηση της καρτέλας δεξιά',
     'Take this tab out of the group' => 'Αφαίρεση της καρτέλας από την ομάδα',
+    'Settings of this tab' => 'Ρυθμίσεις αυτής της καρτέλας',
 ];

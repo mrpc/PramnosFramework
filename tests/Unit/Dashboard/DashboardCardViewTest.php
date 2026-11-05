@@ -188,4 +188,34 @@ class DashboardCardViewTest extends TestCase
         $this->assertMatchesRegularExpression('#data-pf-dashboard-add="sales" hidden>#', $html, 'on the board: not offered');
         $this->assertStringContainsString('data-pf-dashboard-say="', $html, 'the script\'s words, from the page');
     }
+
+    /**
+     * A group of tabs: one frame the script reads as a group, a tab per card with the theme's
+     * active class named on the strip, the active panel drawn and shown, the other waiting to be
+     * drawn and hidden — and each panel carrying its card's settings form above its body.
+     */
+    #[DataProvider('themes')]
+    public function testAGroupOfTabs(string $theme): void
+    {
+        // Arrange
+        $card = static fn (string $id, ?string $html, array $options = []): array => [
+            'id' => $id, 'size' => 'full', 'title' => ucfirst($id), 'link' => null, 'settings' => $options !== [] ? ['period' => '30'] : [],
+            'options' => $options, 'html' => $html,
+        ];
+        $widget = ['group' => true, 'id' => 'tabs:t1', 'size' => 'full', 'title' => 'Ops', 'active' => 'sales',
+            'tabs' => [$card('sales', '<p>drawn</p>', ['period' => ['7' => '7 days', '30' => '30 days']]), $card('map', null)]];
+
+        // Act
+        $html = self::draw(self::dir($theme) . '/tabs.html.php', ['widget' => $widget]);
+
+        // Assert
+        $this->assertMatchesRegularExpression('#data-pf-widget="tabs:t1" data-pf-widget-group data-size="full"\s+data-active="sales"#', $html);
+        $this->assertMatchesRegularExpression('#data-pf-tabs data-active-class="[a-z-]+"#', $html);
+        $this->assertStringContainsString('data-pf-tab="map"', $html);
+        $this->assertMatchesRegularExpression('#data-pf-tab-panel="map"[^>]* hidden data-pf-tab-lazy>#', $html, 'not drawn yet, and hidden');
+        $this->assertStringContainsString('<p>drawn</p>', $html);
+        $this->assertStringContainsString('data-pf-tab-settings-toggle', $html, 'a tab has settings: the group\'s gear');
+        $this->assertMatchesRegularExpression('#data-pf-tab-panel="sales".*data-pf-widget-settings.*<option value="30" selected>.*data-pf-tab-body#s', $html, 'its form above its body');
+        $this->assertStringContainsString('pf-dashboard-full', $html);
+    }
 }

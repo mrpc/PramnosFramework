@@ -789,3 +789,102 @@ test('resizing a group tells its visible tab it is shown at a new size', async (
     assert.deepEqual(shown, ['map']);
     assert.equal(g.getAttribute('data-size'), 's', 'full goes round to small');
 });
+
+/**
+ * A tab's own settings: the group's gear opens the active tab's form; applying keeps the settings
+ * on the tab's panel, saves them with the layout, and draws the tab's inside again in place.
+ */
+test('a card set inside a group of tabs is saved and drawn again in place', async () => {
+    // Arrange — the active tab carries its settings form and its body
+    const p = page(true, '/admin/Dashboard/card');
+    const g = group(p, 'tabs:s1', ['sales', 'stats'], 'sales');
+    p.el('button', { 'data-pf-tab-settings-toggle': '' }, g.querySelector('[data-pf-widget-tools]'));
+    const panel = g.querySelector('[data-pf-tab-panel="sales"]');
+    const form = p.el('form', { 'data-pf-widget-settings': '' }, panel);
+    form.hidden = true;
+    const field = p.el('select', { name: 'period' }, form);
+    field.value = '90';
+    p.el('div', { 'data-pf-tab-body': '' }, panel);
+
+    // Act
+    p.click(g.querySelector('[data-pf-tab-settings-toggle]'));
+    const opened = !form.hidden;
+    form.dispatchEvent(new Event('submit', { bubbles: true }));
+    await settle();
+
+    // Assert
+    assert.equal(opened, true, 'the active tab\'s form');
+    assert.deepEqual(p.saves[0].body.layout[3].tabs[0], { id: 'sales', settings: { period: '90' } });
+    assert.deepEqual(p.drawn, ['/admin/Dashboard/card?id=sales&part=body'], 'its inside, drawn again');
+    assert.equal(form.hidden, true);
+});
+
+/** A card dragged by its grip and let go over a group's strip of tabs joins the group, as its active tab. */
+test('a card dropped on a group\'s strip of tabs joins the group', async () => {
+    // Arrange
+    const p = page();
+    const g = group(p, 'tabs:d1', ['map', 'stats'], 'map');
+    const strip = g.querySelector('[data-pf-tabs]');
+    p.click(p.edit);
+    let under = 'b';
+    geometry(p, { a: [0, 0, 400, 100], b: [400, 0, 400, 100], c: [0, 120, 400, 100] }, () => under);
+    p.document.elementsFromPoint = () => (under === 'strip' ? [strip] : [p.cards[under]]);
+    const grip = p.cards.a.querySelector('[data-pf-widget-grip]');
+
+    // Act
+    pointer('pointerdown', grip, 20, 20);
+    under = 'strip';
+    pointer('pointermove', p.document, 300, 400);
+    const marked = strip.classList.contains('pf-dashboard-tabs-target');
+    pointer('pointerup', p.document, 300, 400);
+    await settle();
+
+    // Assert
+    assert.equal(marked, true, 'the strip shows it will take the card');
+    const layout = p.saves[0].body.layout;
+    assert.deepEqual(layout.map((w) => w.id), ['b', 'c', 'tabs:d1'], 'a is no longer a card of its own');
+    assert.deepEqual(layout[2].tabs.map((t) => t.id), ['map', 'stats', 'a']);
+    assert.equal(layout[2].active, 'a');
+    assert.equal(p.window.reloaded, 1);
+});
+
+/**
+ * A tab dragged along its strip changes place, saved without a reload; dragged out of its group
+ * it becomes a card after the group; a press that does not move does nothing.
+ */
+test('a tab is dragged along its strip, and out of its group', async () => {
+    // Arrange
+    const p = page();
+    const g = group(p, 'tabs:d2', ['one', 'two', 'three'], 'one');
+    p.click(p.edit);
+    const tab = (id) => g.querySelector(`[data-pf-tab="${id}"]`);
+    tab('three').getBoundingClientRect = () => ({ left: 200, top: 0, width: 100, height: 30, right: 300, bottom: 30 });
+    let under = [];
+    p.document.elementsFromPoint = () => under;
+
+    // Act — a press without a move, then a drag onto three's right half, then out of the group
+    pointer('pointerdown', tab('one'), 10, 10);
+    pointer('pointerup', p.document, 10, 10);
+    const afterPress = p.saves.length;
+    pointer('pointerdown', tab('one'), 10, 10);
+    pointer('pointermove', p.document, 280, 12);
+    under = [tab('three'), g];
+    pointer('pointerup', p.document, 280, 12);
+    await settle();
+    const reordered = p.saves[p.saves.length - 1].body.layout[3].tabs.map((t) => t.id);
+    const strip = Array.prototype.map.call(g.querySelectorAll('[data-pf-tab]'), (b) => b.getAttribute('data-pf-tab'));
+    pointer('pointerdown', tab('two'), 10, 10);
+    pointer('pointermove', p.document, 900, 900);
+    under = [p.board];
+    pointer('pointerup', p.document, 900, 900);
+    await settle();
+
+    // Assert
+    assert.equal(afterPress, 0, 'a press is a click, not a drag');
+    assert.deepEqual(reordered, ['two', 'three', 'one']);
+    assert.deepEqual(strip, ['two', 'three', 'one'], 'the strip in the new order, without a reload');
+    const out = p.saves[p.saves.length - 1].body.layout;
+    assert.deepEqual(out.slice(3).map((w) => w.id), ['tabs:d2', 'two']);
+    assert.deepEqual(out[3].tabs.map((t) => t.id), ['three', 'one']);
+    assert.equal(p.window.reloaded, 1);
+});

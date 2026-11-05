@@ -3,7 +3,8 @@
  * A group of dashboard cards as tabs (tailwind theme): one frame, a tab per card, only the active
  * tab's card drawn — the others are drawn by the server the first time they are opened
  * (`card?id=…&part=body`). While customising, the group moves, resizes and hides as one card, and
- * its active tab can be moved along the strip or taken out of the group.
+ * its active tab can be moved along the strip or taken out of the group, and set — each panel
+ * carries its card's settings form (card_settings.html.php) above its inside (data-pf-tab-body).
  *
  * A theme draws its own tabs by copying this file: the markup the script reads is the
  * data-pf-* attributes — data-pf-widget-group on the frame, data-pf-tabs on the strip (data-active-class: the
@@ -32,6 +33,7 @@ $label = ($widget['title'] ?? '') !== '' ? (string) $widget['title'] : implode('
                 <button type="button" class="btn btn-xs join-item" data-pf-tab-move="-1" aria-label="<?php echo $e($t('Move this tab left')); ?>">&laquo;</button>
                 <button type="button" class="btn btn-xs join-item" data-pf-tab-move="1" aria-label="<?php echo $e($t('Move this tab right')); ?>">&raquo;</button>
                 <button type="button" class="btn btn-xs join-item" data-pf-tab-ungroup aria-label="<?php echo $e($t('Take this tab out of the group')); ?>">&#8689;</button>
+                <?php if (array_filter($widget['tabs'], static fn (array $tab): bool => !empty($tab['fields']) || !empty($tab['options']))): ?><button type="button" class="btn btn-xs join-item" data-pf-tab-settings-toggle aria-expanded="false" aria-label="<?php echo $e($t('Settings of this tab')); ?>">&#9881;</button><?php endif; ?>
                 <button type="button" class="btn btn-xs join-item" data-pf-widget-hide aria-label="<?php echo $e($t('Hide')); ?>">&times;</button>
             </div>
         </div>
@@ -42,9 +44,12 @@ $label = ($widget['title'] ?? '') !== '' ? (string) $widget['title'] : implode('
         </div>
         <?php foreach ($widget['tabs'] as $tab): $on = $tab['id'] === $widget['active']; ?>
         <div role="tabpanel" data-pf-tab-panel="<?php echo $e($tab['id']); ?>" data-settings="<?php echo $e(json_encode((object) ($tab['settings'] ?? []))); ?>" aria-label="<?php echo $e($t((string) $tab['title'])); ?>"<?php echo $on ? '' : ' hidden'; ?><?php echo $tab['html'] === null ? ' data-pf-tab-lazy' : ''; ?>>
-            <?php if ($tab['html'] !== null): ?>
-            <?php echo $tab['html'] !== '' ? $tab['html'] : '<p class="text-sm opacity-70">' . $e($t('Nothing to show today.')) . '</p>'; ?>
-            <?php endif; ?>
+            <?php $this->insert('card_settings', ['widget' => $tab]); ?>
+            <div data-pf-tab-body>
+                <?php if ($tab['html'] !== null): ?>
+                <?php echo $tab['html'] !== '' ? $tab['html'] : '<p class="text-sm opacity-70">' . $e($t('Nothing to show today.')) . '</p>'; ?>
+                <?php endif; ?>
+            </div>
         </div>
         <?php endforeach; ?>
     </div>

@@ -2317,3 +2317,6 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-dashboard-tab-strip { display: flex; flex-wrap: wrap; gap: .25rem; margin-bottom: .75rem; }
 .pf-dashboard-tab-strip .pf-dashboard-tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: .4rem .75rem; cursor: pointer; font: inherit; color: inherit; }
 .pf-dashboard-tab-strip .pf-dashboard-tab.is-active { border-bottom-color: currentColor; font-weight: 600; }
+/* A card dragged over a group's strip, which takes it when let go; a tab being dragged. */
+.pf-dashboard-tabs-target { outline: 2px dashed currentColor; outline-offset: 2px; }
+.pf-dashboard-tab-dragging { opacity: .5; }
