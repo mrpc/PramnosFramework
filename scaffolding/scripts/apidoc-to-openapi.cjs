@@ -878,14 +878,59 @@ class ApiDocToOpenAPIConverter {
     return openapi;
   }
 
-  generateRapiDocHtml(versions, specFiles) {
-    // Load apidoc.json for display settings
-    let apidocConfig = {};
+  /** apidoc.json's display settings, or none. */
+  displayConfig() {
     try {
-      apidocConfig = JSON.parse(fs.readFileSync(this.config.apidocConfig, 'utf8'));
+      return JSON.parse(fs.readFileSync(this.config.apidocConfig, 'utf8'));
     } catch (e) {
       console.warn('Could not load apidoc.json for HTML generation, using defaults');
+      return {};
     }
+  }
+
+  /**
+   * The docs page with Scalar, where apidoc.json says `"viewer": "scalar"`: each version a
+   * source (its picker for free, `#v1.1` in the address), pinned to one release, with no
+   * telemetry, no AI agent, no proxy for test requests and no fonts from Scalar's server.
+   */
+  generateScalarHtml(versions, specFiles, apidocConfig = this.displayConfig()) {
+    const apiTitle = String(apidocConfig.name || 'API Documentation').replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]);
+    const sources  = versions.map((v, i) => ({ title: `Version ${v}`, slug: `v${v}`, url: `../${specFiles[v]}`, default: i === 0 }));
+    const config   = { sources, persistAuth: true, telemetry: false, agent: { disabled: true }, showDeveloperTools: 'never', withDefaultFonts: false };
+    // A ready-to-use API key pre-applied to the ApiKeyAuth scheme, as the RapiDoc page does.
+    if (apidocConfig.defaultApiKey) {
+      config.authentication = { preferredSecurityScheme: 'ApiKeyAuth', securitySchemes: { ApiKeyAuth: { value: String(apidocConfig.defaultApiKey) } } };
+    }
+    const json = JSON.stringify(config).replace(/</g, '\\u003c');
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>${apiTitle}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>body { margin: 0; }</style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.75.1/dist/browser/standalone.js"></script>
+  <script>
+    Scalar.createApiReference('#app', ${json});
+  </script>
+</body>
+</html>`;
+  }
+
+  /** The docs page, in the viewer apidoc.json names: `rapidoc` (the default) or `scalar`. */
+  generateDocsHtml(versions, specFiles) {
+    const apidocConfig = this.displayConfig();
+
+    return String(apidocConfig.viewer || 'rapidoc').toLowerCase() === 'scalar'
+      ? this.generateScalarHtml(versions, specFiles, apidocConfig)
+      : this.generateRapiDocHtml(versions, specFiles, apidocConfig);
+  }
+
+  generateRapiDocHtml(versions, specFiles, apidocConfig = this.displayConfig()) {
 
     const apiTitle    = apidocConfig.name         || 'API Documentation';
     const primaryColor = apidocConfig.primaryColor || '#4CAF50';
@@ -1439,8 +1484,8 @@ class ApiDocToOpenAPIConverter {
       }
 
       const htmlPath = path.join(this.config.swaggerHtmlDir, 'index.html');
-      fs.writeFileSync(htmlPath, this.generateRapiDocHtml(sortedVersions, specFiles), 'utf8');
-      console.log(`\nRapiDoc UI written to: ${htmlPath}`);
+      fs.writeFileSync(htmlPath, this.generateDocsHtml(sortedVersions, specFiles), 'utf8');
+      console.log(`\nDocs page written to: ${htmlPath}`);
     }
 
     console.log(`\nConversion complete!`);

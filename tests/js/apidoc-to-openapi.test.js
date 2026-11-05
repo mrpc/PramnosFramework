@@ -76,3 +76,27 @@ describe('the apidoc → OpenAPI converter', () => {
         assert.equal(typeof parser().parseApiDocBlock, 'function');
     });
 });
+
+describe('the docs page', () => {
+    test('is RapiDoc by default and Scalar where apidoc.json says so, pinned and quiet', () => {
+        // Arrange
+        const converter = new ApiDocToOpenAPIConverter({});
+        const specs     = { '1.1': 'openapi-v1.1.json', '1.0': 'openapi-v1.0.json' };
+
+        // Act
+        const rapidoc = converter.generateRapiDocHtml(['1.1', '1.0'], specs, {});
+        const scalar  = converter.generateScalarHtml(['1.1', '1.0'], specs, { name: 'Shop </script>', defaultApiKey: 'k1' });
+
+        // Assert — RapiDoc unchanged; Scalar a source per version, the latest first and default
+        assert.match(rapidoc, /<rapi-doc/);
+        assert.match(scalar, /@scalar\/api-reference@1\.75\.1\//);
+        assert.match(scalar, /"telemetry":false/);
+        assert.match(scalar, /"agent":\{"disabled":true\}/);
+        assert.doesNotMatch(scalar, /proxyUrl/);
+        assert.match(scalar, /"slug":"v1\.1","url":"\.\.\/openapi-v1\.1\.json","default":true/);
+        assert.match(scalar, /"slug":"v1\.0","url":"\.\.\/openapi-v1\.0\.json","default":false/);
+        assert.match(scalar, /"ApiKeyAuth":\{"value":"k1"\}/);
+        // The title is escaped where it is HTML and cannot close a script
+        assert.match(scalar, /<title>Shop &lt;\/script&gt;<\/title>/);
+    });
+});

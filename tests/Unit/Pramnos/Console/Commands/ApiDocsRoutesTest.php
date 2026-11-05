@@ -440,4 +440,39 @@ PHP_ROUTES);
         $this->assertArrayNotHasKey('401', $doc['paths']['/open']['get']['responses']);
         $this->assertSame('Not signed in', $doc['paths']['/closed']['delete']['responses']['401']['description']);
     }
+
+    /**
+     * The viewer is RapiDoc by default and Scalar with `--viewer=scalar`: the Scalar page is
+     * pinned to one release, sends no telemetry, has no AI agent or proxy, and names the spec it
+     * sits beside as its one source. An unknown viewer fails before anything is written.
+     */
+    public function testTheViewerIsRapiDocOrScalar(): void
+    {
+        // Arrange
+        $this->writeRouteFile();
+        $args = ['--controllers' => $this->fixturesDir(), '--namespace' => 'Pramnos\\Tests\\Fixtures\\OpenApi',
+            '--routes' => 'src/Api/routes.php', '--output' => 'api/openapi.json', '--title' => 'Shop </script>'];
+
+        // Act
+        $this->tester()->execute($args);
+        $rapidoc = (string) file_get_contents($this->tmp . '/api/docs/index.html');
+        $this->tester()->execute($args + ['--viewer' => 'scalar']);
+        $scalar  = (string) file_get_contents($this->tmp . '/api/docs/index.html');
+        unlink($this->tmp . '/api/openapi.json');
+        $bad     = $this->tester();
+        $exit    = $bad->execute($args + ['--viewer' => 'swagger']);
+
+        // Assert
+        $this->assertStringContainsString('<rapi-doc', $rapidoc, 'RapiDoc by default');
+        $this->assertStringContainsString('spec-url="../openapi.json"', $rapidoc);
+        $this->assertStringContainsString('@scalar/api-reference@1.75.1/', $scalar, 'pinned to one release');
+        $this->assertStringContainsString('telemetry: false', $scalar);
+        $this->assertStringContainsString('agent: { disabled: true }', $scalar);
+        $this->assertStringNotContainsString('proxyUrl', $scalar, 'no proxy for test requests');
+        $this->assertStringContainsString('"url":"../openapi.json"', $scalar, 'its source is the spec beside it');
+        $this->assertStringNotContainsString('Shop </script>', explode('<script>', $scalar, 2)[1] ?? '', 'the title cannot close the script');
+        $this->assertSame(Command::FAILURE, $exit);
+        $this->assertStringContainsString('Unknown viewer', $bad->getDisplay());
+        $this->assertFileDoesNotExist($this->tmp . '/api/openapi.json', 'nothing written for a mistyped viewer');
+    }
 }

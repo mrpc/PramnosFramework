@@ -475,7 +475,7 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 | `lint:js` | ESLint over the application's JavaScript with the framework's rules | `--fix`, paths |
 | `debug:status` | Show the debug configuration (APP_DEBUG, Xdebug, port 9003) | — |
 | `debug:token` | Issue a signed token that opens the debug toolbar for one browser | `--ttl`, `--url/-u` |
-| `api:docs` | Generate an OpenAPI document from `#[Route]` controllers (and RapiDoc HTML) | `--controllers`, `--namespace`, `--routes`, `--output`, `--title`, `--api-version`, `--description`, `--server` (repeatable), `--overrides`, `--allow-empty`, `--no-html` |
+| `api:docs` | Generate an OpenAPI document from `#[Route]` controllers, and an HTML viewer beside it (RapiDoc, or Scalar with `--viewer=scalar`) | `--controllers`, `--namespace`, `--routes`, `--output`, `--title`, `--api-version`, `--description`, `--server` (repeatable), `--overrides`, `--allow-empty`, `--no-html`, `--viewer` |
 | `sitemap:generate` | Generate `sitemap.xml` from localized route groups, `Hreflang::group()` declarations and registered `Sitemap::provider()`s | `--routes`, `--output`, `--base-url`, `--allow-empty` |
 | `mcp:serve` | Start an MCP server on stdio for an AI assistant | `--log` |
 | `mcp:call [tool]` | Call one MCP tool and print what it returns; omit the tool to list them | `--json`, `--raw` |
@@ -498,6 +498,19 @@ php bin/pramnos serve --host=0.0.0.0 --port=8080
 `serve` runs PHP's built-in web server (`php -S <host>:<port>`) with the web root's `index.php`
 (`www/`, `public/`, …) as the router script, so every request goes through the application's front controller. It is a
 development server only — single-process, with no TLS.
+
+### The API documentation viewer
+
+`api:docs` writes `docs/index.html` beside the OpenAPI document it generates. The page uses
+RapiDoc by default, or Scalar with `--viewer=scalar`. An apidoc-based project
+(`scripts/apidoc-to-openapi.cjs`) makes the same choice with `"viewer": "scalar"` in
+`src/Api/apidoc.json`. There each API version is one of Scalar's sources: it gets the version
+picker, and the version appears in the address (`#v1.1`).
+
+The Scalar page loads one pinned release, because an unpinned address follows every release
+silently. It turns off telemetry and the AI agent, which Scalar has on by default. It sets no
+proxy, because Scalar's example proxy routes "Test Request" calls through their server. It loads no
+fonts from Scalar's server either. The "Generate SDKs & MCP" button cannot be hidden.
 
 ## Configuration
 

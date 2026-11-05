@@ -75,11 +75,21 @@ class ApiDocs extends Command
             ->addOption('description', null, InputOption::VALUE_REQUIRED, 'API description')
             ->addOption('server', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Server URL (repeatable)')
             ->addOption('overrides', null, InputOption::VALUE_REQUIRED, 'Path to an openapi-overrides.json to deep-merge')
-            ->addOption('no-html', null, InputOption::VALUE_NONE, 'Do not also generate the RapiDoc HTML viewer');
+            ->addOption('no-html', null, InputOption::VALUE_NONE, 'Do not also generate the HTML viewer')
+            ->addOption('viewer', null, InputOption::VALUE_REQUIRED, 'The HTML viewer: rapidoc or scalar', 'rapidoc');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        // Checked before anything is written: a mistyped viewer must not leave a new spec
+        // beside the old page.
+        $viewer = strtolower((string) $input->getOption('viewer'));
+        if (!in_array($viewer, ['rapidoc', 'scalar'], true)) {
+            $output->writeln('<error>Unknown viewer "' . $viewer . '": rapidoc or scalar.</error>');
+
+            return Command::FAILURE;
+        }
+
         $base = $this->baseDir();
 
         $controllersOption = $input->getOption('controllers');
@@ -247,12 +257,17 @@ class ApiDocs extends Command
             if (!is_dir($docsDir)) {
                 mkdir($docsDir, 0775, true);
             }
-            $html = (new StubRenderer())->render('api-docs.html', [
-                // The merged document's title, so an `info.title` in the overrides names the
-                // viewer too, not only the spec.
-                'title' => (string) ($document['info']['title'] ?? 'API') . ' — API documentation',
-                'spec'  => '../' . basename($outputPath),
-            ]);
+            // The merged document's title, so an `info.title` in the overrides names the
+            // viewer too, not only the spec.
+            $title = (string) ($document['info']['title'] ?? 'API') . ' — API documentation';
+            $spec  = '../' . basename($outputPath);
+            $html  = $viewer === 'scalar'
+                // Scalar takes its documents as sources: one here, the one just written.
+                ? (new StubRenderer())->render('api-docs-scalar.html', [
+                    'title'   => $title,
+                    'sources' => (string) json_encode([['title' => $title, 'url' => $spec, 'default' => true]], JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                ])
+                : (new StubRenderer())->render('api-docs.html', ['title' => $title, 'spec' => $spec]);
             file_put_contents($docsDir . '/index.html', $html);
             $output->writeln('<info>Wrote docs viewer to ' . $docsDir . '/index.html</info>');
         }
