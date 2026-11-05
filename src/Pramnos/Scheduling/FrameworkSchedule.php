@@ -278,6 +278,14 @@ class FrameworkSchedule
                 'description' => 'Take back what was written at the beacon during an outage',
             ],
 
+            // The application's metrics: the open periods, and closing the ones that ended —
+            // a level is kept as it stood then, so the run after midnight is the one that
+            // matters. Nothing to do where no metric is declared.
+            'metrics:compute' => [
+                'cadence'     => [['cron', '7 * * * *']],
+                'description' => 'Compute the metrics\' open periods and close those that ended',
+            ],
+
             'queue:cleanup' => [
                 'cadence'     => [['daily'], ['at', '03:10']],
                 'description' => 'Remove completed and expired queue items',

@@ -305,7 +305,8 @@ or by the application's session — that no migration carries for good.
 
 A table the framework makes for itself goes in a schema of its own: **`authserver.*`** for
 sign-in, identity and permissions, **`pramnos.*`** for the engine — logs, queues, schedulers,
-caches, the state behind segments and rules. On MySQL the schema becomes a name prefix
+caches, the state behind segments and rules. The business's figures — metric values and the reports built
+on them — go in **`stats.*`**. On MySQL the schema becomes a name prefix
 (`pramnos_rule_log`); the query builder resolves either, and raw SQL uses
 `$schema->quoteTable('pramnos.x')`. A join across schemas costs nothing.
 

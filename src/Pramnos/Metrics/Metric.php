@@ -1,0 +1,398 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Pramnos\Metrics;
+
+/**
+ * One number a business reports, declared once: what it counts, how its periods combine, what it
+ * is broken down by, and who may see it.
+ *
+ * ```php
+ * Metric::flow('orders.count', 'Orders')
+ *     ->aggregate(Metric::SUM)
+ *     ->dimensions(['region', 'plan'])
+ *     ->source(fn (Window $w, array $by, Database $db): iterable => $db->queryBuilder()->table('orders')
+ *         ->select([...$by, $db->queryBuilder()->raw('COUNT(*) AS value')])
+ *         ->where('paid_at', '>=', $w->startText())->where('paid_at', '<', $w->endText())
+ *         ->groupBy($by)->getAllOrFail())
+ *     ->rows(fn (Window $w, array $filters, Database $db): iterable => /* the orders behind it *\/ [])
+ *     ->allowed(fn (?object $user): bool => AdminAccess::allows($user, 'admin.reports'));
+ *
+ * Metric::level('customers.active', 'Active customers')->source(fn (Window $w): int => Customers::activeCount());
+ * Metric::derived('orders.conversion', '100 * orders.count / visits.unique', 'Conversion', '%');
+ * ```
+ *
+ * **Flow or level.** A flow counts what happened inside a period — orders, sign-ups — and any
+ * period can be counted again from the tables. A level is how things stood — active members — and
+ * the tables only know how they stand now, so a level is computed while its period is open and
+ * kept as it stood when the period closed; its past comes from {@see Metrics::import()}.
+ *
+ * **Sum or distinct.** A {@see SUM} metric's breakdowns add up: orders by region add up to all
+ * orders, so it is stored by every dimension it has and any combination is added together when
+ * read. A {@see DISTINCT} one does not — the customers who ordered in September are not the
+ * customers of each of its days added up, nor of each region — so each grain is counted on its own,
+ * and so is each breakdown it {@see keeps()}; a breakdown it does not keep cannot be read.
+ *
+ * **The source** is called once for each period and breakdown with the window, the dimensions to
+ * group by (`$by`, possibly empty) and the connection to read — the replica's when the
+ * application set `'metrics' => ['replica' => true]`. It answers rows carrying those dimensions
+ * and a `value`, or a single number when `$by` is empty.
+ *
+ * A **derived** metric is arithmetic over others — `+ - * /`, numbers and parentheses — worked
+ * out when read, never stored, so it cannot go stale. A division by nothing is no value.
+ */
+final class Metric
+{
+    public const FLOW    = 'flow';
+    public const LEVEL   = 'level';
+    public const DERIVED = 'derived';
+
+    /** Breakdowns add up, periods add up. */
+    public const SUM = 'sum';
+
+    /** Counted on its own at every grain and every breakdown it keeps. */
+    public const DISTINCT = 'distinct';
+
+    private string $unit        = '';
+    private string $aggregate   = self::SUM;
+    private string $description = '';
+
+    /** @var list<string> */
+    private array $dimensions = [];
+
+    /** @var list<list<string>>|null */
+    private ?array $keeps = null;
+
+    private ?\Closure $source  = null;
+    private ?\Closure $rows    = null;
+    private ?\Closure $allowed = null;
+
+    /** @var list<string|float> The expression, in reverse Polish order */
+    private array $program = [];
+
+    private function __construct(public readonly string $kind, public readonly string $name, private string $label)
+    {
+        if (!preg_match('/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$/', $name) || strlen($name) > 100) {
+            throw new \InvalidArgumentException('A metric\'s name is lower-case words joined by . and _: "' . $name . '" is not.');
+        }
+    }
+
+    /** Something that happens in a period, counted from the tables for any period. */
+    public static function flow(string $name, string $label = ''): self
+    {
+        return new self(self::FLOW, $name, $label);
+    }
+
+    /** How things stand, kept as they stood when each period closed. */
+    public static function level(string $name, string $label = ''): self
+    {
+        return new self(self::LEVEL, $name, $label);
+    }
+
+    /** Arithmetic over other metrics, worked out when read. */
+    public static function derived(string $name, string $expression, string $label = '', string $unit = ''): self
+    {
+        $metric          = new self(self::DERIVED, $name, $label);
+        $metric->program = self::compile($expression);
+        $metric->unit    = $unit;
+
+        return $metric;
+    }
+
+    /** How it reads: `''`, `'€'`, `'%'`. */
+    public function unit(string $unit): self
+    {
+        $this->unit = $unit;
+
+        return $this;
+    }
+
+    /** {@see SUM} or {@see DISTINCT}. */
+    public function aggregate(string $aggregate): self
+    {
+        if (!in_array($aggregate, [self::SUM, self::DISTINCT], true)) {
+            throw new \InvalidArgumentException('A metric aggregates by ' . self::SUM . ' or ' . self::DISTINCT . ', not "' . $aggregate . '".');
+        }
+        $this->aggregate = $aggregate;
+
+        return $this;
+    }
+
+    /** @param list<string> $dimensions What it is broken down by, by {@see Dimension} name */
+    public function dimensions(array $dimensions): self
+    {
+        $this->dimensions = array_values(array_unique(array_map('strval', $dimensions)));
+
+        return $this;
+    }
+
+    /**
+     * The breakdowns a {@see DISTINCT} metric is counted by, each a list of dimensions — the
+     * total and each dimension alone unless it says.
+     *
+     * @param list<list<string>> $sets
+     */
+    public function keeps(array $sets): self
+    {
+        $this->keeps = array_map(static fn (array $set): array => self::sorted($set), $sets);
+
+        return $this;
+    }
+
+    /** @param \Closure(Window, list<string>, \Pramnos\Database\Database): (iterable<array<string, mixed>>|int|float|null) $source */
+    public function source(\Closure $source): self
+    {
+        $this->source = $source;
+
+        return $this;
+    }
+
+    /** @param \Closure(Window, array<string, string>, \Pramnos\Database\Database): iterable<array<string, mixed>> $rows The records behind a number */
+    public function rows(\Closure $rows): self
+    {
+        $this->rows = $rows;
+
+        return $this;
+    }
+
+    /** @param \Closure(?object): bool $allowed Who may see it; the dashboard's role, `manager`, by default */
+    public function allowed(\Closure $allowed): self
+    {
+        $this->allowed = $allowed;
+
+        return $this;
+    }
+
+    /** A line on what it counts, for the catalogue and the assistant. */
+    public function describe(string $description): self
+    {
+        $this->description = $description;
+
+        return $this;
+    }
+
+    public function label(): string
+    {
+        return $this->label !== '' ? $this->label : $this->name;
+    }
+
+    public function getUnit(): string
+    {
+        return $this->unit;
+    }
+
+    public function getAggregate(): string
+    {
+        return $this->aggregate;
+    }
+
+    public function description(): string
+    {
+        return $this->description;
+    }
+
+    /** @return list<string> */
+    public function getDimensions(): array
+    {
+        return $this->dimensions;
+    }
+
+    /**
+     * The breakdowns stored: every dimension together for a sum (any other is added up from it),
+     * the declared ones for a distinct; the total always.
+     *
+     * @return list<list<string>>
+     */
+    public function storedSets(): array
+    {
+        if ($this->aggregate === self::SUM) {
+            return $this->dimensions === [] ? [[]] : [[], self::sorted($this->dimensions)];
+        }
+        $sets = $this->keeps ?? array_map(static fn (string $d): array => [$d], $this->dimensions);
+        array_unshift($sets, []);
+
+        return array_values(array_unique($sets, SORT_REGULAR));
+    }
+
+    public function hasSource(): bool
+    {
+        return $this->source !== null;
+    }
+
+    public function hasRows(): bool
+    {
+        return $this->rows !== null;
+    }
+
+    /**
+     * Ask the source for one period and breakdown, as rows of `dims` and `value`.
+     *
+     * @param list<string> $by
+     * @return list<array{dims: array<string, string>, value: float}>
+     */
+    public function measure(Window $window, array $by, \Pramnos\Database\Database $db): array
+    {
+        if ($this->source === null) {
+            throw new \LogicException('Metric ' . $this->name . ' has no source.');
+        }
+        $answer = ($this->source)($window, $by, $db);
+        if ($answer === null || is_int($answer) || is_float($answer) || is_numeric($answer)) {
+            if ($by !== []) {
+                throw new \UnexpectedValueException('Metric ' . $this->name . ' answered one number when asked by ' . implode(', ', $by) . '.');
+            }
+
+            return [['dims' => [], 'value' => (float) ($answer ?? 0)]];
+        }
+        $out = [];
+        foreach ($answer as $row) {
+            $row  = (array) $row;
+            $dims = [];
+            foreach ($by as $name) {
+                $dims[$name] = (string) ($row[$name] ?? '');
+            }
+            $key = json_encode($dims);
+            $out[$key] ??= ['dims' => $dims, 'value' => 0.0];
+            $out[$key]['value'] += (float) ($row['value'] ?? 0);
+        }
+
+        return array_values($out);
+    }
+
+    /**
+     * The records behind a number, or an empty list when it declares none.
+     *
+     * @param array<string, string> $filters
+     * @return list<array<string, mixed>>
+     */
+    public function records(Window $window, array $filters, \Pramnos\Database\Database $db): array
+    {
+        if ($this->rows === null) {
+            return [];
+        }
+        $out = [];
+        foreach (($this->rows)($window, $filters, $db) as $row) {
+            $out[] = (array) $row;
+        }
+
+        return $out;
+    }
+
+    /** Whether this person may see it. */
+    public function allows(?object $user): bool
+    {
+        return $this->allowed !== null
+            ? (bool) ($this->allowed)($user)
+            : \Pramnos\User\Roles::atLeast($user, \Pramnos\User\Roles::MANAGER);
+    }
+
+    /** @return list<string> The metrics a derived one is worked out from */
+    public function operands(): array
+    {
+        return array_values(array_unique(array_filter($this->program, static fn ($t): bool => is_string($t) && !in_array($t, ['+', '-', '*', '/', 'neg'], true))));
+    }
+
+    /**
+     * Work a derived metric out from its operands' values; null when one is missing or a
+     * division is by nothing.
+     *
+     * @param array<string, float|null> $values By operand name
+     */
+    public function evaluate(array $values): ?float
+    {
+        $stack = [];
+        foreach ($this->program as $token) {
+            if (is_float($token)) {
+                $stack[] = $token;
+                continue;
+            }
+            if ($token === 'neg') {
+                $a = array_pop($stack);
+                $stack[] = $a === null ? null : -$a;
+                continue;
+            }
+            if (!in_array($token, ['+', '-', '*', '/'], true)) {
+                $stack[] = isset($values[$token]) ? (float) $values[$token] : null;
+                continue;
+            }
+            $b = array_pop($stack);
+            $a = array_pop($stack);
+            $stack[] = $a === null || $b === null || ($token === '/' && $b == 0.0) ? null : match ($token) {
+                '+' => $a + $b,
+                '-' => $a - $b,
+                '*' => $a * $b,
+                '/' => $a / $b,
+            };
+        }
+
+        return $stack[0] ?? null;
+    }
+
+    /**
+     * An expression in reverse Polish order: names, numbers, `+ - * /`, unary minus, parentheses.
+     *
+     * @return list<string|float>
+     */
+    private static function compile(string $expression): array
+    {
+        if (!preg_match_all('/\s*(?:(\d+(?:\.\d+)?)|([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*)|([-+*\/()]))\s*/A', $expression, $m, PREG_SET_ORDER)
+            || implode('', array_column($m, 0)) !== $expression) {
+            throw new \InvalidArgumentException('Cannot read the metric expression "' . $expression . '".');
+        }
+        $out  = [];
+        $ops  = [];
+        $prec = ['+' => 1, '-' => 1, '*' => 2, '/' => 2, 'neg' => 3];
+        $prev = null;
+        foreach ($m as $t) {
+            if (($t[1] ?? '') !== '') {
+                $out[] = (float) $t[1];
+                $prev  = 'operand';
+            } elseif (($t[2] ?? '') !== '') {
+                $out[] = $t[2];
+                $prev  = 'operand';
+            } elseif ($t[3] === '(') {
+                $ops[] = '(';
+                $prev  = '(';
+            } elseif ($t[3] === ')') {
+                while ($ops !== [] && end($ops) !== '(') {
+                    $out[] = array_pop($ops);
+                }
+                if (array_pop($ops) !== '(') {
+                    throw new \InvalidArgumentException('Unbalanced parentheses in "' . $expression . '".');
+                }
+                $prev = 'operand';
+            } else {
+                $op = $t[3] === '-' && $prev !== 'operand' ? 'neg' : $t[3];
+                if ($op !== 'neg' && $prev !== 'operand') {
+                    throw new \InvalidArgumentException('An operator without an operand in "' . $expression . '".');
+                }
+                while ($op !== 'neg' && $ops !== [] && end($ops) !== '(' && $prec[end($ops)] >= $prec[$op]) {
+                    $out[] = array_pop($ops);
+                }
+                $ops[] = $op;
+                $prev  = 'op';
+            }
+        }
+        if ($prev !== 'operand') {
+            throw new \InvalidArgumentException('The expression "' . $expression . '" ends without an operand.');
+        }
+        while ($ops !== []) {
+            $op = array_pop($ops);
+            if ($op === '(') {
+                throw new \InvalidArgumentException('Unbalanced parentheses in "' . $expression . '".');
+            }
+            $out[] = $op;
+        }
+
+        return $out;
+    }
+
+    /** @param list<string> $set @return list<string> */
+    private static function sorted(array $set): array
+    {
+        $set = array_values(array_unique(array_map('strval', $set)));
+        sort($set);
+
+        return $set;
+    }
+}

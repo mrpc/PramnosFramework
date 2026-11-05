@@ -432,6 +432,7 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 | `spool:drain` | Write rows buffered out of the request path | `--status/-s`, `--max-attempts` |
 | `timescale:ensure` | Convert declared tables to hypertables and (re)apply compression | `--dry-run`, `--table/-t` |
 | `timescale:drain` | Write queued rows into their hypertables, per chunk, within a WAL budget | `--table/-t`, `--status/-s`, `--retry-failed`, `--wal-budget=MB`, `--replica-lag=MB` |
+| `metrics:compute` | Compute the application's metrics: the open periods, and close those that ended | `--metric`, `--grain`, `--from`, `--to`, `--recompute` |
 
 **Authentication**
 
