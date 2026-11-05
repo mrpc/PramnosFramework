@@ -160,8 +160,8 @@ class FilesTest extends TestCase
         $this->assertFileExists($this->tree . '/' . $file['thumbPath'], 'an image has a thumbnail');
         $this->assertSame('text/plain', Files::get($text)['mime']);
         $this->assertSame([
-            'Files of this kind are not sent here: images, PDF, Office documents, CSV, text and zip are.',
-            'Files of this kind are not sent here: images, PDF, Office documents, CSV, text and zip are.',
+            'Files of this kind are not sent here: images, video, PDF, Office documents, CSV, text and zip are.',
+            'Files of this kind are not sent here: images, video, PDF, Office documents, CSV, text and zip are.',
             'A file is at most 2 MB.',
             'The file did not arrive.',
             'Only its members write in a conversation.',
@@ -171,6 +171,44 @@ class FilesTest extends TestCase
         $this->assertSame($message, Files::get($picture)['messageId']);
         Settings::setSetting(Files::SETTING, 1, false);
         $this->assertSame(1, Files::maxMegabytes(), 'the administrator\'s setting first');
+    }
+
+    /**
+     * A video is kept like any file, without a thumbnail, under a limit of its own (FW-324): an mp4
+     * larger than the files' limit is kept while it is under the videos', and one over the videos'
+     * is refused saying so.
+     */
+    #[DataProvider('databases')]
+    public function testAVideoHasALimitOfItsOwn(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — files up to 2 MB, videos up to 4
+        $this->boot($type, $host, $port, $user);
+        $this->tree = sys_get_temp_dir() . '/pfchat-' . bin2hex(random_bytes(4));
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30, 'files_path' => $this->tree, 'max_file_mb' => 2, 'max_video_mb' => 4];
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        $general = Conversations::create('channel', 'general', [$maria], $eleni);
+        $mp4 = static fn (int $bytes): string => "\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom" . str_repeat("\x00", max(0, $bytes - 24));
+
+        // Act
+        $kept = Files::store($general, $eleni, $this->upload($mp4(3 * 1024 * 1024)), 'βίντεο.mp4');
+        try {
+            Files::store($general, $eleni, $this->upload($mp4(5 * 1024 * 1024)), 'μεγάλο.mp4');
+            $refused = '';
+        } catch (\InvalidArgumentException $e) {
+            $refused = $e->getMessage();
+        }
+
+        // Assert
+        $file = Files::get($kept);
+        $this->assertSame('video/mp4', $file['mime']);
+        $this->assertNull($file['thumbPath'], 'no thumbnail for a video');
+        $this->assertSame('A video is at most 4 MB.', $refused);
+        $this->assertSame(4, Files::maxVideoMegabytes());
+        Settings::setSetting(Files::VIDEO_SETTING, 7, false);
+        $this->assertSame(7, Files::maxVideoMegabytes(), 'the administrator\'s setting first');
+        Settings::setSetting(Files::VIDEO_SETTING, 0, false);
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
+        $this->assertSame(Files::DEFAULT_MAX_VIDEO_MB, Files::maxVideoMegabytes(), 'and 100 when nothing says');
     }
 
     /**

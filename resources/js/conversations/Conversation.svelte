@@ -14,7 +14,7 @@
     import { assistant, analystState } from './extras.js';
 
     // `openThread`: a thread to open with it — from the sidebar's Threads or Activity.
-    let { api, id, me, emoji = {}, maxFileMb = 25, online = {}, resync = 0, onread = () => {}, onerror = () => {}, compact = false,
+    let { api, id, me, emoji = {}, maxFileMb = 25, maxVideoMb = 100, online = {}, resync = 0, onread = () => {}, onerror = () => {}, compact = false,
         openThread: threadToOpen = null } = $props();
 
     let conversation = $state(null);
@@ -401,7 +401,7 @@
                 : t('Has never signed in — they will probably not see this.')}</p>
         {/if}
         {#if member}
-            <Composer bind:this={composer} {api} conversationId={id} members={members} {me} {emoji} {maxFileMb}
+            <Composer bind:this={composer} {api} conversationId={id} members={members} {me} {emoji} {maxFileMb} {maxVideoMb}
                 placeholder={conversation?.slug ? t('Message #%s', conversation.slug) : t('Message %s', title)}
                 disabled={!!conversation?.archivedAt} typing={whisper} onsent={arrive} onreply={note} {onerror} />
         {:else if conversation}
@@ -429,7 +429,7 @@
             </div>
             <p class="pf-conv-typing" aria-live="polite">{#if threadTypers.length}{t('%s is typing…', threadTypers[0])}{/if}</p>
             {#if member}
-                <Composer {api} conversationId={id} thread={thread.root.id} members={members} {me} {emoji} {maxFileMb}
+                <Composer {api} conversationId={id} thread={thread.root.id} members={members} {me} {emoji} {maxFileMb} {maxVideoMb}
                     placeholder={t('Reply…')} typing={whisper} onsent={arrive} onreply={note} {onerror} />
             {/if}
         </aside>

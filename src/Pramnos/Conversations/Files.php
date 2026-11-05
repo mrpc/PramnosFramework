@@ -23,8 +23,9 @@ use Pramnos\Database\Expression;
  * |---|---|---|
  * | the tree | `'conversations' => ['files_path' => …]` | `var/chat-files` |
  * | the largest file | the setting `conversations_max_file_mb`, else `'conversations' => ['max_file_mb' => …]` | 25 MB |
+ * | the largest video | the setting `conversations_max_video_mb`, else `'conversations' => ['max_video_mb' => …]` | 100 MB |
  *
- * Allowed: images, PDF, Office and OpenDocument, CSV, plain text and zip — by what the file is, not
+ * Allowed: images, video (mp4, mov, webm), PDF, Office and OpenDocument, CSV, plain text and zip — by what the file is, not
  * what it is called; never a program. An image larger than THUMB gets a thumbnail beside it.
  */
 final class Files
@@ -46,7 +47,15 @@ final class Files
         'application/vnd.openxmlformats-officedocument.presentationml.presentation' => ['pptx'],
         'application/vnd.oasis.opendocument.text' => ['odt'], 'application/vnd.oasis.opendocument.spreadsheet' => ['ods'],
         'application/vnd.oasis.opendocument.presentation' => ['odp'], 'application/x-zip-compressed' => ['zip'],
+        // Video, with a limit of its own (VIDEO_SETTING): kept and sent like any file, no thumbnail.
+        'video/mp4' => ['mp4', 'm4v'], 'video/quicktime' => ['mov'], 'video/webm' => ['webm'],
     ];
+
+    /** The largest video, in megabytes, when nothing says otherwise. */
+    public const DEFAULT_MAX_VIDEO_MB = 100;
+
+    /** The setting an administrator changes the video limit with. */
+    public const VIDEO_SETTING = 'conversations_max_video_mb';
 
     /** The thumbnail's longest side, in pixels. */
     public const THUMB = 400;
@@ -65,14 +74,17 @@ final class Files
         if ($size <= 0) {
             throw new \InvalidArgumentException(t('The file did not arrive.'));
         }
-        if ($size > self::maxBytes()) {
-            throw new \InvalidArgumentException(t('A file is at most %s MB.', (string) self::maxMegabytes()));
-        }
         $mime = (string) (new \finfo(FILEINFO_MIME_TYPE))->file($tmp);
         $name = self::name($name);
         $ext  = strtolower(pathinfo($name, PATHINFO_EXTENSION));
         if (!in_array($ext, self::TYPES[$mime] ?? [], true)) {
-            throw new \InvalidArgumentException(t('Files of this kind are not sent here: images, PDF, Office documents, CSV, text and zip are.'));
+            throw new \InvalidArgumentException(t('Files of this kind are not sent here: images, video, PDF, Office documents, CSV, text and zip are.'));
+        }
+        // What it is decides how large it may be: a video has a limit of its own.
+        $video = str_starts_with($mime, 'video/');
+        $limit = $video ? self::maxVideoMegabytes() : self::maxMegabytes();
+        if ($size > $limit * 1024 * 1024) {
+            throw new \InvalidArgumentException(t($video ? 'A video is at most %s MB.' : 'A file is at most %s MB.', (string) $limit));
         }
         $db  = Conversations::db();
         $now = time();
@@ -298,6 +310,19 @@ final class Files
         return $own > 0 ? $own : self::DEFAULT_MAX_MB;
     }
 
+    /** The largest video, in megabytes: the setting, the application's (`max_video_mb`), or 100. */
+    public static function maxVideoMegabytes(): int
+    {
+        $set = (int) \Pramnos\Application\Settings::getSetting(self::VIDEO_SETTING, 0);
+        if ($set > 0) {
+            return $set;
+        }
+        $app = \Pramnos\Application\Application::currentInstance();
+        $own = is_object($app) ? (int) ($app->applicationInfo['conversations']['max_video_mb'] ?? 0) : 0;
+
+        return $own > 0 ? $own : self::DEFAULT_MAX_VIDEO_MB;
+    }
+
     /** The tree the files are kept in. */
     public static function root(): string
     {
@@ -305,12 +330,6 @@ final class Files
         $root = is_object($app) ? (string) ($app->applicationInfo['conversations']['files_path'] ?? '') : '';
 
         return rtrim($root !== '' ? $root : (defined('VAR_PATH') ? VAR_PATH : ROOT . '/var') . '/chat-files', '/');
-    }
-
-    /** The largest file, in bytes. */
-    private static function maxBytes(): int
-    {
-        return self::maxMegabytes() * 1024 * 1024;
     }
 
     /** A name safe on any disk: no path, no control characters, at most 150 characters. */

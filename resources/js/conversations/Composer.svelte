@@ -13,7 +13,7 @@
     import { commands, canAsk, assistant, gifProvider } from './extras.js';
 
     let {
-        api, conversationId, thread = null, members = [], me, emoji = {}, maxFileMb = 25, placeholder = '',
+        api, conversationId, thread = null, members = [], me, emoji = {}, maxFileMb = 25, maxVideoMb = 100, placeholder = '',
         disabled = false, typing = null, onsent = () => {}, onreply = () => {}, onerror = () => {},
     } = $props();
 
@@ -136,8 +136,11 @@
     function add(list) {
         for (const file of Array.from(list || [])) {
             const key = Math.random().toString(36).slice(2);
-            if (file.size > maxFileMb * 1024 * 1024) {
-                onerror(t('A file is at most %s MB.', maxFileMb));
+            // A video has a limit of its own; the server decides by what the file is, this by its type.
+            const video = String(file.type || '').startsWith('video/');
+            const limit = video ? maxVideoMb : maxFileMb;
+            if (file.size > limit * 1024 * 1024) {
+                onerror(t(video ? 'A video is at most %s MB.' : 'A file is at most %s MB.', limit));
                 continue;
             }
             files = [...files, { key, name: file.name, size: file.size, id: null, busy: true }];

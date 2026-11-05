@@ -37,7 +37,7 @@
     </header>
     {#if !minimised}
         <div class="pf-conv-window-body">
-            <Conversation {api} id={conversation.id} {me} emoji={props.emoji} maxFileMb={props.maxFileMb} {online} compact
+            <Conversation {api} id={conversation.id} {me} emoji={props.emoji} maxFileMb={props.maxFileMb} maxVideoMb={props.maxVideoMb} {online} compact
                 onread={onread} {onerror} />
         </div>
     {/if}
