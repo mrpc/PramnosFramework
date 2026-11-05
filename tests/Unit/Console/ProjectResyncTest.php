@@ -632,7 +632,38 @@ class ProjectResyncTest extends TestCase
         $this->assertArrayNotHasKey('/account/login', $ov['paths'], 'one the project removed is not added back');
         $this->assertArrayNotHasKey('/oauth/token', $ov['paths']);
         $this->assertArrayHasKey('/widgets', $ov['paths'], 'user-added paths are preserved');
-        $this->assertArrayHasKey('OAuth2', $ov['components']['securitySchemes']);
+        $this->assertArrayNotHasKey('components', $ov, 'no OAuth2 scheme the file did not have');
+        $this->assertArrayNotHasKey('security', $ov, 'nor a global security');
+    }
+
+    /**
+     * A file the project trimmed to nothing of the framework's — an API on its own keys, no OAuth
+     * server routed — is left exactly as it is; one that kept the OAuth2 scheme and its security
+     * has them refreshed.
+     */
+    public function testApiOverridesTheProjectTrimmedAreLeftAlone(): void
+    {
+        // Arrange
+        file_put_contents(
+            $this->projectDir . '/app/app.php',
+            "<?php\nreturn ['name' => 'App', 'features' => ['auth', 'authserver']];\n"
+        );
+        $trimmed = json_encode(['_comment' => 'Ours.'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+        $this->seed('src/Api/openapi-overrides.json', $trimmed);
+
+        // Act
+        $this->tester()->execute(['--scripts' => true]);
+        $untouched = $this->read('src/Api/openapi-overrides.json');
+        $this->seed('src/Api/openapi-overrides.json', json_encode([
+            'components' => ['securitySchemes' => ['OAuth2' => ['type' => 'stale']]], 'security' => [['OAuth2' => []]],
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+        $this->tester()->execute(['--scripts' => true]);
+        $kept = json_decode($this->read('src/Api/openapi-overrides.json'), true);
+
+        // Assert
+        $this->assertSame($trimmed, $untouched, 'nothing added: no _usage, info, paths, scheme or security');
+        $this->assertSame('oauth2', $kept['components']['securitySchemes']['OAuth2']['type'], 'the scheme it kept is refreshed');
+        $this->assertNotSame([['OAuth2' => []]], $kept['security']);
     }
 
     /** Without auth-related features, openapi-overrides.json is left untouched. */

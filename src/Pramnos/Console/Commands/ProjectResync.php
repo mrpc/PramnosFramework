@@ -1024,35 +1024,31 @@ class ProjectResync extends Command
             $existing = is_array($decoded) ? $decoded : [];
         }
 
-        $merged             = $existing;
-        $merged['_comment'] = $existing['_comment'] ?? $framework['_comment'];
-        $merged['_usage']   = $existing['_usage']   ?? $framework['_usage'];
-        $merged['info']     = $existing['info']     ?? $framework['info'];
-        // The framework's paths are refreshed where the file still has them, and never added back:
-        // `init` wrote them once, and a path the application removed — one it does not serve, or
-        // documents in its own controllers — stays removed.
-        // A file written now (`--all`, none there) gets them all, as `init` writes it.
-        $merged['paths'] = is_file($ovPath) ? (array) ($existing['paths'] ?? []) : (array) $framework['paths'];
+        // A file written now (`--all`, none there) is the framework's whole document, as `init`
+        // writes it.
+        if (!is_file($ovPath)) {
+            return json_encode($framework, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+        }
+
+        // A file the project has: what of the framework's it still holds is refreshed, and nothing
+        // is added back — not a path, not the OAuth2 scheme, not a global `security`. `init`
+        // wrote them once, from the enabled features; a project that does not serve one (no
+        // OAuth server routed, its own auth on its API) or documents it itself removed it, and
+        // adding it back would publish what is not there.
+        $merged = $existing;
         foreach ($framework['paths'] as $path => $item) {
             if (isset($merged['paths'][$path])) {
                 $merged['paths'][$path] = $item;
             }
         }
-        $merged['paths'] = $merged['paths'] === [] ? (object) [] : $merged['paths'];
-
-        $components      = $existing['components'] ?? [];
-        $existingSchemas = $components['schemas'] ?? null;
-        $components['schemas'] = empty($existingSchemas) ? (object) [] : $existingSchemas;
-        if (isset($framework['components']['securitySchemes'])) {
-            $components['securitySchemes'] = array_merge(
-                $components['securitySchemes'] ?? [],
-                $framework['components']['securitySchemes']
-            );
+        if (isset($merged['components']['securitySchemes']['OAuth2'], $framework['components']['securitySchemes']['OAuth2'])) {
+            $merged['components']['securitySchemes']['OAuth2'] = $framework['components']['securitySchemes']['OAuth2'];
         }
-        $merged['components'] = $components;
-
-        if (isset($framework['security'])) {
+        if (isset($merged['security'], $framework['security'])) {
             $merged['security'] = $framework['security'];
+        }
+        if ($merged === $existing) {
+            return null;
         }
 
         return json_encode($merged, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
