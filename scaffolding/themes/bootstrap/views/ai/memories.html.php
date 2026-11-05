@@ -30,7 +30,7 @@ $split = 'display:flex;flex-wrap:wrap;justify-content:space-between;align-items:
 ?>
 <div class="<?php echo $c['page']; ?>" data-pf-memories>
     <div style="<?php echo $split; ?>;align-items:center">
-        <h1 class="<?php echo $c['h1']; ?>" style="margin:0"><?php echo $e($t('Everybody\'s Ask memory')); ?></h1>
+        <h1 class="<?php echo $c['h1']; ?>" style="margin:0"><?php echo $e($t('Everybody\'s memory')); ?></h1>
         <a href="<?php echo $e($u['chat'] ?? ''); ?>" class="<?php echo $c['btnGhost']; ?>">&larr; <?php echo $e($t('Back to the conversations')); ?></a>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
@@ -46,13 +46,13 @@ $split = 'display:flex;flex-wrap:wrap;justify-content:space-between;align-items:
         </nav>
         <main style="flex:1 1 24rem;min-width:0;display:flex;flex-direction:column;gap:12px">
         <?php if ($open === null): ?>
-            <p class="<?php echo $c['muted']; ?>"><?php echo $e($t('Choose somebody to see what Ask remembers about them.')); ?></p>
+            <p class="<?php echo $c['muted']; ?>"><?php echo $e($t('Choose somebody to see what is remembered about them.')); ?></p>
         <?php else: ?>
             <h2 class="<?php echo $c['h2']; ?>"><?php echo $e($whose($open)); ?></h2>
             <?php foreach ((array) ($this->memories ?? []) as $memory): ?>
             <div class="<?php echo $c['card']; ?>" data-pf-memory="<?php echo (int) $memory['memory_id']; ?>">
                 <div class="<?php echo $c['row']; ?>"><span class="<?php echo $c['badge']; ?>"><?php echo $e($t($memory['kind'] === 'preference' ? 'Preference' : 'Fact')); ?></span>
-                    <span class="<?php echo $c['muted']; ?>"><?php echo $e($memory['source'] === 'learned' ? $t('Learned') : $t('Asked to remember')); ?> · <?php echo $e($memory['at']); ?></span></div>
+                    <span class="<?php echo $c['muted']; ?>"><?php echo $e($memory['source'] === 'learned' ? $t('Learned') : $t('Kept on request')); ?> · <?php echo $e($memory['at']); ?></span></div>
                 <form method="post" action="<?php echo $e($u['correct'] ?? ''); ?>" style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
                     <?php echo $token(); ?>
                     <input type="hidden" name="memory_id" value="<?php echo (int) $memory['memory_id']; ?>">

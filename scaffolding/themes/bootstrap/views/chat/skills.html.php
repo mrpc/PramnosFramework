@@ -74,10 +74,12 @@ $chosen = array_flip($open['tools'] ?? []);
 <?php if (empty($this->enabled)): ?>
     <p class="<?php echo $c['muted']; ?>"><?php echo $e($t('Skills are not turned on here.')); ?></p>
 <?php else: ?>
-    <p class="<?php echo $c['muted']; ?>"><?php echo $e($t('A skill is a way of working Ask is handed when a question needs it. It opens nothing you may not already use.')); ?></p>
+    <p class="<?php echo $c['muted']; ?>"><?php echo $e($t('A skill is a way of working the assistant is handed when a question needs it. It opens nothing you may not already use.')); ?></p>
 
-    <details class="<?php echo $c['card']; ?>"<?php echo $open !== null || empty($this->mine) ? ' open' : ''; ?> data-pf-skill-editor>
-        <summary class="<?php echo $c['btn']; ?>" style="display:inline-block;cursor:pointer;list-style:none"><?php echo $e($t($open !== null ? 'Edit a skill' : 'A new skill')); ?></summary>
+    <?php // Open already (editing, or nothing yet): a heading. Folded: a button of the theme, its own width. ?>
+    <?php $startsOpen = $open !== null || empty($this->mine); ?>
+    <details class="<?php echo $c['card']; ?>"<?php echo $startsOpen ? ' open' : ''; ?> data-pf-skill-editor>
+        <summary class="<?php echo $startsOpen ? $c['h2'] : $c['btn']; ?>" style="display:inline-flex;width:auto;max-width:max-content;cursor:pointer;list-style:none"><?php echo $e($t($open !== null ? 'Edit a skill' : 'A new skill')); ?></summary>
         <form method="post" action="<?php echo $e($act('skillsave')); ?>" data-pf-skill-form style="display:flex;flex-direction:column;gap:16px;margin-top:16px">
             <?php echo $token(); ?>
             <?php if ($open !== null): ?><input type="hidden" name="skill_id" value="<?php echo (int) $open['id']; ?>"><?php endif; ?>
@@ -87,7 +89,7 @@ $chosen = array_flip($open['tools'] ?? []);
                     <small class="<?php echo $c['muted']; ?>"><?php echo $e($t('Lowercase Latin letters, digits and dashes.')); ?></small></label>
                 <label style="<?php echo $field; ?>"><span><?php echo $e($t('What it is for')); ?></span>
                     <input name="description" required maxlength="300" class="<?php echo $c['input']; ?>" style="<?php echo $full; ?>" value="<?php echo $e($open['description'] ?? ''); ?>" placeholder="<?php echo $e($t('The weekly sales figures, by market')); ?>">
-                    <small class="<?php echo $c['muted']; ?>"><?php echo $e($t('One line. Ask chooses the skill by it.')); ?></small></label>
+                    <small class="<?php echo $c['muted']; ?>"><?php echo $e($t('One line: the skill is chosen by it.')); ?></small></label>
             </div>
             <fieldset style="<?php echo $field; ?>;border:0;padding:0;margin:0">
                 <legend style="margin-bottom:6px"><?php echo $e($t('Tools it uses')); ?></legend>
@@ -141,7 +143,7 @@ $chosen = array_flip($open['tools'] ?? []);
     </details>
 
     <h2 class="<?php echo $c['h2']; ?>"><?php echo $e($t('Your own skills')); ?></h2>
-    <?php if (empty($this->mine)): ?><p class="<?php echo $c['muted']; ?>"><?php echo $e($t('None yet. Write one above, or ask Ask to keep a way of working as a skill.')); ?></p><?php endif; ?>
+    <?php if (empty($this->mine)): ?><p class="<?php echo $c['muted']; ?>"><?php echo $e($t('None yet. Write one above, or ask in a conversation for a way of working to be kept as a skill.')); ?></p><?php endif; ?>
     <?php foreach ((array) ($this->mine ?? []) as $skill) { echo $card($skill, true, false); } ?>
 
     <?php if (!empty($this->offered)): ?>

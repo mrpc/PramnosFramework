@@ -336,7 +336,7 @@ class AiController extends Controller
         $space  = (string) ($_GET['space'] ?? \Pramnos\Llm\Chat\Scope::CHAT);
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = t('Ask memory');
+        $doc->title = t('Everybody\'s memory');
         $view           = $this->getView('ai');
         $view->people   = $admin->people();
         $view->person   = $person;

@@ -149,7 +149,7 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false);
                         <?php if ($u['all'] !== ''): ?><li><a href="<?php echo $e($u['all']); ?>"><?php echo $e(t('Other people\'s Ask conversations')); ?></a></li><?php endif; ?>
                         <?php if ($u['reviews'] !== ''): ?><li><a href="<?php echo $e($u['reviews']); ?>"><?php echo $e(t('Answers to review')); ?></a></li><?php endif; ?>
                         <?php if ($u['skills'] !== ''): ?><li><a href="<?php echo $e($u['skills']); ?>"><?php echo $e(t('My skills')); ?></a></li><?php endif; ?>
-                        <?php if ($u['memories'] !== ''): ?><li><a href="<?php echo $e($u['memories']); ?>"><?php echo $e(t('Everybody\'s Ask memory')); ?></a></li><?php endif; ?>
+                        <?php if ($u['memories'] !== ''): ?><li><a href="<?php echo $e($u['memories']); ?>"><?php echo $e(t('Everybody\'s memory')); ?></a></li><?php endif; ?>
                     </ul>
                 </details>
             <?php endif; ?>
