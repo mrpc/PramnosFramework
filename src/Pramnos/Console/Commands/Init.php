@@ -2791,8 +2791,9 @@ CSS;
      * can reuse it and keep old projects' docs in sync with `init`.
      *
      * @param string $supportEmail Developer/author email captured at init; used
-     *                             as the docs support contact. Falls back to the
-     *                             generic support@example.com placeholder when empty.
+     *                             as the docs support contact; no contact at all
+     *                             when empty — a placeholder address would be
+     *                             published in the docs.
      * @return array<string, mixed>
      */
     public static function buildApiOverrides(string $appName, string $apiUrl, bool $hasAuth, bool $hasAuthServer, string $localServerUrl = '', string $supportEmail = ''): array
@@ -3265,12 +3266,8 @@ CSS;
         $overrides = [
             '_comment' => 'Optional manual overrides deep-merged over the auto-generated OpenAPI spec.',
             '_usage'   => 'Endpoints for the scaffolded API controllers were pre-filled from the enabled features (their actions are inherited from framework controllers, so apidoc cannot see them). Adjust or extend as needed; for OAuth, update the oauth URLs if the authorization server is hosted on a different host than the API.',
-            'info' => [
-                'contact' => [
-                    'name'  => "$appName Support",
-                    'email' => $supportEmail !== '' ? $supportEmail : 'support@example.com',
-                ],
-            ],
+            // A contact only with a real address: a placeholder would be published in the docs.
+            'info' => $supportEmail !== '' ? ['contact' => ['name' => "$appName Support", 'email' => $supportEmail]] : (object) [],
             'paths'      => $paths,
             'components' => [
                 'schemas' => (object) [],
@@ -3345,11 +3342,7 @@ CSS;
             // on the host with `bash scripts/doc.sh --host`.
             'docs'             => 'bash scripts/doc.sh',
         ]);
-        if (!isset($pkg['dependencies']['rapidoc'])) {
-            $pkg['devDependencies'] = array_merge($pkg['devDependencies'] ?? [], [
-                'rapidoc' => '^9.3.4',
-            ]);
-        }
+        // No viewer package: RapiDoc and Scalar both load from a CDN, pinned in the page.
         return $pkg;
     }
 

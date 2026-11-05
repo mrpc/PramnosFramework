@@ -409,7 +409,11 @@ The groups:
 or where the framework has no record of writing them; without it they are reported `kept`.
 
 Merges preserve what the project declared: user-added npm scripts, extra OpenAPI paths and
-schemas survive. What is **not** rewritten is `lib/api.js` — it is the project's own file and
+schemas survive. The framework's endpoints in `openapi-overrides.json` are refreshed where the file
+still has them, but never added back once removed. `init` writes them once, from the enabled
+features, and a project that does not serve one, or documents it in its own controllers, removes
+it. The docs contact is written only with a real address (the first author's in `composer.json`),
+never a placeholder. No viewer package is added to `package.json`: both viewers load from a CDN. What is **not** rewritten is `lib/api.js` — it is the project's own file and
 gets edited, so if it never calls `recordDebug` the command says so and prints the two lines
 to add rather than regenerating it. See the
 [Debugging guide](Pramnos_Debugging_Guide.md#in-a-single-page-application) for why the debug

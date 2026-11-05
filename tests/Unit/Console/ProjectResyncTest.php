@@ -555,7 +555,8 @@ class ProjectResyncTest extends TestCase
         $tester = $this->tester();
         $tester->execute(['--scripts' => true]);
 
-        // Assert: existing script kept, API-docs scripts + rapidoc devDep added.
+        // Assert: existing script kept, API-docs scripts added — and no viewer package, which
+        // both viewers load from a CDN.
         $pkg = json_decode($this->read('package.json'), true);
         $this->assertSame('phpunit', $pkg['scripts']['test'], 'existing scripts must be preserved');
         // docs:build no longer runs the legacy apiDoc HTML step — OpenAPI/RapiDoc only.
@@ -565,8 +566,8 @@ class ProjectResyncTest extends TestCase
         $this->assertSame('node scripts/apidoc-to-openapi.cjs', $pkg['scripts']['openapi:generate']);
         // The two-version "Old apiDoc" pipeline is gone: no apidoc:generate, no apidoc devDep.
         $this->assertArrayNotHasKey('apidoc:generate', $pkg['scripts']);
-        $this->assertArrayNotHasKey('apidoc', $pkg['devDependencies']);
-        $this->assertArrayHasKey('rapidoc', $pkg['devDependencies']);
+        $this->assertArrayNotHasKey('apidoc', $pkg['devDependencies'] ?? []);
+        $this->assertArrayNotHasKey('rapidoc', $pkg['devDependencies'] ?? []);
     }
 
     /** With --all, a project lacking package.json gets one seeded + merged. */
@@ -582,7 +583,7 @@ class ProjectResyncTest extends TestCase
         $this->assertFileExists($this->projectDir . '/package.json');
         $pkg = json_decode($this->read('package.json'), true);
         $this->assertArrayHasKey('docs:build', $pkg['scripts']);
-        $this->assertArrayHasKey('rapidoc', $pkg['devDependencies']);
+        $this->assertArrayNotHasKey('rapidoc', $pkg['devDependencies'] ?? [], 'no viewer package: the page loads it');
     }
 
     /** The --js scope must not touch package.json (a docs-tooling concern). */
@@ -604,19 +605,21 @@ class ProjectResyncTest extends TestCase
     }
 
     /**
-     * With auth-related features, the framework-documented endpoints are refreshed
-     * into openapi-overrides.json while user-added paths are preserved.
+     * The framework's endpoints still in openapi-overrides.json are refreshed, user-added paths
+     * are preserved, and an endpoint the project removed is not added back: `init` wrote them
+     * once, and one the application does not serve — or documents in its own controllers — was
+     * re-added on every resync, replacing the application's own documentation.
      */
     public function testApiOverridesRefreshedAndUserPathsPreserved(): void
     {
         // Arrange: a project with features + an existing overrides file holding a
-        // user-defined path and a stale (empty) framework surface.
+        // user-defined path and a stale framework path; the rest were removed.
         file_put_contents(
             $this->projectDir . '/app/app.php',
             "<?php\nreturn ['name' => 'App', 'features' => ['auth', 'authserver']];\n"
         );
         $this->seed('src/Api/openapi-overrides.json', json_encode([
-            'paths' => ['/widgets' => ['get' => ['summary' => 'List widgets']]],
+            'paths' => ['/widgets' => ['get' => ['summary' => 'List widgets']], '/me' => ['get' => ['summary' => 'stale']]],
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 
         // Act
@@ -625,8 +628,9 @@ class ProjectResyncTest extends TestCase
 
         // Assert
         $ov = json_decode($this->read('src/Api/openapi-overrides.json'), true);
-        $this->assertArrayHasKey('/me', $ov['paths'], 'framework endpoints injected');
-        $this->assertArrayHasKey('/account/login', $ov['paths']);
+        $this->assertNotSame('stale', $ov['paths']['/me']['get']['summary'] ?? 'stale', 'a framework endpoint still there is refreshed');
+        $this->assertArrayNotHasKey('/account/login', $ov['paths'], 'one the project removed is not added back');
+        $this->assertArrayNotHasKey('/oauth/token', $ov['paths']);
         $this->assertArrayHasKey('/widgets', $ov['paths'], 'user-added paths are preserved');
         $this->assertArrayHasKey('OAuth2', $ov['components']['securitySchemes']);
     }

@@ -3593,7 +3593,7 @@ class InitCommandUnitTest extends TestCase
      * meaningless address, while preserving backward-compatible behaviour for
      * callers that pass no email.
      */
-    public function testBuildApiOverridesUsesSupportEmailWithPlaceholderFallback(): void
+    public function testBuildApiOverridesUsesSupportEmailAndNoPlaceholder(): void
     {
         // Arrange / Act — a real developer email is threaded through.
         $withEmail = Init::buildApiOverrides(
@@ -3608,9 +3608,8 @@ class InitCommandUnitTest extends TestCase
         // Arrange / Act — no email supplied (the pre-existing signature / default).
         $noEmail = Init::buildApiOverrides('TestApp', 'https://api.example.com', true, true);
 
-        // Assert — falls back to the generic placeholder (backward compatible).
-        $this->assertSame('support@example.com', $noEmail['info']['contact']['email'],
-            'an empty support email must fall back to the generic placeholder');
+        // Assert — no contact at all: a placeholder address would be published in the docs.
+        $this->assertArrayNotHasKey('contact', (array) $noEmail['info'], 'no placeholder contact');
     }
 
     private function rmdir(string $dir): void

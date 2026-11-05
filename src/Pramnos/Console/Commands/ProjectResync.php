@@ -973,8 +973,9 @@ class ProjectResync extends Command
      *
      * Reuses Init::buildApiOverrides() (single source of truth with `init`) and
      * deep-merges over the existing file so user customisations — extra paths,
-     * schemas, contact info — survive; only the framework-owned paths, oauth2
-     * scheme and global security are overwritten.
+     * schemas, contact info — survive; the framework-owned paths still in the file,
+     * the oauth2 scheme and global security are overwritten. A framework path the
+     * file no longer has is not added back.
      */
     private function buildMergedApiOverrides(string $base): ?string
     {
@@ -1027,8 +1028,17 @@ class ProjectResync extends Command
         $merged['_comment'] = $existing['_comment'] ?? $framework['_comment'];
         $merged['_usage']   = $existing['_usage']   ?? $framework['_usage'];
         $merged['info']     = $existing['info']     ?? $framework['info'];
-        // Framework paths refreshed; user-added paths preserved.
-        $merged['paths']    = array_merge($existing['paths'] ?? [], $framework['paths']);
+        // The framework's paths are refreshed where the file still has them, and never added back:
+        // `init` wrote them once, and a path the application removed — one it does not serve, or
+        // documents in its own controllers — stays removed.
+        // A file written now (`--all`, none there) gets them all, as `init` writes it.
+        $merged['paths'] = is_file($ovPath) ? (array) ($existing['paths'] ?? []) : (array) $framework['paths'];
+        foreach ($framework['paths'] as $path => $item) {
+            if (isset($merged['paths'][$path])) {
+                $merged['paths'][$path] = $item;
+            }
+        }
+        $merged['paths'] = $merged['paths'] === [] ? (object) [] : $merged['paths'];
 
         $components      = $existing['components'] ?? [];
         $existingSchemas = $components['schemas'] ?? null;
