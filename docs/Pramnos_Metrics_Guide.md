@@ -184,6 +184,20 @@ Metrics::records('orders.count', 'month', '2026-09-01', ['region' => 'north']); 
 The value of a period that was never computed is `null`, which is different from `0`. Without a
 breakdown, `series()` keeps the values under the key `''`.
 
+## On the dashboard and for the assistant
+
+- **Dashboard:** each metric is a card, `metric.<name>`, in the dashboard's catalogue. It is
+  offered to those its `allowed()` lets see it, and a new dashboard does not have it. One period
+  draws a tile with the comparison chosen under it; several draw a chart, broken down and
+  filtered as the person sets it. A read the metric cannot answer, such as a breakdown a
+  distinct metric does not keep, is said on the card. See [Dashboard](Pramnos_Dashboard_Guide.md#metric-cards).
+- **Assistant:** the analyst has a `metrics` tool wherever the application declares metrics. It
+  offers the catalogue, `series`, `compare` and `rows`, and only the metrics the administrator
+  asking may see. Its description tells the model that a distinct metric is never added across
+  periods or values. To offer it on the public MCP endpoint, add
+  `new \Pramnos\Llm\Analyst\Tools\MetricsTool($userId)` the way the application offers its
+  other tools.
+
 ## Where the values are kept
 
 The values are kept in `stats.metric_values`, one row per metric, grain, period and breakdown.

@@ -322,6 +322,7 @@ prompt names it, and each answer's window says which it used.
 | `push` | sent, delivered and failed, by kind and status; the commonest failures |
 | `queue` | tasks by state, waiting by kind, failures by kind with their first error line, run times |
 | `llm_spend` | calls, tokens and cost by provider, model and purpose; scheduled tasks' runs apart, by task (`llm_calls.routine_id`); failures; spend per organisation (id and name) |
+| `metrics` | the application's [metrics](Pramnos_Metrics_Guide.md), where it declares any: the catalogue, a series by period with filters and a breakdown, a period against the previous or a year earlier, the records behind a number; only the metrics the administrator asking may see |
 | `log-analytics`, `log-errors`, `status` | the MCP tools of the same names |
 | `user` | one account the administrator names: type, state, dates — its email only with `include_email` |
 | `audience_segments`, `audience_rules`, `audience_experiments` | segments with members and movement; rules with status, trigger and how they are doing, one with how many went through each step; A/B tests with their results — offered where their tables are, each behind its screen's ability (`admin.segments`, `admin.rules`, `admin.experiments`) |

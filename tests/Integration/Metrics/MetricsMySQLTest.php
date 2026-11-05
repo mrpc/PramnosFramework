@@ -28,6 +28,8 @@ use Pramnos\Metrics\Window;
 #[CoversClass(Metrics::class)]
 #[CoversClass(CreateMetricValuesTable::class)]
 #[CoversClass(\Pramnos\Console\Commands\MetricsCompute::class)]
+#[CoversClass(\Pramnos\Dashboard\Widgets\MetricCard::class)]
+#[CoversClass(\Pramnos\Llm\Analyst\Tools\MetricsTool::class)]
 class MetricsMySQLTest extends TestCase
 {
     /** The orders a source counts. */
@@ -331,6 +333,112 @@ class MetricsMySQLTest extends TestCase
         $this->assertStringContainsString('test.broken@month: no table', $failed[1]);
         $this->assertSame(0, $none[0], 'nothing declared: nothing to do');
     }
+    /**
+     * Each metric is a dashboard card, off a new dashboard, for those it allows: a tile with this
+     * period's value and the comparison chosen, a chart of several periods broken down, a note
+     * where a read is refused — and none at all with `'metrics' => false` in the dashboard's config.
+     */
+    public function testEachMetricIsADashboardCard(): void
+    {
+        // Arrange
+        $month = date('Y-m-15');
+        $this->order(date('Y-m-01 10:00:00'), 'north', 1);
+        $this->order(date('Y-m-01 11:00:00'), 'south', 2);
+        Metrics::register(Metric::flow('test.split', 'Split')->aggregate(Metric::DISTINCT)->dimensions(['region', 'plan'])->source(static fn (): int => 0));
+        Metrics::compute(['test.orders'], ['month'], $month, $month);
+        \Pramnos\Dashboard\WidgetRegistry::reset();
+        $cards = \Pramnos\Dashboard\WidgetRegistry::all();
+        $card  = static fn (string $id, array $settings) => (clone $cards[$id])->configure($settings);
+
+        // Act
+        $tile    = $card('metric.test.orders', ['compare' => Metrics::PREVIOUS])->render();
+        $empty   = $card('metric.test.active', [])->render();
+        $chart   = $card('metric.test.orders', ['periods' => '6', 'breakdown' => 'region', 'chart' => 'bar', 'filters' => 'region=north, plan=x, nonsense'])->render();
+        $refused = $card('metric.test.split', ['periods' => '6', 'breakdown' => 'plan', 'filters' => 'region=north'])->render();
+
+        // Assert
+        $this->assertArrayHasKey('metric.test.per_customer', $cards, 'a derived metric is a card too');
+        $this->assertFalse($cards['metric.test.orders']->byDefault());
+        $this->assertFalse($cards['metric.test.orders']->allowed(null), 'the metric\'s allowed(): manager by default');
+        $this->assertSame('Orders', $cards['metric.test.orders']->title());
+        $this->assertSame('Mine', $card('metric.test.orders', ['title' => 'Mine'])->title());
+        $this->assertSame(['grain', 'periods', 'chart', 'compare', 'breakdown', 'filters', 'title'], array_keys($cards['metric.test.orders']->options()));
+        $this->assertStringContainsString('>2<', $tile);
+        $this->assertStringContainsString(date('Y-m'), $tile);
+        $this->assertStringContainsString('—', $empty, 'never computed: a dash, not 0');
+        $this->assertStringContainsString('data-pf-chart-figure', $chart);
+        $this->assertStringContainsString('"label":"north"', $chart, 'broken down by region, filtered to north');
+        $this->assertStringNotContainsString('"label":"south"', $chart);
+        $this->assertStringContainsString('keeps only', $refused, 'a breakdown it does not keep is said, not drawn');
+        Application::getInstance()->applicationInfo['dashboard'] = ['metrics' => false];
+        $this->assertArrayNotHasKey('metric.test.orders', \Pramnos\Dashboard\WidgetRegistry::all());
+        unset(Application::getInstance()->applicationInfo['dashboard']);
+        $this->assertSame('1.234,50 €', \Pramnos\Dashboard\Widgets\MetricCard::format(1234.5, '€'));
+        $this->assertSame('12,5%', \Pramnos\Dashboard\Widgets\MetricCard::format(12.5, '%'));
+        $this->assertSame('1.234', \Pramnos\Dashboard\Widgets\MetricCard::format(1234.0, ''));
+        $this->assertSame('2,50', \Pramnos\Dashboard\Widgets\MetricCard::format(2.5, ''));
+    }
+
+    /**
+     * The analyst's `metrics` tool: the catalogue of what the person asking may see — nothing for
+     * nobody — a series by breakdown, a comparison, the records behind a number, and errors said
+     * in words: a metric they may not see, a breakdown not kept, too many periods.
+     */
+    public function testTheAnalystsTool(): void
+    {
+        // Arrange — the account loads with its details
+        \Pramnos\Framework\Testing\Schema::ensure([
+            \Pramnos\Framework\Migrations\Auth\CreateUsersTable::class,
+            \Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class,
+        ], $this->db);
+        $admin = new \Pramnos\User\User();
+        $admin->username = 'metrics_admin_' . bin2hex(random_bytes(3));
+        $admin->email    = $admin->username . '@example.com';
+        $admin->usertype = 99;
+        $admin->save();
+        Metrics::register(Metric::flow('test.listed', 'Listed')->rows(static fn (Window $w, array $f): array => [['id' => 1, 'f' => $f], ['id' => 2]]));
+        \Pramnos\Metrics\Metrics::dimension(\Pramnos\Metrics\Dimension::of('region', 'Region')->values(['north' => 'North']));
+        $this->order('2026-09-01 09:00:00', 'north', 1);
+        $this->order('2026-09-02 09:00:00', 'south', 1);
+        Metrics::compute(['test.orders', 'test.customers'], ['month'], '2026-08-01', '2026-09-30', false, self::at('2026-11-06 12:00'));
+        $tool = new \Pramnos\Llm\Analyst\Tools\MetricsTool((int) $admin->userid);
+
+        try {
+            // Act
+            $catalogue = $tool->execute([]);
+            $nobody    = (new \Pramnos\Llm\Analyst\Tools\MetricsTool())->execute(['action' => 'catalogue']);
+            $series    = $tool->execute(['action' => 'series', 'metric' => 'test.orders', 'from' => '2026-08-01', 'to' => '2026-09-30', 'breakdown' => 'region']);
+            $compare   = $tool->execute(['action' => 'compare', 'metric' => 'test.orders', 'period' => '2026-09-10']);
+            $rows      = $tool->execute(['action' => 'rows', 'metric' => 'test.listed', 'period' => '2026-09-10', 'filters' => ['region' => ['north']]]);
+            $noRows    = $tool->execute(['action' => 'rows', 'metric' => 'test.orders']);
+            $hidden    = (new \Pramnos\Llm\Analyst\Tools\MetricsTool())->execute(['action' => 'series', 'metric' => 'test.orders']);
+            $notKept   = $tool->execute(['action' => 'series', 'metric' => 'test.customers', 'filters' => ['region' => ['north', 'south']]]);
+            $tooMany   = $tool->execute(['action' => 'series', 'metric' => 'test.orders', 'grain' => 'day', 'from' => '2026-01-01', 'to' => '2026-12-31']);
+
+            // Assert
+            $byName = array_column($catalogue['metrics'], null, 'name');
+            $this->assertSame(['sum', 'distinct'], [$byName['test.orders']['aggregate'], $byName['test.customers']['aggregate']]);
+            $this->assertSame(['label' => 'Region', 'values' => ['north' => 'North']], $byName['test.orders']['dimensions']['region']);
+            $this->assertSame(['(total)', 'region'], $byName['test.customers']['breakdowns']);
+            $this->assertArrayNotHasKey('aggregate', $byName['test.per_customer'], 'derived: no aggregate of its own');
+            $this->assertSame(['metrics' => []], $nobody);
+            $this->assertSame(['2026-08' => 0.0, '2026-09' => 1.0], $series['values']['north'] ?? null);
+            $this->assertSame(2.0, $compare['value']);
+            $this->assertSame(2, $rows['count']);
+            $this->assertSame(['region' => 'north'], $rows['rows'][0]['f'], 'one value of each filter');
+            $this->assertArrayHasKey('says', $noRows);
+            $this->assertStringStartsWith('Error: there is no metric', $hidden);
+            $this->assertStringStartsWith('Error: Metric test.customers counts each one once', $notKept);
+            $this->assertStringContainsString('at most', $tooMany);
+            $this->assertSame('metrics', $tool->name());
+            $this->assertArrayHasKey('breakdown', $tool->inputSchema()['properties']);
+            $this->assertStringContainsString('distinct', $tool->description());
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', (int) $admin->userid)->delete();
+            \Pramnos\User\User::clearUserCache();
+        }
+    }
+
     /**
      * Where TimescaleDB is, an installation may make the values a hypertable on `period_start`
      * — declared in app.php's `hypertables`, done by `timescale:ensure` — since the primary key

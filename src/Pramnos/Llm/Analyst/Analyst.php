@@ -229,6 +229,11 @@ final class Analyst
             }
         }
 
+        // The application's metrics, where it declares any; each one only for those it allows.
+        if (\Pramnos\Metrics\Metrics::all() !== []) {
+            $tools[] = new \Pramnos\Llm\Analyst\Tools\MetricsTool($adminId);
+        }
+
         // The installation's help pages, with the `help` feature.
         if (\Pramnos\Assist\Help::enabled()) {
             $tools[] = new \Pramnos\Llm\Analyst\Tools\HelpTool($area);

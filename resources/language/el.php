@@ -2125,4 +2125,18 @@ return [
     'Everybody\'s memory' => 'Η μνήμη όλων',
     'Choose somebody to see what is remembered about them.' => 'Επιλέξτε κάποιον για να δείτε τι έχει κρατηθεί στη μνήμη γι\' αυτόν.',
     'Kept on request' => 'Κρατήθηκε κατόπιν αιτήματος',
+    // Metrics: the dashboard's metric cards.
+    'Week' => 'Εβδομάδα',
+    'Quarter' => 'Τρίμηνο',
+    'Year' => 'Έτος',
+    'Period' => 'Περίοδος',
+    'Line' => 'Γραμμή',
+    'Bars' => 'Στήλες',
+    'The period before' => 'Την προηγούμενη περίοδο',
+    'A year earlier' => 'Ένα χρόνο πριν',
+    '%s against %s' => '%s σε σχέση με %s',
+    'Periods shown' => 'Περίοδοι που φαίνονται',
+    'Compare with' => 'Σύγκριση με',
+    'Broken down by' => 'Ανάλυση ανά',
+    'Filters (name=value, …)' => 'Φίλτρα (όνομα=τιμή, …)',
 ];

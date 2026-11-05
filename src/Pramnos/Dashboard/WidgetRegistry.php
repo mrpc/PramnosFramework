@@ -81,6 +81,13 @@ final class WidgetRegistry
                 \Pramnos\Logs\Logger::log('Dashboard widget ' . (is_string($class) ? $class : gettype($class)) . ' is not a ' . Widget::class . '; it was left out.', 'dashboard');
             }
         }
+        // A card for each metric the application declares, unless app.php says `'metrics' => false`.
+        if (($config['metrics'] ?? true) !== false) {
+            foreach (\Pramnos\Metrics\Metrics::all() as $metric) {
+                $card = new Widgets\MetricCard($metric);
+                $widgets[$card->id()] ??= $card;
+            }
+        }
         $widgets = array_replace($widgets, self::$registered);
         if ($board === null) {
             return $widgets;

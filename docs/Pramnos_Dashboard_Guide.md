@@ -332,6 +332,21 @@ dashboard and the analyst give the same numbers. `email` counts the send history
 query over the `date` index — every message has a row there whatever became of it, tracked or not.
 `logs.errors` reads `Logs\LogAnalytics::summary()`, as the log dashboard does.
 
+### Metric cards
+
+Each [metric](Pramnos_Metrics_Guide.md) the application declares is a card of its own, with the
+id `metric.<name>`. It is offered to the people the metric's `allowed()` lets see it, and a new
+dashboard does not have it. Each person sets, on their copy:
+
+- the grain;
+- how many periods it shows: one draws a tile with this period's value, more draw a chart;
+- the chart type;
+- a comparison for the tile;
+- a breakdown;
+- filters (`region=north`).
+
+`'dashboard' => ['metrics' => false]` leaves the metric cards out of the catalogue.
+
 ## Boards: a dashboard for each screen
 
 A board is a dashboard with a name, its own catalogue and its own defaults. Each person
