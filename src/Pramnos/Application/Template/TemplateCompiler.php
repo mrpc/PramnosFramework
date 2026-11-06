@@ -94,28 +94,24 @@ class TemplateCompiler
 
     protected function compileDirectives(string $source): string
     {
-        // Regex fragment matching balanced parentheses up to 3 levels deep.
-        // Sufficient for real-world template expressions.
-        $p = '(\((?:[^)(]*|\((?:[^)(]*|\([^)(]*\))*\))*\))';
-
         // --- Template inheritance & slots ---
         // @extends('path')  → $this->layout('path')
         // @section('name')  → $this->section('name')
         // @yield('name')    → echo $this->yield('name')
         // @include('tmpl')  → $this->insert('tmpl')
-        $source = preg_replace('/@extends\s*' . $p . '/', '<?php $this->layout$1; ?>', $source);
-        $source = preg_replace('/@section\s*'  . $p . '/', '<?php $this->section$1; ?>', $source);
-        $source = preg_replace('/@yield\s*'    . $p . '/', '<?php echo $this->yield$1; ?>', $source);
-        $source = preg_replace('/@include\s*'  . $p . '/', '<?php $this->insert$1; ?>', $source);
+        $source = $this->withArguments($source, 'extends', '<?php $this->layout', '; ?>');
+        $source = $this->withArguments($source, 'section', '<?php $this->section', '; ?>');
+        $source = $this->withArguments($source, 'yield', '<?php echo $this->yield', '; ?>');
+        $source = $this->withArguments($source, 'include', '<?php $this->insert', '; ?>');
 
         // --- Control flow (PHP alternative syntax) ---
-        $source = preg_replace('/@if\s*'      . $p . '/', '<?php if$1: ?>',         $source);
-        $source = preg_replace('/@elseif\s*'  . $p . '/', '<?php elseif$1: ?>',     $source);
-        $source = preg_replace('/@foreach\s*' . $p . '/', '<?php foreach$1: ?>',    $source);
-        $source = preg_replace('/@for\s*'     . $p . '/', '<?php for$1: ?>',        $source);
-        $source = preg_replace('/@while\s*'   . $p . '/', '<?php while$1: ?>',      $source);
-        $source = preg_replace('/@isset\s*'   . $p . '/', '<?php if(isset$1): ?>',  $source);
-        $source = preg_replace('/@empty\s*'   . $p . '/', '<?php if(empty$1): ?>', $source);
+        $source = $this->withArguments($source, 'if', '<?php if', ': ?>');
+        $source = $this->withArguments($source, 'elseif', '<?php elseif', ': ?>');
+        $source = $this->withArguments($source, 'foreach', '<?php foreach', ': ?>');
+        $source = $this->withArguments($source, 'for', '<?php for', ': ?>');
+        $source = $this->withArguments($source, 'while', '<?php while', ': ?>');
+        $source = $this->withArguments($source, 'isset', '<?php if(isset', '): ?>');
+        $source = $this->withArguments($source, 'empty', '<?php if(empty', '): ?>');
 
         // --- Closing / simple directives ---
         // Process longer strings first to avoid partial matches
@@ -135,5 +131,57 @@ class TemplateCompiler
         $source = preg_replace('/@else\b/', '<?php else: ?>', $source);
 
         return $source;
+    }
+
+    /**
+     * Replace each `@name(...)` with `$before(...)$after`, the parentheses matched at any depth
+     * and those inside quoted strings ignored — a condition with a closure in it
+     * (`@if (count(array_filter($rows, fn ($r) => $r['paid'])) > 1)`) is one argument, not
+     * three cut short.
+     */
+    protected function withArguments(string $source, string $name, string $before, string $after): string
+    {
+        $out    = '';
+        $offset = 0;
+        while (preg_match('/@' . $name . '\s*\(/', $source, $m, PREG_OFFSET_CAPTURE, $offset)) {
+            $at    = $m[0][1];
+            $open  = $at + strlen($m[0][0]) - 1;
+            $close = self::matchingParenthesis($source, $open);
+            if ($close === null) {
+                break;
+            }
+            $out   .= substr($source, $offset, $at - $offset) . $before . substr($source, $open, $close - $open + 1) . $after;
+            $offset = $close + 1;
+        }
+
+        return $out . substr($source, $offset);
+    }
+
+    /** The position of the `)` closing the `(` at `$open`, or null when it is never closed. */
+    private static function matchingParenthesis(string $source, int $open): ?int
+    {
+        $depth  = 0;
+        $quote  = null;
+        $length = strlen($source);
+        for ($i = $open; $i < $length; $i++) {
+            $c = $source[$i];
+            if ($quote !== null) {
+                if ($c === '\\') {
+                    $i++;
+                } elseif ($c === $quote) {
+                    $quote = null;
+                }
+                continue;
+            }
+            if ($c === "'" || $c === '"') {
+                $quote = $c;
+            } elseif ($c === '(') {
+                $depth++;
+            } elseif ($c === ')' && --$depth === 0) {
+                return $i;
+            }
+        }
+
+        return null;
     }
 }

@@ -531,4 +531,38 @@ TPL;
         // Act + Assert — existing PHP is not double-processed
         $this->assertSame($source, $this->compiler->compile($source));
     }
+    /**
+     * A directive's argument is matched at any depth: a condition with a closure four levels
+     * deep compiles whole, and a parenthesis inside a quoted string does not end it. The regex
+     * this replaced stopped at three levels, cut the condition short and left an `@endif` that
+     * did not parse.
+     */
+    public function testADirectiveArgumentAtAnyDepth(): void
+    {
+        // Arrange
+        $source = "@if (count(array_filter(\$rows ?? [], static fn (\$r) => \$r['status'] === 'Unpaid (late)')) > 1)many@endif"
+            . "@foreach (array_map(fn (\$x) => strtoupper(trim(\$x)), \$names) as \$n)x@endforeach@include('a/b', ['n' => max(1, min(2, abs(-3)))])";
+
+        // Act
+        $compiled = $this->compiler->compile($source);
+
+        // Assert
+        $this->assertSame(
+            "<?php if(count(array_filter(\$rows ?? [], static fn (\$r) => \$r['status'] === 'Unpaid (late)')) > 1): ?>many<?php endif; ?>"
+            . "<?php foreach(array_map(fn (\$x) => strtoupper(trim(\$x)), \$names) as \$n): ?>x<?php endforeach; ?><?php \$this->insert('a/b', ['n' => max(1, min(2, abs(-3)))]); ?>",
+            $compiled
+        );
+        $rows = [['status' => 'Unpaid (late)'], ['status' => 'Unpaid (late)']];
+        $names = [' a '];
+        ob_start();
+        eval('?>' . str_replace("<?php \$this->insert('a/b', ['n' => max(1, min(2, abs(-3)))]); ?>", '', $compiled));
+        $this->assertSame('manyx', ob_get_clean(), 'it runs');
+    }
+
+    /** An argument never closed is left as it was rather than swallowing the rest of the page. */
+    public function testAnUnclosedArgumentIsLeftAlone(): void
+    {
+        // Act & Assert
+        $this->assertSame('@if ($a <p>text</p>', $this->compiler->compile('@if ($a <p>text</p>'));
+    }
 }
