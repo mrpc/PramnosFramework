@@ -519,7 +519,7 @@ class User extends OrmModel
 The model sets the created column on insert (unless it already holds a value) and the
 updated column on every save. `$model->withoutTimestamps()->save()` skips both.
 
-### `Model` and a NOT NULL date column
+### `Model` and a NOT NULL date or number column
 
 `Pramnos\Application\Model` — the base without `$timestamps` — writes every column it finds,
 and a `NOT NULL` column the model has nothing to say about is written as `''`. Fine for a
@@ -533,8 +533,13 @@ declaring
 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ```
 
-therefore accepts a model that never sets `created_at`. Every other `NOT NULL` column still
-coerces `null` to `''`, which existing models rely on.
+therefore accepts a model that never sets `created_at`.
+
+The same holds for a `NOT NULL` **number with a default** (integer, decimal, float): `''` is no
+number and reaches the database as NULL, which the column refuses. Left null, it is omitted, so
+`credit DECIMAL(12,2) NOT NULL DEFAULT 0` takes `0` on an insert and keeps its value on an
+update. A number without a default, and every other `NOT NULL` column, still coerces `null` to
+`''`, which existing models rely on: a text column takes `''` as it is.
 
 Set the column and it is written as given — the omission applies only when there is nothing to
 say about it.

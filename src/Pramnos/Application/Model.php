@@ -442,7 +442,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                                 // below for why a NOT NULL date is omitted rather than emptied.
                                 // Two loops, so the fix has to be in both: with a warm column
                                 // cache the write took the other path and threw again.
-                                if ($this->isTemporalType($fields['Type'])) {
+                                if ($this->isTemporalType($fields['Type']) || $this->numericWithDefault($fields)) {
                                     continue;
                                 }
                                 $this->$field = "";
@@ -523,7 +523,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                                  * it, and on an update the stored value stays, which is what a
                                  * model with no opinion about a column should do.
                                  */
-                                if ($this->isTemporalType($result->fields['Type'])) {
+                                if ($this->isTemporalType($result->fields['Type']) || $this->numericWithDefault($result->fields)) {
                                     continue;
                                 }
                                 $this->$field = "";
@@ -1626,6 +1626,20 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
      * Read off the declared type rather than {@see fieldtype()}, which folds `date` and
      * `datetime` into `string` — the two that matter most here.
      */
+    /**
+     * Whether a column is a number with a default of its own — a NOT NULL one left null is then
+     * omitted from the write like a temporal one: `''` is no number, and became NULL on the way
+     * to the database, which the column refuses; omitted, an insert takes the default and an
+     * update keeps the stored value. A text column keeps its `''`, which it takes as it is.
+     *
+     * @param array<string, mixed> $column A row of the column introspection
+     */
+    private function numericWithDefault(array $column): bool
+    {
+        return ($column['Default'] ?? null) !== null
+            && in_array($this->fieldtype((string) $column['Type']), ['integer', 'float'], true);
+    }
+
     private function isTemporalType(string $rawType): bool
     {
         $base = strtolower(trim(explode('(', $rawType)[0]));
@@ -2270,7 +2284,8 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
 
         return "SELECT column_name as \"Field\", "
             . " CASE WHEN data_type = 'USER-DEFINED' THEN udt_name ELSE data_type END as \"Type\", "
-            . " is_nullable as \"Null\" "
+            . " is_nullable as \"Null\", "
+            . " column_default as \"Default\" "
             . " FROM information_schema.columns "
             . " WHERE table_schema = '" . $schema . "'"
             . " AND table_name = '" . $table . "';";

@@ -306,6 +306,40 @@ class ModelSaveCharacterizationTest extends TestCase
      * A second save after a first one compares against what the first wrote: changing a value
      * back to the loaded one is a change.
      */
+    /**
+     * A NOT NULL number with a default, left null by the model, is omitted from the write: an
+     * insert takes the column's default and an update keeps what is stored. It used to become
+     * `''`, then NULL on the way to the database, which the column refused — every save of such
+     * a model failed. A NOT NULL text column still takes `''`.
+     */
+    #[DataProvider('engines')]
+    public function testANullNumberWithADefaultTakesTheDefault(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->engine($type, $host, $port, $user);
+        $this->db->schema()->table(self::TABLE, function ($table) {
+            $table->decimal('credit', 12, 2)->default(0);
+            $table->integer('qty')->default(3);
+        });
+        Model::$columnCache = [];
+
+        // Act — an insert that sets neither
+        $probe       = new ModelSaveProbe();
+        $probe->code = 'x';
+        $probe->save();
+        $id       = (int) $probe->id;
+        $inserted = $this->row($id);
+        $this->elsewhere($id, ['credit' => 12.5, 'qty' => 7]);
+        $again = (new ModelSaveProbe())->markExistingWith($id);
+        $again->code = 'y';
+        $again->save(false, true);
+
+        // Assert
+        $row = $this->row($id);
+        $this->assertSame(['credit' => 12.5, 'qty' => 7, 'code' => 'y'], ['credit' => (float) $row['credit'], 'qty' => (int) $row['qty'], 'code' => $row['code']], 'a forced update without them keeps them');
+        $this->assertSame([0.0, 3], [(float) $inserted['credit'], (int) $inserted['qty']], 'the insert took the defaults');
+    }
+
     #[DataProvider('engines')]
     public function testASecondSaveComparesAgainstTheFirst(string $type, string $host, int $port, string $user): void
     {
@@ -708,6 +742,12 @@ class ModelSaveProbe extends Model
     /** @var string|null */
     public $created_at;
 
+    /** @var float|null Only the default test adds this column. */
+    public $credit;
+
+    /** @var int|null Only the default test adds this column. */
+    public $qty;
+
     /** @var string|null Only the MySQL ON UPDATE test adds this column. */
     public $touched;
 
@@ -761,6 +801,15 @@ class ModelSaveProbe extends Model
     public function forgetLoaded(string $column): void
     {
         unset($this->_initialData[$column]);
+    }
+
+    /** An existing row, by id, the model was never loaded from. */
+    public function markExistingWith(int $id): static
+    {
+        $this->id = $id;
+        $this->_isnew = false;
+
+        return $this;
     }
 
     /** An existing row the model was never loaded from. */
