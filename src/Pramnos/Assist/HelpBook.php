@@ -42,6 +42,15 @@ final class HelpBook
     /** What a synonym of an asked word counts, against the word itself. */
     public const SYNONYM_WEIGHT = 0.5;
 
+    /** What a page of `source: changelog` counts against a guide, unless the question asks what changed. */
+    public const CHANGELOG_WEIGHT = 0.5;
+
+    /**
+     * Words that ask what changed or when, folded as {@see Help::words()} folds them: with one
+     * of these a changelog post counts in full.
+     */
+    public const ASKS_WHAT_CHANGED = ['chang', 'new', 'updat', 'relea', 'recen', 'αλλαξ', 'αλλαγ', 'αλλαζ', 'καινο', 'νεο', 'νεα', 'ποτε', 'προσφ', 'ενημε'];
+
     /**
      * @param string      $level       {@see ADMIN} or {@see SITE}
      * @param list<string> $directories Where to look, first match wins
@@ -196,8 +205,8 @@ final class HelpBook
     /**
      * Every section of every page, as {@see Help::sections()} cuts them, with its page: `page`,
      * `title` (the page's), `topic` (the page's `section:`), `heading`, `anchor`, `path`
-     * («Page › Section»), `text`, `questions` (the section's own; the page's for the text before
-     * its first heading) and `framework`.
+     * («Page › Section»), `text`, `questions` (the section's own), `framework` and `source` (the
+     * page's: `changelog` for a post of what changed).
      *
      * @return list<array<string, mixed>>
      */
@@ -232,7 +241,13 @@ final class HelpBook
      * does not win for being long ({@see LENGTH}). A section's path («Page › Section») and its
      * questions count three times its text; a synonym of an asked word ({@see synonyms()}) counts
      * {@see SYNONYM_WEIGHT}. A question that is one of the section's questions puts it first, one
-     * whose every word is in such a question nearly so. `$topic` keeps the pages of one `section:`.
+     * whose every word is in such a question nearly so.
+     *
+     * A page's own `questions:` lift the page the same way, given to its best section by that
+     * section's own words: the answer is the part that answers, and the page's opening only when
+     * it is that part or the page has nothing else. A page of `source: changelog` counts
+     * {@see CHANGELOG_WEIGHT}, unless the question asks what changed or when
+     * ({@see ASKS_WHAT_CHANGED}). `$topic` keeps the pages of one `section:`.
      *
      * @return list<array<string, mixed>> Each section with its `score`
      */
@@ -259,7 +274,17 @@ final class HelpBook
             $rarity[$word] = log(1 + $total / max(1, $carrying));
         }
 
-        $found = [];
+        $changelog = self::CHANGELOG_WEIGHT;
+        foreach ($asked as $word) {
+            foreach (self::ASKS_WHAT_CHANGED as $asks) {
+                if ($word === $asks || str_starts_with($word, $asks)) {
+                    $changelog = 1.0;
+                }
+            }
+        }
+
+        // Each section by its own words: path, its questions, its text.
+        $own = [];
         foreach ($index['terms'] as $at => $terms) {
             $section = $index['sections'][$at];
             if ($topic !== '' && mb_strtolower($section['topic']) !== mb_strtolower($topic)) {
@@ -273,21 +298,40 @@ final class HelpBook
                     $score += $weight * $rarity[$word] * $often * (self::SATURATION + 1) / ($often + $norm);
                 }
             }
-            if ($score <= 0) {
-                continue;
+            $own[$at] = $score + self::listedBonus($asked, $terms['questions']);
+        }
+
+        // A page's own questions lift the page — given to its best section by its own words, so
+        // the answer is the part that answers, and the opening only when it is that part or the
+        // page has nothing else.
+        $best = [];
+        foreach ($own as $at => $score) {
+            $page = (string) $index['sections'][$at]['page'];
+            if (!isset($best[$page]) || $score > $own[$best[$page]]
+                || ($score === $own[$best[$page]] && $index['sections'][$best[$page]]['heading'] === '' && $index['sections'][$at]['heading'] !== '' && $score > 0)) {
+                $best[$page] = $at;
             }
-            foreach ($terms['questions'] as $listed) {
-                if ($listed === []) {
-                    continue;
-                }
-                $covered = array_filter($asked, static fn (string $w): bool => self::hits($w, array_fill_keys($listed, 1)) > 0);
-                if (count($covered) === count($asked)) {
-                    // Every word of the question is in this listed one: the same question, or nearly.
-                    $score += count($listed) === count($asked) ? 1000 : 100;
-                    break;
+        }
+        foreach ($best as $page => $at) {
+            $listed = $index['pages'][$page] ?? ['words' => [], 'questions' => []];
+            $lift   = 0.0;
+            foreach ($weights as $word => $weight) {
+                // A word of the page's questions counts as a title's would once, without the
+                // section's length: the same for whichever section it is given to.
+                if (self::hits((string) $word, $listed['words']) > 0) {
+                    $lift += $weight * $rarity[$word] * 3 * (self::SATURATION + 1) / (3 + self::SATURATION);
                 }
             }
-            $found[] = $section + ['score' => round($score, 3)];
+            $own[$at] += $lift + self::listedBonus($asked, $listed['questions']);
+        }
+
+        $found = [];
+        foreach ($own as $at => $score) {
+            $section = $index['sections'][$at];
+            $score  *= $section['source'] === 'changelog' ? $changelog : 1.0;
+            if ($score > 0) {
+                $found[] = $section + ['score' => round($score, 3)];
+            }
         }
 
         usort($found, static fn (array $a, array $b): int => $b['score'] <=> $a['score']);
@@ -377,7 +421,7 @@ final class HelpBook
      * The sections and what a search counts of each, built once per book (and per reader, on the
      * site's level).
      *
-     * @return array{sections: list<array<string, mixed>>, terms: list<array{strong: array<string, int>, weak: array<string, int>, questions: list<list<string>>, length: int}>, average: float}
+     * @return array{sections: list<array<string, mixed>>, terms: list<array{strong: array<string, int>, weak: array<string, int>, questions: list<list<string>>, length: int}>, pages: array<string, array{words: array<string, int>, questions: list<list<string>>}>, average: float}
      */
     private function index(): array
     {
@@ -388,7 +432,7 @@ final class HelpBook
         $terms    = [];
         foreach ($this->visible() as $slug => $page) {
             foreach (Help::sections((string) $page['body']) as $part) {
-                $questions  = $part['heading'] === '' ? [...$page['questions'], ...$part['questions']] : $part['questions'];
+                $questions  = $part['questions'];
                 $path       = implode(' › ', [(string) $page['title'], ...$part['trail']]);
                 $sections[] = [
                     'page'      => (string) $slug,
@@ -400,6 +444,7 @@ final class HelpBook
                     'text'      => $part['text'],
                     'questions' => $questions,
                     'framework' => (bool) $page['framework'],
+                    'source'    => (string) ($page['source'] ?? ''),
                 ];
                 $strong  = Help::words($path . ' ' . implode(' ', $questions));
                 $weak    = Help::words($part['text']);
@@ -412,12 +457,44 @@ final class HelpBook
             }
         }
         $lengths = array_column($terms, 'length');
+        // A page's own `questions:` are about the page, not about the text before its first
+        // heading: kept apart, and given to the page's best section when a search scores it.
+        $pages = [];
+        foreach ($this->visible() as $slug => $page) {
+            $pages[(string) $slug] = [
+                'words'     => array_count_values(Help::words(implode(' ', $page['questions']))),
+                'questions' => array_map(static fn (string $q): array => array_values(array_unique(Help::words($q))), $page['questions']),
+            ];
+        }
 
         return $this->index = [
             'sections' => $sections,
             'terms'    => $terms,
+            'pages'    => $pages,
             'average'  => $lengths === [] ? 1.0 : array_sum($lengths) / count($lengths),
         ];
+    }
+
+    /**
+     * What a listed question adds: 1000 when the question asked is one of them, word for word as
+     * folded; 100 when its every word is in one; nothing otherwise.
+     *
+     * @param list<string>       $asked
+     * @param list<list<string>> $listed
+     */
+    private static function listedBonus(array $asked, array $listed): float
+    {
+        foreach ($listed as $words) {
+            if ($words === []) {
+                continue;
+            }
+            $covered = array_filter($asked, static fn (string $w): bool => self::hits($w, array_fill_keys($words, 1)) > 0);
+            if (count($covered) === count($asked)) {
+                return count($words) === count($asked) ? 1000.0 : 100.0;
+            }
+        }
+
+        return 0.0;
     }
 
     /**
@@ -646,7 +723,7 @@ final class HelpBook
         return $this->pages = $pages;
     }
 
-    /** @return array{slug: string, title: string, section: string, questions: list<string>, updated: string, order: ?int, requires: list<string>, screens: list<string>, whatsnew: list<string>, body: string, framework: bool} */
+    /** @return array{slug: string, title: string, section: string, questions: list<string>, updated: string, order: ?int, requires: list<string>, screens: list<string>, whatsnew: list<string>, source: string, body: string, framework: bool} */
     private static function read(string $file, string $slug, bool $framework): array
     {
         ['meta' => $meta, 'body' => $body] = \Pramnos\Support\FrontMatter::parse((string) file_get_contents($file));
@@ -669,6 +746,8 @@ final class HelpBook
             'screens'   => array_values(array_filter(array_map([Help::class, 'slug'], self::names($meta['screens'] ?? [])), static fn (string $s): bool => $s !== '' && !str_contains($s, '/'))),
             // The lines that announce it in What's new; none for a page that is not announced.
             'whatsnew'  => self::names($meta['whatsnew'] ?? []),
+            // Where it comes from: `changelog` for a post of what changed, searched below a guide.
+            'source'    => is_string($meta['source'] ?? null) ? strtolower(trim($meta['source'])) : '',
             'body'      => $body,
             'framework' => $framework,
         ];

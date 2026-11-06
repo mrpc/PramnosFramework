@@ -223,9 +223,16 @@ text:
 <!-- questions: Which card processors are there? | Πώς συνδέω το Stripe; -->
 ```
 
-The page's `questions:` belong to the text before its first heading. Listing the questions
+The page's own `questions:` lift the page the same way. They are given to the page's best
+section by that section's own words. So the answer is the part of the page that answers, and the
+page's opening only when it is that part or the page has nothing else. Listing the questions
 readers actually ask, on the section that answers each, is the most effective thing a page can
 do to be found.
+
+**Changelog posts count less.** A page with `source: changelog` in its front matter counts half
+(`HelpBook::CHANGELOG_WEIGHT`) against a guide. It counts in full when the question asks what
+changed or when (`changed`, `new`, `recent`, `άλλαξε`, `αλλαγή`, `πότε`, `καινούργιο` and the
+rest of `HelpBook::ASKS_WHAT_CHANGED`).
 
 **Synonyms.** `_synonyms.php` in a help directory returns groups of words that mean the same
 in this application. A word of a question brings the rest of its group in, at half the weight

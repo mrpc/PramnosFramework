@@ -258,4 +258,53 @@ final class HelpSectionsTest extends TestCase
         $this->assertSame(0, $without);
         $this->assertStringContainsString('No golden questions', $nothing);
     }
+
+    /**
+     * A page's own `questions:` lift the page, but the answer is its section that answers — not
+     * the opening of one or two sentences above it. A page with nothing but an opening still
+     * answers with it.
+     */
+    public function testAPagesQuestionsBringItsAnsweringSection(): void
+    {
+        // Arrange
+        file_put_contents($this->base . '/card.md', "---\nquestions:\n  - Which form adds a professional's card?\n---\n# Adding a card\n\nCards are kept by the gateway.\n\n## History\n\nOlder notes.\n\n## The form that adds a new card\n\nThe form is at /billing/cards/new; send the professional this link.\n");
+        file_put_contents($this->base . '/alone.md', "---\nquestions:\n  - Where is the lonely answer?\n---\n# Alone\n\nThe lonely answer is here.\n");
+        Help::forget();
+
+        // Act
+        $card  = Help::admin()->searchSections("Which form adds a professional's card?");
+        $alone = Help::admin()->searchSections('Where is the lonely answer?');
+
+        // Assert
+        $this->assertSame('card', $card[0]['page']);
+        $this->assertSame('the-form-that-adds-a-new-card', $card[0]['anchor'], 'the section with the link, not the opening');
+        $this->assertGreaterThan(1000, $card[0]['score'], 'the page\'s question, word for word');
+        $this->assertSame('', $alone[0]['heading'], 'nothing but an opening: the opening');
+        $this->assertGreaterThan(1000, $alone[0]['score']);
+    }
+
+    /**
+     * A post of what changed (`source: changelog`) counts half against a guide — unless the
+     * question asks what changed or when.
+     */
+    public function testAChangelogPostCountsLessUnlessAskedWhatChanged(): void
+    {
+        // Arrange — the same words in a guide and in a post.
+        file_put_contents($this->base . '/unlock.md', "# Guide\n\nA professional unlocks a parent's phone from the job post.\n");
+        file_put_contents($this->base . '/news.md', "---\nsource: changelog\n---\n# News\n\nA professional unlocks a parent's phone from the job post.\n");
+        Help::forget();
+
+        // Act
+        $how     = Help::admin()->searchSections('Why can a professional not unlock the phone from the job post?');
+        $changed = Help::admin()->searchSections('What changed about unlocking the phone from the job post?');
+        $greek   = Help::admin()->searchSections('Πότε άλλαξε το unlock phone job post;');
+
+        // Assert
+        $this->assertSame('unlock', $how[0]['page'], 'the guide before the post');
+        $this->assertEqualsWithDelta($how[0]['score'] / 2, $how[1]['score'], 0.01, 'the post at half');
+        // Asked what changed — in English or in Greek — the two count the same.
+        $this->assertEqualsWithDelta($changed[0]['score'], $changed[1]['score'], 0.01);
+        $this->assertSame(['changelog', ''], [max($changed[0]['source'], $changed[1]['source']), min($changed[0]['source'], $changed[1]['source'])]);
+        $this->assertEqualsWithDelta($greek[0]['score'], $greek[1]['score'], 0.01);
+    }
 }
