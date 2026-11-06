@@ -150,6 +150,15 @@ class Email extends \Pramnos\Framework\Base
      * @var string
      */
     public $attach = "";
+
+    /**
+     * More files to attach, each a file or bytes, with the name the recipient sees: see
+     * {@see addAttachment()} and {@see addAttachmentData()}. Beside {@see $attach}, which stays
+     * the one file it always was.
+     *
+     * @var list<array{path: ?string, data: ?string, name: ?string, mime: ?string, spooled: bool}>
+     */
+    protected array $attachments = [];
     
     /**
      * Whether to use batch sending mode
@@ -1220,6 +1229,7 @@ class Email extends \Pramnos\Framework\Base
             return false;
         }
 
+        $this->spoolAttachments();
         $written = $this->writeMailRow(\Pramnos\Messaging\Mail::STATUS_QUEUED);
 
         if (!$written) {
@@ -1332,6 +1342,84 @@ class Email extends \Pramnos\Framework\Base
     }
 
     /**
+     * Attach a file, shown to the recipient as `$name` — a file kept as `123456_invoice.pdf`
+     * arrives as `invoice.pdf` — of type `$mime`, or as the file says. Any number of them.
+     * Queued, the file is read when the worker sends, so it must still be there then.
+     */
+    public function addAttachment(string $path, ?string $name = null, ?string $mime = null): static
+    {
+        $this->attachments[] = ['path' => $path, 'data' => null, 'name' => $name, 'mime' => $mime, 'spooled' => false];
+
+        return $this;
+    }
+
+    /**
+     * Attach bytes made in memory — an invoice's PDF — as a file named `$name`, without a
+     * temporary file of the caller's. Queued, they are kept in a file of the outbox's own under
+     * `var/`, sent from there, and deleted once sent.
+     */
+    public function addAttachmentData(string $bytes, string $name, ?string $mime = null): static
+    {
+        $this->attachments[] = ['path' => null, 'data' => $bytes, 'name' => $name, 'mime' => $mime, 'spooled' => false];
+
+        return $this;
+    }
+
+    /**
+     * The attachments added with {@see addAttachment()} and {@see addAttachmentData()}.
+     *
+     * @return list<array{path: ?string, data: ?string, name: ?string, mime: ?string, spooled: bool}>
+     */
+    public function attachments(): array
+    {
+        return $this->attachments;
+    }
+
+    /**
+     * Where a queued message's attachments made of bytes wait for the worker: outside the
+     * document root, read only by the worker.
+     */
+    public static function attachmentSpool(): string
+    {
+        return (defined('ROOT') ? ROOT . DIRECTORY_SEPARATOR . 'var' : sys_get_temp_dir()) . DIRECTORY_SEPARATOR . 'mail-attachments';
+    }
+
+    /**
+     * Before the outbox row is written: attachments made of bytes go to files in
+     * {@see attachmentSpool()}, so the row keeps a path rather than the bytes — a row's column
+     * holds 64 KB on MySQL, and a PDF does not fit.
+     */
+    protected function spoolAttachments(): void
+    {
+        foreach ($this->attachments as $at => $attachment) {
+            if ($attachment['data'] === null) {
+                continue;
+            }
+            $directory = self::attachmentSpool();
+            if (!is_dir($directory)) {
+                @mkdir($directory, 0700, true);
+            }
+            $file = $directory . DIRECTORY_SEPARATOR . bin2hex(random_bytes(16));
+            if (@file_put_contents($file, $attachment['data']) === false) {
+                // Kept as bytes: the row may cut them, but the message is not lost for it.
+                \Pramnos\Logs\Logger::log('Could not spool a mail attachment to ' . $directory . '; it is kept in the row.', 'mail');
+                continue;
+            }
+            $this->attachments[$at] = ['path' => $file, 'data' => null, 'spooled' => true] + $attachment;
+        }
+    }
+
+    /** Delete the spooled files of a queued message that has been sent, or will never be. */
+    public function discardSpooledAttachments(): void
+    {
+        foreach ($this->attachments as $attachment) {
+            if ($attachment['spooled'] && $attachment['path'] !== null && str_starts_with($attachment['path'], self::attachmentSpool())) {
+                @unlink($attachment['path']);
+            }
+        }
+    }
+
+    /**
      * What the send needs beyond the address, subject and body, kept in the outbox row.
      *
      * The outbox stores a message as a `mails` row, whose columns hold the address, the subject
@@ -1342,7 +1430,7 @@ class Email extends \Pramnos\Framework\Base
      * row's final state (sent, or the error) replaces it.
      */
     private const OUTBOX_STATE = [
-        'cc', 'bcc', 'replyto', 'returnPath', 'attach', 'organization', 'abuse', 'priority',
+        'cc', 'bcc', 'replyto', 'returnPath', 'attach', 'attachments', 'organization', 'abuse', 'priority',
         'sendReceipt', 'headers', 'unsubscribe', 'unsubscribeMailto', 'unsubscribeList',
         'unsubscribeOneClick', 'trackingId', 'trackingRequested', 'mailType', 'structuredData',
         'mailId', 'sentStamp', 'textBody',
@@ -1407,9 +1495,26 @@ class Email extends \Pramnos\Framework\Base
     public function restoreOutboxState(array $state): static
     {
         foreach (self::OUTBOX_STATE as $property) {
-            if (array_key_exists($property, $state)) {
-                $this->$property = $state[$property];
+            if (!array_key_exists($property, $state)) {
+                continue;
             }
+            if ($property === 'attachments') {
+                // Each in the shape this version reads; anything else in the row is left out.
+                $this->attachments = [];
+                foreach (is_array($state[$property]) ? $state[$property] : [] as $kept) {
+                    if (is_array($kept) && (is_string($kept['path'] ?? null) || is_string($kept['data'] ?? null))) {
+                        $this->attachments[] = [
+                            'path'    => is_string($kept['path'] ?? null) ? $kept['path'] : null,
+                            'data'    => is_string($kept['data'] ?? null) ? $kept['data'] : null,
+                            'name'    => is_string($kept['name'] ?? null) ? $kept['name'] : null,
+                            'mime'    => is_string($kept['mime'] ?? null) ? $kept['mime'] : null,
+                            'spooled' => !empty($kept['spooled']),
+                        ];
+                    }
+                }
+                continue;
+            }
+            $this->$property = $state[$property];
         }
 
         return $this;
@@ -1760,6 +1865,15 @@ class Email extends \Pramnos\Framework\Base
                     $email->attachFromPath($this->attach);
                 } else {
                     \Pramnos\Logs\Logger::log("Email attachment not found: " . $this->attach);
+                }
+            }
+            foreach ($this->attachments as $attachment) {
+                if ($attachment['data'] !== null) {
+                    $email->attach($attachment['data'], $attachment['name'], $attachment['mime']);
+                } elseif ($attachment['path'] !== null && is_file($attachment['path'])) {
+                    $email->attachFromPath($attachment['path'], $attachment['name'], $attachment['mime']);
+                } else {
+                    \Pramnos\Logs\Logger::log('Email attachment not found: ' . (string) $attachment['path']);
                 }
             }
             

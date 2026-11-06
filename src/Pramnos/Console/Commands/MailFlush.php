@@ -218,10 +218,13 @@ class MailFlush extends Command
         // The application's own reasons not to send — a list of its own, a check of its own.
         $refused = $this->beforeSend($row, $email);
         if ($refused !== null) {
+            $email->discardSpooledAttachments();
+
             return $this->refuse($row, $refused);
         }
 
         if ($email->sendRendered()) {
+            $email->discardSpooledAttachments();
             $this->mark((int) $row['id'], Mail::STATUS_SENT, '');
             $this->keepBody($row, $email);
             $this->afterSent($row, $email);
@@ -232,6 +235,9 @@ class MailFlush extends Command
         $error = $email->getLastError();
 
         if ($this->isPermanent($error)) {
+            // Never to be sent: its spooled attachments go with it.
+            $email->discardSpooledAttachments();
+
             return $this->refuse($row, $error);
         }
 

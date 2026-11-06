@@ -187,6 +187,89 @@ class MailOutboxMySQLTest extends TestCase
     }
 
     /**
+     * Several attachments survive the queue: a file shown under the name given — a file kept as
+     * `123456_invoice.pdf` arrives as `invoice.pdf` — and bytes made in memory, which wait in a
+     * spool file rather than the row (a MySQL text column holds 64 KB) and are deleted once sent.
+     */
+    public function testAQueuedMessageLeavesWithItsAttachments(): void
+    {
+        // Arrange
+        $file = sys_get_temp_dir() . '/123456_invoice-' . bin2hex(random_bytes(4)) . '.pdf';
+        file_put_contents($file, '%PDF-1.4 the invoice');
+        $email = $this->mail('reader@example.com', 'Your invoice', '<p>Attached.</p>');
+        $email->addAttachment($file, 'invoice.pdf', 'application/pdf');
+        $email->addAttachmentData(str_repeat('receipt line ', 8000), 'receipt.txt', 'text/plain');
+        $email->addAttachment('/no/such/file.pdf', 'gone.pdf');
+        $email->queue();
+        $state   = json_decode((string) $this->rows()[0]['extrainfo'], true)['outbox']['attachments'];
+        $spooled = (string) $state[1]['path'];
+        $transport = new OutboxCapturingTransport();
+
+        // Act
+        $this->flush(new FlushThroughTransportMailer($transport));
+        @unlink($file);
+
+        // Assert
+        $this->assertNull($state[1]['data'], 'the bytes are not in the row');
+        $this->assertTrue($state[1]['spooled']);
+        $this->assertStringStartsWith(Email::attachmentSpool(), $spooled);
+        $this->assertCount(1, $transport->sent);
+        $raw = $transport->sent[0];
+        $this->assertMatchesRegularExpression('/Content-Type: application\/pdf; name=("?)invoice\.pdf\1/', $raw);
+        $this->assertStringContainsString('filename=receipt.txt', $raw);
+        $this->assertStringNotContainsString('gone.pdf', $raw, 'a missing file is logged, not sent');
+        $this->assertFileDoesNotExist($spooled, 'the spool file goes once sent');
+    }
+
+    /**
+     * Sent at once rather than queued, bytes are attached as they are — nothing spooled — beside
+     * the one file `$attach` has always taken; and the list says what was added.
+     */
+    public function testAttachmentsSentAtOnce(): void
+    {
+        // Arrange
+        $transport = new OutboxCapturingTransport();
+        $email     = new FlushThroughTransportMailer($transport);
+        $email->to      = 'reader@example.com';
+        $email->from    = 'site@example.com';
+        $email->subject = 'Two files';
+        $email->body    = '<p>Here.</p>';
+        $old = sys_get_temp_dir() . '/old-way-' . bin2hex(random_bytes(4)) . '.txt';
+        file_put_contents($old, 'the old way');
+        $email->attach = $old;
+        $email->addAttachmentData('%PDF made in memory', 'statement.pdf', 'application/pdf');
+
+        // Act
+        $sent = $email->sendRendered();
+        @unlink($old);
+
+        // Assert
+        $this->assertTrue($sent);
+        $this->assertStringContainsString('filename=statement.pdf', $transport->sent[0]);
+        $this->assertStringContainsString(basename($old), $transport->sent[0], 'the one $attach file still goes');
+        $this->assertSame([['path' => null, 'data' => '%PDF made in memory', 'name' => 'statement.pdf', 'mime' => 'application/pdf', 'spooled' => false]], $email->attachments());
+        $this->assertSame([], glob(Email::attachmentSpool() . '/*') ?: [], 'nothing spooled for a message sent at once');
+    }
+
+    /**
+     * A row from another version that holds something else under `attachments` sets nothing it
+     * should not: only entries with a path or bytes are read back, in this version's shape.
+     */
+    public function testARowsAttachmentsAreReadBackInTheirShape(): void
+    {
+        // Arrange
+        $email = new Email();
+
+        // Act
+        $email->restoreOutboxState(['attachments' => [['path' => '/x.pdf', 'name' => 'x.pdf', 'spooled' => 1], 'junk', ['name' => 'no file']]]);
+        $none = (new Email())->restoreOutboxState(['attachments' => 'not a list'])->attachments();
+
+        // Assert
+        $this->assertSame([['path' => '/x.pdf', 'data' => null, 'name' => 'x.pdf', 'mime' => null, 'spooled' => true]], $email->attachments());
+        $this->assertSame([], $none);
+    }
+
+    /**
      * The worker delivers it and the row becomes sent — the same row, not a second one.
      *
      * One row for a message's whole life is what lets the history screens read `mails` without a

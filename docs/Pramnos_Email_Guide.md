@@ -142,11 +142,30 @@ $email->setSubject('Document Attached')
       ->setTo('user@example.com')
       ->setFrom('sender@example.com');
 
-// Set attachment path
-$email->attach = '/path/to/document.pdf';
+// Any number of files, each shown under the name you give it
+$email->addAttachment('/storage/123456_invoice.pdf', 'invoice.pdf', 'application/pdf');
+$email->addAttachment('/storage/889_terms.pdf', 'terms.pdf');
 
-$email->send();
+// Bytes made in memory, without a temporary file
+$email->addAttachmentData($pdfBytes, 'statement.pdf', 'application/pdf');
+
+$email->send();   // or ->queue()
 ```
+
+- **Name and type:** `addAttachment($path, $name, $mime)` attaches a file. The recipient sees
+  `$name`, so a file stored under a random prefix arrives under its real name. `$mime` defaults to
+  what the file says it is.
+- **Bytes:** `addAttachmentData($bytes, $name, $mime)` attaches bytes made in memory, such as a PDF
+  invoice.
+- **Queued:** the attachments travel with the queued message. A file attached by path is read when
+  the worker sends, so it must still be there then. Bytes are written to a file under
+  `var/mail-attachments/` (`Email::attachmentSpool()`), because the outbox row holds 64 KB on
+  MySQL. The row keeps the path, and the worker deletes the file once the message is sent or given
+  up.
+- **Missing files:** a file that is not there is logged and the message goes without it.
+- **`attachments()`** lists what was added.
+- **The older way:** `$email->attach = '/path/to/document.pdf'` still attaches its one file, beside
+  these.
 
 ### Setting Email Priority
 
