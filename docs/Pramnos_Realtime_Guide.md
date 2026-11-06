@@ -754,6 +754,8 @@ protocol optional.
 A signed-in page carries `<meta name="pf-realtime">` when `transport` is `websocket` or `pusher`.
 Signed in means what `User::getCurrentUser()` means: a session the framework's login made, with
 its token, or one an application's own login made by setting `uid` and `logged`.
+A page whose controller released the session lock before rendering (`releaseSessionOnRead()`)
+carries it too: the test reads the session's data, not whether the session is still open.
 Its content is `RealtimeConfig::forPage()`, which is `forClient()` plus `authEndpoint`.
 `pf-utils.js` reads it and defines `window.pfRealtime`, a Pusher-protocol client with no
 dependency:

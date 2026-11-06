@@ -133,4 +133,24 @@ class RealtimeMetaReachesTheHeadTest extends TestCase
         $this->assertStringNotContainsString('pf-realtime', $anonymous);
         $this->assertStringNotContainsString('pf-realtime', $sse);
     }
+
+    /**
+     * A page rendered after its controller released the session lock (releaseSessionOnRead())
+     * still carries the connection (FW-333). The session's data is all there; only the lock is
+     * gone. Gated on an open session, a conversations page never went live and polled instead.
+     */
+    public function testAPageRenderedAfterTheSessionWasReleasedCarriesTheConnection(): void
+    {
+        // Arrange — signed in, then the lock released as a read action does
+        $this->broadcasting(['transport' => 'websocket', 'websocket' => ['host' => 'rt.test', 'app_key' => 'k1']]);
+        $this->signIn();
+        session_write_close();
+
+        // Act
+        $output = (new Html())->render();
+
+        // Assert
+        $this->assertSame(PHP_SESSION_NONE, session_status(), 'the page rendered without an open session');
+        $this->assertStringContainsString('<meta name="pf-realtime"', $output);
+    }
 }
