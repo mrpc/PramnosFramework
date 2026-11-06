@@ -5,6 +5,7 @@ use_cases:
   - Keeping how many members were active at the end of each month, when the tables only know today
   - Importing a report's history from an old statistics table
   - Reading a metric over time, broken down by a dimension, against last year
+  - Building a report of metrics by period or market, shared and mailed every month
 ---
 
 # Metrics Guide
@@ -197,6 +198,109 @@ breakdown, `series()` keeps the values under the key `''`.
   periods or values. To offer it on the public MCP endpoint, add
   `new \Pramnos\Llm\Analyst\Tools\MetricsTool($userId)` the way the application offers its
   other tools.
+
+## Reports
+
+A report is sections of rows across columns, built from metrics. The application can ship ready
+reports in app.php, and people build their own at **`/admin/MetricReports`** (the *Reports* menu
+item, shown wherever metrics are declared). They can share a report the way dashboard presets
+are shared, export it to CSV, print it or save it as PDF from the browser, and have it mailed
+every day, week or month.
+
+```php
+// app/app.php
+'metrics' => ['reports' => [
+    'monthly' => [
+        'name'    => 'Monthly',
+        'grain'   => 'month',
+        'compare' => 'year',            // or 'previous', or null
+        'columns' => [                  // a list of specs …
+            ['label' => 'Total'],
+            ['label' => 'North, new',       'filters' => ['region' => 'north', 'customer' => 'new']],
+            ['label' => 'North, returning', 'filters' => ['region' => 'north', 'customer' => 'returning']],
+            ['label' => 'Revenue',          'metric' => 'orders.revenue'],
+            ['label' => 'Month before',     'offset' => -1],
+        ],
+        // … or a shorthand: ['periods' => 12]
+        //                or ['dimension' => 'region', 'values' => ['north', 'south'], 'total' => true]
+        'sections' => [
+            ['title' => 'Orders', 'chart' => 'line', 'total' => true, 'rows' => [
+                ['label' => 'Orders', 'metric' => 'orders.count'],
+                ['metric' => 'customers.ordering', 'breakdown' => 'plan', 'total' => true],
+            ]],
+        ],
+    ],
+]],
+```
+
+### Cells
+
+A cell is the row's metric with the row's filters and the column's filters together, in the
+column's period. A column filter wins over a row filter on the same dimension. A column can name
+a metric of its own, and an `offset` counts periods back from the report's period. The `periods`
+and `dimension` shorthands expand into specs of this kind when the report is built.
+
+### Rows by breakdown
+
+A row with a `breakdown` stands for one row per value of that dimension: the declared values,
+plus any value found in the report's periods. With `total`, a last row follows that holds the
+metric without the breakdown. For a distinct metric that total is counted, not added up.
+A section's `total` adds up its rows but leaves breakdown totals out.
+
+### What each reader sees
+
+- **Rows:** a row reads only a metric its reader may see. The others are left out, and the
+  report says how many.
+- **Cells that cannot be answered:** for example, a column filter a distinct metric does not
+  keep. Such a cell shows a dash with the reason, and the rest of the row stands.
+- **Records:** a cell whose metric declares `rows()` links to the records behind the number.
+- **Comparison:** each row, without the columns' filters, in the period before or a year
+  earlier, with the change.
+
+### On the screen
+
+The screen edits a report as text:
+
+```text
+# Columns
+periods=12
+dimension=region north,south total
+Total
+North, new | region=north, customer=new
+Revenue | | orders.revenue
+Month before | | | -1
+
+# Sections and rows
+# Orders [chart=line] [total]
+Orders | orders.count
+North basic or pro | orders.count | region=north, plan=basic;pro
+By plan | customers.ordering | | by=plan total
+```
+
+In the columns text, write either one of the two shorthands (`periods=…` or `dimension=…`) or
+one column per line. Separate several values of one filter with `;`, because `|` separates the
+parts.
+
+People can change and delete their own reports, and copy any report they can open. An
+administrator can delete anybody's. The views are `.tpl.php` templates in the framework's
+template engine, the same in the three themes.
+
+### Mailing
+
+A saved report with a schedule (`day`, `week` or `month`) and recipients is mailed once for each
+period that closes:
+
+- **What is sent:** the report of that period, read as its owner would see it, in the body of
+  the mail.
+- **How:** `metrics:reports-send` sends it through the outbox. The framework's schedule runs it
+  daily at 07:30.
+
+The mail carries no CSV attachment; the CSV is one click away on the report's page.
+
+### Closed periods
+
+A closed period's values are final (see above), so a report of a closed period shows the same
+numbers every time it is opened. Nothing has to be frozen separately.
 
 ## Where the values are kept
 

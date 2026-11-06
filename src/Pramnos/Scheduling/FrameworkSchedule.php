@@ -286,6 +286,13 @@ class FrameworkSchedule
                 'description' => 'Compute the metrics\' open periods and close those that ended',
             ],
 
+            // The reports people asked to have mailed, once each period closes — after the run
+            // above has closed it. Nothing to do where no report has a schedule.
+            'metrics:reports-send' => [
+                'cadence'     => [['daily'], ['at', '07:30']],
+                'description' => 'Mail the scheduled metric reports for the periods that closed',
+            ],
+
             'queue:cleanup' => [
                 'cadence'     => [['daily'], ['at', '03:10']],
                 'description' => 'Remove completed and expired queue items',

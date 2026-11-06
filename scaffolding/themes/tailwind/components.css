@@ -2343,3 +2343,14 @@ a.pf-person:hover { background: var(--pf-subtle); }
    must not keep it showing. And the tools' symbols (⧉ ⇱ ⚙) from a font that has them. */
 [data-pf-show-when][hidden] { display: none !important; }
 .pf-dashboard-tools button, .pf-dashboard-tools .btn { font-family: "Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols 2", "DejaVu Sans", sans-serif; }
+
+/* Metric reports: a wide table scrolls on its own, totals stand out, print leaves the controls out. */
+.pf-report-scroll { overflow-x: auto; margin-bottom: 1.5rem; }
+.pf-report td { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pf-report-total th, .pf-report-total td { font-weight: 600; border-top: 2px solid currentColor; }
+.pf-report-section { margin: 1.5rem 0 .5rem; font-weight: 600; }
+@media print {
+    .pf-no-print { display: none !important; }
+    .pf-report-page { padding: 0; }
+    .pf-report-scroll { overflow: visible; }
+}

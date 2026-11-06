@@ -8,6 +8,7 @@
  * behaviours here rather than inline in views.
  *
  * Attributes handled:
+ *   data-pf-print               — print the page (a report: the browser's print saves a PDF too)
  *   data-confirm="message"      — show confirm() before following a link or submitting a button;
  *                                 on a <form>, once when it is sent, not at clicks inside it
  *   data-pf-fill-setting        — copy this row's setting name/value into the edit form
@@ -321,6 +322,12 @@
         if (confirmEl && !confirm(confirmEl.dataset.confirm)) {
             e.preventDefault();
             e.stopPropagation();
+            return;
+        }
+
+        if (e.target.closest('[data-pf-print]')) {
+            e.preventDefault();
+            window.print();
             return;
         }
 

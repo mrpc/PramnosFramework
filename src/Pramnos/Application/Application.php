@@ -1587,6 +1587,14 @@ class Application extends Base
             return $items;
         });
 
+        // Reports built from the application's metrics, where it declares any.
+        NavRegistry::register(new NavItem(
+            'admin.reports', 'Reports', $admin('MetricReports'),
+            NavSection::Admin, 2, requireAuth: true, minUserType: $floor,
+            icon: 'chart',
+            when: static fn (): bool => \Pramnos\Metrics\Metrics::all() !== [],
+        ));
+
         // The help pages, with the `help` feature and where the project has the screen —
         // `src/Admin/Controllers/Help.php`.
         if (\Pramnos\Assist\Help::enabled() && \Pramnos\Assist\Help::screen() !== '') {

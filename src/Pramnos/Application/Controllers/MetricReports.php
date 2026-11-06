@@ -1,0 +1,267 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Pramnos\Application\Controllers;
+
+use Pramnos\Application\Controller;
+use Pramnos\Dashboard\Presets;
+use Pramnos\Metrics\Metrics;
+use Pramnos\Metrics\Report;
+use Pramnos\Metrics\Reports;
+use Pramnos\Metrics\Window;
+
+/**
+ * `/admin/MetricReports` — reports built from the application's metrics ({@see Reports}): the
+ * application's and the ones people save, share and have mailed.
+ *
+ * Actions:
+ *   - display() — the reports this person may open
+ *   - show()    — one report, `?report=<id>&at=YYYY-MM-DD`: the table, with links to CSV and print
+ *   - csv()     — the same as a CSV download
+ *   - rows()    — the records behind a cell, where its metric lists them
+ *   - edit()    — a new report, one of the person's own (`?report=<id>`), or a copy (`?copy=<id>`)
+ *   - save()    — POST: create or update
+ *   - delete()  — POST: the owner's, or anybody's for an administrator
+ *
+ * Every number is read through the metric's own `allowed()`, so a shared report shows each person
+ * only the rows they may see.
+ */
+class MetricReports extends Controller
+{
+    /** The administration ability that opens this screen — its menu item's id. */
+    protected string $adminAbility = 'admin.reports';
+
+    /** The most records the drill-down lists. */
+    private const ROWS = 500;
+
+    /** Registers the actions: all behind sign-in, the writes POSTs with the session's token. */
+    public function __construct(?\Pramnos\Application\Application $application = null)
+    {
+        $this->addAuthAction(['display', 'show', 'csv', 'rows', 'edit', 'save', 'delete']);
+        $this->addWriteAction(['save', 'delete']);
+        parent::__construct($application);
+    }
+
+    /** The reports this person may open. */
+    public function display(): mixed
+    {
+        if ($this->refused()) {
+            return null;
+        }
+        \Pramnos\Framework\Factory::getDocument()->title = t('Reports');
+        $view            = $this->getView('metricreports', 'tpl');
+        $view->reports   = $this->store()->visibleTo($this->user());
+        $view->me        = (int) $this->user()->userid;
+        $view->csrfField = \Pramnos\Http\Middleware\CsrfMiddleware::tokenField();
+        $view->urls      = $this->urls();
+
+        return $view->display();
+    }
+
+    /** One report, for a period: `?report=<id>&at=YYYY-MM-DD` (today by default). */
+    public function show(): mixed
+    {
+        if ($this->refused() || ($entry = $this->entry((string) ($_GET['report'] ?? ''))) === null) {
+            return null;
+        }
+        $at = self::day((string) ($_GET['at'] ?? ''));
+        \Pramnos\Framework\Factory::getDocument()->title = $entry['name'];
+        $table           = $entry['report']->build($at, $this->user());
+        $view            = $this->getView('metricreports', 'tpl');
+        $view->entry     = $entry;
+        $view->at        = $at;
+        $view->period    = $table['period'];
+        $view->previous  = Window::of($entry['report']->definition['grain'], $at)->previous()->key();
+        $view->next      = Window::of($entry['report']->definition['grain'], $at)->next()->key();
+        $view->body      = Report::html($table, $this->urls()['rows']);
+        $view->mine      = !$entry['app'] && (int) $entry['row']['ownerid'] === (int) $this->user()->userid;
+        $view->urls      = $this->urls();
+
+        return $view->display('report');
+    }
+
+    /** The report as a CSV download. */
+    public function csv(): mixed
+    {
+        if ($this->refused() || ($entry = $this->entry((string) ($_GET['report'] ?? ''))) === null) {
+            return null;
+        }
+        $table = $entry['report']->build(self::day((string) ($_GET['at'] ?? '')), $this->user());
+        $name  = preg_replace('/[^A-Za-z0-9_-]+/', '-', $entry['name'] . '-' . $table['period']);
+
+        return \Pramnos\Http\Response::make("\xEF\xBB\xBF" . Report::csv($table), 200)
+            ->withHeader('Content-Type', 'text/csv; charset=utf-8')
+            ->withHeader('Content-Disposition', 'attachment; filename="' . trim((string) $name, '-') . '.csv"');
+    }
+
+    /** The records behind a cell: `?metric=&grain=&period=&f[name]=value`. */
+    public function rows(): mixed
+    {
+        if ($this->refused()) {
+            return null;
+        }
+        $name   = (string) ($_GET['metric'] ?? '');
+        $metric = Metrics::all($this->user(), false)[$name] ?? null;
+        $grain  = (string) ($_GET['grain'] ?? Window::MONTH);
+        if ($metric === null || !$metric->hasRows() || !in_array($grain, Window::GRAINS, true)) {
+            $this->addError(t('There is no such list.'));
+            $this->redirect($this->urls()['list']);
+
+            return null;
+        }
+        $filters = array_map('strval', array_filter((array) ($_GET['f'] ?? []), 'is_scalar'));
+        $period  = Window::of($grain, self::day((string) ($_GET['period'] ?? '')));
+        \Pramnos\Framework\Factory::getDocument()->title = $metric->label();
+        $rows          = Metrics::records($name, $grain, $period->key(), $filters);
+        $view          = $this->getView('metricreports', 'tpl');
+        $view->metric  = $metric;
+        $view->period  = $period->label();
+        $view->filters = $filters;
+        $view->count   = count($rows);
+        $view->rows    = array_slice($rows, 0, self::ROWS);
+        $view->urls    = $this->urls();
+
+        return $view->display('rows');
+    }
+
+    /** The form: a new report, one of the person's own, or a copy of one they may open. */
+    public function edit(): mixed
+    {
+        if ($this->refused()) {
+            return null;
+        }
+        $entry = null;
+        foreach (['report', 'copy'] as $key) {
+            if (($_GET[$key] ?? '') !== '' && ($entry = $this->entry((string) $_GET[$key])) === null) {
+                return null;
+            }
+        }
+        if (($_GET['report'] ?? '') !== '' && ($entry['app'] || (int) $entry['row']['ownerid'] !== (int) $this->user()->userid)) {
+            $this->addError(t('Only its owner changes a report. Copy it to make one of your own.'));
+            $this->redirect($this->urls()['list']);
+
+            return null;
+        }
+        $report = $entry['report'] ?? Report::fromArray(['name' => '', 'grain' => Window::MONTH, 'columns' => ['periods' => 12], 'sections' => []]);
+        \Pramnos\Framework\Factory::getDocument()->title = ($_GET['report'] ?? '') !== '' ? t('Edit a report') : t('New report');
+        $view             = $this->getView('metricreports', 'tpl');
+        $view->id         = ($_GET['report'] ?? '') !== '' ? (int) $entry['id'] : 0;
+        $view->definition = $report->definition;
+        $view->name       = ($_GET['copy'] ?? '') !== '' ? sprintf(t('Copy of %s'), (string) $entry['name']) : (string) ($entry['name'] ?? '');
+        $view->columns    = $report->columnsAsText();
+        $view->sections   = $report->sectionsAsText();
+        $view->row        = ($_GET['report'] ?? '') !== '' ? $entry['row'] : null;
+        $view->metrics    = Metrics::all($this->user(), false);
+        $view->roles      = \Pramnos\User\UserTypes::labels();
+        $view->csrfField  = \Pramnos\Http\Middleware\CsrfMiddleware::tokenField();
+        $view->urls       = $this->urls();
+
+        return $view->display('edit');
+    }
+
+    /** Create or change a report. */
+    public function save(): void
+    {
+        if ($this->refused()) {
+            return;
+        }
+        $id = (int) ($_POST['reportid'] ?? 0);
+        try {
+            $definition = [
+                'name'     => (string) ($_POST['name'] ?? ''),
+                'grain'    => (string) ($_POST['grain'] ?? Window::MONTH),
+                'compare'  => (string) ($_POST['compare'] ?? ''),
+                'columns'  => Report::columnsFromText((string) ($_POST['columns'] ?? '')),
+                'sections' => Report::sectionsFromText((string) ($_POST['sections'] ?? '')),
+            ];
+            $id = $this->store()->save(
+                $this->user(),
+                $definition,
+                (string) ($_POST['visibility'] ?? Presets::PRIVATE),
+                (string) ($_POST['audience'] ?? ''),
+                (string) ($_POST['schedule'] ?? Reports::NEVER),
+                (string) ($_POST['recipients'] ?? ''),
+                $id > 0 ? $id : null,
+            );
+        } catch (\InvalidArgumentException $e) {
+            $this->addError($e->getMessage());
+            $this->redirect($this->urls()['edit'] . ($id > 0 ? '?report=' . $id : ''));
+
+            return;
+        }
+        $this->addMessage(t('Saved.'));
+        $this->redirect($this->urls()['show'] . '?report=' . $id);
+    }
+
+    /** Delete a saved report: the owner's, or anybody's for an administrator. */
+    public function delete(): void
+    {
+        if ($this->refused()) {
+            return;
+        }
+        $admin = \Pramnos\User\Roles::atLeast($this->user(), \Pramnos\User\Roles::ADMIN);
+        if ($this->store()->delete((int) ($_POST['reportid'] ?? 0), $this->user(), $admin)) {
+            $this->addMessage(t('Deleted.'));
+        } else {
+            $this->addError(t('There is no such report of yours.'));
+        }
+        $this->redirect($this->urls()['list']);
+    }
+
+    /** Below the administration floor, or no metrics declared: the request stops here. */
+    protected function refused(): bool
+    {
+        if ($this->requireMinUserType($this->adminFloor())) {
+            return true;
+        }
+        if (Metrics::all() === []) {
+            $this->addError(t('No metrics are declared here, so there are no reports.'));
+            $this->redirect(adminUrl(''));
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /** One report this person may open, or none, said and sent back to the list. @return array<string, mixed>|null */
+    protected function entry(string $id): ?array
+    {
+        $entry = $id !== '' ? $this->store()->find($id, $this->user()) : null;
+        if ($entry === null) {
+            $this->addError(t('There is no such report.'));
+            $this->redirect($this->urls()['list']);
+        }
+
+        return $entry;
+    }
+
+    /** Where reports are kept: overridable, for a test or another connection. */
+    protected function store(): Reports
+    {
+        return new Reports();
+    }
+
+    /** The person signed in. */
+    protected function user(): object
+    {
+        return \Pramnos\User\User::current() ?? (object) ['userid' => 0, 'usertype' => 0];
+    }
+
+    /** @return array<string, string> The screen's addresses */
+    protected function urls(): array
+    {
+        $base = adminUrl('MetricReports');
+
+        return ['list' => $base, 'show' => $base . '/show', 'csv' => $base . '/csv', 'rows' => $base . '/rows', 'edit' => $base . '/edit', 'save' => $base . '/save', 'delete' => $base . '/delete'];
+    }
+
+    /** A day as given, or today. */
+    private static function day(string $day): string
+    {
+        $at = \DateTime::createFromFormat('!Y-m-d', $day);
+
+        return $at !== false && $at->format('Y-m-d') === $day ? $day : date('Y-m-d');
+    }
+}

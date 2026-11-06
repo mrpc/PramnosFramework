@@ -268,6 +268,7 @@ class Application extends \Symfony\Component\Console\Application
         // The shared dashboard cards worked out ahead of anybody waiting for them, from cron.
         $this->add(new \Pramnos\Console\Commands\DashboardPrecompute());
         $this->add(new \Pramnos\Console\Commands\MetricsCompute());
+        $this->add(new \Pramnos\Console\Commands\MetricsReportsSend());
         // Push has five parts and four of them are invisible when missing. Five numbered steps
         // in a guide are five chances to stop after four.
         $this->add(new \Pramnos\Console\Commands\PushSetup());
