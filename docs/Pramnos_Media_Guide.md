@@ -281,6 +281,36 @@ This is a normalization an application opts into explicitly, not something `uplo
 unconditionally — an application that already serves WebP on purpose would lose that the moment
 every upload got silently rewritten.
 
+### Which file types a module takes
+
+`uploadFile()` takes pictures (`jpg`, `jpeg`, `gif`, `png`, `bmp`, `ico`, `svg`) for an upload
+of media type 1 or 2. For any other upload it also takes `pdf`, `xls` and `xlsx`. A module that
+takes more, such as a support ticket's log files and archives, lists the extra extensions in
+app.php:
+
+```php
+'media' => [
+    'extensions' => [
+        'tickets' => ['txt', 'log', 'zip', 'docx'],
+        '*'       => ['csv'],          // every module
+    ],
+],
+```
+
+- **Only for uploads that are not pictures.** An upload asked for as a picture still takes
+  pictures only.
+- **Stored as documents** (media type 0).
+- **No Content-Type check.** The browser's `Content-Type` is not checked against a list for these
+  types, since the framework has no list for a type the application chose.
+- **Never allowed:** an extension that would run as code or be drawn as a page when served
+  (`php`, `phtml`, `phar`, `html`, `htm`, `js`, `xml`, `htaccess`, `exe` and the rest of
+  `MediaObject::NEVER_EXTENSIONS`). These are refused even when app.php lists them.
+- **Overriding:** an application with its own `MediaObject` can override
+  `moduleExtensions($module)` instead, as it does `privateStorageModules()`.
+
+A module that takes documents people should not reach by URL, such as a ticket's attachments, is
+usually also a private module (below).
+
 ### Routing a Module's Uploads Outside the Document Root
 
 Every module's uploads land under `www/uploads/` — inside the document root, served back by the web

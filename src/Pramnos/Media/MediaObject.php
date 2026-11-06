@@ -1134,6 +1134,54 @@ class MediaObject extends \Pramnos\Framework\Base
         return array();
     }
 
+    /** The extensions {@see uploadFile()} takes for a picture (media type 1 or 2). */
+    public const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'gif', 'png', 'bmp', 'ico', 'svg'];
+
+    /** The extensions {@see uploadFile()} takes for any other upload, before an application adds its own. */
+    public const FILE_EXTENSIONS = ['jpg', 'jpeg', 'gif', 'png', 'bmp', 'pdf', 'ico', 'xls', 'xlsx', 'svg'];
+
+    /**
+     * Extensions refused whatever an application allows: served from `www/uploads`, each would run
+     * as code or be drawn as a page of the site.
+     */
+    public const NEVER_EXTENSIONS = [
+        'php', 'php3', 'php4', 'php5', 'php7', 'php8', 'phtml', 'pht', 'phps', 'phar',
+        'cgi', 'pl', 'py', 'rb', 'sh', 'asp', 'aspx', 'jsp',
+        'html', 'htm', 'xhtml', 'shtml', 'svgz', 'xml', 'js', 'mjs',
+        'htaccess', 'htpasswd', 'user.ini', 'ini',
+        'exe', 'bat', 'cmd', 'com', 'dll', 'so', 'msi',
+    ];
+
+    /**
+     * Extensions an application takes for a module's uploads beyond {@see FILE_EXTENSIONS}: from
+     * app.php, `'media' => ['extensions' => ['tickets' => ['txt', 'log', 'zip', 'docx']]]`, the
+     * module's own list and the one under `'*'` for every module. An application with its own
+     * MediaObject may override this instead, as it does {@see privateStorageModules()}.
+     *
+     * Only for uploads that are not pictures, and never one of {@see NEVER_EXTENSIONS}. Such a file
+     * is stored as a document (media type 0); the browser's `Content-Type` for it is not checked
+     * against a list, since there is no list for a type the application chose, and its content is
+     * still read and refused when it is plainly something else.
+     *
+     * @param string $module
+     * @return string[] Lower-case extensions, without the dot
+     */
+    protected static function moduleExtensions($module)
+    {
+        $app    = \Pramnos\Application\Application::currentInstance();
+        $config = is_object($app) ? ($app->applicationInfo['media']['extensions'] ?? []) : [];
+        if (!is_array($config)) {
+            return [];
+        }
+        $listed = array_merge((array) ($config['*'] ?? []), (array) ($config[(string) $module] ?? []));
+
+        return array_values(array_unique(array_diff(
+            array_map(static fn ($ext): string => strtolower(ltrim(trim((string) $ext), '.')), $listed),
+            self::NEVER_EXTENSIONS,
+            ['']
+        )));
+    }
+
     /**
      * Where a module's uploads live on disk: `var/uploads` for a module listed in
      * {@see privateStorageModules()}, `www/uploads` (the document root, as every module has
@@ -1642,30 +1690,32 @@ class MediaObject extends \Pramnos\Framework\Base
             . $ext;
         $this->_ext=$ext;
         $thename = str_replace("." . $ext, "", $thename);
-        if ($this->mediatype == 1 or $this->mediatype == 2) {
-            $allowedExtentions = array(
-                'jpg', 'jpeg', 'gif', 'png', 'bmp', 'ico', 'svg'
-            );
-        } else {
-            $allowedExtentions = array(
-                'jpg', 'jpeg', 'gif', 'png', 'bmp', 'pdf', 'ico', 'xls', 'xlsx', 'svg'
-            );
-        }
+        $picture = $this->mediatype == 1 || $this->mediatype == 2;
+        // What the application added for this module, beyond the framework's own list.
+        $byApplication = $picture
+            ? []
+            : array_diff(static::moduleExtensions($module), self::FILE_EXTENSIONS, self::NEVER_EXTENSIONS);
+        $allowedExtentions = $picture
+            ? self::IMAGE_EXTENSIONS
+            : array_merge(self::FILE_EXTENSIONS, $byApplication);
         if (array_search($ext, $allowedExtentions) === false) {
             $this->error = "#1 Invalid File Type: " . $ext;
             return $this;
         }
+        $applicationsOwn = in_array($ext, $byApplication, true);
         if ($this->mediatype == 0) {
             if ($ext == 'pdf') {
                 $this->mediatype = 3;
-            } elseif ($ext == 'xls' || $ext == 'xlsx' 
-                || $ext == 'doc' || $ext == 'docx') {
-                $this->mediatype = 0;
-            } else {
+            } elseif (in_array($ext, self::IMAGE_EXTENSIONS, true)) {
                 $this->mediatype = 1;
+            } else {
+                // A spreadsheet, or a document of a kind the application allowed.
+                $this->mediatype = 0;
             }
         }
-        if ($file['type'] != "") {
+        // The browser's Content-Type is checked against the types of the framework's own
+        // extensions; a kind the application allowed has no list to check it against.
+        if ($file['type'] != "" && !$applicationsOwn) {
             if ($this->mediatype == 1 or $this->mediatype == 2) {
                 switch ($file['type']) {
                     case "image/jpeg":
