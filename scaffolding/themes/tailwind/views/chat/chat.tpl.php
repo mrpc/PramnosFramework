@@ -201,7 +201,14 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false); @endphp
                                     <ul>
                                         @foreach ($tools as $tool)
                                             @php $args = []; foreach ((array) ($tool['arguments'] ?? []) as $k => $v) { $args[] = $k . ': ' . (is_scalar($v) ? (string) $v : json_encode($v)); } @endphp
-                                            <li style="font-family:monospace">{{ ($tool['name'] ?? '') . ($args === [] ? '' : ' (' . implode(', ', $args) . ')') }}</li>
+                                            @php
+                                                // A help call: what the help gives for it now — the section and its score.
+                                                $looked = ($tool['name'] ?? '') === 'help' && \Pramnos\Assist\Help::enabled()
+                                                    ? \Pramnos\Llm\Analyst\Tools\HelpTool::lookedUp((array) ($tool['arguments'] ?? [])) : null;
+                                                $gave   = $looked === null || $looked['kind'] === 'map' ? ''
+                                                    : ' → ' . ($looked['found'] === 0 ? t('nothing') : $looked['path'] . ($looked['kind'] === 'question' ? sprintf(' (%.2f)', $looked['score']) : ''));
+                                            @endphp
+                                            <li style="font-family:monospace">{{ ($tool['name'] ?? '') . ($args === [] ? '' : ' (' . implode(', ', $args) . ')') . $gave }}</li>
                                         @endforeach
                                     </ul>
                                 </details>

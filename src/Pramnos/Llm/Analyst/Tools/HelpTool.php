@@ -16,6 +16,9 @@ use Pramnos\Mcp\McpToolInterface;
  * name read that section; a page alone gives its opening and the list of its sections; `map`
  * gives every page and section by title only. So an answer is the part of a page that answers,
  * however long the page is, and costs what that part costs.
+ *
+ * What it was asked is kept with each answer, among the tools it called; {@see lookedUp()} reads
+ * one call back as the help answers it now.
  */
 final class HelpTool implements McpToolInterface
 {
@@ -68,12 +71,7 @@ final class HelpTool implements McpToolInterface
             return $this->page($name, trim((string) ($input['section'] ?? '')));
         }
 
-        $question = (string) ($input['question'] ?? '');
-        $found    = $book->searchSections($question, 1 + self::ALSO, $topic);
-        self::note(['question' => $question, 'found' => count($found)] + ($found === [] ? [] : [
-            'best'  => $found[0]['page'] . ($found[0]['anchor'] !== '' ? '#' . $found[0]['anchor'] : ''),
-            'score' => $found[0]['score'],
-        ]));
+        $found = $book->searchSections((string) ($input['question'] ?? ''), 1 + self::ALSO, $topic);
         if ($found === []) {
             return 'No help page answers that.';
         }
@@ -100,9 +98,6 @@ final class HelpTool implements McpToolInterface
         if ($section !== '') {
             $found = $book->section($slug, $section);
             if ($found !== null) {
-                // Asked for by name: what a search did not bring.
-                self::note(['read' => $slug . ($found['anchor'] !== '' ? '#' . $found['anchor'] : '')]);
-
                 return $this->whole($found);
             }
         }
@@ -115,23 +110,40 @@ final class HelpTool implements McpToolInterface
     }
 
     /**
-     * What the help was asked, for `help:gaps`: a line in the `help` log per search — the
-     * question, how many sections answered, the best and its score — and per section read by
-     * name. Off with `'help' => ['log' => false]`. Never in the way of the answer.
+     * What one call of this tool looked up, as the help answers it now: for a question, the best
+     * section's `path` and `score` (`found` 0 when nothing answers); for a page and a section, the
+     * section `read`; `map` for the map. The calls are kept with each answer (`chat_messages.tools`),
+     * so the conversation screen and `help:gaps` show what the help gave without a log of their own.
      *
-     * @param array<string, mixed> $what
+     * @param array<string, mixed> $arguments The call's arguments, as stored
+     * @return array{kind: string, found: int, best: string, path: string, score: float}
      */
-    private static function note(array $what): void
+    public static function lookedUp(array $arguments): array
     {
-        $app = \Pramnos\Application\Application::currentInstance();
-        if (is_object($app) && ($app->applicationInfo['help']['log'] ?? true) === false) {
-            return;
+        $book = Help::admin();
+        if (!empty($arguments['map'])) {
+            return ['kind' => 'map', 'found' => 0, 'best' => '', 'path' => '', 'score' => 0.0];
         }
-        try {
-            \Pramnos\Logs\Logger::log(isset($what['read']) ? 'help read' : 'help search', 'help', 'log', false, $what);
-        } catch (\Throwable) {
-            // A log that cannot be written is no reason to keep the answer back.
+        $page = trim((string) ($arguments['page'] ?? ''));
+        if ($page !== '') {
+            $section = trim((string) ($arguments['section'] ?? ''));
+            $found   = $section !== '' ? $book->section($page, $section) : null;
+            $where   = Help::slug($page) . ($found !== null && $found['anchor'] !== '' ? '#' . $found['anchor'] : '');
+
+            return ['kind' => 'read', 'found' => $found !== null ? 1 : 0, 'best' => $where, 'path' => (string) ($found['path'] ?? $page), 'score' => 0.0];
         }
+        $found = $book->searchSections((string) ($arguments['question'] ?? ''), 1, trim((string) ($arguments['topic'] ?? '')));
+        if ($found === []) {
+            return ['kind' => 'question', 'found' => 0, 'best' => '', 'path' => '', 'score' => 0.0];
+        }
+
+        return [
+            'kind'  => 'question',
+            'found' => 1,
+            'best'  => $found[0]['page'] . ($found[0]['anchor'] !== '' ? '#' . $found[0]['anchor'] : ''),
+            'path'  => (string) $found[0]['path'],
+            'score' => (float) $found[0]['score'],
+        ];
     }
 
     /** @param array<string, mixed> $section @return array<string, mixed> A section with its text */

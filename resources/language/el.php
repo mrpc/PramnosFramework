@@ -2175,4 +2175,5 @@ return [
     'Resend verification email' => 'Επαναποστολή email επιβεβαίωσης',
     'Verification email sent.' => 'Το email επιβεβαίωσης στάλθηκε.',
     'No verification email was sent: the address is confirmed, missing, or the mail failed.' => 'Δεν στάλθηκε email επιβεβαίωσης: η διεύθυνση είναι ήδη επιβεβαιωμένη, λείπει, ή η αποστολή απέτυχε.',
+    'nothing' => 'τίποτα',
 ];

@@ -261,18 +261,25 @@ the page, or the `page#anchor`, that answers each. `php bin/pramnos help:eval` p
 first instead. `--min=0.8` exits 1 below that recall@3, for CI. `--level=site` scores the site's
 help.
 
-**Where the help falls short.** The analyst's `help` tool writes each search to the `help` log:
-the question, how many sections answered, the best section and its score. It also writes each
-section it then read by name. `php bin/pramnos help:gaps` reads that log and lists three things,
-most asked first:
-- **Questions nothing answered:** a page that is missing.
+**Where the help falls short.** Every answer of the analyst keeps the tools it called, so each
+question it put to the help is stored with that answer and the answer's rating. These are kept,
+and pruned, as the conversations are. `php bin/pramnos help:gaps` reads them, answers each
+question again with the help as it is now, and lists three things, most asked first:
+- **Questions nothing answers:** a page that is missing.
 - **Questions answered below `--weak`** (2 by default): a section that needs the question among
   its own.
 - **Sections read by name:** what a search should have brought and did not.
 
+**Answers rated bad.** `--rated=bad` lists the help behind each answer rated bad, with the note
+saying what was wrong, and tells the two cases apart:
+- **The help has nothing strong for it:** a page or a section is missing.
+- **It had a strong section:** the answer did not find or use it.
+
 `--days` sets how far back it reads (30 by default). `--golden` prints every question asked as a
-`_golden.php` line with the answer it got, to correct and keep for `help:eval`. The questions are
-the administrators' own. `'help' => ['log' => false]` in app.php turns the log off.
+`_golden.php` line with the answer it gets, to correct and keep for `help:eval`.
+
+**On the conversation screen.** Under each answer, the list of what it read shows, beside each
+`help` call, the section the help gives for it now and its score.
 
 **What the analyst gets.** The analyst's `help` tool answers a question with the best section
 whole, with a link to its heading, and the next three by their path only. It reads another
