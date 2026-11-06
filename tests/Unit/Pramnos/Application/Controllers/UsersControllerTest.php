@@ -688,10 +688,13 @@ class UsersControllerTest extends TestCase
          * The URL registry too: `tokenactions.urlid` is a reference into it, and the panel
          * joins out so it can show `/api/1.0/account` rather than "7".
          */
+        // In the migration's shape, `hash` included: a table left behind in a narrower one is
+        // inherited by the URL registry's tests, whose lookups by hash then fail.
         $this->db->query(
             'CREATE TABLE IF NOT EXISTS `urls` ('
             . '`urlid` bigint NOT NULL AUTO_INCREMENT, `url` varchar(255) NULL, '
-            . 'PRIMARY KEY (`urlid`))'
+            . '`hash` bigint NOT NULL DEFAULT 0, '
+            . 'PRIMARY KEY (`urlid`), KEY `idx_urls_hash` (`hash`))'
         );
         $this->db->query("INSERT IGNORE INTO `urls` (`urlid`, `url`) VALUES (7, '/api/1.0/account')");
 
@@ -949,7 +952,7 @@ class UsersControllerTest extends TestCase
      */
     public function testAnImpossibleIdIsRefusedBeforeAnythingIsWritten(): void
     {
-        foreach (['unlocklogin', 'disabletwofactor', 'signinalerts', 'emailpreference'] as $action) {
+        foreach (['unlocklogin', 'disabletwofactor', 'signinalerts', 'emailpreference', 'resendverification'] as $action) {
             // Arrange
             $_GET['_option'] = 1;
             $this->redirectUrl = null;
@@ -961,6 +964,24 @@ class UsersControllerTest extends TestCase
             $this->assertStringEndsWith('users', rtrim((string) $this->redirectUrl, '/'),
                 $action . ' must send an impossible id back to the list');
         }
+    }
+
+    /**
+     * Resending the verification email goes back to the account and says what happened — here,
+     * that nothing was sent, since no confirmable account is behind the id.
+     */
+    public function testResendVerificationReturnsToTheUserAndSaysWhatHappened(): void
+    {
+        // Arrange
+        $_GET['_option'] = 3;
+        unset($_SESSION['users_success'], $_SESSION['users_error']);
+
+        // Act
+        $this->controller->resendverification();
+
+        // Assert
+        $this->assertStringContainsString('users/view/3', (string) $this->redirectUrl);
+        $this->assertStringContainsString('No verification email was sent', (string) ($_SESSION['users_error'] ?? ''));
     }
 
     /**
