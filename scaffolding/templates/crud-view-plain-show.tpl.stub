@@ -1,0 +1,41 @@
+{{-- {{ objectName }} detail (read-only) view — auto-generated CRUD view.
+
+Variables:
+  $this->model — the {{ objectName }} model instance to display --}}
+@php
+$data = $this->model->getData();
+$pk   = $this->model->{{ primaryKey }};
+
+/*
+ * Columns that hold a picture — the ones whose foreign key references `media`.
+ *
+ * The address is asked for, never assembled. `sURL . $media->url` is the obvious line
+ * and it is wrong twice: `sURL` is the *script's* base, so the same code inside an API
+ * request answers `/api/uploads/x.png`, and once a `media` storage disk is configured
+ * the file is on a bucket while the concatenation keeps pointing at the local copy.
+ */
+$mediaColumns = {{ mediaColumns }};
+@endphp
+<div class="page-section">
+    {!! \Pramnos\Application\Application::getInstance()->renderBreadcrumbs() !!}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+        <h2 style="margin:0">{{ objectName }}</h2>
+        <div style="display:flex;gap:8px">
+            <a href="{{ sURL }}{{ className }}" class="btn btn-outline-secondary">&laquo; Back</a>
+            <a href="{{ sURL }}{{ className }}/edit/{{ $pk }}" class="btn btn-primary">Edit</a>
+            <a href="{{ sURL }}{{ className }}/delete/{{ $pk }}" class="btn btn-outline-danger" data-confirm="Delete this {{ objectName }}?">Delete</a>
+        </div>
+    </div>
+    <div class="card" style="border:1px solid #ddd;border-radius:4px">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <tbody>
+                @foreach ($data as $field => $value)
+                <tr style="border-top:1px solid #f0f0f0">
+                    <th style="padding:8px 14px;text-align:left;width:220px;color:#666;background:#f9f9f9">{{ ucwords(str_replace('_', ' ', (string) $field)) }}</th>
+                    <td style="padding:8px 14px">@if (in_array($field, $mediaColumns, true))@php $src = \Pramnos\Media\MediaObject::urlFor($value, 'medium'); @endphp@if ($src === '')<span style="color:#ccc">—</span>@else<img src="{{ $src }}" alt="" style="max-width:320px;height:auto">@endif@elseif (is_bool($value)){{ $value ? 'Yes' : 'No' }}@elseif ($value === null || $value === '')<span style="color:#ccc">—</span>@elseif (is_array($value))<pre style="margin:0">{{ json_encode($value, JSON_PRETTY_PRINT) }}</pre>@else{{ $value }}@endif</td>
+                </tr>
+                @endforeach
+            </tbody>
+        </table>
+    </div>
+</div>

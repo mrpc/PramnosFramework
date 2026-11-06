@@ -1,0 +1,43 @@
+{{-- {{ objectName }} detail (read-only) view — auto-generated CRUD view.
+
+Variables:
+  $this->model — the {{ objectName }} model instance to display --}}
+@php
+$data = $this->model->getData();
+$pk   = $this->model->{{ primaryKey }};
+
+/*
+ * Columns that hold a picture — the ones whose foreign key references `media`.
+ *
+ * The address is asked for, never assembled. `sURL . $media->url` is the obvious line
+ * and it is wrong twice: `sURL` is the *script's* base, so the same code inside an API
+ * request answers `/api/uploads/x.png`, and once a `media` storage disk is configured
+ * the file is on a bucket while the concatenation keeps pointing at the local copy.
+ */
+$mediaColumns = {{ mediaColumns }};
+@endphp
+<div class="container-fluid py-4">
+    {!! \Pramnos\Application\Application::getInstance()->renderBreadcrumbs() !!}
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0">{{ objectName }}</h2>
+        <div class="d-flex gap-2">
+            <a href="{{ sURL }}{{ className }}" class="btn btn-outline-secondary">&laquo; Back</a>
+            <a href="{{ sURL }}{{ className }}/edit/{{ $pk }}" class="btn btn-primary">Edit</a>
+            <a href="{{ sURL }}{{ className }}/delete/{{ $pk }}" class="btn btn-outline-danger" data-confirm="Delete this {{ objectName }}?">Delete</a>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-body p-0">
+            <table class="table table-striped table-bordered align-middle mb-0">
+                <tbody>
+                    @foreach ($data as $field => $value)
+                    <tr>
+                        <th class="text-muted" style="width:220px">{{ ucwords(str_replace('_', ' ', (string) $field)) }}</th>
+                        <td>@if (in_array($field, $mediaColumns, true))@php $src = \Pramnos\Media\MediaObject::urlFor($value, 'medium'); @endphp@if ($src === '')<span class="text-muted">—</span>@else<img src="{{ $src }}" alt="" style="max-width:320px;height:auto">@endif@elseif (is_bool($value)){{ $value ? 'Yes' : 'No' }}@elseif ($value === null || $value === '')<span class="text-muted">—</span>@elseif (is_array($value))<pre class="mb-0">{{ json_encode($value, JSON_PRETTY_PRINT) }}</pre>@else{{ $value }}@endif</td>
+                    </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

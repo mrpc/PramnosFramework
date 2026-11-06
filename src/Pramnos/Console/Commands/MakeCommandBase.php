@@ -3866,6 +3866,43 @@ PHP;
      *
      * @return string Summary line
      */
+    /**
+     * Which kind of view `create:crud` writes: `html` (`.html.php`, PHP and HTML) or `tpl`
+     * (`.tpl.php`, the framework's template engine). Set by `--views`, or app.php's
+     * `'make' => ['views' => 'tpl']`; `html` otherwise. A property, like {@see $crudTarget},
+     * so no public signature changes.
+     */
+    public string $viewKinds = '';
+
+    /** The kind of view to write: {@see $viewKinds}, app.php's choice, or `html`. */
+    protected function viewKind(): string
+    {
+        $kind = $this->viewKinds;
+        if ($kind === '') {
+            $application = $this->getApplication()?->internalApplication ?? null;
+            $kind        = (string) ($application?->applicationInfo['make']['views'] ?? 'html');
+        }
+
+        return $kind === 'tpl' ? 'tpl' : 'html';
+    }
+
+    /**
+     * A generated fragment of PHP and HTML in the template engine's syntax: escaped echoes as
+     * `{{ }}`, the rest of the echoes as `{!! !!}`, and `if`/`foreach` as directives. What it
+     * does not recognise stays PHP, which a `.tpl.php` runs as it is.
+     */
+    public static function templateSyntax(string $php): string
+    {
+        $php = (string) preg_replace('/<\?php echo htmlspecialchars\((.+?)\); \?>/', '{{ $1 }}', $php);
+        $php = (string) preg_replace_callback('/<\?php echo (.+?); \?>/', static fn (array $m): string => str_contains($m[1], '::') || str_contains($m[1], '->render()') ? '{!! ' . $m[1] . ' !!}' : '{{ ' . $m[1] . ' }}', $php);
+        $php = (string) preg_replace('/<\?php if \((.+?)\): foreach \((.+?)\): \?>/', '@if ($1) @foreach ($2)', $php);
+        $php = (string) preg_replace('/<\?php endforeach; endif; \?>/', '@endforeach @endif', $php);
+        $php = (string) preg_replace('/<\?php if \((.+?)\): \?>/', '@if ($1)', $php);
+        $php = str_replace(['<?php endif; ?>', '<?php endforeach; ?>'], ['@endif', '@endforeach'], $php);
+
+        return (string) preg_replace('/<\?php foreach \((.+?)\): \?>/', '@foreach ($1)', $php);
+    }
+
     protected function createViewsFromWizard(
         string $name,
         array  $columns,
@@ -3962,10 +3999,19 @@ PHP;
         ]);
 
         // ── Write view files ───────────────────────────────────────────────────
+        // In the template engine (`.tpl.php`) when asked — `--views=tpl`, or app.php's
+        // `'make' => ['views' => 'tpl']` — from the `.tpl` twins of the same stubs.
+        $kind = $this->viewKind();
+        if ($kind === 'tpl') {
+            $tokens      = ['objectName' => $objectName, 'objectNamePlural' => $objectNamePlural, 'className' => $className, 'primaryKey' => $primaryKey, 'mediaColumns' => $mediaColumnList, 'formFields' => self::templateSyntax($formFields)];
+            $listContent = $this->renderStub('crud-view-' . $themeKey . '-list.tpl', $tokens);
+            $editContent = $this->renderStub('crud-view-' . $themeKey . '-edit.tpl', $tokens);
+            $showContent = $this->renderStub('crud-view-' . $themeKey . '-show.tpl', $tokens);
+        }
         $files = [
-            $viewDir . DS . strtolower($name) . '.html.php' => $listContent,
-            $viewDir . DS . 'edit.html.php'                  => $editContent,
-            $viewDir . DS . 'show.html.php'                  => $showContent,
+            $viewDir . DS . strtolower($name) . '.' . $kind . '.php' => $listContent,
+            $viewDir . DS . 'edit.' . $kind . '.php'                  => $editContent,
+            $viewDir . DS . 'show.' . $kind . '.php'                  => $showContent,
         ];
 
         $summary = "Views:\n";

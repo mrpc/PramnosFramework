@@ -1,0 +1,41 @@
+{{-- {{ objectName }} detail (read-only) view — auto-generated CRUD view.
+
+Variables:
+  $this->model — the {{ objectName }} model instance to display --}}
+@php
+$data = $this->model->getData();
+$pk   = $this->model->{{ primaryKey }};
+
+/*
+ * Columns that hold a picture — the ones whose foreign key references `media`.
+ *
+ * The address is asked for, never assembled. `sURL . $media->url` is the obvious line
+ * and it is wrong twice: `sURL` is the *script's* base, so the same code inside an API
+ * request answers `/api/uploads/x.png`, and once a `media` storage disk is configured
+ * the file is on a bucket while the concatenation keeps pointing at the local copy.
+ */
+$mediaColumns = {{ mediaColumns }};
+@endphp
+<div class="px-4 py-6">
+    {!! \Pramnos\Application\Application::getInstance()->renderBreadcrumbs() !!}
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-semibold">{{ objectName }}</h2>
+        <div class="flex gap-2">
+            <a href="{{ sURL }}{{ className }}" class="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded-sm hover:bg-gray-50">&laquo; Back</a>
+            <a href="{{ sURL }}{{ className }}/edit/{{ $pk }}" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-sm hover:bg-blue-700">Edit</a>
+            <a href="{{ sURL }}{{ className }}/delete/{{ $pk }}" class="px-4 py-2 border border-red-400 text-red-700 text-sm rounded-sm hover:bg-red-50" data-confirm="Delete this {{ objectName }}?">Delete</a>
+        </div>
+    </div>
+    <div class="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
+        <table class="w-full text-sm">
+            <tbody class="divide-y divide-gray-100">
+                @foreach ($data as $field => $value)
+                <tr>
+                    <th class="px-4 py-2.5 text-left text-gray-500 bg-gray-50 align-top" style="width:220px">{{ ucwords(str_replace('_', ' ', (string) $field)) }}</th>
+                    <td class="px-4 py-2.5 text-gray-800">@if (in_array($field, $mediaColumns, true))@php $src = \Pramnos\Media\MediaObject::urlFor($value, 'medium'); @endphp@if ($src === '')<span class="text-gray-300">—</span>@else<img src="{{ $src }}" alt="" style="max-width:320px;height:auto">@endif@elseif (is_bool($value)){{ $value ? 'Yes' : 'No' }}@elseif ($value === null || $value === '')<span class="text-gray-300">—</span>@elseif (is_array($value))<pre class="m-0">{{ json_encode($value, JSON_PRETTY_PRINT) }}</pre>@else{{ $value }}@endif</td>
+                </tr>
+                @endforeach
+            </tbody>
+        </table>
+    </div>
+</div>

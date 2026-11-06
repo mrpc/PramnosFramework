@@ -32,6 +32,12 @@ class MakeCrud extends MakeCommandBase
             InputOption::VALUE_OPTIONAL,
             'What to generate: mvc, spa or both (default: from app.php app_style)'
         );
+        $this->addOption(
+            'views',
+            null,
+            InputOption::VALUE_REQUIRED,
+            'The views to write: html (.html.php) or tpl (.tpl.php, the template engine); default: app.php make.views, else html'
+        );
     }
 
     protected function execute(InputInterface $input, OutputInterface $output)
@@ -48,6 +54,12 @@ class MakeCrud extends MakeCommandBase
                 "Unknown --target '$target'. Use mvc, spa or both."
             );
         }
+
+        $views = $input->getOption('views');
+        if ($views !== null && !in_array($views, ['html', 'tpl'], true)) {
+            throw new \InvalidArgumentException("Unknown --views '$views'. Use html or tpl.");
+        }
+        $this->viewKinds = (string) $views;
 
         // Set on the command, not passed in: createCrud() is a public method
         // apps may override, so its signature stays as it was.

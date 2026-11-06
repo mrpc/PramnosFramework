@@ -1340,6 +1340,81 @@ class MakeCommandGeneratorsTest extends TestCase
     }
 
     /**
+     * With `tpl` chosen (`create:crud --views=tpl`), the same three views are written as
+     * `.tpl.php` in the template engine's syntax — the form fields too — and each compiles to
+     * valid PHP. The generated controller needs nothing of its own: a `display()` that asks for
+     * HTML draws a `.tpl.php` when that is the only kind there is.
+     */
+    public function testCreateViewFullWritesTemplatesWhenAsked(): void
+    {
+        // Arrange
+        $viewDir = ROOT . '/src/Views/testtplview';
+        $this->command->viewKinds = 'tpl';
+
+        try {
+            // Act
+            $this->command->exposeCreateView('TestTplView', true);
+
+            // Assert
+            foreach (['testtplview', 'edit', 'show'] as $file) {
+                $this->assertFileDoesNotExist($viewDir . '/' . $file . '.html.php');
+                $this->assertFileExists($viewDir . '/' . $file . '.tpl.php');
+                $source = (string) file_get_contents($viewDir . '/' . $file . '.tpl.php');
+                $this->assertStringNotContainsString('<?php', $source, $file . ': no raw PHP left');
+                $compiled = $viewDir . '/' . $file . '.compiled.php';
+                file_put_contents($compiled, (new \Pramnos\Application\Template\TemplateCompiler())->compile($source));
+                $this->assertMatchesRegularExpression('/No syntax errors/', (string) shell_exec(PHP_BINARY . ' -l ' . escapeshellarg($compiled) . ' 2>&1'), $file . ' compiles to valid PHP');
+            }
+            $edit = (string) file_get_contents($viewDir . '/edit.tpl.php');
+            $this->assertStringContainsString('name="title"', $edit);
+            $this->assertStringContainsString('{{ (string)($this->model->title ?? \'\') }}', $edit, 'a field\'s value, escaped by the engine');
+            $this->assertStringContainsString('{{ $this->model->', $edit);
+        } finally {
+            $this->command->viewKinds = '';
+            $this->removeDirRecursive($viewDir);
+        }
+    }
+
+    /**
+     * Every theme's template stubs, filled in, compile to valid PHP — the three themes'
+     * list, edit and show — and the PHP-to-template conversion of a form fragment handles the
+     * shapes the field builder emits.
+     */
+    public function testEveryTemplateStubCompiles(): void
+    {
+        // Arrange
+        $dir    = sys_get_temp_dir() . '/pf-crud-tpl-' . bin2hex(random_bytes(3));
+        mkdir($dir);
+        $fields = MakeCommandBase::templateSyntax(
+            "<?php if (is_array(\$this->roles)): foreach (\$this->roles as \$opt): ?>\n"
+            . "<option value=\"<?php echo \$opt['id']; ?>\" <?php echo \$this->model->role == \$opt['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars((string)(\$opt['name'])); ?></option>\n"
+            . "<?php endforeach; endif; ?><?php if (!empty(\$x)): ?>y<?php endif; ?><?php foreach (\$a as \$b): ?>z<?php endforeach; ?><?php echo \\X::y(); ?>"
+        );
+
+        try {
+            foreach (['plain', 'bootstrap', 'tailwind'] as $theme) {
+                foreach (['list', 'edit', 'show'] as $kind) {
+                    // Act
+                    $source   = $this->command->renderStub('crud-view-' . $theme . '-' . $kind . '.tpl', ['objectName' => 'Client', 'objectNamePlural' => 'Clients', 'className' => 'Clients', 'primaryKey' => 'clientid', 'mediaColumns' => "['logo']", 'formFields' => $fields]);
+                    $compiled = $dir . '/' . $theme . '-' . $kind . '.php';
+                    file_put_contents($compiled, (new \Pramnos\Application\Template\TemplateCompiler())->compile($source));
+
+                    // Assert
+                    $this->assertStringNotContainsString('<?php', $source, $theme . '/' . $kind);
+                    $this->assertMatchesRegularExpression('/No syntax errors/', (string) shell_exec(PHP_BINARY . ' -l ' . escapeshellarg($compiled) . ' 2>&1'), $theme . '/' . $kind);
+                }
+            }
+            $this->assertStringContainsString("@if (is_array(\$this->roles)) @foreach (\$this->roles as \$opt)", $fields);
+            $this->assertStringContainsString("{{ \$opt['id'] }}", $fields);
+            $this->assertStringContainsString("{{ (string)(\$opt['name']) }}", $fields);
+            $this->assertStringContainsString('@endforeach @endif@if (!empty($x))y@endif@foreach ($a as $b)z@endforeach{!! \\X::y() !!}', $fields);
+        } finally {
+            array_map('unlink', glob($dir . '/*') ?: []);
+            rmdir($dir);
+        }
+    }
+
+    /**
      * `create:view <name> --full` against a table that does not exist (and with
      * no wizard columns) must fail loudly with the SAME clear message the
      * controller/model generators throw — pointing the developer at

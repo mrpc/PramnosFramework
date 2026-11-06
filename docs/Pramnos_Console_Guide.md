@@ -93,6 +93,7 @@ php bin/pramnos create:api User
 
 # Create database migration
 php bin/pramnos create:migration create_users_table
+php bin/pramnos create:crud User --views=tpl   # the views as .tpl.php, in the template engine
 ```
 
 #### Running `create:model` again on a model that exists
@@ -115,6 +116,11 @@ the property — which is the trade this branch makes deliberately, because the 
 the model's own code.
 
 #### Select2 changes what a foreign-key field loads
+
+`create:crud --views=tpl` writes the list, edit and show views as `.tpl.php` templates in
+the framework's template engine instead of `.html.php`. `'make' => ['views' => 'tpl']` in
+app.php makes that the default. The generated controller is the same either way: a
+`display()` draws a `.tpl.php` when that is the only kind of the view there is.
 
 `create:crud` and `create:controller` generate an edit form whose foreign-key fields behave differently
 depending on whether the project registered Select2:

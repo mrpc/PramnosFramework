@@ -1,0 +1,27 @@
+{{-- {{ objectName }} create/edit form — auto-generated CRUD view.
+
+Variables:
+  $this->model — the {{ objectName }} model instance (empty props when creating)
+  $this->error — optional error flash message --}}
+@php
+$isNew = ($this->model->{{ primaryKey }} ?? 0) <= 0;
+@endphp
+<div class="container py-4" style="max-width:640px">
+    {!! \Pramnos\Application\Application::getInstance()->renderBreadcrumbs() !!}
+    <h2 class="mb-4">{{ $isNew ? 'New {{ objectName }}' : 'Edit {{ objectName }}' }}</h2>
+    @if (!empty($this->error))
+        <div class="alert alert-danger">{{ $this->error }}</div>
+    @endif
+    <div class="card">
+        <div class="card-body">
+            <form method="post" action="{{ sURL }}{{ className }}/save/{{ $this->model->{{ primaryKey }} }}">
+                {!! \Pramnos\Http\Middleware\CsrfMiddleware::tokenField() !!}
+{{ formFields }}
+                <div class="d-flex gap-2 mt-3">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <a href="{{ sURL }}{{ className }}" class="btn btn-outline-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
