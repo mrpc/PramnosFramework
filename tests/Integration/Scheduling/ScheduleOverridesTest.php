@@ -379,7 +379,7 @@ final class ScheduleOverridesTest extends TestCase
     /** A theme's template with what the controller would publish. */
     private function render(string $theme, string $template, object $published): string
     {
-        $file = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/scheduler/' . $template . '.html.php';
+        $file = \Pramnos\Tests\Support\ScaffoldView::file(dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/scheduler/' . $template);
         $run  = \Closure::bind(function () use ($file): void {
             include $file;
         }, $published, null);

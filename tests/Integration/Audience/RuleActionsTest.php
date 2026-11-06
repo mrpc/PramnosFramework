@@ -242,7 +242,7 @@ class RuleActionsTest extends TestCase
         $this->assertSame([null, null], [$gone['name'], $gone['url']]);
         $this->assertNull($nothing);
         foreach (['tailwind', 'bootstrap', 'plain-css'] as $theme) {
-            $view = (string) file_get_contents(ROOT . '/scaffolding/themes/' . $theme . '/views/emails/show.html.php');
+            $view = (string) \Pramnos\Tests\Support\ScaffoldView::source($theme, 'emails/show');
             $this->assertStringContainsString('data-field="origin"', $view, $theme);
         }
     }

@@ -80,7 +80,7 @@ class BrowserScriptTest extends TestCase
         foreach (BrowserScript::WORDS as $sentence) {
             $this->assertStringContainsString("'" . $sentence . "'", $joined, $sentence);
         }
-        foreach (glob(dirname(__DIR__, 3) . '/scaffolding/themes/*/{footer.php,views/OAuth2/privacy_settings.html.php}', GLOB_BRACE) ?: [] as $view) {
+        foreach (glob(dirname(__DIR__, 3) . '/scaffolding/themes/*/{footer.php,views/OAuth2/privacy_settings.html.php,views/OAuth2/privacy_settings.tpl.php}', GLOB_BRACE) ?: [] as $view) {
             $source = (string) file_get_contents($view);
             if (str_contains($source, 'assets/js/push.js')) {
                 $this->assertStringContainsString('BrowserScript::attributes()', $source, $view);

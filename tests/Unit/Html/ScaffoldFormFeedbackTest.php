@@ -240,7 +240,7 @@ class ScaffoldFormFeedbackTest extends TestCase
 
         // Act
         foreach (self::AUTH_VIEWS as $view) {
-            $path = self::viewsDirectory($theme) . '/' . $view . '.html.php';
+            $path = self::viewsDirectory($theme) . '/' . $view . (is_file(self::viewsDirectory($theme) . '/' . $view . '.html.php') ? '.html.php' : '.tpl.php');
             $this->assertFileExists($path);
 
             $source = (string) file_get_contents($path);

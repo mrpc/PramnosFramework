@@ -27,7 +27,7 @@ class MailingListsScreenTest extends TestCase
     /** Render one theme's view with `$vars` as the view's properties. */
     private function render(string $theme, array $vars): string
     {
-        $file  = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/mailinglists/mailinglists.html.php';
+        $file  = \Pramnos\Tests\Support\ScaffoldView::includable($theme, 'mailinglists/mailinglists');
         $view  = (object) $vars;
         $run   = \Closure::bind(function (string $file): void {
             include $file;

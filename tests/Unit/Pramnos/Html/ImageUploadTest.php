@@ -168,7 +168,7 @@ final class ImageUploadTest extends TestCase
                 }
             };
             $view->user = (object) ['avatarurl' => $avatar, 'photo' => $avatar === '' ? 0 : 5, 'username' => 'maria'];
-            $file = ROOT . '/scaffolding/themes/' . $theme . '/views/profile/profile.html.php';
+            $file = \Pramnos\Tests\Support\ScaffoldView::includable($theme, 'profile/profile');
 
             return (function () use ($file): string {
                 ob_start();

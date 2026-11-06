@@ -100,7 +100,7 @@ trait AdminScreen
         foreach ($vars as $key => $value) {
             $view->{$key} = $value;
         }
-        $path = ROOT . '/scaffolding/themes/' . $theme . '/views/' . $file;
+        $path = \Pramnos\Tests\Support\ScaffoldView::file(ROOT . '/scaffolding/themes/' . $theme . '/views/' . preg_replace('/\.(html|tpl)\.php$/', '', $file));
 
         return (function (string $path): string {
             ob_start();

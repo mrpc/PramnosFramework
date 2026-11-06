@@ -114,7 +114,7 @@ class ConsentListsScreenTest extends TestCase
         foreach ($forms as $theme => $page) {
             $this->assertStringContainsString('name="listid"', $page, $theme);
             $this->assertMatchesRegularExpression('/value="smsoffers"\s*selected/', $page, $theme);
-            $this->assertStringContainsString('getTokenField', file_get_contents(ROOT . '/scaffolding/themes/' . $theme . '/views/consentlists/edit.html.php'));
+            $this->assertStringContainsString('getTokenField', \Pramnos\Tests\Support\ScaffoldView::source($theme, 'consentlists/edit'));
         }
         $this->assertStringNotContainsString('name="listid"', $blank);
         $events = array_column($this->db->queryBuilder()->table('authserver.audit_log')->where('object_type', 'consentlist')->orderBy('auditid')->getAll(), 'event_type');

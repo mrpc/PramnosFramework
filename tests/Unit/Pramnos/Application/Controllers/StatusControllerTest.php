@@ -86,7 +86,7 @@ final class StatusControllerTest extends TestCase
             'disk_space' => ['status' => 'degraded', 'message' => '194512 MB free (58.7% used)', 'details' => ['driver' => 'pgsql 17.2']],
             'database'   => ['status' => 'ok', 'message' => 'Connected', 'details' => ['version' => '8.0.39']],
         ]];
-        $themes = glob(dirname(__DIR__, 5) . '/scaffolding/themes/*/views/status/status.html.php') ?: [];
+        $themes = array_map(fn (string $t): string => \Pramnos\Tests\Support\ScaffoldView::includable($t, 'status/status'), ['tailwind', 'bootstrap', 'plain-css']);
 
         // Act + Assert
         $this->assertCount(3, $themes);

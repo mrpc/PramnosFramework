@@ -64,6 +64,9 @@ class ScaffoldAccountMobileTest extends TestCase
             return \Pramnos\Tests\Support\ThemeStylesheet::read($theme);
         }
         $path = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/' . $relative;
+        if (!is_file($path) && str_ends_with($path, '.html.php')) {
+            $path = substr($path, 0, -9) . '.tpl.php';
+        }
         self::assertFileExists($path);
 
         return (string) file_get_contents($path);

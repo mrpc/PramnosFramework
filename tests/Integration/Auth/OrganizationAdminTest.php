@@ -464,8 +464,8 @@ class OrganizationAdminTest extends BaseTestCase
 
             // Act
             ob_start();
-            $render($root . 'view.html.php');
-            $render($root . 'organization.html.php');
+            $render(\Pramnos\Tests\Support\ScaffoldView::file($root . 'view'));
+            $render(\Pramnos\Tests\Support\ScaffoldView::file($root . 'organization'));
             $html = (string) ob_get_clean();
 
             // Assert

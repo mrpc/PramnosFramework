@@ -188,12 +188,12 @@ class ScaffoldSignInPracticesTest extends TestCase
     public static function authScreens(): array
     {
         return [
-            'login/login.html.php',
-            'login/login_2fa.html.php',
-            'login/forgotpassword.html.php',
-            'login/resetpassword.html.php',
-            'register/register.html.php',
-            'OAuth2/change_password.html.php',
+            'login/login',
+            'login/login_2fa',
+            'login/forgotpassword',
+            'login/resetpassword',
+            'register/register',
+            'OAuth2/change_password',
         ];
     }
 
@@ -212,11 +212,8 @@ class ScaffoldSignInPracticesTest extends TestCase
         $this->assertNotEmpty(self::authScreens(), 'the sweep found nothing to check');
 
         foreach (self::authScreens() as $screen) {
-            $path = self::viewsDirectory($theme) . '/' . $screen;
-
-            if (!is_file($path)) {
-                continue;
-            }
+            $path = \Pramnos\Tests\Support\ScaffoldView::path($theme, $screen);
+            $this->assertFileExists($path, 'a screen the sweep names is gone');
 
             if (!str_contains((string) file_get_contents($path), 'enterkeyhint="go"')) {
                 $without[] = $screen;

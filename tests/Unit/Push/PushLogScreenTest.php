@@ -32,8 +32,7 @@ class PushLogScreenTest extends TestCase
         foreach (self::THEMES as $theme) {
             // Assert
             $this->assertFileExists(
-                dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme
-                . '/views/pushlog/pushlog.html.php',
+                \Pramnos\Tests\Support\ScaffoldView::path($theme, 'pushlog/pushlog'),
                 $theme . ' has no push log view'
             );
         }
@@ -50,10 +49,7 @@ class PushLogScreenTest extends TestCase
     {
         foreach (self::THEMES as $theme) {
             // Act
-            $view = (string) file_get_contents(
-                dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme
-                . '/views/pushlog/pushlog.html.php'
-            );
+            $view = \Pramnos\Tests\Support\ScaffoldView::source($theme, 'pushlog/pushlog');
 
             // Assert
             $this->assertStringContainsString('Not sent', $view, $theme);
@@ -529,7 +525,7 @@ class PushLogScreenTest extends TestCase
         $view->subscription = ['id' => 3, 'user_agent' => 'Chrome on Android', 'created_at' => 1700000000,
                                'last_success_at' => 1700000100, 'failure_count' => 0];
         $view->history      = [$row, ['pushid' => 6, 'title' => 'Earlier', 'status' => 410, 'endpoint_hash' => 'abc', 'sent' => '2026-10-02 07:00:00']];
-        $file = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/pushlog/view.html.php';
+        $file = \Pramnos\Tests\Support\ScaffoldView::includable($theme, 'pushlog/view');
 
         // Act
         ob_start();
@@ -558,7 +554,7 @@ class PushLogScreenTest extends TestCase
     public function testTheListLinksToTheDetailPage(string $theme): void
     {
         // Act
-        $source = (string) file_get_contents(dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/pushlog/pushlog.html.php');
+        $source = \Pramnos\Tests\Support\ScaffoldView::source($theme, 'pushlog/pushlog');
 
         // Assert
         $this->assertStringContainsString("adminUrl('PushLog/view/')", $source);
@@ -678,7 +674,7 @@ class PushLogScreenTest extends TestCase
         $view->subscription = ['id' => 1, 'user_agent' => 'Chrome', 'created_at' => 1, 'last_success_at' => null, 'failure_count' => 0];
         $view->history      = [];
         $view->receipt      = $receipt;
-        $file = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/pushlog/view.html.php';
+        $file = \Pramnos\Tests\Support\ScaffoldView::includable($theme, 'pushlog/view');
 
         // Act
         ob_start();

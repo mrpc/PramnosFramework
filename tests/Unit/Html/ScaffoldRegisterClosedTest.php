@@ -68,7 +68,7 @@ final class ScaffoldRegisterClosedTest extends TestCase
     /** The theme's registration view. */
     private static function view(string $theme): string
     {
-        return dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/register/register.html.php';
+        return \Pramnos\Tests\Support\ScaffoldView::includable($theme, 'register/register');
     }
 
     /**

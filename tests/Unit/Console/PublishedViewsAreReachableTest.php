@@ -172,8 +172,8 @@ class PublishedViewsAreReachableTest extends TestCase
         // success — which is how a guard stops guarding without anybody noticing.
         $this->assertNotEmpty($this->themeViewRoots(), 'the sweep found nothing to check');
         foreach ($this->themeViewRoots() as $root) {
-            if (file_exists($root . '/health/check.html.php')) {
-                $found[] = $root . '/health/check.html.php';
+            foreach (glob($root . '/health/check.{html,tpl}.php', GLOB_BRACE) ?: [] as $dead) {
+                $found[] = $dead;
             }
         }
 
@@ -198,7 +198,7 @@ class PublishedViewsAreReachableTest extends TestCase
         // success — which is how a guard stops guarding without anybody noticing.
         $this->assertNotEmpty($this->themeViewRoots(), 'the sweep found nothing to check');
         foreach ($this->themeViewRoots() as $root) {
-            if (!file_exists($root . '/health/health.html.php')) {
+            if (!file_exists($root . '/health/health.html.php') && !file_exists($root . '/health/health.tpl.php')) {
                 $missing[] = $root;
             }
         }

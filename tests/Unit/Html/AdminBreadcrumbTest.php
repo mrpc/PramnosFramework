@@ -165,10 +165,10 @@ final class AdminBreadcrumbTest extends TestCase
     public function testTheEmailPreviewHasNoHandlerAndStaysSandboxed(string $theme): void
     {
         // Arrange
-        $file = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/emails/show.html.php';
+        $file = \Pramnos\Tests\Support\ScaffoldView::path($theme, 'emails/show');
 
         // Act — the markup only: the PHP inside the tag carries a `>` of its own.
-        $html = (string) preg_replace('/<\?(?:php|=).*?\?>/s', 'x', (string) file_get_contents($file));
+        $html = (string) preg_replace('/<\?(?:php|=).*?\?>|\{\{.*?\}\}|\{!!.*?!!\}/s', 'x', (string) file_get_contents($file));
         $this->assertSame(1, preg_match('/<iframe\b[^>]*>/s', $html, $m), 'no preview frame');
         $frame = $m[0];
 

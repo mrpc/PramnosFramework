@@ -233,7 +233,7 @@ class InitAuthEntryPointsTest extends TestCase
 
         foreach (['plain-css', 'bootstrap', 'tailwind'] as $theme) {
             // Act
-            $path = $themes . '/' . $theme . '/views/register/register.html.php';
+            $path = \Pramnos\Tests\Support\ScaffoldView::path($theme, 'register/register');
             $this->assertFileExists($path);
             $code = (string) file_get_contents($path);
 
@@ -290,9 +290,7 @@ class InitAuthEntryPointsTest extends TestCase
 
         foreach (['plain-css', 'bootstrap', 'tailwind'] as $theme) {
             // Act
-            $code = (string) file_get_contents(
-                $themes . '/' . $theme . '/views/register/register.html.php'
-            );
+            $code = \Pramnos\Tests\Support\ScaffoldView::source($theme, 'register/register');
 
             // Assert
             foreach ($keys as $key) {

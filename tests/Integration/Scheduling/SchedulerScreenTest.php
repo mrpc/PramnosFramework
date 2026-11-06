@@ -182,7 +182,7 @@ final class SchedulerScreenTest extends TestCase
         }
         $rows = RunLog::table()->getAll();
         unset($_POST['task']);
-        $view = (string) file_get_contents(dirname(__DIR__, 3) . '/scaffolding/themes/tailwind/views/scheduler/scheduler.html.php');
+        $view = \Pramnos\Tests\Support\ScaffoldView::source('tailwind', 'scheduler/scheduler');
 
         // Assert
         $this->assertCount(1, $rows, 'the field was not read');
@@ -231,7 +231,7 @@ final class SchedulerScreenTest extends TestCase
     /** The tailwind template with what the controller published. */
     private function render(string $template, object $published): string
     {
-        $file = dirname(__DIR__, 3) . '/scaffolding/themes/tailwind/views/scheduler/' . $template . '.html.php';
+        $file = \Pramnos\Tests\Support\ScaffoldView::file(dirname(__DIR__, 3) . '/scaffolding/themes/tailwind/views/scheduler/' . $template);
         $run  = \Closure::bind(function () use ($file): void {
             include $file;
         }, $published, null);
