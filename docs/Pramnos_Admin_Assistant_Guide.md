@@ -246,6 +246,15 @@ return [
 ];
 ```
 
+**Proposed questions.** `php bin/pramnos help:questions` goes through the sections that have
+no questions. It asks the configured connection's cheapest model for two to four questions a
+reader would ask that each section answers, in the page's language, and prints them. `--write`
+puts them under each heading as `<!-- questions: … -->`, for you to read and correct. A section
+that already has questions is left alone, so running it again fills only what is still empty.
+`--page` takes one page and `--limit` (50 by default) caps how many sections one run asks about.
+`--framework` includes the framework's own pages, which in an application are in `vendor/`, where
+a write would be lost at the next update.
+
 **Golden questions.** `_golden.php` in a help directory maps the questions people really ask to
 the page, or the `page#anchor`, that answers each. `php bin/pramnos help:eval` prints recall@1
 (the answer first) and recall@3 (in the first three), and each question that missed with what came

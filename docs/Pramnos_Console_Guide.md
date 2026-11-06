@@ -444,6 +444,7 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 | `timescale:ensure` | Convert declared tables to hypertables and (re)apply compression | `--dry-run`, `--table/-t` |
 | `timescale:drain` | Write queued rows into their hypertables, per chunk, within a WAL budget | `--table/-t`, `--status/-s`, `--retry-failed`, `--wal-budget=MB`, `--replica-lag=MB` |
 | `metrics:compute` | Compute the application's metrics: the open periods, and close those that ended | `--metric`, `--grain`, `--from`, `--to`, `--recompute` |
+| `help:questions` | Propose questions for the help sections that have none, from the cheapest model; write them with `--write` | `--level`, `--page`, `--limit`, `--write`, `--framework` |
 | `help:eval` | Score the help search against the golden questions in `_golden.php`: recall@1 and recall@3, and each miss | `--level`, `--min` |
 | `metrics:reports-send` | Mail the scheduled metric reports for the periods that closed | — |
 

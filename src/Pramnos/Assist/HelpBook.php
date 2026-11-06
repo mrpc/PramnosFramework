@@ -723,7 +723,7 @@ final class HelpBook
         return $this->pages = $pages;
     }
 
-    /** @return array{slug: string, title: string, section: string, questions: list<string>, updated: string, order: ?int, requires: list<string>, screens: list<string>, whatsnew: list<string>, source: string, body: string, framework: bool} */
+    /** @return array{slug: string, title: string, section: string, questions: list<string>, updated: string, order: ?int, requires: list<string>, screens: list<string>, whatsnew: list<string>, source: string, body: string, framework: bool, file: string} */
     private static function read(string $file, string $slug, bool $framework): array
     {
         ['meta' => $meta, 'body' => $body] = \Pramnos\Support\FrontMatter::parse((string) file_get_contents($file));
@@ -750,6 +750,8 @@ final class HelpBook
             'source'    => is_string($meta['source'] ?? null) ? strtolower(trim($meta['source'])) : '',
             'body'      => $body,
             'framework' => $framework,
+            // The file it was read from: for a tool that writes to it (help:questions).
+            'file'      => $file,
         ];
     }
 
