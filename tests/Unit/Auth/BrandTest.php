@@ -91,7 +91,7 @@ final class BrandTest extends TestCase
      */
     public function testThePartialDrawsTheLogoOrTheNameEscapedInEveryTheme(): void
     {
-        $partials = glob(dirname(__DIR__, 3) . '/scaffolding/themes/*/views/partials/auth_brand.html.php') ?: [];
+        $partials = glob(dirname(__DIR__, 3) . '/scaffolding/themes/*/views/partials/auth_brand.{html,tpl}.php', GLOB_BRACE) ?: [];
         $this->assertCount(3, $partials, 'one partial per theme');
         foreach ($partials as $file) {
             // Arrange
@@ -130,8 +130,7 @@ final class BrandTest extends TestCase
         // Act
         foreach (['tailwind', 'bootstrap', 'plain-css'] as $theme) {
             foreach ($screens as $screen) {
-                $file = dirname(__DIR__, 3) . "/scaffolding/themes/{$theme}/views/{$screen}.html.php";
-                if (!str_contains((string) @file_get_contents($file), "insert('../partials/auth_brand')")) {
+                if (!\Pramnos\Tests\Support\ScaffoldView::includes($theme, $screen, '../partials/auth_brand')) {
                     $missing[] = "{$theme}/{$screen}";
                 }
             }
@@ -149,7 +148,7 @@ final class BrandTest extends TestCase
     public function testNoViewForcesTheBrandColourWhenNoneWasChosen(): void
     {
         // Arrange
-        $views = glob(dirname(__DIR__, 3) . '/scaffolding/themes/*/views/*/*.html.php') ?: [];
+        $views = glob(dirname(__DIR__, 3) . '/scaffolding/themes/*/views/*/*.{html,tpl}.php', GLOB_BRACE) ?: [];
         $this->assertNotEmpty($views, 'the sweep found nothing to check');
         $readers = 0;
         $forced  = [];
@@ -162,7 +161,7 @@ final class BrandTest extends TestCase
             }
             $readers++;
             if (!str_contains($source, "primary_color_set")
-                || preg_match('/<\?php echo \$primary; \?>/', $source) === 1) {
+                || preg_match('/<\?php echo \$primary; \?>|\{!! \$primary !!\}/', $source) === 1) {
                 $forced[] = basename(dirname($file, 3)) . '/' . basename(dirname($file)) . '/' . basename($file);
             }
         }

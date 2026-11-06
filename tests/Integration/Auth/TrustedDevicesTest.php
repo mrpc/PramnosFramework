@@ -264,7 +264,8 @@ class TrustedDevicesTest extends BaseTestCase
         $this->assertCount(2, $list);
         $this->assertTrue($list[0]['is_current'], 'the newest is this browser');
         $this->assertFalse($list[1]['is_current']);
-        $this->assertSame('Safari on iPhone or iPad', $list[0]['name']);
+        // In whatever language an earlier test left active: the label is the translated phrase.
+        $this->assertSame(t('%s on %s', 'Safari', 'iPhone or iPad'), $list[0]['name']);
     }
 
     /**

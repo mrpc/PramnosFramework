@@ -427,7 +427,7 @@ class SwitchUiTest extends TestCase
     {
         // Arrange — every bundled users/ view of bootstrap, published
         $this->writeAppConfig("    'theme' => 'default',\n    'scaffold_theme' => 'bootstrap',\n");
-        $bundled = glob(ROOT . '/scaffolding/themes/bootstrap/views/*/*.html.php') ?: [];
+        $bundled = glob(ROOT . '/scaffolding/themes/bootstrap/views/*/*.{html,tpl}.php', GLOB_BRACE) ?: [];
         $this->assertGreaterThan(10, count($bundled));
         foreach ($bundled as $file) {
             $relative = substr($file, strlen(ROOT . '/scaffolding/themes/bootstrap/views/'));
