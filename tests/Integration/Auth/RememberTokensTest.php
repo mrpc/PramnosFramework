@@ -73,11 +73,11 @@ class RememberTokensTest extends TestCase
     }
 
     /**
-     * A token signs in again once: the sign-in replaces it, so a copy of the cookie stops working
-     * as soon as the browser it came from comes back.
+     * A token is replaced when it signs in again, and the replaced one ends a minute later: a
+     * copy of the cookie stops working soon after the browser it came from comes back.
      */
     #[DataProvider('databases')]
-    public function testATokenIsUsedOnce(string $type, string $host, int $port): void
+    public function testATokenIsReplacedWhenItIsUsed(string $type, string $host, int $port): void
     {
         // Arrange
         $this->connect($type, $host, $port);
@@ -89,13 +89,83 @@ class RememberTokensTest extends TestCase
         $again  = (new Auth())->rememberLogin();
         $second = (string) $_SESSION['auth'];
         $_SESSION = [];
+        $this->db->queryBuilder()->table('authserver.remember_tokens')->where('selector', explode('.', $first)[0])->update(['expires_at' => time() - 1]);
         $copy = (new Auth())->rememberLogin();
 
         // Assert
         $this->assertTrue($again);
         $this->assertNotSame($first, $second, 'a new token for the new sign-in');
-        $this->assertFalse($copy, 'the old one is spent');
+        $this->assertFalse($copy, 'once its grace is over, the old one is spent');
         $this->assertSame($this->userId, RememberTokens::userFor($second));
+    }
+
+    /**
+     * Two requests of the same browser at once, with the same cookie — a mail app opening a link
+     * twice within a second — are both signed in: the replaced token keeps signing in for the
+     * grace, each use issuing a token of its own, and the grace never lengthens its life.
+     */
+    #[DataProvider('databases')]
+    public function testTwoRequestsAtOnceAreBothSignedIn(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connect($type, $host, $port);
+        $first = $this->signIn();
+        $this->cookies($this->username(), $first);
+        $rows = fn (): \Pramnos\Database\QueryBuilder => $this->db->queryBuilder()->table('authserver.remember_tokens')->where('selector', explode('.', $first)[0]);
+
+        // Act
+        $one      = (new Auth())->rememberLogin();
+        $oneToken = (string) $_SESSION['auth'];
+        $_SESSION = [];
+        $two      = (new Auth())->rememberLogin();
+        $twoToken = (string) $_SESSION['auth'];
+        $_SESSION = [];
+        $expires  = (int) $rows()->first()->fields['expires_at'];
+
+        // Assert
+        $this->assertTrue($one, 'the first request');
+        $this->assertTrue($two, 'the second request, with the same cookie');
+        $this->assertNotSame($oneToken, $twoToken, 'each gets a token of its own');
+        $this->assertLessThanOrEqual(time() + RememberTokens::GRACE, $expires, 'the old one ends within the grace');
+        $this->assertGreaterThan(time(), $expires, 'and not yet');
+    }
+
+    /**
+     * Retiring never lengthens a token's life, and does nothing to what is not a token; signing
+     * out ends a token at once, grace or not; and `'auth' => ['remember_grace' => …]` sets the
+     * grace.
+     */
+    #[DataProvider('databases')]
+    public function testRetiringNeverLengthensAndRevokingIsImmediate(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connect($type, $host, $port);
+        $app   = \Pramnos\Application\Application::getInstance();
+        $info  = $app->applicationInfo;
+        $short = $this->signIn();
+        $table = fn (string $token): \Pramnos\Database\QueryBuilder => $this->db->queryBuilder()->table('authserver.remember_tokens')->where('selector', explode('.', $token)[0]);
+        $table($short)->update(['expires_at' => time() + 10]);
+        $configured = $this->signIn();
+        $revoked    = $this->signIn();
+
+        try {
+            // Act
+            RememberTokens::retire($short);
+            RememberTokens::retire('not a token');
+            $app->applicationInfo['auth'] = ['remember_grace' => 300];
+            RememberTokens::retire($configured);
+            RememberTokens::retire($revoked);
+            RememberTokens::revoke($revoked);
+        } finally {
+            $app->applicationInfo = $info;
+        }
+
+        // Assert
+        $this->assertLessThanOrEqual(time() + 10, (int) $table($short)->first()->fields['expires_at'], 'a token about to end is not given more');
+        $left = (int) $table($configured)->first()->fields['expires_at'] - time();
+        $this->assertGreaterThan(RememberTokens::GRACE, $left, 'the configured grace');
+        $this->assertLessThanOrEqual(300, $left);
+        $this->assertNull(RememberTokens::userFor($revoked), 'revoked: ended at once');
     }
 
     /**
@@ -312,6 +382,7 @@ class RememberTokensTest extends TestCase
             $token  = RememberTokens::issue($this->userId);
             $who    = RememberTokens::userFor(str_repeat('c', 24) . '.' . str_repeat('d', 64));
             RememberTokens::revoke('not a token');
+            RememberTokens::retire($unknown); // nothing stored to retire: no error either
             $ended  = RememberTokens::revokeAll($this->userId);
             $signed = (new Auth())->loginById($this->userId, true);
             $kept   = (string) $_SESSION['auth'];

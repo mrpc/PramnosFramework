@@ -291,7 +291,9 @@ class Auth extends \Pramnos\Framework\Base
         if (!$row || (int) $row->numRows === 0 || (string) $row->fields['username'] !== $username) {
             return false;
         }
-        RememberTokens::revoke($cookie);
+        // Retired, not revoked: a second request of the same browser, sent alongside this one
+        // with the same cookie, still signs in for a few seconds instead of landing signed out.
+        RememberTokens::retire($cookie);
 
         return $this->loginById($userId, true);
     }

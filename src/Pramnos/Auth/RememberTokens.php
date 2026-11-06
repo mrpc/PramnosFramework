@@ -21,6 +21,13 @@ final class RememberTokens
     /** Days a token lives, unless `'auth' => ['remember_days' => …]` says otherwise. */
     public const DAYS = 30;
 
+    /**
+     * Seconds a used token still signs in after it was replaced, unless
+     * `'auth' => ['remember_grace' => …]` says otherwise: a browser that sends two requests at
+     * once with the same cookie — a mail app opening a link twice — gets both signed in.
+     */
+    public const GRACE = 60;
+
     /** What a token looks like: a selector and a validator, in hex. */
     public const PATTERN = '/^[a-f0-9]{24}\.[a-f0-9]{64}$/';
 
@@ -111,6 +118,25 @@ final class RememberTokens
         }
     }
 
+    /**
+     * Retire a token that has just been replaced: it keeps signing in for {@see GRACE} seconds
+     * more and then expires, so a request sent alongside the one that used it is not signed out.
+     * Never lengthens a token's life. {@see revoke()} is the one that ends a token at once.
+     */
+    public static function retire(string $token): void
+    {
+        if (!self::isToken($token)) {
+            return;
+        }
+        $selector = explode('.', $token, 2)[0];
+        try {
+            self::table()->where('selector', $selector)->where('expires_at', '>', time() + self::grace())
+                ->update(['expires_at' => time() + self::grace()]);
+        } catch (\Throwable) {
+            // No table: nothing was stored to retire.
+        }
+    }
+
     /** End every token of a person — "sign out everywhere". How many there were. */
     public static function revokeAll(int $userId): int
     {
@@ -140,6 +166,15 @@ final class RememberTokens
         $days = is_object($app) ? ($app->applicationInfo['auth']['remember_days'] ?? null) : null;
 
         return is_numeric($days) && (int) $days > 0 ? (int) $days : self::DAYS;
+    }
+
+    /** The seconds a replaced token still signs in. */
+    private static function grace(): int
+    {
+        $app   = \Pramnos\Application\Application::currentInstance();
+        $grace = is_object($app) ? ($app->applicationInfo['auth']['remember_grace'] ?? null) : null;
+
+        return is_numeric($grace) && (int) $grace >= 0 ? (int) $grace : self::GRACE;
     }
 
     private static function table(): \Pramnos\Database\QueryBuilder

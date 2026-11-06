@@ -122,8 +122,16 @@ A token ends in each of these cases:
 - the password changes, from any path, because each token remembers the password hash it was
   issued under.
 
-Signing in again from the cookies, `$auth->rememberLogin()`, uses the token once and issues a new
-one. A copied cookie therefore stops working as soon as the browser it came from returns.
+Signing in again from the cookies, `$auth->rememberLogin()`, replaces the token with a new one.
+The replaced token keeps signing in for a grace of 60 seconds (`'auth' => ['remember_grace' => 60]`)
+and then expires, so a copied cookie stops working a minute after the browser it came from
+returns.
+
+The grace exists because one browser can send two requests at once with the same cookie. A mail
+app that opens a link twice within a second is the common case. Without the grace, the second
+request finds its token already gone and lands on the sign-in page. Within the grace, each request
+signs in and gets a token of its own. Retiring a token (`RememberTokens::retire()`) never
+lengthens its life. Signing out and signing out everywhere end tokens at once, with no grace.
 `authCheck()` calls `rememberLogin()` when no auth addon is registered, so an application needs
 no addon for remember-me, and `init` scaffolds none. The framework's `UserDatabase` addon, where an
 application still registers it, does the same.

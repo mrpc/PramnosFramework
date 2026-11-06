@@ -94,7 +94,7 @@ class RememberLoginCharacterizationTest extends TestCase
     /**
      * With no auth addon registered — what a new project scaffolds — `Auth::authCheck()` signs the
      * person in again from the cookies itself, through `rememberLogin()`; a value that is not
-     * theirs signs nobody in.
+     * theirs signs nobody in, and neither does the replaced token once its grace is over.
      */
     #[DataProvider('databases')]
     public function testWithNoAddonAuthCheckRemembersByItself(string $type, string $host, int $port): void
@@ -112,6 +112,9 @@ class RememberLoginCharacterizationTest extends TestCase
         (new Auth())->authCheck();
         $again = $_SESSION;
         $_SESSION = [];
+        // Past the grace a replaced token keeps, as if a minute had gone by.
+        $this->db->queryBuilder()->table('authserver.remember_tokens')
+            ->where('selector', explode('.', $remembered)[0])->update(['expires_at' => time() - 1]);
         $this->cookies($username, $remembered);
         (new Auth())->authCheck();
         $spent = $_SESSION;
@@ -119,7 +122,7 @@ class RememberLoginCharacterizationTest extends TestCase
         // Assert
         $this->assertTrue($again['logged'] ?? false, 'signed in again from the cookies');
         $this->assertSame($this->userId, (int) ($again['uid'] ?? 0));
-        $this->assertFalse($spent['logged'] ?? false, 'the token was used once: a copy of it signs nobody in');
+        $this->assertFalse($spent['logged'] ?? false, 'the token was replaced: once its grace is over a copy of it signs nobody in');
     }
 
     /** A password changed since the cookie was set makes it worthless. */
