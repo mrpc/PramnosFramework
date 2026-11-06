@@ -109,7 +109,7 @@ class ViewPartialBesideTheFileTest extends TestCase
             $this->assertSame('[mine]', $out);
             $this->assertSame('', $none);
             $resolve = new \ReflectionMethod(View::class, 'resolveTemplatePath');
-            $this->assertStringEndsWith('/views/OAuth2/delete_account_tasks.html.php', (string) $resolve->invoke($view, 'delete_account_tasks'));
+            $this->assertMatchesRegularExpression('#/views/OAuth2/delete_account_tasks\.(html|tpl)\.php$#', (string) $resolve->invoke($view, 'delete_account_tasks'));
             $this->assertNull($resolve->invoke($view, 'no_such_partial_anywhere'));
         } finally {
             @unlink($this->tmp . '/app/OAuth2/delete_account.html.php');

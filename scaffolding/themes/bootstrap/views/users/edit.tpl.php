@@ -1,0 +1,279 @@
+@php /**
+ * User create/edit form (Bootstrap theme).
+ *
+ * Variables:
+ *   $this->user        — user row array (null when creating)
+ *   $this->isNew       — bool
+ *   $this->error       — string error message
+ *   $this->success     — string confirmation
+ *   $this->settings    — per-user settings, from User::listSettings()
+ *   $this->permissions — permission rows granted directly to this user
+ *   $this->usertypes   — the bands, from UserTypes::labels()
+ *
+ * Three forms, not one. The account's own fields post to `Users/save`; a setting posts to
+ * `users/savesetting/{id}`; a permission to `users/grantpermission/{id}`. They are separate
+ * because they are separate decisions: saving a name should not require re-submitting a
+ * permission, and a failed permission should not lose a typed name.
+ */
+$u = $this->user ?? [];
+$e = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); @endphp
+<div class="container py-4">
+    @php $this->activeNav = 'users_edit'; $this->insert('../partials/admin_breadcrumb'); @endphp
+    <h2 class="mb-6">{!! $this->isNew ? 'New User' : 'Edit User' !!}</h2>
+    @if (!empty($this->error))
+        <div role="alert" class="alert alert-error mb-4">{{ $this->error }}</div>
+    @endif
+    @if (!empty($this->success))
+        <div role="status" class="alert alert-success mb-4">{{ $this->success }}</div>
+    @endif
+    <div class="card">
+        <div class="p-5">
+            <form method="post" action="{!! adminUrl('Users/save') !!}">
+                {!! \Pramnos\Http\Middleware\CsrfMiddleware::tokenField() !!}
+                @if (!$this->isNew)
+                    <input type="hidden" name="userid" value="{!! (int)($u['userid'] ?? 0) !!}">
+                @endif
+                <div class="mb-3">
+                    <label class="block text-sm font-medium text-base-content mb-1">Username</label>
+                    <input type="text" name="username" class="form-control form-control-sm" required value="{{ $u['username'] ?? '' }}">
+                </div>
+                <div class="mb-3">
+                    <label class="block text-sm font-medium text-base-content mb-1">Email</label>
+                    <input type="email" name="email" class="form-control form-control-sm" required value="{{ $u['email'] ?? '' }}">
+                </div>
+                @if ($this->isNew)
+                <div class="mb-3">
+                    <label for="password" class="block text-sm font-medium text-base-content mb-1">Password</label>
+                    <input id="password" type="password" name="password" class="form-control form-control-sm" required>
+                    {!! \Pramnos\Html\PasswordToggle::render('password', '', '') !!}
+                </div>
+                @endif
+                <div class="mb-3">
+                    <label class="block text-sm font-medium text-base-content mb-1">First Name</label>
+                    <input type="text" name="firstname" class="form-control form-control-sm" value="{{ $u['firstname'] ?? '' }}">
+                </div>
+                <div class="mb-3">
+                    <label class="block text-sm font-medium text-base-content mb-1">Last Name</label>
+                    <input type="text" name="lastname" class="form-control form-control-sm" value="{{ $u['lastname'] ?? '' }}">
+                </div>
+                <div class="grid gap-4 md:grid-cols-2 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-base-content mb-1">Phone</label>
+                        <input type="text" name="phone" class="form-control form-control-sm" value="{{ $u['phone'] ?? '' }}">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-base-content mb-1">Mobile</label>
+                        <input type="text" name="mobile" class="form-control form-control-sm" value="{{ $u['mobile'] ?? '' }}">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-base-content mb-1">Language</label>
+                        <input type="text" name="language" class="form-control form-control-sm" placeholder="en"
+                               value="{{ $u['language'] ?? '' }}">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-base-content mb-1">Timezone</label>
+                        <input type="text" name="timezone" class="form-control form-control-sm" placeholder="Europe/Athens"
+                               value="{{ $u['timezone'] ?? '' }}">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="block text-sm font-medium text-base-content mb-1">User Type</label>
+                    <select name="usertype" class="form-control form-control-sm">
+                        @php $maxType = $this->currentUserType ?? 100; $curType = $u['usertype'] ?? 1; @endphp
+                        @php /**
+                         * The bands this application declares, not a hardcoded five.
+                         *
+                         * `UserTypes::labels()` is where they live, so an application that
+                         * renamed them in `app.php` sees its own names here — and this
+                         * select cannot disagree with the badge on the user's own screen.
+                         *
+                         * Capped at the operator's own type: nobody may create an account
+                         * more privileged than their own, which `save()` enforces again.
+                         */
+                        $bands = is_array($this->usertypes ?? null) && $this->usertypes !== []
+                            ? $this->usertypes
+                            : \Pramnos\User\UserTypes::labels();
+                        foreach ($bands as $floor => $label) {
+                            if ((int) $floor > $maxType) {
+                                continue;
+                            }
+                            echo '<option value="' . (int) $floor . '"'
+                                . ((int) $curType === (int) $floor ? ' selected' : '') . '>'
+                                . $e($label) . ' (' . (int) $floor . ')</option>';
+                        } @endphp
+                    </select>
+                </div>
+                <div class="mb-4 flex gap-6">
+                    <label class="flex items-center gap-2 text-sm text-base-content">
+                        <input type="checkbox" name="active" value="1" {!! ($u['active'] ?? 1) ? 'checked' : '' !!}>
+                        Active
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-base-content">
+                        <input type="checkbox" name="validated" value="1" {!! ($u['validated'] ?? 1) ? 'checked' : '' !!}>
+                        Validated
+                    </label>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-sm btn-primary ">Save</button>
+                    <a href="{!! adminUrl('Users') !!}" class="btn btn-sm btn-outline-secondary ">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    @if (!$this->isNew)
+    @php $uid      = (int) ($u['userid'] ?? 0);
+    $settings = is_array($this->settings ?? null) ? $this->settings : [];
+    $grants   = is_array($this->permissions ?? null) ? $this->permissions : []; @endphp
+
+    <!-- Per-user settings: the switches an application keeps about one account -->
+    <div class="card bg-base-100 border border-base-300 shadow-xs mt-4">
+        <div class="px-5 py-3 bg-base-200 border-b border-base-300 flex items-center gap-2">
+            <span class="text-sm font-semibold">Settings</span>
+            <span class="badge badge-neutral badge-sm">{!! count($settings) !!}</span>
+            <span class="ms-auto text-xs text-base-content/60">
+                Values are stored as JSON — a list stays a list
+            </span>
+        </div>
+
+        @if ($settings !== [])
+        <table class="table table-sm text-sm">
+            <thead class="bg-base-100 text-xs uppercase text-base-content/60">
+                <tr><th>Setting</th><th>Value</th><th>Changed</th><th></th></tr>
+            </thead>
+            <tbody>
+            @foreach ($settings as $setting)
+                @php $value = $setting['value'];
+                $shown = is_array($value) || is_object($value)
+                    ? json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                    : (string) ($value ?? ''); @endphp
+                <tr>
+                    <td class="font-mono text-xs">{{ $setting['setting'] }}</td>
+                    <td>
+                        @if ($value === null)
+                        <span class="text-muted small">null</span>
+                        @else
+                        <code class="text-xs break-all">{{ $shown }}</code>
+                        @endif
+                    </td>
+                    <td class="text-xs text-base-content/60">
+                        {!! $setting['updated_at'] ? $e(localDateTime((int) $setting['updated_at'])) : '—' !!}
+                    </td>
+                    <td class="text-end whitespace-nowrap">
+                        {{-- Edit is a copy into the form below rather than a second form per
+row: one row's worth of inputs, reused, is less markup and — more
+to the point — the same code path saves an edit and a new setting,
+so they cannot behave differently. --}}
+                        <button type="button" class="btn btn-ghost btn-xs"
+                                data-pf-fill-setting="{{ $setting['setting'] }}"
+                                data-pf-fill-value="{{ $shown }}">Edit</button>
+                        {!! \Pramnos\Html\Icon::postButton(adminUrl('users/deletesetting/' . $uid) . '?setting=' . urlencode((string) $setting['setting']), 'delete', 'Remove this setting', [ 'data-confirm' => 'Remove the setting "' . $setting['setting'] . '"?', 'class' => 'pf-action-danger', ]) !!}
+                    </td>
+                </tr>
+            @endforeach
+            </tbody>
+        </table>
+        @else
+        <div class="px-5 py-3 text-sm text-base-content/60">
+            Nothing set on this account — the application's own defaults apply.
+        </div>
+        @endif
+
+        <form method="post" action="{!! adminUrl('users/savesetting/' . $uid) !!}"
+              class="px-5 py-4 border-t border-base-300 grid gap-2 md:grid-cols-[1fr_2fr_auto] md:items-end">
+            {!! \Pramnos\Http\Middleware\CsrfMiddleware::tokenField() !!}
+            <div>
+                <label class="block text-xs font-medium mb-1" for="pf-setting-name">Name</label>
+                <input type="text" id="pf-setting-name" name="setting" class="form-control form-control-sm"
+                       placeholder="notifications.email" required>
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1" for="pf-setting-value">Value (text or JSON)</label>
+                <input type="text" id="pf-setting-value" name="value" class="form-control form-control-sm"
+                       placeholder="true, 42, &quot;text&quot; or [1,2,3]">
+            </div>
+            <button type="submit" class="btn btn-sm btn-primary ">Save setting</button>
+        </form>
+    </div>
+
+    <!-- Direct permission grants: what this account may do, beyond its usertype -->
+    <div class="card bg-base-100 border border-base-300 shadow-xs mt-4">
+        <div class="px-5 py-3 bg-base-200 border-b border-base-300 flex items-center gap-2">
+            <span class="text-sm font-semibold">Permissions</span>
+            <span class="badge badge-neutral badge-sm">{!! count($grants) !!}</span>
+            <span class="ms-auto text-xs text-base-content/60">
+                Granted to this user directly — usertype and group grants are not listed
+            </span>
+        </div>
+
+        @if ($grants !== [])
+        <table class="table table-sm text-sm">
+            <thead class="bg-base-100 text-xs uppercase text-base-content/60">
+                <tr><th>Object</th><th>Action</th><th>Grant</th><th>Priority</th><th></th></tr>
+            </thead>
+            <tbody>
+            @foreach ($grants as $grant)
+                <tr>
+                    <td class="font-mono text-xs">
+                        {{ $grant['object_type'] ?? '' }}
+                        @if (($grant['object_id'] ?? null) !== null && $grant['object_id'] !== '')
+                        <span class="text-muted small">#{{ $grant['object_id'] }}</span>
+                        @endif
+                    </td>
+                    <td>{{ $grant['action'] ?? '' }}</td>
+                    <td>
+                        <span class="pf-state {!! ($grant['grant_type'] ?? 'allow') === 'deny' ? 'pf-state-off' : 'pf-state-on' !!}">
+                            {{ $grant['grant_type'] ?? 'allow' }}
+                        </span>
+                    </td>
+                    <td class="text-xs">{!! (int) ($grant['priority'] ?? 0) !!}</td>
+                    <td class="text-end">
+                        {!! \Pramnos\Html\Icon::postButton(adminUrl('users/revokepermission/' . $uid) . '?permission=' . (int) ($grant['permissionid'] ?? 0), 'delete', 'Revoke this permission', ['data-confirm' => 'Revoke this permission?', 'class' => 'pf-action-danger']) !!}
+                    </td>
+                </tr>
+            @endforeach
+            </tbody>
+        </table>
+        @else
+        <div class="px-5 py-3 text-sm text-base-content/60">
+            No permission granted to this account directly. What it may do comes from its
+            usertype and any groups it belongs to.
+        </div>
+        @endif
+
+        <form method="post" action="{!! adminUrl('users/grantpermission/' . $uid) !!}"
+              class="px-5 py-4 border-t border-base-300 grid gap-2 md:grid-cols-5 md:items-end">
+            {!! \Pramnos\Http\Middleware\CsrfMiddleware::tokenField() !!}
+            <div>
+                <label class="block text-xs font-medium mb-1">Object type</label>
+                <input type="text" name="object_type" class="form-control form-control-sm" placeholder="report" required>
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1">Object id</label>
+                <input type="text" name="object_id" class="form-control form-control-sm" placeholder="optional">
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1">Action</label>
+                <input type="text" name="action" class="form-control form-control-sm" placeholder="read" required>
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1">Grant</label>
+                <select name="grant_type" class="form-select form-select-sm">
+                    <option value="allow">allow</option>
+                    <option value="deny">deny</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-sm btn-primary ">Add permission</button>
+        </form>
+    </div>
+
+    <div class="mt-4 flex flex-wrap gap-2">
+        <a href="{!! adminUrl('users/view/' . $uid) !!}" class="btn btn-sm btn-outline-secondary  gap-2">
+            {!! \Pramnos\Html\Icon::svg('view') !!} Back to the record
+        </a>
+        <a href="{!! adminUrl('users/notify/' . $uid) !!}" class="btn btn-sm btn-outline-secondary  gap-2">
+            {!! \Pramnos\Html\Icon::svg('send') !!} Send a message
+        </a>
+    </div>
+    @endif
+</div>

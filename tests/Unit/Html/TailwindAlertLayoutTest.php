@@ -36,8 +36,9 @@ final class TailwindAlertLayoutTest extends TestCase
             if (!str_ends_with((string) $file, '.php')) {
                 continue;
             }
-            // The markup only: PHP in it is replaced by a word, as the page would print one.
-            $html = (string) preg_replace('/<\?(?:php|=).*?\?>/s', 'x', (string) file_get_contents((string) $file));
+            // The markup only: PHP in it — a template's compiled — is replaced by a word, as the page
+            // would print one.
+            $html = (string) preg_replace('/<\?(?:php|=).*?\?>/s', 'x', (string) file_get_contents(\Pramnos\Tests\Support\ScaffoldView::run((string) $file)));
             $dom  = new \DOMDocument();
             libxml_use_internal_errors(true);
             $dom->loadHTML('<?xml encoding="utf-8"?><div>' . $html . '</div>');

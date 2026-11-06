@@ -431,7 +431,7 @@ class EventStreamMySQLTest extends TestCase
                 include $path;
 
                 return (string) ob_get_clean();
-            })->call($view, ROOT . '/scaffolding/themes/' . $theme . '/views/queue/queue.html.php');
+            })->call($view, \Pramnos\Tests\Support\ScaffoldView::run(ROOT . '/scaffolding/themes/' . $theme . '/views/queue/queue.html.php'));
         }
         $_POST = ['group' => StreamListenerA::class];
         $screen->streamretry();

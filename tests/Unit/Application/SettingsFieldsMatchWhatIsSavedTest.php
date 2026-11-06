@@ -130,9 +130,10 @@ class SettingsFieldsMatchWhatIsSavedTest extends TestCase
     {
         $path = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme
             . '/views/settings/settings.html.php';
+        $path = \Pramnos\Tests\Support\ScaffoldView::pathOf($path);
 
         $this->assertFileExists($path);
 
-        return (string) file_get_contents($path);
+        return (string) file_get_contents(\Pramnos\Tests\Support\ScaffoldView::run($path)); // as PHP: a template compiled
     }
 }

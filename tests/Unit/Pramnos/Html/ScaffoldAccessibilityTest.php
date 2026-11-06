@@ -16,9 +16,15 @@ class ScaffoldAccessibilityTest extends TestCase
 {
     private const THEMES = ['plain-css', 'bootstrap', 'tailwind'];
 
-    /** A view file with its comments removed, so an explanation is not mistaken for the thing. */
+    /**
+     * A view file with its comments removed, so an explanation is not mistaken for the thing. A
+     * template is read compiled, where its comments are PHP's own or already gone. A file that is
+     * not there fails, rather than passing as empty.
+     */
     private function executableCode(string $path): string
     {
+        $path = \Pramnos\Tests\Support\ScaffoldView::run($path);
+        $this->assertFileExists($path);
         $code = '';
 
         foreach (token_get_all((string) file_get_contents($path)) as $token) {

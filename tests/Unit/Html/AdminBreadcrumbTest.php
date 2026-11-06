@@ -115,7 +115,7 @@ final class AdminBreadcrumbTest extends TestCase
         $file = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/partials/admin_breadcrumb.html.php';
 
         // Act
-        $partial = (string) file_get_contents($file);
+        $partial = (string) \Pramnos\Tests\Support\ScaffoldView::read($file);
 
         // Assert
         $this->assertStringContainsString('Breadcrumb::admin(', $partial);
@@ -139,10 +139,10 @@ final class AdminBreadcrumbTest extends TestCase
         // Act
         foreach ($files as $file) {
             $name = substr((string) $file, strlen($root) + 1);
-            if (!str_ends_with($name, '.php') || $name === 'partials/account_breadcrumb.html.php') {
+            if (!str_ends_with($name, '.php') || preg_match('#^partials/account_breadcrumb\.(html|tpl)\.php$#', $name) === 1) {
                 continue;
             }
-            $source = (string) file_get_contents((string) $file);
+            $source = (string) \Pramnos\Tests\Support\ScaffoldView::read((string) $file);
             $seen  += (int) str_contains($source, 'Breadcrumb::admin(');
             if (str_contains($source, 'new \\Pramnos\\Html\\Breadcrumb')) {
                 $own[] = $name;
@@ -168,7 +168,7 @@ final class AdminBreadcrumbTest extends TestCase
         $file = \Pramnos\Tests\Support\ScaffoldView::path($theme, 'emails/show');
 
         // Act — the markup only: the PHP inside the tag carries a `>` of its own.
-        $html = (string) preg_replace('/<\?(?:php|=).*?\?>|\{\{.*?\}\}|\{!!.*?!!\}/s', 'x', (string) file_get_contents($file));
+        $html = (string) preg_replace('/<\?(?:php|=).*?\?>|\{\{.*?\}\}|\{!!.*?!!\}/s', 'x', (string) \Pramnos\Tests\Support\ScaffoldView::read($file));
         $this->assertSame(1, preg_match('/<iframe\b[^>]*>/s', $html, $m), 'no preview frame');
         $frame = $m[0];
 

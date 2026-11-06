@@ -58,7 +58,7 @@ final class FragmentRequestTest extends TestCase
         $view = new \stdClass();
         $view->history = [];
         $view->hours   = 48;
-        $file = dirname(__DIR__, 4) . '/scaffolding/themes/tailwind/views/queue/history.html.php';
+        $file = \Pramnos\Tests\Support\ScaffoldView::run(dirname(__DIR__, 4) . '/scaffolding/themes/tailwind/views/queue/history.html.php');
         $run  = \Closure::bind(function () use ($file): void {
             include $file;
         }, $view, null);

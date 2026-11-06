@@ -24,7 +24,8 @@ class SettingsLinksToAiTest extends TestCase
     public function testSettingsLinksToTheAiSettings(string $theme): void
     {
         // Arrange
-        $view = (string) file_get_contents(ROOT . '/scaffolding/themes/' . $theme . '/views/settings/settings.html.php');
+        // As PHP: a template compiled, so the link reads the same in either kind.
+        $view = (string) file_get_contents(\Pramnos\Tests\Support\ScaffoldView::run(ROOT . '/scaffolding/themes/' . $theme . '/views/settings/settings.html.php'));
 
         // Act
         $found = preg_match("/FeatureRegistry::isEnabled\\('llm'\\)\\): \\?><a href=\"<\\?php echo adminUrl\\('Ai\\/settings'\\); \\?>\"[^>]*data-settings-ai/", $view);

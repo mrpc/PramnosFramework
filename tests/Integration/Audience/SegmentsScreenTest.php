@@ -534,7 +534,7 @@ class SegmentsScreenTest extends TestCase
         $this->assertStringNotContainsString('Greek speakers', $bare);
         $this->assertStringContainsString('Volunteers', $bare);
         foreach (['tailwind', 'bootstrap', 'plain-css'] as $theme) {
-            $this->assertStringContainsString('AudiencePanel::person($uid)', (string) file_get_contents(ROOT . '/scaffolding/themes/' . $theme . '/views/users/view.html.php'), $theme);
+            $this->assertStringContainsString('AudiencePanel::person($uid)', (string) \Pramnos\Tests\Support\ScaffoldView::read(ROOT . '/scaffolding/themes/' . $theme . '/views/users/view.html.php'), $theme);
         }
     }
 }

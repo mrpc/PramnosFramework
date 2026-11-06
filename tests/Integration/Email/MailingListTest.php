@@ -693,7 +693,7 @@ class MailingListTest extends BaseTestCase
                 ['list' => 'digest', 'label' => 'Digest', 'description' => 'Weekly.', 'optIn' => false, 'state' => 'on'],
             ]];
             $render = \Closure::bind(function (string $file): void {
-                include $file;
+                include \Pramnos\Tests\Support\ScaffoldView::run($file);
             }, $data, null);
 
             // Act

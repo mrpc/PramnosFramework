@@ -2400,14 +2400,17 @@ class InitCommandUnitTest extends TestCase
         ], ['interactive' => false]);
 
         // Assert — no app-level login view is written; the framework fallback serves it.
-        $this->assertFileDoesNotExist(
-            $this->tmpDir . '/src/Views/login/login.html.php',
-            'login view must come from the framework fallback, not be copied into the app'
-        );
+        foreach (['html', 'tpl'] as $kind) {
+            $this->assertFileDoesNotExist(
+                $this->tmpDir . '/src/Views/login/login.' . $kind . '.php',
+                'login view must come from the framework fallback, not be copied into the app'
+            );
+        }
 
         // The bundled fallback exists in the framework and carries the new-flow form.
         $fallback = dirname(__DIR__, 3)
             . '/scaffolding/themes/plain-css/views/login/login.html.php';
+        $fallback = \Pramnos\Tests\Support\ScaffoldView::pathOf($fallback);
         $this->assertFileExists($fallback, 'framework must ship a fallback login view');
         $view = file_get_contents($fallback);
         $this->assertStringContainsString('/login', $view, 'form posts under the login route base');

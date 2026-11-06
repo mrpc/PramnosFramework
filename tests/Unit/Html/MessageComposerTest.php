@@ -137,7 +137,7 @@ final class MessageComposerTest extends TestCase
         foreach (['tailwind', 'bootstrap', 'plain-css'] as $theme) {
             foreach (['users/notify' => 'user-message', 'massmessages/edit' => 'mass-message'] as $view => $scope) {
                 // Arrange / Act
-                $source = (string) file_get_contents(dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/' . $view . '.html.php');
+                $source = (string) \Pramnos\Tests\Support\ScaffoldView::read(dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/' . $view . '.html.php');
 
                 // Assert
                 $this->assertStringContainsString('data-pf-composer-scope="' . $scope . '"', $source, $theme . ' ' . $view);

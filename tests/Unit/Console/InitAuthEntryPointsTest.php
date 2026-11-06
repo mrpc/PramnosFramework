@@ -120,7 +120,7 @@ class InitAuthEntryPointsTest extends TestCase
         exec('php -l ' . escapeshellarg($path) . ' 2>&1', $lint, $status);
         $this->assertSame(0, $status, 'Webhook.php must be valid PHP: ' . implode("\n", $lint));
 
-        $code = (string) file_get_contents($path);
+        $code = (string) \Pramnos\Tests\Support\ScaffoldView::read($path);
         $this->assertStringContainsString(
             'class Webhook extends \\Pramnos\\Auth\\Controllers\\Webhook',
             $code
@@ -142,7 +142,7 @@ class InitAuthEntryPointsTest extends TestCase
         // Assert
         foreach (['Register' => 'register', 'Sso' => 'sso'] as $class => $action) {
             $path = $this->tmpDir . '/src/Controllers/' . $class . '.php';
-            $code = (string) file_get_contents($path);
+            $code = (string) \Pramnos\Tests\Support\ScaffoldView::read($path);
 
             $lint = [];
             exec('php -l ' . escapeshellarg($path) . ' 2>&1', $lint, $status);
@@ -167,7 +167,7 @@ class InitAuthEntryPointsTest extends TestCase
         $this->scaffold();
 
         // Assert
-        $code = (string) file_get_contents($this->tmpDir . '/src/Controllers/Register.php');
+        $code = (string) \Pramnos\Tests\Support\ScaffoldView::read($this->tmpDir . '/src/Controllers/Register.php');
         $this->assertStringContainsString('auth_allow_registration', $code);
     }
 
@@ -200,7 +200,7 @@ class InitAuthEntryPointsTest extends TestCase
         foreach (['plain-css', 'bootstrap', 'tailwind'] as $theme) {
             foreach (Tree::matching($themes . '/' . $theme . '/views/*/*.php') as $path) {
                 $checked++;
-                $code = (string) file_get_contents($path);
+                $code = (string) \Pramnos\Tests\Support\ScaffoldView::read($path);
                 if (
                     str_contains($code, 'Home/login')
                     || str_contains($code, 'Home/register')
@@ -235,7 +235,7 @@ class InitAuthEntryPointsTest extends TestCase
             // Act
             $path = \Pramnos\Tests\Support\ScaffoldView::path($theme, 'register/register');
             $this->assertFileExists($path);
-            $code = (string) file_get_contents($path);
+            $code = (string) \Pramnos\Tests\Support\ScaffoldView::read($path);
 
             // Assert
             $this->assertStringContainsString('minlength="8"', $code, $theme);
@@ -260,7 +260,7 @@ class InitAuthEntryPointsTest extends TestCase
 
         foreach ($checked as $theme) {
             // Act
-            $code = (string) file_get_contents($themes . '/' . $theme . '/views/login/login.html.php');
+            $code = (string) \Pramnos\Tests\Support\ScaffoldView::read($themes . '/' . $theme . '/views/login/login.html.php');
 
             // Assert
             $this->assertStringContainsString("'email_unverified'", $code, "{$theme} login form");

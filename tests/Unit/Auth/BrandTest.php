@@ -21,7 +21,7 @@ class BrandPartialProbe
     public function draw(string $file): string
     {
         ob_start();
-        include $file;
+        include \Pramnos\Tests\Support\ScaffoldView::run($file);
 
         return (string) ob_get_clean();
     }
@@ -155,7 +155,7 @@ final class BrandTest extends TestCase
 
         // Act
         foreach ($views as $file) {
-            $source = (string) file_get_contents($file);
+            $source = (string) \Pramnos\Tests\Support\ScaffoldView::read($file);
             if (!str_contains($source, "primary_color'")) {
                 continue;
             }

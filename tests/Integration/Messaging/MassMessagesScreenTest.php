@@ -384,7 +384,7 @@ class MassMessagesScreenTest extends BaseTestCase
     {
         foreach (['bootstrap', 'tailwind', 'plain-css'] as $theme) {
             // Act
-            $view = (string) file_get_contents(ROOT . '/scaffolding/themes/' . $theme . '/views/massmessages/edit.html.php');
+            $view = (string) \Pramnos\Tests\Support\ScaffoldView::read(ROOT . '/scaffolding/themes/' . $theme . '/views/massmessages/edit.html.php');
 
             // Assert
             $this->assertSame(2, substr_count($view, 'class="mm-accounts-only"'), $theme . ': the account criteria and the opt-out filter');
@@ -414,7 +414,7 @@ class MassMessagesScreenTest extends BaseTestCase
             }, $data, null);
             ob_start();
             try {
-                $render(ROOT . '/scaffolding/themes/' . $theme . '/views/massmessages/edit.html.php');
+                $render(\Pramnos\Tests\Support\ScaffoldView::run(ROOT . '/scaffolding/themes/' . $theme . '/views/massmessages/edit.html.php'));
             } finally {
                 $html = (string) ob_get_clean();
                 \Pramnos\Email\MailTypes::reset();
@@ -854,7 +854,7 @@ class MassMessagesScreenTest extends BaseTestCase
                 include $file;
             }, $data, null);
             ob_start();
-            $render(ROOT . '/scaffolding/themes/' . $theme . '/views/massmessages/tracking.html.php');
+            $render(\Pramnos\Tests\Support\ScaffoldView::run(ROOT . '/scaffolding/themes/' . $theme . '/views/massmessages/tracking.html.php'));
             $html = (string) ob_get_clean();
 
             // Assert
@@ -878,7 +878,7 @@ class MassMessagesScreenTest extends BaseTestCase
                 include $file;
             }, $page, null);
             ob_start();
-            $render(ROOT . '/scaffolding/themes/' . $theme . '/views/massmessages/view.html.php');
+            $render(\Pramnos\Tests\Support\ScaffoldView::run(ROOT . '/scaffolding/themes/' . $theme . '/views/massmessages/view.html.php'));
             $html = (string) ob_get_clean();
 
             // Assert

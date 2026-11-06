@@ -299,12 +299,18 @@ controller asked for is tried first and the other kind next: `.html.php` (PHP an
 `.tpl.php` (the framework's template engine, with `{{ }}`, `@if`, `@foreach`, `@extends`).
 A `display()` that asked for HTML therefore draws a view written only as `.tpl.php`, and an
 application's own `.html.php` of a view still wins over a bundled `.tpl.php`, whichever kind
-the controller asked for. A bundled view can move to the template engine without losing
-anybody's override of it.
+the controller asked for.
+
+**The bundled views are templates.** Every view under `scaffolding/themes/<theme>/views/` is a
+`.tpl.php`, and a view includes another with `@include('../partials/x')`, never with
+`include __DIR__`. A compiled template lives in the cache directory, so `__DIR__` would point
+there. An application's override in `.html.php` keeps working, and so does one copied with
+`project:publish-views`, which copies the `.tpl.php` as it is. The theme's own layout files
+(`theme.html.php`, `header.php`, `footer.php`) stay PHP.
 
 **Per template, not per directory.** Each template resolves on its own, so an
 application with `src/Views/services/logs.html.php` and no `services.html.php` still
-gets the bundled `services.html.php`. A per-directory fallback would match the
+gets the bundled `services.tpl.php`. A per-directory fallback would match the
 directory, fail at the template, and return a page shell: 200, no panel, one line in a
 log nobody reads.
 

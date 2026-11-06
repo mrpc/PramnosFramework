@@ -68,7 +68,7 @@ class PushLogScreenTest extends TestCase
     public function testTheNavigationReachesIt(): void
     {
         // Arrange
-        $source = (string) file_get_contents(
+        $source = (string) \Pramnos\Tests\Support\ScaffoldView::read(
             dirname(__DIR__, 3) . '/src/Pramnos/Application/Application.php'
         );
 
@@ -86,7 +86,7 @@ class PushLogScreenTest extends TestCase
     public function testAScaffoldedProjectGetsTheWrapper(): void
     {
         // Arrange
-        $source = (string) file_get_contents(
+        $source = (string) \Pramnos\Tests\Support\ScaffoldView::read(
             dirname(__DIR__, 3) . '/src/Pramnos/Console/Commands/Init.php'
         );
 
@@ -104,7 +104,7 @@ class PushLogScreenTest extends TestCase
     public function testTheUserCardLinksToThisAccountsPushes(): void
     {
         // Arrange
-        $view = (string) file_get_contents(
+        $view = (string) \Pramnos\Tests\Support\ScaffoldView::read(
             dirname(__DIR__, 3) . '/scaffolding/themes/tailwind/views/users/view.html.php'
         );
 
@@ -531,7 +531,7 @@ class PushLogScreenTest extends TestCase
         ob_start();
         try {
             (\Closure::bind(function () use ($file): void {
-                include $file;
+                include \Pramnos\Tests\Support\ScaffoldView::run($file);
             }, $view, null))();
         } finally {
             $html = (string) ob_get_clean();
@@ -680,7 +680,7 @@ class PushLogScreenTest extends TestCase
         ob_start();
         try {
             (\Closure::bind(function () use ($file): void {
-                include $file;
+                include \Pramnos\Tests\Support\ScaffoldView::run($file);
             }, $view, null))();
         } finally {
             $html = (string) ob_get_clean();

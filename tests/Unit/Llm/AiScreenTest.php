@@ -44,18 +44,18 @@ class AiScreenTest extends LlmTestCase
 
         foreach (self::THEMES as $theme) {
             foreach (['ai', 'call'] as $view) {
-                $this->assertFileExists($root . '/scaffolding/themes/' . $theme . '/views/ai/' . $view . '.html.php', $theme . ' ' . $view);
+                $this->assertFileExists(\Pramnos\Tests\Support\ScaffoldView::pathOf($root . '/scaffolding/themes/' . $theme . '/views/ai/' . $view . '.html.php'), $theme . ' ' . $view);
             }
-            $source = (string) file_get_contents($root . '/scaffolding/themes/' . $theme . '/views/ai/ai.html.php');
+            $source = (string) \Pramnos\Tests\Support\ScaffoldView::read($root . '/scaffolding/themes/' . $theme . '/views/ai/ai.html.php');
             // A key field is never given a value
             $this->assertDoesNotMatchRegularExpression('/name="(api_key|admin_key)"[^>]*value=/', $source, $theme);
             $this->assertSame(1, substr_count($source, 'name="api_key"'), $theme . ': one key field, with a fixed id');
-            $this->assertStringContainsString("'ai'", (string) file_get_contents($root . '/scaffolding/themes/' . $theme . '/views/partials/admin_breadcrumb.html.php'));
+            $this->assertStringContainsString("'ai'", (string) \Pramnos\Tests\Support\ScaffoldView::read($root . '/scaffolding/themes/' . $theme . '/views/partials/admin_breadcrumb.html.php'));
         }
 
         // Assert
-        $this->assertStringContainsString("\$admin('Ai')", (string) file_get_contents($root . '/src/Pramnos/Application/Application.php'));
-        $init = (string) file_get_contents($root . '/src/Pramnos/Console/Commands/Init.php');
+        $this->assertStringContainsString("\$admin('Ai')", (string) \Pramnos\Tests\Support\ScaffoldView::read($root . '/src/Pramnos/Application/Application.php'));
+        $init = (string) \Pramnos\Tests\Support\ScaffoldView::read($root . '/src/Pramnos/Console/Commands/Init.php');
         $this->assertStringContainsString('src/Admin/Controllers/Ai.php', $init);
         $this->assertStringContainsString('class Ai extends FrameworkAiController', $init);
     }
@@ -298,7 +298,7 @@ class AiScreenTest extends LlmTestCase
             }
             ob_start();
             \Closure::bind(function () use ($dir): void {
-                include $dir . '/ai.html.php';
+                include \Pramnos\Tests\Support\ScaffoldView::run($dir . '/ai.html.php');
             }, $view, \Pramnos\Application\View::class)();
             $pages[$theme] = (string) ob_get_clean();
         }
@@ -455,7 +455,7 @@ class AiScreenTest extends LlmTestCase
         // Act — the template, in View's scope, as display() runs it
         ob_start();
         \Closure::bind(function () use ($dir): void {
-            include $dir . '/ai.html.php';
+            include \Pramnos\Tests\Support\ScaffoldView::run($dir . '/ai.html.php');
         }, $view, \Pramnos\Application\View::class)();
         $html = (string) ob_get_clean();
 
@@ -498,7 +498,7 @@ class AiScreenTest extends LlmTestCase
         ob_start();
         try {
             (function () use ($path): void {
-                include $path;
+                include \Pramnos\Tests\Support\ScaffoldView::run($path);
             })->call($view);
         } finally {
             $html = (string) ob_get_clean();

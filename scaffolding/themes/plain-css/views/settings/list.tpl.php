@@ -1,0 +1,49 @@
+{{-- Raw key-value settings DataTable (plain-CSS theme).
+
+Variables:
+  $this->settings — array of ['key', 'value', 'readonly'] --}}
+<div class="page-section">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div>
+            <h2>Raw Settings</h2>
+            <small style="color:#888">All key-value pairs stored in the settings table.</small>
+        </div>
+        <div style="display:flex;gap:8px">
+            <a href="{!! adminUrl('settings/edit') !!}" class="btn btn-primary">+ New Setting</a>
+            <a href="{!! adminUrl('settings') !!}" class="btn btn-outline-secondary">System Settings</a>
+        </div>
+    </div>
+    <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
+        <div class="card-body" style="padding:0">
+            <table style="width:100%;border-collapse:collapse">
+                <thead style="background:#f5f5f5">
+                    <tr>
+                        <th style="padding:10px 12px;text-align:left;font-size:12px">Key</th>
+                        <th style="padding:10px 12px;text-align:left;font-size:12px">Value</th>
+                        <th style="padding:10px 12px;width:130px"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (($this->settings ?? []) as $row)
+                    <tr style="border-top:1px solid #f0f0f0">
+                        <td style="padding:8px 12px"><code style="font-size:12px;background:#f5f5f5;padding:2px 4px;border-radius:3px">{{ $row['key'] ?? '' }}</code></td>
+                        <td style="padding:8px 12px;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#555;font-size:13px">{{ $row['value'] ?? '' }}</td>
+                        <td style="padding:8px 12px;text-align:right">
+                            @if (!($row['readonly'] ?? false))
+                                <a href="{!! adminUrl('settings/edit/') !!}{!! urlencode($row['key'] ?? '') !!}" class="btn btn-sm btn-outline-secondary">Edit</a>
+                                <form method="post" action="{!! adminUrl('settings/delete/') !!}{!! urlencode($row['key'] ?? '') !!}" style="display:inline;margin:0">{!! \Pramnos\Http\Session::getInstance()->getTokenField() !!}<button type="submit" class="btn btn-sm btn-outline-danger"
+                                   data-confirm="Delete this setting?">Delete</button></form>
+                            @else
+                                <span style="font-size:11px;color:#888">Read-only</span>
+                            @endif
+                        </td>
+                    </tr>
+                @endforeach
+                @if (empty($this->settings))
+                    <tr><td colspan="3" style="text-align:center;color:#888;padding:24px">No settings found.</td></tr>
+                @endif
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

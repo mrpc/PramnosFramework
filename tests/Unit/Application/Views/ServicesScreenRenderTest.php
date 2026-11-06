@@ -30,13 +30,24 @@ class ServicesScreenRenderTest extends TestCase
     private function render(string $theme, array $vars, string $template = 'services'): string
     {
         $file = \Pramnos\Tests\Support\ScaffoldView::includable($theme, 'services/' . $template);
-        $view = new \stdClass();
+        // The view draws its refresh script as a partial: this stub draws it from beside the view.
+        $view = new class ($theme) extends \stdClass {
+            public function __construct(private string $theme)
+            {
+            }
+
+            /** A partial beside the services view. */
+            public function insert(string $name): void
+            {
+                include \Pramnos\Tests\Support\ScaffoldView::includable($this->theme, 'services/' . $name);
+            }
+        };
         foreach ($vars as $key => $value) {
             $view->$key = $value;
         }
 
         $run = \Closure::bind(function () use ($file): void {
-            include $file;
+            include \Pramnos\Tests\Support\ScaffoldView::run($file);
         }, $view, null);
 
         ob_start();
@@ -261,7 +272,8 @@ class ServicesScreenRenderTest extends TestCase
     public function testSettingsLinksToThePools(string $theme): void
     {
         // Arrange
-        $view = \Pramnos\Tests\Support\ScaffoldView::source($theme, 'settings/settings');
+        // As PHP: a template compiled, so the link reads the same in either kind.
+        $view = (string) \Pramnos\Tests\Support\ScaffoldView::read(\Pramnos\Tests\Support\ScaffoldView::includable($theme, 'settings/settings'));
 
         // Act
         // The line carrying the link's marker — the markup holds PHP, so it is read by line.

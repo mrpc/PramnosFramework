@@ -438,7 +438,7 @@ class RoleAssignmentTest extends BaseTestCase
                 ['roleid' => 23, 'role_name' => 'Old', 'organization_id' => 5, 'organization' => 'Org 5', 'granted_at' => '2026-09-01 10:00:00', 'expires_at' => '', 'counts' => false],
             ];
             $render = \Closure::bind(function (string $file): void {
-                include $file;
+                include \Pramnos\Tests\Support\ScaffoldView::run($file);
             }, $data, null);
 
             // Act

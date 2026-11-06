@@ -1,0 +1,101 @@
+@php /**
+ * One template, read-only, with a test send (Bootstrap theme).
+ *
+ * Variables:
+ *   $this->template     — the row
+ *   $this->types        — channel number => label
+ *   $this->placeholders — the {names} this template actually uses
+ *
+ * The body is printed into a `<pre>`, escaped. It is markup — an email template is — and
+ * this screen is for reading it, not for rendering somebody's HTML inside the admin.
+ */
+$t     = is_array($this->template ?? null) ? $this->template : [];
+$types = is_array($this->types ?? null) ? $this->types : [];
+$holds = is_array($this->placeholders ?? null) ? $this->placeholders : [];
+$id    = (int) ($t['templateid'] ?? 0);
+$e     = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); @endphp
+<div class="container-fluid py-4">
+    @php $this->activeNav = 'mailtemplates_view'; $this->insert('../partials/admin_breadcrumb'); @endphp
+
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+        <a href="{!! adminUrl('MailTemplates') !!}" class="btn btn-sm btn-outline-secondary">&larr; Back</a>
+        <h2 class="mb-0">{{ $t['title'] ?? '' }}</h2>
+        <span class="badge bg-light text-dark">{{ $types[(int) ($t['type'] ?? 0)] ?? '' }}</span>
+        <span class="badge bg-light text-dark">{{ $t['language'] ?? '' }}</span>
+        <a href="{!! adminUrl('MailTemplates/edit/') . $id !!}" class="btn btn-sm btn-primary ms-auto d-inline-flex align-items-center gap-1">
+            {!! \Pramnos\Html\Icon::svg('edit') !!} Edit
+        </a>
+    </div>
+
+    <div class="grid gap-4 lg:grid-cols-3">
+        <div class="lg:col-span-2 card bg-base-100 border border-base-300 shadow-xs overflow-hidden">
+            <div class="card-header fw-semibold">
+                Subject &amp; body
+            </div>
+            <div class="p-5 space-y-3">
+                <div>
+                    <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Subject</div>
+                    <div class="text-sm">{{ $t['defaultsubject'] ?? '' }}</div>
+                </div>
+                <div>
+                    <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Body</div>
+                    <pre class="text-xs bg-base-200 rounded-box p-3 overflow-x-auto whitespace-pre-wrap">{{ $t['defaulttext'] ?? '' }}</pre>
+                </div>
+            </div>
+        </div>
+
+        <div class="space-y-4">
+            <div class="card">
+                <div class="card-header fw-semibold">Placeholders</div>
+                <div class="p-4">
+                    @if ($holds === [])
+                    <p class="text-sm text-base-content/60 mb-0">
+                        This template has none — it says the same thing to everybody.
+                    </p>
+                    @else
+                    <div class="flex flex-wrap gap-1">
+                        @foreach ($holds as $placeholder)
+                        <code class="badge bg-light text-dark">{!! '{' !!}{{ $placeholder }}}</code>
+                        @endforeach
+                    </div>
+                    <p class="text-xs text-base-content/60 mt-2 mb-0">
+                        Read from the template itself, so this cannot go stale.
+                    </p>
+                    @endif
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header fw-semibold">Send a test</div>
+                <form method="post" action="{!! adminUrl('MailTemplates/test/') . $id !!}" class="p-4">
+                    {!! \Pramnos\Http\Middleware\CsrfMiddleware::tokenField() !!}
+                    <label class="block text-xs font-medium mb-1" for="pf-test-address">Address</label>
+                    <input type="email" id="pf-test-address" name="address" class="form-control form-control-sm mb-2" required
+                           placeholder="you@example.com">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary w-100 d-inline-flex align-items-center justify-content-center gap-1">
+                        {!! \Pramnos\Html\Icon::svg('send') !!} Send test
+                    </button>
+                    <p class="text-xs text-base-content/60 mt-2 mb-0">
+                        Placeholders arrive as <code>[name]</code>, so you can see where each
+                        one lands without inventing data that would hide a missing one.
+                    </p>
+                </form>
+            </div>
+
+            <div class="card">
+                <div class="card-header fw-semibold">Lookup key</div>
+                <div class="p-4 text-sm space-y-1">
+                    <div><span class="text-xs uppercase text-base-content/60">Category</span>
+                        <code class="ms-1">{{ $t['category'] ?? '' }}</code></div>
+                    <div><span class="text-xs uppercase text-base-content/60">Language</span>
+                        <code class="ms-1">{{ $t['language'] ?? '' }}</code></div>
+                    <div><span class="text-xs uppercase text-base-content/60">Type</span>
+                        <code class="ms-1">{!! (int) ($t['type'] ?? 0) !!}</code></div>
+                    <p class="text-xs text-base-content/60 mt-2 mb-0">
+                        The three the framework looks a template up by.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

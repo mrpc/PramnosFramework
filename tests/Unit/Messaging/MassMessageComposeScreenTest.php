@@ -128,6 +128,7 @@ class MassMessageComposeScreenTest extends TestCase
     {
         $path = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme
             . '/views/massmessages/edit.html.php';
+        $path = \Pramnos\Tests\Support\ScaffoldView::pathOf($path);
 
         $this->assertFileExists($path);
 

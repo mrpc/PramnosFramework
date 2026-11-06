@@ -71,7 +71,7 @@ final class ConsentScreenTranslatesTest extends TestCase
             $file = ROOT . '/scaffolding/themes/' . $theme . '/views/OAuth2/authorize.html.php';
             $html = (function () use ($file): string {
                 ob_start();
-                include $file;
+                include \Pramnos\Tests\Support\ScaffoldView::run($file);
 
                 return (string) ob_get_clean();
             })->call($view);

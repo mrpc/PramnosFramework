@@ -57,7 +57,7 @@ class ViewTemplateFallbackTest extends TestCase
     public function testABundledTemplateIsFound(): void
     {
         // Act
-        $path = $this->resolve('login', 'login', 'html');
+        $path = $this->resolve('login', 'login', 'tpl'); // the bundled views are templates
 
         // Assert
         $this->assertNotNull($path, 'the bundled login template must be reachable');
@@ -90,8 +90,8 @@ class ViewTemplateFallbackTest extends TestCase
     public function testTwoTemplatesOfOneViewResolveIndependently(): void
     {
         // Act
-        $found = $this->resolve('login', 'login_2fa', 'html');
-        $absent = $this->resolve('login', 'not_a_login_template', 'html');
+        $found = $this->resolve('login', 'login_2fa', 'tpl');
+        $absent = $this->resolve('login', 'not_a_login_template', 'tpl');
 
         // Assert
         $this->assertNotNull($found);
@@ -114,7 +114,7 @@ class ViewTemplateFallbackTest extends TestCase
         // Assert
         $this->assertNotSame([], $dirs);
         foreach ($dirs as $dir) {
-            $this->assertFileExists($dir . '/views/login/login.html.php',
+            $this->assertFileExists(\Pramnos\Tests\Support\ScaffoldView::pathOf($dir . '/views/login/login.html.php'),
                 basename($dir) . ' must ship the login template it is a fallback for');
         }
     }

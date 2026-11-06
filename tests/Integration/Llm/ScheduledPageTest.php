@@ -466,7 +466,7 @@ class ScheduledPageTest extends LlmTestCase
     {
         foreach (self::THEMES as $theme) {
             // Act
-            $view = (string) file_get_contents(ROOT . '/scaffolding/themes/' . $theme . '/views/chat/chat.html.php');
+            $view = (string) \Pramnos\Tests\Support\ScaffoldView::read(ROOT . '/scaffolding/themes/' . $theme . '/views/chat/chat.html.php');
 
             // Assert
             $this->assertStringContainsString("'scheduled' => is_array(\$this->urls ?? null) ? '' : \$url('chat/scheduled')", $view, $theme);
@@ -525,7 +525,7 @@ final class ScheduledPage extends PageFixture
             /** Draw the template asked for. */
             public function display($tpl = '', $render = false)
             {
-                $file = $this->path . '/' . ($tpl !== '' ? $tpl : $this->name) . '.html.php';
+                $file = \Pramnos\Tests\Support\ScaffoldView::run($this->path . '/' . ($tpl !== '' ? $tpl : $this->name) . '.html.php');
                 ob_start();
                 \Closure::bind(function () use ($file): void {
                     include $file;

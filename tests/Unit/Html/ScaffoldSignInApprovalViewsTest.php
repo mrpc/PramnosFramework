@@ -32,6 +32,7 @@ class ScaffoldSignInApprovalViewsTest extends TestCase
     private static function view(string $theme, string $relative): string
     {
         $path = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/' . $relative;
+        $path = \Pramnos\Tests\Support\ScaffoldView::pathOf($path);
         self::assertFileExists($path, $theme . ' has no ' . $relative);
 
         return (string) file_get_contents($path);
@@ -128,7 +129,7 @@ class ScaffoldSignInApprovalViewsTest extends TestCase
         $this->assertStringContainsString("No, it's not me", $source);
         $yes = (int) strpos($source, "Yes, it's me");
         $this->assertGreaterThan($loop, $yes, 'the plain Yes comes after the numbers');
-        $this->assertStringContainsString('<?php else: ?>', substr($source, $loop, $yes - $loop), 'and only instead of them');
+        $this->assertMatchesRegularExpression('/<\?php else: \?>|@else\b/', substr($source, $loop, $yes - $loop), 'and only instead of them');
     }
 
     /**

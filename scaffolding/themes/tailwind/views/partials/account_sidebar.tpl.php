@@ -1,0 +1,61 @@
+@php /**
+ * Shared account-area navigation sidebar (Tailwind theme).
+ *
+ * Rendered on every account/dashboard page (via $this->insert()) as the first
+ * cell of a grid:
+ *
+ *   <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+ *       <?php $this->insert('../partials/account_sidebar'); ?>
+ *       <div class="md:col-span-3"> … page content … </div>
+ *   </div>
+ *
+ * Only TOP-LEVEL destinations appear; deeper options are reached from their
+ * parent page (Security → change password / 2FA / passkeys; Privacy → export /
+ * delete) and highlight the parent entry when active.
+ *
+ * Context (inherited from the including View):
+ *   $this->routeBase   — current controller route base
+ *   $this->accountBase — account controller base (set by non-Account controllers)
+ *   $this->activeNav   — key of the current page
+ */
+$routeBase = $this->accountBase ?? $this->routeBase ?? 'Account';
+$active    = $this->activeNav ?? '';
+$parents   = [
+    'changepassword' => 'security', 'twofactor' => 'security', 'passkey' => 'security', 'twofactor_setup' => 'security', 'twofactor_backup' => 'security',
+    'exportdata'     => 'privacy',  'deleteaccount' => 'privacy',
+    'organization_view' => 'organization',
+];
+$active = $parents[$active] ?? $active;
+$navItems = [
+    ['key' => 'dashboard',    'href' => $routeBase,                   'label' => t('Overview')],
+    ['key' => 'profile',      'href' => $routeBase . '/profile',      'label' => t('Profile')],
+    ['key' => 'applications', 'href' => $routeBase . '/applications', 'label' => t('Authorized Applications')],
+    ['key' => 'security',     'href' => $routeBase . '/security',     'label' => t('Security')],
+    ['key' => 'privacy',      'href' => $routeBase . '/privacy',      'label' => t('Privacy')],
+];
+// For somebody who manages an organisation, the way to it — and for nobody else.
+$_signedIn = \Pramnos\User\User::getCurrentUser();
+if (is_object($_signedIn) && (int) ($_signedIn->userid ?? 0) >= 2) {
+    try {
+        if (\Pramnos\Auth\OrganizationAdmin::managedBy($_signedIn) !== []) {
+            $navItems[] = ['key' => 'organization', 'href' => 'organization', 'label' => t('Organisations')];
+        }
+    } catch (\Throwable) {
+        // No organisation tables: nothing to manage.
+    }
+} @endphp
+{{-- On a phone the menu is one row that scrolls sideways, so the page starts at its
+   content instead of a screen below it; from `md` up it is the vertical card again. --}}
+<div class="md:col-span-1 min-w-0">
+    <div class="card bg-base-100 shadow-sm overflow-hidden">
+        <div class="hidden md:block px-4 py-3 font-semibold text-base-content bg-base-200">{{ t('Account Settings') }}</div>
+        <nav aria-label="{{ t('Account settings') }}" class="pf-account-nav flex flex-row flex-nowrap overflow-x-auto md:flex-col md:overflow-visible md:divide-y md:divide-base-300">
+            @foreach ($navItems as $item)
+                <a href="{!! sURL . $item['href'] !!}"{!! $item['key'] === $active ? ' aria-current="page"' : '' !!}
+                   class="block shrink-0 whitespace-nowrap md:whitespace-normal px-4 py-2 text-sm border-b-2 md:border-b-0 {!! $item['key'] === $active ? 'border-primary bg-primary/10 text-primary font-semibold' : 'border-transparent text-base-content hover:bg-base-200' !!}">
+                    {{ $item['label'] }}
+                </a>
+            @endforeach
+        </nav>
+    </div>
+</div>

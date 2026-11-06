@@ -60,7 +60,7 @@ class DashboardCardViewTest extends TestCase
             {
                 (function (string $__file, array $__data): void {
                     extract($__data);
-                    include $__file;
+                    include \Pramnos\Tests\Support\ScaffoldView::run($__file);
                 })->call($this, $this->dir . '/' . $template . '.html.php', $data);
             }
         };
@@ -68,7 +68,7 @@ class DashboardCardViewTest extends TestCase
         ob_start();
         (function (string $__file, array $__local): void {
             extract($__local);
-            include $__file;
+            include \Pramnos\Tests\Support\ScaffoldView::run($__file);
         })->call($view, $file, $local);
 
         return (string) ob_get_clean();

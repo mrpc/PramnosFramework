@@ -1,0 +1,49 @@
+{{-- Raw key-value settings DataTable (Bootstrap theme).
+
+Variables:
+  $this->settings — array of ['key', 'value', 'readonly'] --}}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h2 class="mb-0">Raw Settings</h2>
+            <small class="text-muted">All key-value pairs stored in the settings table.</small>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{!! adminUrl('settings/edit') !!}" class="btn btn-primary btn-sm">+ New Setting</a>
+            <a href="{!! adminUrl('settings') !!}" class="btn btn-outline-secondary btn-sm">System Settings</a>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Key</th>
+                        <th>Value</th>
+                        <th class="text-end" style="width:140px"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (($this->settings ?? []) as $row)
+                    <tr>
+                        <td><code>{{ $row['key'] ?? '' }}</code></td>
+                        <td class="text-truncate" style="max-width:360px">{{ $row['value'] ?? '' }}</td>
+                        <td class="text-end">
+                            @if (!($row['readonly'] ?? false))
+                                <a href="{!! adminUrl('settings/edit/') !!}{!! urlencode($row['key'] ?? '') !!}" class="btn btn-sm btn-outline-secondary">Edit</a>
+                                <form method="post" action="{!! adminUrl('settings/delete/') !!}{!! urlencode($row['key'] ?? '') !!}" style="display:inline;margin:0">{!! \Pramnos\Http\Session::getInstance()->getTokenField() !!}<button type="submit" class="btn btn-sm btn-outline-danger"
+                                   data-confirm="Delete setting {{ $row['key'] ?? '' }}?">Delete</button></form>
+                            @else
+                                <span class="badge bg-secondary">Read-only</span>
+                            @endif
+                        </td>
+                    </tr>
+                @endforeach
+                @if (empty($this->settings))
+                    <tr><td colspan="3" class="text-center text-muted py-4">No settings found.</td></tr>
+                @endif
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

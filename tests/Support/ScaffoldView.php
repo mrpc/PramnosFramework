@@ -63,4 +63,40 @@ final class ScaffoldView
 
         return $compiled;
     }
+
+    /**
+     * The source of a view named by its `.html.php` path, whichever kind it is written in now:
+     * for a test that reads a view as text.
+     */
+    public static function read(string $htmlPath): string
+    {
+        return (string) @file_get_contents(self::pathOf($htmlPath));
+    }
+
+    /**
+     * The file to `include` for a view named by its `.html.php` path: the view itself, or the
+     * `.tpl.php` compiled ({@see file()}); any other file as it is.
+     */
+    public static function run(string $htmlPath): string
+    {
+        if (preg_match('/\.(html|tpl)\.php$/', $htmlPath) !== 1) {
+            return $htmlPath; // not a view: as it is
+        }
+
+        return self::file((string) preg_replace('/\.(html|tpl)\.php$/', '', $htmlPath));
+    }
+
+    /**
+     * A view's `.html.php` path as it is now: itself when it is there, the `.tpl.php` beside it
+     * when that is, and anything else — not a view, or neither file — unchanged.
+     */
+    public static function pathOf(string $path): string
+    {
+        if (!str_ends_with($path, '.html.php') || is_file($path)) {
+            return $path;
+        }
+        $tpl = substr($path, 0, -9) . '.tpl.php';
+
+        return is_file($tpl) ? $tpl : $path;
+    }
 }

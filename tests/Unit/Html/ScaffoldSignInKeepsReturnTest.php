@@ -67,7 +67,7 @@ class ScaffoldSignInKeepsReturnTest extends TestCase
         ob_start();
         try {
             (function () use ($path): void {
-                include $path;
+                include \Pramnos\Tests\Support\ScaffoldView::run($path);
             })->call($view);
         } finally {
             $html = (string) ob_get_clean();

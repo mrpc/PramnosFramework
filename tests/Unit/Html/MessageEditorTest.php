@@ -134,11 +134,12 @@ class MessageEditorTest extends TestCase
             $root = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/';
 
             // Act
-            $compose = (string) file_get_contents($root . 'massmessages/edit.html.php');
-            $notify  = (string) file_get_contents($root . 'users/notify.html.php');
+            $compose = (string) \Pramnos\Tests\Support\ScaffoldView::read($root . 'massmessages/edit.html.php');
+            $notify  = (string) \Pramnos\Tests\Support\ScaffoldView::read($root . 'users/notify.html.php');
 
             // Assert
-            $this->assertStringContainsString('data-pf-editor="<?php echo $e(\Pramnos\Html\MessageEditor::mode()); ?>"', $compose, $theme);
+            // Escaped either way: `$e()` in PHP, `{{ }}` in a template.
+            $this->assertMatchesRegularExpression('/data-pf-editor="(<\?php echo \$e\(|\{\{ )\\\\Pramnos\\\\Html\\\\MessageEditor::mode\(\)/', $compose, $theme);
             $this->assertStringContainsString('MessageEditor::scripts(\Pramnos\Html\MessageEditor::mode())', $compose, $theme);
             $this->assertStringContainsString('window.PfEditor.plain(body, plain)', $compose, $theme . ': push is written plain');
             $this->assertStringContainsString('window.pfRichEditor.plain(body, plain)', $compose, $theme . ': push is written plain in the rich editor too');

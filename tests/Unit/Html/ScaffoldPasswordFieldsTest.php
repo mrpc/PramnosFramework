@@ -56,7 +56,7 @@ class ScaffoldPasswordFieldsTest extends TestCase
         $fields = [];
 
         foreach (self::viewFiles($theme) as $path) {
-            $source = (string) file_get_contents($path);
+            $source = (string) \Pramnos\Tests\Support\ScaffoldView::read($path);
 
             preg_match_all('/<input\b[^>]*?>/s', $source, $matches);
 
@@ -172,7 +172,7 @@ class ScaffoldPasswordFieldsTest extends TestCase
         $this->assertNotEmpty(self::viewFiles($theme), 'the sweep found nothing to check');
 
         foreach (self::viewFiles($theme) as $path) {
-            $source = (string) file_get_contents($path);
+            $source = (string) \Pramnos\Tests\Support\ScaffoldView::read($path);
             $short  = str_replace(self::viewsDirectory($theme) . '/', '', $path);
 
             preg_match_all(
@@ -238,7 +238,7 @@ class ScaffoldPasswordFieldsTest extends TestCase
         $this->assertNotEmpty(self::viewFiles($theme), 'the sweep found nothing to check');
 
         foreach (self::viewFiles($theme) as $path) {
-            $source = (string) file_get_contents($path);
+            $source = (string) \Pramnos\Tests\Support\ScaffoldView::read($path);
             $short  = str_replace(self::viewsDirectory($theme) . '/', '', $path);
 
             preg_match_all("/PasswordToggle::render\(\s*'([^']+)'/", $source, $matches, PREG_OFFSET_CAPTURE);
@@ -297,7 +297,7 @@ class ScaffoldPasswordFieldsTest extends TestCase
         $dangling = [];
 
         foreach (self::viewFiles($theme) as $path) {
-            $source = (string) file_get_contents($path);
+            $source = (string) \Pramnos\Tests\Support\ScaffoldView::read($path);
             $short  = str_replace(self::viewsDirectory($theme) . '/', '', $path);
 
             preg_match_all("/PasswordToggle::render\(\s*'([^']+)'/", $source, $matches);

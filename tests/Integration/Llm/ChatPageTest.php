@@ -632,7 +632,7 @@ class ChatPageTest extends LlmTestCase
         $this->assertStringEndsWith('login?return=chat', $page->redirectedTo[0]);
 
         foreach (self::THEMES as $theme) {
-            $file = ROOT . '/scaffolding/themes/' . $theme . '/views/partials/chat_widget.html.php';
+            $file = \Pramnos\Tests\Support\ScaffoldView::run(ROOT . '/scaffolding/themes/' . $theme . '/views/partials/chat_widget.html.php');
             \Pramnos\Llm\Llm::use('router', new SignedIn());
             // No key yet: a question that can only fail is not invited
             \Pramnos\Application\Settings::setSetting('llm_openai_api_key', '', false);
@@ -746,7 +746,7 @@ class PageFixture extends ChatPageController
         $view = new class (new \Pramnos\Application\Controller(), $dir, $name) extends \Pramnos\Application\View {
             public function display($tpl = '', $render = false)
             {
-                $file = $this->path . '/' . ($tpl !== '' ? $tpl : $this->name) . '.html.php';
+                $file = \Pramnos\Tests\Support\ScaffoldView::run($this->path . '/' . ($tpl !== '' ? $tpl : $this->name) . '.html.php');
                 ob_start();
                 \Closure::bind(function () use ($file): void {
                     include $file;
@@ -757,6 +757,14 @@ class PageFixture extends ChatPageController
 
             public function insert(string $template, array $data = []): void
             {
+
+                // The ask page is the conversation page: draw it, as View would. Other partials are not this test's subject.
+
+                if ($template === '../chat/chat') {
+
+                    include \Pramnos\Tests\Support\ScaffoldView::run($this->path . '/../chat/chat.html.php');
+
+                }
             }
         };
 

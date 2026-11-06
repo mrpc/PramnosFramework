@@ -38,7 +38,7 @@ class DeleteAccountTasksViewTest extends TestCase
         };
         ob_start();
         (function (string $__file): void {
-            include $__file;
+            include \Pramnos\Tests\Support\ScaffoldView::run($__file);
         })->call($view, ROOT . '/scaffolding/themes/' . $theme . '/views/OAuth2/delete_account_tasks.html.php');
 
         return (string) ob_get_clean();
@@ -69,6 +69,6 @@ class DeleteAccountTasksViewTest extends TestCase
         $this->assertStringContainsString('Nobody else can take them over', $html, 'outside any organisation');
         $this->assertStringNotContainsString('tasks[none][to]', $html);
         $this->assertSame('', self::draw($theme, []), 'no tasks, nothing drawn');
-        $this->assertStringContainsString("insert('delete_account_tasks')", (string) file_get_contents(ROOT . '/scaffolding/themes/' . $theme . '/views/OAuth2/delete_account.html.php'));
+        $this->assertTrue(\Pramnos\Tests\Support\ScaffoldView::includes($theme, 'OAuth2/delete_account', 'delete_account_tasks'), $theme . ': the page inserts the partial');
     }
 }

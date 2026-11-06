@@ -252,7 +252,7 @@ class OauthScopeDropTest extends TestCase
             // Act
             ob_start();
             \Closure::bind(function (string $file): void {
-                include $file;
+                include \Pramnos\Tests\Support\ScaffoldView::run($file);
             }, $view, null)($file);
             $html = (string) ob_get_clean();
 

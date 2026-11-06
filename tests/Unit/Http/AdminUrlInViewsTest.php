@@ -76,7 +76,7 @@ class AdminUrlInViewsTest extends TestCase
         foreach (self::THEMES as $theme) {
             foreach (Tree::matching($this->themesDir() . '/' . $theme . '/views/*/*.php') as $path) {
                 $checked++;
-                if (preg_match($pattern, (string) file_get_contents($path))) {
+                if (preg_match($pattern, (string) \Pramnos\Tests\Support\ScaffoldView::read($path))) {
                     $offenders[] = $theme . '/' . basename(dirname($path)) . '/' . basename($path);
                 }
             }
@@ -98,11 +98,11 @@ class AdminUrlInViewsTest extends TestCase
     public function testUserFacingLinksStayOutsideTheArea(): void
     {
         // Arrange
-        $sidebar = $this->themesDir() . '/tailwind/views/partials/account_sidebar.html.php';
+        $sidebar = \Pramnos\Tests\Support\ScaffoldView::pathOf($this->themesDir() . '/tailwind/views/partials/account_sidebar.html.php');
         $this->assertFileExists($sidebar);
 
         // Act
-        $code = (string) file_get_contents($sidebar);
+        $code = (string) \Pramnos\Tests\Support\ScaffoldView::read($sidebar);
 
         // Assert — the account sidebar addresses its own controller, not the area
         $this->assertStringNotContainsString('adminUrl(', $code);
@@ -128,7 +128,7 @@ class AdminUrlInViewsTest extends TestCase
         // success — which is how a guard stops guarding without anybody noticing.
         $this->assertNotEmpty(Tree::matching($this->themesDir() . '/tailwind/views/*/*.php'), 'the sweep found nothing to check');
         foreach (Tree::matching($this->themesDir() . '/tailwind/views/*/*.php') as $path) {
-            if (str_contains((string) file_get_contents($path), $class)) {
+            if (str_contains((string) \Pramnos\Tests\Support\ScaffoldView::read($path), $class)) {
                 $offenders[] = basename(dirname($path)) . '/' . basename($path);
             }
         }
@@ -182,7 +182,7 @@ class AdminUrlInViewsTest extends TestCase
         // success — which is how a guard stops guarding without anybody noticing.
         $this->assertNotEmpty(Tree::matching($this->themesDir() . '/tailwind/views/*/*.php'), 'the sweep found nothing to check');
         foreach (Tree::matching($this->themesDir() . '/tailwind/views/*/*.php') as $path) {
-            $content = (string) file_get_contents($path);
+            $content = (string) \Pramnos\Tests\Support\ScaffoldView::read($path);
             foreach (preg_split('/\r?\n/', $content) ?: [] as $number => $line) {
                 // Only inside a class attribute: `#2563eb` as a brand-colour
                 // fallback in PHP is a different thing, and legitimate.
@@ -345,7 +345,7 @@ class AdminUrlInViewsTest extends TestCase
         // …and derived from the area rather than hardcoded. Asserted on the source
         // because a constant is decided once per process: the value this process holds
         // came from the bootstrap, and what matters is where a real request gets it.
-        $source = (string) file_get_contents(
+        $source = (string) \Pramnos\Tests\Support\ScaffoldView::read(
             dirname(__DIR__, 3) . '/src/Pramnos/Application/Application.php'
         );
         $this->assertStringContainsString(

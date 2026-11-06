@@ -1,0 +1,572 @@
+@php /**
+ * Rich categorized System Settings page (Tailwind theme).
+ *
+ * Variables:
+ *   $this->settings  — associative array of setting key => current value
+ *   $this->smtpPassIsSet — whether an SMTP password is stored (never the value)
+ *   $this->timezones — array of timezone identifiers
+ *   $this->success   — success flash message (string)
+ *   $this->warning   — warning flash message (string)
+ */
+$s               = $this->settings ?? [];
+/*
+ * The stored SMTP password is never rendered back into the page.
+ *
+ * It is encrypted at rest, and printing it into `value=""` put it in clear in the
+ * HTML of an admin screen — in every proxy cache, every screenshot and every "can
+ * you look at my screen". The field submits empty to mean "keep what is stored", so
+ * the placeholder is the only thing that says whether there is one.
+ */
+$smtpPassIsSet   = (bool) ($this->smtpPassIsSet ?? false);
+$tzs             = $this->timezones ?? \DateTimeZone::listIdentifiers();
+
+$defaultSteps = \Pramnos\Application\Controllers\SettingsController::DEFAULT_LOCKOUT_STEPS;
+ksort($defaultSteps, SORT_NUMERIC);
+
+$stepsSetting = $s['loginlockoutsteps'] ?? '';
+$initialSteps = [];
+if (trim($stepsSetting) !== '') {
+    $decoded = json_decode($stepsSetting, true);
+    if (is_array($decoded)) {
+        foreach ($decoded as $t => $d) {
+            $t = (int) $t; $d = (int) $d;
+            if ($t > 0 && $d > 0) { $initialSteps[$t] = $d; }
+        }
+    }
+}
+if (count($initialSteps) === 0) { $initialSteps = $defaultSteps; }
+ksort($initialSteps, SORT_NUMERIC);
+
+$input  = 'w-full border border-base-300 rounded-sm px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-primary';
+$label  = 'block text-sm font-semibold text-base-content mb-1';
+$card   = 'bg-base-100 rounded-xl shadow-xs border border-base-300 p-5 mb-4';
+$btnPri = 'px-4 py-2 bg-primary text-white text-sm font-medium rounded-sm hover:bg-primary';
+$btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-medium rounded-sm hover:bg-base-200'; @endphp
+<div class="px-4 py-6">
+    <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-semibold">System Settings</h2>
+        <div class="flex gap-2">
+            @if (\Pramnos\Application\FeatureRegistry::isEnabled('llm'))<a href="{!! adminUrl('Ai/settings') !!}" data-settings-ai class="{!! $btnSec !!}">AI: providers &amp; keys</a> @endif
+            <a href="{!! adminUrl('Services/pools') !!}" data-settings-pools class="{!! $btnSec !!}">Worker pools</a>
+            <a href="{!! adminUrl('settings/list') !!}" class="{!! $btnSec !!}">Advanced / Raw</a>
+        </div>
+    </div>
+
+    @if (!empty($this->success))
+        <div role="status" class="alert alert-success mb-4">
+            {{ $this->success }}
+        </div>
+    @endif
+    @if (!empty($this->warning))
+        <div role="status" class="alert alert-warning mb-4">
+            {{ $this->warning }}
+        </div>
+    @endif
+
+    <form method="post" action="{!! adminUrl('settings/saveSystem') !!}" id="settingsForm">
+        {!! \Pramnos\Http\Session::getInstance()->getTokenField() !!}
+        <input type="hidden" name="settings_active_tab" id="settings_active_tab" value="">
+
+        <!-- Tab nav -->
+        <div class="flex border-b border-base-300 mb-4 gap-1">
+            <button type="button" class="tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-base-300 bg-base-100 text-primary" data-tab="settings-tab-general">General</button>
+            <button type="button" class="tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-transparent text-base-content/80 hover:text-primary" data-tab="settings-tab-email">Email / SMTP</button>
+            <button type="button" class="tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-transparent text-base-content/80 hover:text-primary" data-tab="settings-tab-security">Security</button>
+        </div>
+
+        <!-- General -->
+        <div id="settings-tab-general" class="settings-pane">
+            <div class="{!! $card !!}">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div><label class="{!! $label !!}">Site Name</label>
+                        <input type="text" name="sitename" class="{!! $input !!}" value="{{ $s['sitename'] ?? '' }}"></div>
+                    <div><label class="{!! $label !!}">Site URL</label>
+                        <input type="url" name="site_url" class="{!! $input !!}" value="{{ $s['site_url'] ?? '' }}" placeholder="https://example.com/"></div>
+                    <div><label class="{!! $label !!}">Admin Email (From)</label>
+                        <input type="email" name="admin_mail" class="{!! $input !!}" value="{{ $s['admin_mail'] ?? '' }}"></div>
+                    <div><label class="{!! $label !!}">Admin Reply-To Email</label>
+                        <input type="email" name="admin_replymail" class="{!! $input !!}" value="{{ $s['admin_replymail'] ?? '' }}"></div>
+                    <div><label class="{!! $label !!}">Default Language</label>
+                        @php /*
+                         * A list rather than a text field. A typo here is not a validation
+                         * error: the catalogue is simply not found and the site falls back to
+                         * English, so the setting says `gr` while every page is in English and
+                         * nothing says why. (Greek is `el`.)
+                         */
+                        $languages = (array) ($this->languages ?? []);
+                        $currentLang = $s['default_language'] ?? 'en'; @endphp
+                        @if ($languages !== [])
+                        <select name="default_language" class="{!! $input !!}">
+                            @foreach ($languages as $lang)
+                                <option value="{{ $lang }}"{!! $currentLang === $lang ? ' selected' : '' !!}>{{ $lang }}</option>
+                            @endforeach
+                            @if (!in_array($currentLang, $languages, true))
+                            {{-- The stored value, kept so saving another field cannot
+                                     silently change the language. It is named as missing
+                                     because that is the interesting part. --}}
+                            <option value="{{ $currentLang }}" selected>{{ $currentLang }} (no catalogue)</option>
+                            @endif
+                        </select>
+                        <p class="text-xs text-base-content/60 mt-1">From the catalogues in <code>app/language/</code>.</p>
+                        @else
+                        <input type="text" name="default_language" class="{!! $input !!}" maxlength="10" value="{{ $currentLang }}" placeholder="en">
+                        <p class="text-xs text-base-content/60 mt-1">No language catalogue found, so this is a free-text field.</p>
+                        @endif
+                    </div>
+                    <div><label class="{!! $label !!}">Timezone</label>
+                        <select name="timezone" class="{!! $input !!}">
+                            @php $currentTz = $s['timezone'] ?? 'UTC';
+                            foreach ($tzs as $tz):
+                                $sel = ($currentTz === $tz) ? ' selected' : ''; @endphp
+                                <option value="{!! $tz !!}"{!! $sel !!}>{!! $tz !!}</option>
+                            @endforeach
+                        </select>
+                        <p class="text-xs text-base-content/60 mt-1">Server time: {!! date('H:i') !!}</p>
+                    </div>
+                    <div><label class="{!! $label !!}">Force HTTPS</label>
+                        <label class="flex items-center gap-2 mt-1 cursor-pointer">
+                            <input type="checkbox" name="forcessl" value="yes" class="w-4 h-4"
+                                {!! (($s['forcessl'] ?? '') === 'yes') ? 'checked' : '' !!}>
+                            <span class="text-sm text-base-content/80">Enabled</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Email / SMTP -->
+        <div id="settings-tab-email" class="settings-pane hidden">
+            <div class="{!! $card !!}">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="md:col-span-2"><label class="{!! $label !!}">SMTP Host</label>
+                        <input type="text" name="smtp_host" class="{!! $input !!}" value="{{ $s['smtp_host'] ?? '' }}" placeholder="smtp.example.com"></div>
+                    <div><label class="{!! $label !!}">SMTP Port</label>
+                        <input type="number" name="smtp_port" class="{!! $input !!}" min="1" max="65535"
+                            value="{{ $s['smtp_port'] !== '' ? $s['smtp_port'] : '587' }}"></div>
+                    <div><label class="{!! $label !!}">Use TLS/SSL</label>
+                        <label class="flex items-center gap-2 mt-1 cursor-pointer">
+                            <input type="checkbox" name="smtp_tls" value="yes" class="w-4 h-4"
+                                {!! (($s['smtp_tls'] ?? '') === 'yes') ? 'checked' : '' !!}>
+                            <span class="text-sm text-base-content/80">Enabled</span>
+                        </label>
+                    </div>
+                    <div><label class="{!! $label !!}">SMTP Username</label>
+                        <input type="text" name="smtp_user" class="{!! $input !!}" autocomplete="off" value="{{ $s['smtp_user'] ?? '' }}"></div>
+                    <div><label for="smtp_pass" class="{!! $label !!}">SMTP Password</label>
+                        <input id="smtp_pass" type="password" name="smtp_pass" class="{!! $input !!}"
+                            autocomplete="new-password" value=""
+                            placeholder="{!! $smtpPassIsSet ? 'Stored — leave blank to keep' : '' !!}">
+                        {!! \Pramnos\Html\PasswordToggle::render('smtp_pass', '', '') !!}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Security -->
+        <div id="settings-tab-security" class="settings-pane hidden">
+            <div class="{!! $card !!}">
+                <div class="grid grid-cols-1 gap-4">
+                    <div class="md:w-48"><label class="{!! $label !!}">Lockout Window (seconds)</label>
+                        <input type="number" name="loginlockoutwindowseconds" class="{!! $input !!}" min="60" max="86400"
+                            value="@php $w = (int) ($s['loginlockoutwindowseconds'] ?? 0);
+                                echo $w > 0 ? $w : \Pramnos\Application\Controllers\SettingsController::DEFAULT_LOCKOUT_WINDOW_SECONDS; @endphp">
+                        <p class="text-xs text-base-content/60 mt-1">Sliding window for counting failed logins.</p>
+                    </div>
+                    <div>
+                        <div class="flex justify-between items-center mb-2">
+                            <label class="{!! $label !!} mb-0">Progressive Lockout Rules</label>
+                            <button type="button" id="add-lockout-rule" class="btn btn-outline btn-primary btn-xs">+ Add Rule</button>
+                        </div>
+                        <div id="lockout-rules-container"></div>
+                        <div id="lockout-rules-errors" role="alert" class="alert alert-error hidden mt-2"></div>
+                        <input type="hidden" name="loginlockoutsteps" id="loginlockoutsteps"
+                            value="{{ (string) json_encode($initialSteps) }}">
+                        <p class="text-xs text-base-content/60 mt-1">Durations must increase with failed attempt count.</p>
+                    </div>
+                    <div>
+                        @php /**
+                         * New-sign-in alerts.
+                         *
+                         * The feature was per-user opt-in and nothing else: an operator
+                         * could not turn it on for everybody, and could not turn it off
+                         * during an incident generating thousands of sign-ins.
+                         */
+                        $policyKey   = \Pramnos\Auth\NewSignInAlert::POLICY_SETTING;
+                        $policyValue = (string) ($s[$policyKey] ?? '') ?: 'optin'; @endphp
+                        <label class="{!! $label !!}" for="{!! $policyKey !!}">
+                            New sign-in alerts
+                        </label>
+                        <select class="select select-sm w-full" id="{!! $policyKey !!}"
+                                name="{!! $policyKey !!}">
+                            <option value="optin" {!! $policyValue === 'optin' ? 'selected' : '' !!}>
+                                Each user decides, off unless asked for (default)
+                            </option>
+                            <option value="optout" {!! $policyValue === 'optout' ? 'selected' : '' !!}>
+                                Each user decides, on unless turned off
+                            </option>
+                            <option value="always" {!! $policyValue === 'always' ? 'selected' : '' !!}>
+                                Always notify
+                            </option>
+                            <option value="off" {!! $policyValue === 'off' ? 'selected' : '' !!}>
+                                Never notify
+                            </option>
+                        </select>
+                        <p class="text-xs text-base-content/60 mt-1">
+                            Whether an account is emailed when it is used from a device and
+                            browser it has not signed in from before. Compared against the
+                            activity log, so an account with history is not told its usual
+                            device is new.
+                            <br>Under <em>on unless turned off</em>, the people who most need
+                            the mail are covered without having to find the checkbox — and can
+                            still turn it off in one click.
+                        </p>
+                    </div>
+                    <div>
+                        @php /**
+                         * *When* the action below applies — a different question from what it is.
+                         *
+                         * "A device this account has not used" is a weak signal on its own.
+                         * People buy phones, clear cookies and borrow a laptop, so on a large
+                         * site it fires constantly, and a demand attached to it becomes a tax
+                         * everybody pays and nobody reads.
+                         *
+                         * `SignInRisk` collects the signals that are hard to explain innocently
+                         * instead. It has been written and wired since the alert existed, and
+                         * nothing on any screen turned it on — a rule nobody can enable is a
+                         * rule nobody has.
+                         */
+                        $triggerKey   = \Pramnos\Auth\NewSignInAlert::TRIGGER_SETTING;
+                        $triggerValue = (string) ($s[$triggerKey] ?? '') ?: 'new_device'; @endphp
+                        <label class="{!! $label !!}" for="{!! $triggerKey !!}">
+                            When to act
+                        </label>
+                        <select class="select select-sm w-full" id="{!! $triggerKey !!}"
+                                name="{!! $triggerKey !!}">
+                            <option value="new_device" {!! $triggerValue === 'new_device' ? 'selected' : '' !!}>
+                                Any device this account has not used (default)
+                            </option>
+                            <option value="suspicious" {!! $triggerValue === 'suspicious' ? 'selected' : '' !!}>
+                                Only when something looks wrong — new country, two places at once,
+                                straight after failed guesses
+                            </option>
+                        </select>
+                        <p class="text-xs text-base-content/60 mt-1">
+                            <strong>Only when something looks wrong</strong> is the setting that
+                            makes a demand bearable: it fires rarely, so people read it. The
+                            country signals need a country header — Cloudflare's, or one the
+                            application supplies — and simply do not fire without it rather than
+                            guessing from the address.
+                        </p>
+                    </div>
+                    <div>
+                        @php /**
+                         * And what such a sign-in has to *satisfy*.
+                         *
+                         * Telling somebody afterwards is the weakest useful response —
+                         * by the time the mail arrives, whoever had the password is
+                         * already inside. These are the options that stop it instead.
+                         *
+                         * Each one falls back to something the account can actually do,
+                         * so none of them is a way to lock a user base out: the details
+                         * are in NewSignInAlert::requiredFor().
+                         */
+                        $actionKey   = \Pramnos\Auth\NewSignInAlert::ACTION_SETTING;
+                        $actionValue = (string) ($s[$actionKey] ?? '') ?: 'notify';
+                        /*
+                         * The labels name the fallback, because the strict readings are
+                         * meaningless without it — and worse, they read as a promise the
+                         * deployment cannot keep. "Require a passkey" on a user base that
+                         * has none is not a policy; what actually happens is that the
+                         * account is asked for whatever it does have, and for a mailed code
+                         * if it has nothing. A dropdown that hides that is a dropdown an
+                         * operator chooses wrongly.
+                         */
+                        $actionLabels = [
+                            'notify'          => 'Only notify (default)',
+                            'authlink'        => 'Require a link sent by email — works for every account',
+                            'require_2fa'     => 'Require a second factor — a mailed code if the account has none',
+                            'require_passkey' => 'Require a passkey — falls back to a factor, then a mailed code',
+                        ]; @endphp
+                        <label class="{!! $label !!}" for="{!! $actionKey !!}">
+                            On a sign-in from a new device
+                        </label>
+                        <select class="select select-sm w-full" id="{!! $actionKey !!}"
+                                name="{!! $actionKey !!}">
+                            @foreach ($actionLabels as $value => $text)
+                            <option value="{!! $value !!}" {!! $actionValue === $value ? 'selected' : '' !!}>
+                                {!! $text !!}
+                            </option>
+                            @endforeach
+                        </select>
+                        <p class="text-xs text-base-content/60 mt-1">
+                            Beyond the alert. Nothing here can lock an account out: a demand
+                            it cannot satisfy becomes the strongest factor it does have, and
+                            a code emailed to it as a last resort — every account has a
+                            mailbox. Accounts with no second factor set up are therefore
+                            covered too, which is the point, since those are the ones a
+                            stolen password reaches.
+                        </p>
+                    </div>
+                </div>
+
+                @php /*
+                 * Registration, and the two sign-in conveniences Google taught everybody to
+                 * expect. Each a yes/no that falls back to "no": none of them may switch
+                 * itself on because a theme forgot to render a field.
+                 */
+                $yesNo = static function (string $name, string $value, bool $disabled = false) use ($input): string {
+                    $out = '<select class="select select-sm w-full md:w-48" id="' . $name . '" name="' . $name . '"'
+                        . ($disabled ? ' disabled' : '') . '>';
+                    foreach (['0' => 'No', '1' => 'Yes'] as $option => $text) {
+                        $out .= '<option value="' . $option . '"' . ($value === (string) $option ? ' selected' : '') . '>' . $text . '</option>';
+                    }
+
+                    return $out . '</select>';
+                };
+                $regAllow   = (string) ($s[\Pramnos\Auth\RegistrationPolicy::ALLOW_SETTING] ?? '');
+                $regAllow   = in_array(strtolower($regAllow), ['1', 'true', 'yes', 'on'], true) ? '1' : '0';
+                $regLocked  = empty($this->registrationEditable);
+                $trustOn    = (string) ($s[\Pramnos\Auth\TrustedDevices::ENABLED_SETTING] ?? '') === '1' ? '1' : '0';
+                $trustDays  = (int) ($s[\Pramnos\Auth\TrustedDevices::DAYS_SETTING] ?? 0) ?: \Pramnos\Auth\TrustedDevices::DEFAULT_DAYS;
+                $trustAdmin = (string) ($s[\Pramnos\Auth\TrustedDevices::EXCLUDE_ADMINS_SETTING] ?? '') === '1' ? '1' : '0';
+                $pushOn     = (string) ($s[\Pramnos\Auth\PushApprovals::ENABLED_SETTING] ?? '') === '1' ? '1' : '0';
+                $pushNumber = \Pramnos\Auth\PushApprovals::numberPolicy();
+                $pushEnrol  = \Pramnos\Auth\Factors\PushApprovalSecondFactor::enrolmentPolicy(); @endphp
+                <h3 class="font-semibold mt-6 mb-2">Registration</h3>
+                <div class="grid grid-cols-1 gap-4">
+                    <div>
+                        <label class="{!! $label !!}" for="{!! \Pramnos\Auth\RegistrationPolicy::ALLOW_SETTING !!}">Anybody may register</label>
+                        {!! $yesNo(\Pramnos\Auth\RegistrationPolicy::ALLOW_SETTING, $regAllow, $regLocked) !!}
+                        <p class="text-xs text-base-content/60 mt-1">Off: accounts are made by invitation or by an administrator.</p>
+                    </div>
+                    <div>
+                        <label class="{!! $label !!}" for="{!! \Pramnos\Auth\RegistrationPolicy::DOMAINS_SETTING !!}">Only from these email domains</label>
+                        <input type="text" class="{!! $input !!}" id="{!! \Pramnos\Auth\RegistrationPolicy::DOMAINS_SETTING !!}"
+                               name="{!! \Pramnos\Auth\RegistrationPolicy::DOMAINS_SETTING !!}" placeholder="example.com, example.org"
+                               value="{{ (string) ($s[\Pramnos\Auth\RegistrationPolicy::DOMAINS_SETTING] ?? '') }}"{!! $regLocked ? ' disabled' : '' !!}>
+                        <p class="text-xs text-base-content/60 mt-1">Empty for any. With a list, every new address must be confirmed by email.</p>
+                    </div>
+                    @if ($regLocked)
+                    <p class="text-xs text-base-content/60">Set in <code>app/app.php</code> (<code>auth.registration_admin_editable</code> is off), so not editable here.</p>
+                    @endif
+                </div>
+
+                <h3 class="font-semibold mt-6 mb-2">Trusted devices and sign-in approval</h3>
+                <div class="grid grid-cols-1 gap-4">
+                    <div>
+                        <label class="{!! $label !!}" for="{!! \Pramnos\Auth\TrustedDevices::ENABLED_SETTING !!}">Offer "Don't ask again on this device"</label>
+                        {!! $yesNo(\Pramnos\Auth\TrustedDevices::ENABLED_SETTING, $trustOn) !!}
+                        <p class="text-xs text-base-content/60 mt-1">On the two-step page, ticked by default. A trusted browser skips the second step.</p>
+                    </div>
+                    <div class="md:w-48">
+                        <label class="{!! $label !!}" for="{!! \Pramnos\Auth\TrustedDevices::DAYS_SETTING !!}">For how many days</label>
+                        <input type="number" min="1" max="365" class="{!! $input !!}"
+                               id="{!! \Pramnos\Auth\TrustedDevices::DAYS_SETTING !!}"
+                               name="{!! \Pramnos\Auth\TrustedDevices::DAYS_SETTING !!}" value="{!! $trustDays !!}">
+                    </div>
+                    <div>
+                        <label class="{!! $label !!}" for="{!! \Pramnos\Auth\TrustedDevices::EXCLUDE_ADMINS_SETTING !!}">Administrators always take the second step</label>
+                        {!! $yesNo(\Pramnos\Auth\TrustedDevices::EXCLUDE_ADMINS_SETTING, $trustAdmin) !!}
+                    </div>
+                    <div>
+                        <label class="{!! $label !!}" for="{!! \Pramnos\Auth\PushApprovals::ENABLED_SETTING !!}">Approve sign-ins from a trusted phone</label>
+                        {!! $yesNo(\Pramnos\Auth\PushApprovals::ENABLED_SETTING, $pushOn) !!}
+                        <p class="text-xs text-base-content/60 mt-1">
+                            "Is it you trying to sign in?" on the account's trusted devices that receive notifications,
+                            with a number to pick unless the attempt is plainly the account's own. Another way is always offered beside it.
+                            @if (empty($this->pushReady))
+                            <strong>Push is not set up here yet</strong> — run <code>push:setup</code> — so nobody will be asked until it is.
+                            @endif
+                        </p>
+                    </div>
+                    <div>
+                        <label class="{!! $label !!}" for="{!! \Pramnos\Auth\PushApprovals::NUMBER_SETTING !!}">When the phone must pick a number</label>
+                        <select class="select select-sm w-full" id="{!! \Pramnos\Auth\PushApprovals::NUMBER_SETTING !!}" name="{!! \Pramnos\Auth\PushApprovals::NUMBER_SETTING !!}">
+                            <option value="risk" {!! $pushNumber === 'risk' ? 'selected' : '' !!}>A number unless it is a browser the account trusted before and nothing is unusual (default)</option>
+                            <option value="always" {!! $pushNumber === 'always' ? 'selected' : '' !!}>A number every time</option>
+                        </select>
+                        <p class="text-xs text-base-content/60 mt-1">Otherwise the phone gets a plain "Yes, it's me".</p>
+                    </div>
+                    <div>
+                        <label class="{!! $label !!}" for="{!! \Pramnos\Auth\Factors\PushApprovalSecondFactor::ENROLMENT_SETTING !!}">Does the phone count as a second factor for required enrolment</label>
+                        <select class="select select-sm w-full" id="{!! \Pramnos\Auth\Factors\PushApprovalSecondFactor::ENROLMENT_SETTING !!}" name="{!! \Pramnos\Auth\Factors\PushApprovalSecondFactor::ENROLMENT_SETTING !!}">
+                            <option value="strong" {!! $pushEnrol === 'strong' ? 'selected' : '' !!}>Only if the phone was trusted with an authenticator or passkey (default)</option>
+                            <option value="always" {!! $pushEnrol === 'always' ? 'selected' : '' !!}>Yes, whenever there is a phone to ask</option>
+                            <option value="never" {!! $pushEnrol === 'never' ? 'selected' : '' !!}>No, the account needs its own authenticator or passkey</option>
+                        </select>
+                        <p class="text-xs text-base-content/60 mt-1">For accounts that must enrol something better than a mailed code. A phone can be trusted after a mailed code.</p>
+                    </div>
+                </div>
+
+                @php $ccOn      = (string) ($s[\Pramnos\Security\CookieConsent::ENABLED_SETTING] ?? '') === '0' ? '0' : '1';
+                $ccCats    = (string) ($s[\Pramnos\Security\CookieConsent::CATEGORIES_SETTING] ?? '');
+                $ccCats    = $ccCats === '' ? implode(', ', \Pramnos\Security\CookieConsent::KNOWN_CATEGORIES) : $ccCats;
+                $ccPolicy  = (string) ($s[\Pramnos\Security\CookieConsent::POLICY_URL_SETTING] ?? '');
+                $ccVersion = (string) ($s[\Pramnos\Security\CookieConsent::VERSION_SETTING] ?? '') ?: '1'; @endphp
+                <h3 class="font-semibold mt-6 mb-2">Cookie consent</h3>
+                @if (\Pramnos\Security\CookieConsent::offInApp())
+                <p class="text-xs text-base-content/60">Turned off in <code>app/app.php</code> (<code>'cookie_consent' => false</code>). Delete that line to offer the banner.</p>
+                @else
+                <div class="grid grid-cols-1 gap-4">
+                    <div>
+                        <label class="{!! $label !!}" for="{!! \Pramnos\Security\CookieConsent::ENABLED_SETTING !!}">Show the cookie banner</label>
+                        {!! $yesNo(\Pramnos\Security\CookieConsent::ENABLED_SETTING, $ccOn) !!}
+                        <p class="text-xs text-base-content/60 mt-1">Off only if this site sets no cookie beyond the strictly necessary ones.</p>
+                    </div>
+                    <div>
+                        <label class="{!! $label !!}" for="{!! \Pramnos\Security\CookieConsent::CATEGORIES_SETTING !!}">Categories to ask about</label>
+                        <input type="text" class="{!! $input !!}" id="{!! \Pramnos\Security\CookieConsent::CATEGORIES_SETTING !!}" name="{!! \Pramnos\Security\CookieConsent::CATEGORIES_SETTING !!}" placeholder="preferences, analytics, marketing" value="{{ $ccCats }}">
+                        <p class="text-xs text-base-content/60 mt-1">Any of: preferences, analytics, marketing. "Strictly necessary" is always shown and cannot be turned off.</p>
+                    </div>
+                    <div>
+                        <label class="{!! $label !!}" for="{!! \Pramnos\Security\CookieConsent::POLICY_URL_SETTING !!}">Cookie policy page</label>
+                        <input type="text" class="{!! $input !!}" id="{!! \Pramnos\Security\CookieConsent::POLICY_URL_SETTING !!}" name="{!! \Pramnos\Security\CookieConsent::POLICY_URL_SETTING !!}" placeholder="https://example.com/cookies" value="{{ $ccPolicy }}">
+                        <p class="text-xs text-base-content/60 mt-1">Linked from the banner. Empty for no link.</p>
+                    </div>
+                    <div>
+                        <label class="{!! $label !!}" for="{!! \Pramnos\Security\CookieConsent::VERSION_SETTING !!}">Policy version</label>
+                        <input type="text" class="{!! $input !!}" id="{!! \Pramnos\Security\CookieConsent::VERSION_SETTING !!}" name="{!! \Pramnos\Security\CookieConsent::VERSION_SETTING !!}" placeholder="1" value="{{ $ccVersion }}">
+                        <p class="text-xs text-base-content/60 mt-1">Change it when the policy changes: everybody is asked again.</p>
+                    </div>
+                </div>
+                @endif
+
+                {{-- What this application has enabled — read-only, and next to the settings
+that refer to it.
+
+An operator choosing "require a second factor" cannot otherwise tell
+whether the factors it refers to exist in this deployment, and "why is
+nobody asked for a code" has no answer on this screen. These are
+declared in `app/app.php`, versioned with the code, which is why they
+are shown rather than edited here. --}}
+                <div class="mt-6 pt-4 border-t border-base-300">
+                    <h4 class="font-semibold text-sm mb-2">What this application offers</h4>
+                    <div class="flex flex-wrap gap-4 text-sm">
+                        <div>
+                            <span class="text-base-content/60">Second factors:</span>
+                            @foreach ((array) ($this->twofactorMethods ?? []) as $method)
+                                <span class="badge badge-sm badge-outline ml-1">{{ (string) $method }}</span>
+                            @endforeach
+                        </div>
+                        <div>
+                            <span class="text-base-content/60">Features:</span>
+                            @foreach ((array) ($this->enabledFeatures ?? []) as $feature)
+                                <span class="badge badge-sm badge-ghost ml-1">{{ (string) $feature }}</span>
+                            @endforeach
+                        </div>
+                    </div>
+                    <p class="text-xs text-base-content/60 mt-2">
+                        Set in <code>app/app.php</code> —
+                        <code>'auth' =&gt; ['twofactor_methods' =&gt; [...]]</code> and
+                        <code>'features' =&gt; [...]</code>. Not editable here: they are part of
+                        the deployment, not of the runtime configuration.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex gap-3 mt-2">
+            <button type="submit" class="{!! $btnPri !!}">Save Settings</button>
+            <a href="{!! adminUrl('settings/list') !!}" class="{!! $btnSec !!}">Advanced / Raw Settings</a>
+        </div>
+    </form>
+</div>
+
+<style>
+/* Theme tokens, not literals: `background:#fff` renders a white card in the dark theme
+   with the theme's own light text on it, which is a card nobody can read. */
+.lockout-rule-card { display:flex; align-items:center; gap:12px; background:var(--color-base-100); border:1px solid var(--color-base-300); border-radius:6px; padding:10px 12px; margin-bottom:6px; }
+.lockout-rule-card label { font-size:12px; color:var(--color-base-content); opacity:.65; white-space:nowrap; }
+.lockout-rule-card input { width:90px; border:1px solid #d1d5db; border-radius:4px; padding:4px 8px; font-size:13px; }
+</style>
+
+<script>
+(function () {
+    var defaultSteps = {!! json_encode($defaultSteps, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) !!};
+
+    /* ── Tab switching ─────────────────────────────────────────────────── */
+    function initTabs() {
+        var activeInput = document.getElementById('settings_active_tab');
+        var btns = document.querySelectorAll('.tab-btn');
+        var panes = document.querySelectorAll('.settings-pane');
+        function activate(id) {
+            btns.forEach(function (b) {
+                var active = b.getAttribute('data-tab') === id;
+                b.classList.toggle('text-primary', active);
+                b.classList.toggle('bg-base-100', active);
+                b.classList.toggle('border-base-300', active);
+                b.classList.toggle('text-base-content/80', !active);
+                b.classList.toggle('border-transparent', !active);
+            });
+            panes.forEach(function (p) { p.classList.toggle('hidden', p.id !== id); });
+            if (activeInput) { activeInput.value = id; }
+            if (history && history.replaceState) { history.replaceState(null, '', '#' + id); }
+        }
+        btns.forEach(function (b) {
+            b.addEventListener('click', function () { activate(b.getAttribute('data-tab')); });
+        });
+        var hash = window.location.hash.replace('#', '');
+        var valid = Array.from(panes).some(function (p) { return p.id === hash; });
+        activate(valid ? hash : 'settings-tab-general');
+    }
+
+    /* ── Lockout rules builder ─────────────────────────────────────────── */
+    function parseInitialSteps() {
+        var hidden = document.getElementById('loginlockoutsteps');
+        if (!hidden || !hidden.value) { return defaultSteps; }
+        try { var p = JSON.parse(hidden.value); if (typeof p === 'object' && p !== null) { return p; } } catch (e) {}
+        return defaultSteps;
+    }
+    function renderCard(attempts, seconds) {
+        var card = document.createElement('div'); card.className = 'lockout-rule-card';
+        var al = document.createElement('label'); al.textContent = 'Failed attempts:';
+        var ai = document.createElement('input'); ai.type = 'number'; ai.min = '1'; ai.className = 'lockout-attempts'; ai.value = attempts || '';
+        var sl = document.createElement('label'); sl.textContent = 'Lockout (s):';
+        var si = document.createElement('input'); si.type = 'number'; si.min = '1'; si.className = 'lockout-seconds'; si.value = seconds || '';
+        var rb = document.createElement('button'); rb.type = 'button';
+        rb.className = 'ml-auto text-xs px-2 py-1 border border-error text-error rounded-sm hover:bg-error/10';
+        rb.textContent = 'Remove'; rb.addEventListener('click', function () { card.remove(); });
+        card.appendChild(al); card.appendChild(ai); card.appendChild(sl); card.appendChild(si); card.appendChild(rb);
+        return card;
+    }
+    function collectRules() {
+        var hidden = document.getElementById('loginlockoutsteps');
+        var container = document.getElementById('lockout-rules-container');
+        var errBox = document.getElementById('lockout-rules-errors');
+        if (!hidden || !container) { return true; }
+        var errors = [], entries = [], seen = {};
+        container.querySelectorAll('.lockout-rule-card').forEach(function (card) {
+            var a = parseInt((card.querySelector('.lockout-attempts').value || '').trim(), 10);
+            var d = parseInt((card.querySelector('.lockout-seconds').value || '').trim(), 10);
+            if (isNaN(a) || isNaN(d) || a <= 0 || d <= 0) { errors.push('All values must be positive integers.'); return; }
+            if (seen[a]) { errors.push('Duplicate threshold: ' + a); return; }
+            seen[a] = true; entries.push({ a: a, d: d });
+        });
+        if (entries.length === 0) { errors.push('At least one rule is required.'); }
+        entries.sort(function (x, y) { return x.a - y.a; });
+        for (var i = 1; i < entries.length; i++) {
+            if (entries[i].d <= entries[i - 1].d) { errors.push('Lockout seconds must increase.'); break; }
+        }
+        if (errors.length > 0) {
+            errBox.textContent = [...new Set(errors)].join(' ');
+            errBox.classList.remove('hidden'); return false;
+        }
+        errBox.classList.add('hidden'); errBox.textContent = '';
+        var map = {}; entries.forEach(function (e) { map[e.a] = e.d; });
+        hidden.value = JSON.stringify(map); return true;
+    }
+    function initLockout() {
+        var container = document.getElementById('lockout-rules-container');
+        var addBtn = document.getElementById('add-lockout-rule');
+        var form = document.getElementById('settingsForm');
+        if (!container || !addBtn || !form) { return; }
+        var steps = parseInitialSteps();
+        Object.keys(steps).map(Number).sort(function (a, b) { return a - b; }).forEach(function (k) {
+            container.appendChild(renderCard(k, steps[k]));
+        });
+        addBtn.addEventListener('click', function () { container.appendChild(renderCard('', '')); });
+        form.addEventListener('submit', function (e) { if (!collectRules()) { e.preventDefault(); } });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () { initTabs(); initLockout(); });
+})();
+</script>

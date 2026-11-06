@@ -98,7 +98,7 @@ class AnalystTest extends LlmTestCase
 
         $llm = [];
         foreach (glob(ROOT . '/database/migrations/framework/llm/*.php') ?: [] as $file) {
-            preg_match('/^class (\w+)/m', (string) file_get_contents($file), $m);
+            preg_match('/^class (\w+)/m', (string) \Pramnos\Tests\Support\ScaffoldView::read($file), $m);
             $llm[] = 'Pramnos\\Framework\\Migrations\\Llm\\' . $m[1];
         }
 
@@ -1064,7 +1064,7 @@ final class AnalystScreen extends \Pramnos\Application\Controllers\AiController
                 $file = $this->path . '/' . ($tpl ?: $this->name) . '.html.php';
                 ob_start();
                 \Closure::bind(function () use ($file): void {
-                    include $file;
+                    include \Pramnos\Tests\Support\ScaffoldView::run($file);
                 }, $this, \Pramnos\Application\View::class)();
 
                 return (string) ob_get_clean();
@@ -1072,6 +1072,14 @@ final class AnalystScreen extends \Pramnos\Application\Controllers\AiController
 
             public function insert(string $template, array $data = []): void
             {
+
+                // The ask page is the conversation page: draw it, as View would. Other partials are not this test's subject.
+
+                if ($template === '../chat/chat') {
+
+                    include \Pramnos\Tests\Support\ScaffoldView::run($this->path . '/../chat/chat.html.php');
+
+                }
             }
         };
 

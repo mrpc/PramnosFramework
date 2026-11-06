@@ -32,6 +32,7 @@ class ScaffoldCookieConsentTest extends TestCase
     private static function read(string $relative): string
     {
         $path = dirname(__DIR__, 3) . '/' . $relative;
+        $path = \Pramnos\Tests\Support\ScaffoldView::pathOf($path);
         self::assertFileExists($path);
 
         return (string) file_get_contents($path);

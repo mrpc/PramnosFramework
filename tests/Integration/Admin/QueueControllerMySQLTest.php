@@ -601,9 +601,9 @@ class QueueControllerMySQLTest extends BaseTestCase
         foreach ($themes as $dir) {
             // Act
             $pages = [
-                'queue'   => $render($list, $dir . '/queue.html.php'),
-                'show'    => $render($show, $dir . '/show.html.php'),
-                'history' => $render($history, $dir . '/history.html.php'),
+                'queue'   => $render($list, \Pramnos\Tests\Support\ScaffoldView::run($dir . '/queue.html.php')),
+                'show'    => $render($show, \Pramnos\Tests\Support\ScaffoldView::run($dir . '/show.html.php')),
+                'history' => $render($history, \Pramnos\Tests\Support\ScaffoldView::run($dir . '/history.html.php')),
             ];
 
             // Assert

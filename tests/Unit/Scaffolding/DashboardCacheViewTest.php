@@ -31,7 +31,7 @@ class DashboardCacheViewTest extends TestCase
     public function testAnExpiredEntryIsMarkedExpiredAndALiveOneIsNot(string $theme): void
     {
         // Arrange
-        $view = dirname(__DIR__, 3) . "/scaffolding/themes/{$theme}/views/dashboard/cache.html.php";
+        $view = \Pramnos\Tests\Support\ScaffoldView::run(dirname(__DIR__, 3) . "/scaffolding/themes/{$theme}/views/dashboard/cache.html.php");
         $this->assertFileExists($view);
         $data = (object) [
             'cacheStatus' => true,
@@ -59,7 +59,7 @@ class DashboardCacheViewTest extends TestCase
     private function render(string $view, object $data): string
     {
         $render = function (string $__view): void {
-            include $__view;
+            include \Pramnos\Tests\Support\ScaffoldView::run($__view);
         };
 
         ob_start();
