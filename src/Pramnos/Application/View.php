@@ -682,6 +682,39 @@ class View extends \Pramnos\Framework\Base
     }
 
     /**
+     * Where a template is, and which kind it is: the theme's override, then the application's
+     * view directory, then the bundled scaffold — and in each, the kind asked for (`html`,
+     * `tpl`) before the other. So a view written only as `.tpl.php` is drawn by a `display()`
+     * that asked for HTML, rather than coming out blank; and an application's own `.html.php`
+     * of a view still wins over the scaffold's, whichever kind the scaffold's is.
+     *
+     * A path that does not exist when nothing is found, so the caller's "cannot find view
+     * template" path is unchanged.
+     *
+     * @return array{0: string, 1: string} The file, and its kind
+     */
+    private function findTemplate(string $tpl, string $type, mixed $doc): array
+    {
+        $types = in_array($type, ['html', 'tpl'], true) ? array_values(array_unique([$type, $type === 'html' ? 'tpl' : 'html'])) : [$type];
+        $where = [];
+        if (is_object($doc) && is_object($doc->themeObject ?? null) && $doc->themeObject->allowsViewOverrides()) {
+            $where[] = fn (string $kind): ?string => $doc->themeObject->fullpath . DS . 'views' . DS . $this->name . DS . $tpl . '.' . $kind . '.php';
+        }
+        $where[] = fn (string $kind): ?string => $this->templateDirectory() . DS . $tpl . '.' . $kind . '.php';
+        $where[] = fn (string $kind): ?string => $this->scaffoldedTemplate($tpl, $kind);
+        foreach ($where as $place) {
+            foreach ($types as $kind) {
+                $file = $place($kind);
+                if ($file !== null && file_exists($file)) {
+                    return [$file, $kind];
+                }
+            }
+        }
+
+        return [$this->templateDirectory() . DS . $tpl . '.' . $type . '.php', $type];
+    }
+
+    /**
      * The bundled scaffolding's version of a template, when the application has
      * none of its own.
      *
@@ -791,25 +824,7 @@ class View extends \Pramnos\Framework\Base
             }
         }
 
-        $tplfile = $this->templateDirectory()
-            . DS . $tpl . '.' . $type . '.php';
-
-        if (is_object($doc->themeObject)
-            && $doc->themeObject->allowsViewOverrides()) {
-            $viewTplFile=$doc->themeObject->fullpath . DS . 'views' . DS
-                . $this->name . DS . $tpl
-                . '.' . $type . '.php';
-            if (file_exists($viewTplFile)) {
-                $tplfile = $viewTplFile;
-            }
-        }
-
-        if (!file_exists($tplfile)) {
-            $scaffolded = $this->scaffoldedTemplate($tpl, $type);
-            if ($scaffolded !== null) {
-                $tplfile = $scaffolded;
-            }
-        }
+        [$tplfile, $type] = $this->findTemplate($tpl, $type, $doc);
 
         if (file_exists($tplfile)) {
             // Reset template-engine state for this render cycle so that

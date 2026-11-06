@@ -294,6 +294,14 @@ src/Views/<view>/<tpl>.html.php                  ← the application's own
 scaffolding/themes/<scaffold_theme>/views/…      ← the bundled fallback
 ```
 
+**Either kind of template.** At each of the three places the kind of template the
+controller asked for is tried first and the other kind next: `.html.php` (PHP and HTML) or
+`.tpl.php` (the framework's template engine, with `{{ }}`, `@if`, `@foreach`, `@extends`).
+A `display()` that asked for HTML therefore draws a view written only as `.tpl.php`, and an
+application's own `.html.php` of a view still wins over a bundled `.tpl.php`, whichever kind
+the controller asked for. A bundled view can move to the template engine without losing
+anybody's override of it.
+
 **Per template, not per directory.** Each template resolves on its own, so an
 application with `src/Views/services/logs.html.php` and no `services.html.php` still
 gets the bundled `services.html.php`. A per-directory fallback would match the
@@ -647,6 +655,8 @@ The framework follows this template hierarchy (see
 1. Theme-specific view override (`app/themes/<theme>/views/<view>/<tpl>.html.php`)
 2. Application view (`src/Views/<view>/<tpl>.html.php`)
 3. The bundled scaffold view for the configured `scaffold_theme`
+
+At each step `.tpl.php` is tried too, after the kind asked for.
 
 ### Template Variables
 
