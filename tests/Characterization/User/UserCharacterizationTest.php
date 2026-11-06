@@ -943,4 +943,98 @@ class UserCharacterizationTest extends TestCase
         // Assert
         $this->assertEquals(1, (int) $active, 'the save wrote active back after deactivate()');
     }
+
+    /**
+     * A users column the class does not declare is never written to userdetails (FW-332).
+     *
+     * Loading puts every column of the row on the object, and one the class does not declare goes
+     * through __set() into `otherinfo` — which save() wrote out as details. An installation had
+     * 250,000 such rows, and a long text column copied there failed the save against the
+     * (fieldname, value) index. A real detail saved beside it is still written.
+     */
+    public function testAnUndeclaredColumnIsNotWrittenAsADetail(): void
+    {
+        // Arrange — a column only the database has
+        $table = $this->db->prefix . 'users';
+        try {
+            $this->db->query('ALTER TABLE ' . $table . ' ADD COLUMN fw332renew INT NULL');
+        } catch (\Throwable) {
+            // Left by an interrupted run; the test needs it either way.
+        }
+        $username = 'fw332_' . bin2hex(random_bytes(4));
+        $user = new User();
+        $user->username = $username;
+        $user->email    = $username . '@example.com';
+        $user->save();
+        $userId = (int) $user->userid;
+        $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->update(['fw332renew' => 7]);
+        User::clearUserCache();
+
+        try {
+            // Act — load, change the column and a detail, save
+            $loaded = new User($userId);
+            $loaded->fw332renew = 8;
+            $loaded->fw332note  = 'a detail';
+            $loaded->save();
+            $names = array_column($this->db->queryBuilder()->table('#PREFIX#userdetails')
+                ->select(['fieldname'])->where('userid', $userId)->get()->fetchAll(), 'fieldname');
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#userdetails')->where('userid', $userId)->delete();
+            $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->delete();
+            $this->db->query('ALTER TABLE ' . $table . ' DROP COLUMN fw332renew');
+            User::clearUserCache();
+        }
+
+        // Assert
+        $this->assertContains('fw332note', $names, 'the save wrote details at all');
+        $this->assertNotContains('fw332renew', $names, 'a column is the row\'s, not a detail');
+    }
+
+    /**
+     * A leftover userdetails row named like a users column does not win on load: the column's value
+     * is what the object holds, declared column or not (FW-332).
+     *
+     * Details were read after the row, so a stale copy overrode the column — an installation read
+     * an old renewal date for 127 users — and, for a declared column, was rewritten on every save.
+     */
+    public function testAStaleDetailNamedLikeAColumnDoesNotOverrideIt(): void
+    {
+        // Arrange — a declared column and an undeclared one, each with a stale detail
+        $table = $this->db->prefix . 'users';
+        try {
+            $this->db->query('ALTER TABLE ' . $table . ' ADD COLUMN fw332renew INT NULL');
+        } catch (\Throwable) {
+            // Left by an interrupted run; the test needs it either way.
+        }
+        $username = 'fw332_' . bin2hex(random_bytes(4));
+        $user = new User();
+        $user->username = $username;
+        $user->email    = $username . '@example.com';
+        $user->firstname = 'Current';
+        $user->save();
+        $userId = (int) $user->userid;
+        $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->update(['fw332renew' => 7]);
+        foreach (['firstname' => 'Stale', 'fw332renew' => '1'] as $name => $value) {
+            $this->db->queryBuilder()->table('#PREFIX#userdetails')
+                ->insert(['userid' => $userId, 'fieldname' => $name, 'value' => $value]);
+        }
+        User::clearUserCache();
+
+        try {
+            // Act
+            $loaded = new User($userId);
+            $firstname = $loaded->firstname;
+            $renew     = (int) $loaded->fw332renew;
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#userdetails')->where('userid', $userId)->delete();
+            $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->delete();
+            $this->db->query('ALTER TABLE ' . $table . ' DROP COLUMN fw332renew');
+            User::clearUserCache();
+        }
+
+        // Assert
+        $this->assertSame('Current', $firstname, 'the declared column, not the stale detail');
+        $this->assertSame(7, $renew, 'the undeclared column, not the stale detail');
+        $this->assertArrayNotHasKey('firstname', $loaded->otherinfo);
+    }
 }

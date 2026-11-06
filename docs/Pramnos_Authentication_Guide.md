@@ -567,6 +567,11 @@ $user->deleteuser();
 `_` never is, whether or not it was loaded: it is the place for a subclass's private cache (a
 loaded model, a computed value), which must not become a row on every save.
 
+**A `users` column is never a detail.** A column the class does not declare still loads onto
+the object (through `__set()`), but `save()` does not write it to `userdetails`; to save it,
+declare it on your subclass and add it in `_alterFields()`. And a `userdetails` row named like a
+column is ignored on load: the column's value wins.
+
 ### `userlog` is deprecated
 
 `userlog` holds one row per event about a user. It records the user the row is about but

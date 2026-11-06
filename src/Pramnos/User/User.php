@@ -1052,6 +1052,9 @@ class User extends \Pramnos\Framework\Base implements
 
         foreach (array_keys($this->otherinfo) as $fieldname) {
             $fixname = substr($fieldname, 3);
+            // A users column the class does not declare reaches otherinfo through __set() when
+            // the row loads; it is the row's, not a detail, so it is never written as one (FW-332).
+            $column = array_key_exists($fieldname, $this->_initialUserData);
             if ($this->$fieldname === NULL) {
                 try {
                     $database->queryBuilder()
@@ -1062,6 +1065,8 @@ class User extends \Pramnos\Framework\Base implements
                 } catch (\Exception $ex) {
                     \Pramnos\Logs\Logger::log($ex->getMessage());
                 }
+            } elseif ($column) {
+                continue;
             } elseif (is_object($this->$fieldname)
                 || is_array($this->$fieldname)) {
 
@@ -1206,7 +1211,9 @@ class User extends \Pramnos\Framework\Base implements
 
         foreach ($details as [$fieldname, $value]) { //This should load all special settings
             $fixname = substr($fieldname, 3);
-            if ($fixname != 'originalOtherinfo'
+            // A detail named like a users column is a leftover: the column is the value (FW-332).
+            if (!array_key_exists($fieldname, $row)
+                && $fixname != 'originalOtherinfo'
                 && substr($fixname, 0, 1) != '_'
                 && substr($fieldname, 0, 1) != '_') {
                 $this->otherinfo[$fieldname] = $value;
