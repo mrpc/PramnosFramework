@@ -15,6 +15,11 @@ use Pramnos\User\Token;
  * {@see confirm()} follows it. Only accounts that were marked here are held back at sign-in —
  * an existing account with `validated = 0` from before this existed is not locked out by it.
  *
+ * {@see request()} asks for the same confirmation without holding anybody back: the account signs
+ * in as before, stays `validated = 0` until the link is followed, and the application shows a
+ * "confirm your email" notice while {@see awaitsConfirmation()} says so. {@see resend()} is the
+ * administrator's "send it again", for either kind.
+ *
  * The token is stored as {@see Token::lookup()} in `userdetails`, like the reset-password and
  * new-device links, and expires after `auth_email_verify_ttl_hours` (48).
  *
@@ -56,6 +61,54 @@ class EmailVerification
 
         $this->db()->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->update(['validated' => 0]);
         $this->store($userId, self::FIELD_PENDING, '1');
+
+        return $this->issue($userId);
+    }
+
+    /**
+     * Ask the account to confirm its address without holding it back: mail the link and mark it
+     * `validated = 0`, but not waiting, so it signs in as before. {@see confirm()} marks it
+     * `validated = 1` when the link is followed, as for {@see begin()}.
+     */
+    public function request(int $userId): bool
+    {
+        if ($userId <= 1) {
+            return false;
+        }
+
+        $this->db()->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->update(['validated' => 0]);
+
+        return $this->issue($userId);
+    }
+
+    /**
+     * Has this account been sent a link it has not followed — by {@see begin()} or
+     * {@see request()}, expired or not? What an application's "confirm your email" notice asks.
+     */
+    public function awaitsConfirmation(int $userId): bool
+    {
+        if ($userId <= 1 || !$this->db()->connected) {
+            return false;
+        }
+
+        return $this->detail($userId, self::FIELD_HASH) !== '';
+    }
+
+    /**
+     * Mail a fresh link now — the administrator's "send it again". For an account whose address is
+     * not confirmed (`validated = 0`); a waiting account stays waiting, one that was not held back
+     * is not held back now. False for a confirmed account, one without an email address, or when
+     * the mail could not be sent.
+     */
+    public function resend(int $userId): bool
+    {
+        if ($userId <= 1) {
+            return false;
+        }
+        $row = $this->db()->queryBuilder()->table('#PREFIX#users')->select(['validated', 'email'])->where('userid', $userId)->first();
+        if (!$row || (int) $row->numRows === 0 || (int) $row->fields['validated'] !== 0 || trim((string) $row->fields['email']) === '') {
+            return false;
+        }
 
         return $this->issue($userId);
     }

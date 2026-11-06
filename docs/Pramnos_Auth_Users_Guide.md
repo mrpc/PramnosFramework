@@ -424,6 +424,31 @@ Only accounts that were held back this way are stopped; an older account with `v
 not. `validated` is what the ID token's `email_verified` is read from, so it is true only when
 somebody checked.
 
+**Confirming without holding back.** An application that wants the address confirmed but lets the
+person sign in meanwhile uses `request()` instead of `begin()`:
+
+```php
+use Pramnos\Auth\EmailVerification;
+
+$verification = new EmailVerification();
+$verification->request($userId);              // mails the link; validated = 0; sign-in unaffected
+$verification->awaitsConfirmation($userId);   // true while a link is out and not followed: show a notice
+$verification->resend($userId);               // a fresh link now, for an unconfirmed account
+```
+
+- **`request()`:** mails the same link and marks the account `validated = 0`, but not waiting, so
+  sign-in goes on as before.
+- **Confirming:** following the link (`register/confirmemail`, `confirm()`) sets `validated = 1`,
+  as for `begin()`.
+- **The notice:** `awaitsConfirmation()` is what an application's "confirm your email" notice
+  asks.
+- **Resending:** `resend()` mails a fresh link at once, with no throttle, to an account whose
+  address is unconfirmed (`validated = 0`). Whether the account is held back does not change. It
+  sends nothing to a confirmed account or to one without an address.
+- **In the administration:** the user's page offers **Resend verification email** for an
+  unconfirmed account with an address (`/admin/users/resendverification/<id>`). The resend is
+  recorded in the account's activity.
+
 ### Invitations
 
 ```php

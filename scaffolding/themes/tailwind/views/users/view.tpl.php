@@ -163,6 +163,9 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? '')); 
                     $action(adminUrl('users/notify/' . $uid), 'send', 'Send a message');
                     $action(adminUrl('users/resetpassword/' . $uid), 'password', 'Send password reset', 'btn-outline',
                         'Send a password reset link to this user?', true);
+                    if (!$isValidated && (string) ($user['email'] ?? '') !== '') {
+                        $action(adminUrl('users/resendverification/' . $uid), 'send', t('Resend verification email'), 'btn-outline', '', true);
+                    }
                     if ($isActive) {
                         $action(adminUrl('users/lock/' . $uid), 'lock', 'Lock account', 'btn-outline btn-warning',
                             'Lock this account?', true);

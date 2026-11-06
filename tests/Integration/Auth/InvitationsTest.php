@@ -455,6 +455,89 @@ class InvitationsTest extends BaseTestCase
         $this->assertStringContainsString('register/confirmemail?token=', $verification->linkFor('ab'));
     }
 
+    /**
+     * request() asks for the confirmation without holding the account back: it is unconfirmed
+     * (`validated = 0`) and awaiting, but not waiting at sign-in; following the link confirms it
+     * and it awaits nothing more. An account that was never sent a link awaits nothing.
+     */
+    public function testARequestAsksWithoutHoldingTheAccountBack(): void
+    {
+        // Arrange
+        $this->newAccount();
+        $verification = new class ($this->db) extends EmailVerification {
+            public string $lastToken = '';
+
+            protected function issue(int $userId): bool
+            {
+                $this->lastToken = bin2hex(random_bytes(32));
+                $this->store($userId, self::FIELD_HASH, \Pramnos\User\Token::lookup($this->lastToken));
+                $this->store($userId, self::FIELD_EXPIRES, (string) (time() + self::ttlSeconds()));
+
+                return true;
+            }
+        };
+        $before = $verification->awaitsConfirmation(self::NEWBIE);
+
+        // Act
+        $asked     = $verification->request(self::NEWBIE);
+        $validated = (int) $this->userField('validated');
+        $pending   = $verification->isPending(self::NEWBIE);
+        $awaits    = $verification->awaitsConfirmation(self::NEWBIE);
+        $confirmed = $verification->confirm($verification->lastToken);
+
+        // Assert
+        $this->assertFalse($before, 'never sent a link');
+        $this->assertTrue($asked);
+        $this->assertSame(0, $validated, 'unconfirmed until the link is followed');
+        $this->assertFalse($pending, 'not held back at sign-in');
+        $this->assertTrue($awaits, 'what the "confirm your email" notice asks');
+        $this->assertSame(self::NEWBIE, $confirmed);
+        $this->assertSame(1, (int) $this->userField('validated'));
+        $this->assertFalse($verification->awaitsConfirmation(self::NEWBIE));
+        $this->assertFalse($verification->request(1), 'not the root account');
+        $this->assertFalse($verification->awaitsConfirmation(1));
+    }
+
+    /**
+     * resend() is the administrator's "send it again": a fresh link for an unconfirmed account,
+     * waiting or not, without changing which it is; nothing for a confirmed account, one without
+     * an email address, or the root account.
+     */
+    public function testResendSendsAFreshLinkToAnUnconfirmedAccount(): void
+    {
+        // Arrange
+        $this->newAccount();
+        $verification = new class ($this->db) extends EmailVerification {
+            public int $issued = 0;
+
+            protected function issue(int $userId): bool
+            {
+                $this->issued++;
+                $this->store($userId, self::FIELD_HASH, \Pramnos\User\Token::lookup(bin2hex(random_bytes(32))));
+                $this->store($userId, self::FIELD_EXPIRES, (string) (time() + self::ttlSeconds()));
+
+                return true;
+            }
+        };
+
+        // Act
+        $confirmedAccount = $verification->resend(self::NEWBIE);
+        $verification->request(self::NEWBIE);
+        $unconfirmed = $verification->resend(self::NEWBIE);
+        $stillOpen   = !$verification->isPending(self::NEWBIE);
+        $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', self::NEWBIE)->update(['email' => '']);
+        $noAddress = $verification->resend(self::NEWBIE);
+
+        // Assert
+        $this->assertFalse($confirmedAccount, 'a confirmed address is not asked again');
+        $this->assertTrue($unconfirmed);
+        $this->assertTrue($stillOpen, 'a resend does not hold the account back');
+        $this->assertSame(2, $verification->issued, 'the request and the resend');
+        $this->assertFalse($noAddress);
+        $this->assertFalse($verification->resend(1));
+        $this->assertFalse($verification->resend(99999999), 'no such account');
+    }
+
     /** The real issue() stores a working link and reports whether the mail went out. */
     public function testTheRealIssueStoresAWorkingLink(): void
     {

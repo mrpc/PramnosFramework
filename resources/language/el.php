@@ -2172,4 +2172,7 @@ return [
     'There is no such report of yours.' => 'Δεν υπάρχει τέτοια αναφορά σας.',
     'No metrics are declared here, so there are no reports.' => 'Δεν έχουν δηλωθεί μετρικές εδώ, άρα δεν υπάρχουν αναφορές.',
     'There is no such report.' => 'Δεν υπάρχει τέτοια αναφορά.',
+    'Resend verification email' => 'Επαναποστολή email επιβεβαίωσης',
+    'Verification email sent.' => 'Το email επιβεβαίωσης στάλθηκε.',
+    'No verification email was sent: the address is confirmed, missing, or the mail failed.' => 'Δεν στάλθηκε email επιβεβαίωσης: η διεύθυνση είναι ήδη επιβεβαιωμένη, λείπει, ή η αποστολή απέτυχε.',
 ];

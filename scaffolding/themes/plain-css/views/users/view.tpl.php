@@ -88,6 +88,9 @@ $this->activeNav = 'users_view'; @endphp
                     {{-- `users/notify` existed with nothing linking to it — reachable only
                              by typing the URL, which is the same as not existing. --}}
                     <a href="{!! adminUrl('users' . '/notify/' . ($uid)) !!}" class="btn btn-outline-primary" style="text-align:center">Send a Message</a>
+                    @if (!$isValidated && (string) ($user['email'] ?? '') !== '')
+                        <form method="post" action="{!! adminUrl('users' . '/resendverification/' . ($uid)) !!}" style="display:inline;margin:0">{!! \Pramnos\Http\Session::getInstance()->getTokenField() !!}<button type="submit" class="btn btn-outline-secondary" style="text-align:center">{{ t('Resend verification email') }}</button></form>
+                    @endif
                     @if ($isActive)
                         <form method="post" action="{!! adminUrl('users' . '/lock/' . ($uid)) !!}" style="display:inline;margin:0">{!! \Pramnos\Http\Session::getInstance()->getTokenField() !!}<button type="submit" class="btn btn-outline-warning" style="text-align:center"
                            data-confirm="Lock this account?">Lock Account</button></form>

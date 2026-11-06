@@ -44,7 +44,7 @@ class UsersController extends Controller
     {
         $this->addAuthAction([
             'display', 'data', 'view', 'edit', 'save', 'delete', 'lock', 'unlock',
-            'sessions', 'tokens', 'deactivateToken', 'deleteToken', 'resetpassword',
+            'sessions', 'tokens', 'deactivateToken', 'deleteToken', 'resetpassword', 'resendverification',
             // The per-user record screens and the operator actions they offer.
             'activity', 'activitydata', 'unlocklogin', 'disabletwofactor', 'revokepasskey',
             // Per-user settings and per-user permissions, edited where the user is.
@@ -54,7 +54,7 @@ class UsersController extends Controller
         ]);
         // POST with the session's token, or refused before the action runs: see exec().
         $this->addWriteAction([
-            'save', 'delete', 'lock', 'unlock', 'deactivateToken', 'deleteToken', 'resetpassword',
+            'save', 'delete', 'lock', 'unlock', 'deactivateToken', 'deleteToken', 'resetpassword', 'resendverification',
             'unlocklogin', 'disabletwofactor', 'revokepasskey', 'savesetting', 'deletesetting',
             'grantpermission', 'revokepermission', 'sendnotification', 'signinalerts', 'adminscreens',
             'emailpreference', 'endsession', 'loginas',
@@ -1507,6 +1507,43 @@ class UsersController extends Controller
             // The table ships with the `auth` feature; an application without it has
             // nothing to clear, which is not an error worth a stack trace on screen.
             $_SESSION['users_error'] = 'Could not clear the lockout: ' . $ex->getMessage();
+        }
+
+        $this->redirect(adminUrl('users/view/') . $id);
+    }
+
+    /**
+     * Send the account's email confirmation link again, as an operator — for an account whose
+     * address is not confirmed ({@see \Pramnos\Auth\EmailVerification::resend()}). Back to the
+     * account with what happened; recorded in its activity log.
+     *
+     * @param string|int|null $id User ID (resolved via Request::staticGetOption)
+     */
+    public function resendverification(mixed $id = null): void
+    {
+        if ($this->requireMinUserType($this->adminFloor())) {
+            return;
+        }
+        $id = (int) \Pramnos\Http\Request::staticGetOption();
+        if ($id < 2) {
+            $this->redirect(adminUrl('users'));
+
+            return;
+        }
+
+        try {
+            $sent = (new \Pramnos\Auth\EmailVerification())->resend($id);
+        } catch (\Throwable $ex) {
+            \Pramnos\Logs\Logger::logError('Resending the verification email for ' . $id . ' failed: ' . $ex->getMessage(), $ex);
+            $sent = false;
+        }
+        if ($sent) {
+            \Pramnos\Auth\ActivityLog::record($id, 'email_verification_resent', [
+                'by' => (int) (\Pramnos\User\User::getCurrentUser()->userid ?? 0),
+            ]);
+            $_SESSION['users_success'] = t('Verification email sent.');
+        } else {
+            $_SESSION['users_error'] = t('No verification email was sent: the address is confirmed, missing, or the mail failed.');
         }
 
         $this->redirect(adminUrl('users/view/') . $id);

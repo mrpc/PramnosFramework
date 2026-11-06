@@ -102,6 +102,9 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? '')); 
                     {{-- `users/notify` existed with nothing linking to it — reachable only
                              by typing the URL, which is the same as not existing. --}}
                     <a href="{!! adminUrl('users' . '/notify/' . ($uid)) !!}" class="btn btn-outline-primary btn-sm">Send a Message</a>
+                    @if (!$isValidated && (string) ($user['email'] ?? '') !== '')
+                        <form method="post" action="{!! adminUrl('users' . '/resendverification/' . ($uid)) !!}" style="display:inline;margin:0">{!! \Pramnos\Http\Session::getInstance()->getTokenField() !!}<button type="submit" class="btn btn-outline-secondary btn-sm">{{ t('Resend verification email') }}</button></form>
+                    @endif
                     @if ($isActive)
                         <form method="post" action="{!! adminUrl('users' . '/lock/' . ($uid)) !!}" style="display:inline;margin:0">{!! \Pramnos\Http\Session::getInstance()->getTokenField() !!}<button type="submit" class="btn btn-outline-warning btn-sm"
                            data-confirm="Lock this account?">Lock Account</button></form>

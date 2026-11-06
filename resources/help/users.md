@@ -4,7 +4,7 @@
 All the accounts on the site. Find a person, look at their account, and act on it: edit details, lock or unlock, reset a password, send a message, or see their sessions and tokens.
 
 ## What you can do here
-<!-- questions: How do I lock a user out? | How do I send a message to a user? | How do I reset a user's password? | How do I turn off two-factor for someone who lost their phone? -->
+<!-- questions: How do I lock a user out? | How do I send a message to a user? | How do I reset a user's password? | How do I turn off two-factor for someone who lost their phone? | How do I resend the verification email? -->
 
 - **Search** the list; each column has its own filter. Click the id or username to open an account.
 - **+ New User** creates an account.
@@ -14,6 +14,7 @@ All the accounts on the site. Find a person, look at their account, and act on i
 - **Send a Message** by email, in-app notification or push. Only the channels the account can actually receive are offered.
 - **Sessions** shows where the person is signed in now. **All Tokens** lists their application tokens.
 - Depending on the site's theme, the page also offers **Send password reset**, **Clear lockout** after failed sign-ins, turning off **two-factor** for someone who lost their phone, revoking a lost **passkey**, switching **new sign-in alerts**, and the full **activity** history.
+- **Resend verification email** sends an unconfirmed account a fresh link to confirm its email address.
 - **User types** explains what each type of account may do by default.
 
 ## Good to know
