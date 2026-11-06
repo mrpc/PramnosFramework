@@ -424,7 +424,7 @@ class InitCommandTest extends TestCase
         $appConfig = include($specificDir . '/app/app.php');
         $this->assertEquals('MyAutoApp', $appConfig['namespace']);
         
-        $homeContent = file_get_contents($specificDir . '/src/Views/home/home.html.php');
+        $homeContent = file_get_contents($specificDir . '/src/Views/home/home.tpl.php');
         $this->assertStringContainsString('Welcome to my-auto-app', $homeContent);
 
         // Verify Application Name in app/app.php
@@ -912,7 +912,7 @@ class InitCommandTest extends TestCase
         $appContent = file_get_contents($this->tempDir . '/app/app.php');
         $this->assertStringContainsString("'namespace' => 'CliNamespace'", $appContent);
 
-        $viewContent = file_get_contents($this->tempDir . '/src/Views/home/home.html.php');
+        $viewContent = file_get_contents($this->tempDir . '/src/Views/home/home.tpl.php');
         $this->assertStringContainsString('Welcome to CliApp', $viewContent);
     }
 

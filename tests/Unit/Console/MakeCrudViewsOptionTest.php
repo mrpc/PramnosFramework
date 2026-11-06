@@ -8,10 +8,11 @@ use PHPUnit\Framework\TestCase;
 use Pramnos\Console\Commands\Make\MakeCrud;
 
 /**
- * `create:crud --views`: `html` or `tpl` are taken and handed to the generator; anything else
- * is refused before a file is written.
+ * `create:crud --views` and `create:view --views`: `html` or `tpl` are taken and handed to the
+ * generator; anything else is refused before a file is written.
  */
 #[\PHPUnit\Framework\Attributes\CoversClass(MakeCrud::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\Pramnos\Console\Commands\Make\MakeView::class)]
 class MakeCrudViewsOptionTest extends TestCase
 {
     /** A kind it does not know is refused, naming the two it does. */
@@ -38,5 +39,20 @@ class MakeCrudViewsOptionTest extends TestCase
         // Assert
         $this->assertStringContainsString('tpl (.tpl.php, the template engine)', $option->getDescription());
         $this->assertTrue($option->isValueRequired());
+    }
+
+    /** `create:view` refuses a kind it does not know the same way, before writing anything. */
+    public function testCreateViewRefusesAnUnknownKind(): void
+    {
+        // Arrange
+        $command = (new \Pramnos\Console\Application())->find('create:view');
+        $tester  = new \Symfony\Component\Console\Tester\CommandTester($command);
+
+        // Assert
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("Unknown --views 'twig'. Use html or tpl.");
+
+        // Act
+        $tester->execute(['name' => 'Client', '--views' => 'twig']);
     }
 }

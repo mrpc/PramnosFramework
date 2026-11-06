@@ -1010,7 +1010,7 @@ class InitSpaScaffoldingTest extends TestCase
 
         // ...and the MVC front page points at the SPA, which is otherwise easy
         // to forget behind it in a hybrid project
-        $home = $this->read('src/Views/home/home.html.php');
+        $home = $this->read('src/Views/home/home.tpl.php');
         $this->assertStringContainsString('Single-page application', $home);
         $this->assertStringContainsString('/app', $home);
     }

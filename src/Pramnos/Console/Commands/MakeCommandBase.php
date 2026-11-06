@@ -2841,9 +2841,10 @@ abstract class MakeCommandBase extends Command
         // require a table and is not a CRUD view — just a bare starting point.
         $actualName = ucfirst($name);
         $date       = date('d/m/Y H:i');
-        $viewFile   = $viewPath . DS . strtolower($name) . '.html.php';
+        $kind       = $this->viewKind();
+        $viewFile   = $viewPath . DS . strtolower($name) . '.' . $kind . '.php';
 
-        $content = $this->renderStub('simple-view', [
+        $content = $this->renderStub($kind === 'tpl' ? 'simple-view.tpl' : 'simple-view', [
             'objectName' => $actualName,
             'date'       => $date,
         ]);
@@ -3867,23 +3868,23 @@ PHP;
      * @return string Summary line
      */
     /**
-     * Which kind of view `create:crud` writes: `html` (`.html.php`, PHP and HTML) or `tpl`
-     * (`.tpl.php`, the framework's template engine). Set by `--views`, or app.php's
-     * `'make' => ['views' => 'tpl']`; `html` otherwise. A property, like {@see $crudTarget},
-     * so no public signature changes.
+     * Which kind of view `create:crud` and `create:view` write: `tpl` (`.tpl.php`, the
+     * framework's template engine) or `html` (`.html.php`, PHP and HTML). Set by `--views`, or
+     * app.php's `'make' => ['views' => 'html']`; `tpl` otherwise. A property, like
+     * {@see $crudTarget}, so no public signature changes.
      */
     public string $viewKinds = '';
 
-    /** The kind of view to write: {@see $viewKinds}, app.php's choice, or `html`. */
+    /** The kind of view to write: {@see $viewKinds}, app.php's choice, or `tpl`. */
     protected function viewKind(): string
     {
         $kind = $this->viewKinds;
         if ($kind === '') {
             $application = $this->getApplication()?->internalApplication ?? null;
-            $kind        = (string) ($application?->applicationInfo['make']['views'] ?? 'html');
+            $kind        = (string) ($application?->applicationInfo['make']['views'] ?? 'tpl');
         }
 
-        return $kind === 'tpl' ? 'tpl' : 'html';
+        return $kind === 'html' ? 'html' : 'tpl';
     }
 
     /**
@@ -3999,8 +4000,8 @@ PHP;
         ]);
 
         // ── Write view files ───────────────────────────────────────────────────
-        // In the template engine (`.tpl.php`) when asked — `--views=tpl`, or app.php's
-        // `'make' => ['views' => 'tpl']` — from the `.tpl` twins of the same stubs.
+        // In the template engine (`.tpl.php`) unless `.html.php` is asked for — `--views=html`,
+        // or app.php's `'make' => ['views' => 'html']` — from the `.tpl` twins of the same stubs.
         $kind = $this->viewKind();
         if ($kind === 'tpl') {
             $tokens      = ['objectName' => $objectName, 'objectNamePlural' => $objectNamePlural, 'className' => $className, 'primaryKey' => $primaryKey, 'mediaColumns' => $mediaColumnList, 'formFields' => self::templateSyntax($formFields)];

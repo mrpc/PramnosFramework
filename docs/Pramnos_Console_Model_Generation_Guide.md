@@ -384,10 +384,11 @@ per-theme (plain-css / bootstrap / tailwind) CRUD view set — the same output a
 `create:migration`). Without `--full`, `create:view` writes a single, table-free
 placeholder view instead.
 
-The full set:
-- `<view>.html.php` - List view (renders the controller's server-side DataTable)
-- `edit.html.php` - Create/edit form
-- `show.html.php` - Detail view
+The full set, as `.tpl.php` templates (or `.html.php` with `--views=html`, or app.php's
+`'make' => ['views' => 'html']`):
+- `<view>.tpl.php` - List view (renders the controller's server-side DataTable)
+- `edit.tpl.php` - Create/edit form
+- `show.tpl.php` - Detail view
 
 ## CRUD Generation
 

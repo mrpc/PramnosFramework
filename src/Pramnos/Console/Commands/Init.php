@@ -744,7 +744,7 @@ class Init extends Command
             'src/Controllers/Home.php',
             $this->getHomeControllerTemplate($namespace)
         );
-        $this->writeFile('src/Views/home/home.html.php', $this->getHomepageView(
+        $this->writeFile('src/Views/home/home.tpl.php', $this->getHomepageView(
             $appName, $namespace, $enabledFeatures, $selectedLibraries, $useDocker, $dockerPort, $dbType, $cliName,
             $withRestApi, $apiPrefix, $appStyle
         ));

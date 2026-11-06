@@ -1,0 +1,12 @@
+{{-- {{ objectName }} View — auto-generated placeholder.
+
+This is a bare, non-CRUD view in the template engine: a starting point you fill in with your
+own markup. `{{ $x }}` prints a value escaped, `{!! $x !!}` as it is, and `@if`/`@foreach`
+work as in PHP. For a full list/edit/show CRUD view set generated from a database table, use
+`create:view <name> --full` (or the CRUD/migration wizard).
+
+Auto generated at: {{ date }} --}}
+<div class="page-section">
+    <h2>{{ objectName }}</h2>
+    <p>This is a placeholder view. Replace this markup with your own content.</p>
+</div>

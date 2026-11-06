@@ -103,6 +103,9 @@ class MakeCommandGeneratorsTest extends TestCase
             ROOT . '/src/Views/testbasicview/testbasicview.html.php',
             ROOT . '/src/Views/testbasicview/edit.html.php',
             ROOT . '/src/Views/testbasicview/show.html.php',
+            ROOT . '/src/Views/testbasicview/testbasicview.tpl.php',
+            ROOT . '/src/Views/testbasicview/edit.tpl.php',
+            ROOT . '/src/Views/testbasicview/show.tpl.php',
         ];
         foreach ($toClean as $f) {
             if (file_exists($f)) unlink($f);
@@ -790,9 +793,9 @@ class MakeCommandGeneratorsTest extends TestCase
 
         $ctrlFile = ROOT . '/src/Controllers/Viewentities.php';
         $viewDir  = ROOT . '/src/Views/viewentity';
-        $listFile = $viewDir . '/viewentity.html.php';
-        $editFile = $viewDir . '/edit.html.php';
-        $showFile = $viewDir . '/show.html.php';
+        $listFile = $viewDir . '/viewentity.tpl.php';
+        $editFile = $viewDir . '/edit.tpl.php';
+        $showFile = $viewDir . '/show.tpl.php';
 
         try {
             // Act — generate the controller + the three per-theme view files.
@@ -1235,13 +1238,13 @@ class MakeCommandGeneratorsTest extends TestCase
         // Act — simple view, no table involved.
         $this->command->exposeCreateView('TestBasicView', false);
         $viewDir = ROOT . '/src/Views/testbasicview';
-        $indexFile = $viewDir . '/testbasicview.html.php';
+        $indexFile = $viewDir . '/testbasicview.tpl.php';
 
         // Assert — exactly one placeholder file is generated (no CRUD siblings).
         $this->assertFileExists($indexFile);
-        $this->assertFileDoesNotExist($viewDir . '/edit.html.php',
+        $this->assertFileDoesNotExist($viewDir . '/edit.tpl.php',
             'the simple view path must not scaffold a CRUD edit view');
-        $this->assertFileDoesNotExist($viewDir . '/show.html.php',
+        $this->assertFileDoesNotExist($viewDir . '/show.tpl.php',
             'the simple view path must not scaffold a CRUD show view');
 
         // Assert — it is the bare placeholder from simple-view.stub, not the
@@ -1280,9 +1283,9 @@ class MakeCommandGeneratorsTest extends TestCase
     {
         // Arrange — full view generation from the mocked live table.
         $viewDir  = ROOT . '/src/Views/testfullview';
-        $listFile = $viewDir . '/testfullview.html.php';
-        $editFile = $viewDir . '/edit.html.php';
-        $showFile = $viewDir . '/show.html.php';
+        $listFile = $viewDir . '/testfullview.tpl.php';
+        $editFile = $viewDir . '/edit.tpl.php';
+        $showFile = $viewDir . '/show.tpl.php';
 
         try {
             // Act — --full path (no wizard columns) → DB introspection + delegate.
@@ -1371,6 +1374,64 @@ class MakeCommandGeneratorsTest extends TestCase
             $this->assertStringContainsString('{{ $this->model->', $edit);
         } finally {
             $this->command->viewKinds = '';
+            $this->removeDirRecursive($viewDir);
+        }
+    }
+
+    /**
+     * `.html.php` is still there for whoever asks for it — `--views=html`, or app.php's
+     * `'make' => ['views' => 'html']` — for the simple view and the full set alike, so an
+     * application that keeps its views in PHP and HTML goes on getting the same kind.
+     */
+    public function testHtmlViewsAreWrittenWhenAsked(): void
+    {
+        // Arrange
+        $simpleDir = ROOT . '/src/Views/testhtmlsimple';
+        $fullDir   = ROOT . '/src/Views/testhtmlfull';
+        $this->command->viewKinds = 'html';
+
+        try {
+            // Act
+            $this->command->exposeCreateView('TestHtmlSimple', false);
+            $this->command->exposeCreateView('TestHtmlFull', true);
+
+            // Assert
+            $this->assertFileExists($simpleDir . '/testhtmlsimple.html.php');
+            $this->assertFileDoesNotExist($simpleDir . '/testhtmlsimple.tpl.php');
+            // The PHP stub, not the template one: it opens with the start-point guard.
+            $this->assertStringContainsString("defined('SP')", (string) file_get_contents($simpleDir . '/testhtmlsimple.html.php'));
+            foreach (['testhtmlfull', 'edit', 'show'] as $file) {
+                $this->assertFileExists($fullDir . '/' . $file . '.html.php');
+                $this->assertFileDoesNotExist($fullDir . '/' . $file . '.tpl.php');
+            }
+        } finally {
+            $this->command->viewKinds = '';
+            $this->removeDirRecursive($simpleDir);
+            $this->removeDirRecursive($fullDir);
+        }
+    }
+
+    /**
+     * The simple view by default is a template: its notes are a template comment, nothing of
+     * it is raw PHP, and it compiles to valid PHP with the placeholder's name filled in.
+     */
+    public function testTheSimpleViewIsATemplateByDefault(): void
+    {
+        // Arrange
+        $viewDir = ROOT . '/src/Views/testtplsimple';
+
+        try {
+            // Act
+            $this->command->exposeCreateView('TestTplSimple', false);
+            $source = (string) file_get_contents($viewDir . '/testtplsimple.tpl.php');
+            $html   = (new \Pramnos\Application\Template\TemplateCompiler())->compile($source);
+
+            // Assert
+            $this->assertStringNotContainsString('<?php', $source, 'no raw PHP in the template');
+            $this->assertStringContainsString('<h2>TestTplSimple</h2>', $html);
+            // The notes are stripped by the engine, never sent to the browser.
+            $this->assertStringNotContainsString('auto-generated placeholder', $html);
+        } finally {
             $this->removeDirRecursive($viewDir);
         }
     }

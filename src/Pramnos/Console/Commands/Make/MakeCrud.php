@@ -36,7 +36,7 @@ class MakeCrud extends MakeCommandBase
             'views',
             null,
             InputOption::VALUE_REQUIRED,
-            'The views to write: html (.html.php) or tpl (.tpl.php, the template engine); default: app.php make.views, else html'
+            'The views to write: tpl (.tpl.php, the template engine) or html (.html.php); default: app.php make.views, else tpl'
         );
     }
 

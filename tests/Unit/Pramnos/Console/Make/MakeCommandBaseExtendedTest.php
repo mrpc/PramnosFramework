@@ -557,17 +557,17 @@ class MakeCommandBaseExtendedTest extends TestCase
         $viewDir = ROOT . DS . INCLUDES . DS . 'Views' . DS . 'post';
         $this->assertDirectoryExists($viewDir, 'View directory must be created');
 
-        $listFile = $viewDir . '/post.html.php';
-        $editFile = $viewDir . '/edit.html.php';
-        $showFile = $viewDir . '/show.html.php';
+        $listFile = $viewDir . '/post.tpl.php';
+        $editFile = $viewDir . '/edit.tpl.php';
+        $showFile = $viewDir . '/show.tpl.php';
         $this->assertFileExists($listFile,  'List view file must be created');
         $this->assertFileExists($editFile,  'Edit/create view file must be created');
         $this->assertFileExists($showFile,  'Show/detail view file must be created');
 
         // Assert — summary lists the generated files
-        $this->assertStringContainsString('post.html.php', $summary);
-        $this->assertStringContainsString('edit.html.php',  $summary);
-        $this->assertStringContainsString('show.html.php',  $summary);
+        $this->assertStringContainsString('post.tpl.php', $summary);
+        $this->assertStringContainsString('edit.tpl.php',  $summary);
+        $this->assertStringContainsString('show.tpl.php',  $summary);
 
         // Assert — edit view contains the column names
         $editContent = file_get_contents($editFile);
@@ -625,7 +625,7 @@ class MakeCommandBaseExtendedTest extends TestCase
 
         $customerDir = $viewsBase . DS . 'customer';
         // Assert — Bootstrap wrapper + server-side DataTable in list view
-        $listContent = file_get_contents($customerDir . DS . 'customer.html.php');
+        $listContent = file_get_contents($customerDir . DS . 'customer.tpl.php');
         $this->assertStringContainsString('container-fluid', $listContent,
             'Bootstrap mode must produce the container-fluid wrapper in list view');
         $this->assertStringContainsString('btn-primary', $listContent,
@@ -634,7 +634,7 @@ class MakeCommandBaseExtendedTest extends TestCase
             'List view must render the server-side DataTable widget');
 
         // Assert — form-control class appears in edit view
-        $editContent = file_get_contents($customerDir . DS . 'edit.html.php');
+        $editContent = file_get_contents($customerDir . DS . 'edit.tpl.php');
         $this->assertStringContainsString('form-control', $editContent,
             'Bootstrap mode must apply form-control class to inputs');
     }
@@ -664,7 +664,7 @@ class MakeCommandBaseExtendedTest extends TestCase
 
         // Assert — DataTables JS is present in list view
         $articleDir  = $viewsBase . DS . 'article';
-        $listContent = file_get_contents($articleDir . DS . 'article.html.php');
+        $listContent = file_get_contents($articleDir . DS . 'article.tpl.php');
         // The list is now rendered by the server-side \Pramnos\Html\Datatable
         // widget (from the controller), not the old client-side PramnosDataTable
         // adapter — so the view is just the widget shell.
@@ -703,7 +703,7 @@ class MakeCommandBaseExtendedTest extends TestCase
         $this->command->callCreateViewsFromWizard('item', $columns, $foreignKeys, 'itemid', $ui);
 
         // Assert — select element present in edit view
-        $editContent = file_get_contents($viewsBase . DS . 'item' . DS . 'edit.html.php');
+        $editContent = file_get_contents($viewsBase . DS . 'item' . DS . 'edit.tpl.php');
         $this->assertStringContainsString('<select', $editContent,
             'FK column must generate a <select> dropdown');
 
@@ -743,7 +743,7 @@ class MakeCommandBaseExtendedTest extends TestCase
         $this->command->callCreateViewsFromWizard('document', $columns, $foreignKeys, 'documentid', $ui);
 
         // Assert — edit view references $this->userList (not a model-specific list variable)
-        $editContent = file_get_contents($viewsBase . DS . 'document' . DS . 'edit.html.php');
+        $editContent = file_get_contents($viewsBase . DS . 'document' . DS . 'edit.tpl.php');
         $this->assertStringContainsString('userList', $editContent,
             'User FK must bind to the $this->userList variable');
     }
@@ -773,7 +773,7 @@ class MakeCommandBaseExtendedTest extends TestCase
         $this->command->callCreateViewsFromWizard('person', $columns, [], 'personid', $ui);
 
         // Assert — date column generates type="date" input
-        $editContent = file_get_contents($viewsBase . DS . 'person' . DS . 'edit.html.php');
+        $editContent = file_get_contents($viewsBase . DS . 'person' . DS . 'edit.tpl.php');
         $this->assertStringContainsString('type="date"', $editContent,
             'date column type must generate type="date" HTML input');
 
@@ -807,7 +807,7 @@ class MakeCommandBaseExtendedTest extends TestCase
         $this->command->callCreateViewsFromWizard('product', $columns, [], 'productid', $ui);
 
         // Assert — all numeric types produce type="number" inputs
-        $editContent = file_get_contents($viewsBase . DS . 'product' . DS . 'edit.html.php');
+        $editContent = file_get_contents($viewsBase . DS . 'product' . DS . 'edit.tpl.php');
         $this->assertStringContainsString('type="number"', $editContent,
             'numeric column types (integer, decimal, float) must produce type="number" inputs');
 
@@ -842,7 +842,7 @@ class MakeCommandBaseExtendedTest extends TestCase
         $this->command->callCreateViewsFromWizard('thing', $columns, [], 'thingid', $ui);
 
         // Assert — comment used as label
-        $editContent = file_get_contents($viewsBase . DS . 'thing' . DS . 'edit.html.php');
+        $editContent = file_get_contents($viewsBase . DS . 'thing' . DS . 'edit.tpl.php');
         $this->assertStringContainsString('Human Friendly Label', $editContent,
             'Non-empty comment must be used as the field label');
 

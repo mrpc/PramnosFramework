@@ -790,11 +790,11 @@ class MakeCommandBaseCoverageTest extends TestCase
         $viewDir = $viewsBase . DS . 'wcov_item';
         $this->assertDirectoryExists($viewDir,
             'createControllerAndViewsFromWizard() must create the view directory');
-        $this->assertFileExists($viewDir . DS . 'wcov_item.html.php',
+        $this->assertFileExists($viewDir . DS . 'wcov_item.tpl.php',
             'List view must be created');
-        $this->assertFileExists($viewDir . DS . 'edit.html.php',
+        $this->assertFileExists($viewDir . DS . 'edit.tpl.php',
             'Edit view must be created');
-        $this->assertFileExists($viewDir . DS . 'show.html.php',
+        $this->assertFileExists($viewDir . DS . 'show.tpl.php',
             'Show view must be created');
 
         // Assert — summary mentions controller creation
@@ -1414,11 +1414,11 @@ class MakeCommandBaseCoverageTest extends TestCase
         // Assert — the simple (non-full) view writes a single placeholder file;
         // edit/show belong to the full CRUD path only.
         $viewDir = $viewsBase . DS . 'wcov_simple';
-        $this->assertFileExists($viewDir . DS . 'wcov_simple.html.php',
+        $this->assertFileExists($viewDir . DS . 'wcov_simple.tpl.php',
             'Index/list view file must be created');
-        $this->assertFileDoesNotExist($viewDir . DS . 'edit.html.php',
+        $this->assertFileDoesNotExist($viewDir . DS . 'edit.tpl.php',
             'Simple view must not create an edit view');
-        $this->assertFileDoesNotExist($viewDir . DS . 'show.html.php',
+        $this->assertFileDoesNotExist($viewDir . DS . 'show.tpl.php',
             'Simple view must not create a show view');
     }
 
@@ -1629,15 +1629,15 @@ class MakeCommandBaseCoverageTest extends TestCase
         }
 
         // Assert — all three view files created
-        $this->assertFileExists($viewDir . DS . 'wcov_thing.html.php',
+        $this->assertFileExists($viewDir . DS . 'wcov_thing.tpl.php',
             'Full createView() must create the list/index view file');
-        $this->assertFileExists($viewDir . DS . 'edit.html.php',
+        $this->assertFileExists($viewDir . DS . 'edit.tpl.php',
             'Full createView() must create the edit view file');
-        $this->assertFileExists($viewDir . DS . 'show.html.php',
+        $this->assertFileExists($viewDir . DS . 'show.tpl.php',
             'Full createView() must create the show view file');
 
         // Assert — edit form contains type-specific fields
-        $editContent = file_get_contents($viewDir . DS . 'edit.html.php');
+        $editContent = file_get_contents($viewDir . DS . 'edit.tpl.php');
         $this->assertStringContainsString('type="number"', $editContent,
             'Integer column must produce type="number" input');
         $this->assertStringContainsString('<textarea', $editContent,
@@ -1666,7 +1666,7 @@ class MakeCommandBaseCoverageTest extends TestCase
 
         // Assert — result summary lists the generated view files (the --full path
         // now delegates to createViewsFromWizard, which returns a "Views:" list)
-        $this->assertStringContainsString('wcov_thing.html.php', $result);
+        $this->assertStringContainsString('wcov_thing.tpl.php', $result);
     }
 
     // =========================================================================
