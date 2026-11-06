@@ -63,8 +63,10 @@ class ExceptionsCollector implements CollectorInterface
         ];
     }
 
+    /** The path from the root, a compiled template named by the template it came from. */
     private function shortPath(string $path): string
     {
+        $path = \Pramnos\Application\Template\TemplateCache::where($path);
         $root = defined('ROOT') ? ROOT : '';
         return $root !== '' ? str_replace($root, '', $path) : basename($path);
     }

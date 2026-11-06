@@ -17,7 +17,8 @@ namespace Pramnos\Logs;
 final class Trace
 {
     /**
-     * The trace in getTraceAsString()'s layout, each call written as `Class->method()`.
+     * The trace in getTraceAsString()'s layout, each call written as `Class->method()`, and a
+     * compiled template named by the template it came from.
      *
      * @param \Throwable $throwable Whose trace to write
      * @return string
@@ -26,7 +27,7 @@ final class Trace
     {
         $lines = [];
         foreach ($throwable->getTrace() as $i => $frame) {
-            $where   = isset($frame['file']) ? $frame['file'] . '(' . ($frame['line'] ?? 0) . ')' : '[internal function]';
+            $where   = isset($frame['file']) ? \Pramnos\Application\Template\TemplateCache::where($frame['file']) . '(' . ($frame['line'] ?? 0) . ')' : '[internal function]';
             $lines[] = '#' . $i . ' ' . $where . ': '
                 . ($frame['class'] ?? '') . ($frame['type'] ?? '') . ($frame['function'] ?? '') . '()';
         }

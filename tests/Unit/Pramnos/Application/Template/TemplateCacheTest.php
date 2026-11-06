@@ -242,7 +242,8 @@ class TemplateCacheTest extends TestCase
 
         // Assert
         $this->assertFileExists($written);
-        $this->assertSame('<?php echo 1; ?>', file_get_contents($written));
+        // After the first line's marker naming the template (see testACompiledFileNamesItsTemplate).
+        $this->assertStringEndsWith(' ?><?php echo 1; ?>', (string) file_get_contents($written));
     }
 
     /**
@@ -284,7 +285,7 @@ class TemplateCacheTest extends TestCase
 
         // Assert — the file was written and contains the compiled output
         $this->assertFileExists($path);
-        $this->assertSame($compiled, file_get_contents($path));
+        $this->assertStringEndsWith(' ?>' . $compiled, (string) file_get_contents($path));
     }
 
     /**
@@ -485,5 +486,151 @@ class TemplateCacheTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/Cannot create template cache directory/');
         $cache->store($this->sourceFile, '<?php // compiled');
+    }
+
+    /**
+     * A compiled file names the template it came from on its first line, without adding a line,
+     * and sourceOf() reads it back; a file that is not a compiled template — another name, no
+     * marker, missing — gives null, and where() then gives the file itself.
+     */
+    public function testACompiledFileNamesItsTemplate(): void
+    {
+        // Arrange
+        $cache    = new TemplateCache($this->tmpDir . '/cache');
+        $compiled = $cache->store($this->sourceFile, "line one\nline two");
+        $unmarked = $this->tmpDir . '/cache/' . str_repeat('a', 40) . '.php';
+        file_put_contents($unmarked, '<?php echo 1;');
+        $other = $this->tmpDir . '/source/plain.php';
+        file_put_contents($other, '<?php /* pf-template: /x */ ?>');
+
+        // Act
+        $source = TemplateCache::sourceOf($compiled);
+        $lines  = substr_count((string) file_get_contents($compiled), "\n");
+
+        // Assert
+        $this->assertSame(realpath($this->sourceFile), $source);
+        $this->assertSame(1, $lines, 'the marker adds no line');
+        $this->assertNull(TemplateCache::sourceOf($unmarked), 'no marker');
+        $this->assertNull(TemplateCache::sourceOf($other), 'not named as a compiled file');
+        $this->assertNull(TemplateCache::sourceOf($this->tmpDir . '/cache/' . str_repeat('b', 40) . '.php'), 'missing');
+        $this->assertSame($other, TemplateCache::where($other));
+        $this->assertSame(realpath($this->sourceFile), TemplateCache::where($compiled));
+    }
+
+    /**
+     * A template path holding `*\/` cannot end the marker's comment early: it is written escaped
+     * and read back as it was.
+     */
+    public function testAPathThatWouldEndTheCommentIsKept(): void
+    {
+        // Arrange
+        $odd = $this->tmpDir . '/source/a*/b.tpl.php';
+        @mkdir(dirname($odd), 0755, true);
+        file_put_contents($odd, 'x');
+        $cache = new TemplateCache($this->tmpDir . '/cache');
+
+        // Act
+        $compiled = $cache->store($odd, 'x');
+
+        // Assert
+        $this->assertSame(realpath($odd), TemplateCache::sourceOf($compiled));
+        $this->assertStringContainsString('No syntax errors', (string) shell_exec(PHP_BINARY . ' -l ' . escapeshellarg($compiled) . ' 2>&1'), 'still valid PHP');
+    }
+
+    /**
+     * End to end: an error inside a template drawn by a view is reported at the template and the
+     * template's own line — through multi-line comments, directives and PHP blocks above it — by
+     * the error page, the trace written to the log and the debug bar.
+     */
+    public function testAnErrorInATemplateIsReportedAtTheTemplatesLine(): void
+    {
+        // Arrange
+        $dir = $this->tmpDir . '/views/Home';
+        @mkdir($dir, 0755, true);
+        $template = $dir . '/page.tpl.php';
+        file_put_contents($template, implode("\n", [
+            '{{-- a note',
+            '   over three lines --}}',
+            '@if (true)',
+            '  <p>{{ "a" }}</p>',
+            '@endif',
+            '@php',
+            '  $x = 1;',
+            '@endphp',
+            '@foreach ([1] as $i) {!! $i !!} @endforeach',
+            '{{ $this->boom() }}',
+        ]));
+        \Pramnos\Application\View::setTemplateCacheDir($this->tmpDir . '/cache');
+        $view = new class (new \Pramnos\Application\Controller(), $this->tmpDir . '/views/Home', 'Home') extends \Pramnos\Application\View {
+            /** What the template calls on its last line. */
+            public function boom(): string
+            {
+                throw new \RuntimeException('inside the template');
+            }
+        };
+        $wrapped = null;
+
+        // Act
+        try {
+            $view->display('page');
+        } catch (\Exception $e) {
+            $wrapped = $e;
+        } finally {
+            while (ob_get_level() > 1) {
+                ob_end_clean();
+            }
+            \Pramnos\Application\View::setTemplateCacheDir('');
+        }
+        $caught = $wrapped?->getPrevious();
+        $frame  = null;
+        $this->assertInstanceOf(\RuntimeException::class, $caught, 'the error the template met is kept as the previous one');
+        $this->assertNotEmpty($caught->getTrace(), 'the sweep found nothing to check');
+        foreach ($caught->getTrace() as $f) {
+            if (isset($f['file']) && TemplateCache::sourceOf($f['file']) !== null) {
+                $frame = $f;
+                break;
+            }
+        }
+        $page      = (string) (new \ReflectionMethod(\Pramnos\Http\ExceptionHandler::class, 'buildDebugHtml'))->invoke(null, $caught, 500);
+        $collector = new \Pramnos\Debug\Collectors\ExceptionsCollector();
+        $collector->recordPhpError(E_WARNING, 'x', $frame['file'] ?? '', 10);
+
+        // Assert
+        $this->assertStringEndsWith('inside the template at line 10', $wrapped->getMessage(), 'the view says the template\'s line, not where it was thrown');
+        $this->assertNotNull($frame, 'a frame in the compiled template');
+        $this->assertSame(realpath($template), TemplateCache::sourceOf($frame['file']));
+        $this->assertSame(10, $frame['line'], 'the template\'s own line');
+        $this->assertStringContainsString(realpath($template) . '(10)', \Pramnos\Logs\Trace::of($caught), 'the trace names the template');
+        $this->assertStringContainsString(htmlspecialchars(realpath($template)) . '(10)', $page, 'the error page names it');
+        $this->assertStringEndsWith('page.tpl.php', $collector->collect()['items'][0]['file'], 'the debug bar names it');
+    }
+
+    /**
+     * An error thrown by the template itself, not by something it called, is reported at its
+     * own line too, past a multi-line comment above it.
+     */
+    public function testAnErrorThrownByTheTemplateItselfIsAtItsLine(): void
+    {
+        // Arrange
+        $dir = $this->tmpDir . '/views/Home';
+        @mkdir($dir, 0755, true);
+        file_put_contents($dir . '/page.tpl.php', "{{-- one\ntwo --}}\n<p>x</p>\n@php throw new \\RuntimeException('thrown here'); @endphp");
+        \Pramnos\Application\View::setTemplateCacheDir($this->tmpDir . '/cache');
+        $message = '';
+
+        // Act
+        try {
+            (new \Pramnos\Application\View(new \Pramnos\Application\Controller(), $this->tmpDir . '/views/Home', 'Home'))->display('page');
+        } catch (\Exception $e) {
+            $message = $e->getMessage();
+        } finally {
+            while (ob_get_level() > 1) {
+                ob_end_clean();
+            }
+            \Pramnos\Application\View::setTemplateCacheDir('');
+        }
+
+        // Assert
+        $this->assertStringEndsWith('thrown here at line 4', $message);
     }
 }

@@ -61,12 +61,18 @@ class TemplateCompiler
     // =========================================================================
 
     /**
-     * {{-- comment --}} → stripped entirely.
-     * Template comments are never emitted to the final HTML.
+     * {{-- comment --}} → stripped, leaving only its line breaks.
+     * Template comments are never emitted to the final HTML. The line breaks stay so every line
+     * of the compiled PHP is the same line of the template: an error's line number points into
+     * the template as written.
      */
     protected function compileComments(string $source): string
     {
-        return preg_replace('/\{\{--.*?--\}\}/s', '', $source);
+        return (string) preg_replace_callback(
+            '/\{\{--.*?--\}\}/s',
+            static fn (array $m): string => str_repeat("\n", substr_count($m[0], "\n")),
+            $source
+        );
     }
 
     /**

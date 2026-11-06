@@ -23,6 +23,34 @@ namespace Pramnos\Application\Template;
  */
 class TemplateCache
 {
+    /** What precedes the template's path on a compiled file's first line. */
+    private const MARKER = 'pf-template: ';
+
+    /**
+     * The template a compiled file was made from, or null when the file is not one. The cache
+     * names compiled files by a hash, so an error inside a template would otherwise point at
+     * `var/viewcache/3f9a….php`; the error page, the log, a JSON error and the debug bar show
+     * this instead. Lines need no mapping: a compiled template keeps the template's lines.
+     */
+    public static function sourceOf(string $file): ?string
+    {
+        if (preg_match('/^[0-9a-f]{40}\.php$/', basename($file)) !== 1 || !is_file($file)) {
+            return null;
+        }
+        $head = (string) @file_get_contents($file, false, null, 0, 4096);
+        if (preg_match('#^<\?php /\* ' . preg_quote(self::MARKER, '#') . '(.+?) \*/ \?>#', $head, $m) !== 1) {
+            return null;
+        }
+
+        return str_replace('*\\/', '*/', $m[1]);
+    }
+
+    /** {@see sourceOf()}, or the file itself when it is not a compiled template. */
+    public static function where(string $file): string
+    {
+        return self::sourceOf($file) ?? $file;
+    }
+
     private string $cacheDir;
 
     public function __construct(string $cacheDir = '')
@@ -118,7 +146,10 @@ class TemplateCache
             }
         }
         $cached = $this->getCachedPath($sourcePath);
-        if (file_put_contents($cached, $compiled) === false) {
+        // The template it came from, on the first line without a line break of its own, so the
+        // lines still match the template's: {@see sourceOf()} reads it back for an error.
+        $source = str_replace('*/', '*\\/', realpath($sourcePath) ?: $sourcePath);
+        if (file_put_contents($cached, '<?php /* ' . self::MARKER . $source . ' */ ?>' . $compiled) === false) {
             throw new \RuntimeException("Cannot write compiled template: {$cached}");
         }
         return $cached;

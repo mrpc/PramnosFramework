@@ -535,6 +535,26 @@ class View extends \Pramnos\Framework\Base
     // =========================================================================
 
     /**
+     * The line of the template where an error came from: where it was thrown when that was the
+     * template itself, or else the template's own frame in the trace — a call the template made
+     * that failed further in. A compiled template keeps the template's lines, so the number is the
+     * template's as written. The line where it was thrown when the template is not in the trace.
+     */
+    private static function lineIn(\Throwable $ex, string $file): int
+    {
+        if ($ex->getFile() === $file) {
+            return $ex->getLine();
+        }
+        foreach ($ex->getTrace() as $frame) {
+            if (($frame['file'] ?? '') === $file) {
+                return (int) ($frame['line'] ?? 0);
+            }
+        }
+
+        return $ex->getLine();
+    }
+
+    /**
      * Return the includable path for $filePath:
      * - .tpl.php files are compiled and the cached compiled path is returned.
      * - All other files are returned as-is.
@@ -837,8 +857,10 @@ class View extends \Pramnos\Framework\Base
             ob_start();
             try {
                 $this->renderingFile = $tplfile;
-                $templateVars = $this->includeTemplate($this->getIncludePath($tplfile), $this->templateScope($_url, $doc, $tpl, $type));
+                $includePath  = $this->getIncludePath($tplfile);
+                $templateVars = $this->includeTemplate($includePath, $this->templateScope($_url, $doc, $tpl, $type));
             } catch (\Exception $ex) {
+                $templateLine = self::lineIn($ex, $includePath ?? $tplfile);
                 ob_end_clean();
                 try {
                     $ec = \Pramnos\Debug\DebugBar::getInstance()->getCollector('exceptions');
@@ -852,13 +874,15 @@ class View extends \Pramnos\Framework\Base
                 \Pramnos\Logs\Logger::log(
                     'Error in view: ' . $this->name . ' and template file: '
                     . $tplfile . '. ' . $ex->getMessage()
-                    . ' at line ' . $ex->getLine()
+                    . ' at line ' . $templateLine
                 );
                 throw new \Exception(
                     'Error rendering template file. '
                     . 'View: ' . $this->name . ' and template file: '
                     . $tplfile . '. ' . $ex->getMessage()
-                    . ' at line ' . $ex->getLine()
+                    . ' at line ' . $templateLine,
+                    0,
+                    $ex
                 );
             }
             $childOutput = (string) ob_get_clean();

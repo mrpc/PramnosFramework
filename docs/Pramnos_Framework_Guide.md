@@ -644,6 +644,44 @@ Templates are stored in `/src/Views/ViewName/template_name.html.php`:
 </div>
 ```
 
+### Templates in the template engine (`.tpl.php`)
+
+A view written as `src/Views/ViewName/template_name.tpl.php` goes through the framework's
+template engine: `{{ $x }}` prints a value escaped, `{!! $x !!}` prints it as it is, `@if`,
+`@foreach`, `@php … @endphp` and `@include` work as in PHP, and `{{-- … --}}` is a comment
+that never reaches the page. Generated views (`create:crud`, `create:view`, `init`) are written
+this way.
+
+```html
+<div>
+    <h1>{{ $this->title }}</h1>
+    @if ($this->user)
+        <p>Welcome, {{ $this->user->username }}!</p>
+    @endif
+</div>
+```
+
+A template is compiled once to PHP, kept in `var/viewcache/` (`View::setTemplateCacheDir()`
+changes it), and compiled again when the template changes.
+
+**An error inside a template names the template and its line.** The compiled file keeps
+every line of the template where it was, comments included, and its first line records
+the template it came from. So these all show `src/Views/Home/page.tpl.php` and the template's
+own line, not the hashed file in the cache:
+- the error page in debug mode;
+- the trace written to the log;
+- the `file` of a JSON error;
+- the debug bar;
+- the view's own *"Error rendering template file … at line N"*, which carries the error the
+  template met as its previous exception.
+
+Only PHP's own fatal-error output, which the framework does not render, still shows the cached
+file. Its first line names the template.
+
+**A template cannot `include __DIR__ . '/…'`**: `__DIR__` is the cache directory once it is
+compiled. Use `$this->insert('partial')` or `@include('partial')`, which look the partial up
+beside the template.
+
 ### What a template sees
 
 A template runs in a scope of its own. It sees:

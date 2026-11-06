@@ -84,7 +84,7 @@ class ExceptionHandler
     ): void {
         Logger::error(
             $exception->getMessage()
-            . "\nFile: " . $exception->getFile()
+            . "\nFile: " . \Pramnos\Application\Template\TemplateCache::where($exception->getFile())
             . ' → ' . $exception->getLine()
             . "\nTrace:\n" . \Pramnos\Logs\Trace::of($exception),
             ['exception_class' => get_class($exception)],
@@ -144,7 +144,7 @@ class ExceptionHandler
 
         if ($debug) {
             $payload['exception'] = get_class($exception);
-            $payload['file']      = $exception->getFile();
+            $payload['file']      = \Pramnos\Application\Template\TemplateCache::where($exception->getFile());
             $payload['line']      = $exception->getLine();
             $payload['trace']     = array_filter(
                 explode("\n", \Pramnos\Logs\Trace::of($exception))
@@ -183,7 +183,7 @@ class ExceptionHandler
     {
         $class   = htmlspecialchars(get_class($exception), ENT_QUOTES, 'UTF-8');
         $message = htmlspecialchars($exception->getMessage(), ENT_QUOTES, 'UTF-8');
-        $file    = htmlspecialchars($exception->getFile(), ENT_QUOTES, 'UTF-8');
+        $file    = htmlspecialchars(\Pramnos\Application\Template\TemplateCache::where($exception->getFile()), ENT_QUOTES, 'UTF-8');
         $line    = (int) $exception->getLine();
         $trace   = htmlspecialchars(\Pramnos\Logs\Trace::of($exception), ENT_QUOTES, 'UTF-8');
 

@@ -54,6 +54,8 @@ class TemplateCompilerTest extends TestCase
         // Assert
         $this->assertStringNotContainsString('multi-line', $result);
         $this->assertStringContainsString('end', $result);
+        // Its line breaks stay: the compiled PHP keeps the template's line numbers.
+        $this->assertSame("\n\nend", $result);
     }
 
     // =========================================================================
