@@ -154,6 +154,28 @@ test('the buttons turn, flip back and forth and reset the picture', () => {
     assert.deepEqual(croppers[0].calls, [['rotate', -90], ['rotate', 90], ['scaleX', -1], ['scaleX', 1], ['reset']]);
 });
 
+/**
+ * A tool button holds an icon, so a click usually lands on the icon's <path>, not on the button:
+ * the action is the button's the click is inside, not only the clicked element's own. Read from the
+ * target alone, rotate, flip and reset did nothing for a click on the picture of them.
+ */
+test('a click on a tool\'s icon acts as a click on the tool', () => {
+    // Arrange
+    const { choose, dialog, croppers } = page();
+    choose();
+    const icon = (action) => {
+        const svg = dialog().querySelector('[data-pf-image-action="' + action + '"]').children[0];
+        return svg.children[0];
+    };
+
+    // Act
+    ['rotate-left', 'flip', 'reset'].forEach((action) => dialog()._fire(Object.assign(new Event('click'), { target: icon(action) })));
+    dialog()._fire(Object.assign(new Event('click'), { target: dialog() }));
+
+    // Assert
+    assert.deepEqual(croppers[0].calls, [['rotate', -90], ['scaleX', -1], ['reset']], 'each icon\'s tool, and nothing for the dialog itself');
+});
+
 test('the zoom slider is a multiple of the picture fitted, follows the wheel, stops at 4x and resets to 1x', () => {
     // Arrange — the picture opens fitted at 600 of its 3000 pixels: a ratio of 0.2
     const { choose, croppers, press, dialog } = page({ attributes: { 'data-words': '{"Zoom":"Μεγέθυνση"}' } });

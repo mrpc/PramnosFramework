@@ -300,7 +300,9 @@
         }
 
         dialog.addEventListener('click', function (event) {
-            var action = event.target && event.target.getAttribute ? event.target.getAttribute('data-pf-image-action') : null;
+            // The button the click is inside: a tool holds an icon, and the click lands on its <path>.
+            var actionEl = event.target && event.target.closest ? event.target.closest('[data-pf-image-action]') : null;
+            var action = actionEl ? actionEl.getAttribute('data-pf-image-action') : null;
             if (action === 'rotate-left' || action === 'rotate-right') {
                 cropper.rotate(action === 'rotate-left' ? -90 : 90);
             } else if (action === 'flip') {
