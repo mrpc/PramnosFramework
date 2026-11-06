@@ -49,8 +49,14 @@ namespace Pramnos\Assist;
  */
 final class Help
 {
-    /** The most of one page a tool result carries. */
+    /** The most of one page — or one section — a tool result carries. */
     public const MAX_CHARS = 6000;
+
+    /**
+     * A `##` section longer than this is searched and read by its `###` parts, each on its own:
+     * one answer is then a part, not the whole of a long section.
+     */
+    public const SPLIT_CHARS = 3000;
 
     /** Picture types a page may show. */
     public const IMAGES = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
@@ -205,6 +211,8 @@ final class Help
 
         return \Pramnos\Llm\Chat\Markdown::toHtml($markdown, [
             'headingShift' => 0,
+            // Every heading an id, the one a section's link ends with: see sections().
+            'headingId'    => self::anchors(),
             'link'  => static function (string $target) use ($pageUrl): ?string {
                 return $pageUrl !== null && str_starts_with($target, 'help:') && ($slug = self::slug(substr($target, 5))) !== ''
                     ? $pageUrl($slug)
@@ -253,6 +261,139 @@ final class Help
     public static function image(string $path): ?string
     {
         return self::admin()->image($path);
+    }
+
+    /**
+     * A heading's anchor: lowercase letters and digits joined by `-`, accents dropped, so
+     * `## Πληρωμές & Gateways` is `#πληρωμες-gateways`.
+     */
+    public static function anchor(string $heading): string
+    {
+        $text = mb_strtolower((string) preg_replace('/\]\([^)]*\)|[`*_\[\]]/u', '', $heading), 'UTF-8');
+        if (class_exists(\Normalizer::class)) {
+            $text = (string) preg_replace('/\p{Mn}+/u', '', (string) \Normalizer::normalize($text, \Normalizer::FORM_D));
+        }
+        $text = strtr($text, ['ά' => 'α', 'έ' => 'ε', 'ή' => 'η', 'ί' => 'ι', 'ϊ' => 'ι', 'ΐ' => 'ι', 'ό' => 'ο', 'ύ' => 'υ', 'ϋ' => 'υ', 'ΰ' => 'υ', 'ώ' => 'ω']);
+        $text = trim((string) preg_replace('/[^\p{L}\p{N}]+/u', '-', $text), '-');
+
+        return $text !== '' ? $text : 'section';
+    }
+
+    /**
+     * Anchors for a page's headings in the order they come, the second of a name `-2`: the one
+     * closure the page's HTML and its {@see sections()} each use, so a section's link lands on
+     * its heading.
+     *
+     * @return \Closure(string): string
+     */
+    public static function anchors(): \Closure
+    {
+        $seen = [];
+
+        return static function (string $heading) use (&$seen): string {
+            $anchor        = self::anchor($heading);
+            $seen[$anchor] = ($seen[$anchor] ?? 0) + 1;
+
+            return $seen[$anchor] > 1 ? $anchor . '-' . $seen[$anchor] : $anchor;
+        };
+    }
+
+    /**
+     * A page's body as its sections: the text before the first `##` (heading ''), then each `##`
+     * — and, for one longer than {@see SPLIT_CHARS} with `###` in it, its lead and each `###`
+     * apart. Each with its `heading`, its `trail` of headings under the page (`[X]` or `[X, Y]`),
+     * its `anchor`, its `text` (heading included) and the `questions` a
+     * `<!-- questions: a | b -->` line in it lists, which is left out of the text. Fenced code is
+     * never split.
+     *
+     * @return list<array{heading: string, trail: list<string>, anchor: string, text: string, questions: list<string>}>
+     */
+    public static function sections(string $body): array
+    {
+        $anchor = self::anchors();
+        $parts  = [['level' => 0, 'heading' => '', 'anchor' => '', 'lines' => []]];
+        $fenced = false;
+        foreach (explode("\n", $body) as $line) {
+            if (preg_match('/^\s*```/', $line) === 1) {
+                $fenced = !$fenced;
+            }
+            if (!$fenced && preg_match('/^(#{1,6})\s+(.+?)\s*#*\s*$/', $line, $m) === 1) {
+                $id    = $anchor($m[2]);
+                $level = strlen($m[1]);
+                if ($level === 2 || $level === 3) {
+                    $parts[] = ['level' => $level, 'heading' => trim($m[2]), 'anchor' => $id, 'lines' => [$line]];
+                    continue;
+                }
+            }
+            $parts[count($parts) - 1]['lines'][] = $line;
+        }
+
+        $sections = [];
+        $current  = null;
+        foreach ($parts as $part) {
+            if ($part['level'] === 3 && $current !== null) {
+                $current['subs'][] = $part;
+                continue;
+            }
+            if ($current !== null) {
+                $sections = [...$sections, ...self::finished($current)];
+            }
+            // A `###` before any `##` belongs where it is: a section of its own.
+            $current = $part + ['subs' => []];
+        }
+        if ($current !== null) {
+            $sections = [...$sections, ...self::finished($current)];
+        }
+
+        return array_values(array_filter($sections, static fn (array $s): bool => $s['heading'] !== '' || trim($s['text']) !== ''));
+    }
+
+    /**
+     * One `##` (or the text before it) as the sections it is searched as: whole, or — longer than
+     * {@see SPLIT_CHARS} — its lead and each `###` apart.
+     *
+     * @param array<string, mixed> $part
+     * @return list<array{heading: string, trail: list<string>, anchor: string, text: string, questions: list<string>}>
+     */
+    private static function finished(array $part): array
+    {
+        $whole = implode("\n", array_merge($part['lines'], ...array_map(static fn (array $s): array => $s['lines'], $part['subs'])));
+        $trail = $part['heading'] !== '' ? [$part['heading']] : [];
+        if ($part['subs'] === [] || mb_strlen($whole) <= self::SPLIT_CHARS) {
+            return [self::section($part['heading'], $trail, $part['anchor'], $part['lines'], $part['subs'])];
+        }
+
+        $split = [self::section($part['heading'], $trail, $part['anchor'], $part['lines'], [])];
+        foreach ($part['subs'] as $sub) {
+            $split[] = self::section($sub['heading'], [...$trail, $sub['heading']], $sub['anchor'], $sub['lines'], []);
+        }
+
+        return $split;
+    }
+
+    /**
+     * @param list<string> $trail
+     * @param list<string> $lines
+     * @param list<array<string, mixed>> $subs
+     * @return array{heading: string, trail: list<string>, anchor: string, text: string, questions: list<string>}
+     */
+    private static function section(string $heading, array $trail, string $anchor, array $lines, array $subs): array
+    {
+        $questions = [];
+        $kept      = [];
+        foreach (array_merge($lines, ...array_map(static fn (array $s): array => $s['lines'], $subs)) as $line) {
+            if (preg_match('/^\s*<!--\s*questions:\s*(.*?)\s*-->\s*$/u', $line, $m) === 1) {
+                foreach (explode('|', $m[1]) as $question) {
+                    if (trim($question) !== '') {
+                        $questions[] = trim($question);
+                    }
+                }
+                continue;
+            }
+            $kept[] = $line;
+        }
+
+        return ['heading' => $heading, 'trail' => $trail, 'anchor' => $anchor, 'text' => trim(implode("\n", $kept)), 'questions' => $questions];
     }
 
     /** A page's text, cut to what one tool result may carry. */

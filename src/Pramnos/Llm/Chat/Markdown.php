@@ -30,7 +30,7 @@ final class Markdown
 
     private const TD = '<td style="padding:.25rem .75rem;border-bottom:1px solid rgba(128,128,128,.35)">';
 
-    /** @var array{link?: \Closure(string): ?string, image?: \Closure(string): ?string, headingShift?: int} What the text being drawn resolves with */
+    /** @var array{link?: \Closure(string): ?string, image?: \Closure(string): ?string, headingShift?: int, headingId?: \Closure(string): ?string} What the text being drawn resolves with */
     private static array $resolve = [];
 
     /**
@@ -41,7 +41,9 @@ final class Markdown
      *        picture is its alt text and only `http(s)` links, which is all a model's reply gets.
      *        `headingShift` is how many levels lower a `#` is drawn: 2 by default, as a reply's
      *        headings are sections under the conversation's own `<h1>`; 0 for a whole page whose
-     *        `#`, `##` and `###` are the levels they say.
+     *        `#`, `##` and `###` are the levels they say. `headingId` answers a heading's `id`
+     *        from its text, in the order the headings come (null or '' for none): how a help page's
+     *        sections are linked to.
      */
     /**
      * The same as {@see toHtml()}, for an email: a mail client runs no script, so a chart becomes a
@@ -137,7 +139,9 @@ final class Markdown
                 $flush();
                 // A reply's "#" is a section, not the page's title; a whole page's is its title.
                 $level  = min(6, max(1, strlen($m[1]) + (int) (self::$resolve['headingShift'] ?? 2)));
-                $html[] = '<h' . $level . '>' . self::inline($m[2]) . '</h' . $level . '>';
+                $id     = isset(self::$resolve['headingId']) ? (string) (self::$resolve['headingId'])($m[2]) : '';
+                $html[] = '<h' . $level . ($id !== '' ? ' id="' . htmlspecialchars($id, ENT_QUOTES, 'UTF-8') . '"' : '') . '>'
+                    . self::inline($m[2]) . '</h' . $level . '>';
                 continue;
             }
 

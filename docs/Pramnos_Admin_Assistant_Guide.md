@@ -197,21 +197,69 @@ Words of two letters are ignored, and so are common words of three or more: `how
 and the like, `πώς`, `και`, `για`, `τον`, `του` and the like. They are in every question and tell
 pages apart no better than nothing.
 
-A page is scored as follows:
+**The search counts sections, not pages.** Each `##` of a page is searched on its own, and so
+is the text before the first one. A `##` longer than 3,000 characters (`Help::SPLIT_CHARS`) that
+has `###` parts is searched as its lead and each part apart. Each section has a path,
+«Page › Section», and an anchor: the `id` its heading gets on the page.
 
-- Its title and `questions:` count three times what its text does, each word up to three times.
-- Each word of the question is weighed by how rare it is across the pages. A word on every page
-  says little, so a long page cannot win by repeating the question's common words.
-- A question that is one of a page's `questions:` puts that page first.
-- A question whose every word appears in one of them puts the page nearly first.
+A section is scored by BM25:
 
-So listing the questions readers actually ask is the most effective thing a page can do to be
-found.
+- **Rare words count more.** Each word of the question is weighed by how rare it is across the
+  sections. A word in every section says little.
+- **Repeats count less and less.** Each further repeat of a word in a section adds less than the
+  one before.
+- **Length is held back.** A long section is weighed against its length, so a page of 18,000
+  characters does not win for being long.
+- **Path and questions count triple.** The section's path and its questions count three times
+  its text.
+- **Matching questions come first.** A question that is one of the section's questions puts it
+  first. A question whose every word appears in one of them puts it nearly first.
+
+A section lists its questions in a comment under its heading. The comment is left out of the
+text:
+
+```markdown
+## Gateways
+<!-- questions: Which card processors are there? | Πώς συνδέω το Stripe; -->
+```
+
+The page's `questions:` belong to the text before its first heading. Listing the questions
+readers actually ask, on the section that answers each, is the most effective thing a page can
+do to be found.
+
+**Synonyms.** `_synonyms.php` in a help directory returns groups of words that mean the same
+in this application. A word of a question brings the rest of its group in, at half the weight
+(`HelpBook::SYNONYM_WEIGHT`):
+
+```php
+<?php // app/help/_synonyms.php
+return [
+    ['form', 'link', 'page', 'url'],
+    ['τηλέφωνο', 'επαφή', 'ξεκλείδωμα'],
+];
+```
+
+**Golden questions.** `_golden.php` in a help directory maps the questions people really ask to
+the page, or the `page#anchor`, that answers each. `php bin/pramnos help:eval` prints recall@1
+(the answer first) and recall@3 (in the first three), and each question that missed with what came
+first instead. `--min=0.8` exits 1 below that recall@3, for CI. `--level=site` scores the site's
+help.
+
+**What the analyst gets.** The analyst's `help` tool answers a question with the best section
+whole, with a link to its heading, and the next three by their path only. It reads another
+section by `page` and `section` (its anchor or heading). A `page` alone gives the page's opening
+and the list of its sections. `map` lists every page and section by title, grouped by the pages'
+`section:`, and `topic` keeps one group. An answer is the part of a page that answers, however
+long the page is. A section is cut at 6,000 characters (`Help::MAX_CHARS`), which the split above
+rarely lets one reach.
 
 ```php
 use Pramnos\Assist\Help;
 
-Help::search('πώς αλλάζω το email', 5);   // pages, best first, each with its score
+Help::search('πώς αλλάζω το email', 5);   // pages, best first, each with its score and best section
+Help::admin()->searchSections('stripe');   // sections, best first: page, path, anchor, text, score
+Help::admin()->section('billing', 'gateways'); // one section, by anchor or heading
+Help::admin()->map();                      // pages and sections by title, grouped by section:
 Help::page('users/edit');                  // one page: title, section, questions, body
 Help::forScreen('users', 'edit');          // the page the panel shows there
 ```

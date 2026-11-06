@@ -303,7 +303,8 @@ class HelpGateTest extends TestCase
     {
         // Arrange
         file_put_contents($this->base . '/long.md', "# Long\n\nlong long\n" . str_repeat("\"q\"\n", 9000));
-        file_put_contents($this->base . '/longer.md', "# Longer\n\nlong");
+        // Another page with the word once and not in its title: it comes second, by name.
+        file_put_contents($this->base . '/longer.md', "# Other\n\nlong");
         Help::forget();
         $tool = SiteHelpTool::tool(new Scope(5, 7));
 
@@ -315,7 +316,7 @@ class HelpGateTest extends TestCase
         $decoded = json_decode($result, true);
         $this->assertSame('long', $decoded['page']);
         $this->assertStringEndsWith('[…]', $decoded['text']);
-        $this->assertSame([['page' => 'longer', 'title' => 'Longer']], $decoded['others']);
+        $this->assertSame([['page' => 'longer', 'title' => 'Other']], $decoded['others']);
         $this->assertArrayHasKey('question', $tool['parameters']['properties']);
     }
 }

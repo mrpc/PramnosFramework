@@ -217,11 +217,12 @@ class HelpTest extends TestCase
         $reply = \Pramnos\Llm\Chat\Markdown::toHtml($markdown);
 
         // Assert
-        $this->assertSame('<h1>Refunds</h1><h2>Who may</h2><h3>Partly</h3><h4>By card</h4>', str_replace("\n", '', $page));
+        // Each heading with the anchor a section's link ends with.
+        $this->assertSame('<h1 id="refunds">Refunds</h1><h2 id="who-may">Who may</h2><h3 id="partly">Partly</h3><h4 id="by-card">By card</h4>', str_replace("\n", '', $page));
         $this->assertSame('<h3>Refunds</h3><h4>Who may</h4><h5>Partly</h5><h6>By card</h6>', str_replace("\n", '', $reply), 'a reply still two levels lower');
     }
 
-    /** One page fits one tool result; the tool finds pages by a question or by name. */
+    /** The tool finds the section that answers a question, and reads a page by name. */
     public function testTheAnalystsHelpTool(): void
     {
         // Arrange
@@ -234,10 +235,10 @@ class HelpTest extends TestCase
         $none    = $tool->execute(['question' => 'zebra']);
 
         // Assert
-        $this->assertSame('users/edit', $asked['pages'][0]['page']);
-        $this->assertArrayHasKey('text', $asked['pages'][0], 'the best page in full');
-        $this->assertStringContainsString('Help/page?p=users%2Fedit', $asked['pages'][0]['link']);
-        $this->assertArrayNotHasKey('text', $asked['pages'][1] ?? ['questions' => []], 'the others by name');
+        $this->assertSame('users/edit', $asked['best']['page']);
+        $this->assertArrayHasKey('text', $asked['best'], 'the best section in full');
+        $this->assertStringContainsString('Help/page?p=users%2Fedit', $asked['best']['link']);
+        $this->assertArrayNotHasKey('text', $asked['also'][0] ?? [], 'the others by path');
         $this->assertStringContainsString('επιστροφή', $named['text']);
         $this->assertSame('There is no help page called nothing.', $missing);
         $this->assertSame('No help page answers that.', $none);

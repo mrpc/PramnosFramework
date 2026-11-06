@@ -27,6 +27,21 @@ final class HelpBook
     /** Who these pages are for, on the site's level; the request's reader when none was given. */
     private ?HelpReader $reader = null;
 
+    /** @var array<string, mixed>|null The sections as a search counts them, once built */
+    private ?array $index = null;
+
+    /** @var list<list<string>>|null The application's synonyms, folded, once read */
+    private ?array $synonyms = null;
+
+    /** How soon a word's repeats stop adding to a section's score (BM25's k1). */
+    public const SATURATION = 1.2;
+
+    /** How much a long section is held back for its length (BM25's b): 0 not at all, 1 fully. */
+    public const LENGTH = 0.75;
+
+    /** What a synonym of an asked word counts, against the word itself. */
+    public const SYNONYM_WEIGHT = 0.5;
+
     /**
      * @param string      $level       {@see ADMIN} or {@see SITE}
      * @param list<string> $directories Where to look, first match wins
@@ -51,6 +66,7 @@ final class HelpBook
         $this->pages();
         $view         = clone $this;
         $view->reader = $reader;
+        $view->index  = null;
 
         return $view;
     }
@@ -158,49 +174,104 @@ final class HelpBook
     }
 
     /**
-     * The pages that answer a question, best first.
+     * The pages that answer a question, best first: each page as its best section scores it
+     * ({@see searchSections()}), with that section as `best` — so a long page wins a question by
+     * the part of it that answers, not by its length.
      *
-     * A page's title and `questions:` count three times what its text does, each word up to three
-     * times, and each word of the question by how rare it is across the pages: a word on every
-     * page tells them apart no better than "how". A question that is one of a page's
-     * `questions:` puts it first; one whose every word is in such a question, nearly so. Words
-     * are compared as {@see Help::words()} folds them, and a four-letter one also by prefix, so
-     * `goal` finds `goals`.
-     *
-     * @return list<array<string, mixed>> Each page with its `score`
+     * @return list<array<string, mixed>> Each page with its `score` and `best` section
      */
     public function search(string $question, int $limit = 5): array
+    {
+        $pages = [];
+        foreach ($this->searchSections($question, PHP_INT_MAX) as $section) {
+            $slug = (string) $section['page'];
+            if (!isset($pages[$slug])) {
+                $pages[$slug] = $this->visible()[$slug] + ['score' => $section['score'], 'best' => $section];
+            }
+        }
+
+        return array_slice(array_values($pages), 0, max(1, $limit));
+    }
+
+    /**
+     * Every section of every page, as {@see Help::sections()} cuts them, with its page: `page`,
+     * `title` (the page's), `topic` (the page's `section:`), `heading`, `anchor`, `path`
+     * («Page › Section»), `text`, `questions` (the section's own; the page's for the text before
+     * its first heading) and `framework`.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function sections(): array
+    {
+        return $this->index()['sections'];
+    }
+
+    /**
+     * One section of a page, by its anchor or its heading as written; null when the page has no
+     * such section.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function section(string $slug, string $name): ?array
+    {
+        $slug   = Help::slug($slug);
+        $anchor = Help::anchor(ltrim(trim($name), '#'));
+        foreach ($this->sections() as $section) {
+            if ($section['page'] === $slug && ($section['anchor'] === ltrim(trim($name), '#') || Help::anchor($section['heading']) === $anchor)) {
+                return $section;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The sections that answer a question, best first — scored by BM25: each word of the question
+     * by how rare it is across the sections, by how often it is in the section with its repeats
+     * counting less and less ({@see SATURATION}), and against the section's length so a long one
+     * does not win for being long ({@see LENGTH}). A section's path («Page › Section») and its
+     * questions count three times its text; a synonym of an asked word ({@see synonyms()}) counts
+     * {@see SYNONYM_WEIGHT}. A question that is one of the section's questions puts it first, one
+     * whose every word is in such a question nearly so. `$topic` keeps the pages of one `section:`.
+     *
+     * @return list<array<string, mixed>> Each section with its `score`
+     */
+    public function searchSections(string $question, int $limit = 5, string $topic = ''): array
     {
         $asked = array_values(array_unique(Help::words($question)));
         if ($asked === []) {
             return [];
         }
-
-        $indexed = [];
-        foreach ($this->visible() as $slug => $page) {
-            $indexed[$slug] = [
-                'strong'    => array_count_values(Help::words($page['title'] . ' ' . implode(' ', $page['questions']))),
-                'weak'      => array_count_values(Help::words($page['body'])),
-                'questions' => array_map(static fn (string $q): array => array_values(array_unique(Help::words($q))), $page['questions']),
-            ];
+        $weights = array_fill_keys($asked, 1.0);
+        foreach ($this->expand($asked) as $word) {
+            $weights[$word] ??= self::SYNONYM_WEIGHT;
         }
 
-        // How many pages carry each word: the rarer, the more it says.
-        $total  = count($indexed);
-        $weight = [];
-        foreach ($asked as $word) {
+        $index   = $this->index();
+        $total   = count($index['terms']);
+        $average = max(1.0, $index['average']);
+        $rarity  = [];
+        foreach (array_keys($weights) as $word) {
             $carrying = 0;
-            foreach ($indexed as $terms) {
-                $carrying += self::hits($word, $terms['strong']) + self::hits($word, $terms['weak']) > 0 ? 1 : 0;
+            foreach ($index['terms'] as $terms) {
+                $carrying += self::hits((string) $word, $terms['strong']) + self::hits((string) $word, $terms['weak']) > 0 ? 1 : 0;
             }
-            $weight[$word] = log(1 + $total / max(1, $carrying));
+            $rarity[$word] = log(1 + $total / max(1, $carrying));
         }
 
         $found = [];
-        foreach ($indexed as $slug => $terms) {
+        foreach ($index['terms'] as $at => $terms) {
+            $section = $index['sections'][$at];
+            if ($topic !== '' && mb_strtolower($section['topic']) !== mb_strtolower($topic)) {
+                continue;
+            }
+            $norm  = self::SATURATION * (1 - self::LENGTH + self::LENGTH * $terms['length'] / $average);
             $score = 0.0;
-            foreach ($asked as $word) {
-                $score += $weight[$word] * (3 * min(3, self::hits($word, $terms['strong'])) + min(3, self::hits($word, $terms['weak'])));
+            foreach ($weights as $word => $weight) {
+                $often = 3 * self::hits((string) $word, $terms['strong']) + self::hits((string) $word, $terms['weak']);
+                if ($often > 0) {
+                    $score += $weight * $rarity[$word] * $often * (self::SATURATION + 1) / ($often + $norm);
+                }
             }
             if ($score <= 0) {
                 continue;
@@ -216,12 +287,137 @@ final class HelpBook
                     break;
                 }
             }
-            $found[] = $this->visible()[$slug] + ['score' => round($score, 3)];
+            $found[] = $section + ['score' => round($score, 3)];
         }
 
         usort($found, static fn (array $a, array $b): int => $b['score'] <=> $a['score']);
 
         return array_slice($found, 0, max(1, $limit));
+    }
+
+    /**
+     * The pages and their sections by title only, grouped by the pages' `section:` — what an
+     * assistant reads to see what there is, without any page's text. `$topic` keeps one group.
+     *
+     * @return array<string, list<array{page: string, title: string, sections: list<array{heading: string, anchor: string, path: string}>}>>
+     */
+    public function map(string $topic = ''): array
+    {
+        $map = [];
+        foreach ($this->all() as $page) {
+            $group = (string) $page['section'];
+            if ($topic !== '' && mb_strtolower($group) !== mb_strtolower($topic)) {
+                continue;
+            }
+            $sections = [];
+            foreach ($this->sections() as $section) {
+                if ($section['page'] === $page['slug'] && $section['heading'] !== '') {
+                    $sections[] = ['heading' => $section['heading'], 'anchor' => $section['anchor'], 'path' => $section['path']];
+                }
+            }
+            $map[$group !== '' ? $group : 'Other'][] = ['page' => (string) $page['slug'], 'title' => (string) $page['title'], 'sections' => $sections];
+        }
+
+        return $map;
+    }
+
+    /**
+     * The application's synonyms: `_synonyms.php` in a help directory returns groups of words
+     * that mean the same here — `[['form', 'link', 'page', 'url'], ['phone', 'contact']]` — every
+     * directory's groups together. A word of a question brings the rest of its group in, at
+     * {@see SYNONYM_WEIGHT}.
+     *
+     * @return list<list<string>> Each group folded as {@see Help::words()} folds
+     */
+    public function synonyms(): array
+    {
+        if ($this->synonyms !== null) {
+            return $this->synonyms;
+        }
+        $groups = [];
+        foreach ($this->directories as $directory) {
+            $file = rtrim($directory, '/') . '/_synonyms.php';
+            if (!is_file($file)) {
+                continue;
+            }
+            $read = (static fn (string $f): mixed => include $f)($file);
+            foreach (is_array($read) ? $read : [] as $group) {
+                $words = array_values(array_unique(Help::words(implode(' ', array_map('strval', (array) $group)))));
+                if (count($words) > 1) {
+                    $groups[] = $words;
+                }
+            }
+        }
+
+        return $this->synonyms = $groups;
+    }
+
+    /**
+     * The synonyms of asked words, not themselves asked.
+     *
+     * @param list<string> $asked
+     * @return list<string>
+     */
+    private function expand(array $asked): array
+    {
+        $more = [];
+        foreach ($this->synonyms() as $group) {
+            foreach ($asked as $word) {
+                if (self::hits($word, array_fill_keys($group, 1)) > 0) {
+                    $more = [...$more, ...array_diff($group, $asked)];
+                    break;
+                }
+            }
+        }
+
+        return array_values(array_unique($more));
+    }
+
+    /**
+     * The sections and what a search counts of each, built once per book (and per reader, on the
+     * site's level).
+     *
+     * @return array{sections: list<array<string, mixed>>, terms: list<array{strong: array<string, int>, weak: array<string, int>, questions: list<list<string>>, length: int}>, average: float}
+     */
+    private function index(): array
+    {
+        if ($this->index !== null) {
+            return $this->index;
+        }
+        $sections = [];
+        $terms    = [];
+        foreach ($this->visible() as $slug => $page) {
+            foreach (Help::sections((string) $page['body']) as $part) {
+                $questions  = $part['heading'] === '' ? [...$page['questions'], ...$part['questions']] : $part['questions'];
+                $path       = implode(' › ', [(string) $page['title'], ...$part['trail']]);
+                $sections[] = [
+                    'page'      => (string) $slug,
+                    'title'     => (string) $page['title'],
+                    'topic'     => (string) $page['section'],
+                    'heading'   => $part['heading'],
+                    'anchor'    => $part['anchor'],
+                    'path'      => $path,
+                    'text'      => $part['text'],
+                    'questions' => $questions,
+                    'framework' => (bool) $page['framework'],
+                ];
+                $strong  = Help::words($path . ' ' . implode(' ', $questions));
+                $weak    = Help::words($part['text']);
+                $terms[] = [
+                    'strong'    => array_count_values($strong),
+                    'weak'      => array_count_values($weak),
+                    'questions' => array_map(static fn (string $q): array => array_values(array_unique(Help::words($q))), $questions),
+                    'length'    => count($strong) + count($weak),
+                ];
+            }
+        }
+        $lengths = array_column($terms, 'length');
+
+        return $this->index = [
+            'sections' => $sections,
+            'terms'    => $terms,
+            'average'  => $lengths === [] ? 1.0 : array_sum($lengths) / count($lengths),
+        ];
     }
 
     /**
@@ -330,7 +526,9 @@ final class HelpBook
     /** Forget what was read — for a test, or a worker between requests. */
     public function forget(): void
     {
-        $this->pages = null;
+        $this->pages    = null;
+        $this->index    = null;
+        $this->synonyms = null;
     }
 
     /** An address on this level's side: the administration area's, or the site's. */
