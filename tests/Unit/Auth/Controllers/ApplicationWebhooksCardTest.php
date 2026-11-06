@@ -35,7 +35,7 @@ class ApplicationWebhooksCardTest extends TestCase
         $view->webhookTypes = WebhookService::EVENT_TYPES;
         $view->webhookRequiresHttps = $this->httpsOnly;
 
-        $file   = dirname(__DIR__, 4) . '/scaffolding/themes/' . $theme . '/views/applications/view.html.php';
+        $file   = \Pramnos\Tests\Support\ScaffoldView::includable($theme, 'applications/view');
         $render = \Closure::bind(function (string $file): void {
             include $file;
         }, $view, null);

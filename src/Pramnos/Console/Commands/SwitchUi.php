@@ -242,12 +242,20 @@ class SwitchUi extends Command
         $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($bundled, \FilesystemIterator::SKIP_DOTS));
         foreach ($files as $file) {
             $relative = substr((string) $file->getPathname(), strlen($bundled) + 1);
+            // A view is the same one in either kind: a copy published as `.html.php` before the
+            // bundled view moved to the template engine (`.tpl.php`) is still that view's copy.
+            $kinds = preg_match('/\.(html|tpl)\.php$/', $relative) === 1
+                ? [preg_replace('/\.(html|tpl)\.php$/', '.html.php', $relative), preg_replace('/\.(html|tpl)\.php$/', '.tpl.php', $relative)]
+                : [$relative];
             foreach (['src/Views/', 'src/Admin/Views/'] as $views) {
-                if (is_file($base . '/' . $views . $relative)) {
-                    $found[] = $views . $relative;
+                foreach ($kinds as $kind) {
+                    if (is_file($base . '/' . $views . $kind)) {
+                        $found[] = $views . $kind;
+                    }
                 }
             }
         }
+        $found = array_values(array_unique($found));
         sort($found);
 
         return $found;

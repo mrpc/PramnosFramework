@@ -29,7 +29,7 @@ class ServicesScreenRenderTest extends TestCase
      */
     private function render(string $theme, array $vars, string $template = 'services'): string
     {
-        $file = dirname(__DIR__, 4) . '/scaffolding/themes/' . $theme . '/views/services/' . $template . '.html.php';
+        $file = \Pramnos\Tests\Support\ScaffoldView::includable($theme, 'services/' . $template);
         $view = new \stdClass();
         foreach ($vars as $key => $value) {
             $view->$key = $value;
@@ -261,7 +261,7 @@ class ServicesScreenRenderTest extends TestCase
     public function testSettingsLinksToThePools(string $theme): void
     {
         // Arrange
-        $view = (string) file_get_contents(dirname(__DIR__, 4) . '/scaffolding/themes/' . $theme . '/views/settings/settings.html.php');
+        $view = \Pramnos\Tests\Support\ScaffoldView::source($theme, 'settings/settings');
 
         // Act
         // The line carrying the link's marker — the markup holds PHP, so it is read by line.

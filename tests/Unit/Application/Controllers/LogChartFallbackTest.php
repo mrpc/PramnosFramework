@@ -65,7 +65,7 @@ class LogChartFallbackTest extends TestCase
     public function testEveryBundledThemeHasTheFallback(): void
     {
         // Arrange
-        $themes = Tree::matching(dirname(__DIR__, 4) . '/scaffolding/themes/*/views/logs/dashboard.html.php');
+        $themes = glob(dirname(__DIR__, 4) . '/scaffolding/themes/*/views/logs/dashboard.{html,tpl}.php', GLOB_BRACE) ?: [];
 
         // Assert
         $this->assertNotEmpty($themes);

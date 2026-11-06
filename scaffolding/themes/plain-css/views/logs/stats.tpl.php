@@ -1,0 +1,99 @@
+@php /**
+ * Log statistics (plain-CSS theme).
+ *
+ * Variables:
+ *   $this->toolbar, $this->clearList — toolbar
+ *   $this->logsRoute    — the address the log screens answer under (`Logs`)
+ *   $this->stats          — array[] {name, size_formatted, lines, json_percentage,
+ *                                    level_distribution[level=>count], modified_formatted, size}
+ *   $this->totalSizeHuman — string  formatted total size
+ *   $this->totalLines     — int
+ *   $this->totalFiles     — int
+ *   $this->jsonPercent     — float   average JSON percentage
+ */
+// The area's own base — every link on this screen is another admin screen.
+$sURL = adminUrl(); @endphp
+<div class="page-section">
+    <h2 style="margin:0 0 16px">Log Statistics</h2>
+    @include('_toolbar')
+
+    <div class="card">
+        <div class="card-body">
+        @if (empty($this->stats))
+            <div class="badge badge-info" style="display:block;padding:12px 16px">No log files found.</div>
+        @else
+            <div style="overflow-x:auto">
+                <table style="width:100%;border-collapse:collapse;font-size:14px">
+                    <thead>
+                        <tr style="text-align:left;color:#888;border-bottom:1px solid #eee">
+                            <th style="padding:8px 12px">File Name</th>
+                            <th style="padding:8px 12px">Size</th>
+                            <th style="padding:8px 12px">Lines</th>
+                            <th style="padding:8px 12px">Structured JSON</th>
+                            <th style="padding:8px 12px">Last Modified</th>
+                            <th style="padding:8px 12px">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($this->stats as $stat)
+                            <tr style="border-bottom:1px solid #f0f0f0">
+                                <td style="padding:8px 12px">
+                                    <a style="color:#2563eb" href="{!! adminUrl(($this->logsRoute ?? 'Logs') . '/viewer/' . (htmlspecialchars($stat['name']))) !!}">
+                                        {{ $stat['name'] }}
+                                    </a>
+                                </td>
+                                <td style="padding:8px 12px;color:#555">{{ $stat['size_formatted'] }}</td>
+                                <td style="padding:8px 12px;color:#555">{!! number_format($stat['lines']) !!}</td>
+                                <td style="padding:8px 12px;color:#555">
+                                    {!! $stat['json_percentage'] !!}%
+                                    @if (!empty($stat['level_distribution']))
+                                        <div style="font-size:12px;color:#aaa">
+                                            @php $levels = [];
+                                            foreach ($stat['level_distribution'] as $level => $count) {
+                                                $levels[] = ucfirst($level) . ': ' . $count;
+                                            }
+                                            echo htmlspecialchars(implode(', ', $levels)); @endphp
+                                        </div>
+                                    @endif
+                                </td>
+                                <td style="padding:8px 12px;color:#555">{{ $stat['modified_formatted'] }}</td>
+                                <td style="padding:8px 12px">
+                                    <div style="display:flex;gap:4px">
+                                        <a href="{!! adminUrl(($this->logsRoute ?? 'Logs') . '/viewer/' . (htmlspecialchars($stat['name']))) !!}"
+                                           class="btn btn-sm" style="background:#0ea5e9;color:#fff" title="View">View</a>
+                                        <form method="post" action="{!! adminUrl(($this->logsRoute ?? 'Logs') . '/clearFile/' . (htmlspecialchars($stat['name']))) !!}" style="display:inline;margin:0">{!! \Pramnos\Http\Session::getInstance()->getTokenField() !!}<button type="submit"
+                                           class="btn btn-sm" style="background:#dc2626;color:#fff" title="Clear"
+                                           data-confirm="Are you sure you want to clear this log?">Clear</button></form>
+                                        <a href="{!! adminUrl(($this->logsRoute ?? 'Logs') . '/raw') !!}?file={{ $stat['name'] }}"
+                                           class="btn btn-sm" style="background:#4b5563;color:#fff" title="Raw View" target="_blank">Raw</a>
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Summary cards -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-top:24px">
+                <div style="border:1px solid #eee;border-radius:8px;padding:16px">
+                    <div style="font-size:12px;color:#888">Total Size</div>
+                    <div style="font-size:20px;font-weight:bold;color:#333;margin-top:4px">{{ $this->totalSizeHuman }}</div>
+                </div>
+                <div style="border:1px solid #eee;border-radius:8px;padding:16px">
+                    <div style="font-size:12px;color:#888">Total Lines</div>
+                    <div style="font-size:20px;font-weight:bold;color:#333;margin-top:4px">{!! number_format($this->totalLines) !!}</div>
+                </div>
+                <div style="border:1px solid #eee;border-radius:8px;padding:16px">
+                    <div style="font-size:12px;color:#888">JSON Entries</div>
+                    <div style="font-size:20px;font-weight:bold;color:#333;margin-top:4px">{!! $this->jsonPercent !!}%</div>
+                </div>
+                <div style="border:1px solid #eee;border-radius:8px;padding:16px">
+                    <div style="font-size:12px;color:#888">Log Files</div>
+                    <div style="font-size:20px;font-weight:bold;color:#333;margin-top:4px">{!! (int) $this->totalFiles !!}</div>
+                </div>
+            </div>
+        @endif
+        </div>
+    </div>
+</div>

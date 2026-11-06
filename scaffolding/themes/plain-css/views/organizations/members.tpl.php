@@ -1,0 +1,45 @@
+{{-- Organization members (plain-CSS theme).
+
+Variables:
+  $this->org     — organization row array
+  $this->members — iterable user rows --}}
+<div class="page-section">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <a href="{!! adminUrl('Organizations') !!}" class="btn btn-sm btn-outline-secondary">&larr; Back</a>
+        <h2 >Members — {{ $this->org['name'] ?? '' }}</h2>
+    </div>
+    <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
+        <div class="card-header" style="padding:10px 16px;font-weight:600;background:#f5f5f5;border-bottom:1px solid #ddd">Add Member</div>
+        <div class="card-body" style="padding:16px">
+            <form method="post" action="{!! adminUrl('Organizations/addmember/') !!}{!! (int)($this->org['organization_id'] ?? 0) !!}" style="display:flex;gap:8px">
+                {!! \Pramnos\Http\Session::getInstance()->getTokenField() !!}
+                <input type="number" name="userid" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" placeholder="User ID" required style="max-width:180px">
+                <button type="submit" class="btn btn-success">Add</button>
+            </form>
+        </div>
+    </div>
+    <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
+        <div class="card-body" style="padding:16px" style="padding:0">
+            <table style="width:100%;border-collapse:collapse">
+                <thead style="background:#f5f5f5">
+                    <tr><th>User ID</th><th>Username</th><th>Email</th><th></th></tr>
+                </thead>
+                <tbody>
+                @foreach (($this->members ?? []) as $m)
+                    <tr>
+                        <td>{!! (int)$m['userid'] !!}</td>
+                        <td>{{ $m['username'] ?? '' }}</td>
+                        <td>{{ $m['email'] ?? '' }}</td>
+                        <td style="text-align:right">
+                            <form method="post" action="{!! adminUrl('Organizations/removemember/') !!}{!! (int)($this->org['organization_id'] ?? 0) !!}?userid={!! (int)$m['userid'] !!}" style="display:inline;margin:0">{!! \Pramnos\Http\Session::getInstance()->getTokenField() !!}<button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Remove member?">Remove</button></form>
+                        </td>
+                    </tr>
+                @endforeach
+                @if (empty($this->members))
+                    <tr><td colspan="4" style="text-align:center;color:#888;padding:24px">No members.</td></tr>
+                @endif
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

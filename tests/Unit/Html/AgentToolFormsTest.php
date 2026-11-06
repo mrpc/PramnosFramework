@@ -49,10 +49,8 @@ final class AgentToolFormsTest extends TestCase
     public function testTheViewOffersItsTool(string $theme, string $view, string $tool): void
     {
         // Arrange
-        $file = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/' . $view . '.html.php';
-
-        // Act — the markup only: PHP inside an attribute carries a `>` of its own
-        $source = (string) preg_replace('/<\?(?:php|=).*?\?>/s', 'x', (string) file_get_contents($file));
+        // Act — the markup only: PHP or a template's echo inside an attribute carries a `>` of its own
+        $source = (string) preg_replace(['/<\?(?:php|=).*?\?>/s', '/\{\{.*?\}\}|\{!!.*?!!\}/s'], 'x', \Pramnos\Tests\Support\ScaffoldView::source($theme, $view));
 
         // Assert
         $this->assertMatchesRegularExpression(

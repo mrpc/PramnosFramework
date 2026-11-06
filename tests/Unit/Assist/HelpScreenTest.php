@@ -193,7 +193,7 @@ final class HelpScreen extends HelpController
         $view = new class (new \Pramnos\Application\Controller(), $dir, $name) extends \Pramnos\Application\View {
             public function display($tpl = '', $render = false)
             {
-                $file = $this->path . '/' . $tpl . '.html.php';
+                $file = \Pramnos\Tests\Support\ScaffoldView::file($this->path . '/' . $tpl);
                 ob_start();
                 \Closure::bind(function () use ($file): void {
                     include $file;

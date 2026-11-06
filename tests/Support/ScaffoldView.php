@@ -37,26 +37,30 @@ final class ScaffoldView
     }
 
     /**
-     * The file a test can `include` with `$this` bound: the view itself, or a template compiled
-     * to PHP in a temporary file the caller removes with {@see forget()}.
+     * The file a test can `include` with `$this` bound: the view itself, or the template compiled
+     * to PHP — kept in the temporary directory under a name of its content, so the same template
+     * compiles once and nothing piles up.
      */
     public static function includable(string $theme, string $view): string
     {
-        $path = self::path($theme, $view);
-        if (str_ends_with($path, '.html.php')) {
-            return $path;
-        }
-        $compiled = tempnam(sys_get_temp_dir(), 'pf-tpl-') . '.php';
-        file_put_contents($compiled, (new \Pramnos\Application\Template\TemplateCompiler())->compile((string) file_get_contents($path)));
-
-        return $compiled;
+        return self::file(dirname(__DIR__, 2) . '/scaffolding/themes/' . $theme . '/views/' . $view);
     }
 
-    /** Remove a compiled template {@see includable()} made; a view's own file is left alone. */
-    public static function forget(string $file): void
+    /**
+     * {@see includable()} for a path without its extension: `<base>.html.php` when there is one,
+     * `<base>.tpl.php` compiled otherwise.
+     */
+    public static function file(string $base): string
     {
-        if (str_starts_with(basename($file), 'pf-tpl-')) {
-            @unlink($file);
+        if (is_file($base . '.html.php') || !is_file($base . '.tpl.php')) {
+            return $base . '.html.php';
         }
+        $source   = (string) file_get_contents($base . '.tpl.php');
+        $compiled = sys_get_temp_dir() . '/pf-tpl-' . md5($base . "\0" . $source) . '.php';
+        if (!is_file($compiled)) {
+            file_put_contents($compiled, (new \Pramnos\Application\Template\TemplateCompiler())->compile($source));
+        }
+
+        return $compiled;
     }
 }

@@ -25,10 +25,10 @@ class ScaffoldGroupsViewsTest extends TestCase
 
     private static function view(string $theme, string $file): string
     {
-        $path = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/' . $file;
-        self::assertFileExists($path, $theme . ' has no ' . $file);
+        $view = preg_replace('/\.html\.php$/', '', $file);
+        self::assertFileExists(\Pramnos\Tests\Support\ScaffoldView::path($theme, $view), $theme . ' has no ' . $view);
 
-        return (string) file_get_contents($path);
+        return \Pramnos\Tests\Support\ScaffoldView::source($theme, $view);
     }
 
     /**

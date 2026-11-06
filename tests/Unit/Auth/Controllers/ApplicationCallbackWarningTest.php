@@ -151,7 +151,7 @@ class ApplicationCallbackWarningTest extends TestCase
         $view->message      = '';
         $view->error        = '';
 
-        $file   = dirname(__DIR__, 4) . '/scaffolding/themes/' . $theme . '/views/applications/' . $template . '.html.php';
+        $file   = \Pramnos\Tests\Support\ScaffoldView::includable($theme, 'applications/' . $template);
         $render = \Closure::bind(function (string $file): void {
             include $file;
         }, $view, null);
