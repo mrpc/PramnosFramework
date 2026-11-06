@@ -3,6 +3,7 @@
 This page lists the background jobs the site has queued: emails to send, imports, notifications and anything else the application hands to its workers. Use it to see what is waiting, what failed, and to put failed jobs back in line.
 
 ## What you can do here
+<!-- questions: How do I retry a failed job? | How do I see the failed jobs? | How do I clear the queue? -->
 
 - **Filter** the list by status (pending, processing, completed, failed, deleted) or by job type. The newest jobs are shown first, 50 per page.
 - **Retry** a failed job. It goes back to *pending* and a worker picks it up again.
@@ -12,6 +13,7 @@ This page lists the background jobs the site has queued: emails to send, imports
 - **Stats** shows how many jobs are in each status and the average processing time.
 
 ## Good to know
+<!-- questions: Does deleting a job erase it? | Why does a retried job fail again? -->
 
 - Nothing is erased. Delete and Clear only mark a job as *deleted*, so it stays on record and workers skip it. Filter by *deleted* to see them.
 - Retry keeps the attempts count. A job that has already used up its allowed attempts may fail again straight away; fix the cause first.
@@ -19,6 +21,7 @@ This page lists the background jobs the site has queued: emails to send, imports
 - Jobs only run while the queue workers are running. If jobs stay *pending*, check the Services page.
 
 ## Common questions
+<!-- questions: A job is stuck in processing: what do I do? | Can I edit a job's data? -->
 
 - **A job is stuck in processing.** Its worker may have stopped mid-task. Check the Services page and the worker's log.
 - **Can I edit a job's data?** No. This page only retries, deletes and clears.

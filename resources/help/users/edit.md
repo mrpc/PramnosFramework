@@ -1,14 +1,17 @@
 # Edit user
+<!-- questions: How do I create a user account? | How do I change a user's details? -->
 
 The form for creating an account or changing an existing one. It has three separate parts, each with its own Save button: the account's details, its per-user settings, and the permissions granted directly to it.
 
 ## What you can do here
+<!-- questions: How do I change a user's email or password? | How do I give a user a per-user setting? | How do I grant a permission to one user? -->
 
 - **Account details**: username, email, first and last name, phone, mobile, language, time zone, user type and password.
 - **Settings**: add, change or remove a per-user setting, such as a feature switch or a quota the application keeps about this account.
 - **Permissions**: grant a permission directly to this person, or revoke one granted here.
 
 ## Good to know
+<!-- questions: How do I keep a user's password unchanged when editing? | Why can I not edit this account? | Why did my settings not save with the details? -->
 
 - Leave the password empty to keep the current one. Type a new one only to change it.
 - You cannot give anyone a user type higher than your own, nor edit an account that ranks above you.

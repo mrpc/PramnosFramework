@@ -1,8 +1,10 @@
 # Applications
+<!-- questions: Which applications may use the API? | How do I register an application for the API? -->
 
 The client applications allowed to use the site's API and sign-in service: mobile apps, partner systems, websites that log in through this site. Each has its own credentials, access rules and limits.
 
 ## What you can do here
+<!-- questions: How do I create an API application? | Where is an application's Client ID? | How do I add a webhook to an application? -->
 
 - **Browse** the registered applications.
 - **View** one: its details, Client ID, token counts, recent users, the resources and scopes it has declared, and its webhooks.
@@ -13,6 +15,7 @@ The client applications allowed to use the site's API and sign-in service: mobil
 - **Delete** an application.
 
 ## Good to know
+<!-- questions: Does saving an application change its Client ID? | How do I rotate an application's client secret? -->
 
 - The Client ID and client secret are generated when the application is created. Saving changes later never replaces them.
 - Store a new secret or webhook signing secret as soon as it is shown; it is shown once. After a rotation the old secret stops working, so update the application's configuration straight away.

@@ -200,7 +200,8 @@ final class Help
     /**
      * A page's Markdown as HTML that is safe to print: `help:` links to `$pageUrl`, and pictures
      * beside the page to `$imageUrl` — each given the path and answering the address. A page's
-     * headings are the levels it writes: its `#` is its title, `##` a section.
+     * headings are the levels it writes: its `#` is its title, `##` a section. A line that is only
+     * an HTML comment — a section's questions — is left out.
      *
      * @param \Closure(string): string|null $pageUrl
      * @param \Closure(string): string|null $imageUrl
@@ -208,6 +209,9 @@ final class Help
     public static function html(string $markdown, ?\Closure $pageUrl = null, ?\Closure $imageUrl = null, string $from = ''): string
     {
         $base = str_contains($from, '/') ? substr($from, 0, (int) strrpos($from, '/') + 1) : '';
+        // A line that is only a comment is for the search and the author — a section's
+        // `<!-- questions: … -->`, a block's `<!-- requires: … -->` — never for the reader.
+        $markdown = (string) preg_replace('/^[ \t]*<!--.*?-->[ \t]*(\r?\n|$)/m', '', $markdown);
 
         return \Pramnos\Llm\Chat\Markdown::toHtml($markdown, [
             'headingShift' => 0,

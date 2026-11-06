@@ -1,8 +1,10 @@
 # Users
+<!-- questions: How do I find a user? | How do I look at a user's account? -->
 
 All the accounts on the site. Find a person, look at their account, and act on it: edit details, lock or unlock, reset a password, send a message, or see their sessions and tokens.
 
 ## What you can do here
+<!-- questions: How do I lock a user out? | How do I send a message to a user? | How do I reset a user's password? | How do I turn off two-factor for someone who lost their phone? -->
 
 - **Search** the list; each column has its own filter. Click the id or username to open an account.
 - **+ New User** creates an account.
@@ -15,6 +17,7 @@ All the accounts on the site. Find a person, look at their account, and act on i
 - **User types** explains what each type of account may do by default.
 
 ## Good to know
+<!-- questions: Can I delete a user account completely? | Why can I not change this user's type? -->
 
 - Accounts are never erased from here. Deleting or locking switches the account off and keeps its history.
 - You cannot give anyone a higher user type than your own, nor edit an account that ranks above you.

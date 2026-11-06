@@ -3,6 +3,7 @@
 The administration overview: how many people are using the site, how the API is performing, how the database is doing, and whether the health checks pass, all on one page.
 
 ## What you can do here
+<!-- questions: How many users are active right now? | How is the API performing? | How big is the database? -->
 
 - See **active users** now and over recent periods.
 - See **API requests**, error rate and average latency for the last 24 hours.
@@ -13,6 +14,7 @@ The administration overview: how many people are using the site, how the API is 
 - On the cache page, view a single item's content, or **clear the cache**.
 
 ## Good to know
+<!-- questions: What happens when I clear the cache? | Why does the cache browser show expired entries? -->
 
 - Clearing the cache removes every cached entry. The site keeps working, but pages may be slower for a short while as the cache refills.
 - The cache browser shows expired entries too, marked as expired, so you can still see what was stored.
@@ -20,6 +22,7 @@ The administration overview: how many people are using the site, how the API is 
 - The database figures depend on what the database server lets the site read. Some numbers may show as empty on restricted hosting.
 
 ## Common questions
+<!-- questions: Why are the API figures all zero? | Is clearing the cache safe? -->
 
 - **The API figures are all zero.** No API calls were recorded in the period, or the API is not in use on this site.
 - **Is clearing the cache safe?** Yes. It only removes copies; nothing is lost.

@@ -3,6 +3,7 @@
 The organisations registered on the site, such as companies, departments or customers, and the accounts that belong to each. Membership can decide what people see and which roles they can hold.
 
 ## What you can do here
+<!-- questions: How do I create an organisation? | How do I add a person to an organisation? | How do I see who is in an organisation? -->
 
 - **Search and browse** the organisations.
 - **View** one organisation: what its record holds, who is in it, and what it can reach.
@@ -11,6 +12,7 @@ The organisations registered on the site, such as companies, departments or cust
 - **Members**: see who belongs to an organisation, **add** a user to it, or **remove** one.
 
 ## Good to know
+<!-- questions: Does deleting an organisation erase it? | What happens to a member I remove? -->
 
 - Delete does not erase the organisation. It is switched off, so records that point to it keep working and the history stays readable.
 - Removing a member also keeps the record: the membership is switched off rather than deleted.
@@ -18,6 +20,7 @@ The organisations registered on the site, such as companies, departments or cust
 - The View page is read-only; open Edit only when you mean to change the record.
 
 ## Common questions
+<!-- questions: How do I move a person to another organisation? | Can I bring back a deleted organisation? -->
 
 - **How do I move a person to another organisation?** Add them to the new one and remove them from the old one.
 - **Can I bring back a deleted organisation?** Not from this screen; ask a developer or database administrator to reactivate it.

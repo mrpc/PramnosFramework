@@ -3,6 +3,7 @@
 The access tokens the site has issued: each one lets an application act for a user until it expires or is revoked. Use this screen to see who is signed in to which application, and to cut access off.
 
 ## What you can do here
+<!-- questions: How do I see which applications a user is signed in to? | How do I revoke a token? | Can I revoke all of a user's tokens at once? -->
 
 - **Browse** the active tokens, with the user, application, scope, status and when each was last used.
 - **Filter** by user, application or scope.
@@ -12,6 +13,7 @@ The access tokens the site has issued: each one lets an application act for a us
 - From a user's page, open **All Tokens** to see that person's tokens in any state and **deactivate** or **delete** them.
 
 ## Good to know
+<!-- questions: Does revoking a token delete it? | How fast does revoking a token take effect? -->
 
 - Tokens are never erased. Revoking marks a token as revoked and records when, so the audit trail stays complete.
 - Revoking takes effect immediately: the application must ask the person to sign in again.
@@ -20,6 +22,7 @@ The access tokens the site has issued: each one lets an application act for a us
 - To stop an application for everyone, delete it on the Applications screen; that revokes all its tokens too.
 
 ## Common questions
+<!-- questions: What do I do about a lost or stolen phone? | What did this token do? -->
 
 - **A lost or stolen phone?** Revoke that user's tokens, and consider resetting their password.
 - **What did this token do?** Open it, or use the Token actions screen for the full history.

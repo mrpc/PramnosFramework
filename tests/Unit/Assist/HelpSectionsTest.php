@@ -307,4 +307,20 @@ final class HelpSectionsTest extends TestCase
         $this->assertSame(['changelog', ''], [max($changed[0]['source'], $changed[1]['source']), min($changed[0]['source'], $changed[1]['source'])]);
         $this->assertEqualsWithDelta($greek[0]['score'], $greek[1]['score'], 0.01);
     }
+
+    /**
+     * A section's questions are for the search, never for the reader: the page drawn as HTML (the
+     * help screen, the side panel, the API) leaves out every line that is only a comment, and
+     * keeps a comment inside a line of text as the text it is.
+     */
+    public function testTheQuestionsAreNotShownOnThePage(): void
+    {
+        // Act
+        $html = Help::html("# T\n<!-- questions: a | b -->\n\ntext\n\n## S\n  <!-- questions: c -->\n\nmore <!-- inline --> here");
+
+        // Assert
+        $this->assertStringNotContainsString('questions', $html);
+        $this->assertStringContainsString('<h2 id="s">S</h2>', $html);
+        $this->assertStringContainsString('more &lt;!-- inline --&gt; here', $html, 'a comment inside text is text');
+    }
 }

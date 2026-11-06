@@ -1,8 +1,10 @@
 # Mass messages
+<!-- questions: How do I send a message to many users at once? | How do I follow the delivery of a mass message? -->
 
 Compose and send one message to many accounts at once, by email or other channels, and follow how the delivery is going.
 
 ## What you can do here
+<!-- questions: How do I compose and send a mass message? | Can I save a mass message as a draft? | How do I choose who receives a mass message? -->
 
 - **See every message**, newest first, with how many were delivered, failed or are still pending.
 - **Compose** a message: a subject, a body, the channel, and the audience. You can save it as a draft and come back to it.
@@ -14,6 +16,7 @@ Compose and send one message to many accounts at once, by email or other channel
 - **Delete** a message that was never sent.
 
 ## Good to know
+<!-- questions: Why is my mass message still pending? | Can I send a mass message twice? -->
 
 - Sending means queueing. The recipients are recorded at once and a background task delivers them over the next minutes, so progress grows gradually. If nothing moves, check the Services and Queue pages.
 - A message can be sent only once. Once it has recipients it cannot be edited, sent again or deleted, because it is the record of what people received.

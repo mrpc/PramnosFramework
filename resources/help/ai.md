@@ -3,6 +3,7 @@
 A chat with an AI analyst about this site's own figures. Ask questions in plain language, such as "how many accounts signed up last week?" or "why did emails fail yesterday?", and it answers by looking at the site's data.
 
 ## What you can do here
+<!-- questions: How do I start a new conversation with the analyst? | How do I forget a conversation? | What does the analyst remember? -->
 
 - **Ask a question** and read the answer. Follow up in the same conversation to dig deeper.
 - **Start a new conversation**, or go back to an earlier one.
@@ -12,10 +13,12 @@ A chat with an AI analyst about this site's own figures. Ask questions in plain 
 - Open the **AI settings** to choose the provider and see costs.
 
 ## What it can look at
+<!-- questions: What data can the analyst see? | Can the analyst change or delete anything? -->
 
 Accounts and sessions, organisations, email, mailing lists, push notifications, the queue, the logs, the site's status and the AI spend itself, plus anything the application adds. It can only read: it cannot change, send or delete anything.
 
 ## Good to know
+<!-- questions: Do other administrators see my conversations? | Is personal data sent to the AI provider? -->
 
 - Your conversations are your own. Other administrators do not see them, and they are kept apart from the ordinary "Ask AI" chat.
 - Personal data is masked before it reaches the AI provider: email addresses are reduced to their shape, and phone numbers, card numbers, IP addresses and tokens are replaced. Answers may therefore show masked values.

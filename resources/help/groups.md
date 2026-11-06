@@ -3,6 +3,7 @@
 User groups are named sets of accounts. A group can be given roles, which every member then holds, and it can be chosen as the audience of a mass message.
 
 ## What you can do here
+<!-- questions: How do I create a group? | How do I add people to a group? | How do I give a role to a group? -->
 
 - **See every group** with how many members it has.
 - **View** a group and its members.
@@ -13,6 +14,7 @@ User groups are named sets of accounts. A group can be given roles, which every 
 - **Give the group a role**, so every member holds it, or **withdraw** the role.
 
 ## Good to know
+<!-- questions: Does adding someone to a group change their access? | What happens when I withdraw a role from a group? -->
 
 - Membership changes access. If the group holds roles, adding or removing someone changes what that person may do straight away.
 - Withdrawing a role from a group switches it off rather than deleting it, so the record remains. Giving the same role again switches it back on.
@@ -21,5 +23,6 @@ User groups are named sets of accounts. A group can be given roles, which every 
 - The screen works only when user groups are enabled on the site. If it says groups are not enabled, ask a developer to turn the feature on.
 
 ## Common questions
+<!-- questions: What is the difference between a group and a role? -->
 
 - **Group or role?** A role is a set of permissions; a group is a set of people. Give a role to a group to grant the same permissions to everyone in it.

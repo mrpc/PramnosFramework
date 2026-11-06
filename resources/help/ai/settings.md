@@ -3,6 +3,7 @@
 Every language-model setting of the site in one place: which AI providers it may use and their keys, which provider each part of the application uses, what calls cost, and what has been spent or has failed.
 
 ## What you can do here
+<!-- questions: How do I set the API key of an AI provider? | How do I test an AI provider key? | How do I choose which AI provider each feature uses? | How much has the AI cost? -->
 
 - **General**: choose the default provider, set how long to wait for an answer, and whether every call is logged.
 - **API keys**: save or remove each provider's key, and **Test the key** to check that the provider accepts it.
@@ -12,6 +13,7 @@ Every language-model setting of the site in one place: which AI providers it may
 - **Calls**: the recent calls with their cost, tokens and outcome, or only the problems. Open a call to see the full request, reply, usage and error.
 
 ## Good to know
+<!-- questions: Why is the saved API key not shown? | How do I remove a stored API key? | Why does it warn that keys are stored unencrypted? -->
 
 - Saved keys are never shown again. The field stays empty and only says whether a key is stored. Submitting it empty keeps the stored key; removing it is a separate checkbox.
 - If the page warns that keys are stored unencrypted, the site has no encryption key configured. Ask a developer to set one before saving keys.

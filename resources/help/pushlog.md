@@ -1,8 +1,10 @@
 # Push notifications
+<!-- questions: Why did this person not get the push notification? | Where is the record of push notifications? -->
 
 A record of every push notification the site tried to send to a browser or phone, and what happened to it. Use it to answer "why did this person not get the notification?".
 
 ## What you can do here
+<!-- questions: How do I see the push notifications sent to one account? | How do I see only the failed push notifications? -->
 
 - See the recent attempts, newest first, with a summary of the last 7 days above them.
 - **Filter** to one account, or to failures only.
@@ -10,6 +12,7 @@ A record of every push notification the site tried to send to a browser or phone
 - **Send a test** to the same device from an attempt's page. The page then shows whether the device itself confirmed that the test arrived.
 
 ## Outcomes
+<!-- questions: What does "subscription gone" mean? | What do the push notification outcomes mean? -->
 
 | Outcome | Meaning |
 |---|---|
@@ -20,6 +23,7 @@ A record of every push notification the site tried to send to a browser or phone
 | Failed / Never reached a server | The push service refused it, or the request never got through (network, DNS or firewall). |
 
 ## Good to know
+<!-- questions: The push says delivered but the person saw nothing: why? | Why are "not sent" rows shown? -->
 
 - The log is read-only: a notification cannot be unsent.
 - "Not sent" rows are shown on purpose: no subscribed browser is the most common reason someone sees nothing.

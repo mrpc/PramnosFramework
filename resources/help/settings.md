@@ -3,6 +3,7 @@
 The site-wide settings: the site's name and address, email delivery, sign-in security, registration, trusted devices and the cookie banner. Changes apply as soon as you save.
 
 ## What you can do here
+<!-- questions: How do I change the site name or address? | How do I set up the mail server? | How do I change the sign-in lockout rules? | How do I turn the cookie banner on? -->
 
 - **General**: site name, site address, default language, time zone, and whether HTTPS is forced.
 - **Email / SMTP**: the sender and reply-to addresses, and the mail server the site sends through.
@@ -13,6 +14,7 @@ The site-wide settings: the site's name and address, email delivery, sign-in sec
 - **Advanced / Raw Settings**: every stored setting as a plain key and value, to add, edit or remove one directly.
 
 ## Good to know
+<!-- questions: How do I keep the saved SMTP password? | Why are lockout durations refused? -->
 
 - The SMTP password is never shown. Leave the field empty to keep the saved password; type a new one only to change it.
 - Lockout durations must increase from one rule to the next.
@@ -22,6 +24,7 @@ The site-wide settings: the site's name and address, email delivery, sign-in sec
 - Use the raw list with care: values are saved exactly as typed.
 
 ## Common questions
+<!-- questions: Why are test emails not arriving? | A user is locked out after failed sign-ins: what do I do? -->
 
 - **Test emails are not arriving.** Check the SMTP host, port, username and TLS setting, then look at the Email log for the error.
 - **A user is locked out after failed sign-ins.** Wait for the lockout to end, or use **Clear lockout** on their page in the Users screen where it is offered.

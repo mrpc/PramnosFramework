@@ -3,6 +3,7 @@
 An audit log of every API call made with a user's token: which endpoint was called, by whom, through which token, with what result and how long it took.
 
 ## What you can do here
+<!-- questions: How do I see the API calls made with a token? | How do I filter API calls by status code or date? | Which endpoints are called the most? -->
 
 - **Browse** the calls, newest first.
 - **Filter** by token, user, HTTP status code, or a date range.
@@ -11,6 +12,7 @@ An audit log of every API call made with a user's token: which endpoint was call
 - **Export** the filtered calls as a CSV file, for audits or for analysis in a spreadsheet.
 
 ## Good to know
+<!-- questions: Can I delete entries from the token actions log? | How do I export the API call log? -->
 
 - The log is read-only on purpose. Nothing can be edited or deleted here, so it can be trusted as an audit trail.
 - Apply filters before exporting: the export follows the current filters and has a maximum number of rows.
@@ -18,6 +20,7 @@ An audit log of every API call made with a user's token: which endpoint was call
 - Only calls made with a user token appear here.
 
 ## Common questions
+<!-- questions: An integration is misbehaving: where do I look? | Who used this token? -->
 
 - **An integration is misbehaving.** Filter by its user or token and look at the status codes and errors of its recent calls.
 - **Who used this token?** Open the token on the Tokens screen; it shows the owner and its latest calls.

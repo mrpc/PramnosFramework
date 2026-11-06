@@ -3,6 +3,7 @@
 A role is a named set of permissions, such as "editor" or "operator". Give a role to people instead of granting each permission one by one.
 
 ## What you can do here
+<!-- questions: How do I create a role? | How do I see who holds a role? | How do I deactivate a role? -->
 
 - **Browse** the roles.
 - **View** a role: what it is, which permissions it grants, and who holds it.
@@ -12,6 +13,7 @@ A role is a named set of permissions, such as "editor" or "operator". Give a rol
 - Choose which **administration screens** the role opens, when the site grants screen access by permission.
 
 ## Good to know
+<!-- questions: How do I give a role its permissions? | What does deactivating a role do? -->
 
 - A role does nothing until it has permissions. Add them on the Permissions screen with the subject type set to *role*; the role's View page then lists them.
 - Deactivating keeps the role and its records but stops it counting: nobody gets its permissions while it is inactive.
@@ -20,6 +22,7 @@ A role is a named set of permissions, such as "editor" or "operator". Give a rol
 - Roles can also be given to whole groups from the Groups screen.
 
 ## Common questions
+<!-- questions: Why can someone still do something after I removed their role? | Can I delete a role completely? -->
 
 - **Why can someone still do something after I removed their role?** They may hold the same permission directly, through another role, through a group, or through their user type.
 - **Can I delete a role completely?** No, only deactivate it, so existing permission records still make sense.

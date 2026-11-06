@@ -1,14 +1,17 @@
 # Permissions
+<!-- questions: How do I see who may do what? | How do I allow or deny an action to a user or role? -->
 
 The individual permission grants of the site: who may do what, to which kind of thing. Each row says that a user or a role is allowed, or denied, an action on a resource.
 
 ## What you can do here
+<!-- questions: How do I create a permission grant? | How do I filter permissions by subject or resource? -->
 
 - **Browse and filter** the grants by subject, resource or action.
 - **Create** a grant or **edit** one.
 - **Delete** a grant.
 
 ## The fields
+<!-- questions: What do the permission fields mean? | How do I grant a permission on every item of a kind? -->
 
 | Field | Meaning |
 |---|---|
@@ -23,6 +26,7 @@ The individual permission grants of the site: who may do what, to which kind of 
 | Expires | Leave empty for a permanent grant. |
 
 ## Good to know
+<!-- questions: How do I make an exception to an allow? | Why is a permission grant marked as not matching? -->
 
 - Use a *Deny* to make an exception to a broader *Allow*, and give it a higher priority if it must win.
 - When an application has declared its resources and scopes, a grant for it must use those names. The list marks grants that no longer match.

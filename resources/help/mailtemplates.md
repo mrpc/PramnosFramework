@@ -3,6 +3,7 @@
 The reusable texts the site sends: password resets, confirmations, notices and any other message the application builds from a template. Edit the wording here instead of asking a developer to change code.
 
 ## What you can do here
+<!-- questions: How do I change the text of an email the site sends? | How do I send a test of a mail template? | Which languages is a mail template translated into? -->
 
 - **Browse** the templates. Language versions of the same message are grouped together, so you can see which languages each message is translated into.
 - **View** a template read-only, with the list of placeholders it uses.
@@ -11,10 +12,12 @@ The reusable texts the site sends: password resets, confirmations, notices and a
 - **Send a test** to any email address you type, to see how the template actually looks in a mailbox.
 
 ## Placeholders
+<!-- questions: What is a placeholder in a mail template? | Which placeholders does a template use? -->
 
 A placeholder is a word in curly braces, such as `{name}` or `{link}`. The site replaces it with the real value when it sends the message. The view page lists every placeholder the template contains, read from the template itself.
 
 ## Good to know
+<!-- questions: Why does a placeholder arrive in the email as written? | What does a test send fill the placeholders with? -->
 
 - Keep placeholders spelled exactly as they are. A typo such as `{nmae}` is not replaced and arrives in the mail as written.
 - In a test send, each placeholder is filled with its own name in square brackets, so you can see where every value will land.
@@ -24,5 +27,6 @@ A placeholder is a word in curly braces, such as `{name}` or `{link}`. The site 
 - If a test is refused by the mailer, check the email settings on the Settings page.
 
 ## Common questions
+<!-- questions: I changed a template and nothing changed: why? -->
 
 - **I changed a template and nothing changed.** Check that you edited the version in the recipient's language.
