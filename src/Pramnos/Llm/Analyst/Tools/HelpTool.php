@@ -68,7 +68,12 @@ final class HelpTool implements McpToolInterface
             return $this->page($name, trim((string) ($input['section'] ?? '')));
         }
 
-        $found = $book->searchSections((string) ($input['question'] ?? ''), 1 + self::ALSO, $topic);
+        $question = (string) ($input['question'] ?? '');
+        $found    = $book->searchSections($question, 1 + self::ALSO, $topic);
+        self::note(['question' => $question, 'found' => count($found)] + ($found === [] ? [] : [
+            'best'  => $found[0]['page'] . ($found[0]['anchor'] !== '' ? '#' . $found[0]['anchor'] : ''),
+            'score' => $found[0]['score'],
+        ]));
         if ($found === []) {
             return 'No help page answers that.';
         }
@@ -95,6 +100,9 @@ final class HelpTool implements McpToolInterface
         if ($section !== '') {
             $found = $book->section($slug, $section);
             if ($found !== null) {
+                // Asked for by name: what a search did not bring.
+                self::note(['read' => $slug . ($found['anchor'] !== '' ? '#' . $found['anchor'] : '')]);
+
                 return $this->whole($found);
             }
         }
@@ -104,6 +112,26 @@ final class HelpTool implements McpToolInterface
         return ($section !== '' ? ['note' => 'The page has no section called ' . $section . '.'] : [])
             + ($opening !== null ? $this->whole($opening) : ['page' => $slug, 'title' => $page['title'], 'link' => Help::url($slug, $this->area)])
             + ['sections' => array_map(fn (array $s): array => $this->named($s), $parts)];
+    }
+
+    /**
+     * What the help was asked, for `help:gaps`: a line in the `help` log per search — the
+     * question, how many sections answered, the best and its score — and per section read by
+     * name. Off with `'help' => ['log' => false]`. Never in the way of the answer.
+     *
+     * @param array<string, mixed> $what
+     */
+    private static function note(array $what): void
+    {
+        $app = \Pramnos\Application\Application::currentInstance();
+        if (is_object($app) && ($app->applicationInfo['help']['log'] ?? true) === false) {
+            return;
+        }
+        try {
+            \Pramnos\Logs\Logger::log(isset($what['read']) ? 'help read' : 'help search', 'help', 'log', false, $what);
+        } catch (\Throwable) {
+            // A log that cannot be written is no reason to keep the answer back.
+        }
     }
 
     /** @param array<string, mixed> $section @return array<string, mixed> A section with its text */

@@ -261,6 +261,19 @@ the page, or the `page#anchor`, that answers each. `php bin/pramnos help:eval` p
 first instead. `--min=0.8` exits 1 below that recall@3, for CI. `--level=site` scores the site's
 help.
 
+**Where the help falls short.** The analyst's `help` tool writes each search to the `help` log:
+the question, how many sections answered, the best section and its score. It also writes each
+section it then read by name. `php bin/pramnos help:gaps` reads that log and lists three things,
+most asked first:
+- **Questions nothing answered:** a page that is missing.
+- **Questions answered below `--weak`** (2 by default): a section that needs the question among
+  its own.
+- **Sections read by name:** what a search should have brought and did not.
+
+`--days` sets how far back it reads (30 by default). `--golden` prints every question asked as a
+`_golden.php` line with the answer it got, to correct and keep for `help:eval`. The questions are
+the administrators' own. `'help' => ['log' => false]` in app.php turns the log off.
+
 **What the analyst gets.** The analyst's `help` tool answers a question with the best section
 whole, with a link to its heading, and the next three by their path only. It reads another
 section by `page` and `section` (its anchor or heading). A `page` alone gives the page's opening
