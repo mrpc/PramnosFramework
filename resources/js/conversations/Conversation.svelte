@@ -19,6 +19,7 @@
 
     let conversation = $state(null);
     let members = $state([]);
+    let handles = $state(undefined);
     // Who has no account here any more: by name, a deleted profile.
     let formers = $state([]);
     let messages = $state([]);
@@ -69,6 +70,7 @@
             }
             conversation = answer.conversation;
             members = answer.members;
+            handles = answer.handles;
             formers = answer.formers || [];
             messages = answer.messages;
             pinned = answer.pinned;
@@ -107,6 +109,7 @@
             const answer = await api.get('messages/' + id, { after: last });
             answer.messages.forEach(arrive);
             members = answer.members;
+            handles = answer.handles;
         } catch {
             /* offline: the next try */
         }
@@ -401,7 +404,7 @@
                 : t('Has never signed in — they will probably not see this.')}</p>
         {/if}
         {#if member}
-            <Composer bind:this={composer} {api} conversationId={id} members={members} {me} {emoji} {maxFileMb} {maxVideoMb}
+            <Composer bind:this={composer} {api} conversationId={id} members={members} {handles} {me} {emoji} {maxFileMb} {maxVideoMb}
                 placeholder={conversation?.slug ? t('Message #%s', conversation.slug) : t('Message %s', title)}
                 disabled={!!conversation?.archivedAt} typing={whisper} onsent={arrive} onreply={note} {onerror} />
         {:else if conversation}
@@ -429,7 +432,7 @@
             </div>
             <p class="pf-conv-typing" aria-live="polite">{#if threadTypers.length}{t('%s is typing…', threadTypers[0])}{/if}</p>
             {#if member}
-                <Composer {api} conversationId={id} thread={thread.root.id} members={members} {me} {emoji} {maxFileMb} {maxVideoMb}
+                <Composer {api} conversationId={id} thread={thread.root.id} members={members} {handles} {me} {emoji} {maxFileMb} {maxVideoMb}
                     placeholder={t('Reply…')} typing={whisper} onsent={arrive} onreply={note} {onerror} />
             {/if}
         </aside>

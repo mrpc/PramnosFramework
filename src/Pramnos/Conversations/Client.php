@@ -143,6 +143,8 @@ final class Client
             'Open in Ask' => t('Open in Ask'),
             'everybody here' => t('everybody here'),
             'everybody here who is online' => t('everybody here who is online'),
+            'everyone in the conversations' => t('everyone in the conversations'),
+            'everybody in the group' => t('everybody in the group'),
             'the analyst answers in the thread' => t('the analyst answers in the thread'),
             'A file is at most %s MB.' => t('A file is at most %s MB.'),
             'A video is at most %s MB.' => t('A video is at most %s MB.'),

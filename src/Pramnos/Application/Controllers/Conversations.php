@@ -68,7 +68,7 @@ class Conversations extends Controller
     /** Registers the actions: all behind sign-in, the writes POSTs with the session's token. */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'preview', 'gifs', 'refs', 'emergencykey'], self::WRITES));
+        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'preview', 'gifs', 'refs', 'emergencykey', 'reach'], self::WRITES));
         $this->addWriteAction(self::WRITES);
         // Every read action here — including `conversations`, polled often from an open tab —
         // only reads $_SESSION (through User::current()/Session::staticIsLogged()), never writes
@@ -164,6 +164,21 @@ class Conversations extends Controller
             $this->in('thread') !== null && $this->in('thread') !== '' ? (int) $this->in('thread') : null)]);
     }
 
+    /**
+     * How many people a message's handles would tell in a conversation the reader may write in — for
+     * a composer to ask before `@channel` or `@everyone` tells many.
+     */
+    public function reach(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            if (!\Pramnos\Conversations\Conversations::canRead($this->id(), $me)) {
+                throw new \DomainException(t('There is no such conversation.'));
+            }
+
+            return ['reach' => \Pramnos\Conversations\Handles::reach($this->id(), (int) $me->userid, (string) ($this->in('body') ?? ''))];
+        });
+    }
+
     /** Who may use the conversations whose name holds `q`. */
     public function people(): mixed
     {
@@ -208,6 +223,8 @@ class Conversations extends Controller
             $messages = Messages::list($id, array_map('intval', $options));
 
             return ['conversation' => Store::get($id) + ['member' => Store::member($id, (int) $me->userid)],
+                // The handles its composer offers: `@here`, `@channel`, `@everyone` in the general one, the groups.
+                'handles' => \Pramnos\Conversations\Handles::offered($id),
                 'members' => array_map(static fn (int $person): array => ['id' => $person, 'name' => $names[$person] ?? '#' . $person,
                     'inactive' => $asleep[$person] ?? null, 'avatar' => $faces[$person] ?? null], $members),
                 'formers' => Store::formers([$id])[$id] ?? [],

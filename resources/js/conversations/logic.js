@@ -161,19 +161,21 @@ export function wordAt(text, cursor) {
 
 /**
  * The people a typed `@word` may mean: those whose name has a word starting with it, ignoring case
- * and accents, then `all` and `online` where they match.
+ * and accents, then the handles that match — `here`, `channel`, `everyone`, a group — as the
+ * conversation offers them.
  *
  * @param {Array<{id: number, name: string}>} people
  * @param {string} word
  * @param {number} me
+ * @param {string[]} [handles]
  */
-export function suggestPeople(people, word, me) {
+export function suggestPeople(people, word, me, handles = ['here', 'channel']) {
     const w = fold(word);
     // Somebody inactive only when a whole part of their name is typed.
     const found = people.filter((p) => p.id !== me && fold(p.name).split(/\s+/)
         .some((part) => (p.inactive != null ? part === w : part.startsWith(w)))).slice(0, 8);
-    for (const special of ['all', 'online']) {
-        if (special.startsWith(w)) {
+    for (const special of handles) {
+        if (fold(special).startsWith(w)) {
             found.push({ id: 0, name: special, special: true });
         }
     }

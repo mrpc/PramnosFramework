@@ -1,7 +1,7 @@
 <script>
     /**
-     * Writing a message: Enter sends, Shift+Enter is a new line; `@` suggests people (and `@all`,
-     * `@online`), `:` suggests emoji; files are picked, dropped or pasted and uploaded at once; the
+     * Writing a message: Enter sends, Shift+Enter is a new line; `@` suggests people (and `@here`,
+     * `@channel`, `@everyone`, the groups), `:` suggests emoji; files are picked, dropped or pasted and uploaded at once; the
      * others are told the writer is typing, at most every few seconds. What is left unsent in a
      * conversation is kept in this browser and comes back — the sidebar's *Drafts & sent*.
      */
@@ -13,7 +13,7 @@
     import { commands, canAsk, assistant, gifProvider } from './extras.js';
 
     let {
-        api, conversationId, thread = null, members = [], me, emoji = {}, maxFileMb = 25, maxVideoMb = 100, placeholder = '',
+        api, conversationId, thread = null, members = [], handles = undefined, me, emoji = {}, maxFileMb = 25, maxVideoMb = 100, placeholder = '',
         disabled = false, typing = null, onsent = () => {}, onreply = () => {}, onerror = () => {},
     } = $props();
 
@@ -42,6 +42,12 @@
     const ready = $derived((text.trim() !== '' || files.some((f) => f.id)) && !files.some((f) => f.busy) && !sending);
 
     /** The box as tall as what is in it, up to a limit. */
+    /** What a handle tells, under it in the suggestions. */
+    function handleHint(name) {
+        return { here: t('everybody here who is online'), online: t('everybody here who is online'), channel: t('everybody here'), all: t('everybody here'),
+            everyone: t('everyone in the conversations') }[name] ?? t('everybody in the group');
+    }
+
     function fit() {
         if (!box) {
             return;
@@ -67,8 +73,8 @@
             return;
         }
         if (current.sign === '@') {
-            suggestions = suggestPeople(members, current.word, me).map((p) => ({ ...p, label: p.special ? '@' + p.name : p.name,
-                hint: p.special ? (p.name === 'all' ? t('everybody here') : t('everybody here who is online')) : '' }));
+            suggestions = suggestPeople(members, current.word, me, handles).map((p) => ({ ...p, label: p.special ? '@' + p.name : p.name,
+                hint: p.special ? handleHint(p.name) : '' }));
             // The analyst, by its name or a word that calls it, offered as the name it goes by.
             if (canAsk() && assistant().mentions.some((word) => word.startsWith(fold(current.word)))) {
                 const name = assistant().name;

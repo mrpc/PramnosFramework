@@ -175,8 +175,39 @@ http(s) and mailto links are made.
 
 **Mentions.** A person is written `<@id>` — what a composer writes for a chosen name, and what an
 import writes — and shown as `@` and their name, so a name can change without a message changing.
-`@all` and `@online` mention every member but the writer. Each mention is a row, and an event.
-**A mention counts for members only**: somebody not in the conversation is shown by name but is
+Each mention is a row, and an event.
+
+**Handles** mention many at once, as Slack's (`Pramnos\Conversations\Handles`). None tells the
+writer, nor somebody inactive (see [Access](#access)):
+
+| Handle | Who is told |
+|---|---|
+| `@here` (`@online`) | the members connected now, but those whose notifications are paused |
+| `@channel` (`@all`) | every member, connected or not |
+| `@everyone` | in the general conversation, everyone who may use the conversations, members or not; elsewhere it is `@channel` |
+| `@sales`, any group's name | the group's people who are members of the conversation |
+
+```php
+'conversations' => [
+    'everyone_channel' => 'general',                                     // the general conversation: its slug or its id
+    'groups'           => ['sales' => fn (): array => Staff::ids('sales'), 'admins' => [2, 7]],
+    'quiet'            => fn (array $ids): array => Status::paused($ids), // of these, who is not to be told now
+],
+```
+
+*Connected now* is the presence channel (`presence-chat`), asked of the broadcasting server through
+its HTTP API (`Pramnos\Broadcasting\Http\ApiClient`): `broadcast:serve` with `http_api.enabled`,
+or Pusher. Set `broadcasting.http_api.url` when the application reaches the daemon at another
+address than browsers do (`http://127.0.0.1:6001`). Where it cannot be asked, `@here` tells every
+member but the paused. `@channel` is one mention row for all the members; the other handles a row
+for each person told. The event's `kind` is `person`, `all` (`@channel`, `@all`), `here`,
+`everyone` or `group`.
+
+A composer asks before telling many: `GET Conversations/reach/{id}?body=…` answers how many a
+message's handles would tell (`Handles::reach()`), and each conversation's messages come with
+the `handles` its composer offers — `@everyone` in the general conversation alone.
+
+**A mention by name counts for members only**: somebody not in the conversation is shown by name but is
 not told. To reach a person from a system post, join them first — with `notify` set to
 `mentions`, so the channel's other messages do not reach them:
 
@@ -525,7 +556,7 @@ answer per conversation; writing takes being a member.
 somebody inactive who has neither signed in (`users.lastlogin`) nor registered within that many
 days; 0, the default, turns it off. Somebody inactive is not offered in *New conversation* or in
 an `@` suggestion — unless their whole name or username is typed, or *Show inactive people too* is
-ticked — and is not counted in `@all` or `@online`; named with `@`, they are still told. Where they
+ticked — and is not told by a handle (`@here`, `@channel`…); named with `@`, they are still told. Where they
 already are, they are greyed with when they last signed in: in a client's list, among a
 conversation's members, and in a direct conversation with them a note above the composer says
 they will probably not see it. Nothing is removed — no membership, no message — and signing in
@@ -559,7 +590,7 @@ until a newer message there, and nothing takes its place. The windows stay as th
 to page, kept in the reader's browser.
 
 In a window: Enter sends, Shift+Enter is a new line; `@` suggests the conversation's people and
-`@all`/`@online`, `:` suggests emoji; files are picked, dropped or pasted, uploaded at once and sent
+its handles (`@here`, `@channel`, `@everyone` in the general one, the groups), `:` suggests emoji; files are picked, dropped or pasted, uploaded at once and sent
 with the message; the others see who is typing. A message is reacted to, answered in a thread,
 saved, pinned, edited and deleted from the toolbar over it. What is unread is marked with a line,
 and reading it tells the server. With a realtime connection everything arrives at once; without

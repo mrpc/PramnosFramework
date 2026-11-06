@@ -21,8 +21,8 @@ use Pramnos\Database\Instant;
  * ```
  *
  * A person is mentioned as `<@id>` — how a composer writes a chosen name, and how an import writes
- * another system's — so a name can change without a message changing; `@all` and `@online` mention the
- * conversation's members. Each mention is a row, and an event ({@see MentionReceived}); each message
+ * another system's — so a name can change without a message changing; `@here`, `@channel`, `@everyone` and the
+ * application's groups mention many at once ({@see Handles}). Each mention is a row, and an event ({@see MentionReceived}); each message
  * is {@see MessagePosted}. An import passes `source` and `externalid`, and the same message twice is
  * written once.
  */
@@ -577,8 +577,9 @@ final class Messages
     }
 
     /**
-     * Record who a message mentions: `<@id>` of its members, `@all` and `@online` for all of them
-     * but its writer and those inactive ({@see People::inactive()}) — named, they are still told.
+     * Record who a message mentions: `<@id>` of its members, and the people its handles tell
+     * ({@see Handles}: `@here`, `@channel`, `@everyone`, a group). `@channel` is one row for all the
+     * members, as `@all` was; the others a row for each person they told, since they tell some.
      *
      * @return array<int, string> The people mentioned, with how
      */
@@ -592,23 +593,15 @@ final class Messages
                 $people[$person] = 'person';
             }
         }
-        $table  = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_mentions');
-        $asleep = null;
-        foreach (['all', 'online'] as $kind) {
-            if (preg_match('/(?<![\w@])@' . $kind . '\b/', $body)) {
-                $table->insert(['messageid' => $id, 'conversationid' => $conversationId, 'kind' => $kind, 'participantid' => null, 'createdat' => $at]);
-                $asleep ??= People::inactive($members);
-                foreach ($members as $person) {
-                    if ($person !== $author && !isset($asleep[$person])) {
-                        $people[$person] ??= $kind;
-                    }
-                }
-            }
+        $people += Handles::audience($conversationId, $author, $body);
+        $table   = static fn () => Conversations::db()->queryBuilder()->table('#PREFIX#conversation_mentions');
+        $used    = Handles::used($body);
+        if (in_array('channel', $used, true) || (in_array(Handles::EVERYONE, $used, true) && !Handles::isGeneral($conversationId))) {
+            $table()->insert(['messageid' => $id, 'conversationid' => $conversationId, 'kind' => 'all', 'participantid' => null, 'createdat' => $at]);
         }
         foreach ($people as $person => $kind) {
-            if ($kind === 'person') {
-                Conversations::db()->queryBuilder()->table('#PREFIX#conversation_mentions')
-                    ->insert(['messageid' => $id, 'conversationid' => $conversationId, 'kind' => 'person', 'participantid' => $person, 'createdat' => $at]);
+            if ($kind !== 'all') {
+                $table()->insert(['messageid' => $id, 'conversationid' => $conversationId, 'kind' => $kind, 'participantid' => $person, 'createdat' => $at]);
             }
         }
 

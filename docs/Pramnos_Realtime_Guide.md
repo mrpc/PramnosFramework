@@ -1617,6 +1617,22 @@ remember nonces, and a shorter window turns ordinary clock drift into intermitte
 An unknown key, a stale timestamp, a wrong signature, an unbound body and a key
 acting on another app's path all return the same `401`.
 
+### Asking from the application: who is connected
+
+`Pramnos\Broadcasting\Http\ApiClient` is the application's side of it, for the one question the
+backplane cannot answer — who is in a presence channel now:
+
+```php
+$ids = ApiClient::fromConfig($app->applicationInfo['broadcasting'])?->presenceUsers('presence-chat');
+// list of user ids; null when there is no API to ask, or it did not answer
+```
+
+It asks `broadcasting.http_api.url` when set — the daemon as the application reaches it
+(`http://127.0.0.1:6001`), often not the address browsers use — else the `websocket` host and
+port when `http_api.enabled` is on, or Pusher's API host (or `pusher.host`) for the `pusher`
+transport. It signs with `pusher.app_key` (or `websocket.app_key`) and `pusher.app_secret`, and
+waits two seconds at most. The conversations' `@here` is built on it.
+
 ### Two answers that look similar and are not
 
 | | |

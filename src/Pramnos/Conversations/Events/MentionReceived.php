@@ -7,8 +7,8 @@ namespace Pramnos\Conversations\Events;
 use Pramnos\Event\QueueableEvent;
 
 /**
- * Somebody was mentioned — by name, or as one of everybody (`@all`) or of whoever is online
- * (`@online`): what tells them.
+ * Somebody was mentioned — by name, or as one of many by a handle (`@here`, `@channel`, `@everyone`,
+ * a group; {@see \Pramnos\Conversations\Handles}): what tells them.
  */
 final class MentionReceived implements QueueableEvent
 {
@@ -17,7 +17,7 @@ final class MentionReceived implements QueueableEvent
     /**
      * @param int    $messageId The message
      * @param int    $personId  Who was mentioned
-     * @param string $kind      person | all | online
+     * @param string $kind      person | all (`@channel`, `@all`) | here (`@here`, `@online`) | everyone | group
      */
     public function __construct(public readonly int $messageId, public readonly int $personId, public readonly string $kind = 'person')
     {

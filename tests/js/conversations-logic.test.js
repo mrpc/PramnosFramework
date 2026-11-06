@@ -104,14 +104,18 @@ test('@ and : are recognised at the cursor; people are matched by any word, igno
     const emoji = wordAt('τέλειο :thu', 11);
     const none = wordAt('email@host', 10);
     const found = suggestPeople(people, 'παπ', 5);
-    const all = suggestPeople(people, 'a', 5);
+    const all = suggestPeople(people, 'a', 5, ['here', 'channel', 'everyone', 'all']);
+    const here = suggestPeople(people, 'h', 5);
+    const group = suggestPeople(people, 'sa', 5, ['here', 'channel', 'sales']);
 
     // Assert
     assert.deepEqual(mention, { sign: '@', word: 'μαρ', start: 5 });
     assert.deepEqual(emoji, { sign: ':', word: 'thu', start: 7 });
     assert.equal(none, null, 'an @ inside a word is not a mention');
     assert.deepEqual(found.map((p) => p.id), [9], 'by the surname, without its accent');
-    assert.deepEqual(all.map((p) => p.name), ['all'], 'and @all where it matches; never the reader');
+    assert.deepEqual(all.map((p) => p.name), ['all'], 'and a handle where it matches; never the reader');
+    assert.deepEqual(here.map((p) => p.name), ['here'], 'without the conversation\'s handles, @here and @channel');
+    assert.deepEqual(group.map((p) => p.name), ['sales'], 'a group of the application\'s');
     assert.equal(fold('Νίκος'), 'νικοσ');
 });
 

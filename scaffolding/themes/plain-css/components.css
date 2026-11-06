@@ -1436,7 +1436,7 @@ a.pf-person:hover { background: var(--pf-subtle); }
     background: color-mix(in oklab, var(--pf-accent) 12%, transparent);
     border-radius: 0.3rem;
 }
-.pf-conv-mention-all, .pf-conv-mention-online { color: var(--pf-warn); background: color-mix(in oklab, var(--pf-warn) 14%, transparent); }
+.pf-conv-mention-all, .pf-conv-mention-online, .pf-conv-mention-here, .pf-conv-mention-channel, .pf-conv-mention-everyone, .pf-conv-mention-group { color: var(--pf-warn); background: color-mix(in oklab, var(--pf-warn) 14%, transparent); }
 .pf-conv-ref { font-weight: 600; color: var(--pf-info); }
 .pf-conv-mention-ask { color: var(--pf-info); background: color-mix(in oklab, var(--pf-info) 14%, transparent); }
 .pf-conv-msg-edited { margin-left: 0.3rem; font-size: 0.72rem; color: var(--pf-muted); }

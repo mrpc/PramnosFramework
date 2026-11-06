@@ -17,7 +17,7 @@ namespace Pramnos\Conversations;
  * | `> quoted`                      | a quote                                 |
  * | `| a | b |` then `|---|:-:|`     | a table — `:-:` centred, `--:` to the right; it scrolls when wide |
  * | `<@48211>`                      | @ and the person's name                 |
- * | `@all`, `@online`               | the mention, marked                     |
+ * | `@here`, `@channel`, `@everyone`, a group's `@name` (and `@all`, `@online`) | the mention, marked ({@see Handles}) |
  * | `#user:48211`, `NAN-6212`       | a reference, marked for a card ({@see Messages::refs()}) |
  * | `:smile:`                       | the emoji, where the shortcode is known |
  *
@@ -164,7 +164,14 @@ final class Markdown
         }, $text);
 
         $html = htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
-        $html = (string) preg_replace('/(?<![\w@])@(all|online)\b/', '<span class="pf-conv-mention pf-conv-mention-$1">@$1</span>', $html);
+        $handles = implode('|', array_map(static fn (string $h): string => preg_quote($h, '/'),
+            [...Handles::HERE, ...Handles::CHANNEL, Handles::EVERYONE, ...array_keys(Handles::groups())]));
+        $html = (string) preg_replace_callback('/(?<![\w@])@(' . $handles . ')(?![\w.-]*\w)/iu', static function (array $m): string {
+            $kind = mb_strtolower($m[1]);
+
+            return '<span class="pf-conv-mention pf-conv-mention-' . (in_array($kind, [...Handles::HERE, ...Handles::CHANNEL, Handles::EVERYONE], true) ? $kind : 'group')
+                . '">@' . $m[1] . '</span>';
+        }, $html);
         // A call on the analyst — `@Ask` or a mention of its own — shown as its name.
         $html = (string) preg_replace(\Pramnos\Llm\Analyst\Analyst::mentionPattern(), '<span class="pf-conv-mention pf-conv-mention-ask">@'
             . htmlspecialchars(\Pramnos\Llm\Analyst\Analyst::name(), ENT_QUOTES, 'UTF-8') . '</span>', $html);

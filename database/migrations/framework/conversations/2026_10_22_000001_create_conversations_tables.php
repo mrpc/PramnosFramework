@@ -121,7 +121,7 @@ class CreateConversationsTables extends Migration
                 $table->bigIncrements('id')->comment('Auto-increment identifier');
                 $table->bigInteger('messageid')->comment('conversation_messages.messageid');
                 $table->bigInteger('conversationid')->comment('Its conversation');
-                $table->string('kind', 10)->comment('person | all | online');
+                $table->string('kind', 10)->comment('person | all | online | here | everyone | group');
                 $table->bigInteger('participantid')->nullable()->comment('The person, for kind person');
                 $table->unsignedInteger('createdat')->comment('When');
                 $table->index(['participantid', 'createdat'], 'idx_conversation_mentions_person');

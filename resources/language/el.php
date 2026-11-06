@@ -1540,6 +1540,8 @@ return [
     'Pinned message' => 'Καρφιτσωμένο',
     'everybody here' => 'όλοι εδώ',
     'everybody here who is online' => 'όσοι είναι συνδεδεμένοι',
+    'everyone in the conversations' => 'όλοι στις συζητήσεις',
+    'everybody in the group' => 'όλοι στην ομάδα',
     'Nothing' => 'Τίποτα',
     'Open the whole page' => 'Άνοιγμα σε όλη τη σελίδα',
     'Conversation files' => 'Αρχεία συζητήσεων',
