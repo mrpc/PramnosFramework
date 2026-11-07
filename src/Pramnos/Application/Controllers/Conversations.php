@@ -224,8 +224,8 @@ class Conversations extends Controller
             $messages = Messages::list($id, array_map('intval', $options));
 
             return ['conversation' => Store::get($id) + ['member' => Store::member($id, (int) $me->userid)],
-                // The handles its composer offers: `@here`, `@channel`, `@everyone` in the general one, the groups.
-                'handles' => \Pramnos\Conversations\Handles::offered($id),
+                // The handles its composer offers the reader: `@here`, `@channel`, `@everyone` in the general one, the groups — those they may use.
+                'handles' => \Pramnos\Conversations\Handles::offered($id, (int) $me->userid),
                 'members' => array_map(static fn (int $person): array => ['id' => $person, 'name' => $names[$person] ?? '#' . $person,
                     'inactive' => $asleep[$person] ?? null, 'avatar' => $faces[$person] ?? null], $members),
                 'formers' => Store::formers([$id])[$id] ?? [],

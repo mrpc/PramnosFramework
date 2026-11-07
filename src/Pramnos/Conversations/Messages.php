@@ -597,7 +597,7 @@ final class Messages
         }
         $people += Handles::audience($conversationId, $author, $body);
         $table   = static fn () => Conversations::db()->queryBuilder()->table('#PREFIX#conversation_mentions');
-        $used    = Handles::used($body);
+        $used    = Handles::permitted($conversationId, $author, $body);
         if (in_array('channel', $used, true) || (in_array(Handles::EVERYONE, $used, true) && !Handles::isGeneral($conversationId))) {
             $table()->insert(['messageid' => $id, 'conversationid' => $conversationId, 'kind' => 'all', 'participantid' => null, 'createdat' => $at]);
         }

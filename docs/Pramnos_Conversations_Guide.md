@@ -192,8 +192,16 @@ writer, nor somebody inactive (see [Access](#access)):
     'everyone_channel' => 'general',                                     // the general conversation: its slug or its id
     'groups'           => ['sales' => fn (): array => Staff::ids('sales'), 'admins' => [2, 7]],
     'quiet'            => fn (array $ids): array => Status::paused($ids), // of these, who is not to be told now
+    'handles_may'      => ['everyone' => 97, 'channel' => fn (object $user, array $conversation): bool => …],
 ],
 ```
+
+**Who may use a handle** is `handles_may`, by handle — `here`, `channel`, `everyone`,
+`group:<name>`, or `groups` for every group: a usertype floor, or a callable given the writer's
+account (`userid`, `usertype`, `active`) and the conversation. A handle with no rule is anybody's.
+A conversation's owner may always use `@here` and `@channel` in it, and a system post any handle.
+A handle its writer may not use stays in the message as text and tells nobody, as Slack does
+(`Handles::may()`, `Handles::permitted()`).
 
 *Connected now* is the presence channel (`presence-chat`), asked of the broadcasting server through
 its HTTP API (`Pramnos\Broadcasting\Http\ApiClient`): `broadcast:serve` with `http_api.enabled`,
@@ -205,7 +213,8 @@ for each person told. The event's `kind` is `person`, `all` (`@channel`, `@all`)
 
 A composer asks before telling many: `GET Conversations/reach/{id}?body=…` answers how many a
 message's handles would tell (`Handles::reach()`), and each conversation's messages come with
-the `handles` its composer offers — `@everyone` in the general conversation alone.
+the `handles` its composer offers the reader — `@everyone` in the general conversation alone, and
+only the handles the reader may use (`Handles::offered($id, $reader)`).
 
 **A mention by name counts for members only**: somebody not in the conversation is shown by name but is
 not told. To reach a person from a system post, join them first — with `notify` set to

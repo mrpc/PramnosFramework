@@ -24,8 +24,15 @@ namespace Pramnos\Conversations;
  *     'everyone_channel' => 'general',                                   // its slug, or its id
  *     'groups'           => ['sales' => fn (): array => Staff::ids('sales'), 'admins' => [2, 7]],
  *     'quiet'            => fn (array $ids): array => Status::paused($ids), // of these, who is not told now
+ *     'handles_may'      => ['everyone' => 97, 'channel' => fn (object $user, array $conversation): bool => …],
  * ],
  * ```
+ *
+ * `handles_may` says who may use a handle — `here`, `channel`, `everyone`, `group:<name>`, or
+ * `groups` for every group: a usertype floor, or a callable given the writer's account and the
+ * conversation. A conversation's owner may always use `@here` and `@channel` in it. A handle its
+ * writer may not use stays in the message as text, and tells nobody — as Slack does; a composer is
+ * not offered it ({@see offered()}).
  */
 final class Handles
 {
@@ -73,7 +80,7 @@ final class Handles
      */
     public static function audience(int $conversationId, ?int $author, string $body): array
     {
-        $used = self::used($body);
+        $used = self::permitted($conversationId, $author, $body);
         if ($used === []) {
             return [];
         }
@@ -112,9 +119,46 @@ final class Handles
      *
      * @return list<string>
      */
-    public static function offered(int $conversationId): array
+    public static function offered(int $conversationId, ?int $writer = null): array
     {
-        return array_merge([self::HERE[0], self::CHANNEL[0]], self::isGeneral($conversationId) ? [self::EVERYONE] : [], array_keys(self::groups()));
+        $handles = array_merge([self::HERE[0], self::CHANNEL[0]], self::isGeneral($conversationId) ? [self::EVERYONE] : [], array_keys(self::groups()));
+
+        return $writer === null ? $handles : array_values(array_filter($handles,
+            static fn (string $h): bool => self::may(in_array($h, [self::HERE[0], self::CHANNEL[0], self::EVERYONE], true) ? $h : 'group:' . $h, $conversationId, $writer)));
+    }
+
+    /**
+     * The handles a body uses that its writer may use in a conversation ({@see may()}).
+     *
+     * @return list<string>
+     */
+    public static function permitted(int $conversationId, ?int $author, string $body): array
+    {
+        return array_values(array_filter(self::used($body), static fn (string $h): bool => self::may($h, $conversationId, $author)));
+    }
+
+    /**
+     * Whether somebody may use a handle — `here`, `channel`, `everyone`, `group:<name>` — in a
+     * conversation, as `conversations.handles_may` says: anybody where it says nothing, the system
+     * always, a conversation's owner always `@here` and `@channel` in it.
+     */
+    public static function may(string $handle, int $conversationId, ?int $writer): bool
+    {
+        $rules = (array) (self::config('handles_may') ?? []);
+        $rule  = $rules[$handle] ?? (str_starts_with($handle, 'group:') ? ($rules['groups'] ?? null) : null);
+        if ($rule === null || $writer === null) {
+            return true;
+        }
+        if (in_array($handle, ['here', 'channel'], true) && (Conversations::member($conversationId, $writer)['role'] ?? '') === 'owner') {
+            return true;
+        }
+        $user = Conversations::db()->queryBuilder()->table('#PREFIX#users')->select(['userid', 'usertype', 'active'])
+            ->where('userid', $writer)->limit(1)->getAllOrFail()[0] ?? null;
+        if ($user === null) {
+            return false;
+        }
+
+        return is_callable($rule) ? (bool) $rule((object) $user, Conversations::get($conversationId) ?? []) : (int) $user['usertype'] >= (int) $rule;
     }
 
     /** Whether a conversation is the general one ({@see generalId()}). */

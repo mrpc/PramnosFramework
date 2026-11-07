@@ -169,6 +169,48 @@ class HandlesTest extends TestCase
         $this->assertStringContainsString('me@here.gr @here.now', $html, 'an address, and a word that only starts with a handle');
     }
 
+    /**
+     * `handles_may` says who may use a handle: a usertype floor or a callable. A handle its writer
+     * may not use stays as text and tells nobody, with no row; a conversation's owner always may
+     * `@channel` in it; the system always may; a composer is offered only what its reader may use.
+     */
+    #[DataProvider('databases')]
+    public function testWhoMayUseAHandle(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — @everyone for 98 and up, @channel by a callable that says no, groups for 98 and up
+        $this->boot($type, $host, $port, $user);
+        [$eleni, $maria, $nikos] = [$this->ids['eleni'], $this->ids['maria'], $this->ids['nikos']];
+        $asked = [];
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30, 'everyone_channel' => 'general',
+            'groups' => ['sales' => [$nikos]],
+            'handles_may' => ['everyone' => 98, 'groups' => 98, 'channel' => function (object $who, array $conversation) use (&$asked): bool {
+                $asked[] = [(int) $who->userid, $conversation['name']];
+
+                return false;
+            }]];
+        $general = Conversations::create('channel', 'general', [$maria, $nikos], $eleni);
+        $this->connected([]);
+
+        // Act
+        $byMaria   = Messages::post($general, $maria, '@everyone και @channel και @sales');
+        $byOwner   = Messages::post($general, $eleni, '@channel');
+        $byEleni   = Messages::post($general, $eleni, '@everyone');
+        $bySystem  = Messages::post($general, null, '@channel από το σύστημα');
+        $offered   = [Handles::offered($general, $maria), Handles::offered($general, $eleni), Handles::offered($general)];
+
+        // Assert
+        $this->assertSame([], $this->mentioned($byMaria), 'none she may use: nobody told');
+        $this->assertSame([], $this->rows($byMaria), 'no row either');
+        $this->assertStringContainsString('@everyone', Messages::get($byMaria)['body'], 'the text stays as written');
+        $this->assertSame([[$maria, 'general']], array_values(array_unique($asked, SORT_REGULAR)), 'the callable is asked with the writer and the conversation — never for the owner');
+        $this->assertSame([$maria, $nikos], $this->mentioned($byOwner), 'the owner always may @channel in her own');
+        $this->assertSame([$maria, $nikos, $this->ids['root']], $this->mentioned($byEleni), '98 may @everyone: everyone who may use the conversations');
+        $this->assertSame([$eleni, $maria, $nikos], $this->mentioned($bySystem), 'the system may');
+        $this->assertSame(['here'], $offered[0], 'maria is offered only what she may use');
+        $this->assertSame(['here', 'channel', 'everyone', 'sales'], $offered[1]);
+        $this->assertSame(['here', 'channel', 'everyone', 'sales'], $offered[2], 'no reader: all of them');
+    }
+
     /** Who a message's mention events told. @return list<int> */
     private function mentioned(int $message): array
     {
