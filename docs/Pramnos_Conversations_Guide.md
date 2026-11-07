@@ -574,6 +574,25 @@ A click focuses the page already open at the notification's address and moves it
 installed app when the address is in its scope. The page subscribes to push through that worker's
 registration, as the [Push Guide](Pramnos_Push_Guide.md) describes.
 
+## Scheduled messages
+
+A message written to be sent later, as Slack's *Schedule message* (`Pramnos\Conversations\Scheduled`):
+
+```php
+$id = Scheduled::create($general, $me, 'Καλημέρα σε όλους', strtotime('tomorrow 09:00'));
+Scheduled::create($general, $me, 'Το είδα', $at, ['thread' => $root, 'broadcast' => true, 'files' => [$fileId]]);
+Scheduled::mine($me);                         // what one is waiting to send, and what could not be sent, soonest first
+Scheduled::change($id, $me, 'Καλημέρα!', $at); // its text, its time, or both; one that failed is tried again
+Scheduled::cancel($id, $me);
+```
+
+`conversations:send-scheduled`, which the framework runs every minute, sends what is due with
+`Messages::post()` as its writer — notifications, mentions and all — and removes it: the message
+is its record. Its writer must still be in the conversation; if not, or the thread it answers is
+gone, it stays in `mine()` with its `error` and is not tried again until it is changed. Its time is
+Unix seconds and must be in the future. Files are uploaded first, as for any message, and wait
+unattached until it is sent.
+
 ## Live: what browsers are told
 
 A message is written first and told second, through Broadcasting:
@@ -776,6 +795,10 @@ conversation or message the person does not read 404.
 | `add/{id}` | POST | `person` | `{ok}` |
 | `post/{id}` | POST | `body`, `thread`, `broadcast`, `files[]` | `{id, message, paused}` — `broadcast` with `thread`: the reply is also sent to the conversation; `paused`, who it addressed with their notifications paused |
 | `nudge/{id}` | POST | `person` | `{ok}` — "Notify anyway": the message's writer notifies one of `paused`, past the pause, once |
+| `schedule/{id}` | POST | `body`, `at` (Unix seconds), `thread`, `broadcast`, `files[]` | `{id, scheduled}` — a message sent later, as its writer |
+| `scheduled` | GET | — | `{scheduled}`: what one is waiting to send, and what could not be sent with its `error`, soonest first — `{id, conversationId, body, thread, broadcast, files, at, createdAt, error}` |
+| `reschedule/{id}` | POST | `body`, `at` | `{scheduled}` — one's own, changed; one that failed is tried again |
+| `unschedule/{id}` | POST | — | `{ok}` |
 | `edit/{id}` | POST | `body` | `{message}` |
 | `delete/{id}` | POST | — | `{ok}` |
 | `react/{id}` | POST | `emoji`, `on` | `{ok}` |

@@ -42,6 +42,10 @@ use Pramnos\Http\Response;
  * | `add/{id}` | POST | `person` | `{ok}` |
  * | `post/{id}` | POST | `body`, `thread`, `broadcast`, `files[]` | `{id, message, paused}` — `broadcast` with `thread`: the reply is also sent to the conversation; `paused` who it addresses with their notifications paused |
  * | `nudge/{id}` | POST | `person` | `{ok}`: "Notify anyway" — the message's writer tells one of `paused`, past the pause, once |
+ * | `schedule/{id}` | POST | `body`, `at` (Unix seconds), `thread`, `broadcast`, `files[]` | `{id, scheduled}`: a message to send later, as its writer |
+ * | `scheduled` | GET | — | `{scheduled}`: what one is waiting to send, and what could not be sent with its `error`, soonest first |
+ * | `reschedule/{id}` | POST | `body`, `at` | `{scheduled}`: one's own scheduled message changed; one that failed is tried again |
+ * | `unschedule/{id}` | POST | — | `{ok}` |
  * | `edit/{id}` | POST | `body` | `{message}` |
  * | `delete/{id}` | POST | — | `{ok}` |
  * | `react/{id}` | POST | `emoji`, `on` | `{ok}` |
@@ -61,7 +65,7 @@ use Pramnos\Http\Response;
 class Conversations extends Controller
 {
     /** The writes: each a POST with the session's token. */
-    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge'];
+    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule'];
 
     /** The JSON body, decoded once. @var array<string, mixed>|null */
     private ?array $json = null;
@@ -69,7 +73,7 @@ class Conversations extends Controller
     /** Registers the actions: all behind sign-in, the writes POSTs with the session's token. */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'preview', 'gifs', 'refs', 'emergencykey', 'reach'], self::WRITES));
+        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'preview', 'gifs', 'refs', 'emergencykey', 'reach', 'scheduled'], self::WRITES));
         $this->addWriteAction(self::WRITES);
         // Every read action here — including `conversations`, polled often from an open tab —
         // only reads $_SESSION (through User::current()/Session::staticIsLogged()), never writes
@@ -369,6 +373,59 @@ class Conversations extends Controller
             // Who it addresses with their notifications paused: the composer offers "Notify anyway".
             return ['id' => $id, 'message' => Messages::present([(array) Messages::get($id)])[0], 'paused' => \Pramnos\Conversations\Notify::paused($id)];
         });
+    }
+
+    /** Keep a message to send later, as its writer. */
+    public function schedule(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $id = \Pramnos\Conversations\Scheduled::create($this->id(), (int) $me->userid, (string) $this->in('body'), (int) $this->in('at'), [
+                'thread' => $this->in('thread') !== null && $this->in('thread') !== '' ? (int) $this->in('thread') : null,
+                'files'  => array_map('intval', (array) ($this->in('files') ?? [])),
+                'broadcast' => $this->flag('broadcast', false),
+            ]);
+
+            return ['id' => $id, 'scheduled' => $this->scheduledOne((int) $me->userid, $id)];
+        });
+    }
+
+    /** What one is waiting to send, and what could not be sent. */
+    public function scheduled(): mixed
+    {
+        return $this->answer(fn (object $me): array => ['scheduled' => \Pramnos\Conversations\Scheduled::mine((int) $me->userid)]);
+    }
+
+    /** Change one's own scheduled message: its text, its time. */
+    public function reschedule(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Scheduled::change($this->id(), (int) $me->userid, $this->in('body') === null ? null : (string) $this->in('body'),
+                $this->in('at') === null || $this->in('at') === '' ? null : (int) $this->in('at'));
+
+            return ['scheduled' => $this->scheduledOne((int) $me->userid, $this->id())];
+        });
+    }
+
+    /** Let go of one's own scheduled message. */
+    public function unschedule(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Scheduled::cancel($this->id(), (int) $me->userid);
+
+            return ['ok' => true];
+        });
+    }
+
+    /** @return array<string, mixed>|null One of one's own scheduled messages */
+    private function scheduledOne(int $person, int $id): ?array
+    {
+        foreach (\Pramnos\Conversations\Scheduled::mine($person) as $row) {
+            if ($row['id'] === $id) {
+                return $row;
+            }
+        }
+
+        return null;
     }
 
     /** "Notify anyway": the writer of a message tells one it addressed past their pause, once. */

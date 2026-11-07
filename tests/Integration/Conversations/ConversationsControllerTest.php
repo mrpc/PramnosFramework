@@ -314,7 +314,7 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame([422, 'A message needs something in it.'], [$empty['status'], $empty['body']['error']]);
         $this->assertSame([422, 'There is a channel called #finance already.'], [$twice['status'], $twice['body']['error']]);
         $this->assertSame(403, $off['status'], 'an application without the conversations');
-        $this->assertSame(['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge'], $writes,
+        $this->assertSame(['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule'], $writes,
             'every write checks the session\'s token');
     }
 
@@ -537,6 +537,41 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame(['status' => 200, 'body' => ['ok' => true]], $nudged);
         $this->assertSame(422, $again['status'], 'once');
         $this->assertSame(0, (int) $unread, 'read in the conversation, read in the bell');
+    }
+
+    /**
+     * Scheduling over HTTP: a message kept for later is listed for its writer, changed, let go of;
+     * a time not in the future is a mistake, somebody else's scheduled message is not found.
+     */
+    #[DataProvider('databases')]
+    public function testSchedulingAMessage(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
+        Application::getInstance()->applicationInfo['features'] = ['conversations'];
+        $ops = Conversations::create('channel', 'ops', [$maria], $eleni);
+        $at  = time() + 3600;
+
+        // Act
+        $made     = $this->ask('eleni', 'schedule', $ops, ['body' => 'Αύριο', 'at' => $at]);
+        $past     = $this->ask('eleni', 'schedule', $ops, ['body' => 'Χθες', 'at' => time() - 60]);
+        $changed  = $this->ask('eleni', 'reschedule', $made['body']['id'], ['body' => 'Αύριο το πρωί', 'at' => $at + 60]);
+        $listed   = $this->ask('eleni', 'scheduled');
+        $notHers  = $this->ask('maria', 'unschedule', $made['body']['id']);
+        $gone     = $this->ask('eleni', 'unschedule', $made['body']['id']);
+        $after    = $this->ask('eleni', 'scheduled');
+
+        // Assert
+        $this->assertSame(200, $made['status']);
+        $this->assertSame(['Αύριο', $at, $ops], [$made['body']['scheduled']['body'], $made['body']['scheduled']['at'], $made['body']['scheduled']['conversationId']]);
+        $this->assertSame([422, 'A message is scheduled for later than now.'], [$past['status'], $past['body']['error']]);
+        $this->assertSame(['Αύριο το πρωί', $at + 60], [$changed['body']['scheduled']['body'], $changed['body']['scheduled']['at']]);
+        $this->assertSame([$made['body']['id']], array_column($listed['body']['scheduled'], 'id'));
+        $this->assertSame(404, $notHers['status'], 'somebody else\'s is not there');
+        $this->assertSame(['ok' => true], $gone['body']);
+        $this->assertSame([], $after['body']['scheduled']);
     }
 
     /**

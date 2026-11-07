@@ -257,6 +257,7 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\ConversationsThumbnails());
         // Link previews not read again in a while, and their pictures under previews/.
         $this->add(new \Pramnos\Console\Commands\ConversationsUnfurlsPrune());
+        $this->add(new \Pramnos\Console\Commands\ConversationsSendScheduled());
         $this->add(new \Pramnos\Console\Commands\RulesRun());
         // How the tables differ from the framework's, against a reference its migrations build.
         $this->add(new \Pramnos\Console\Commands\SchemaDiffCommand());

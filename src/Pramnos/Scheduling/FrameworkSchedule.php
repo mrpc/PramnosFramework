@@ -348,6 +348,13 @@ class FrameworkSchedule
                 'description' => 'Drop link previews not read again in a while, and their pictures',
             ],
 
+            // The conversations' messages scheduled to be sent later, as their writers. Every
+            // minute: a message is set for a minute on somebody's clock. A no-op without the table.
+            'conversations:send-scheduled' => [
+                'cadence'     => [['everyMinute']],
+                'description' => 'Send the scheduled conversation messages that are due',
+            ],
+
             // The language-model call log: every call, with its prompt and reply, kept ninety
             // days. A no-op without the `llm` feature, which has no table.
             'llm:prune' => [
