@@ -78,6 +78,7 @@ trait ConversationsProbe
         require_once ROOT . '/database/migrations/framework/notifications/2026_05_26_000060_create_notifications_table.php';
         require_once ROOT . '/database/migrations/framework/notifications/2026_08_29_000001_create_pushsubscriptions_table.php';
         require_once ROOT . '/database/migrations/framework/conversations/2026_11_07_000001_create_conversation_scheduled_table.php';
+        require_once ROOT . '/database/migrations/framework/conversations/2026_11_07_000002_create_conversation_drafts_table.php';
         if (!defined('LOG_PATH')) {
             define('LOG_PATH', ROOT . \DS . 'var');
         }
@@ -140,6 +141,8 @@ trait ConversationsProbe
             \Pramnos\Framework\Migrations\Notifications\CreatePushSubscriptionsTable::class,
             // Messages written to be sent later.
             \Pramnos\Framework\Migrations\Conversations\CreateConversationScheduledTable::class,
+            // What somebody has begun writing, on every device.
+            \Pramnos\Framework\Migrations\Conversations\CreateConversationDraftsTable::class,
         ]);
         $this->previous = Factory::getDatabase();
         $singleton      = &Factory::getDatabase();

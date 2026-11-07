@@ -313,6 +313,7 @@ class PersonalDataRegistry
             'conversation_files',
             'conversation_saved',
             'conversation_scheduled',
+            'conversation_drafts',
             // Who was moderated — accounts, visitors, addresses, nicknames — and what they wrote.
             'moderation_restrictions',
             'moderation_reports',

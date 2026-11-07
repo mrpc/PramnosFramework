@@ -200,6 +200,8 @@ final class Messages
         }
         if ($author !== null) {
             Conversations::markRead($conversationId, $author, $id);
+            // What its writer had begun there is written now.
+            Drafts::clear($author, $conversationId, $thread);
         }
         Files::attach($files, $id, $conversationId, $author);
         // Its links' cards, read in the queue — history brought in quietly gets one too, since

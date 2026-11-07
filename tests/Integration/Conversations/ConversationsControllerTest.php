@@ -314,7 +314,7 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame([422, 'A message needs something in it.'], [$empty['status'], $empty['body']['error']]);
         $this->assertSame([422, 'There is a channel called #finance already.'], [$twice['status'], $twice['body']['error']]);
         $this->assertSame(403, $off['status'], 'an application without the conversations');
-        $this->assertSame(['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule'], $writes,
+        $this->assertSame(['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft'], $writes,
             'every write checks the session\'s token');
     }
 
@@ -572,6 +572,38 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame(404, $notHers['status'], 'somebody else\'s is not there');
         $this->assertSame(['ok' => true], $gone['body']);
         $this->assertSame([], $after['body']['scheduled']);
+    }
+
+    /**
+     * Drafts over HTTP: kept for the conversation and a thread, listed, given back with the
+     * conversation's messages — the thread's with the thread — and let go of by sending.
+     */
+    #[DataProvider('databases')]
+    public function testDrafts(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
+        Application::getInstance()->applicationInfo['features'] = ['conversations'];
+        $ops  = Conversations::create('channel', 'ops', [$maria], $eleni);
+        $root = \Pramnos\Conversations\Messages::post($ops, $maria, 'Ερώτηση');
+
+        // Act
+        $kept     = $this->ask('eleni', 'draft', $ops, ['body' => 'Καλημέρα']);
+        $this->ask('eleni', 'draft', $ops, ['body' => 'Ναι', 'thread' => $root]);
+        $outsider = $this->ask('nikos', 'draft', $ops, ['body' => 'Γεια']);
+        $listed   = $this->ask('eleni', 'drafts');
+        $withIt   = $this->ask('eleni', 'messages', $ops);
+        $inThread = $this->ask('eleni', 'messages', $ops, ['thread' => $root]);
+        $this->ask('eleni', 'post', $ops, ['body' => 'Καλημέρα σε όλους']);
+        $sent     = $this->ask('eleni', 'messages', $ops);
+
+        // Assert
+        $this->assertSame(['ok' => true], $kept['body']);
+        $this->assertSame(422, $outsider['status'], 'not his conversation to write in');
+        $this->assertCount(2, $listed['body']['drafts']);
+        $this->assertSame(['Καλημέρα', 'Ναι', ''], [$withIt['body']['draft'], $inThread['body']['draft'], $sent['body']['draft']], 'sending let it go');
     }
 
     /**

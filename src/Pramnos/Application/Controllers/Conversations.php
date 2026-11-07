@@ -23,7 +23,7 @@ use Pramnos\Http\Response;
  * |---|---|---|---|
  * | `display` | GET | `#/c/{id}` | the basic page: the list, one conversation, a box to write in |
  * | `conversations` | GET | — | `{me, conversations, browse, people, avatars}`: one's own with unread and mentions and a title, the open ones to join, the names of the people in direct and group ones and their faces (`conversations.avatars`) |
- * | `messages/{id}` | GET | `before`, `after`, `thread`, `limit` | `{conversation, members, formers, messages, pinned, saved}` |
+ * | `messages/{id}` | GET | `before`, `after`, `thread`, `limit` | `{conversation, handles, members, formers, messages, pinned, saved, draft}` — `draft`, what the reader has begun writing there (in `thread`, when asked for one) |
  * | `threads` | GET | — | `{threads}`: the threads one takes part in, newest reply first, with replies new since one's own |
  * | `activity` | GET | — | `{activity}`: mentions of one, reactions to what one wrote, replies in one's threads |
  * | `unreads` | GET | — | `{unreads}`: every unread message, conversation by conversation |
@@ -46,6 +46,8 @@ use Pramnos\Http\Response;
  * | `scheduled` | GET | — | `{scheduled}`: what one is waiting to send, and what could not be sent with its `error`, soonest first |
  * | `reschedule/{id}` | POST | `body`, `at` | `{scheduled}`: one's own scheduled message changed; one that failed is tried again |
  * | `unschedule/{id}` | POST | — | `{ok}` |
+ * | `drafts` | GET | — | `{drafts}`: what one has begun writing, everywhere, newest first — `{conversationId, thread, body, updatedAt}` |
+ * | `draft/{id}` | POST | `body`, `thread` | `{ok}`: what one has written so far there, kept for one's other devices; an empty body lets it go |
  * | `edit/{id}` | POST | `body` | `{message}` |
  * | `delete/{id}` | POST | — | `{ok}` |
  * | `react/{id}` | POST | `emoji`, `on` | `{ok}` |
@@ -65,7 +67,7 @@ use Pramnos\Http\Response;
 class Conversations extends Controller
 {
     /** The writes: each a POST with the session's token. */
-    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule'];
+    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft'];
 
     /** The JSON body, decoded once. @var array<string, mixed>|null */
     private ?array $json = null;
@@ -73,7 +75,7 @@ class Conversations extends Controller
     /** Registers the actions: all behind sign-in, the writes POSTs with the session's token. */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'preview', 'gifs', 'refs', 'emergencykey', 'reach', 'scheduled'], self::WRITES));
+        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'preview', 'gifs', 'refs', 'emergencykey', 'reach', 'scheduled', 'drafts'], self::WRITES));
         $this->addWriteAction(self::WRITES);
         // Every read action here — including `conversations`, polled often from an open tab —
         // only reads $_SESSION (through User::current()/Session::staticIsLogged()), never writes
@@ -234,7 +236,8 @@ class Conversations extends Controller
                     'inactive' => $asleep[$person] ?? null, 'avatar' => $faces[$person] ?? null], $members),
                 'formers' => Store::formers([$id])[$id] ?? [],
                 'messages' => $messages, 'pinned' => array_column(Messages::pinned($id), 'id'),
-                'saved' => Inbox::savedIds((int) $me->userid, array_column($messages, 'id'))];
+                'saved' => Inbox::savedIds((int) $me->userid, array_column($messages, 'id')),
+                'draft' => \Pramnos\Conversations\Drafts::get((int) $me->userid, $id, isset($options['thread']) ? (int) $options['thread'] : null)];
         });
     }
 
@@ -372,6 +375,23 @@ class Conversations extends Controller
 
             // Who it addresses with their notifications paused: the composer offers "Notify anyway".
             return ['id' => $id, 'message' => Messages::present([(array) Messages::get($id)])[0], 'paused' => \Pramnos\Conversations\Notify::paused($id)];
+        });
+    }
+
+    /** What one has begun writing, everywhere. */
+    public function drafts(): mixed
+    {
+        return $this->answer(fn (object $me): array => ['drafts' => \Pramnos\Conversations\Drafts::mine((int) $me->userid)]);
+    }
+
+    /** Keep what one has written so far in a conversation, or a thread of it; nothing lets it go. */
+    public function draft(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Drafts::save((int) $me->userid, $this->id(),
+                $this->in('thread') !== null && $this->in('thread') !== '' ? (int) $this->in('thread') : null, (string) ($this->in('body') ?? ''));
+
+            return ['ok' => true];
         });
     }
 

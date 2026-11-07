@@ -593,6 +593,24 @@ gone, it stays in `mine()` with its `error` and is not tried again until it is c
 Unix seconds and must be in the future. Files are uploaded first, as for any message, and wait
 unattached until it is sent.
 
+## Drafts
+
+What somebody has begun writing is kept on the server, so it follows them to every device, as
+Slack's drafts (`Pramnos\Conversations\Drafts`):
+
+```php
+Drafts::save($me, $general, null, 'Καλημέρα, σήμερα…');  // the conversation's; an empty body lets it go
+Drafts::save($me, $general, $root, 'Το κοιτάζω');        // a thread's
+Drafts::get($me, $general);                             // '' when there is none
+Drafts::mine($me);                                      // every one, newest first
+```
+
+One for each person, conversation and thread, and only in a conversation they are in. Sending a
+message there lets it go. Each change is told on the person's own channel as `conversation.draft`
+— `{conversationId, thread, body, updatedAt}`, `body` `''` when it went — so their other devices
+show it. A composer saves as its writer types (debounced), and keeps a local copy only as a first
+picture until the server answers; `messages/{id}` gives the conversation's draft back as `draft`.
+
 ## Live: what browsers are told
 
 A message is written first and told second, through Broadcasting:
@@ -601,7 +619,7 @@ A message is written first and told second, through Broadcasting:
 |---|---|
 | `private-conversation.{id}` | `message.posted`, `message.edited`, `message.deleted`, `message.reacted`, `message.pinned`, `message.unfurled` (its link previews read, or one taken off) — each with the message as a reader sees it (name, HTML, reactions, files, link previews) |
 | `private-conversation.{id}` | `assistant.thinking` `{thread, name, until}` when the analyst begins on a question there — `thread` null for the conversation itself — and `assistant.done` `{thread}` when it has finished, answered or not: the server says it, since a worker cannot whisper |
-| each member's own (`private-users.{id}`, or `broadcasting.notifications_channel`) | `conversation.activity`: a message in one of their conversations — its ids, its writer, whether it mentions them — for a sidebar's unread and a window that opens; `conversation.read`: what they have read there moved — read on another page, or marked unread — `{conversationId, lastReadId, unread, mentions}`; `conversation.changed` `{conversationId, mergedFrom}`: who is in it changed under them (`claimFormer()`) |
+| each member's own (`private-users.{id}`, or `broadcasting.notifications_channel`) | `conversation.activity`: a message in one of their conversations — its ids, its writer, whether it mentions them — for a sidebar's unread and a window that opens; `conversation.read`: what they have read there moved — read on another page, or marked unread — `{conversationId, lastReadId, unread, mentions}`; `conversation.changed` `{conversationId, mergedFrom}`: who is in it changed under them (`claimFormer()`); `conversation.draft` `{conversationId, thread, body, updatedAt}`: their draft there changed, on another device |
 | `presence-chat` | who of the team is connected, with their name |
 
 For the conversations to be live, three things have to hold; each fails silently when it does not:
@@ -778,7 +796,7 @@ conversation or message the person does not read 404.
 | action | method | in | out |
 |---|---|---|---|
 | `conversations` | GET | — | `{me, conversations, browse, people, avatars}`: one's own with unread, mentions and a `title`, the open ones to join, the names of the people in direct and group ones |
-| `messages/{id}` | GET | `before`, `after`, `thread`, `limit` | `{conversation, members, messages, pinned, saved}` — `saved`, which of these messages the reader kept |
+| `messages/{id}` | GET | `before`, `after`, `thread`, `limit` | `{conversation, handles, members, messages, pinned, saved, draft}` — `saved`, which of these messages the reader kept; `draft`, what the reader has begun writing there (in `thread`, when asked for one) |
 | `threads` | GET | — | `{threads}`: the threads one takes part in, newest reply first — `{root, latest, replies, newReplies}` |
 | `activity` | GET | — | `{activity}`: mentions of one, reactions to what one wrote, replies in one's threads — `{kind, at, message, by, byName, emoji}` |
 | `unreads` | GET | — | `{unreads}`: every unread message, conversation by conversation |
@@ -799,6 +817,8 @@ conversation or message the person does not read 404.
 | `scheduled` | GET | — | `{scheduled}`: what one is waiting to send, and what could not be sent with its `error`, soonest first — `{id, conversationId, body, thread, broadcast, files, at, createdAt, error}` |
 | `reschedule/{id}` | POST | `body`, `at` | `{scheduled}` — one's own, changed; one that failed is tried again |
 | `unschedule/{id}` | POST | — | `{ok}` |
+| `drafts` | GET | — | `{drafts}`: what one has begun writing, everywhere, newest first — `{conversationId, thread, body, updatedAt}` |
+| `draft/{id}` | POST | `body`, `thread` | `{ok}` — what one has written so far there; an empty body lets it go |
 | `edit/{id}` | POST | `body` | `{message}` |
 | `delete/{id}` | POST | — | `{ok}` |
 | `react/{id}` | POST | `emoji`, `on` | `{ok}` |
