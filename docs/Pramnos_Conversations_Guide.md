@@ -509,6 +509,60 @@ in the queue or the event stream like any other.
 Listed, alongside every other extension point the framework fires, in the
 [Extensibility Guide](Pramnos_Extensibility_Guide.md)'s catalog.
 
+## Notifications — the bell and a push
+
+A new message notifies, in the bell and as a push to every browser the person subscribed
+(`Notify`, `ConversationNotification`), as Slack does:
+
+| why | who |
+|---|---|
+| `direct` | every member of a direct or group conversation |
+| `mention` | whoever it names with `<@id>`, or a handle tells (`@here`, `@channel`, …) |
+| `thread` | a reply: whoever wrote the thread's first message or replied in it |
+| `message` | anything else in the conversation, to members whose setting is `all` |
+
+Each member's setting for the conversation decides (`Conversations::notify()`, `notify/{id}`):
+`none` nothing, `mentions` everything but `message`, `all` everything. A **muted** conversation
+notifies only who it names with `<@id>`. Its writer is never notified, and nor is anybody the
+application's `quiet` hook says is paused now.
+
+The notifications go out **in the queue** (`conversation_notify`, answered by the worker without
+registering): a message to a channel of fifty is fifty pushes, which its writer does not wait for.
+Without a running queue worker nothing is sent, and the failure to queue is logged.
+
+```php
+'conversations' => [
+    'page'         => '/chat',                                   // where a notification opens; `#/c/{id}/m/{message}` follows
+    'quiet'        => fn (array $ids): array => Status::paused($ids), // of these, who is not notified now
+    'notify_via'   => ['database', 'push'],                      // the default; ['database'] keeps them to the bell
+    'notification' => App\Notifications\ChatMessage::class,      // a class of your own, built with ($messageId, $why)
+],
+```
+
+A push is titled with its writer in a direct conversation, otherwise with the conversation
+(`#ops`), and carries the first words — mentions by name, marks left out. Its tag is the
+conversation's, so a phone shows a conversation's newest message rather than a stack of them.
+Reading a conversation (`read/{id}`) settles its notifications in the reader's bell
+(`about: conversation:{id}`).
+
+**Notify anyway.** `post/{id}` answers `paused`: whoever the message addressed — named with `<@id>`,
+or the other members of a direct or group conversation — whose notifications are paused. Its writer
+may `nudge/{messageId}` one of them (`person`): a notification past the pause, once for each
+message and person (`Notify::nudge()`).
+
+**The service worker.** A push reaches a person only through a worker with a `push` handler. The
+scaffolded `sw.js` has one. A worker of the application's own — the conversations installed as an
+app have their own, scoped to their page — imports the framework's:
+
+```js
+importScripts('/assets/js/pf-push-worker.js');   // push + notificationclick
+```
+
+A click focuses the page already open at the notification's address and moves it to the message
+(it also posts `{type: 'notification-click', url}` to the page), or opens one — on a phone, the
+installed app when the address is in its scope. The page subscribes to push through that worker's
+registration, as the [Push Guide](Pramnos_Push_Guide.md) describes.
+
 ## Live: what browsers are told
 
 A message is written first and told second, through Broadcasting:
@@ -709,7 +763,8 @@ conversation or message the person does not read 404.
 | `create` | POST | `kind`, `name`, `topic`, `members[]` | `{id, conversation}` — the conversation as `messages` gives it |
 | `join/{id}`, `leave/{id}` | POST | — | `{ok}` |
 | `add/{id}` | POST | `person` | `{ok}` |
-| `post/{id}` | POST | `body`, `thread`, `broadcast`, `files[]` | `{id, message}` — `broadcast` with `thread`: the reply is also sent to the conversation |
+| `post/{id}` | POST | `body`, `thread`, `broadcast`, `files[]` | `{id, message, paused}` — `broadcast` with `thread`: the reply is also sent to the conversation; `paused`, who it addressed with their notifications paused |
+| `nudge/{id}` | POST | `person` | `{ok}` — "Notify anyway": the message's writer notifies one of `paused`, past the pause, once |
 | `edit/{id}` | POST | `body` | `{message}` |
 | `delete/{id}` | POST | — | `{ok}` |
 | `react/{id}` | POST | `emoji`, `on` | `{ok}` |
@@ -718,7 +773,7 @@ conversation or message the person does not read 404.
 | `preview` | GET | `name` | a preview card's picture or icon, kept here |
 | `gifs` | GET | `q` | `{gifs}`: GIFs for a search, or the trending ones, asked with the application's key; 404 where there are none |
 | `gif/{id}` | POST | `url`, `title` | `{id, name, size, mime}`: a GIF the picker offered, kept as a file of the conversation |
-| `read/{id}` | POST | `message` | `{ok}` |
+| `read/{id}` | POST | `message` | `{ok}` — the conversation's notifications in the reader's bell are read too |
 | `unread/{id}` | POST | `message` | `{ok}` — unread from that message on, a reply from its root; 404 to somebody not in it |
 | `notify/{id}` | POST | `notify` (`all`, `mentions`, `none`), `muted` | `{ok}` |
 | `star/{id}` | POST | `on` | `{ok}` |

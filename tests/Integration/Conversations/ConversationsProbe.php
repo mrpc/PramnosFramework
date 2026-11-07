@@ -75,6 +75,8 @@ trait ConversationsProbe
         require_once ROOT . '/database/migrations/framework/llm/2026_10_13_000006_create_chat_asks_table.php';
         require_once ROOT . '/database/migrations/framework/llm/2026_10_13_000011_add_space_to_chat_tables.php';
         require_once ROOT . '/database/migrations/framework/llm/2026_10_13_000012_make_organization_id_nullable_on_chat_tables.php';
+        require_once ROOT . '/database/migrations/framework/notifications/2026_05_26_000060_create_notifications_table.php';
+        require_once ROOT . '/database/migrations/framework/notifications/2026_08_29_000001_create_pushsubscriptions_table.php';
         if (!defined('LOG_PATH')) {
             define('LOG_PATH', ROOT . \DS . 'var');
         }
@@ -132,6 +134,9 @@ trait ConversationsProbe
             \Pramnos\Framework\Migrations\Llm\CreateChatAsksTable::class,
             \Pramnos\Framework\Migrations\Llm\AddSpaceToChatTables::class,
             \Pramnos\Framework\Migrations\Llm\MakeOrganizationIdNullableOnChatTables::class,
+            // The bell and the browsers subscribed to push: what a message notifies.
+            \Pramnos\Framework\Migrations\Notifications\CreateNotificationsTable::class,
+            \Pramnos\Framework\Migrations\Notifications\CreatePushSubscriptionsTable::class,
         ]);
         $this->previous = Factory::getDatabase();
         $singleton      = &Factory::getDatabase();

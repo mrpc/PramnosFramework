@@ -40,7 +40,8 @@ use Pramnos\Http\Response;
  * | `withask` | POST | — | `{id, conversation}`: one's conversation with Ask, made the first time; 404 to whoever may not ask it |
  * | `join/{id}`, `leave/{id}` | POST | — | `{ok}` |
  * | `add/{id}` | POST | `person` | `{ok}` |
- * | `post/{id}` | POST | `body`, `thread`, `broadcast`, `files[]` | `{id, message}` — `broadcast` with `thread`: the reply is also sent to the conversation |
+ * | `post/{id}` | POST | `body`, `thread`, `broadcast`, `files[]` | `{id, message, paused}` — `broadcast` with `thread`: the reply is also sent to the conversation; `paused` who it addresses with their notifications paused |
+ * | `nudge/{id}` | POST | `person` | `{ok}`: "Notify anyway" — the message's writer tells one of `paused`, past the pause, once |
  * | `edit/{id}` | POST | `body` | `{message}` |
  * | `delete/{id}` | POST | — | `{ok}` |
  * | `react/{id}` | POST | `emoji`, `on` | `{ok}` |
@@ -60,7 +61,7 @@ use Pramnos\Http\Response;
 class Conversations extends Controller
 {
     /** The writes: each a POST with the session's token. */
-    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread'];
+    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge'];
 
     /** The JSON body, decoded once. @var array<string, mixed>|null */
     private ?array $json = null;
@@ -365,7 +366,19 @@ class Conversations extends Controller
             // `@Ask`, or a question to Ask in one's conversation with it: the analyst answers.
             \Pramnos\Conversations\Ask::start($id, $me);
 
-            return ['id' => $id, 'message' => Messages::present([(array) Messages::get($id)])[0]];
+            // Who it addresses with their notifications paused: the composer offers "Notify anyway".
+            return ['id' => $id, 'message' => Messages::present([(array) Messages::get($id)])[0], 'paused' => \Pramnos\Conversations\Notify::paused($id)];
+        });
+    }
+
+    /** "Notify anyway": the writer of a message tells one it addressed past their pause, once. */
+    public function nudge(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $this->readable($me);
+            \Pramnos\Conversations\Notify::nudge($this->id(), (int) $me->userid, (int) $this->in('person'));
+
+            return ['ok' => true];
         });
     }
 
@@ -456,6 +469,8 @@ class Conversations extends Controller
         return $this->answer(function (object $me): array {
             Store::markRead($this->id(), (int) $me->userid, (int) $this->in('message'));
             \Pramnos\Conversations\Realtime::read($this->id(), (int) $me->userid);
+            // Its notifications in the bell are read too.
+            \Pramnos\Conversations\Notify::settle($this->id(), (int) $me->userid);
 
             return ['ok' => true];
         });

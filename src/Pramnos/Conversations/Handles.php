@@ -177,10 +177,22 @@ final class Handles
     {
         $connected = self::connected();
         $here      = $connected === null ? $members : array_values(array_intersect($members, $connected));
-        $quiet     = self::config('quiet');
-        $paused    = is_callable($quiet) && $here !== [] ? array_map('intval', (array) $quiet($here)) : [];
 
-        return array_values(array_diff($here, $paused));
+        return array_values(array_diff($here, self::paused($here)));
+    }
+
+    /**
+     * Of these people, those whose notifications are paused now, as the application's `quiet` hook
+     * says — none without one.
+     *
+     * @param list<int> $people
+     * @return list<int>
+     */
+    public static function paused(array $people): array
+    {
+        $quiet = self::config('quiet');
+
+        return is_callable($quiet) && $people !== [] ? array_values(array_intersect($people, array_map('intval', (array) $quiet($people)))) : [];
     }
 
     /** @return list<int>|null Who is connected to the conversations now, or null when it cannot be asked */

@@ -214,6 +214,8 @@ final class Messages
         foreach ($mentioned as $person => $kind) {
             \Pramnos\Event\Event::dispatch(new MentionReceived($id, $person, $kind));
         }
+        // The bell and a push, for whoever should see it, in the queue.
+        Notify::queue($id, $mentioned);
         unset($conversation);
 
         return $id;
@@ -626,11 +628,22 @@ final class Messages
      */
     private static function preview(array $root, array $names): array
     {
-        $text = $root['deletedat'] !== null ? '' : (string) preg_replace_callback('/<@(\d+)>/', static fn (array $m): string => '@' . ($names[(int) $m[1]] ?? '#' . $m[1]), (string) $root['body']);
+        return ['id' => (int) $root['messageid'], 'author' => $root['authorid'] === null ? null : ($names[(int) $root['authorid']] ?? '#' . $root['authorid']),
+            'text' => $root['deletedat'] !== null ? '' : self::plain((string) $root['body'], $names)];
+    }
+
+    /**
+     * A message's first words as text — mentions by name, marks left out, one line — for a preview
+     * or a notification.
+     *
+     * @param array<int, string> $names The mentioned people's names, by id
+     */
+    public static function plain(string $body, array $names, int $length = 120): string
+    {
+        $text = (string) preg_replace_callback('/<@(\d+)>/', static fn (array $m): string => '@' . ($names[(int) $m[1]] ?? '#' . $m[1]), $body);
         $text = trim((string) preg_replace('/\s+/u', ' ', str_replace(['**', '__', '`', '~~'], '', $text)));
 
-        return ['id' => (int) $root['messageid'], 'author' => $root['authorid'] === null ? null : ($names[(int) $root['authorid']] ?? '#' . $root['authorid']),
-            'text' => mb_strlen($text) > 120 ? mb_substr($text, 0, 119) . '…' : $text];
+        return mb_strlen($text) > $length ? mb_substr($text, 0, $length - 1) . '…' : $text;
     }
 
     /**

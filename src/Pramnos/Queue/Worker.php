@@ -389,6 +389,7 @@ class Worker
         \Pramnos\Event\EventListenerTask::TYPE => \Pramnos\Event\EventListenerTask::class,
         \Pramnos\Audience\Rules\Engine::TASK => \Pramnos\Audience\Rules\RuleTask::class,
         \Pramnos\Conversations\Unfurls::TASK => \Pramnos\Conversations\UnfurlTask::class,
+        \Pramnos\Conversations\Notify::TASK => \Pramnos\Conversations\NotifyTask::class,
         \Pramnos\Bulk\BulkActionTask::TASK => \Pramnos\Bulk\BulkActionTask::class,
     ];
 

@@ -314,7 +314,7 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame([422, 'A message needs something in it.'], [$empty['status'], $empty['body']['error']]);
         $this->assertSame([422, 'There is a channel called #finance already.'], [$twice['status'], $twice['body']['error']]);
         $this->assertSame(403, $off['status'], 'an application without the conversations');
-        $this->assertSame(['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread'], $writes,
+        $this->assertSame(['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge'], $writes,
             'every write checks the session\'s token');
     }
 
@@ -509,6 +509,34 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame(404, $denied['status']);
         $this->assertSame([true, 'ένα κείμενο'], [$closed, $body], 'a member is sent the file itself, and the request ends there');
         $this->assertSame($kept['body']['id'], Files::get($kept['body']['id'])['id']);
+    }
+
+    /**
+     * A message's answer says who it addressed with their notifications paused, and its writer may
+     * "Notify anyway" — once; reading the conversation settles its notifications in the bell.
+     */
+    #[DataProvider('databases')]
+    public function testNotifyAnyway(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — maria's notifications paused
+        $this->boot($type, $host, $port, $user);
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30, 'quiet' => fn (array $ids): array => [$maria]];
+        Application::getInstance()->applicationInfo['features'] = ['conversations'];
+        $dm = Conversations::create('dm', null, [$maria], $eleni);
+
+        // Act
+        $posted = $this->ask('eleni', 'post', $dm, ['body' => 'Επείγον']);
+        $nudged = $this->ask('eleni', 'nudge', $posted['body']['id'], ['person' => $maria]);
+        $again  = $this->ask('eleni', 'nudge', $posted['body']['id'], ['person' => $maria]);
+        $this->ask('maria', 'read', $dm, ['message' => $posted['body']['id']]);
+        $unread = $this->db->queryBuilder()->table('notifications')->where('notifiable_id', $maria)->whereNull('read_at')->count();
+
+        // Assert
+        $this->assertSame([$maria], $posted['body']['paused']);
+        $this->assertSame(['status' => 200, 'body' => ['ok' => true]], $nudged);
+        $this->assertSame(422, $again['status'], 'once');
+        $this->assertSame(0, (int) $unread, 'read in the conversation, read in the bell');
     }
 
     /**
