@@ -531,7 +531,9 @@ A new message notifies, in the bell and as a push to every browser the person su
 | `message` | anything else in the conversation, to members whose setting is `all` |
 
 Each member's setting for the conversation decides (`Conversations::notify()`, `notify/{id}`):
-`none` nothing, `mentions` everything but `message`, `all` everything. A **muted** conversation
+`none` nothing, `mentions` everything but `message`, `all` everything. A member starts with `all`
+in a direct, group or bot conversation and `mentions` in any other, as Slack does; somebody who
+leaves and comes back keeps what they had. A **muted** conversation
 notifies only who it names with `<@id>`. Its writer is never notified, and nor is anybody the
 application's `quiet` hook says is paused now.
 

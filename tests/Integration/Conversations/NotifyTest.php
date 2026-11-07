@@ -105,7 +105,8 @@ class NotifyTest extends TestCase
     }
 
     /**
-     * In a channel each member's setting decides: `all` everything, `mentions` only what names them,
+     * A channel's member is notified by default of what concerns them, a direct conversation's of
+     * everything. In a channel each member's setting decides: `all` everything, `mentions` only what names them,
      * `none` nothing; a muted channel only `<@id>`; a reply only in its thread tells only who is in
      * the thread, and one also sent to the channel tells the channel.
      */
@@ -117,6 +118,8 @@ class NotifyTest extends TestCase
         [$eleni, $maria, $nikos, $root] = [$this->ids['eleni'], $this->ids['maria'], $this->ids['nikos'], $this->ids['root']];
         Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
         $ops = Conversations::create('channel', 'ops', [$maria, $nikos, $root], $eleni);
+        $default = Conversations::member($ops, $maria)['notify'];
+        $dmDefault = Conversations::member(Conversations::create('dm', null, [$maria], $eleni), $maria)['notify'];
         Conversations::notify($ops, $maria, 'mentions');
         Conversations::mute($ops, $nikos);
         Conversations::notify($ops, $root, 'none');
@@ -130,6 +133,7 @@ class NotifyTest extends TestCase
         $loud    = Messages::post($ops, $nikos, 'Κι εγώ', ['thread' => $named, 'broadcast' => true]);
 
         // Assert
+        $this->assertSame(['mentions', 'all'], [$default, $dmDefault], 'by default a channel what concerns one, a dm everything — as Slack');
         $this->assertSame([], $this->recipients($plain), 'maria only mentions, nikos muted, root none');
         $this->assertSame([$maria => 'mention', $nikos => 'mention'], $this->recipients($named), 'a mute still lets <@id> through; none is none');
         $this->assertSame([$maria => 'mention'], $this->recipients($channel), 'a muted channel keeps its @channel to itself');

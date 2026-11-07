@@ -582,12 +582,17 @@ final class Conversations
         return $out;
     }
 
-    /** Put somebody in, or back in. */
+    /**
+     * Put somebody in, or back in — back in with the setting they had. They are notified of
+     * everything in a direct, group or bot conversation, and of what concerns them in any other,
+     * as Slack does ({@see Notify}).
+     */
     private static function addRow(int $id, int $person, string $role): void
     {
-        $now = time();
+        $now    = time();
+        $notify = in_array(self::get($id)['kind'] ?? '', self::PERSONAL, true) ? 'all' : 'mentions';
         self::members_()->insertOrIgnore(['conversationid' => $id, 'participanttype' => 'user', 'participantid' => $person, 'role' => $role,
-            'lastreadid' => 0, 'muted' => 0, 'notify' => 'all', 'joinedat' => $now]);
+            'lastreadid' => 0, 'muted' => 0, 'notify' => $notify, 'joinedat' => $now]);
         self::members_()->where('conversationid', $id)->where('participanttype', 'user')->where('participantid', $person)
             ->whereNotNull('leftat')->update(['leftat' => null, 'joinedat' => $now]);
     }
