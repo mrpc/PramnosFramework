@@ -539,6 +539,9 @@ application's `quiet` hook says is paused now.
 
 The notifications go out **in the queue** (`conversation_notify`, answered by the worker without
 registering): a message to a channel of fifty is fifty pushes, which its writer does not wait for.
+Where they open is worked out by the request that wrote the message and carried in the task
+(`Notify::page()`: `conversations.page`, else the administration's `Conversations` screen), since
+a worker run as the site's application has no area of its own.
 Without a running queue worker nothing is sent, and the failure to queue is logged.
 
 ```php
@@ -645,6 +648,13 @@ Without broadcasting set up nothing is told, and a driver that fails is logged �
 writer's failure.
 
 ## Access
+
+**Where the settings are read.** Every `conversations` setting is read through
+`Conversations::settings()`: the running application's `conversations` block, or — in a process
+run as another application whose configuration has none, a queue worker or the scheduler — the
+block of `app/admin.php` (`Conversations::AREA`), where the conversations are. So the `quiet` hook,
+the groups, `handles_may`, the floor and the files' path are the same for the notifications a
+worker sends and the scheduled messages the scheduler posts as for the page that wrote them.
 
 The conversations are an ability, `admin.chat`, not the administration's floor — a team talks
 with people who administer nothing. In usertype mode, `'conversations' => ['usertype' => 30]`

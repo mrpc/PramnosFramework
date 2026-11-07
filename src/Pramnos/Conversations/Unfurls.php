@@ -497,8 +497,7 @@ final class Unfurls
     /** `conversations.unfurl`: null for none; the allowed and refused sites otherwise. @return array<string, mixed>|null */
     private static function config(): ?array
     {
-        $app    = \Pramnos\Application\Application::currentInstance();
-        $config = is_object($app) ? ($app->applicationInfo['conversations']['unfurl'] ?? true) : true;
+        $config = Conversations::settings()['unfurl'] ?? true;
 
         return $config === false ? null : (is_array($config) ? $config : []);
     }

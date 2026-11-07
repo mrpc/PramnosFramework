@@ -178,7 +178,7 @@ final class Gifs
     {
         $app = \Pramnos\Application\Application::currentInstance();
 
-        return is_object($app) ? (array) ($app->applicationInfo['conversations']['gifs'] ?? []) : [];
+        return (array) (Conversations::settings()['gifs'] ?? []);
     }
 
     /** A URL's body, read safely — or false. */

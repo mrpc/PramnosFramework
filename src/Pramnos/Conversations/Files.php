@@ -304,8 +304,7 @@ final class Files
         if ($set > 0) {
             return $set;
         }
-        $app = \Pramnos\Application\Application::currentInstance();
-        $own = is_object($app) ? (int) ($app->applicationInfo['conversations']['max_file_mb'] ?? 0) : 0;
+        $own = (int) (Conversations::settings()['max_file_mb'] ?? 0);
 
         return $own > 0 ? $own : self::DEFAULT_MAX_MB;
     }
@@ -317,8 +316,7 @@ final class Files
         if ($set > 0) {
             return $set;
         }
-        $app = \Pramnos\Application\Application::currentInstance();
-        $own = is_object($app) ? (int) ($app->applicationInfo['conversations']['max_video_mb'] ?? 0) : 0;
+        $own = (int) (Conversations::settings()['max_video_mb'] ?? 0);
 
         return $own > 0 ? $own : self::DEFAULT_MAX_VIDEO_MB;
     }
@@ -326,8 +324,7 @@ final class Files
     /** The tree the files are kept in. */
     public static function root(): string
     {
-        $app  = \Pramnos\Application\Application::currentInstance();
-        $root = is_object($app) ? (string) ($app->applicationInfo['conversations']['files_path'] ?? '') : '';
+        $root = (string) (Conversations::settings()['files_path'] ?? '');
 
         return rtrim($root !== '' ? $root : (defined('VAR_PATH') ? VAR_PATH : ROOT . '/var') . '/chat-files', '/');
     }

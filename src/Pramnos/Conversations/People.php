@@ -39,9 +39,7 @@ final class People
     /** Days without signing in after which somebody is inactive: `conversations.inactive_after_days`; 0, the default, never. */
     public static function inactiveAfterDays(): int
     {
-        $app = \Pramnos\Application\Application::currentInstance();
-
-        return is_object($app) ? max(0, (int) ($app->applicationInfo['conversations']['inactive_after_days'] ?? 0)) : 0;
+        return max(0, (int) (Conversations::settings()['inactive_after_days'] ?? 0));
     }
 
     /**
@@ -190,7 +188,7 @@ final class People
      */
     public static function avatars(array $ids, object $reader): array
     {
-        $hook = \Pramnos\Application\Application::currentInstance()?->applicationInfo['conversations']['avatars'] ?? null;
+        $hook = Conversations::settings()['avatars'] ?? null;
         $ids  = array_values(array_unique(array_filter(array_map('intval', $ids), static fn (int $id): bool => $id > 0)));
         if (!is_callable($hook) || $ids === []) {
             return [];
@@ -230,7 +228,7 @@ final class People
      */
     private static function extra(int $person, object $reader): array
     {
-        $hook  = \Pramnos\Application\Application::currentInstance()?->applicationInfo['conversations']['profile'] ?? null;
+        $hook  = Conversations::settings()['profile'] ?? null;
         $given = is_callable($hook) ? (array) $hook($person, $reader) : [];
         $fields = [];
         foreach ((array) ($given['fields'] ?? []) as $label => $value) {

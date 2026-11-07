@@ -45,7 +45,9 @@ final class Notify
     {
         try {
             (new \Pramnos\Queue\QueueManager(\Pramnos\Queue\QueueManager::controllerOrPlain(\Pramnos\Application\Application::currentInstance(), 'queue')))
-                ->addTask(self::TASK, ['message' => $messageId, 'mentioned' => $mentioned], 30, 2);
+                // Where its notifications open, as the request that wrote it knows: a worker run as
+                // another application does not.
+                ->addTask(self::TASK, ['message' => $messageId, 'mentioned' => $mentioned, 'page' => self::page()], 30, 2);
         } catch (\Throwable $e) {
             \Pramnos\Logs\Logger::log('Conversations: message ' . $messageId . ' notifies nobody: ' . $e->getMessage(), 'queue');
         }
@@ -95,15 +97,16 @@ final class Notify
      * pause. A person whose notification fails is logged and the rest still told.
      *
      * @param array<int, string> $mentioned
+     * @param string|null        $page      Where they open ({@see page()}), as the request that wrote it said
      * @return list<int> Who was notified
      */
-    public static function run(int $messageId, array $mentioned): array
+    public static function run(int $messageId, array $mentioned, ?string $page = null): array
     {
         $people = self::recipients($messageId, $mentioned);
         $paused = Handles::paused(array_keys($people));
         $told   = [];
         foreach ($people as $person => $why) {
-            if (!in_array($person, $paused, true) && self::send($messageId, $person, $why)) {
+            if (!in_array($person, $paused, true) && self::send($messageId, $person, $why, $page)) {
                 $told[] = $person;
             }
         }
@@ -168,7 +171,7 @@ final class Notify
     }
 
     /** Tell one person of a message; false where it failed, logged. */
-    private static function send(int $messageId, int $person, string $why): bool
+    private static function send(int $messageId, int $person, string $why, ?string $page = null): bool
     {
         try {
             $user = new \Pramnos\User\User($person);
@@ -177,7 +180,7 @@ final class Notify
             }
             $class = self::config('notification');
             $class = is_string($class) && class_exists($class) ? $class : ConversationNotification::class;
-            $user->notify(new $class($messageId, $why));
+            $user->notify(new $class($messageId, $why, $page ?? self::page()));
 
             return true;
         } catch (\Throwable $e) {
@@ -229,11 +232,28 @@ final class Notify
         return $out;
     }
 
-    /** A `conversations` setting from app.php. */
+    /**
+     * Where a notification opens — `#/c/{id}/m/{message}` follows: `conversations.page`; otherwise
+     * the conversations' screen in the administration — this request's area, or, from a console
+     * process, the area's prefix under the site.
+     */
+    public static function page(): string
+    {
+        $page = self::config('page');
+        if (is_string($page) && $page !== '') {
+            return $page;
+        }
+        if (\Pramnos\Http\AdminArea::isActive() || Conversations::areaPrefix() === '') {
+            return \Pramnos\Http\AdminArea::address('Conversations');
+        }
+        $path = Conversations::areaPrefix() . '/Conversations';
+
+        return \Pramnos\Http\SiteUrl::get() !== '' ? \Pramnos\Http\SiteUrl::to($path) : '/' . $path;
+    }
+
+    /** A `conversations` setting ({@see Conversations::settings()}). */
     public static function config(string $name): mixed
     {
-        $app = \Pramnos\Application\Application::currentInstance();
-
-        return is_object($app) ? ($app->applicationInfo['conversations'][$name] ?? null) : null;
+        return Conversations::settings()[$name] ?? null;
     }
 }

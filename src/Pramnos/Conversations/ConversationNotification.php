@@ -12,7 +12,7 @@ use Pramnos\Notification\NotificationInterface;
  * the conversation at the message. A conversation's pushes replace one another rather than stack.
  *
  * `'conversations' => ['notification' => …]` names a class of the application's own, constructed
- * with the same two arguments; `'conversations' => ['notify_via' => ['database']]` keeps them to
+ * with the same arguments — the message, why, and where it opens; `'conversations' => ['notify_via' => ['database']]` keeps them to
  * the bell.
  */
 class ConversationNotification implements NotificationInterface
@@ -22,9 +22,10 @@ class ConversationNotification implements NotificationInterface
 
     /**
      * @param int    $messageId The message
-     * @param string $why       direct | mention | thread | message | nudge ({@see Notify::recipients()})
+     * @param string      $why       direct | mention | thread | message | nudge ({@see Notify::recipients()})
+     * @param string|null $page      Where it opens, as the request that wrote it said ({@see Notify::page()})
      */
-    public function __construct(public readonly int $messageId, public readonly string $why)
+    public function __construct(public readonly int $messageId, public readonly string $why, public readonly ?string $page = null)
     {
     }
 
@@ -83,8 +84,7 @@ class ConversationNotification implements NotificationInterface
         $text   = $text !== '' ? $text : t('Sent a file');
         $direct = ($conversation['kind'] ?? '') === 'dm';
         $where  = $conversation['displayName'] ?? ($conversation['name'] ?? '');
-        $page   = Notify::config('page');
-        $page   = is_string($page) && $page !== '' ? $page : adminUrl('Conversations');
+        $page   = $this->page ?? Notify::page();
 
         return $this->told = [
             'title' => $direct || $where === '' ? $author : (($conversation['kind'] ?? '') === 'group' ? $where : '#' . $where),

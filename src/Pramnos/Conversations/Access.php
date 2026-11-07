@@ -34,8 +34,7 @@ final class Access
     /** The usertype that opens them, in usertype mode. */
     public static function floor(): int
     {
-        $app = \Pramnos\Application\Application::currentInstance();
-        $set = is_object($app) ? (int) ($app->applicationInfo['conversations']['usertype'] ?? 0) : 0;
+        $set = (int) (Conversations::settings()['usertype'] ?? 0);
 
         return $set > 0 ? $set : \Pramnos\Auth\AdminAccess::defaultUsertype();
     }

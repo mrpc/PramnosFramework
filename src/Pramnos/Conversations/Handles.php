@@ -274,8 +274,6 @@ final class Handles
     /** A `conversations` setting from app.php. */
     private static function config(string $name): mixed
     {
-        $app = \Pramnos\Application\Application::currentInstance();
-
-        return is_object($app) ? ($app->applicationInfo['conversations'][$name] ?? null) : null;
+        return Conversations::settings()[$name] ?? null;
     }
 }

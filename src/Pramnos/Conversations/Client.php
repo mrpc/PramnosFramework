@@ -26,7 +26,7 @@ final class Client
      */
     public static function app(): ?array
     {
-        $info = \Pramnos\Application\Application::currentInstance()?->applicationInfo['conversations']['app'] ?? null;
+        $info = Conversations::settings()['app'] ?? null;
         if (!is_array($info)) {
             return null;
         }
@@ -112,9 +112,8 @@ final class Client
      */
     private static function links(object $me): array
     {
-        $app   = \Pramnos\Application\Application::currentInstance();
         $links = [];
-        foreach ((array) (is_object($app) ? ($app->applicationInfo['conversations']['links'] ?? []) : []) as $link) {
+        foreach ((array) (Conversations::settings()['links'] ?? []) as $link) {
             if (!is_array($link) || trim((string) ($link['label'] ?? '')) === '' || trim((string) ($link['url'] ?? '')) === '') {
                 continue;
             }

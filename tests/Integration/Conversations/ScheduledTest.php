@@ -180,5 +180,9 @@ class ScheduledTest extends TestCase
         $this->assertSame('1 scheduled message(s) sent.', trim($tester->getDisplay()));
         $this->assertSame(['Τώρα'], $this->bodies($ops));
         $this->assertContains('conversations:send-scheduled', \Pramnos\Scheduling\FrameworkSchedule::commands(), 'run by the framework');
+        $this->db->schema()->dropTableIfExists('conversation_scheduled');
+        $this->probeChanged($this->db->type);
+        $tester->execute([]);
+        $this->assertSame('There is no conversation_scheduled table.', trim($tester->getDisplay()), 'an installation that has not migrated');
     }
 }

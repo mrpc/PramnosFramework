@@ -125,7 +125,7 @@ class DraftsTest extends TestCase
                 $refused[] = true;
             }
         }
-        $this->db->query('DROP TABLE ' . $this->db->prefix . 'conversation_drafts');
+        $this->db->schema()->dropTableIfExists('conversation_drafts');
         $this->probeChanged($this->db->type);
         $unreadable = Drafts::get($eleni, $ops);
         Messages::post($ops, $eleni, 'Γράφεται κανονικά');

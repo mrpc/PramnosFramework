@@ -19,7 +19,8 @@ class NotifyTask extends AbstractTask
     public function execute(QueueItem $queueItem): mixed
     {
         $payload = (array) json_decode((string) $queueItem->payload, true);
-        Notify::run((int) ($payload['message'] ?? 0), array_map('strval', (array) ($payload['mentioned'] ?? [])));
+        Notify::run((int) ($payload['message'] ?? 0), array_map('strval', (array) ($payload['mentioned'] ?? [])),
+            is_string($payload['page'] ?? null) && $payload['page'] !== '' ? $payload['page'] : null);
 
         return true;
     }

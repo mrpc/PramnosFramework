@@ -617,6 +617,52 @@ final class Conversations
         return self::db()->queryBuilder()->table('#PREFIX#conversation_members');
     }
 
+    /** The application whose `conversations` block {@see settings()} reads where the one running has none. */
+    public const AREA = 'admin';
+
+    /** @var array<string, mixed>|null The area's application settings, read once a process */
+    private static ?array $area = null;
+
+    /**
+     * The `conversations` settings: this application's block, or — in a process run as another
+     * application, a queue worker or the scheduler, whose configuration has none — the block of
+     * the administration's (`app/admin.php`, {@see AREA}), where the conversations are. A worker
+     * notifying of a message, or the scheduler sending one, keeps the same `quiet` hook, groups and
+     * rules as the page that wrote it.
+     *
+     * @return array<string, mixed>
+     */
+    public static function settings(): array
+    {
+        $app = \Pramnos\Application\Application::currentInstance();
+        $own = is_object($app) ? ($app->applicationInfo['conversations'] ?? null) : null;
+        if (is_array($own)) {
+            return $own;
+        }
+        self::$area ??= \Pramnos\Application\Application::readApplicationConfig(self::AREA) ?? [];
+
+        return is_array(self::$area['conversations'] ?? null) ? self::$area['conversations'] : [];
+    }
+
+    /**
+     * The area's application settings ({@see settings()}): `[]` where there is no such file. A
+     * test hands its own, or null to read the file again.
+     *
+     * @param array<string, mixed>|null $settings
+     */
+    public static function useArea(?array $settings): void
+    {
+        self::$area = $settings;
+    }
+
+    /** The area's own administration prefix (`admin.prefix` of `app/admin.php`), '' without one. */
+    public static function areaPrefix(): string
+    {
+        self::settings();
+
+        return trim((string) (self::$area['admin']['prefix'] ?? ''), '/');
+    }
+
     /** The application's connection. */
     public static function db(): \Pramnos\Database\Database
     {

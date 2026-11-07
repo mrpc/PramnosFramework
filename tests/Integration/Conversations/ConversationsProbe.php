@@ -148,6 +148,12 @@ trait ConversationsProbe
         $singleton      = &Factory::getDatabase();
         $singleton      = $this->db;
         \Pramnos\Event\Event::forget();
+        // Accounts a previous test loaded, objects and cached queries: a rebuilt probe gives
+        // their ids to other people.
+        \Pramnos\User\User::clearUserCache();
+        $this->db->cacheflush('userlist');
+        // The area's settings read afresh: a test may have handed its own.
+        \Pramnos\Conversations\Conversations::useArea(null);
         // The changelog written at once, and listening to the change feed, as with the feature on.
         \Pramnos\Database\WriteSpool::setDriver(\Pramnos\Database\WriteSpool::DRIVER_SYNC);
         \Pramnos\Changelog\ChangelogWriter::listen();

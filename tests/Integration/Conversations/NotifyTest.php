@@ -142,6 +142,9 @@ class NotifyTest extends TestCase
         $this->assertSame([$eleni => 'thread', $maria => 'thread'], $this->recipients($loud), 'also sent to the channel');
         Conversations::notify($ops, $maria, 'all');
         $this->assertSame([$maria => 'message'], $this->recipients(Messages::post($ops, $eleni, 'Νέα')), 'all is everything');
+        Conversations::notify($ops, $root, 'all');
+        $this->assertSame([$eleni => 'thread', $maria => 'thread'], $this->recipients(Messages::post($ops, $nikos, 'Πάλι', ['thread' => $named])),
+            'everything is not a thread one is not in');
         $this->assertSame([], Notify::recipients(999999, []), 'no such message, nobody');
     }
 
@@ -184,6 +187,68 @@ class NotifyTest extends TestCase
         $this->assertCount(1, $bell, 'the nudge, once');
         $this->assertSame(['conversation:' . $dm, 'nudge:' . $id], $bell[0]['about']);
         $this->assertSame(['refused', 'refused', 'refused', 'refused'], $refusals, 'twice, by another, somebody not paused, no message');
+        $this->assertSame([], Notify::paused(999999), 'no such message, nobody paused');
+    }
+
+    /**
+     * What fails is logged and the rest goes on: somebody with no account is not notified, an application's own notification class that throws fails in its channel and not in
+     * the conversation, and a bell that cannot be written or settled is no error of the conversation's.
+     */
+    #[DataProvider('databases')]
+    public function testFailuresAreLoggedNotThrown(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — maria paused; nikos's account gone; an own class that cannot be built
+        $this->boot($type, $host, $port, $user);
+        [$eleni, $maria, $nikos] = [$this->ids['eleni'], $this->ids['maria'], $this->ids['nikos']];
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30, 'quiet' => fn (array $ids): array => [$maria]];
+        $ops = Conversations::create('channel', 'ops', [$maria, $nikos], $eleni);
+        $id  = Messages::post($ops, $eleni, '<@' . $maria . '> <@' . $nikos . '>');
+        $this->db->queryBuilder()->table('users')->where('userid', $nikos)->delete();
+
+        // Act
+        $told = Notify::run($id, $this->mentioned($id));
+        // An own class that fails is the channel's to log.
+        Application::getInstance()->applicationInfo['conversations']['notification'] = FailingNotification::class;
+        $ownFails = Notify::run(Messages::post(Conversations::create('dm', null, [$eleni], $this->ids['root']), $this->ids['root'], 'Γεια'), []);
+        $this->db->schema()->dropTableIfExists('notifications');
+        $this->probeChanged($this->db->type);
+        Notify::settle($ops, $maria);
+
+        // Assert
+        $this->assertSame([], $told, 'maria paused, nikos no longer an account');
+        $this->assertSame([$eleni], $ownFails, 'told, though the class failed in its channel');
+        $this->assertSame([], Notify::run($id, []), 'nobody, and no error, with no bell to write to');
+    }
+
+    /**
+     * A queue worker runs as another application — the site's — whose configuration has no
+     * `conversations` block: the settings are the administration's (`app/admin.php`), so its
+     * `quiet` hook still pauses, and a notification opens where the request that wrote the message
+     * said, carried in the task — not at this application's address.
+     */
+    #[DataProvider('databases')]
+    public function testAWorkerRunAsAnotherApplication(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — the area's settings pause maria; the worker's application has none
+        $this->boot($type, $host, $port, $user);
+        [$eleni, $maria, $nikos] = [$this->ids['eleni'], $this->ids['maria'], $this->ids['nikos']];
+        Conversations::useArea(['admin' => ['prefix' => 'admin'], 'conversations' => ['usertype' => 30, 'quiet' => fn (array $ids): array => [$maria]]]);
+        unset(Application::getInstance()->applicationInfo['conversations']);
+        $ops = Conversations::create('channel', 'ops', [$maria, $nikos], $eleni);
+        $id  = Messages::post($ops, $eleni, '<@' . $maria . '> <@' . $nikos . '> δείτε το');
+        $controller = new \Pramnos\Application\Controller();
+        $item       = new \Pramnos\Queue\QueueItem($controller);
+        $item->payload = (string) json_encode(['message' => $id, 'mentioned' => $this->mentioned($id), 'page' => '/admin/Conversations']);
+
+        // Act
+        (new NotifyTask($controller))->execute($item);
+        $page = Notify::page();
+        Conversations::useArea(null);
+
+        // Assert
+        $this->assertSame([], $this->bell($maria), 'paused by the area\'s hook, in a worker with none of its own');
+        $this->assertSame(['/admin/Conversations#/c/' . $ops . '/m/' . $id], array_column($this->bell($nikos), 'url'), 'where the writing request said');
+        $this->assertStringEndsWith('admin/Conversations', $page, 'from a console process, the area\'s prefix');
     }
 
     /**
@@ -213,6 +278,7 @@ class NotifyTest extends TestCase
         $bellOnly = $notification->via($mariaUser);
 
         // Assert
+        $this->assertSame($push, $notification->toPush($mariaUser), 'worked out once');
         $this->assertSame('#ops', $push['title']);
         $this->assertSame('Ελένη Σ.: Προσοχή @Μαρία Κ., ο server', $push['body'], 'marks out, mentions by name');
         $this->assertSame('conversation-' . $ops, $push['tag'], 'a conversation\'s pushes replace one another');
@@ -221,5 +287,15 @@ class NotifyTest extends TestCase
         $this->assertSame(['database'], $noSub, 'no browser subscribed');
         $this->assertSame(['database'], $bellOnly);
         $this->assertSame('Ελένη Σ.: Sent a file', (new ConversationNotification($file, 'message'))->toPush($mariaUser)['body'], 'nothing written: what it is');
+    }
+}
+
+/** An application's own notification class whose message cannot be told. */
+final class FailingNotification extends ConversationNotification
+{
+    /** @return array<string, mixed> Never: it fails */
+    public function toDatabase(mixed $notifiable): array
+    {
+        throw new \RuntimeException('cannot be told');
     }
 }
