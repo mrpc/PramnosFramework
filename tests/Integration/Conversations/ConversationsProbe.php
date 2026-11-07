@@ -79,6 +79,7 @@ trait ConversationsProbe
         require_once ROOT . '/database/migrations/framework/notifications/2026_08_29_000001_create_pushsubscriptions_table.php';
         require_once ROOT . '/database/migrations/framework/conversations/2026_11_07_000001_create_conversation_scheduled_table.php';
         require_once ROOT . '/database/migrations/framework/conversations/2026_11_07_000002_create_conversation_drafts_table.php';
+        require_once ROOT . '/database/migrations/framework/conversations/2026_11_07_000003_add_starorder_to_conversation_members.php';
         if (!defined('LOG_PATH')) {
             define('LOG_PATH', ROOT . \DS . 'var');
         }
@@ -143,6 +144,8 @@ trait ConversationsProbe
             \Pramnos\Framework\Migrations\Conversations\CreateConversationScheduledTable::class,
             // What somebody has begun writing, on every device.
             \Pramnos\Framework\Migrations\Conversations\CreateConversationDraftsTable::class,
+            // The reader's own order of their starred conversations.
+            \Pramnos\Framework\Migrations\Conversations\AddStarorderToConversationMembers::class,
         ]);
         $this->previous = Factory::getDatabase();
         $singleton      = &Factory::getDatabase();

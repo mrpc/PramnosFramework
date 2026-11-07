@@ -60,6 +60,13 @@ joined by dashes, in any script (`#γενικά-θέματα`). Its maker is its
 how many messages they have not read and how many of those mention them;
 `Conversations::browse($id)` lists the open ones to join.
 
+**Starred, in one's own order.** `Conversations::star($id, $me)` stars a conversation for its
+reader; `star($id, $me, true, $before)` places it before another of their starred ones, and
+`Conversations::starOrder($me, [$c, $a, $b])` writes their whole order at once — a conversation not
+theirs, or not starred, is let be; one not listed has no place. Unstarred, it loses its place.
+`forPerson()` gives each starred one its `starOrder` (null where not placed), the same on every
+device.
+
 A dm of one person is their own, as Slack keeps one for each: notes, drafts, links kept for later.
 There is one per person — made by them or for them, `Conversations::dmBetween($me, $me)` finds it —
 and what they write there is never unread and tells nobody, a mention of themselves or `@all`
@@ -840,7 +847,8 @@ conversation or message the person does not read 404.
 | `read/{id}` | POST | `message` | `{ok}` — the conversation's notifications in the reader's bell are read too |
 | `unread/{id}` | POST | `message` | `{ok}` — unread from that message on, a reply from its root; 404 to somebody not in it |
 | `notify/{id}` | POST | `notify` (`all`, `mentions`, `none`), `muted` | `{ok}` |
-| `star/{id}` | POST | `on` | `{ok}` |
+| `star/{id}` | POST | `on`, `before` | `{ok}` — `before`, a starred conversation it is placed before, in the reader's own order |
+| `starorder` | POST | `ids[]` | `{ok}` — the reader's own order of their starred conversations, all at once; ids not theirs let be |
 | `save/{id}` | POST | `on` | `{ok}` — a message kept for later, or let go |
 | `upload/{id}` | POST | `file` (multipart) | `{id, name, size, mime}` — then `post` with `files: [id]` |
 | `file/{id}` | GET | `thumbnail` | the file, to a reader of its conversation |

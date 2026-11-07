@@ -59,7 +59,8 @@ use Pramnos\Http\Response;
  * | `read/{id}` | POST | `message` | `{ok}` |
  * | `unread/{id}` | POST | `message` | `{ok}`: unread from that message on (a reply: from its root) |
  * | `notify/{id}` | POST | `notify` (all, mentions, none), `muted` | `{ok}` |
- * | `star/{id}` | POST | `on` | `{ok}` |
+ * | `star/{id}` | POST | `on`, `before` | `{ok}` — `before`, a starred conversation it is placed before, in the reader's own order |
+ * | `starorder` | POST | `ids[]` | `{ok}`: the reader's own order of their starred conversations, all at once; ids not theirs are let be |
  * | `save/{id}` | POST | `on` | `{ok}`: a message kept for later, or let go |
  * | `upload/{id}` | POST | `file` (multipart) | `{id, name, size, mime}` |
  * | `file/{id}` | GET | `thumbnail` | the file, to a reader of its conversation |
@@ -67,7 +68,7 @@ use Pramnos\Http\Response;
 class Conversations extends Controller
 {
     /** The writes: each a POST with the session's token. */
-    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft'];
+    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder'];
 
     /** The JSON body, decoded once. @var array<string, mixed>|null */
     private ?array $json = null;
@@ -585,7 +586,18 @@ class Conversations extends Controller
     public function star(): mixed
     {
         return $this->answer(function (object $me): array {
-            Store::star($this->id(), (int) $me->userid, $this->flag('on'));
+            Store::star($this->id(), (int) $me->userid, $this->flag('on'),
+                $this->in('before') !== null && $this->in('before') !== '' ? (int) $this->in('before') : null);
+
+            return ['ok' => true];
+        });
+    }
+
+    /** The reader's own order of their starred conversations, all at once. */
+    public function starorder(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            Store::starOrder((int) $me->userid, array_map('intval', (array) ($this->in('ids') ?? [])));
 
             return ['ok' => true];
         });

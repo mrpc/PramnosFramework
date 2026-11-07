@@ -270,10 +270,60 @@ final class Conversations
         self::members_()->where('conversationid', $id)->where('participanttype', 'user')->where('participantid', $person)->update(['muted' => $muted ? 1 : 0]);
     }
 
-    /** Star a conversation for somebody, or not: their sidebar shows it first. */
-    public static function star(int $id, int $person, bool $starred = true): void
+    /**
+     * Star one of one's conversations, or not. `$before` places it among one's starred, before that
+     * one — the reader's own order ({@see starOrder()}); without it, a starred one keeps its place,
+     * if it had one. Unstarred, it has none.
+     */
+    public static function star(int $id, int $person, bool $starred = true, ?int $before = null): void
     {
-        self::members_()->where('conversationid', $id)->where('participanttype', 'user')->where('participantid', $person)->update(['starred' => $starred ? 1 : 0]);
+        self::members_()->where('conversationid', $id)->where('participanttype', 'user')->where('participantid', $person)
+            // Its place let go — where the migration has run: starring still works before it.
+            ->update(['starred' => $starred ? 1 : 0] + ($starred || !self::db()->schema()->hasColumn('conversation_members', 'starorder') ? [] : ['starorder' => null]));
+        if ($starred && $before !== null) {
+            $order = array_values(array_diff(array_keys(self::starOrders($person)), [$id]));
+            $at    = array_search($before, $order, true);
+            array_splice($order, $at === false ? count($order) : (int) $at, 0, [$id]);
+            self::starOrder($person, $order);
+        }
+    }
+
+    /**
+     * The reader's own order of their starred conversations, all at once: each listed takes its
+     * place; any other starred one has none. Ids that are not their starred conversations are let be.
+     *
+     * @param list<int> $ids
+     */
+    public static function starOrder(int $person, array $ids): void
+    {
+        $mine = self::members_()->select(['conversationid'])->where('participanttype', 'user')->where('participantid', $person)
+            ->where('starred', 1)->whereNull('leftat')->getAllOrFail();
+        $mine = array_map('intval', array_column($mine, 'conversationid'));
+        $ids  = array_values(array_intersect(array_unique(array_map('intval', $ids)), $mine));
+        self::members_()->where('participanttype', 'user')->where('participantid', $person)->where('starred', 1)->update(['starorder' => null]);
+        foreach ($ids as $place => $conversation) {
+            self::members_()->where('conversationid', $conversation)->where('participanttype', 'user')->where('participantid', $person)
+                ->update(['starorder' => $place + 1]);
+        }
+    }
+
+    /**
+     * One's starred conversations and their places, placed ones first in order, then the rest.
+     *
+     * @return array<int, int|null>
+     */
+    private static function starOrders(int $person): array
+    {
+        $rows = self::members_()->select(['conversationid', 'starorder'])->where('participanttype', 'user')->where('participantid', $person)
+            ->where('starred', 1)->whereNull('leftat')->getAllOrFail();
+        usort($rows, static fn (array $a, array $b): int => [$a['starorder'] === null, (int) $a['starorder'], (int) $a['conversationid']]
+            <=> [$b['starorder'] === null, (int) $b['starorder'], (int) $b['conversationid']]);
+        $out = [];
+        foreach ($rows as $row) {
+            $out[(int) $row['conversationid']] = $row['starorder'] === null ? null : (int) $row['starorder'];
+        }
+
+        return $out;
     }
 
     /** Somebody has read up to a message: never back. */
@@ -347,14 +397,16 @@ final class Conversations
         $db   = self::db();
         $rows = $db->queryBuilder()->table('#PREFIX#conversation_members AS m')
             ->join('#PREFIX#conversations AS c', 'c.conversationid', '=', 'm.conversationid')
-            ->select(['c.*', 'm.lastreadid', 'm.muted', 'm.notify', 'm.starred'])
+            // starorder where the migration has run: the list still opens before it.
+            ->select(['c.*', 'm.lastreadid', 'm.muted', 'm.notify', 'm.starred', ...($db->schema()->hasColumn('conversation_members', 'starorder') ? ['m.starorder'] : [])])
             ->where('m.participanttype', 'user')->where('m.participantid', $person)->whereNull('m.leftat')
             ->orderBy('c.lastmessageat', 'desc')->getAllOrFail();
         $out = [];
         foreach ($rows as $row) {
             $id = (int) $row['conversationid'];
             ['unread' => $unread, 'mentions' => $mentions] = self::counts($id, $person, (int) $row['lastreadid']);
-            $out[] = self::row($row) + ['unread' => $unread, 'mentions' => $mentions, 'muted' => (bool) $row['muted'], 'starred' => (bool) ($row['starred'] ?? false), 'notify' => (string) $row['notify'],
+            $out[] = self::row($row) + ['unread' => $unread, 'mentions' => $mentions, 'muted' => (bool) $row['muted'], 'starred' => (bool) ($row['starred'] ?? false),
+                'starOrder' => !empty($row['starred']) && isset($row['starorder']) ? (int) $row['starorder'] : null, 'notify' => (string) $row['notify'],
                 'lastReadId' => (int) $row['lastreadid'], 'members' => in_array($row['kind'], self::PERSONAL, true) ? self::members($id) : null];
         }
 

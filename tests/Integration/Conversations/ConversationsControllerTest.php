@@ -314,7 +314,7 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame([422, 'A message needs something in it.'], [$empty['status'], $empty['body']['error']]);
         $this->assertSame([422, 'There is a channel called #finance already.'], [$twice['status'], $twice['body']['error']]);
         $this->assertSame(403, $off['status'], 'an application without the conversations');
-        $this->assertSame(['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft'], $writes,
+        $this->assertSame(['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder'], $writes,
             'every write checks the session\'s token');
     }
 
@@ -604,6 +604,84 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame(422, $outsider['status'], 'not his conversation to write in');
         $this->assertCount(2, $listed['body']['drafts']);
         $this->assertSame(['Καλημέρα', 'Ναι', ''], [$withIt['body']['draft'], $inThread['body']['draft'], $sent['body']['draft']], 'sending let it go');
+    }
+
+    /**
+     * The reader's own order of their starred conversations: written all at once — a conversation
+     * not theirs, or not starred, let be — given back as `starOrder` with the list; a conversation
+     * starred `before` another takes its place; unstarred, it has none; another reader's order is
+     * their own.
+     */
+    #[DataProvider('databases')]
+    public function testTheStarredInOnesOwnOrder(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — eleni stars a, b, c; d she is in but has not starred; x is not hers
+        $this->boot($type, $host, $port, $user);
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
+        Application::getInstance()->applicationInfo['features'] = ['conversations'];
+        [$a, $b, $c, $d] = array_map(fn (string $n): int => Conversations::create('channel', $n, [$maria], $eleni), ['aa', 'bb', 'cc', 'dd']);
+        $x = Conversations::create('private', 'xx', [], $maria);
+        foreach ([$a, $b, $c] as $id) {
+            $this->ask('eleni', 'star', $id, ['on' => true]);
+        }
+        $this->ask('maria', 'star', $a, ['on' => true]);
+        $order = function (string $who): array {
+            $places = [];
+            foreach ($this->ask($who, 'conversations')['body']['conversations'] as $conversation) {
+                $places[$conversation['id']] = $conversation['starOrder'];
+            }
+            ksort($places);
+
+            return $places;
+        };
+
+        // Act
+        $unplaced = $order('eleni');
+        $written  = $this->ask('eleni', 'starorder', null, ['ids' => [$c, $x, $a, $d, $b]]);
+        $placed   = $order('eleni');
+        $this->ask('eleni', 'star', $d, ['on' => true, 'before' => $a]);
+        $before   = $order('eleni');
+        $this->ask('eleni', 'star', $c, ['on' => false]);
+        $unstarred = $order('eleni');
+        $hers     = $order('maria');
+
+        // Assert
+        $this->assertSame(['ok' => true], $written['body']);
+        $this->assertSame([$a => null, $b => null, $c => null, $d => null], $unplaced, 'starred but not placed');
+        $this->assertSame([$a => 2, $b => 3, $c => 1, $d => null], $placed, 'x is not hers, d not starred: let be');
+        $this->assertSame([$a => 3, $b => 4, $c => 1, $d => 2], $before, 'd before a');
+        $this->assertSame(null, $unstarred[$c], 'unstarred: no place');
+        $this->assertSame([2, 3, 4], [$unstarred[$d], $unstarred[$a], $unstarred[$b]], 'the others keep theirs');
+        $this->assertNull($hers[$a], 'maria\'s order is her own');
+    }
+
+    /**
+     * Before the migration that adds the starred order has run, the list still opens and starring
+     * and unstarring still work: an installation that updates the code first is not left without
+     * its conversations.
+     */
+    #[DataProvider('databases')]
+    public function testStarringBeforeTheOrdersMigration(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — the column taken away again
+        $this->boot($type, $host, $port, $user);
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
+        Application::getInstance()->applicationInfo['features'] = ['conversations'];
+        $ops = Conversations::create('channel', 'ops', [$this->ids['maria']], $this->ids['eleni']);
+        $this->db->schema()->table('conversation_members', static function ($table): void {
+            $table->dropColumn('starorder');
+        });
+        $this->probeChanged($this->db->type);
+
+        // Act
+        $on   = $this->ask('eleni', 'star', $ops, ['on' => true]);
+        $list = $this->ask('eleni', 'conversations');
+        $off  = $this->ask('eleni', 'star', $ops, ['on' => false]);
+
+        // Assert
+        $this->assertSame([200, 200, 200], [$on['status'], $list['status'], $off['status']]);
+        $this->assertSame([true, null], [$list['body']['conversations'][0]['starred'], $list['body']['conversations'][0]['starOrder']]);
     }
 
     /**
