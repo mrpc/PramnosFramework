@@ -863,14 +863,16 @@ writes through the public API, so nothing here depends on where the history came
 
 The conversations are where a team talks when something is wrong, so they must not go down with the
 server they run on. A **beacon** — a second server with the same code, PHP and Redis, and no
-database of its own — keeps an emergency channel and direct messages going while the primary does
-not answer, and gives them back when it does.
+database of its own — keeps an emergency channel, direct messages and the team's own recent
+conversations going while the primary does not answer, and gives them back when it does.
 
 **What a person sees** is the application's client to draw. Every day the primary answers, a
 client asks for a key for the beacon (`emergencykey`, below) and keeps it. When the primary stops
 answering — three requests in a row with no answer, or a proxy's 5xx — the client turns to the
-beacon with that key: the emergency channel and a direct conversation with each of the team, text
-and reactions only, through the beacon's own paths below; it asks the primary again every twenty
+beacon with that key: the emergency channel, a direct conversation with each of the team, and the
+conversations they are in (`joined`, below) — text and reactions only, not threads, through the
+beacon's own paths below; their history before the outage is whatever the client kept on the
+device; it asks the primary again every twenty
 seconds, and is itself again when it answers. The dock does not do this; the server side — keys,
 the beacon, the sync and the import — is all here.
 
@@ -892,6 +894,7 @@ return [
     'settings_file'  => 'app/config/settings.php',        // its database; else app/config/ or app/settings.php
     // 'db_check'    => fn (): bool => MyDb::ping(),       // or the application's own check
     'channel'        => 'έκτακτο',
+    'conversation_days' => 60,                            // the conversations that moved within these days go to the beacon
     'drill_url'      => 'https://watcher.example.workers.dev/drill',
     'page'           => 'https://www.example.com/admin/Conversations', // where the push takes the team
     'words'          => ['down' => '⚠ Δεν απαντάμε από τις %s: %s.', 'back' => '✓ Απαντάμε ξανά από τις %s, μετά από %s λεπτά.',
@@ -926,14 +929,20 @@ The watcher's secret reads health and raises alarms — it cannot sync or export
 |---|---|---|
 | `GET health` | the watcher | on the primary `{ok, db, redis, daemon, queue_lag}`, 503 when the database or the daemon is down; on the beacon `{ok, role, primary, since, pending, last_sync_at, people}` — a `last_sync_at` minutes old is a beacon nobody can reach |
 | `POST alert` | the watcher | `{down: ["site", …], since}`: once per outage, a push to the team and a line in the emergency channel; `{down: []}`: back, and how long it was down |
-| `POST sync` | the primary | the team, their push subscriptions |
-| `POST session`, `GET`/`POST messages`, `POST react` | a browser, `Authorization: Bearer <key>` | the emergency channel and the person's direct messages; a message once per `client_id` |
+| `POST sync` | the primary | the team, their push subscriptions, and the conversations that moved within `conversation_days` with their members — replaced whole each time; a sync without `conversations` keeps those there |
+| `POST session`, `GET`/`POST messages`, `POST react` | a browser, `Authorization: Bearer <key>` | the emergency channel (`emergency`), the person's direct messages (`dm:a-b`) and the primary's conversations they are in (`c:<id>`); `session` answers `{me, people, conversations, joined}`, `joined` being `[{c: 'c:12', kind, title}]`; a message once per `client_id` |
 | `GET export`, `POST ack` | the primary | what was written, taken back and acknowledged |
 
 **Afterwards.** `conversations:beacon import` (scheduled) takes what was written into the
 conversations here — the emergency channel into its system channel, with its writers and those who
-reacted joined to it, direct messages into the two people's own — each message once, then
-acknowledges it so it leaves the beacon's log.
+reacted joined to it, direct messages into the two people's own, a conversation's (`c:<id>`) back
+into it as its writer — or, when they left it in the meantime, into the emergency channel as
+*(from #name) …* — each message once, then acknowledges it so it leaves the beacon's log.
+
+The conversations the beacon has are channels, private and system ones and group conversations
+whose last message is within `conversation_days` (60) and that are not archived — not direct ones,
+which it names by their two people, nor Ask's — with their members on the team, a group titled by
+its people (`Primary::conversations()`).
 
 **Drills.** `./pramnos conversations:beacon test <account>` sends that person's open page to the
 beacon for five minutes, and calls the watcher's `drill_url` so the whole path — the proxy in front

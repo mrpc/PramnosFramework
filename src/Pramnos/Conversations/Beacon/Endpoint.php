@@ -13,8 +13,8 @@ namespace Pramnos\Conversations\Beacon;
  * |---|---|---|
  * | `GET health` | the watcher (its HMAC) | the primary: `{ok, db, redis, daemon, queue_lag}`, 503 when the database or the daemon is down; the beacon: `{ok, role, primary, since, pending, last_sync_at, people}` |
  * | `POST alert` | the watcher | `{down: [...], since}`: the primary is down — once, a push to the team and a line in the emergency channel; `down: []` it is back |
- * | `POST sync` | the primary (its HMAC) | `{people, revoked, push}`: the team, every minute |
- * | `POST session` | a browser (`Bearer` its emergency key) | `{me, people, conversations}` |
+ * | `POST sync` | the primary (its HMAC) | `{people, revoked, push, conversations}`: the team, and the conversations that moved lately with their members, every minute |
+ * | `POST session` | a browser (`Bearer` its emergency key) | `{me, people, conversations, joined}` — `joined`, the primary's conversations they are in, `[{c: 'c:12', kind, title}]` |
  * | `GET messages?c=&after=` | a browser | a conversation's messages |
  * | `POST messages` | a browser | `{c, body, client_id}`: written once |
  * | `POST react` | a browser | `{id, c, emoji, on}` |
@@ -204,7 +204,11 @@ final class Endpoint
             array_map(static fn (array $p): array => ['id' => (int) $p['id'], 'name' => (string) ($p['name'] ?? '')], $people),
             array_map('strval', (array) ($json['revoked'] ?? [])),
             array_values(array_filter((array) ($json['push'] ?? []), 'is_array')),
-            $now
+            $now,
+            // A primary that sends none keeps those there: one not yet upgraded says nothing of them.
+            array_key_exists('conversations', $json) ? array_values(array_map(static fn (array $c): array => ['id' => (int) $c['id'], 'kind' => (string) ($c['kind'] ?? ''),
+                'title' => mb_substr((string) ($c['title'] ?? ''), 0, 150), 'members' => array_values(array_map('intval', (array) ($c['members'] ?? [])))],
+                array_filter((array) $json['conversations'], static fn ($c): bool => is_array($c) && (int) ($c['id'] ?? 0) > 0))) : null
         );
 
         return [200, ['people' => count($people)]];
@@ -232,10 +236,11 @@ final class Endpoint
             $dms    = array_map(static fn (int $id): string => Store::dm($me, $id), array_values(array_diff(array_keys($people), [$me])));
 
             return [200, ['me' => ['id' => $me, 'name' => $people[$me] ?? $claims['n']], 'people' => $people, 'conversations' => [Store::EMERGENCY, ...$dms],
-                'channel' => Config::channel(), 'primary' => $store->primary()]];
+                // The primary's conversations they are in: `[{c: 'c:12', kind, title}]`.
+                'joined' => $store->joined($me), 'channel' => Config::channel(), 'primary' => $store->primary()]];
         }
         $conversation = (string) ($method === 'GET' ? ($query['c'] ?? '') : ($json['c'] ?? ''));
-        if (!Store::mayUse($conversation, $me)) {
+        if (!$store->allows($conversation, $me)) {
             return [403, ['error' => 'not yours']];
         }
         if ($path === 'messages' && $method === 'GET') {

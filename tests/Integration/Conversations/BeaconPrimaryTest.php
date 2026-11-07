@@ -142,6 +142,56 @@ class BeaconPrimaryTest extends TestCase
     }
 
     /**
+     * The team's conversations go to the beacon — those that moved within the days, not a dm, not
+     * an archived one or one long quiet, with their members on the team and a group titled by its
+     * people — and what was written there comes back to each as its writer, once; one whose
+     * writer left it in the meantime goes to the emergency channel, saying where from.
+     */
+    #[DataProvider('databases')]
+    public function testTheTeamsConversations(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — #ops (eleni, maria, nikos), a group, a dm, an old channel, an archived one
+        $this->boot($type, $host, $port, $user);
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
+        $this->beaconUp();
+        [$eleni, $maria, $nikos] = [$this->ids['eleni'], $this->ids['maria'], $this->ids['nikos']];
+        $ops   = Conversations::create('channel', 'ops', [$maria, $nikos], $eleni);
+        $group = Conversations::create('group', null, [$maria, $nikos], $eleni);
+        $dm    = Conversations::create('dm', null, [$maria], $eleni);
+        $old   = Conversations::create('channel', 'old', [$maria], $eleni);
+        $shut  = Conversations::create('channel', 'shut', [$maria], $eleni);
+        foreach ([$ops, $group, $dm, $shut] as $c) {
+            Messages::post($c, $eleni, 'Γεια');
+        }
+        Messages::post($old, $eleni, 'Παλιό', ['at' => time() - 86400 * 61]);
+        Conversations::archive($shut);
+        $store = new Store($this->redis, 'test:');
+
+        // Act
+        Primary::sync();
+        $joined = $store->joined($maria);
+        $store->write('c:' . $ops, $maria, 'Το βλέπω από το κινητό', 'k1', 1_800_000_000);
+        $store->write('c:' . $ops, $nikos, 'Κι εγώ', 'k2', 1_800_000_010);
+        $store->write('c:' . $group, $eleni, 'Στην ομάδα', 'k3', 1_800_000_020);
+        Conversations::leave($ops, $nikos);
+        $imported = Primary::import();
+        $again    = Primary::import();
+
+        // Assert
+        $this->assertSame([$ops, $group], array_map(static fn (array $c): int => (int) substr($c['c'], 2), $joined), 'by title; not the dm, the old or the archived');
+        $this->assertSame(['channel', 'group'], array_column($joined, 'kind'));
+        $this->assertSame('Ελένη Σ., Μαρία Κ., Νίκος Π.', $joined[1]['title'], 'a group by its people');
+        $this->assertSame(['ok' => true, 'imported' => 3], $imported);
+        $this->assertSame(0, $again['imported'], 'once');
+        $this->assertSame(['Γεια', 'Το βλέπω από το κινητό'], array_column(Messages::list($ops), 'body'), 'as its writer, where it was written');
+        $this->assertSame($maria, Messages::list($ops)[1]['authorId']);
+        $this->assertSame(['Γεια', 'Στην ομάδα'], array_column(Messages::list($group), 'body'));
+        $emergency = Messages::list(Conversations::bySlug('έκτακτο')['id']);
+        $this->assertSame(['(from #ops) Κι εγώ'], array_column($emergency, 'body'), 'nikos left #ops: the emergency channel, saying where from');
+        $this->assertSame($nikos, $emergency[0]['authorId']);
+    }
+
+    /**
      * The team's push subscriptions go with it; an acknowledgement lost is a message offered
      * again and taken once; a beacon nobody named, or a request that throws, is nothing synced.
      */

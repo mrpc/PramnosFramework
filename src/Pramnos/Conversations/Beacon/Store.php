@@ -6,8 +6,9 @@ namespace Pramnos\Conversations\Beacon;
 
 /**
  * What the beacon keeps, in Redis alone: who may come (the active team, from the primary every
- * minute), their push subscriptions, what is written while the primary is down — the emergency
- * channel and direct messages, text and reactions — and whether the primary is down, since when.
+ * minute), their push subscriptions, the team's recent conversations and who is in each, what is
+ * written while the primary is down — the emergency channel, direct messages and those
+ * conversations (`c:<id>`), text and reactions — and whether the primary is down, since when.
  * Nothing of the application's customers is here.
  *
  * Every message goes to its conversation's stream, for reading, and to one log, for the primary
@@ -35,16 +36,29 @@ final class Store
 
     /**
      * What the primary sends every minute: the active team, their push subscriptions, the keys
-     * revoked. The team is replaced whole, so somebody deactivated is gone.
+     * revoked, and the conversations that moved lately with who is in each. The team and the
+     * conversations are replaced whole, so somebody deactivated, or who left, is gone.
      *
      * @param list<array{id: int, name: string}> $people
      * @param list<string> $revoked
      * @param list<array{user: int, endpoint: string, p256dh: string, auth: string}> $push
+     * @param list<array{id: int, kind: string, title: string, members: list<int>}>|null $conversations Null keeps those there
      */
-    public function sync(array $people, array $revoked, array $push, int $now): void
+    public function sync(array $people, array $revoked, array $push, int $now, ?array $conversations = null): void
     {
+        $before = $conversations === null ? [] : array_map('strval', (array) $this->redis->hKeys($this->prefix . 'conversations'));
         $this->redis->multi();
         $this->redis->del($this->prefix . 'people', $this->prefix . 'push');
+        if ($conversations !== null) {
+            $this->redis->del($this->prefix . 'conversations', ...array_map(fn (string $id): string => $this->prefix . 'members:' . $id, $before));
+            foreach ($conversations as $c) {
+                $id = (string) (int) $c['id'];
+                $this->redis->hSet($this->prefix . 'conversations', $id, (string) json_encode(['kind' => (string) $c['kind'], 'title' => (string) $c['title']], JSON_UNESCAPED_UNICODE));
+                foreach ($c['members'] as $member) {
+                    $this->redis->sAdd($this->prefix . 'members:' . $id, (string) (int) $member);
+                }
+            }
+        }
         foreach ($people as $person) {
             $this->redis->hSet($this->prefix . 'people', (string) (int) $person['id'], (string) $person['name']);
         }
@@ -103,7 +117,48 @@ final class Store
         return 'dm:' . min($a, $b) . '-' . max($a, $b);
     }
 
-    /** Whether a person may read and write in a conversation: the emergency channel, or a dm of theirs. */
+    /**
+     * A conversation of the primary's, by its id there: `c:12`.
+     */
+    public static function conversation(int $id): string
+    {
+        return 'c:' . $id;
+    }
+
+    /**
+     * The conversations a person is in, as the primary last said: `[{c: 'c:12', kind, title}]`,
+     * by title.
+     *
+     * @return list<array{c: string, kind: string, title: string}>
+     */
+    public function joined(int $person): array
+    {
+        $out = [];
+        foreach ((array) $this->redis->hGetAll($this->prefix . 'conversations') as $id => $info) {
+            if ($this->redis->sIsMember($this->prefix . 'members:' . $id, (string) $person)) {
+                $info  = (array) json_decode((string) $info, true);
+                $out[] = ['c' => self::conversation((int) $id), 'kind' => (string) ($info['kind'] ?? ''), 'title' => (string) ($info['title'] ?? '')];
+            }
+        }
+        usort($out, static fn (array $a, array $b): int => strcmp($a['title'], $b['title']));
+
+        return $out;
+    }
+
+    /**
+     * Whether a person may read and write in a conversation: the emergency channel, a dm of
+     * theirs ({@see mayUse()}), or one of the primary's they are in ({@see joined()}).
+     */
+    public function allows(string $conversation, int $person): bool
+    {
+        if (self::mayUse($conversation, $person)) {
+            return true;
+        }
+
+        return preg_match('/^c:(\d+)$/', $conversation, $m) === 1 && (bool) $this->redis->sIsMember($this->prefix . 'members:' . $m[1], (string) $person);
+    }
+
+    /** Whether a person may read and write in a conversation, without asking the store: the emergency channel, or a dm of theirs. */
     public static function mayUse(string $conversation, int $person): bool
     {
         if ($conversation === self::EMERGENCY) {

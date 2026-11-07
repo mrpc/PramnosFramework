@@ -137,6 +137,49 @@ class BeaconEndpointTest extends TestCase
     }
 
     /**
+     * The primary's own conversations come with the sync, with who is in each: a member reads and
+     * writes in `c:<id>`, somebody not in it is refused, `session` lists the ones a person is in
+     * as `joined`; the next sync replaces them whole, and a sync that says nothing of them keeps
+     * them — a primary not yet upgraded.
+     */
+    public function testThePrimarysConversations(): void
+    {
+        // Arrange — #ops with eleni and maria, a group with eleni and nikos
+        $people = [['id' => 5, 'name' => 'Ελένη'], ['id' => 7, 'name' => 'Μαρία'], ['id' => 9, 'name' => 'Νίκος']];
+        $this->signed('POST', 'sync', 'sync-secret', ['people' => $people, 'conversations' => [
+            ['id' => 12, 'kind' => 'channel', 'title' => 'ops', 'members' => [5, 7]],
+            ['id' => 14, 'kind' => 'group', 'title' => 'Ελένη, Νίκος', 'members' => [5, 9]],
+            ['kind' => 'channel', 'title' => 'no id'],
+        ]]);
+        $eleni = EmergencyKey::mint(5, 'Ελένη', 'phone', 1_800_000_000);
+        $nikos = EmergencyKey::mint(9, 'Νίκος', 'phone', 1_800_000_000);
+
+        // Act
+        $session = $this->as($eleni, 'POST', 'session');
+        $written = $this->as($eleni, 'POST', 'messages', ['c' => 'c:12', 'body' => 'Συνεχίζουμε εδώ', 'client_id' => 'k1']);
+        $read    = $this->as($eleni, 'GET', 'messages', [], ['c' => 'c:12']);
+        $refused = [$this->as($nikos, 'GET', 'messages', [], ['c' => 'c:12'])['status'], $this->as($nikos, 'POST', 'messages', ['c' => 'c:12', 'body' => 'x'])['status'],
+            $this->as($eleni, 'GET', 'messages', [], ['c' => 'c:99'])['status']];
+        $nikosOwn = $this->as($nikos, 'POST', 'session')['body']['joined'];
+        $this->signed('POST', 'sync', 'sync-secret', ['people' => $people]);
+        $kept    = $this->as($eleni, 'POST', 'session')['body']['joined'];
+        $this->signed('POST', 'sync', 'sync-secret', ['people' => $people, 'conversations' => [['id' => 14, 'kind' => 'group', 'title' => 'Ελένη, Νίκος', 'members' => [5, 9]]]]);
+        $gone    = $this->as($eleni, 'GET', 'messages', [], ['c' => 'c:12'])['status'];
+
+        // Assert
+        $this->assertSame([['c' => 'c:12', 'kind' => 'channel', 'title' => 'ops'], ['c' => 'c:14', 'kind' => 'group', 'title' => 'Ελένη, Νίκος']], $session['body']['joined']);
+        $this->assertSame(['emergency', 'dm:5-7', 'dm:5-9'], $session['body']['conversations'], 'as before');
+        $this->assertSame(200, $written['status']);
+        $this->assertSame(['Συνεχίζουμε εδώ'], array_column($read['body']['messages'], 'body'));
+        $this->assertSame([403, 403, 403], $refused, 'not his; not a conversation the primary sent');
+        $this->assertSame(['c:14'], array_column($nikosOwn, 'c'));
+        $this->assertSame(['c:12', 'c:14'], array_column($kept, 'c'), 'a sync that says nothing of them keeps them');
+        $this->assertSame(403, $gone, 'replaced whole: #ops is no longer there');
+        $this->assertSame([['id' => $written['body']['id'], 'conversation' => 'c:12']],
+            array_map(static fn (array $m): array => ['id' => $m['id'], 'conversation' => $m['conversation']], (new Store($this->redis, 'test:'))->export()), 'waits for the primary');
+    }
+
+    /**
      * The watcher: the primary down — told once, a push and a line; down again — nothing new;
      * back — a line with how long; back again — nothing. The beacon's health tells the watcher
      * what it needs to see a stale beacon.
