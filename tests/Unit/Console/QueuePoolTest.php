@@ -263,7 +263,82 @@ class QueuePoolTest extends TestCase
         // Assert
         $this->assertNull($backlog);
     }
+
+    /**
+     * A type waiting in the queue that no pool lists is unserved — the framework's own
+     * `conversation_notify` above all, which an application whose pools list their types left
+     * out, and nothing but `ps` showed it. A pool scaled to no workers still serves its types, and
+     * a worker of the application's own started for a type serves it, `--type x` or `--type=x`.
+     */
+    public function testATypeNoWorkerTakesIsUnserved(): void
+    {
+        // Arrange — a pool for mail, one for reports at floor 0, a worker of its own for b and c
+        $orch = $this->orchestrator();
+        $orch->pending = ['mail', 'report', 'b', 'c', 'conversation_notify'];
+        $pools = array_merge($orch->pool('mail', ['types' => ['mail'], 'floor' => 1]), $orch->pool('reports', ['types' => 'report', 'floor' => 0]));
+        $own = [['id' => 'bc', 'tokens' => ['queue:process', '--daemon', '--type=b,c']], ['id' => 'web', 'tokens' => ['broadcast:serve']]];
+
+        // Act
+        $unserved = $orch->unserved(array_merge($pools, $own));
+
+        // Assert
+        $this->assertSame(['conversation_notify'], $unserved);
+    }
+
+    /**
+     * Nothing is unserved where a worker takes every type — a pool with no `types`, or a
+     * `queue:process` with no `--type` — where the orchestrator runs no queue worker at all (the
+     * queue is run elsewhere), or where the queue cannot be read.
+     */
+    public function testNothingIsUnservedWhenEveryTypeIsTakenOrNothingCanBeSaid(): void
+    {
+        // Arrange
+        $every = $this->orchestrator();
+        $every->pending = ['x'];
+        $everyPool = $every->pool('all', ['floor' => 1]);
+        $own = $this->orchestrator();
+        $own->pending = ['x'];
+        $none = $this->orchestrator();
+        $none->pending = ['x'];
+        $unread = $this->orchestrator();
+        $unread->pending = null;
+        $unreadPool = $unread->pool('mail', ['types' => ['mail'], 'floor' => 1]);
+
+        // Act
+        $results = [
+            $every->unserved($everyPool),
+            $own->unserved([['id' => 'q', 'tokens' => ['queue:process', '--daemon']]]),
+            $none->unserved([['id' => 'web', 'tokens' => ['broadcast:serve']]]),
+            $unread->unserved($unreadPool),
+        ];
+
+        // Assert
+        $this->assertSame([[], [], [], []], $results);
+    }
+
+    /**
+     * An unserved type is logged once while it stays unserved, and again if it comes back: a
+     * supervisor cycles every few seconds.
+     */
+    public function testAnUnservedTypeIsRememberedOnceWhileItLasts(): void
+    {
+        // Arrange
+        $orch = $this->orchestrator();
+        $warn = new \ReflectionMethod(DaemonOrchestrator::class, 'warnUnserved');
+        $seen = new \ReflectionProperty(DaemonOrchestrator::class, 'warnedUnserved');
+
+        // Act
+        $warn->invoke($orch, ['conversation_notify']);
+        $first = $seen->getValue($orch);
+        $warn->invoke($orch, []);
+        $cleared = $seen->getValue($orch);
+
+        // Assert
+        $this->assertSame(['conversation_notify' => true], $first);
+        $this->assertSame([], $cleared, 'served again: forgotten, so a return is logged');
+    }
 }
+
 
 /**
  * An orchestrator whose backlog, load and running count are set by the test.
@@ -284,6 +359,26 @@ class PoolProbeOrchestrator extends DaemonOrchestrator
 
     /** @var string The slug the last running count was asked for */
     public string $lastSlug = '';
+
+    /** @var list<string>|null What pendingTypes() answers */
+    public ?array $pending = [];
+
+    /**
+     * Exposes unservedTypes().
+     *
+     * @param array<int, array<string, mixed>> $desired
+     * @return list<string>
+     */
+    public function unserved(array $desired): array
+    {
+        return $this->unservedTypes($desired);
+    }
+
+    /** @return list<string>|null The pending types the test set */
+    protected function pendingTypes(): ?array
+    {
+        return $this->pending;
+    }
 
     /** Builds no console command: nothing here is run. */
     public function __construct()

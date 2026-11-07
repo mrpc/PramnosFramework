@@ -782,6 +782,13 @@ stops through its stop file.
 - **Every decision is kept in words.** `poolDecisions()` returns `explain()` per pool, and a
   change of size is logged to the `daemons` log with it, so the decision and the process
   count are on one line.
+- **A type no worker takes is logged.** Pools that list their `types` take only those, and
+  that includes the types the framework queues for itself (`conversation_notify`,
+  `conversation_unfurl`, `chat_ask`…): a worker answers them without registering, but only when it
+  is asked for them. Each cycle the supervisor compares the types waiting in the queue with what
+  its pools and its own `queue:process` processes take, and logs to the `daemons` log, once while
+  it lasts, *Tasks of type "x" are waiting and no queue worker takes them*. Nothing is said when a
+  worker takes every type, or when the orchestrator runs no queue worker at all.
 
 ### What an operator decides: `DaemonControls`
 

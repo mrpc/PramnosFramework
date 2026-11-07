@@ -452,9 +452,99 @@ abstract class DaemonOrchestrator extends CommandBase
             fn (array $process): bool => !isset($this->cycleControls['stopped'][(string) ($process['id'] ?? '')])
         ));
 
+        // Before the pools file empties the report: a pool at no workers still takes its types.
+        $this->warnUnserved($this->unservedTypes($desired));
         $this->writePoolsFile();
 
         return $desired;
+    }
+
+    /** @var array<string, true> The task types already logged as unserved, so a cycle does not log them again */
+    private array $warnedUnserved = [];
+
+    /**
+     * The task types waiting in the queue that no worker of this orchestrator takes — none of its
+     * pools lists them, and no `queue:process` of its own is started for them — so they wait
+     * for ever. Nothing when it runs no queue worker at all (the queue is somebody else's), when
+     * one takes every type, or when the queue cannot be read.
+     *
+     * A type the framework queues for itself — `conversation_notify`, `conversation_unfurl` — is
+     * answered by any worker without registering, but only a worker that is asked for it runs it:
+     * an application whose pools list their types must list the framework's too.
+     *
+     * @param array<int, array<string, mixed>> $desired This cycle's processes
+     * @return list<string>
+     */
+    protected function unservedTypes(array $desired): array
+    {
+        $served = [];
+        $any    = false;
+        foreach ($this->poolReport as $pool) {
+            if (empty($pool['enabled'])) {
+                continue;
+            }
+            $any = true;
+            if ($pool['types'] === []) {
+                return [];
+            }
+            array_push($served, ...$pool['types']);
+        }
+        foreach ($desired as $process) {
+            $tokens = array_values(array_map('strval', (array) ($process['tokens'] ?? [])));
+            if (!in_array('queue:process', $tokens, true) || isset($process['pool'])) {
+                continue;
+            }
+            $any  = true;
+            $list = null;
+            foreach ($tokens as $i => $token) {
+                if ($token === '--type' && isset($tokens[$i + 1])) {
+                    $list = $tokens[$i + 1];
+                } elseif (str_starts_with($token, '--type=')) {
+                    $list = substr($token, 7);
+                }
+            }
+            if ($list === null) {
+                return [];
+            }
+            array_push($served, ...array_map('trim', explode(',', $list)));
+        }
+        $pending = $any ? $this->pendingTypes() : null;
+
+        return $pending === null ? [] : array_values(array_diff($pending, $served));
+    }
+
+    /**
+     * The types of the tasks waiting in the queue, or null when it cannot be read.
+     *
+     * @return list<string>|null
+     */
+    protected function pendingTypes(): ?array
+    {
+        try {
+            $rows = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#queueitems')
+                ->select(['type'])->distinct()->where('status', 'pending')->getAllOrFail();
+
+            return array_values(array_map('strval', array_column($rows, 'type')));
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Log each unserved type once, while it stays unserved: a supervisor cycles every few seconds,
+     * and one line saying what to add is what an operator needs, not one a cycle.
+     *
+     * @param list<string> $types
+     */
+    private function warnUnserved(array $types): void
+    {
+        foreach ($types as $type) {
+            if (!isset($this->warnedUnserved[$type])) {
+                \Pramnos\Logs\Logger::log('Tasks of type "' . $type . '" are waiting and no queue worker takes them: '
+                    . 'add the type to a pool\'s `types` in buildDesiredProcesses().', 'daemons');
+            }
+        }
+        $this->warnedUnserved = array_fill_keys($types, true);
     }
 
     /**
