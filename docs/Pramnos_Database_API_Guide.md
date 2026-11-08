@@ -1474,8 +1474,22 @@ $replica = $db->replicaConnection('db-replica'); // same user/password/database/
 $rows = $replica->queryBuilder()->table('page_views')->where('day', $yesterday)->get();
 ```
 
-- Omit the hostname (and optional `$port`) to fall back to the `read` block's own hostname/
-  port, if one is configured — `$db->replicaConnection()`.
+- Omit the hostname (and optional `$port`) to fall back to a configured one —
+  `$db->replicaConnection()`. That is the database settings' `replica` block first, which,
+  unlike `read`, routes none of the application's queries: it only says where
+  `replicaConnection()` goes. Then the `read` block.
+
+  ```php
+  // app/config/settings.php — the database block
+  'replica' => ['hostname' => getenv('DB_REPLICA_HOST'), 'port' => 5432, 'timeout' => 3],
+  // optional: 'database', 'user', 'password' where the replica's differ
+  ```
+- **It gives up in seconds.** A replica's connection waits `timeout` seconds for its host:
+  the instance's own `$db->connectTimeout` if set, then the block's `timeout`, then
+  `Database::REPLICA_TIMEOUT` (5). It is PostgreSQL's `connect_timeout` and MySQL's
+  `MYSQLI_OPT_CONNECT_TIMEOUT`. Without it, a host that does not answer holds the caller for
+  minutes. A caller that catches the `RuntimeException` falls back to the primary.
+  `$db->connectTimeout` works the same way for any connection the instance opens.
 - The returned instance is read-only: any write statement throws a `RuntimeException`
   before it reaches the server, rather than a replica refusing it with a less legible
   database-level error.

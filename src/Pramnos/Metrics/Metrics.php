@@ -16,7 +16,8 @@ use Pramnos\Database\Database;
  *     'catalogue' => [\App\Metrics\Sales::class],   // each a Catalogue: metrics() yields Metric and Dimension
  *     'timezone'  => 'Europe/Athens',               // periods are counted in it (PHP's zone otherwise)
  *     'grains'    => ['day', 'week', 'month', 'quarter', 'year'],   // what metrics:compute keeps
- *     'replica'   => true,                          // sources read the replica (the "read" database settings)
+ *     'replica'   => true,                          // sources read the replica: the database settings' `replica` (or `read`) block
+ *     // 'replica' => ['hostname' => getenv('PG_REPLICA_HOST'), 'port' => 5432, 'timeout' => 3],   // or this one
  * ],
  *
  * Metrics::series('orders.count', 'month', '2026-01-01', '2026-10-31', ['region' => 'north'], 'plan');
@@ -522,21 +523,35 @@ final class Metrics
     }
 
     /**
-     * Where sources read: the replica with `'replica' => true` — the "read" database settings —
-     * or the database itself. A replica that cannot be reached is said in the log, and the
-     * database is read instead: a late number is better than none, a wrong one is not at stake.
+     * Where sources read: the replica with `'replica' => true` — the database settings' `replica`
+     * block, which routes nothing else, or their `read` — or a replica of the metrics' own,
+     * `'replica' => ['hostname' => …, 'port' => …, 'timeout' => …]`; else the database itself. A
+     * replica that does not answer within its timeout is said in the log, and the database is read
+     * instead: a late number is better than none, a wrong one is not at stake.
      */
     private static function sourceConnection(): Database
     {
-        if (empty(self::config()['replica'])) {
+        $replica = self::config()['replica'] ?? null;
+        if (empty($replica)) {
             return self::db();
         }
+        // `true`: the database settings' replica; a block: this one — `hostname`, `port`, `timeout`.
+        $at = is_array($replica) ? $replica : [];
+        $db = self::db();
+        $waited = $db->connectTimeout;
         try {
-            return self::db()->replicaConnection();
+            if (isset($at['timeout'])) {
+                $db->connectTimeout = (int) $at['timeout'];
+            }
+
+            return $db->replicaConnection(isset($at['hostname']) && $at['hostname'] !== '' ? (string) $at['hostname'] : null,
+                isset($at['port']) && $at['port'] !== '' ? (int) $at['port'] : null);
         } catch (\Throwable $e) {
             \Pramnos\Logs\Logger::log('Metrics read the database itself: the replica is not available (' . $e->getMessage() . ').', 'metrics');
 
             return self::db();
+        } finally {
+            $db->connectTimeout = $waited;
         }
     }
 }

@@ -25,7 +25,8 @@ Metrics are declared in a **catalogue**, a class that `app/app.php` lists:
     'catalogue' => [\App\Metrics\Sales::class],
     'timezone'  => 'Europe/Athens',        // periods are counted in it; PHP's zone otherwise
     'grains'    => ['day', 'month', 'year'],   // what metrics:compute keeps; all five by default
-    'replica'   => true,                   // sources read the replica ("read" database settings)
+    'replica'   => true,                   // sources read the replica: the database settings' `replica` (or `read`) block
+    // 'replica' => ['hostname' => getenv('DB_REPLICA_HOST'), 'port' => 5432, 'timeout' => 3],   // or one of the metrics' own
 ],
 ```
 
@@ -81,7 +82,10 @@ The framework calls `source($window, $by, $db)` once for each period and each br
 - **`$by`** is the list of dimensions to group by, possibly empty. Pass it to `groupBy($by)` as
   an array: `groupBy(...$by)` fails when the list is empty.
 - **`$db`** is the connection to read. It is the replica when `replica` is on and a replica is
-  configured. Without one the database itself is read, and the log says so.
+  configured: one of the metrics' own (`hostname`, `port`, `timeout`), or the database settings'
+  `replica` block. That block routes nothing else, so the rest of the application keeps reading
+  the primary. Without a replica, or when the replica does not answer within its timeout, the
+  database itself is read and the log says so.
 
 The source answers rows that carry the `$by` dimensions and a `value`. When `$by` is empty it may
 answer a single number instead.

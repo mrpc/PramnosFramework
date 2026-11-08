@@ -139,4 +139,86 @@ class ReplicaConnectionTest extends TestCase
         $this->assertNotFalse($created);
         $db->query("DROP TABLE {$table}");
     }
+
+    /** A database built from settings with these keys beside the connection's own. */
+    private function fromSettings(string $type, string $host, int $port, array $more): Database
+    {
+        $block = (object) ([
+            'hostname' => $host, 'port' => $port, 'type' => $type, 'database' => TEST_DATABASE,
+            'user' => $type === 'mysql' ? 'root' : 'postgres', 'password' => 'secret',
+        ] + $more);
+        $settings = new class ($block) extends \Pramnos\Application\Settings {
+            /** The block, without loading settings files. */
+            public function __construct(private object $block)
+            {
+            }
+
+            /** Only the database's block. */
+            public function __get($name)
+            {
+                return $name === 'database' ? $this->block : null;
+            }
+        };
+        $db = new Database($settings);
+        try {
+            if (!$db->connect(false)) {
+                $this->markTestSkipped($host . ' not reachable');
+            }
+        } catch (\Throwable $e) {
+            $this->markTestSkipped($host . ' not reachable: ' . $e->getMessage());
+        }
+
+        return $db;
+    }
+
+    /**
+     * A `replica` block in the database settings is the replica replicaConnection() reads, with its
+     * timeout — and, unlike `read`, it routes none of the application's queries: the instance
+     * reads and writes on one connection, as before.
+     */
+    #[DataProvider('databases')]
+    public function testAReplicaBlockWithoutTheSplit(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $db = $this->fromSettings($type, $host, $port, ['replica' => (object) ['hostname' => $host, 'port' => $port, 'timeout' => 3]]);
+
+        // Act
+        $replica = $db->replicaConnection();
+        $read    = (new \ReflectionProperty(Database::class, '_readConnection'))->getValue($db);
+        $write   = (new \ReflectionProperty(Database::class, '_writeConnection'))->getValue($db);
+
+        // Assert
+        $this->assertSame(1, (int) $replica->query('SELECT 1 AS one')->fields['one']);
+        $this->assertSame(3, $replica->connectTimeout, 'its own timeout');
+        $this->assertSame($read, $write, 'no split: the application reads where it writes');
+        $this->assertNull($db->connectTimeout, 'the instance itself waits as it always did');
+    }
+
+    /**
+     * A replica that does not answer fails within its timeout — not the driver's minutes — so a
+     * caller falls back to the primary in seconds; with no timeout given anywhere, a replica waits
+     * REPLICA_TIMEOUT.
+     */
+    #[DataProvider('databases')]
+    public function testAReplicaThatDoesNotAnswerFailsWithinItsTimeout(string $type, string $host, int $port): void
+    {
+        // Arrange — an address that swallows packets: nothing answers, nothing refuses
+        $db = $this->connect($type, $host, $port);
+        $db->connectTimeout = 2;
+
+        // Act
+        $started = microtime(true);
+        try {
+            $db->replicaConnection('10.255.255.1', $port);
+            $failed = false;
+        } catch (\RuntimeException) {
+            $failed = true;
+        }
+        $took = microtime(true) - $started;
+
+        // Assert
+        $this->assertTrue($failed);
+        $this->assertLessThan(10, $took, 'gave up within seconds');
+        $this->assertSame(5, Database::REPLICA_TIMEOUT);
+    }
 }

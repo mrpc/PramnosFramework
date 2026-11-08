@@ -271,6 +271,25 @@ class Database extends \Pramnos\Framework\Base
     protected $readConfig = [];
 
     /**
+     * A replica only {@see replicaConnection()} reads from: the settings' `replica` block —
+     * `hostname`, `port`, `timeout`, and `database`/`user`/`password` where they differ. Unlike
+     * `read`, it routes no query of the application's anywhere.
+     *
+     * @var array<string, mixed>
+     */
+    protected $replicaConfig = [];
+
+    /**
+     * Seconds to wait for a connection to answer before giving up; null for the driver's own
+     * wait, which for a host that does not answer can be minutes. A replica's connection has one
+     * by default ({@see REPLICA_TIMEOUT}).
+     */
+    public ?int $connectTimeout = null;
+
+    /** Seconds a replica's connection waits for its host, unless its settings say otherwise. */
+    public const REPLICA_TIMEOUT = 5;
+
+    /**
      * Write configuration
      * @var array
      */
@@ -921,6 +940,11 @@ class Database extends \Pramnos\Framework\Base
                 return;
             }
 
+            // A replica for those who ask for it (replicaConnection()) — no split, no routing.
+            if (isset($dbSettings->replica)) {
+                $this->replicaConfig = (array) $dbSettings->replica;
+            }
+
             // Handle Read/Write replica configuration
             if (isset($dbSettings->read) || isset($dbSettings->write)) {
                 $this->readConfig = isset($dbSettings->read) ? (array)$dbSettings->read : [];
@@ -1226,14 +1250,23 @@ class Database extends \Pramnos\Framework\Base
     protected function connectMysql()
     {
         $host = $this->persistency ? 'p:' . $this->server : $this->server;
+        if ($this->connectTimeout === null) {
+            return @\mysqli_connect(
+                $host,
+                $this->user,
+                $this->password,
+                $this->database,
+                $this->port
+            );
+        }
+        // A wait of its own: mysqli_connect() has no way to say one.
+        $link = \mysqli_init();
+        if ($link === false) {
+            return false;
+        }
+        $link->options(\MYSQLI_OPT_CONNECT_TIMEOUT, max(1, $this->connectTimeout));
 
-        return @\mysqli_connect(
-            $host,
-            $this->user,
-            $this->password,
-            $this->database,
-            $this->port
-        );
+        return @$link->real_connect($host, $this->user, $this->password, $this->database, (int) $this->port) ? $link : false;
     }
 
     /**
@@ -1252,6 +1285,10 @@ class Database extends \Pramnos\Framework\Base
 
         if ($this->port !== null) {
             $connectionParts[] = 'port=' . $this->port;
+        }
+        if ($this->connectTimeout !== null) {
+            // libpq's own wait for the host; at least 2 seconds, as libpq takes it.
+            $connectionParts[] = 'connect_timeout=' . max(2, $this->connectTimeout);
         }
 
         $flags = \defined('PGSQL_CONNECT_FORCE_NEW') ? \constant('PGSQL_CONNECT_FORCE_NEW') : 0;
@@ -4531,26 +4568,41 @@ class Database extends \Pramnos\Framework\Base
      * statement on it throws instead of running (see {@see getConnection()}), rather than
      * reaching a replica and failing there with a less legible database-level error.
      *
-     * @param  string|null $hostname Replica host; defaults to the "read" database setting's
-     *                                hostname, if one is configured.
-     * @param  int|null    $port     Replica port; defaults to the "read" setting's port, or
-     *                                this instance's own port if neither is set.
+     * Where the replica is, when not given: the settings' `replica` block — which, unlike `read`,
+     * routes nothing else — or else `read`. That block may also name its `database`, `user` and
+     * `password` where they differ, and `timeout`: the seconds to wait for it. This instance's
+     * own {@see $connectTimeout} comes first, then that `timeout`, then {@see REPLICA_TIMEOUT}, so
+     * a replica that does not answer fails within seconds, not minutes, and a caller can fall back
+     * to the primary.
+     *
+     * @param  string|null $hostname Replica host; defaults to the "replica" database setting's
+     *                                hostname, then the "read" one's, if one is configured.
+     * @param  int|null    $port     Replica port; defaults to the "replica" or "read" setting's
+     *                                port, or this instance's own port if none is set.
      * @return self A new, read-only instance, already connected -- this one is left untouched.
      * @throws \InvalidArgumentException When no hostname is given and none is configured.
      * @throws \RuntimeException When the replica cannot be reached.
      */
     public function replicaConnection(?string $hostname = null, ?int $port = null): self
     {
-        $hostname ??= $this->readConfig['hostname'] ?? null;
-        if ($hostname === null) {
+        $hostname ??= $this->replicaConfig['hostname'] ?? $this->readConfig['hostname'] ?? null;
+        if ($hostname === null || $hostname === '') {
             throw new \InvalidArgumentException(
-                'No replica hostname given, and none configured under the "read" database '
-                . 'settings.'
+                'No replica hostname given, and none configured under the "replica" or "read" '
+                . 'database settings.'
             );
         }
-        $port ??= $this->readConfig['port'] ?? $this->port;
+        $port ??= isset($this->replicaConfig['port']) ? (int) $this->replicaConfig['port']
+            : (isset($this->readConfig['port']) ? (int) $this->readConfig['port'] : $this->port);
 
         $replica = clone $this;
+        foreach (['database', 'user', 'password'] as $key) {
+            if (isset($this->replicaConfig[$key]) && $this->replicaConfig[$key] !== '') {
+                $replica->{$key} = (string) $this->replicaConfig[$key];
+            }
+        }
+        // What this instance was told for its own connections first — a caller's — then the settings.
+        $replica->connectTimeout = (int) ($this->connectTimeout ?? $this->replicaConfig['timeout'] ?? $this->readConfig['timeout'] ?? self::REPLICA_TIMEOUT);
         $replica->__wakeup();
         $replica->ownsConnection = true;
         $replica->server = $hostname;

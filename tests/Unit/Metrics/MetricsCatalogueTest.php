@@ -106,6 +106,45 @@ class MetricsCatalogueTest extends TestCase
         $this->assertSame(\Pramnos\Database\Database::getInstance(), $given);
     }
 
+    /**
+     * A replica of the metrics' own — `['hostname' => …, 'port' => …, 'timeout' => …]` — is the one
+     * the sources are given; one that does not answer within its timeout is given up in seconds,
+     * and the database read instead, its own wait as it was.
+     */
+    public function testAReplicaOfTheMetricsOwn(): void
+    {
+        // Arrange
+        $db = \Pramnos\Database\Database::getInstance();
+        try {
+            if (!$db->connected && !$db->connect(false)) {
+                $this->markTestSkipped('The database is not reachable.');
+            }
+        } catch (\Throwable $e) {
+            $this->markTestSkipped('The database is not reachable: ' . $e->getMessage());
+        }
+        $given = [];
+        Metrics::register(Metric::flow('orders.count')->rows(static function (Window $w, array $f, \Pramnos\Database\Database $db) use (&$given): array {
+            $given[] = $db;
+
+            return [['id' => 1]];
+        }));
+
+        // Act
+        Application::getInstance()->applicationInfo['metrics'] = ['replica' => ['hostname' => $db->server, 'port' => (int) $db->port]];
+        Metrics::records('orders.count', 'day', '2026-09-17');
+        Application::getInstance()->applicationInfo['metrics'] = ['replica' => ['hostname' => '10.255.255.1', 'port' => (int) $db->port, 'timeout' => 2]];
+        $started = microtime(true);
+        Metrics::records('orders.count', 'day', '2026-09-17');
+        $took = microtime(true) - $started;
+
+        // Assert
+        $this->assertNotSame($db, $given[0], 'its own replica');
+        $this->assertSame($db->server, $given[0]->server);
+        $this->assertSame($db, $given[1], 'not answering: the database itself');
+        $this->assertLessThan(10, $took, 'within its timeout');
+        $this->assertNull($db->connectTimeout, 'the database\'s own wait, as it was');
+    }
+
     /** A derived metric worked out from itself is refused rather than looping. */
     public function testADerivedLoopIsRefused(): void
     {
