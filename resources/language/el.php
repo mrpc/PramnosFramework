@@ -2215,4 +2215,15 @@ return [
     'The skill could not be installed.' => 'Το skill δεν μπόρεσε να εγκατασταθεί.',
     'It is up to date.' => 'Είναι ενημερωμένο.',
     'The skill could not be updated.' => 'Το skill δεν μπόρεσε να ενημερωθεί.',
+    // Conversations: notifications, "Notify anyway", scheduled messages.
+    'Sent a file' => 'Έστειλε ένα αρχείο',
+    'Only its writer notifies somebody of a message.' => 'Μόνο ο συντάκτης ενός μηνύματος ειδοποιεί κάποιον γι\' αυτό.',
+    'That person is not waiting to be notified of this message.' => 'Αυτό το άτομο δεν περιμένει ειδοποίηση για αυτό το μήνυμα.',
+    'That person has been notified of this message already.' => 'Αυτό το άτομο έχει ήδη ειδοποιηθεί για αυτό το μήνυμα.',
+    'That person could not be notified.' => 'Δεν ήταν δυνατό να ειδοποιηθεί αυτό το άτομο.',
+    'You are no longer in that conversation.' => 'Δεν είσαι πια σε αυτή τη συζήτηση.',
+    'It could not be sent.' => 'Δεν ήταν δυνατό να σταλεί.',
+    'A message is scheduled for later than now.' => 'Ένα μήνυμα προγραμματίζεται για αργότερα από τώρα.',
+    'That scheduled message no longer exists.' => 'Αυτό το προγραμματισμένο μήνυμα δεν υπάρχει πια.',
+    'a conversation' => 'μια συζήτηση',
 ];
