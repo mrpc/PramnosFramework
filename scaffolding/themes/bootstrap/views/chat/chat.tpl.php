@@ -28,7 +28,7 @@
  * A question is answered by the queue worker; pf-chat.js waits for it in place, and without
  * JavaScript the page refreshes itself until it is answered.
  */
-$c       = ['card' => 'pf-chat-card card', 'muted' => 'text-muted small', 'bad' => 'text-danger', 'btn' => 'pf-chat-btn btn btn-sm btn-primary', 'btnGhost' => 'pf-chat-btn-ghost btn btn-sm btn-link', 'input' => 'pf-chat-input form-control', 'question' => 'bg-body-tertiary rounded-4', 'answer' => 'pf-chat-answer'];
+$c       = ['card' => 'pf-chat-card card pf-l-card', 'muted' => 'text-muted small', 'bad' => 'text-danger', 'btn' => 'pf-chat-btn btn btn-sm btn-primary', 'btnGhost' => 'pf-chat-btn-ghost btn btn-sm btn-link', 'input' => 'pf-chat-input form-control', 'question' => 'bg-body-tertiary rounded-4', 'answer' => 'pf-chat-answer'];
 $e       = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $list    = is_array($this->conversations ?? null) ? $this->conversations : [];
 $open    = is_array($this->conversation ?? null) ? $this->conversation : null;
@@ -105,7 +105,8 @@ $commands = \Pramnos\Llm\Chat\Web\ChatLook::commands($u, is_array($this->command
 // Dictation + read-aloud (pf-voice.js), no server side — behind this setting (Pramnos_LLM_Analyst_Guide.md "## Voice").
 $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false); @endphp
 @if ($waiting)<noscript><meta http-equiv="refresh" content="4"></noscript>@endif
-<div class="pf-chat{!! $empty ? ' pf-chat-empty' : '' !!} container-fluid py-3"{!! $accent !== '' ? ' style="--pf-chat-accent:' . $e($accent) . '"' : '' !!} data-commands="{{ json_encode($commands, JSON_UNESCAPED_UNICODE) }}"{!! (string) ($this->peopleUrl ?? '') !== '' ? ' data-pf-people-url="' . $e($this->peopleUrl) . '"' : '' !!} data-pf-chat data-page="{{ $u['page'] }}" data-asked="{{ $u['asked'] }}"{!! $sayAttr !!} data-waiting-lines="{{ json_encode($lines, JSON_UNESCAPED_UNICODE) }}" data-question-class="{{ $c['question'] }}" data-question-style="background-color:rgba(128,128,128,.12);border-radius:1rem"{!! $voiceOn ? ' data-pf-chat-voice' : '' !!}>
+{!! \Pramnos\Theme\NeutralLayout::style() !!}
+<div class="pf-chat{!! $empty ? ' pf-chat-empty' : '' !!} container-fluid pf-l-pad"{!! $accent !== '' ? ' style="--pf-chat-accent:' . $e($accent) . '"' : '' !!} data-commands="{{ json_encode($commands, JSON_UNESCAPED_UNICODE) }}"{!! (string) ($this->peopleUrl ?? '') !== '' ? ' data-pf-people-url="' . $e($this->peopleUrl) . '"' : '' !!} data-pf-chat data-page="{{ $u['page'] }}" data-asked="{{ $u['asked'] }}"{!! $sayAttr !!} data-waiting-lines="{{ json_encode($lines, JSON_UNESCAPED_UNICODE) }}" data-question-class="{{ $c['question'] }}" data-question-style="background-color:rgba(128,128,128,.12);border-radius:1rem"{!! $voiceOn ? ' data-pf-chat-voice' : '' !!}>
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <nav class="{!! $c['card'] !!}" style="flex:0 0 240px;padding:12px" aria-label="{{ t('Conversations') }}">
             <a href="{{ $u['page'] }}" class="{!! $c['btn'] !!}">{{ t('New conversation') }}</a>
@@ -256,7 +257,7 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false); @endphp
             @if ($examples !== [])
                 <div class="pf-chat-suggestions" aria-label="{{ t('Example questions') }}">
                     @foreach ($examples as $example)
-                        <button type="button" class="btn btn-sm btn-outline-secondary" data-pf-chat-suggestion="{{ $example }}">{{ $example }}</button>
+                        <button type="button" class="btn btn-sm btn-default btn-outline-secondary" data-pf-chat-suggestion="{{ $example }}">{{ $example }}</button>
                     @endforeach
                 </div>
             @endif
@@ -282,15 +283,15 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false); @endphp
             <details data-pf-chat-memory>
 
             <summary aria-label="{{ t('Model, limits and memory') }}"><span class="pf-chat-gear">⚙</span> {{ t('Model, limits and memory') }}</summary>
-            <h2 class="h6 mt-3">{{ t('Model') }}</h2>
+            <h2 class="h6 pf-l-mt">{{ t('Model') }}</h2>
             <p class="{!! $c['muted'] !!}">{{ ($limits['provider'] ?? '') . ' · ' . ($limits['model'] ?? '') }}</p>
-            <h2 class="h6 mt-3">{{ t('Limits') }}</h2>
+            <h2 class="h6 pf-l-mt">{{ t('Limits') }}</h2>
             <ul class="{!! $c['muted'] !!}">
                 <li>{{ sprintf(t('The last %d messages are sent with each question'), (int) ($limits['turns'] ?? 0)) }}</li>
                 <li>{{ sprintf(t('Up to %d data reads per answer'), (int) ($limits['rounds'] ?? 0)) }}</li>
                 <li>{{ sprintf(t('Up to %d things remembered'), (int) ($limits['memory'] ?? 0)) }}</li>
             </ul>
-            <h2 class="h6 mt-3">{{ sprintf(t('What it remembers (%d)'), count($memory)) }}</h2>
+            <h2 class="h6 pf-l-mt">{{ sprintf(t('What it remembers (%d)'), count($memory)) }}</h2>
             @if ($memory === [])
                 <p class="{!! $c['muted'] !!}">{{ t('Nothing remembered yet.') }}</p>
             @endif
@@ -308,7 +309,7 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false); @endphp
             </ul>
             @if (is_array($this->connections ?? null))
                 @php // The servers the person connected themselves: an address, and a token or a sign-in.; @endphp
-                <h2 class="h6 mt-3">{{ sprintf(t('Your connections (%d)'), count($this->connections)) }}</h2>
+                <h2 class="h6 pf-l-mt">{{ sprintf(t('Your connections (%d)'), count($this->connections)) }}</h2>
                 <ul style="list-style:none;padding:0">
                     @foreach ($this->connections as $one)
                         <li style="margin-bottom:6px">
@@ -332,7 +333,7 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false); @endphp
                 </form>
             @endif
             @if (!empty($consent['required']) && !empty($consent['given']))
-                <h2 class="h6 mt-3">{{ t('Your agreement') }}</h2>
+                <h2 class="h6 pf-l-mt">{{ t('Your agreement') }}</h2>
                 <p class="{!! $c['muted'] !!}">{{ sprintf(t('You agreed to the AI features using %s.'), $consent['label']) }}</p>
                 <form method="post" action="{{ $u['consent'] }}">
                     {!! $token() !!}

@@ -10,7 +10,7 @@
  *   $this->memories — theirs: memory_id, kind (fact|preference), content, source (model|learned|null), at
  *   $this->urls     — page, correct, delete, chat
  */
-$c     = ['page' => 'container py-4 d-flex flex-column gap-3', 'card' => 'card card-body', 'muted' => 'text-muted small', 'bad' => 'text-danger small', 'btn' => 'btn btn-sm btn-primary', 'btnGhost' => 'btn btn-sm btn-outline-secondary', 'danger' => 'btn btn-sm btn-outline-danger', 'input' => 'form-control form-control-sm', 'select' => 'form-select form-select-sm', 'textarea' => 'form-control', 'badge' => 'badge text-bg-secondary', 'row' => 'd-flex flex-wrap align-items-center gap-2', 'field' => 'd-flex flex-column gap-1 small', 'answer' => '', 'h1' => 'h3', 'h2' => 'h5'];
+$c     = ['page' => 'pf-l-page', 'card' => 'card pf-l-card', 'muted' => 'text-muted small', 'bad' => 'text-danger small', 'btn' => 'btn btn-sm btn-primary', 'btnGhost' => 'btn btn-sm btn-default btn-outline-secondary', 'danger' => 'btn btn-sm btn-default btn-outline-danger text-danger', 'input' => 'form-control form-control-sm input-sm', 'select' => 'form-control input-sm form-select form-select-sm pf-l-select', 'textarea' => 'form-control', 'badge' => 'badge text-bg-secondary', 'row' => 'pf-l-row', 'field' => 'pf-l-field small', 'answer' => '', 'h1' => 'h3', 'h2' => 'h5'];
 $e     = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $t     = static fn (string $words, mixed ...$args): string => vsprintf(function_exists('t') ? (string) t($words) : $words, $args);
 $token = static fn (): string => \Pramnos\Http\Session::getInstance()->getTokenField();
@@ -26,6 +26,7 @@ foreach ((array) ($this->people ?? []) as $who) {
     }
 }
 $split = 'display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:12px'; @endphp
+{!! \Pramnos\Theme\NeutralLayout::style() !!}
 <div class="{!! $c['page'] !!}" data-pf-memories>
     <div style="{!! $split !!};align-items:center">
         <h1 class="{!! $c['h1'] !!}" style="margin:0">{{ $t('Everybody\'s memory') }}</h1>

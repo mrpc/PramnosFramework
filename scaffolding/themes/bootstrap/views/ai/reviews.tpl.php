@@ -8,7 +8,8 @@
  *
  * The body is Web\ReviewQueueView's, the same in every theme; this file gives it the theme's classes.
  */
-$c       = ['card' => 'card', 'muted' => 'text-muted small', 'btn' => 'btn btn-sm btn-primary', 'btnGhost' => 'btn btn-sm btn-link', 'field' => 'form-control form-control-sm', 'select' => 'form-select form-select-sm', 'question' => 'bg-body-tertiary rounded-4', 'banner' => 'alert alert-warning'];
+$c       = ['card' => 'card pf-l-card', 'muted' => 'text-muted small', 'btn' => 'btn btn-sm btn-primary', 'btnGhost' => 'btn btn-sm btn-link', 'field' => 'form-control form-control-sm input-sm', 'select' => 'form-control input-sm form-select form-select-sm pf-l-select', 'question' => 'bg-body-tertiary rounded-4', 'banner' => 'alert alert-warning'];
+echo \Pramnos\Theme\NeutralLayout::style();
 echo \Pramnos\Llm\Chat\Web\ReviewQueueView::html(
     is_array($this->queue ?? null) ? $this->queue : [],
     is_array($this->summary ?? null) ? $this->summary : ['good' => 0, 'bad' => 0, 'waiting' => 0],

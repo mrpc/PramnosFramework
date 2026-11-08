@@ -315,6 +315,27 @@ Some markup has no neutral form, because the framework ships no component for it
     errors, and the differences show up as a missing border or an unstyled alert. A test can only
     catch this by rendering the page.
 
+### The framework's screens under an older Bootstrap
+
+The framework's own screens in the `bootstrap` scaffold theme can be drawn inside an administration
+that loads its own Bootstrap, which may be Bootstrap 3. They do not depend on its version. The Ask
+pages (`Ai/settings`, `Ai/skillcatalog`, `Ai/skills`, `Ai/memories`, `Ai/scheduled`, `Ai/all`,
+`Ai/reviews`, Ask itself) print the framework's layout rules at their top
+(`Pramnos\Theme\NeutralLayout::style()`). They take their page, cards, rows, fields and selects from
+`pf-l-*` classes, and use only the Bootstrap classes that 3 and 5 share, or that each version
+ignores harmlessly:
+
+| Instead of (Bootstrap 5 only) | They use |
+|---|---|
+| `container py-4 d-flex flex-column gap-3` | `pf-l-page`: a column as wide as the room it is given; a wide table scrolls inside it |
+| `card card-body` | `card pf-l-card`: a border and the padding |
+| `d-flex flex-wrap align-items-center gap-2` | `pf-l-row` |
+| `form-select form-select-sm` | `form-control input-sm form-select form-select-sm pf-l-select` |
+| `btn-outline-secondary` alone | `btn-default btn-outline-secondary` |
+
+A screen of the framework's that you copy into your own theme keeps these classes, and keeps
+working in either version.
+
 ### Recommended approach
 
 1. **Reach for a component first.** Pagination, breadcrumbs, stat tiles, search, icons, action links

@@ -8,11 +8,12 @@
  * The answer to "why did that cost that", and to "why did it fail": everything that was sent
  * and everything that came back.
  */
-$c    = ['card' => 'card', 'muted' => 'text-muted small', 'ok' => 'text-success', 'bad' => 'text-danger', 'btn' => 'btn btn-sm btn-primary', 'btnOutline' => 'btn btn-sm btn-outline-secondary', 'input' => 'form-control form-control-sm', 'table' => 'table table-sm'];
+$c    = ['card' => 'card pf-l-card', 'muted' => 'text-muted small', 'ok' => 'text-success', 'bad' => 'text-danger', 'btn' => 'btn btn-sm btn-primary', 'btnOutline' => 'btn btn-sm btn-default btn-outline-secondary', 'input' => 'form-control form-control-sm input-sm', 'table' => 'table table-sm'];
 $e    = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $row  = is_array($this->call ?? null) ? $this->call : [];
 $json = static fn ($v): string => htmlspecialchars((string) json_encode($v, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8'); @endphp
-<div class="container-fluid py-3">
+{!! \Pramnos\Theme\NeutralLayout::style() !!}
+<div class="container-fluid pf-l-page">
     @php $this->activeNav = 'ai_call'; $this->insert('../partials/admin_breadcrumb'); @endphp
 
     <h1 class="h3">AI call #{!! (int) ($row['call_id'] ?? 0) !!}</h1>

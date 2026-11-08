@@ -98,9 +98,9 @@ $chosen = array_flip($open['tools'] ?? []); @endphp
                     <input type="search" class="{!! $c['input'] !!}" style="{!! $full !!}" placeholder="{{ $t('Find a tool') }}" aria-label="{{ $t('Find a tool') }}" data-pf-skill-tool-filter>
                     <div style="max-height:16rem;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(14rem,1fr));gap:4px 12px;padding:4px 0" data-pf-skill-tools>
                         @foreach ($tools as $name => $does)
-                        <label title="{{ $does }}" style="display:flex;gap:6px;align-items:flex-start" data-pf-skill-tool="{{ mb_strtolower($name . ' ' . $does) }}">
+                        <label title="{{ $does }}" style="display:flex;gap:6px;align-items:flex-start;min-width:0;margin:0;font-weight:normal" data-pf-skill-tool="{{ mb_strtolower($name . ' ' . $does) }}">
                             <input type="checkbox" name="tools[]" value="{{ $name }}"{!! isset($chosen[$name]) ? ' checked' : '' !!}>
-                            <span><code>{{ $name }}</code></span></label>
+                            <span style="min-width:0;overflow-wrap:anywhere"><code style="white-space:normal;word-break:break-word">{{ $name }}</code></span></label>
                         @endforeach
                         @foreach (array_diff(array_keys($chosen), array_keys($tools)) as $name)
                         <input type="hidden" name="tools[]" value="{{ $name }}">

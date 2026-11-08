@@ -13,7 +13,7 @@
  * Nothing here writes: no question box, no delete, no memory. Answers are drawn by
  * Markdown::toHtml(), which escapes everything first.
  */
-$c       = ['card' => 'card', 'muted' => 'text-muted small', 'btn' => 'btn btn-sm btn-primary', 'btnGhost' => 'btn btn-sm btn-link', 'field' => 'form-control form-control-sm', 'select' => 'form-select form-select-sm', 'question' => 'bg-body-tertiary rounded-4', 'banner' => 'alert alert-warning'];
+$c       = ['card' => 'card pf-l-card', 'muted' => 'text-muted small', 'btn' => 'btn btn-sm btn-primary', 'btnGhost' => 'btn btn-sm btn-link', 'field' => 'form-control form-control-sm input-sm', 'select' => 'form-control input-sm form-select form-select-sm pf-l-select', 'question' => 'bg-body-tertiary rounded-4', 'banner' => 'alert alert-warning'];
 $e       = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $list    = is_array($this->list ?? null) ? $this->list : [];
 $owners  = is_array($this->owners ?? null) ? $this->owners : [];
@@ -24,7 +24,8 @@ $openId  = (int) ($open['conversation']['conversation_id'] ?? 0);
 $money   = static fn ($v): string => $v === null ? '' : '$' . number_format((float) $v, 4);
 $keep    = static fn (array $extra): string => http_build_query(array_filter(['person' => (int) $filters['person'], 'q' => (string) $filters['q']] + $extra)); @endphp
 @php // pf-chat.js draws the answers' charts and tables' copy buttons, as on Ask's page; with no form here it asks nothing.; @endphp
-<div class="container-fluid py-3" data-pf-chat>
+{!! \Pramnos\Theme\NeutralLayout::style() !!}
+<div class="container-fluid pf-l-page" data-pf-chat>
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <nav class="{!! $c['card'] !!}" style="flex:0 0 300px;padding:12px" aria-label="{{ t('Other people\'s Ask conversations') }}">
             <a href="{{ $u['ask'] }}" class="{!! $c['btnGhost'] !!}">‹ {{ t('Ask') }}</a>

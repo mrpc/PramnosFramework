@@ -18,7 +18,7 @@
  *   $this->catalogues  — the catalogues searched
  *   $this->urls        — page, action (with %s), settings
  */
-$c      = ['page' => 'container py-4 d-flex flex-column gap-3', 'card' => 'card card-body', 'muted' => 'text-muted small', 'bad' => 'text-danger small', 'btn' => 'btn btn-sm btn-primary', 'btnGhost' => 'btn btn-sm btn-outline-secondary', 'danger' => 'btn btn-sm btn-outline-danger', 'input' => 'form-control form-control-sm', 'select' => 'form-select form-select-sm', 'textarea' => 'form-control', 'badge' => 'badge text-bg-secondary', 'row' => 'd-flex flex-wrap align-items-center gap-2', 'field' => 'd-flex flex-column gap-1 small', 'answer' => '', 'h1' => 'h3', 'h2' => 'h5'];
+$c      = ['page' => 'pf-l-page', 'card' => 'card pf-l-card', 'muted' => 'text-muted small', 'bad' => 'text-danger small', 'btn' => 'btn btn-sm btn-primary', 'btnGhost' => 'btn btn-sm btn-default btn-outline-secondary', 'danger' => 'btn btn-sm btn-default btn-outline-danger text-danger', 'input' => 'form-control form-control-sm input-sm', 'select' => 'form-control input-sm form-select form-select-sm pf-l-select', 'textarea' => 'form-control', 'badge' => 'badge text-bg-secondary', 'row' => 'pf-l-row', 'field' => 'pf-l-field small', 'answer' => '', 'h1' => 'h3', 'h2' => 'h5'];
 $e      = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $t      = static fn (string $words, mixed ...$args): string => vsprintf(function_exists('t') ? (string) t($words) : $words, $args);
 $token  = static fn (): string => \Pramnos\Http\Session::getInstance()->getTokenField();
@@ -55,6 +55,7 @@ $files     = (array) ($this->files ?? []);
 $preview   = is_array($this->preview ?? null) ? $this->preview : null;
 $open      = is_array($this->open ?? null) ? $this->open : null;
 $upstream  = is_array($this->upstream ?? null) ? $this->upstream : null; @endphp
+{!! \Pramnos\Theme\NeutralLayout::style() !!}
 <div class="{!! $c['page'] !!}" data-pf-skill-catalog>
     <div style="{!! $split !!};align-items:center">
         <h1 class="{!! $c['h1'] !!}" style="margin:0">{{ $t('Skills') }}</h1>

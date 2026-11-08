@@ -24,7 +24,7 @@
  * saved, and an empty submit keeps it. Every cost is an estimate from the prices below, and says
  * so; the provider's own balance, where it publishes one, is shown beside it.
  */
-$c = ['card' => 'card', 'muted' => 'text-muted small', 'ok' => 'text-success', 'bad' => 'text-danger', 'btn' => 'btn btn-sm btn-primary', 'btnOutline' => 'btn btn-sm btn-outline-secondary', 'input' => 'form-control form-control-sm', 'table' => 'table table-sm'];
+$c = ['card' => 'card pf-l-card', 'muted' => 'text-muted small', 'ok' => 'text-success', 'bad' => 'text-danger', 'btn' => 'btn btn-sm btn-primary', 'btnOutline' => 'btn btn-sm btn-default btn-outline-secondary', 'input' => 'form-control form-control-sm input-sm', 'table' => 'table table-sm'];
 $e         = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $usd       = static fn ($v): string => $v === null ? '—' : '$' . number_format((float) $v, 4);
 $providers = is_array($this->providers ?? null) ? $this->providers : [];
@@ -38,7 +38,8 @@ $openai    = is_array($this->openai ?? null) ? $this->openai : null;
 $selected  = (string) ($this->selected ?? '');
 $action    = $e(adminUrl('Ai/save'));
 $labels    = array_column($providers, 'label', 'id'); @endphp
-<div class="container-fluid py-3">
+{!! \Pramnos\Theme\NeutralLayout::style() !!}
+<div class="container-fluid pf-l-page">
     @php $this->activeNav = 'ai'; $this->insert('../partials/admin_breadcrumb'); @endphp
 
     <h1 class="h3">AI settings</h1>

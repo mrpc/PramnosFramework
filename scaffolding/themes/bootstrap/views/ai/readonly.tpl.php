@@ -8,5 +8,6 @@
  *
  * The body is Web\ReadOnlyView's, the same in every theme; this file gives it the theme's classes.
  */
-$c       = ['card' => 'card', 'muted' => 'text-muted small', 'btn' => 'btn btn-sm btn-primary', 'btnGhost' => 'btn btn-sm btn-link', 'field' => 'form-control form-control-sm', 'select' => 'form-select form-select-sm', 'question' => 'bg-body-tertiary rounded-4', 'banner' => 'alert alert-warning'];
+$c       = ['card' => 'card pf-l-card', 'muted' => 'text-muted small', 'btn' => 'btn btn-sm btn-primary', 'btnGhost' => 'btn btn-sm btn-link', 'field' => 'form-control form-control-sm input-sm', 'select' => 'form-control input-sm form-select form-select-sm pf-l-select', 'question' => 'bg-body-tertiary rounded-4', 'banner' => 'alert alert-warning'];
+echo \Pramnos\Theme\NeutralLayout::style();
 echo \Pramnos\Llm\Chat\Web\ReadOnlyView::html((string) ($this->title ?? ''), is_array($this->messages ?? null) ? $this->messages : [], (string) ($this->note ?? ''), $c); @endphp

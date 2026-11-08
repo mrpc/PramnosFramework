@@ -14,7 +14,7 @@
  *   $this->tools       — name => what it does: the tools this person's Ask has, to choose from
  *   $this->urls        — page, action (with %s for the action's name), chat
  */
-$c      = ['page' => 'container py-4 d-flex flex-column gap-3', 'card' => 'card card-body', 'muted' => 'text-muted small', 'bad' => 'text-danger small', 'btn' => 'btn btn-sm btn-primary', 'btnGhost' => 'btn btn-sm btn-outline-secondary', 'danger' => 'btn btn-sm btn-outline-danger', 'input' => 'form-control form-control-sm', 'select' => 'form-select form-select-sm', 'textarea' => 'form-control', 'badge' => 'badge text-bg-secondary', 'row' => 'd-flex flex-wrap align-items-center gap-2', 'field' => 'd-flex flex-column gap-1 small', 'answer' => '', 'h1' => 'h3', 'h2' => 'h5'];
+$c      = ['page' => 'pf-l-page', 'card' => 'card pf-l-card', 'muted' => 'text-muted small', 'bad' => 'text-danger small', 'btn' => 'btn btn-sm btn-primary', 'btnGhost' => 'btn btn-sm btn-default btn-outline-secondary', 'danger' => 'btn btn-sm btn-default btn-outline-danger text-danger', 'input' => 'form-control form-control-sm input-sm', 'select' => 'form-control input-sm form-select form-select-sm pf-l-select', 'textarea' => 'form-control', 'badge' => 'badge text-bg-secondary', 'row' => 'pf-l-row', 'field' => 'pf-l-field small', 'answer' => '', 'h1' => 'h3', 'h2' => 'h5'];
 $e      = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $t      = static fn (string $words, mixed ...$args): string => vsprintf(function_exists('t') ? (string) t($words) : $words, $args);
 $token  = static fn (): string => \Pramnos\Http\Session::getInstance()->getTokenField();
@@ -64,6 +64,7 @@ $card   = static function (array $skill, bool $offer, bool $decide) use ($c, $e,
         . '</div>';
 };
 $chosen = array_flip($open['tools'] ?? []); @endphp
+{!! \Pramnos\Theme\NeutralLayout::style() !!}
 <div class="{!! $c['page'] !!}" data-pf-skills>
     <div style="{!! $split !!};align-items:center">
         <h1 class="{!! $c['h1'] !!}" style="margin:0">{{ $t('My skills') }}</h1>
@@ -98,9 +99,9 @@ $chosen = array_flip($open['tools'] ?? []); @endphp
                     <input type="search" class="{!! $c['input'] !!}" style="{!! $full !!}" placeholder="{{ $t('Find a tool') }}" aria-label="{{ $t('Find a tool') }}" data-pf-skill-tool-filter>
                     <div style="max-height:16rem;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(14rem,1fr));gap:4px 12px;padding:4px 0" data-pf-skill-tools>
                         @foreach ($tools as $name => $does)
-                        <label title="{{ $does }}" style="display:flex;gap:6px;align-items:flex-start" data-pf-skill-tool="{{ mb_strtolower($name . ' ' . $does) }}">
+                        <label title="{{ $does }}" style="display:flex;gap:6px;align-items:flex-start;min-width:0;margin:0;font-weight:normal" data-pf-skill-tool="{{ mb_strtolower($name . ' ' . $does) }}">
                             <input type="checkbox" name="tools[]" value="{{ $name }}"{!! isset($chosen[$name]) ? ' checked' : '' !!}>
-                            <span><code>{{ $name }}</code></span></label>
+                            <span style="min-width:0;overflow-wrap:anywhere"><code style="white-space:normal;word-break:break-word">{{ $name }}</code></span></label>
                         @endforeach
                         @foreach (array_diff(array_keys($chosen), array_keys($tools)) as $name)
                         <input type="hidden" name="tools[]" value="{{ $name }}">
