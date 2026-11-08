@@ -529,6 +529,32 @@ test('the catalogue adds, searches, and offers a hidden card again', async () =>
     assert.deepEqual([b.button.hidden, b.present.hidden], [false, true], 'hidden: offered again');
 });
 
+/**
+ * A widget a board has many cards of: each add is a card of its own, `<id>~<key>`, and the
+ * catalogue keeps offering it.
+ */
+test('a repeatable widget is added again and again, each card under a key of its own', async () => {
+    // Arrange
+    const p = page(true, '/admin/Dashboard/card');
+    const dialog = p.el('dialog', { 'data-pf-dashboard-catalogue-dialog': '' });
+    const li = p.el('li', { 'data-pf-dashboard-option': 'report.table' }, dialog);
+    const button = p.el('button', { 'data-pf-dashboard-add': 'report.table', 'data-pf-dashboard-repeat': '' }, li);
+    p.click(p.edit);
+
+    // Act — the same widget twice
+    p.click(button);
+    await settle();
+    p.click(button);
+    await settle();
+
+    // Assert
+    const added = p.saves.map((save) => save.body.layout[save.body.layout.length - 1].id);
+    assert.equal(added.length, 2);
+    added.forEach((id) => assert.match(id, /^report\.table~[a-z0-9]{1,16}$/, 'a key the server keeps'));
+    assert.notEqual(added[0], added[1], 'two cards, not one');
+    assert.equal(button.hidden, false, 'still offered');
+});
+
 /** A setting waiting on another is shown only for its value, and not sent while hidden. */
 test('a setting shown only for another\'s value', async () => {
     // Arrange — without the one-card address, so the card stays where it is between submits

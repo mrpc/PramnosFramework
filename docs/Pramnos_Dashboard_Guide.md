@@ -403,6 +403,29 @@ raise the bar with `'boards' => ['wcm' => ['min_role' => 'manager']]`: below it,
 nothing and its saves answer 403. Drawn this way, the view gets `$this->embedded = true` and
 `$this->boardTitle`, and draws no page heading or frame.
 
+## Many cards of one widget
+
+A layout holds each widget once, unless the widget is **repeatable**: then each card of it
+is kept under `<id>~<key>` and has its own settings and width. Examples are a note, a table
+of metrics, or a chart, where a board wants several of each.
+
+```php
+final class Note extends \Pramnos\Dashboard\Widget
+{
+    public function id(): string      { return 'note'; }
+    public function title(): string   { return 'Note'; }
+    public function repeatable(): bool { return true; }
+    public function options(): array  { return ['text' => static fn (mixed $v): ?string => is_string($v) ? $v : null]; }
+    public function render(): string  { return '<p>' . htmlspecialchars((string) $this->setting('text')) . '</p>'; }
+}
+```
+
+The catalogue keeps offering a repeatable widget after one card is placed. Each "Add" makes a
+new card with a random key of letters and digits (up to 16). `WidgetRegistry::forCard($widgets,
+$cardId)` finds the widget a card draws, and `Widget::baseId($cardId)` gives its id without the
+key. A key on a widget that is not repeatable, or a key in another shape, is dropped when the
+layout is cleaned, like an unknown widget.
+
 ## Tabs: several cards in one frame
 
 Cards can share one frame, with one tab per card. Only the active tab's card is drawn. The others

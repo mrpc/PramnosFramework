@@ -83,6 +83,11 @@ abstract class Widget
     /** The widths a card may have, narrowest first. */
     public const SIZES = [self::SMALL, self::MEDIUM, self::LARGE, self::FULL];
 
+    /**
+     * Between a {@see repeatable()} widget's id and the key of one of its cards: `report.table~a1b2`.
+     */
+    public const INSTANCE = '~';
+
     /** Half the grid's width: kept for layouts saved before there were four, and read as {@see MEDIUM}. */
     public const HALF = 'half';
 
@@ -317,6 +322,24 @@ abstract class Widget
         }
 
         return in_array($size, self::SIZES, true) ? $size : null;
+    }
+
+    /**
+     * Whether a board may have more than one card of it, each with settings of its own — a table
+     * of metrics, a chart. Each card is kept under `<id>~<key>` ({@see INSTANCE}); the catalogue
+     * keeps offering the widget after one is placed. Once, by default.
+     */
+    public function repeatable(): bool
+    {
+        return false;
+    }
+
+    /** The widget a card of a layout is of: its id without a {@see INSTANCE} key. */
+    public static function baseId(string $cardId): string
+    {
+        $at = strpos($cardId, self::INSTANCE);
+
+        return $at === false ? $cardId : substr($cardId, 0, $at);
     }
 
     /** Whether a new dashboard — or one reset to the default — has it. */

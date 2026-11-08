@@ -2536,8 +2536,11 @@
         // [data-pf-dashboard-catalogue-search]. A card on the board is not offered; hidden, it is
         // offered again — shown and hidden, never removed.
         function catalogue() { return document.querySelector('[data-pf-dashboard-catalogue-dialog]'); }
-        function addCard(id) {
+        // A widget a board has many cards of ([data-pf-dashboard-repeat]) gets a card of its own
+        // each time: `<id>~<key>`, the key random, as the server keeps it.
+        function addCard(id, repeat) {
             var dialog = catalogue();
+            if (id && repeat) { id += '~' + Math.random().toString(36).slice(2, 10).replace(/[^a-z0-9]/g, '') + 'n'; }
             if (!id || placedIds().indexOf(id) >= 0) { return; }
             if (dialog && dialog.close && dialog.open) { dialog.close(); }
             say(id + ': ' + SAY.added);
@@ -2550,8 +2553,8 @@
                 if (option.value) { option.hidden = placed.indexOf(option.value) >= 0; }
             });
             Array.prototype.forEach.call(document.querySelectorAll('[data-pf-dashboard-option]'), function (item) {
-                var on = placed.indexOf(item.getAttribute('data-pf-dashboard-option')) >= 0;
                 var button = item.querySelector('[data-pf-dashboard-add]');
+                var on = !(button && button.hasAttribute('data-pf-dashboard-repeat')) && placed.indexOf(item.getAttribute('data-pf-dashboard-option')) >= 0;
                 var present = item.querySelector('[data-pf-dashboard-present]');
                 if (button) { button.hidden = on; }
                 if (present) { present.hidden = !on; }
@@ -2570,7 +2573,7 @@
             if (!target) { return; }
             var dialog = catalogue();
             if (target.hasAttribute('data-pf-dashboard-add')) {
-                addCard(target.getAttribute('data-pf-dashboard-add'));
+                addCard(target.getAttribute('data-pf-dashboard-add'), target.hasAttribute('data-pf-dashboard-repeat'));
             } else if (target.hasAttribute('data-pf-dashboard-catalogue')) {
                 if (dialog && dialog.showModal) { dialog.showModal(); } else if (dialog) { dialog.setAttribute('open', ''); }
                 var search = dialog ? dialog.querySelector('[data-pf-dashboard-catalogue-search]') : null;

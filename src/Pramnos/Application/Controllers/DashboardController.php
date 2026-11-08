@@ -135,7 +135,7 @@ class DashboardController extends Controller
         // in place is lost.
         $drawn = [];
         foreach ($layout as $item) {
-            $drawn[] = \Pramnos\Dashboard\Layouts::isGroup($item) ? $this->groupFor($item, $widgets) : $this->cardFor($widgets[$item['id']], $item);
+            $drawn[] = \Pramnos\Dashboard\Layouts::isGroup($item) ? $this->groupFor($item, $widgets) : $this->cardFor(\Pramnos\Dashboard\WidgetRegistry::forCard($widgets, $item['id']), $item);
         }
         $view->widgets    = $drawn;
         $placed           = array_column(\Pramnos\Dashboard\Layouts::cards($layout), 'id');
@@ -144,7 +144,8 @@ class DashboardController extends Controller
         // catalogue to search, which shows a card again once it is hidden.
         $catalogue = [];
         foreach ($widgets as $id => $widget) {
-            $catalogue[$id] = ['title' => $widget->title(), 'description' => $widget->description(), 'placed' => in_array($id, $placed, true)];
+            // A widget a board has many cards of stays on offer once placed.
+            $catalogue[$id] = ['title' => $widget->title(), 'description' => $widget->description(), 'placed' => !$widget->repeatable() && in_array($id, $placed, true), 'repeatable' => $widget->repeatable()];
         }
         $view->catalogue  = $catalogue;
         $view->board      = $board;
@@ -703,7 +704,8 @@ class DashboardController extends Controller
         }
         $id      = (string) ($id ?: ($_GET['id'] ?? ''));
         $widgets = \Pramnos\Dashboard\WidgetRegistry::available(is_object($user) ? $user : null, $board);
-        if (!is_object($user) || $this->boardRefused($board, $user) || !isset($widgets[$id])) {
+        $widget  = \Pramnos\Dashboard\WidgetRegistry::forCard($widgets, $id);
+        if (!is_object($user) || $this->boardRefused($board, $user) || $widget === null) {
             return \Pramnos\Http\Response::make('', 404);
         }
 
@@ -711,12 +713,12 @@ class DashboardController extends Controller
             ?? \Pramnos\Dashboard\Layouts::clean([['id' => $id]], $user, $board)[0];
         // A tab opened for the first time: its inside only, for the group's frame to hold.
         if (($_GET['part'] ?? '') === 'body') {
-            return \Pramnos\Http\Response::make($this->drawWidget($widgets[$id]->configure((array) $saved['settings'])), 200)
+            return \Pramnos\Http\Response::make($this->drawWidget($widget->configure((array) $saved['settings'])), 200)
                 ->withHeader('Content-Type', 'text/html; charset=utf-8')
                 ->withHeader('Cache-Control', 'no-store');
         }
         $view         = $this->getView('dashboard');
-        $view->widget = $this->cardFor($widgets[$id], $saved);
+        $view->widget = $this->cardFor($widget, $saved);
 
         return \Pramnos\Http\Response::make((string) $view->display('card'), 200)
             ->withHeader('Content-Type', 'text/html; charset=utf-8')
@@ -777,7 +779,7 @@ class DashboardController extends Controller
     {
         $tabs = [];
         foreach ($group['tabs'] as $tab) {
-            $card   = $this->cardFor($widgets[$tab['id']], ['id' => $tab['id'], 'size' => $group['size'], 'settings' => $tab['settings'], 'draw' => $tab['id'] === $group['active']]);
+            $card   = $this->cardFor(\Pramnos\Dashboard\WidgetRegistry::forCard($widgets, $tab['id']), ['id' => $tab['id'], 'size' => $group['size'], 'settings' => $tab['settings'], 'draw' => $tab['id'] === $group['active']]);
             $tabs[] = $card;
         }
 

@@ -35,6 +35,28 @@ final class OrdersWidget extends Widget
     public function byDefault(): bool { return false; }
 }
 
+/** A widget a board may have many cards of: a note, each with its own text. */
+final class NoteWidget extends Widget
+{
+    /** Its id. */
+    public function id(): string { return 'note'; }
+
+    /** Its heading. */
+    public function title(): string { return 'Note'; }
+
+    /** Its inside. */
+    public function render(): string { return '<p>' . htmlspecialchars((string) $this->setting('text')) . '</p>'; }
+
+    /** Anybody signed in. */
+    public function allowed(?object $user): bool { return $user !== null; }
+
+    /** Many cards. */
+    public function repeatable(): bool { return true; }
+
+    /** Its text. */
+    public function options(): array { return ['text' => static fn (mixed $v): ?string => is_string($v) ? $v : null]; }
+}
+
 /** An application's widget with settings: a period (labelled), a market (a plain list), a free title. */
 final class SalesWidget extends Widget
 {
@@ -653,5 +675,39 @@ class WidgetRegistryTest extends TestCase
         $this->assertSame(HealthChecks::FULL, (new HealthChecks())->size());
         $this->assertSame('1.5 MB', Figures::bytes(1572864));
         $this->assertSame('2.0 KB', Figures::bytes(2048));
+    }
+
+    /**
+     * A repeatable widget has many cards on one board, each `<id>~<key>` with its own settings;
+     * the same card twice is still one, a key that is not letters and digits is refused, and a
+     * widget that is not repeatable takes no key at all.
+     */
+    public function testARepeatableWidgetHasManyCards(): void
+    {
+        // Arrange
+        WidgetRegistry::register(NoteWidget::class);
+        WidgetRegistry::register(OrdersWidget::class);
+        $sent = [
+            ['id' => 'note~a1', 'settings' => ['text' => 'first']],
+            ['id' => 'note~b2', 'size' => 'full', 'settings' => ['text' => 'second']],
+            ['id' => 'note~a1'],
+            ['id' => 'note~BAD!'],
+            ['id' => 'orders~x1'],
+            ['id' => 'note'],
+        ];
+
+        // Act
+        $clean     = Layouts::clean($sent, self::user(99));
+        $available = WidgetRegistry::available(self::user(99));
+
+        // Assert
+        $this->assertSame(['note~a1', 'note~b2', 'note'], array_column($clean, 'id'));
+        $this->assertSame([['text' => 'first'], ['text' => 'second'], []], array_column($clean, 'settings'), 'each card its own settings');
+        $this->assertSame('full', $clean[1]['size']);
+        $this->assertSame('note', WidgetRegistry::forCard($available, 'note~zz9')?->id());
+        $this->assertNull(WidgetRegistry::forCard($available, 'orders~x1'), 'not repeatable: no key');
+        $this->assertNull(WidgetRegistry::forCard($available, 'note~' . str_repeat('a', 17)), 'a key up to 16');
+        $this->assertSame('note', Widget::baseId('note~a1'));
+        $this->assertSame('orders', Widget::baseId('orders'));
     }
 }

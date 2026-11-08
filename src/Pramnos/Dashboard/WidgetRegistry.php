@@ -180,6 +180,27 @@ final class WidgetRegistry
         return $widgets;
     }
 
+    /**
+     * The widget a card of a layout draws, from widgets by id: the one under the card's id, or —
+     * for `<id>~<key>`, a key of up to 16 letters or digits — the {@see Widget::repeatable()} one
+     * under `<id>`. Null for neither.
+     *
+     * @param array<string, Widget> $widgets
+     */
+    public static function forCard(array $widgets, string $cardId): ?Widget
+    {
+        if (isset($widgets[$cardId])) {
+            return $widgets[$cardId];
+        }
+        $base = Widget::baseId($cardId);
+        if ($base === $cardId || !isset($widgets[$base]) || !$widgets[$base]->repeatable()
+            || preg_match('/^[a-z0-9]{1,16}$/', substr($cardId, strlen($base) + 1)) !== 1) {
+            return null;
+        }
+
+        return $widgets[$base];
+    }
+
     /** One widget by id, or null. */
     public static function get(string $id, ?string $board = null): ?Widget
     {

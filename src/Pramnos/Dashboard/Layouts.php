@@ -127,8 +127,9 @@ final class Layouts
     }
 
     /**
-     * A layout as it may be kept: widgets this person may have on the board, each once, at a
-     * known width — and groups of them as tabs.
+     * A layout as it may be kept: widgets this person may have on the board, each once — or, for a
+     * {@see Widget::repeatable()} one, each card once under its `<id>~<key>` — at a known width, and
+     * groups of them as tabs.
      *
      * A group is `{id: 'tabs:…', size, tabs: [{id, settings}, …], active, title}` (tabs may be
      * given as ids). Its tabs are cleaned like cards: one this person may not have is dropped, and
@@ -144,16 +145,17 @@ final class Layouts
         $seen      = [];
         $clean     = [];
         $card      = static function (mixed $item, ?string $size = null) use ($available, &$seen): ?array {
-            $id = is_array($item) ? (string) ($item['id'] ?? '') : (is_string($item) ? $item : '');
-            if (!isset($available[$id]) || isset($seen[$id])) {
+            $id     = is_array($item) ? (string) ($item['id'] ?? '') : (is_string($item) ? $item : '');
+            $widget = WidgetRegistry::forCard($available, $id);
+            if ($widget === null || isset($seen[$id])) {
                 return null;
             }
             $seen[$id] = true;
 
             return [
                 'id'       => $id,
-                'size'     => Widget::normalSize($size ?? (is_array($item) ? ($item['size'] ?? null) : null)) ?? self::size($available[$id]->size()),
-                'settings' => Widget::cleanSettings($available[$id], is_array($item) ? ($item['settings'] ?? []) : []),
+                'size'     => Widget::normalSize($size ?? (is_array($item) ? ($item['size'] ?? null) : null)) ?? self::size($widget->size()),
+                'settings' => Widget::cleanSettings($widget, is_array($item) ? ($item['settings'] ?? []) : []),
             ];
         };
         foreach (is_array($layout) ? $layout : [] as $item) {
@@ -174,7 +176,7 @@ final class Layouts
                 continue;
             }
             if (count($tabs) === 1) {
-                $clean[] = ['id' => $tabs[0]['id'], 'size' => $size ?? self::size($available[$tabs[0]['id']]->size()), 'settings' => $tabs[0]['settings']];
+                $clean[] = ['id' => $tabs[0]['id'], 'size' => $size ?? self::size(WidgetRegistry::forCard($available, $tabs[0]['id'])->size()), 'settings' => $tabs[0]['settings']];
                 continue;
             }
             $ids      = array_column($tabs, 'id');

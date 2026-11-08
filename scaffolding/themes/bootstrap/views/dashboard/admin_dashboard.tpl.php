@@ -60,7 +60,7 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
                         <strong>{{ $t((string) $one['title']) }}</strong>
                         @if (($one['description'] ?? '') !== '')<div class="small text-body-secondary">{{ $t((string) $one['description']) }}</div>@endif
                     </div>
-                    <button type="button" class="btn btn-sm btn-primary" data-pf-dashboard-add="{{ $id }}"{!! !empty($one['placed']) ? ' hidden' : '' !!}>{{ $t('Add') }}</button>
+                    <button type="button" class="btn btn-sm btn-primary" data-pf-dashboard-add="{{ $id }}"{!! !empty($one['repeatable']) ? ' data-pf-dashboard-repeat' : '' !!}{!! !empty($one['placed']) ? ' hidden' : '' !!}>{{ $t('Add') }}</button>
                     <span class="badge text-bg-secondary" data-pf-dashboard-present{!! !empty($one['placed']) ? '' : ' hidden' !!}>{{ $t('On the board') }}</span>
                 </li>
                 @endforeach
