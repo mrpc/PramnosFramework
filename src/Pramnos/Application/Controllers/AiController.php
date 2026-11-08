@@ -130,6 +130,8 @@ class AiController extends Controller
             'scheduled' => $this->analystSchedules() ? adminUrl('Ai/scheduled') : '',
             // Skills of a role and the analyst's own, where the application turned them on.
             'skills'    => \Pramnos\Llm\Chat\StoredSkills::enabled() ? adminUrl('Ai/skills') : '',
+            // The application's skills from the catalogues, for whoever manages skills.
+            'skillcatalog' => \Pramnos\Llm\Chat\CatalogSkills::canManage($this->reader()) ? adminUrl('Ai/skillcatalog') : '',
             // Everybody's Ask memory, for whoever reads everybody's conversations.
             'memories'  => $this->readsAll($this->reader()) ? adminUrl('Ai/memories') : '',
             // Everybody's conversations, read only, for whoever reads them all.

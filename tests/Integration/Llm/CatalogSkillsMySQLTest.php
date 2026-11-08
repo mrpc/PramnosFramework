@@ -544,6 +544,65 @@ class CatalogSkillsMySQLTest extends TestCase
     }
 
     /**
+     * Ask's gear leads to the application's skills, after "My skills", for whoever the page gives
+     * the address to — whoever manages skills — and to nobody else.
+     */
+    public function testAsksGearLeadsToThem(): void
+    {
+        // Arrange
+        $urls = ['skills' => '/admin/Ai/skills', 'memories' => '', 'all' => '', 'reviews' => ''];
+
+        foreach (['tailwind', 'bootstrap', 'plain-css'] as $theme) {
+            // Act
+            $with    = $this->drawChat($theme, $urls + ['skillcatalog' => '/admin/Ai/skillcatalog']);
+            $without = $this->drawChat($theme, $urls + ['skillcatalog' => '']);
+
+            // Assert
+            $this->assertMatchesRegularExpression('#My skills</a></li>\s*<li><a href="/admin/Ai/skillcatalog">The application&\#0?39;s skills</a>#', $with, $theme . ': right after My skills');
+            $this->assertStringNotContainsString('Ai/skillcatalog', $without, $theme);
+        }
+        $this->assertSame('Τα skills της εφαρμογής', (require ROOT . '/resources/language/el.php')['The application\'s skills'] ?? null, 'in Greek');
+    }
+
+    /** Ask's page in a theme, with these addresses, and nothing else of it. */
+    private function drawChat(string $theme, array $urls): string
+    {
+        $path = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/chat/chat.tpl.php';
+        $view = new #[\AllowDynamicProperties] class (['urls' => $urls, 'conversations' => [], 'open' => null]) {
+            /** @param array<string, mixed> $properties */
+            public function __construct(private array $properties)
+            {
+            }
+
+            public function __get(string $name): mixed
+            {
+                return $this->properties[$name] ?? null;
+            }
+
+            public function __isset(string $name): bool
+            {
+                return isset($this->properties[$name]);
+            }
+
+            /** insert() and the other helpers: nothing to add. */
+            public function __call(string $name, array $arguments): mixed
+            {
+                return null;
+            }
+        };
+        ob_start();
+        try {
+            (function () use ($path): void {
+                include \Pramnos\Tests\Support\ScaffoldView::run($path);
+            })->call($view);
+        } finally {
+            $html = (string) ob_get_clean();
+        }
+
+        return $html;
+    }
+
+    /**
      * The diff of two texts keeps what is common and says what went and what came; two very long
      * ones are shown whole; the tools a skill names that Ask does not have are said.
      */

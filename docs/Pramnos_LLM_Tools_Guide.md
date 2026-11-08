@@ -263,10 +263,13 @@ environment raises GitHub's rate limit, and none is needed for public repositori
 
 The `skill:*` commands write into the skills folder, which is part of the repository. A skill taken
 on a production server that way would not pass through git, and the next deploy would remove it or
-conflict with it. So the AI settings have a page of their own, **Skills** (`Ai/skillcatalog`, linked
-beside *← Ask* for those who manage skills), which installs a skill from a catalogue **into the
-database**, for the whole application (`Pramnos\Llm\Chat\CatalogSkills`,
+conflict with it. So the AI settings have a page of their own, **Skills** (`Ai/skillcatalog`), which
+installs a skill from a catalogue **into the database**, for the whole application (`Pramnos\Llm\Chat\CatalogSkills`,
 `Pramnos\Llm\Chat\Web\KeepsCatalogSkills`).
+
+For those who manage skills, the page is linked from Ask's gear, as *The application's skills*
+right after *My skills*, and beside *← Ask* in the AI settings. The analyst page passes it as
+`urls['skillcatalog']`, empty for anybody else.
 
 - **Search, then read, then install.** The page searches the catalogues by a word in a skill's
   folder. A result opens a preview: its `SKILL.md`, every reference, the evals by name, what was left

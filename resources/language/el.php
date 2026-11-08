@@ -2088,6 +2088,7 @@ return [
     'A new skill' => 'Νέο skill',
     'Me' => 'Εμένα',
     'My skills' => 'Τα skills μου',
+    'The application\'s skills' => 'Τα skills της εφαρμογής',
     'None yet.' => 'Καμία ακόμα.',
     'Offer to a role' => 'Πρόταση σε ρόλο',
     'Offered to a role' => 'Προτάθηκαν σε ρόλο',

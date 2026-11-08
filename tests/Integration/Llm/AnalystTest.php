@@ -676,7 +676,11 @@ class AnalystTest extends LlmTestCase
             $root     = (string) (new AnalystScreen($theme))->display();
             $onlyAll  = (string) (new AnalystScreen($theme, false, true))->display();
             $settings = (string) $super($theme, false)->display();
-            $neither  = (string) $super($theme, true)->display();
+            $hidden   = (string) $super($theme, true)->display();
+            // Somebody below the skills' floor, with no settings link: nothing behind the gear.
+            $staff    = new AnalystScreen($theme, false, true);
+            $staff->reading = (object) ['userid' => 9, 'usertype' => 10, 'active' => 1];
+            $neither  = (string) $staff->display();
             $nav      = substr($root, strpos($root, '<nav'), strpos($root, '</nav>') - strpos($root, '<nav'));
             $gear     = substr($root, strpos($root, 'pf-ask-gear'), strpos($root, '</details>', strpos($root, 'pf-ask-gear')) - strpos($root, 'pf-ask-gear'));
 
@@ -690,6 +694,9 @@ class AnalystTest extends LlmTestCase
             $this->assertStringContainsString('pf-ask-gear', $settings, $theme);
             $this->assertStringNotContainsString('Ai/all', $settings, $theme . ': 98 does not read them all');
             $this->assertStringNotContainsString('pf-ask-gear', $neither, $theme . ': nothing behind it, no gear');
+            $this->assertStringContainsString('Ai/skillcatalog', $gear, $theme . ': the application\'s skills, for whoever manages skills');
+            $this->assertStringContainsString('Ai/skillcatalog', $hidden, $theme . ': no settings link, but 98 manages skills: the gear holds them');
+            $this->assertStringNotContainsString('Ai/skillcatalog', $neither, $theme . ': not for staff');
         }
     }
 

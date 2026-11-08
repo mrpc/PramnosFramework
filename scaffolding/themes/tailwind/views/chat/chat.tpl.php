@@ -72,6 +72,8 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
     'scheduled' => is_array($this->urls ?? null) ? '' : $url('chat/scheduled'),
     // Their skills (Pramnos\Llm\Chat\StoredSkills), where the application turned them on.
     'skills' => is_array($this->urls ?? null) || !\Pramnos\Llm\Chat\StoredSkills::enabled() ? '' : $url('chat/skills'),
+    // The application's skills from the catalogues: the analyst's page names them, for whoever manages skills.
+    'skillcatalog' => '',
     // Everybody's memory: the analyst's page names it, for whoever reads everybody's conversations.
     'memories' => '',
     // Other people's Ask conversations, read only — the analyst's, for whoever reads them all.
@@ -139,7 +141,7 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false); @endphp
                 {!! \Pramnos\Llm\Chat\Web\ShareView::recipients(is_array($this->shares ?? null) ? $this->shares : [], $u['unshare'], $openId, $token(), $c) !!}
             @endif
             @php // The page's own tools, out of the way: a gear with whichever of them the reader has.; @endphp
-            @if (!empty($this->settingsUrl) || $u['all'] !== '' || $u['reviews'] !== '' || $u['skills'] !== '' || $u['memories'] !== '')
+            @if (!empty($this->settingsUrl) || $u['all'] !== '' || $u['reviews'] !== '' || $u['skills'] !== '' || $u['skillcatalog'] !== '' || $u['memories'] !== '')
                 <details class="pf-ask-gear">
                     <summary aria-label="{{ t('Ask page tools') }}" title="{{ t('Ask page tools') }}" style="list-style:none;cursor:pointer"><span class="pf-chat-gear">⚙</span></summary>
                     <ul class="{!! $c['card'] !!}">
@@ -147,6 +149,7 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false); @endphp
                         @if ($u['all'] !== '')<li><a href="{{ $u['all'] }}">{{ t('Other people\'s Ask conversations') }}</a></li>@endif
                         @if ($u['reviews'] !== '')<li><a href="{{ $u['reviews'] }}">{{ t('Answers to review') }}</a></li>@endif
                         @if ($u['skills'] !== '')<li><a href="{{ $u['skills'] }}">{{ t('My skills') }}</a></li>@endif
+                        @if ($u['skillcatalog'] !== '')<li><a href="{{ $u['skillcatalog'] }}">{{ t('The application\'s skills') }}</a></li>@endif
                         @if ($u['memories'] !== '')<li><a href="{{ $u['memories'] }}">{{ t('Everybody\'s memory') }}</a></li>@endif
                     </ul>
                 </details>
