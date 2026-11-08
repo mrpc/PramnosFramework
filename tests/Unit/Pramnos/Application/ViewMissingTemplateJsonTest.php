@@ -129,8 +129,10 @@ class ViewMissingTemplateJsonTest extends TestCase
     {
         $view = (new \ReflectionClass(View::class))->newInstanceWithoutConstructor();
 
-        $view->name           = 'testview';
-        $view->type           = 'html';
+        // name and type are the view's own protected properties: set them as such, not as
+        // template variables (which View::__set warns about).
+        (new \ReflectionProperty(View::class, 'name'))->setValue($view, 'testview');
+        (new \ReflectionProperty(View::class, 'type'))->setValue($view, 'html');
         $view->model          = $model;
         $view->controllerName = 'Test';
         $view->output         = '';

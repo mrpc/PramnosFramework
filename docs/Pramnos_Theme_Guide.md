@@ -684,6 +684,13 @@ echo $model->title;          // The view's default model, or false when it has n
 echo sURL;                   // Base URL constant
 ```
 
+**A variable cannot have the name of one of the view's own properties** — `name`, `path`,
+`type`, `sections`, `models` and the rest declared on `View`. The template runs inside the view,
+so `$this->name` reads the view's property (its name) and `$this->sections` its template sections
+(printed as "Array"); the variable never reaches the page. `View::__set()` raises an
+`E_USER_WARNING` naming the variable, which fails a test run with `failOnWarning`; give it a name
+of its own (`reportName`, `sectionsText`).
+
 Theme layout files (`theme.html.php`, `header.php`, …) run with `$this` bound to the theme;
 reach the document through `$this->document`.
 

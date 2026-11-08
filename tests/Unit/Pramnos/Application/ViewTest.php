@@ -522,4 +522,38 @@ class ViewTest extends TestCase
             rmdir($tempDir);
         }
     }
+
+    /**
+     * A template variable named like one of the view's own properties is a warning.
+     *
+     * A template runs inside the view, so `$this->name` there reads the view's protected `$name`
+     * and never the variable a controller set: a form showed the view's name in a text field and
+     * "Array" (the view's `$sections`) in a textarea, with nothing to say why. The warning makes
+     * the collision fail a test; the variable is still kept, and an ordinary name warns nothing.
+     */
+    public function testAVariableNamedLikeAViewPropertyWarns(): void
+    {
+        // Arrange
+        $view     = new View($this->getController(), '/some/path', 'MyView', 'html');
+        $warnings = [];
+        set_error_handler(function (int $no, string $message) use (&$warnings): bool {
+            $warnings[] = $message;
+
+            return true;
+        }, E_USER_WARNING);
+
+        // Act
+        try {
+            $view->sections   = 'text';
+            $view->reportName = 'Monthly';
+        } finally {
+            restore_error_handler();
+        }
+
+        // Assert
+        $this->assertCount(1, $warnings, 'only the colliding name warns');
+        $this->assertStringContainsString('"sections"', $warnings[0]);
+        $this->assertSame('text', $view->sections, 'still kept for the controller');
+        $this->assertSame('Monthly', $view->reportName);
+    }
 }

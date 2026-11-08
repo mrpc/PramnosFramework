@@ -148,9 +148,9 @@ class MetricReports extends Controller
         $view             = $this->getView('metricreports', 'tpl');
         $view->id         = ($_GET['report'] ?? '') !== '' ? (int) $entry['id'] : 0;
         $view->definition = $report->definition;
-        $view->name       = ($_GET['copy'] ?? '') !== '' ? sprintf(t('Copy of %s'), (string) $entry['name']) : (string) ($entry['name'] ?? '');
+        $view->reportName = ($_GET['copy'] ?? '') !== '' ? sprintf(t('Copy of %s'), (string) $entry['name']) : (string) ($entry['name'] ?? '');
         $view->columns    = $report->columnsAsText();
-        $view->sections   = $report->sectionsAsText();
+        $view->sectionsText = $report->sectionsAsText();
         $view->row        = ($_GET['report'] ?? '') !== '' ? $entry['row'] : null;
         $view->metrics    = Metrics::all($this->user(), false);
         $view->roles      = \Pramnos\User\UserTypes::labels();

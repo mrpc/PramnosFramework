@@ -741,7 +741,7 @@ class PramnosCheckTool implements McpToolInterface
      */
     private function viewReservedProps(string $path, string $line): ?array
     {
-        $reserved = 'sections|path|model|_layout';
+        $reserved = 'sections|path|model|_layout|name|type';
 
         if (!preg_match(
             '/(?:\$\w*[Vv]iew\w*|\$this->view)\s*->\s*(' . $reserved . ')\s*=(?!=)/',

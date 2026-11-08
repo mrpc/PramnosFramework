@@ -167,6 +167,30 @@ class View extends \Pramnos\Framework\Base
     protected ?string $_cacheKey = null;
 
     /**
+     * Keep a variable for the template — with a warning when its name is one of the view's own
+     * properties (`name`, `path`, `type`, `sections`, …).
+     *
+     * A template runs inside the view, so `$this->name` there reads the view's own property and
+     * never reaches the variable: the page shows the view's name, or "Array" for `sections`, with
+     * nothing else to say why. The variable is still kept — a controller that reads it back gets
+     * it — but the warning names the collision, and fails a test run that treats warnings as failures.
+     *
+     * @param string $name
+     * @param mixed  $value
+     */
+    public function __set($name, $value)
+    {
+        if (property_exists($this, $name)) {
+            trigger_error(sprintf(
+                'View variable "%s" has the name of a property of the view itself: a template reading $this->%s sees the property, not the variable. Give it another name.',
+                $name,
+                $name
+            ), E_USER_WARNING);
+        }
+        parent::__set($name, $value);
+    }
+
+    /**
      * Enable output caching for the next display() / getTpl() call.
      *
      * The cache key is optional — when omitted it is auto-generated from the

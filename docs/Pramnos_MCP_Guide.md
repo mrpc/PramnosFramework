@@ -414,7 +414,7 @@ Seven rules. Six are defects; the seventh polices the escape hatch.
 | `raw-sql` | The builder is the only layer that knows the dialect. Hand-written SQL has produced both a query against a table no migration creates and unqualified names that match nothing. |
 | `unqualified-authserver` | On PostgreSQL `authserver` is a real schema and is not on the default `search_path`, so the unqualified name returns no rows and no error. On MySQL the qualified form becomes `authserver_x` — a different table again. |
 | `flash-query-params` | `?message=` is shown again on every reload, stays in history, and is user-controlled text arriving in a page that displays it. |
-| `view-reserved-props` | `sections`, `path`, `model` and `_layout` are used by the View engine, so the value is overwritten and the variable is simply absent in the template. No error, no log line. |
+| `view-reserved-props` | `sections`, `path`, `name`, `type`, `model` and `_layout` are the view's own properties, so a template reading `$this->name` sees the property, not the variable. `View::__set()` warns about the protected ones at run time; this rule finds them before. |
 | `baseline-migration-timestamp` | Installations predating the migration system set `migration_cutoff = 2020_01_02_000000`, so a new `2020_01_01_*` migration is silently never run there. |
 | `duplicate-debug-panel` | A second reader of the `_debug` payload is usually a panel written because the shipped one was not known to exist. That has happened, and it is why the documentation rules were rewritten. |
 | `unexplained-suppression` | A suppression with no reason hides a finding and tells the next reader nothing. |

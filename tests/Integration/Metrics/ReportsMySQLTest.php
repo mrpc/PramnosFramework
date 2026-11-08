@@ -400,8 +400,8 @@ class ReportsMySQLTest extends TestCase
         $this->assertSame("periods=12\n", $new['columns']);
         $this->assertSame($id, $own['id']);
         $this->assertSame("periods=2\n", $own['columns']);
-        $this->assertSame("# S\ntest.sales\n", $own['sections']);
-        $this->assertSame('Copy of Test theirs', $copy['name']);
+        $this->assertSame("# S\ntest.sales\n", $own['sectionsText']);
+        $this->assertSame('Copy of Test theirs', $copy['reportName']);
         $this->assertSame(0, $copy['id']);
         $this->assertSame([['error', 'Only its owner changes a report. Copy it to make one of your own.'], ['error', 'There is no such report.']], $screen->flash);
 
@@ -431,6 +431,14 @@ class ReportsMySQLTest extends TestCase
                 $this->assertStringNotContainsString('{{', $html, $theme . '/' . $file . ': compiled');
                 $this->assertStringContainsString('pf-ui', $html, $theme . '/' . $file);
             }
+            // The form shows the report's own name and sections — not the view's name, nor "Array"
+            // from the view's own $sections property.
+            $form  = $this->renderTemplate($theme, 'metricreports/edit.tpl.php', $own);
+            $blank = $this->renderTemplate($theme, 'metricreports/edit.tpl.php', $new);
+            $this->assertStringContainsString('name="name" value="Test screen"', $form, $theme . ': own name');
+            $this->assertMatchesRegularExpression('~name="sections"[^>]*>\# S\ntest\.sales\n</textarea>~', $form, $theme . ': own sections');
+            $this->assertStringContainsString('name="name" value=""', $blank, $theme . ': a new report has no name');
+            $this->assertStringNotContainsString('Array', $blank, $theme . ': no array printed');
         }
 
         // Act — below the floor, every action stops; a delete of nothing says so
@@ -461,8 +469,9 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
-     * A `.tpl.php` template drawn as the view engine draws it: compiled, then run with the
-     * variables a controller set on `$this`.
+     * A `.tpl.php` template drawn as the view engine draws it: compiled, then run inside a real
+     * view with the variables a controller set on it — so a variable named like one of the view's
+     * own properties reads the property here too, as it does on a live page.
      *
      * @param array<string, mixed> $vars
      */
@@ -472,8 +481,7 @@ class ReportsMySQLTest extends TestCase
         $compiled = (new \Pramnos\Application\Template\TemplateCompiler())->compile($source);
         $path     = tempnam(sys_get_temp_dir(), 'tpl') . '.php';
         file_put_contents($path, $compiled);
-        $view = new class extends \stdClass {
-        };
+        $view = (new \ReflectionClass(\Pramnos\Application\View::class))->newInstanceWithoutConstructor();
         foreach ($vars as $key => $value) {
             $view->{$key} = $value;
         }
