@@ -101,7 +101,7 @@ $chosen = array_flip($open['tools'] ?? []); @endphp
                         @foreach ($tools as $name => $does)
                         <label title="{{ $does }}" style="display:flex;gap:6px;align-items:flex-start;min-width:0;margin:0;font-weight:normal" data-pf-skill-tool="{{ mb_strtolower($name . ' ' . $does) }}">
                             <input type="checkbox" name="tools[]" value="{{ $name }}"{!! isset($chosen[$name]) ? ' checked' : '' !!}>
-                            <span style="min-width:0;overflow-wrap:anywhere"><code style="white-space:normal;word-break:break-word">{{ $name }}</code></span></label>
+                            <span style="min-width:0;overflow-wrap:anywhere"><code style="white-space:normal">{!! str_replace('_', '_<wbr>', $e($name)) !!}</code></span></label>
                         @endforeach
                         @foreach (array_diff(array_keys($chosen), array_keys($tools)) as $name)
                         <input type="hidden" name="tools[]" value="{{ $name }}">

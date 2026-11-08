@@ -106,6 +106,8 @@ class SkillsPageTest extends LlmTestCase
             $this->assertStringContainsString('Roles&#039; skills', $admin, $theme);
             $this->assertStringContainsString('Approve', $admin, $theme . ': the offer waits for them');
             $this->assertStringContainsString('name="for"', $admin, $theme);
+            // A tool's long name breaks after each "_", not in the middle of a word.
+            $this->assertMatchesRegularExpression('#<code[^>]*>[a-z]+_<wbr>[a-z_<>wbr]+</code>#', $staff, $theme);
         }
     }
 
