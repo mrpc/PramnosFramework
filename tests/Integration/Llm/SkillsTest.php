@@ -127,6 +127,50 @@ class SkillsTest extends LlmTestCase
     }
 
     /**
+     * A skill installed from a catalogue and turned on is offered to Ask as `catalog:<name>`,
+     * beside the application's, and its reference is read from the database; one still off is not.
+     */
+    #[DataProvider('databases')]
+    public function testACatalogueSkillTurnedOnIsOffered(string $type, string $host, int $port): void
+    {
+        // Arrange — a reader, one skill on and one off
+        $this->connectDatabase($type, $host, $port);
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Llm\CreateChatSkillsTable::class,
+            \Pramnos\Framework\Migrations\Llm\AddCatalogueColumnsToChatSkills::class], $this->db);
+        $this->db->queryBuilder()->table(\Pramnos\Llm\Chat\StoredSkills::TABLE)->delete();
+        $reader = new \Pramnos\User\User();
+        $reader->username = 'catalog_reader_' . bin2hex(random_bytes(3));
+        $reader->email    = $reader->username . '@example.com';
+        $reader->usertype = 10;
+        $reader->save();
+        \Pramnos\User\User::clearUserCache();
+        foreach (['seo' => 'on', 'idle' => 'off'] as $name => $status) {
+            $this->db->queryBuilder()->table(\Pramnos\Llm\Chat\StoredSkills::TABLE)->insert(['userid' => 1, 'level' => 'catalog', 'name' => $name,
+                'description' => 'An ' . $name . ' audit', 'tools' => '["crm_lookup"]', 'body' => 'Audit.', 'status' => $status, 'source' => 'acme/skills/' . $name,
+                'source_commit' => str_repeat('a', 40), 'content_hash' => 'h', 'licence' => 'MIT', 'created_at' => time(), 'updated_at' => time(),
+                'files' => json_encode(['skill' => 'Audit the pages.', 'references' => ['list.md' => "# The list\nTitles."], 'evals' => []])]);
+        }
+        $this->configure(['chat' => ['skills' => true]]);
+        $this->answer([
+            [200, self::calls([['use_skill', ['skill' => 'catalog:seo']]])],
+            [200, self::calls([['read_skill_reference', ['skill' => 'catalog:seo', 'file' => 'list.md']]])],
+            [200, self::says('Done.')],
+        ]);
+
+        // Act
+        (new Conversations(self::assistant()))->as(new Scope((int) $reader->userid, null))->ask(null, 'Audit the site');
+
+        // Assert
+        $first       = self::offered($this->sent[0]);
+        $description = $this->sent[0]['body']['tools'][array_search('use_skill', $first, true)]['function']['description'];
+        $this->assertStringContainsString('catalog:seo (An seo audit)', $description);
+        $this->assertStringNotContainsString('catalog:idle', $description, 'off: not offered');
+        $this->assertStringContainsString('Titles.', json_encode($this->sent[2]['body']['messages'], JSON_UNESCAPED_UNICODE), 'its reference, read from the database');
+        $this->db->queryBuilder()->table(\Pramnos\Llm\Chat\StoredSkills::TABLE)->delete();
+        $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', (int) $reader->userid)->delete();
+    }
+
+    /**
      * A skill the application wrote as a file: its presence turns skills on, the model sees it by
      * its description, and turning it on hands the model the file's method with the tools it lists
      * — the method in the context only from then on.

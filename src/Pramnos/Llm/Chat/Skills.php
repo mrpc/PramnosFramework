@@ -157,7 +157,8 @@ final class Skills
 
     /**
      * One reference file of a skill — only one its folder's `references/` listed, only inside that
-     * folder once links are followed, only up to {@see REFERENCE_MAX}.
+     * folder once links are followed, only up to {@see REFERENCE_MAX}. A skill kept in the database
+     * ({@see CatalogSkills}) brings its references' text as `bodies`.
      *
      * @param array<string, array<string, mixed>> $skills
      */
@@ -166,6 +167,11 @@ final class Skills
         $own = $skills[$skill] ?? null;
         if ($own === null || !isset($own['references'][$file])) {
             return 'Error: ' . $skill . ' has no reference called ' . $file . '.';
+        }
+        if (isset($own['bodies'][$file])) {
+            $text = (string) $own['bodies'][$file];
+
+            return strlen($text) > self::REFERENCE_MAX ? substr($text, 0, self::REFERENCE_MAX) . "\n\n[Cut at " . self::REFERENCE_MAX . ' bytes.]' : $text;
         }
         $folder = realpath((string) $own['folder'] . '/references');
         $path   = realpath((string) $own['folder'] . '/references/' . $file);

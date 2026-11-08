@@ -436,6 +436,11 @@ final class StoredSkills
     /** Whether a person may change a skill: their own, or a role's when they manage them. */
     private function mayChange(object $user, array $skill): bool
     {
+        // One installed from a catalogue is its page's to change ({@see CatalogSkills}), audited there.
+        if ($skill['level'] === CatalogSkills::LEVEL) {
+            return false;
+        }
+
         return $skill['level'] === self::ROLE
             ? self::canManageRoles($user)
             : $skill['userid'] === (int) ($user->userid ?? 0) && (int) ($user->userid ?? 0) > 1;

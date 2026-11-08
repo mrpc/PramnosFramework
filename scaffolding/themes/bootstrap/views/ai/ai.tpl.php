@@ -18,6 +18,8 @@
  *                       `sections`: that is View's own property, and the template would read it)
  *   $this->canEncrypt — whether keys are stored encrypted
  *
+ * Whoever manages skills is shown the way to the application's skills (`Ai/skillcatalog`).
+ *
  * A key is never printed back: its field is empty with a placeholder saying whether one is
  * saved, and an empty submit keeps it. Every cost is an estimate from the prices below, and says
  * so; the provider's own balance, where it publishes one, is shown beside it.
@@ -41,7 +43,7 @@ $labels    = array_column($providers, 'label', 'id'); @endphp
 
     <h1 class="h3">AI settings</h1>
 
-    <p><a href="{{ adminUrl('Ai') }}">← Ask</a></p>
+    <p><a href="{{ adminUrl('Ai') }}">← Ask</a>@if (\Pramnos\Llm\Chat\CatalogSkills::canManage(\Pramnos\User\User::current())) · <a href="{{ adminUrl('Ai/skillcatalog') }}">Skills</a>@endif</p>
     <p class="{!! $c['muted'] !!}">
         The language models this installation calls, what each of its features uses, and what it has cost.
         Costs are estimates from the prices below{!! $openai !== null ? '; OpenAI\'s own figure is beside them' : '' !!}.

@@ -1023,7 +1023,10 @@ class Conversations
         // A role's and the person's own (StoredSkills): only the tools the answer already has — a
         // skill opens nothing its reader may not use — and never under a name of the files'.
         $stored = [];
-        foreach ($turn !== null ? (new StoredSkills())->forTurn($turn) : [] as $name => $skill) {
+        // The application's from the catalogues (CatalogSkills), to whoever reads the answer, then
+        // a role's and the person's own.
+        $offered = $turn !== null ? (new CatalogSkills())->forReader($turn->rightsOf(), $files) + (new StoredSkills())->forTurn($turn) : [];
+        foreach ($offered as $name => $skill) {
             $skill['tools'] = array_values(array_filter($skill['tools'], static fn (string $tool): bool => isset($tools[$tool])));
             $stored[$name]  = $skill;
         }

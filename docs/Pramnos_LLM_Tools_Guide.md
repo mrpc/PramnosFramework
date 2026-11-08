@@ -259,6 +259,40 @@ The catalogues searched are `'llm' => ['chat' => ['skill_catalogues' => ['owner/
 `coreyhaines31/marketingskills` and `anthropics/knowledge-work-plugins`. A `GITHUB_TOKEN` in the
 environment raises GitHub's rate limit, and none is needed for public repositories.
 
+### Skills from catalogues, installed from the AI settings
+
+The `skill:*` commands write into the skills folder, which is part of the repository. A skill taken
+on a production server that way would not pass through git, and the next deploy would remove it or
+conflict with it. So the AI settings have a page of their own, **Skills** (`Ai/skillcatalog`, linked
+beside *← Ask* for those who manage skills), which installs a skill from a catalogue **into the
+database**, for the whole application (`Pramnos\Llm\Chat\CatalogSkills`,
+`Pramnos\Llm\Chat\Web\KeepsCatalogSkills`).
+
+- **Search, then read, then install.** The page searches the catalogues by a word in a skill's
+  folder. A result opens a preview: its `SKILL.md`, every reference, the evals by name, what was left
+  out, the licence and the commit. *Install* takes exactly that commit. The method, references,
+  evals, source, commit, hash and licence go into `pramnos.chat_skills` (level `catalog`).
+- **Off until read.** An installed skill is off. Somebody who manages skills (`llm.chat.skills_floor`,
+  an administrator by default) reads it and turns it on. The audit log records who installed it and
+  who turned it on or off at which commit (`ai.catalog_skill_installed`, `_enabled`, `_disabled`,
+  `_role`, `_updated`, `_deleted`).
+- **Never updated by itself.** *Newer version?* asks the catalogue for its current commit and shows
+  what each file would change as a diff. *Take the newer version* takes it, and the skill is off
+  again until it is read.
+- **Text only, as with the commands.** Scripts are never taken. A tool a skill names that Ask does
+  not have is shown on the page, and the skill works without it.
+- **For everybody, or a role.** It is offered as `catalog:<name>` to everybody who has Ask, in
+  shared and scheduled answers too, as an application skill is. *Keep to* limits it to a usertype
+  or role and up. A skill file of the same name in the repository wins, and the page lists those
+  files read only. Role and personal skills do not replace it.
+- **Its references are read from the database**, with `read_skill_reference`, as a file skill's
+  are read from its folder.
+
+`skill:list` shows these too, after the files, marked *(database, from the AI settings)*. The other
+`skill:*` commands work on the files only. The page needs migration
+`2026_11_08_000001_add_catalogue_columns_to_chat_skills`. Until it runs, the page lists nothing
+installed and an install says it could not be saved.
+
 ### Skills of a role, and each person's own
 
 Skills can also be kept in the database, so people write them without a developer. They have the
@@ -272,6 +306,7 @@ same shape as a skill file: a name, the line the model chooses by, the tools and
 | Level | Who writes it | Who is offered it | Named |
 |---|---|---|---|
 | Application | a developer, as a file | everybody | its name |
+| Application, from a catalogue | installed from the AI settings, and turned on there | everybody, or a role and up | `catalog:<name>` |
 | Role | an administrator | everybody from that usertype, or role, up | `role:<name>` |
 | A person's own | the person | that person, in their own conversations | `mine:<name>` |
 

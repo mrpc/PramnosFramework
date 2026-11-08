@@ -13,7 +13,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 /**
  * skill:list — every skill in the skills folder: the application's own, and those taken from
  * catalogues with whether they are on; with `--setup` (as `llm:eval` takes it), the tools each names
- * that nobody declared.
+ * that nobody declared — then those installed from a catalogue into the database from the AI settings.
  */
 class SkillList extends SkillCommand
 {
@@ -26,6 +26,14 @@ class SkillList extends SkillCommand
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        // Those installed from a catalogue into the database, from the AI settings: theirs is the
+        // page, these commands govern the files.
+        $stored = (new \Pramnos\Llm\Chat\CatalogSkills())->all();
+        if (Skills::folder() === null && $stored !== []) {
+            $this->listStored($stored, $output);
+
+            return Command::SUCCESS;
+        }
         if (($folder = $this->folder($output)) === null) {
             return Command::FAILURE;
         }
@@ -43,7 +51,21 @@ class SkillList extends SkillCommand
             }
             $output->writeln($line);
         }
+        $this->listStored($stored, $output);
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * The skills installed from a catalogue into the database, each with whether it is on.
+     *
+     * @param list<array<string, mixed>> $stored
+     */
+    private function listStored(array $stored, OutputInterface $output): void
+    {
+        foreach ($stored as $skill) {
+            $output->writeln(\Pramnos\Llm\Chat\CatalogSkills::PREFIX . $skill['name'] . '  ' . ($skill['status'] === 'on' ? 'on' : 'off (not read yet)')
+                . '  ' . $skill['source'] . '@' . substr((string) $skill['commit'], 0, 7) . '  (database, from the AI settings)');
+        }
     }
 }

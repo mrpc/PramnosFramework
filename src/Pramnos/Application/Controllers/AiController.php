@@ -43,6 +43,7 @@ class AiController extends Controller
     // the analyst schedule (its routineRefusal()).
     use \Pramnos\Llm\Chat\Web\SchedulesTasks;
     use \Pramnos\Llm\Chat\Web\KeepsSkills;
+    use \Pramnos\Llm\Chat\Web\KeepsCatalogSkills;
     use \Pramnos\Llm\Chat\Web\SharesConversations {
         shared as protected sharedInAsk;
     }
@@ -63,12 +64,14 @@ class AiController extends Controller
         $this->addAuthAction(['display', 'all', 'settings', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'cancel', 'delete', 'forget', 'consent', 'api', 'export',
             'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'report',
             'skills', 'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject', 'memories', 'memorycorrect', 'memorydelete',
+            'skillcatalog', 'skillinstall', 'skillcatalogturn', 'skillcatalogrole', 'skillcatalogupdate', 'skillcatalogdelete',
             'share', 'unshare', 'shared', 'people', 'act', 'approve', 'reject', 'rate', 'reviews', 'reviewed', 'download', 'printable', 'pin']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
         // `api` checks its own token, from the X-CSRF-Token header, since it also answers GET and DELETE.
         $this->addWriteAction(['save', 'check', 'ask', 'cancel', 'delete', 'forget', 'consent',
             'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'reviewed', 'pin',
-            'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject', 'memorycorrect', 'memorydelete']);
+            'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject', 'memorycorrect', 'memorydelete',
+            'skillinstall', 'skillcatalogturn', 'skillcatalogrole', 'skillcatalogupdate', 'skillcatalogdelete']);
         parent::__construct($application);
     }
 
