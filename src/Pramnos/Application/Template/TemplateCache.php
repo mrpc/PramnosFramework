@@ -9,10 +9,12 @@ namespace Pramnos\Application\Template;
  * derived from sha1(realpath) so that templates with the same basename in
  * different directories never collide.
  *
- * Invalidation is modification-time based: if the source file is newer than
- * the cached version, the source is recompiled. Compiled files are not
- * invalidated in production unless the source changes, making includes fast
- * after the first request.
+ * A compiled file carries its source's modification time ({@see store()}), and is up to date
+ * only while the two are the same ({@see isUpToDate()}) — not while it is newer. A source
+ * replaced by an older one is recompiled too: composer unpacks a package with the times of its
+ * commit, so after an update a template is often older than the file compiled from the version
+ * before it, and a "newer than" test kept serving the old screen, without an error, until the
+ * cache was cleared by hand. `view:clear` empties it.
  *
  * Default cache directory: ROOT/var/viewcache (falls back to sys_get_temp_dir()
  * when ROOT is not defined, e.g. in unit tests).
@@ -111,7 +113,8 @@ class TemplateCache
     }
 
     /**
-     * True when a valid cached version exists and is at least as new as the source.
+     * True when a compiled version exists and carries the source's modification time — the one it
+     * was made from. Any other time, older or newer, is another version of the source.
      */
     public function isUpToDate(string $sourcePath): bool
     {
@@ -125,7 +128,7 @@ class TemplateCache
         if ($cachedMtime === false || $sourceMtime === false) {
             return false;
         }
-        return $cachedMtime >= $sourceMtime;
+        return $cachedMtime === $sourceMtime;
     }
 
     /**
@@ -151,6 +154,12 @@ class TemplateCache
         $source = str_replace('*/', '*\\/', realpath($sourcePath) ?: $sourcePath);
         if (file_put_contents($cached, '<?php /* ' . self::MARKER . $source . ' */ ?>' . $compiled) === false) {
             throw new \RuntimeException("Cannot write compiled template: {$cached}");
+        }
+        // The source's time, which isUpToDate() compares for equality.
+        $sourceMtime = @filemtime($sourcePath);
+        if ($sourceMtime !== false) {
+            @touch($cached, $sourceMtime);
+            clearstatcache(true, $cached);
         }
         return $cached;
     }

@@ -39,6 +39,7 @@ Commands are grouped by a `namespace:` prefix that reflects what they act on:
 | `logs:` | Log-file tooling | `logs:convert` |
 | `db:` | Database operations | `db:seed`, `db:fresh`, `db:wipe` |
 | `cache:` | Cache management | `cache:clear` |
+| `view:` | Compiled templates | `view:clear` |
 | `route:` | Routing introspection | `route:list` |
 | `queue:` | Background job queue | `queue:process`, `queue:failed`, `queue:retry` |
 | `user:` | User administration | `user:create`, `user:password` |
@@ -202,6 +203,9 @@ exactly as written, so there is nothing to build and nothing to serve.
 # (all categories, or one with --category; --all flushes the whole backend)
 php bin/pramnos cache:clear
 php bin/pramnos cache:clear --category=views
+
+# Delete the compiled templates (var/viewcache); a template that changed is recompiled by itself
+php bin/pramnos view:clear
 
 # List all registered routes (add --json for machine output)
 php bin/pramnos route:list

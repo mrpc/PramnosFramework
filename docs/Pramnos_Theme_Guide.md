@@ -308,6 +308,13 @@ there. An application's override in `.html.php` keeps working, and so does one c
 `project:publish-views`, which copies the `.tpl.php` as it is. The theme's own layout files
 (`theme.html.php`, `header.php`, `footer.php`) stay PHP.
 
+**Compiled once, again when the template changes.** A `.tpl.php` is compiled into `var/viewcache/`
+on its first use. The compiled file carries its template's modification time, and it is used only
+while the two times are the same. A template replaced by an older one is compiled again as well.
+That happens on every `composer update`: composer unpacks a package with the times of its commit,
+so a new bundled view is often older than the file compiled from the version before it.
+`view:clear` deletes every compiled template.
+
 **Per template, not per directory.** Each template resolves on its own, so an
 application with `src/Views/services/logs.html.php` and no `services.html.php` still
 gets the bundled `services.tpl.php`. A per-directory fallback would match the

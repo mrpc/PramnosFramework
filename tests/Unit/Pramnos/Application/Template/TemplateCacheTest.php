@@ -180,26 +180,57 @@ class TemplateCacheTest extends TestCase
     }
 
     /**
-     * isUpToDate() returns true when the cached file exists and is newer than
-     * (or same age as) the source file.
-     * In production, templates are rarely changed, so this is the hot path.
+     * isUpToDate() is true while the compiled file carries the source's modification time —
+     * the one store() gives it — and false when the compiled file is newer: a newer compiled file
+     * was made from another version of the source. In production this is the hot path.
      */
-    public function testIsUpToDateReturnsTrueWhenCacheIsNewer(): void
+    public function testIsUpToDateOnlyWhileTheTimesAreTheSame(): void
     {
         // Arrange
         $cacheDir = $this->tmpDir . '/cache';
         mkdir($cacheDir, 0755, true);
         $cache = new TemplateCache($cacheDir);
-
-        // Write the cached file and make its mtime 60 seconds in the future
-        // relative to the source file so we can reliably test the comparison.
-        $cachedPath = $cache->getCachedPath($this->sourceFile);
+        $cachedPath  = $cache->getCachedPath($this->sourceFile);
         file_put_contents($cachedPath, '<?php ?>');
         $sourceMtime = filemtime($this->sourceFile);
-        touch($cachedPath, $sourceMtime + 60);
 
-        // Act + Assert
-        $this->assertTrue($cache->isUpToDate($this->sourceFile));
+        // Act
+        touch($cachedPath, $sourceMtime);
+        clearstatcache();
+        $same = $cache->isUpToDate($this->sourceFile);
+        touch($cachedPath, $sourceMtime + 60);
+        clearstatcache();
+        $newer = $cache->isUpToDate($this->sourceFile);
+
+        // Assert
+        $this->assertTrue($same);
+        $this->assertFalse($newer, 'a compiled file newer than its source is of another version');
+    }
+
+    /**
+     * After a composer update a template is often OLDER than the file compiled from the version
+     * before it: composer unpacks a package with the times of its commit. That template is
+     * recompiled, and the new screen shown — with "newer than" it was kept, silently, until the
+     * cache was cleared by hand.
+     */
+    public function testATemplateReplacedByAnOlderOneIsRecompiled(): void
+    {
+        // Arrange — compiled today from the old version
+        $cache = new TemplateCache($this->tmpDir . '/cache');
+        file_put_contents($this->sourceFile, 'old');
+        $cache->resolve($this->sourceFile, static fn (string $src): string => $src);
+        // The update: a new text, with its commit's earlier time.
+        file_put_contents($this->sourceFile, 'new');
+        touch($this->sourceFile, time() - 86400);
+        clearstatcache();
+
+        // Act
+        $path = $cache->resolve($this->sourceFile, static fn (string $src): string => $src);
+
+        // Assert
+        $this->assertStringEndsWith('new', (string) file_get_contents($path));
+        $this->assertSame(filemtime($this->sourceFile), filemtime($path), 'it carries its source\'s time');
+        $this->assertTrue($cache->isUpToDate($this->sourceFile), 'and is a hit from now on');
     }
 
     /**
@@ -299,10 +330,11 @@ class TemplateCacheTest extends TestCase
         mkdir($cacheDir, 0755, true);
         $cache      = new TemplateCache($cacheDir);
 
-        // Pre-populate cache with a fresh copy (mtime + 60)
+        // Pre-populate cache with a fresh copy: its source's time
         $cachedPath = $cache->getCachedPath($this->sourceFile);
         file_put_contents($cachedPath, '<?php /* cached */ ?>');
-        touch($cachedPath, filemtime($this->sourceFile) + 60);
+        touch($cachedPath, filemtime($this->sourceFile));
+        clearstatcache();
 
         $compilerCalled = false;
 
@@ -632,5 +664,29 @@ class TemplateCacheTest extends TestCase
 
         // Assert
         $this->assertStringEndsWith('thrown here at line 4', $message);
+    }
+
+    /**
+     * `view:clear` deletes the compiled templates of the cache the views use, and says how many and
+     * where; each is compiled again on its next use.
+     */
+    public function testViewClearEmptiesTheCache(): void
+    {
+        // Arrange — the views' cache pointed at this test's directory, one template compiled
+        $previous = \Pramnos\Application\View::getTemplateCacheDir();
+        \Pramnos\Application\View::setTemplateCacheDir($this->tmpDir . '/cache');
+        $compiled = (new TemplateCache($this->tmpDir . '/cache'))->resolve($this->sourceFile, static fn (string $src): string => $src);
+        $tester   = new \Symfony\Component\Console\Tester\CommandTester(new \Pramnos\Console\Commands\ViewClear());
+
+        // Act
+        try {
+            $tester->execute([]);
+        } finally {
+            \Pramnos\Application\View::setTemplateCacheDir($previous);
+        }
+
+        // Assert
+        $this->assertFileDoesNotExist($compiled);
+        $this->assertSame('1 compiled template(s) deleted from ' . $this->tmpDir . '/cache.', trim($tester->getDisplay()));
     }
 }
