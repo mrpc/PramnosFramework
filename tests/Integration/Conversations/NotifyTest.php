@@ -283,7 +283,12 @@ class NotifyTest extends TestCase
         $this->assertSame('Ελένη Σ.: Προσοχή @Μαρία Κ., ο server', $push['body'], 'marks out, mentions by name');
         $this->assertSame('conversation-' . $ops, $push['tag'], 'a conversation\'s pushes replace one another');
         $this->assertSame(['conversationId' => $ops, 'messageId' => $id], $push['data']);
-        $this->assertSame([true, true], [$push['silent'], $push['unlessFocused']], 'quiet: the page plays its own sound, and tells of it itself while in front');
+        $this->assertSame(['ifOpen', true], [$push['silent'], $push['unlessFocused']], 'quiet while a page is open to play its own sound, and not shown while one is in front');
+        Application::getInstance()->applicationInfo['conversations']['push_silent'] = 'always';
+        $always = (new ConversationNotification($id, 'mention'))->toPush($mariaUser)['silent'];
+        Application::getInstance()->applicationInfo['conversations']['push_silent'] = 'never';
+        $never = (new ConversationNotification($id, 'mention'))->toPush($mariaUser)['silent'];
+        $this->assertSame([true, false], [$always, $never], 'conversations.push_silent');
         $this->assertSame(['database', 'push'], $via);
         $this->assertSame(['database'], $noSub, 'no browser subscribed');
         $this->assertSame(['database'], $bellOnly);

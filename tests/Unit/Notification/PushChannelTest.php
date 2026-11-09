@@ -532,6 +532,7 @@ class PushChannelTest extends TestCase
     /**
      * `silent` and `unlessFocused` reach the worker only when asked for: a notification that does
      * not ask sends neither, so the worker keeps the system's sound and always shows it.
+     * `silent: 'ifOpen'` reaches it as it is, for the worker to decide by the pages open.
      */
     public function testQuietAndUnlessFocusedAreSentOnlyWhenAsked(): void
     {
@@ -541,9 +542,11 @@ class PushChannelTest extends TestCase
         // Act
         $asked = json_decode($probe->probePayload(['title' => 'Μαρία', 'silent' => true, 'unlessFocused' => 1]), true);
         $plain = json_decode($probe->probePayload(['title' => 'Νέα σύνδεση', 'silent' => false]), true);
+        $ifOpen = json_decode($probe->probePayload(['title' => 'Μαρία', 'silent' => 'ifOpen']), true);
 
         // Assert
         $this->assertSame([true, true], [$asked['silent'], $asked['unlessFocused']]);
+        $this->assertSame('ifOpen', $ifOpen['silent'], 'quiet only while a page is open: the worker decides');
         $this->assertArrayNotHasKey('silent', $plain);
         $this->assertArrayNotHasKey('unlessFocused', $plain);
     }

@@ -517,3 +517,32 @@ test('maxAge, the timeout and maxPages', async () => {
     assert.equal((await kept(sw)).length, 2, 'at most maxPages');
     assert.equal(await fresh.text(), 'new', 'too old: the network');
 });
+
+/**
+ * The scaffolded worker treats `silent: 'ifOpen'` as the shared push worker does: quiet while a
+ * page of the site is open to play its own sound, the system's sound with none; and with
+ * `unlessFocused`, nothing while a page is in front.
+ */
+test('the scaffolded worker is quiet if a page is open, and sounds with none', async () => {
+    // Arrange
+    const run = async (open, payload) => {
+        const sw = worker();
+        const shown = [];
+        sw.self.registration.showNotification = async (title, options) => { shown.push(options); };
+        sw.self.clients.matchAll = async () => open;
+        await sw.fire('push', { data: { json: () => payload } });
+
+        return shown;
+    };
+    const message = { title: 'Μαρία', silent: 'ifOpen', unlessFocused: true };
+
+    // Act
+    const hidden = await run([{ visibilityState: 'hidden', focused: false }], message);
+    const none = await run([], message);
+    const front = await run([{ visibilityState: 'visible', focused: true }], message);
+
+    // Assert
+    assert.equal(hidden[0].silent, true, 'a page open plays its own');
+    assert.equal(none[0].silent, false, 'no page: the system\'s sound');
+    assert.equal(front.length, 0, 'a page in front tells of it itself');
+});

@@ -69,10 +69,17 @@ class ConversationNotification implements NotificationInterface
     {
         $told = $this->told();
 
-        // Silent: the page or the application plays the conversations' own sound. Not shown while a
-        // page of the site is in front: it tells of the message itself.
+        // Quiet while a page of the site is open, which plays the conversations' own sound; with none
+        // open — a phone, mostly — the system's sound (`conversations.push_silent`: ifOpen, always,
+        // never). Not shown while a page of the site is in front: it tells of the message itself.
+        $silent = match ((string) (Conversations::settings()['push_silent'] ?? 'ifOpen')) {
+            'always' => true,
+            'never'  => false,
+            default  => 'ifOpen',
+        };
+
         return ['title' => mb_substr($told['title'], 0, 90), 'body' => $told['text'], 'url' => $told['url'], 'tag' => 'conversation-' . $told['conversationId'],
-            'silent' => true, 'unlessFocused' => true,
+            'silent' => $silent, 'unlessFocused' => true,
             'data' => ['conversationId' => $told['conversationId'], 'messageId' => $this->messageId]];
     }
 

@@ -132,3 +132,27 @@ test('a silent push is quiet, and one unless focused waits for the site to be ou
     assert.equal(approval.shown.length, 1, 'a push that does not ask is shown whatever is in front');
     assert.equal(approval.shown[0].options.silent, false);
 });
+
+/**
+ * `silent: 'ifOpen'` — a conversation's push: quiet while a page of the site is open, hidden or
+ * not, since that page plays its own sound; with no page open (a phone, mostly) the system's
+ * sound plays. `true` and `false` mean what they did.
+ */
+test('a push quiet if open plays the system\'s sound when no page is open', async () => {
+    // Arrange
+    const hidden = Object.assign(page('https://app.test/chat'), { visibilityState: 'hidden', focused: false });
+    const message = { title: 'Μαρία', body: 'γεια', silent: 'ifOpen', unlessFocused: true };
+
+    // Act
+    const open = worker([hidden]);
+    await open.fire('push', { data: { json: () => message } });
+    const none = worker([]);
+    await none.fire('push', { data: { json: () => message } });
+    const always = worker([]);
+    await always.fire('push', { data: { json: () => ({ title: 'x', silent: true }) } });
+
+    // Assert
+    assert.equal(open.shown[0].options.silent, true, 'a page open plays its own');
+    assert.equal(none.shown[0].options.silent, false, 'no page: the system\'s sound');
+    assert.equal(always.shown[0].options.silent, true);
+});

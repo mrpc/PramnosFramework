@@ -367,6 +367,10 @@ class PushChannel implements ChannelInterface
                 $payload[$flag] = true;
             }
         }
+        // Quiet only while a page of the site is open to play its own sound: the worker decides.
+        if (($data['silent'] ?? null) === 'ifOpen') {
+            $payload['silent'] = 'ifOpen';
+        }
 
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 

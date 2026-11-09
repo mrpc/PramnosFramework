@@ -799,13 +799,17 @@ Two flags of a notification's `toPush()` change how the worker shows it. The wor
 `pf-push-worker.js` or the scaffolded `sw.js`.
 
 - **`silent`** shows it without the system's sound. Use it for a page or an application that
-  plays its own sound.
+  plays its own sound. `'silent' => 'ifOpen'` is quiet only while a page of the site is open,
+  hidden or not, to play its own sound. With none open, which on a phone is most of the time, the
+  system's sound plays.
 - **`unlessFocused`** shows nothing while a window of the site is visible and focused, because
   that page tells of the message itself. With the site in a hidden tab, or in a window that is not
   focused, the notification is shown. Browsers do not require a notification for a push while the
   site's origin is focused.
 
-A conversation's message sends both. A notification that sends neither, such as a sign-in
+A conversation's message sends `silent: 'ifOpen'` and `unlessFocused`. `conversations.push_silent`
+changes the first: `ifOpen` (the default), `always` or `never`. A worker copied before `ifOpen`
+existed reads it as `silent` and stays quiet until it is resynced. A notification that sends neither, such as a sign-in
 approval, is shown with the system's sound whatever is in front. An application that copied
 `sw.js` before these flags existed picks them up with `project:resync --js`.
 
