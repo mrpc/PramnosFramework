@@ -1005,6 +1005,43 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * Late data: a metric with a lateness keeps an ended period open, and computes it again at each
+     * run, until the lateness has passed too; then it closes, and an order that comes later still is
+     * left out unless recomputed.
+     */
+    public function testAPeriodStaysOpenForItsLateness(): void
+    {
+        // Arrange
+        Metrics::register(Metric::flow('test.late', 'Orders, arriving late')->lateness('3 days')->source(function (Window $w, array $by, Database $db): int {
+            return (int) $db->queryBuilder()->table(self::ORDERS)->where('placed_at', '>=', $w->startsAt())->where('placed_at', '<', $w->endsAt())->count();
+        }));
+        $this->order('2026-09-30 10:00:00', 'north', 1);
+        $refused = false;
+        try {
+            Metric::flow('test.x')->lateness('a while');
+        } catch (\InvalidArgumentException) {
+            $refused = true;
+        }
+
+        // Act — two days after September ends, again after an order arrives late, and after five days
+        $first = Metrics::compute(['test.late'], ['month'], null, null, false, self::at('2026-10-02 12:00'));
+        $this->order('2026-09-30 11:00:00', 'north', 2);
+        Metrics::compute(['test.late'], ['month'], null, null, false, self::at('2026-10-03 12:00'));
+        $openThen = $this->db->queryBuilder()->table(\Pramnos\Metrics\Store::table('month'))->where('metric', 'test.late')->where('final', 1)->count();
+        $late = Metrics::compute(['test.late'], ['month'], null, null, false, self::at('2026-10-05 12:00'));
+        $this->order('2026-09-30 12:00:00', 'north', 3);
+        Metrics::compute(['test.late'], ['month'], null, null, false, self::at('2026-10-06 12:00'));
+
+        // Assert
+        $this->assertSame(0, $first['closed'], 'still within its lateness');
+        $this->assertSame(0, $openThen, 'open: not final');
+        $this->assertSame(1, $late['closed'], 'closed once the lateness passed');
+        $this->assertSame(2.0, Metrics::value('test.late', 'month', '2026-09-01'), 'the late order in; the one after it closed, not');
+        $this->assertSame(3 * 86400, Metrics::get('test.late')->getLateness());
+        $this->assertTrue($refused);
+    }
+
+    /**
      * The store's lock: while another connection holds it — a conversion, an import, another
      * computation — a computation does nothing and says it was busy (the command too, without
      * failing), and once it is let go the computation runs.

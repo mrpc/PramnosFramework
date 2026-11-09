@@ -289,7 +289,9 @@ final class Metrics
         if (!$window->begun($now) || $metric->gapOf($window) !== null) {
             return 'skipped';
         }
-        $ended = $window->ended($now);
+        // A metric whose data arrive late keeps a period open, computed again at each run, until its
+        // lateness has passed too. A level is how things stood when it closed: at its end, always.
+        $ended = $window->ended($now - ($metric->kind === Metric::LEVEL ? 0 : $metric->getLateness()));
         $closed = self::db()->queryBuilder()->table(Store::table($window->grain))->where('metric', $metric->name)
             ->where('period_start', Store::instant(self::db(), $window))->where('version', $metric->getVersion())->where('final', 1);
         if ($tenants !== null) {

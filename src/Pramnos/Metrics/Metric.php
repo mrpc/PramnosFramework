@@ -102,6 +102,9 @@ final class Metric
     /** Why a period cannot be answered, or null when it can: the application's own rule. */
     private ?\Closure $missing = null;
 
+    /** How long after its end a period is still computed again, in seconds; 0: closed at its end. */
+    private int $lateness = 0;
+
     /** How often new data should arrive (`1 hour`); null: no expectation. */
     private ?string $expect = null;
 
@@ -562,6 +565,27 @@ final class Metric
         $why = $this->missing !== null ? ($this->missing)($window) : null;
 
         return is_string($why) && $why !== '' ? $why : null;
+    }
+
+    /**
+     * How long data arrive late: a period stays open, and is computed again at each run, for this
+     * long after it ends — `7 days` — and only then closes. Closed at its end by default.
+     */
+    public function lateness(string $length): self
+    {
+        $seconds = strtotime('+' . $length, 0);
+        if ($seconds === false || $seconds <= 0) {
+            throw new \InvalidArgumentException('lateness() takes a length of time: "2 days", "7 days".');
+        }
+        $this->lateness = $seconds;
+
+        return $this;
+    }
+
+    /** How long after its end a period stays open, in seconds. */
+    public function getLateness(): int
+    {
+        return $this->lateness;
     }
 
     /** How often new data should arrive — `1 hour`, `1 day` — for a card's staleness and "data stopped". */

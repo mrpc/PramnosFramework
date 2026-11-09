@@ -220,6 +220,11 @@ Scheduler::command('metrics:compute')->cron('2 1,5,9,17,19,22 * * *');
 If one metric's source throws, only that metric is skipped. The command still keeps every other
 metric, names the failed one, and exits `1`.
 
+**Data that arrive late.** `->lateness('7 days')` keeps a period open for that long after it ends.
+It is computed again at every run, so a late record still counts. Only after that does it close
+and become final, left alone until `--recompute` or a new `version()`. By default a period closes
+at its end. A level always closes at its end, because it is how things stood then.
+
 ## Importing history
 
 ```php
