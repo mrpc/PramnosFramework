@@ -51,8 +51,9 @@ done now. Who changed what goes to the change log (rule 14).
 - **Done and dismissed** set `closed_at`; opening an item again clears it. "Hide it" (dismissed)
   takes an item off the list without its being done.
 - **Delete** only one's own items. A source's item is hidden, never deleted.
-- **Order:** open items first, then by hand (`sort`), then by day, then as written. Closed items
-  show for 7 days.
+- **Order:** open items first, then by hand (`sort`), then by day. Within a day the order is the
+  application's (`todos.newest_first`): oldest first by default, newest first for the content
+  platform. Closed items show for 7 days.
 - **Who sees what:**
   - everyone sees every public item of their tenant;
   - a private item only its author;
@@ -63,7 +64,9 @@ done now. Who changed what goes to the change log (rule 14).
 `Todos::sync(?int $tenant)` asks each source the application declares,
 `Todos::source('followup', fn (int $tenant): iterable)`, for what it wants on the list. Each item
 it gives is `source => [kind, title, link?, assigned_to?, due_at?]`.
-- **A new source key** opens an item, and tells its assignee.
+- **A new source key** opens an item, and tells its assignee, unless the source says it told them
+  already (`tell: false`). Assigning a comment already sends its own notice, and two would be one
+  too many.
 - **A done item still wanted** opens again.
 - **A dismissed item still wanted** stays dismissed: "not now" holds while its reason does.
 - **The title, the day and the assignee** follow the data, unless a person chose the assignee
@@ -73,8 +76,11 @@ it gives is `source => [kind, title, link?, assigned_to?, due_at?]`.
 - **Titles** are written in the application's language (`todos.language`), so passes do not
   retitle each other.
 - **When it runs:**
-  - every 5 minutes from the framework's schedule, for every tenant;
-  - when a list is read, at most every 5 minutes (a cache key);
+  - from the framework's schedule, for every tenant, every `todos.sync_every` minutes: 5 by
+    default, 15 for an application whose sources are heavy;
+  - when a list is read, at most once per interval (a cache key).
+    `Todos::touch(int $tenant)` clears that key: an application calls it after an act that
+    changes a source, such as answering a comment or approving a post, so the item goes at once;
   - and on `goal.turned` (FW-360).
 
 ## 4. Telling
@@ -84,14 +90,19 @@ it gives is `source => [kind, title, link?, assigned_to?, due_at?]`.
 - **A reminder (`remind_at`)**, to the minute: the bell, a push, and a line from "Reminders" in
   the person's conversation with the system, where Conversations is on. Cleared first, so a
   failure is not sent again every minute.
-- **Due today, or overdue:** once per item, at 08:05 in the tenant's zone, to its assignee. This
-  is the content platform's daily notice. It is offered to the marketplace by a setting
-  (`todos.due_notice`), off there unless switched on. The item's assignee must still be someone
-  who may be given items.
+- **Due today, or overdue:** once per item, at 08:05 in the tenant's zone, to items **with an
+  assignee** due before the end of the day (an unassigned item is told nothing). This is the
+  content platform's daily notice. It is offered to the marketplace by a setting
+  (`todos.due_notice`), off there unless switched on. The assignee must still be someone who may
+  be given items, and the tenant must still have to-dos at all (`todos.allowed`, a plan without
+  them).
 - **Settling:** seeing the list settles its notices, and closing or deleting an item settles its
   own.
 - **The person whose account goes** hands their open items to a successor (`todos.successor`,
-  the content platform's team removal). Their own items leave with their account's data.
+  the content platform's team removal).
+- **An export** gives the rows of its scope, and the application decides the scope: a person's
+  own items, or every own item of the organisations exported (`Todos::exportable($tenant,
+  ?$person)`).
 
 ## 5. With the conversations
 
@@ -123,7 +134,8 @@ it gives is `source => [kind, title, link?, assigned_to?, due_at?]`.
 - **Ask and MCP tool `todos`** (its name per application: the content platform's assistants
   know `glideday-todo`):
   - `list`: who is me, all or team; a person; about a user or page; closed ones;
-  - `add` and `update` as writes.
+  - `add` and `update` as writes, keeping the content platform's meaning: `assigned_to` 0 is
+    nobody, a `due` of '' clears it, and a plan without to-dos refuses.
 - **JSON API:** `GET/POST/PUT/DELETE` under a path the application chooses, with the list, the
   person's name, and the plan's capability (`todos.allowed`).
 - **The account's export** carries a person's own items.
