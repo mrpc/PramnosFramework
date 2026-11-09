@@ -33,7 +33,8 @@ class CreateGoalsTable extends Migration
             $table->string('period', 10)->default('')->comment('The period it is for (YYYY-MM-DD); empty: every period of its grain');
             $table->bigInteger('tenant')->default(0);
             $table->text('filters')->nullable()->comment('The metric\'s filters, as JSON');
-            $table->double('target');
+            $table->double('target')->comment('The target; 0 where it is relative (growth)');
+            $table->double('growth')->nullable()->comment('Relative: the reference period\'s total times 1 + growth; null: the target as set');
             $table->string('reference', 12)->default('lastyear')->comment('The curve it is expected to follow: lastyear or weekdays');
             $table->integer('createdby')->nullable();
             $table->integer('createdat')->default(0);

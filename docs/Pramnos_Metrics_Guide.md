@@ -693,6 +693,30 @@ Goals::progress($id);
 - **Where they are kept.** Goals are kept in `stats.goals`. They are state; a missed goal is an
   alert.
 
+**A target relative to last year.** Instead of a fixed number, a goal can grow over its
+reference: the reference period's total times 1 + growth, worked out each period. One goal set
+once then serves every day, with no daily script:
+
+```php
+$id = Goals::set('payments.revenue', 'day', 0, growth: 0.10);   // the same day last year, plus 10%
+Goals::update($id, ['growth' => 0.0]);                          // from an application's own settings screen
+```
+
+Where the reference has a hole there is no target, and no progress. The `growth` column is added
+by itself to a table made before it existed.
+
+**The way there.** `Goals::trace($id)` is `progress()` step by step, every hour of the day (or day
+of the month). Each step has a label, the actual so far (null for the steps to come), the expected
+along the curve, and the forecast from the last step counted to the end.
+
+**The goal card.** `report.goal` on a report, and `metric.goal` on the dashboard, shows progress
+as a bar or, with `show: chart`, as the way there. The chart draws the actual so far, the curve
+expected, the forecast and the target line, and a mailed report draws it as an image. Its target
+is the card's own `target`, or its own `growth` (a percentage), or else the goal kept for the
+metric (`Goals::for()`). Administrators change the growth in the card's settings. On the
+dashboard the card shows today, or this month with `grain: month`. It is offered to whoever may
+read a metric, and shows only metrics they may read.
+
 ## Alerts
 
 What is watched on a metric, and who is told:

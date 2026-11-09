@@ -105,6 +105,10 @@ final class WidgetRegistry
                 $card = new Widgets\MetricCard($metric);
                 $widgets[$card->id()] ??= $card;
             }
+            // And a goal card, with metrics to set goals on.
+            if (\Pramnos\Metrics\Metrics::all() !== []) {
+                $widgets['metric.goal'] ??= new \Pramnos\Metrics\Widgets\DashboardGoalWidget();
+            }
         }
         $widgets = array_replace($widgets, self::$registered);
         if ($board === null) {

@@ -1313,6 +1313,77 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * A goal relative to its reference — the same day last year plus a growth — set once for every
+     * day: its target worked out each day (40 last year, plus 10%), changed by `update()`; its way
+     * there hour by hour for a chart — the actual so far, the curve expected, the forecast from the
+     * last hour counted, the target; a goal with neither target nor growth refused; the growth
+     * column added by itself where the table was made without it. The goal card reads the goal
+     * kept for the metric when it has none of its own, and draws the way there; on the dashboard it
+     * is offered to whoever may read a metric.
+     */
+    public function testAGoalRelativeToLastYearAndItsWayThere(): void
+    {
+        // Arrange — last year's Monday: 10 at 09:00 and 30 at 14:00; today 15 by 11:00
+        Metrics::register(Metric::flow('test.sales_hourly', 'Sales')->grains(['hour', 'day'])->source(function (Window $w, array $by, Database $db): int {
+            return (int) $db->queryBuilder()->table(self::ORDERS)->where('placed_at', '>=', $w->startsAt())->where('placed_at', '<', $w->endsAt())->sum('customer');
+        }));
+        $this->order('2025-11-10 09:30:00', 'north', 10);
+        $this->order('2025-11-10 14:30:00', 'north', 30);
+        $this->order('2026-11-09 09:15:00', 'north', 15);
+        Metrics::compute(['test.sales_hourly'], ['hour'], '2025-11-10', '2025-11-10', false, self::at('2026-11-09 12:30'));
+        Metrics::compute(['test.sales_hourly'], ['hour'], '2026-11-09', '2026-11-09', false, self::at('2026-11-09 12:30'));
+        $at   = self::at('2026-11-09 12:30');
+        $goal = \Pramnos\Metrics\Goals::set('test.sales_hourly', 'day', 0, growth: 0.10);
+        $refused = null;
+        try {
+            \Pramnos\Metrics\Goals::set('test.sales_hourly', 'day', 0);
+        } catch (\InvalidArgumentException $e) {
+            $refused = $e->getMessage();
+        }
+
+        // Act
+        $kept     = \Pramnos\Metrics\Goals::for('test.sales_hourly', 'day', '2026-11-09');
+        $trace    = \Pramnos\Metrics\Goals::trace(['period' => '2026-11-09'] + $kept, $at);
+        \Pramnos\Metrics\Goals::update($goal, ['growth' => 0.0]);
+        $flat     = \Pramnos\Metrics\Goals::progress(['period' => '2026-11-09'] + \Pramnos\Metrics\Goals::get($goal), $at);
+        // A table made before growth existed: the column comes back by itself.
+        $this->db->schema()->table('stats.goals', static fn ($t) => $t->dropColumn('growth'));
+        (new \ReflectionProperty(\Pramnos\Metrics\Goals::class, 'ready'))->setValue(null, []);
+        $again    = \Pramnos\Metrics\Goals::get($goal);
+        \Pramnos\Metrics\Goals::update($goal, ['growth' => 0.10]);
+        $entry    = ['id' => 1, 'name' => 'Day', 'report' => \Pramnos\Metrics\Report::fromArray(['name' => 'Day', 'grain' => 'day'])];
+        \Pramnos\Metrics\ReportBoard::enter($entry, '2026-11-09', (object) ['userid' => 6, 'usertype' => 99]);
+        try {
+            $card = (new \Pramnos\Metrics\Widgets\GoalWidget())->configure(['metric' => 'test.sales_hourly', 'show' => 'chart'])->render();
+            $own  = (new \Pramnos\Metrics\Widgets\GoalWidget())->configure(['metric' => 'test.sales_hourly', 'growth' => '50'])->render();
+        } finally {
+            \Pramnos\Metrics\ReportBoard::leave();
+        }
+        $dashboard = \Pramnos\Dashboard\WidgetRegistry::all()['metric.goal'] ?? null;
+
+        // Assert
+        $this->assertSame('A goal needs a target above nought, or a growth over its reference.', $refused);
+        $this->assertSame(0.10, $kept['growth'], 'one goal for every day');
+        $this->assertEqualsWithDelta(44.0, $trace['target'], 1e-9, 'last year\'s 40, plus 10%');
+        $this->assertEqualsWithDelta(11.0, $trace['expected'], 1e-9, 'a quarter of it by noon');
+        $this->assertSame(15.0, $trace['actual']);
+        $this->assertCount(24, $trace['steps'], 'every hour of the day');
+        $this->assertSame(['00:00', 0.0, null], [$trace['steps'][0]['label'], $trace['steps'][0]['actual'], $trace['steps'][0]['forecast']]);
+        $this->assertSame([15.0, 15.0], [$trace['steps'][11]['actual'], $trace['steps'][11]['forecast']], 'the forecast starts from the last hour counted');
+        $this->assertNull($trace['steps'][12]['actual'], 'hours to come');
+        $this->assertEqualsWithDelta(60.0, $trace['steps'][23]['forecast'], 1e-9, 'carried along last year\'s curve to the day\'s end');
+        $this->assertEqualsWithDelta(44.0, $trace['steps'][23]['expected'], 1e-9);
+        $this->assertEqualsWithDelta(40.0, $flat['target'], 1e-9, 'growth changed to nought: last year\'s total');
+        $this->assertNull($again['growth'], 'the column back, empty');
+        $this->assertStringContainsString('data-pf-chart', $card, 'the way there, as a chart');
+        $this->assertStringContainsString('44', $card, 'the kept goal\'s target');
+        $this->assertStringContainsString('60', $own, 'the card\'s own growth: 40 plus 50%');
+        $this->assertInstanceOf(\Pramnos\Metrics\Widgets\DashboardGoalWidget::class, $dashboard);
+        $this->assertTrue($dashboard->allowed((object) ['userid' => 6, 'usertype' => 99]));
+        $this->assertFalse($dashboard->allowed(null), 'nobody signed in reads no metric');
+    }
+
+    /**
      * A month's goal follows the days of the same month a year earlier; a goal for every period
      * gives way to one set for the period; a grain or a reference it does not know is refused; a
      * goal taken away is gone, and a goal that is not there has no progress.
