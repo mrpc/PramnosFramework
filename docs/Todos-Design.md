@@ -110,7 +110,19 @@ it gives is `source => [kind, title, link?, assigned_to?, due_at?]`.
   message (`messageid`).
 - "Remind me about this" at a time: a private item, "Message from X: …", reminded then.
   - Presets: +20 min, +1 h, +3 h, tomorrow 9:00, next Monday 9:00.
-- The chat's list (`#/todos`):
+- A to-do written in the chat ("What do you have to do?"): several lines, Markdown, emoji and
+  mentions, up to 4000 characters, with a reminder chosen before it is added (the same presets).
+  Enter adds it. A message's to-do keeps the whole message, also up to 4000.
+- Editing in place: a hand-written item's text, its reminder and its day. An automatic or
+  message's item opens what it is about instead.
+- Where it came from: "Maria in #general", "Direct with Maria", from its conversation and the
+  message's writer.
+- When: the reminder, else the day, as "due in 20 minutes", "tomorrow at 10:00", or "overdue" in
+  red once passed; shown over the message too when it is opened from its item. The answer
+  carries both `remind_at` and `due_at`.
+- Live: an item added or changed on another device or tab is told (`todo.changed`), and the list
+  and the message's mark are drawn again.
+- The chat's list (`#/todos`), with In progress and Completed, clear and restore:
   - the reader's items and the unassigned they wrote;
   - automatic items while open, and for 10 minutes after they close;
   - filters (all, messages, automatic, overdue) and two orders;
