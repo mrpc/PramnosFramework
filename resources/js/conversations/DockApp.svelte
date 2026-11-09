@@ -12,6 +12,7 @@
     import DockList from './DockList.svelte';
     import DockWindow from './DockWindow.svelte';
     import { t } from './t.js';
+    import { installLightbox } from './lightbox.js';
     import { dockLayout, sidebarPrefs, keepSidebarPrefs, withFormer, openWindow, minimiseWindow, keptWindows } from './logic.js';
 
     let { api, props } = $props();
@@ -26,6 +27,7 @@
     let windows = $state(restore());           // [{ id, min }]
     let listOpen = $state(false);
     let online = $state({});
+    let windowsBox = $state(null);               // the open windows, whose pictures open large
     // svelte-ignore state_referenced_locally
     let customEmoji = $state(props.customEmoji || {});   // the team's own: name → picture
     let error = $state('');
@@ -150,6 +152,11 @@
         document.addEventListener('pf:notifications:refresh', refresh);
         const cleanup = [() => window.removeEventListener('resize', resize), () => document.removeEventListener('keydown', keys),
             () => document.removeEventListener('pf:notifications:refresh', refresh)];
+        // A message's picture opens large over the page, with zoom (lightbox.js).
+        if (windowsBox) {
+            cleanup.push(installLightbox(windowsBox, { download: t('Download'), tab: t('Open in a new tab'), close: t('Close'),
+                zoomIn: t('Zoom in'), zoomOut: t('Zoom out'), fit: t('Fit to the window') }));
+        }
         const realtime = window.pfRealtime;
         if (realtime) {
             let timer = null;
@@ -181,7 +188,7 @@
     });
 </script>
 
-<div class="pf-conv-dock-windows">
+<div class="pf-conv-dock-windows" bind:this={windowsBox}>
     {#each layout.windows as w (w.id)}
         {#if byId[w.id]}
             <DockWindow {api} conversation={byId[w.id]} {me} {props} {customEmoji} {online} {avatars} minimised={w.min} focused={Boolean(w.focus)}

@@ -495,6 +495,16 @@ Messages::react($id, $maria, ':our-heart:');
   status), `shortcodes`, `anchor`. Its data, `searchEmoji()`, `frequentEmoji()` and
   `rememberEmoji()` are in `emoji-data.js`, an ES module that a chat page of the application's
   own imports from `vendor/` too.
+- **The picture viewer** (`lightbox.js`). A message's picture opens large over the page, with a
+  blurred backdrop, its name, Download and New tab. It closes with ×, Escape or a click outside,
+  and a Ctrl, ⌘ or middle click still opens a tab. It zooms with the wheel around the pointer,
+  with a double click or double tap (fitted ↔ 1:1, or 200% for a small picture), with two fingers,
+  with the bar's − / percentage / + and with the keys + − 0, from fitted to 800%. A zoomed picture
+  is dragged to pan. `installLightbox(root, labels)` catches the clicks under an element, and
+  `openImage(href, name, {labels, src})` opens one, where `src` is a picture already in hand,
+  such as a desktop application's blob URL. The zoom's arithmetic (`fitScale`, `zoomAt`,
+  `clampPan`, `toggleScale`) is in pure functions. It is plain DOM, so a chat page of the
+  application's own imports it from `vendor/` too.
 - **The pickers.** A message's reaction picker floats over the page beside its button, opening
   upward where there is no room below, so the message list neither clips it nor scrolls. Scrolling
   closes it, and a click outside closes any picker.
