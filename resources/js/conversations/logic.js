@@ -378,3 +378,27 @@ export function customEmojiHtml(html, custom = {}) {
         : part.replace(/:([a-z0-9_+-]+):/g, (all, name) => (custom[name]
             ? '<img class="pf-conv-custom-emoji" src="' + attr(custom[name]) + '" alt="' + attr(all) + '" title="' + attr(all) + '">' : all)))).join('');
 }
+
+/**
+ * The emoji a `:word` suggests: the team's own first, each with its picture, written `:name:`;
+ * then the shortcodes, as their emoji — never a shortcode a picture of the team's has the name of.
+ *
+ * @param {string} word What follows the colon, folded
+ * @param {Record<string, string>} emoji shortcode → emoji
+ * @param {Record<string, string>} custom name → picture
+ * @returns {Array<{emoji: string, src?: string, label: string}>}
+ */
+export function suggestEmoji(word, emoji = {}, custom = {}, max = 8) {
+    if (word.length < 2) {
+        return [];
+    }
+    const ours = Object.keys(custom).filter((name) => name.startsWith(word)).sort().map((name) => {
+        const written = ':' + name + ':';
+
+        return { emoji: written, src: custom[name], label: written };
+    });
+    const standard = Object.entries(emoji).filter(([name]) => name.startsWith(word) && !custom[name])
+        .map(([name, glyph]) => ({ emoji: glyph, label: glyph + ' :' + name + ':' }));
+
+    return [...ours, ...standard].slice(0, max);
+}

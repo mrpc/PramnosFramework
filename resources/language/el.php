@@ -1536,6 +1536,7 @@ return [
     'Emoji: reactions' => 'Αντιδράσεις',
     'Emoji: faces' => 'Φατσούλες',
     'Emoji: work' => 'Δουλειά',
+    'Emoji: ours' => 'Της ομάδας',
     'Loading the conversations…' => 'Φόρτωση των συζητήσεων…',
     'Pinned message' => 'Καρφιτσωμένο',
     'everybody here' => 'όλοι εδώ',

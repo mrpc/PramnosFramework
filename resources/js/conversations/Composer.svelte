@@ -9,11 +9,11 @@
     import GifPicker from './GifPicker.svelte';
     import Avatar from './Avatar.svelte';
     import { t } from './t.js';
-    import { mentionsToTokens, wordAt, suggestPeople, fold, size, commandIn, draftOf, keepDraft } from './logic.js';
+    import { mentionsToTokens, wordAt, suggestPeople, fold, size, commandIn, draftOf, keepDraft, suggestEmoji } from './logic.js';
     import { commands, canAsk, assistant, gifProvider } from './extras.js';
 
     let {
-        api, conversationId, thread = null, members = [], handles = undefined, me, emoji = {}, maxFileMb = 25, maxVideoMb = 100, placeholder = '',
+        api, conversationId, thread = null, members = [], handles = undefined, me, emoji = {}, customEmoji = {}, maxFileMb = 25, maxVideoMb = 100, placeholder = '',
         disabled = false, typing = null, onsent = () => {}, onreply = () => {}, onerror = () => {},
     } = $props();
 
@@ -82,8 +82,7 @@
             }
         } else {
             const w = fold(current.word);
-            suggestions = current.word.length < 2 ? [] : Object.entries(emoji).filter(([name]) => name.startsWith(w)).slice(0, 8)
-                .map(([name, glyph]) => ({ emoji: glyph, label: glyph + ' :' + name + ':' }));
+            suggestions = suggestEmoji(w, emoji, customEmoji);
         }
         chosen = 0;
     }
@@ -251,7 +250,7 @@
                 <li role="option" aria-selected={i === chosen}>
                     <button type="button" class:pf-conv-active={i === chosen} onmousedown={(e) => { e.preventDefault(); take(item); }}>
                         {#if item.command}<span class="pf-conv-suggest-command">{item.label}</span> <span class="pf-conv-suggest-hint">{item.hint}</span>
-                        {:else if item.emoji}{item.label}{:else if item.special}<span class="pf-conv-avatar pf-conv-avatar-sm pf-conv-avatar-group" aria-hidden="true">@</span> {item.label} <span class="pf-conv-suggest-hint">{item.hint}</span>
+                        {:else if item.src}<img class="pf-conv-custom-emoji" src={item.src} alt=""> {item.label}{:else if item.emoji}{item.label}{:else if item.special}<span class="pf-conv-avatar pf-conv-avatar-sm pf-conv-avatar-group" aria-hidden="true">@</span> {item.label} <span class="pf-conv-suggest-hint">{item.hint}</span>
                         {:else}<Avatar id={item.id} name={item.name} small /> {item.label}{/if}
                     </button>
                 </li>
@@ -274,13 +273,13 @@
         <div class="pf-conv-composer-tools">
             <input bind:this={picker} type="file" multiple hidden onchange={(e) => { add(e.currentTarget.files); e.currentTarget.value = ''; }} />
             <button type="button" class="pf-conv-icon-btn" title={t('Attach a file')} aria-label={t('Attach a file')} onclick={() => picker.click()} {disabled}>📎</button>
-            <button type="button" class="pf-conv-icon-btn" title={t('Insert an emoji')} aria-label={t('Insert an emoji')} onclick={() => (picking = !picking)} {disabled}>☺</button>
+            <button type="button" class="pf-conv-icon-btn" title={t('Insert an emoji')} aria-label={t('Insert an emoji')} data-pf-emoji-toggle onclick={() => (picking = !picking)} {disabled}>☺</button>
             {#if gifProvider()}<button type="button" class="pf-conv-icon-btn pf-conv-gif-btn" title={t('Send a GIF')} aria-label={t('Send a GIF')} onclick={() => (gifPicking = !gifPicking)} disabled={disabled || sending}>GIF</button>{/if}
             <button type="button" class="pf-conv-send" aria-label={t('Send')} title={t('Send')} disabled={!ready || disabled} onclick={send}>➤</button>
         </div>
     </div>
     {#if picking}
-        <div class="pf-conv-pop-anchor pf-conv-pop-up"><EmojiPicker onpick={insertEmoji} onclose={() => (picking = false)} /></div>
+        <div class="pf-conv-pop-anchor pf-conv-pop-up"><EmojiPicker onpick={insertEmoji} onclose={() => (picking = false)} custom={customEmoji} /></div>
     {/if}
     {#if gifPicking}
         <div class="pf-conv-pop-anchor pf-conv-pop-up"><GifPicker {api} onpick={sendGif} onclose={() => (gifPicking = false)} {onerror} /></div>

@@ -478,8 +478,14 @@ Messages::react($id, $maria, ':our-heart:');
   conversations. They are cached for a year, because a new picture gets a new address.
 - **The client.** The dock's props carry `customEmoji` (name => address) and `manageEmoji`. Each
   change is told on the presence channel as `emoji.changed`, with the whole new list, so open
-  pages update without a reload. The dock draws reactions with the picture. `logic.js` exports
-  `reactionGlyph()` and `customEmojiHtml()` for a page of the application's own.
+  pages update without a reload. In the dock, a `:word` suggests the team's own emoji first, with
+  their pictures, and leaves out a shortcode of the same name. The emoji picker has a group of
+  them that inserts `:name:`, for a message or a reaction. Reactions are drawn with the picture.
+  `logic.js` exports `reactionGlyph()`, `suggestEmoji()` and `customEmojiHtml()` for a page of the
+  application's own.
+- **The pickers.** A message's reaction picker floats over the page beside its button, opening
+  upward where there is no room below, so the message list neither clips it nor scrolls. Scrolling
+  closes it, and a click outside closes any picker.
 - **Permissions.** Whoever uses the conversations may use the emoji. Managing them takes
   `admin.chat.emoji` (`Access::managesEmoji()`), which only a superuser has by default. Each change
   is written to the audit log (`conversations.emoji_*`).

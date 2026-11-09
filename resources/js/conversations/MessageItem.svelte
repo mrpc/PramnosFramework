@@ -18,6 +18,7 @@
     } = $props();
 
     let picking = $state(false);
+    let pickAt = $state(null);                 // the button the reaction picker floats beside
     let playing = $state('');          // the link whose video plays in place
     let refCards = $state({});
 
@@ -231,7 +232,7 @@
                         {#if glyph(reaction.emoji).src}<img class="pf-conv-custom-emoji" src={glyph(reaction.emoji).src} alt={reaction.emoji} title={reaction.emoji}>{:else}<span>{glyph(reaction.emoji).text}</span>{/if}<span class="pf-conv-reaction-count">{reaction.count}</span>
                     </button>
                 {/each}
-                <button type="button" class="pf-conv-reaction pf-conv-reaction-add" aria-label={t('Add a reaction')} onclick={() => (picking = !picking)}>☺+</button>
+                <button type="button" class="pf-conv-reaction pf-conv-reaction-add" aria-label={t('Add a reaction')} data-pf-emoji-toggle onclick={(e) => { pickAt = e.currentTarget; picking = !picking; }}>☺+</button>
             </div>
         {/if}
 
@@ -245,7 +246,7 @@
 
     {#if !deleted && !editing}
         <div class="pf-conv-msg-actions" role="toolbar" aria-label={t('Message actions')}>
-            <button type="button" title={t('Add a reaction')} aria-label={t('Add a reaction')} onclick={() => (picking = !picking)}>☺</button>
+            <button type="button" title={t('Add a reaction')} aria-label={t('Add a reaction')} data-pf-emoji-toggle onclick={(e) => { pickAt = e.currentTarget; picking = !picking; }}>☺</button>
             {#if !inThread && message.threadRootId === null && onreply}
                 <button type="button" title={t('Reply in thread')} aria-label={t('Reply in thread')} onclick={() => onreply(message)}>💬</button>
             {/if}
@@ -263,6 +264,6 @@
         </div>
     {/if}
     {#if picking}
-        <div class="pf-conv-pop-anchor"><EmojiPicker onpick={toggle} onclose={() => (picking = false)} /></div>
+        <EmojiPicker onpick={toggle} onclose={() => (picking = false)} custom={customEmoji} anchor={pickAt} />
     {/if}
 </article>

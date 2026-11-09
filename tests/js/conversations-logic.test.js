@@ -395,3 +395,28 @@ test('a picture given to a replaceable shortcode wins over its emoji', async () 
     assert.deepEqual(plain, { text: '😏' });
     assert.deepEqual(given, { src: '/e?name=kappa', alt: ':kappa:' });
 });
+
+/**
+ * A `:word` suggests the team's own emoji first, written `:name:` with their pictures, then the
+ * shortcodes — and not a shortcode a picture of the team's has the name of (`:kappa:` is the
+ * picture, not 😏). Fewer than two letters suggest nothing.
+ */
+test('the team\'s emoji are suggested first, in place of a shortcode of the same name', async () => {
+    // Arrange
+    const { suggestEmoji } = await load();
+    const emoji = { kappa: '😏', kiss: '😘', smile: '😄' };
+    const custom = { kappa: '/e?name=kappa', 'ka-team': '/e?name=ka-team' };
+
+    // Act
+    const ka = suggestEmoji('ka', emoji, custom);
+    const ki = suggestEmoji('ki', emoji, custom);
+    const short = suggestEmoji('k', emoji, custom);
+
+    // Assert
+    assert.deepEqual(ka, [
+        { emoji: ':ka-team:', src: '/e?name=ka-team', label: ':ka-team:' },
+        { emoji: ':kappa:', src: '/e?name=kappa', label: ':kappa:' },
+    ], 'no 😏 beside the picture');
+    assert.deepEqual(ki, [{ emoji: '😘', label: '😘 :kiss:' }]);
+    assert.deepEqual(short, []);
+});

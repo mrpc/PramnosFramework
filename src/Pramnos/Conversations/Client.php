@@ -196,6 +196,7 @@ final class Client
             'Emoji: reactions' => t('Emoji: reactions'),
             'Emoji: faces' => t('Emoji: faces'),
             'Emoji: work' => t('Emoji: work'),
+            'Emoji: ours' => t('Emoji: ours'),
             'System message' => t('System message'),
             '(edited)' => t('(edited)'),
             'You' => t('You'),
