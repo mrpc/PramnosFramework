@@ -240,6 +240,37 @@ class LocalBroadcastServerTest extends TestCase
         $this->assertNull($refSock->getValue($server));
     }
 
+    /**
+     * A server shutting down tells each connected client to reconnect now (Pusher's 4200) before
+     * it closes, so the clients come straight back to the server that replaces it rather than
+     * finding a dead socket a backoff later; a connection still in its handshake is only closed.
+     */
+    public function testShutdownTellsConnectedClientsToReconnectNow(): void
+    {
+        // Arrange
+        $server  = new LocalBroadcastServer('test-key');
+        $open    = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        $halfway = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        (new \ReflectionProperty($server, 'clients'))->setValue($server, [
+            1 => ['socket' => $open[1], 'state' => 'connected', 'buffer' => '', 'channels' => [], 'socketId' => '1.1', 'pingAt' => time() + 30],
+            2 => ['socket' => $halfway[1], 'state' => 'handshaking', 'buffer' => '', 'channels' => [], 'socketId' => '', 'pingAt' => time() + 30],
+        ]);
+
+        // Act
+        (new \ReflectionMethod($server, 'shutdown'))->invoke($server);
+        stream_set_blocking($open[0], false);
+        stream_set_blocking($halfway[0], false);
+        $toOpen    = (string) stream_get_contents($open[0]);
+        $toHalfway = (string) stream_get_contents($halfway[0]);
+
+        // Assert
+        $this->assertStringContainsString('"event":"pusher:error"', $toOpen);
+        $this->assertStringContainsString('"code":4200', $toOpen);
+        $this->assertStringNotContainsString('pusher:error', $toHalfway, 'not yet a Pusher connection');
+        fclose($open[0]);
+        fclose($halfway[0]);
+    }
+
     public function testRunServerLoop(): void
     {
         $server = new LocalBroadcastServer('test-key');

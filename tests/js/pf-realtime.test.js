@@ -154,6 +154,32 @@ test('a drop of an established connection reconnects and asks for exactly one re
     assert.equal(reread, 1, 'one re-read, not one per frame');
 });
 
+/**
+ * A server going away for a restart says so — Pusher's 4200, "reconnect now" — and the page comes
+ * back within a second rather than after a backoff, then asks once for what it missed; the wait
+ * after that starts again from the shortest.
+ */
+test('a server that says reconnect now is reconnected to at once, and what was missed is re-read', async () => {
+    // Arrange
+    const ui = page();
+    let reread = 0;
+    ui.window.addEventListener('pf:notifications:refresh', () => { reread++; });
+    handshake(ui.sockets[0]);
+
+    // Act — the server's 4200, then its close
+    ui.sockets[0].receive('pusher:error', { code: 4200, message: 'The server is restarting: reconnect now.' });
+    ui.sockets[0].close();
+    const retry = ui.timers[ui.timers.length - 1];
+    retry.fn();
+    handshake(ui.sockets[1]);
+    await settle();
+
+    // Assert
+    assert.ok(retry.ms < 1000, 'within a second: ' + retry.ms);
+    assert.equal(ui.sockets.length, 2, 'it reconnected');
+    assert.equal(reread, 1, 'what it missed, asked once');
+});
+
 test('a handshake that never completed asks for no re-read when it connects', () => {
     // Arrange
     const ui = page();

@@ -926,6 +926,20 @@ the old code. Its log says so: `[git] re-executing the orchestrator to load the 
 followed by a fresh `Starting daemon orchestrator`. Where `pcntl` is not available the log says
 `cannot self-exec`, and only a restart of the service loads new orchestrator code.
 
+**The WebSocket server is left running.** A restart of `broadcast:serve` drops every open realtime
+connection, so a deploy or a migration leaves it alone while its own code is what it started
+with. That code is its **fingerprint** (`DaemonOrchestrator::broadcastFingerprint()`): a hash of
+the framework's broadcasting code, the `broadcast:serve` command and the application's
+`app/app.php`, read from disk at the moment of the check. The log says
+`[deploy] broadcast left running: its own code did not change`. When the fingerprint has moved, it
+stops with the rest. A daemon of your own does the same with `'restartOnDeploy' => false` and a
+`'fingerprint'` in its entry of `buildDesiredProcesses()`. An entry with no fingerprint recorded,
+such as a daemon adopted at start-up, is restarted, to be sure.
+
+When the server does stop, it tells every connected client `pusher:error` 4200, "reconnect now",
+before it closes. pf-utils' realtime connection then comes back within a second instead of after
+its backoff, and asks once for what it missed (see the Realtime guide).
+
 The second is for a migration that changes no commit: one run by a request after the deploy
 had already restarted everything, or one run on its own. A worker started before it would
 otherwise keep the old view of the schema — the tables `hasTable()` found, the column lists of

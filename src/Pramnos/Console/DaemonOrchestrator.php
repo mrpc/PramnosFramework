@@ -697,7 +697,37 @@ abstract class DaemonOrchestrator extends CommandBase
             'lockFile' => $base . '/var/pramnos-broadcast-serve.lock',
             'tokens'   => ['broadcast:serve'],
             'profile'  => 'WebSocket broadcasting server',
+            // Every open realtime connection drops when it restarts: a deploy of the application
+            // or its migrations leave it running, and only a change to its own code restarts it.
+            'restartOnDeploy' => false,
+            'fingerprint'     => self::broadcastFingerprint(),
         ];
+    }
+
+    /**
+     * What the WebSocket daemon runs on, as a hash read from disk now: the framework's
+     * broadcasting code and the console command, and the application's app.php (its
+     * `broadcasting` settings). A deploy that changes none of these leaves the daemon running.
+     */
+    public static function broadcastFingerprint(): string
+    {
+        $src   = dirname(__DIR__);
+        $files = [__DIR__ . '/Commands/BroadcastServe.php', ...(defined('ROOT') ? [\ROOT . '/app/app.php'] : [])];
+        $tree  = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($src . '/Broadcasting', \FilesystemIterator::SKIP_DOTS));
+        foreach ($tree as $file) {
+            if ($file->isFile() && $file->getExtension() === 'php') {
+                $files[] = $file->getPathname();
+            }
+        }
+        sort($files);
+        $hash = hash_init('sha256');
+        foreach ($files as $file) {
+            if (is_file($file)) {
+                hash_update($hash, $file . "\0" . (string) @hash_file('sha256', $file));
+            }
+        }
+
+        return hash_final($hash);
     }
 
     /**
@@ -995,7 +1025,7 @@ abstract class DaemonOrchestrator extends CommandBase
                         . substr($lastGitHash, 0, 8) . ' → ' . substr($currentHash, 0, 8)
                         . '). Requesting graceful restart of all daemons…'
                     );
-                    $this->requestStopAll($output);
+                    $this->requestDeployRestart($output);
                     // Also reload THIS process's code, so newly-declared workers in
                     // buildDesiredProcesses() take effect on a redeploy without a
                     // manual service restart. Returns only if it could not self-exec
@@ -1011,7 +1041,7 @@ abstract class DaemonOrchestrator extends CommandBase
                 $currentSchema = \Pramnos\Database\MigrationRunner::schemaGeneration();
                 if ($currentSchema !== $lastSchema) {
                     $output->writeln('<info>[schema]</info> Migrations changed the schema. Requesting graceful restart of all daemons…');
-                    $this->requestStopAll($output);
+                    $this->requestDeployRestart($output);
                     $lastSchema = $currentSchema;
                 }
                 $lastGitCheck = time();
@@ -1280,6 +1310,8 @@ abstract class DaemonOrchestrator extends CommandBase
                         'workerId'  => $desiredProcess['workerId'],
                         'pid'       => $adoptPid,
                         'lockFile'  => $desiredProcess['lockFile'],
+                        // Running code of unknown age: the next deploy restarts it, to be sure.
+                        'fingerprint' => '',
                         'updatedAt' => date('c'),
                     ];
                     continue;
@@ -1302,6 +1334,7 @@ abstract class DaemonOrchestrator extends CommandBase
                         'workerId'  => $desiredProcess['workerId'],
                         'pid'       => $spawnedPid,
                         'lockFile'  => $desiredProcess['lockFile'],
+                        'fingerprint' => (string) ($desiredProcess['fingerprint'] ?? ''),
                         'updatedAt' => date('c'),
                     ];
                 } else {
@@ -1320,6 +1353,7 @@ abstract class DaemonOrchestrator extends CommandBase
                 'workerId'  => $desiredProcess['workerId'],
                 'pid'       => $spawnedPid,
                 'lockFile'  => $desiredProcess['lockFile'],
+                'fingerprint' => (string) ($desiredProcess['fingerprint'] ?? ''),
                 'updatedAt' => date('c'),
             ];
             $output->writeln('<info>[started]</info> ' . $id . ' pid=' . $spawnedPid);
@@ -1869,6 +1903,43 @@ abstract class DaemonOrchestrator extends CommandBase
             $output->writeln('<comment>[stop-all]</comment> stop requested for ' . ($item['id'] ?? '?'));
         }
 
+        if ($changed) {
+            $this->saveState(array_values($state));
+        }
+    }
+
+    /**
+     * Restart after a deploy or a migration: every managed daemon, except one that says
+     * `'restartOnDeploy' => false` — the WebSocket daemon — whose `fingerprint` is the same as
+     * when it started. A daemon left running is said so; one whose own code changed stops too.
+     */
+    protected function requestDeployRestart(OutputInterface $output): void
+    {
+        $keep = [];
+        foreach ($this->collectDesiredProcesses() as $process) {
+            if (($process['restartOnDeploy'] ?? true) === false && isset($process['id'])) {
+                $keep[(string) $process['id']] = (string) ($process['fingerprint'] ?? '');
+            }
+        }
+        $state   = $this->loadState();
+        $changed = false;
+        foreach ($state as $index => $item) {
+            $id       = (string) ($item['id'] ?? '');
+            $lockFile = (string) ($item['lockFile'] ?? '');
+            if ($lockFile === '') {
+                continue;
+            }
+            if (isset($keep[$id]) && $keep[$id] !== '' && $keep[$id] === (string) ($item['fingerprint'] ?? '')) {
+                $output->writeln('<comment>[deploy]</comment> ' . $id . ' left running: its own code did not change');
+                continue;
+            }
+            $this->requestStop($lockFile);
+            if (!isset($state[$index]['stoppingAt'])) {
+                $state[$index]['stoppingAt'] = date('c');
+                $changed = true;
+            }
+            $output->writeln('<comment>[stop-all]</comment> stop requested for ' . ($id !== '' ? $id : '?'));
+        }
         if ($changed) {
             $this->saveState(array_values($state));
         }

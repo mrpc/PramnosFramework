@@ -2263,6 +2263,11 @@ class LocalBroadcastServer
     private function shutdown(): void
     {
         foreach ($this->clients as $id => $client) {
+            // Pusher's 4200: "reconnect now". A client told this comes straight back to the
+            // server that replaces this one, instead of noticing a dead socket a backoff later.
+            if (($client['state'] ?? '') === 'connected') {
+                $this->wsSend($client['socket'], (string) json_encode(['event' => 'pusher:error', 'data' => ['code' => 4200, 'message' => 'The server is restarting: reconnect now.']]));
+            }
             $this->wsSendClose($client['socket']);
             @fclose($client['socket']);
         }

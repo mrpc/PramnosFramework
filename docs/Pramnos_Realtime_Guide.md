@@ -417,6 +417,13 @@ es.addEventListener('message.created', (e) => append(JSON.parse(e.data)));
 
 ---
 
+**A server that restarts says so.** Before `broadcast:serve` closes its connections, it sends each
+one `pusher:error` with code 4200, which in the Pusher protocol means "reconnect now". pf-utils'
+connection then reconnects within a second (spread, so the new server is not met by every client
+at once) instead of after its backoff. Because the connection was established, the reconnect is
+followed by one `onMissed`, and the page re-reads what it may have missed. A deploy of the
+application does not restart the server at all (Workers and Daemons guide).
+
 ## WebSocket transport
 
 `LocalBroadcastServer` is a dependency-free PHP WebSocket server implementing

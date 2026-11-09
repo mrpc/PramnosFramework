@@ -3259,6 +3259,7 @@
         var missed = false;
         var closed = false;
         var attempt = 0;
+        var soon = false;   // the server said "reconnect now" (Pusher 4200-4299): no backoff
         var activity = 120000;
         var idleTimer = null;
         var pongTimer = null;
@@ -3380,6 +3381,11 @@
                     hooks.onEvent(frame.channel, frame.event.replace('pusher_internal:', 'pusher:'), { id: who, info: (data && data.user_info) || {}, members: presence[frame.channel] });
                     return;
                 }
+                if (frame.event === 'pusher:error' && data && Number(data.code) >= 4200 && Number(data.code) < 4300) {
+                    // A server going away for a restart: back at once, to the one that replaces it.
+                    soon = true;
+                    return;
+                }
                 if (frame.event === 'pusher:error' || frame.event === 'pusher:subscription_error') {
                     lastError = frame.event + ': ' + (typeof data === 'object' && data ? (data.message || JSON.stringify(data)) : String(data));
                     report(established ? 'open' : 'connecting');
@@ -3397,6 +3403,13 @@
                 if (established) { missed = true; }
                 established = false;
                 if (closed) { return; }
+                if (soon) {
+                    // Within a second, spread so a server's every client does not arrive at once.
+                    soon = false;
+                    attempt = 0;
+                    scope.setTimeout(connect, Math.random() * 1000);
+                    return;
+                }
                 var base = Math.min(30000, 1000 * Math.pow(1.5, attempt++));
                 scope.setTimeout(connect, base / 2 + Math.random() * base / 2);
             };
