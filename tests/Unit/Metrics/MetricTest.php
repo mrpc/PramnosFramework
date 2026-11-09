@@ -59,8 +59,8 @@ class MetricTest extends TestCase
         $measured = $rows->measure($window, ['region'], $db);
 
         // Assert
-        $this->assertSame([['dims' => ['region' => 'north'], 'value' => 5.0], ['dims' => ['region' => 'south'], 'value' => 0.0]], $measured);
-        $this->assertSame([['dims' => [], 'value' => 0.0]], $number->measure($window, [], $db));
+        $this->assertSame([['dims' => ['region' => 'north'], 'value' => 5.0, 'tenant' => 0], ['dims' => ['region' => 'south'], 'value' => 0.0, 'tenant' => 0]], $measured);
+        $this->assertSame([['dims' => [], 'value' => 0.0, 'tenant' => 0]], $number->measure($window, [], $db));
         $this->expectException(\UnexpectedValueException::class);
         $number->measure($window, ['region'], $db);   // one number cannot be a breakdown
     }

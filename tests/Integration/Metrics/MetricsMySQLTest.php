@@ -28,6 +28,7 @@ use Pramnos\Metrics\Window;
 #[CoversClass(Metrics::class)]
 #[CoversClass(CreateMetricValuesTable::class)]
 #[CoversClass(\Pramnos\Metrics\Store::class)]
+#[CoversClass(\Pramnos\Metrics\Query::class)]
 #[CoversClass(\Pramnos\Console\Commands\MetricsCompute::class)]
 #[CoversClass(\Pramnos\Dashboard\Widgets\MetricCard::class)]
 #[CoversClass(\Pramnos\Llm\Analyst\Tools\MetricsTool::class)]
@@ -643,6 +644,91 @@ class MetricsMySQLTest extends TestCase
         } finally {
             \Pramnos\Metrics\Store::forget($this->db, 'test.%');
             $schema->dropTableIfExists('metrics_test_big');
+        }
+    }
+
+    /**
+     * Each organisation's values are kept apart (`Metric::tenant()`), its total its own breakdown
+     * added up; a reader reads only the organisations `metrics.tenant` gives them — all of them
+     * when it gives null — through the one query every reader uses; one organisation of theirs
+     * may be picked, another's is refused; a distinct does not add up across organisations; a
+     * metric the reader may not read is refused; and the answers come as a series, a value, a
+     * comparison, rows and a ranking.
+     */
+    public function testEachOrganisationIsKeptAndReadApart(): void
+    {
+        // Arrange
+        $schema = $this->db->schema();
+        $schema->dropTableIfExists('metrics_test_orgs');
+        $schema->createTable('metrics_test_orgs', function ($table) {
+            $table->integer('placed_at');
+            $table->integer('org');
+            $table->string('region', 20);
+            $table->integer('person');
+        });
+        foreach ([[1, 'north', 1], [1, 'north', 2], [1, 'south', 1], [2, 'north', 1], [2, 'south', 3]] as [$org, $region, $person]) {
+            $this->db->queryBuilder()->table('metrics_test_orgs')->insert(['placed_at' => self::at('2026-09-05 10:00'), 'org' => $org, 'region' => $region, 'person' => $person]);
+        }
+        $count = function (string $what): \Closure {
+            return function (Window $w, array $by, Database $db) use ($what): array {
+                $query = $db->queryBuilder()->table('metrics_test_orgs');
+
+                return $query->select([...$by, $query->raw($what . ' AS value')])
+                    ->where('placed_at', '>=', $w->startsAt())->where('placed_at', '<', $w->endsAt())->groupBy($by)->getAllOrFail();
+            };
+        };
+        Metrics::register(
+            Metric::flow('test.org_orders', 'Orders')->dimensions(['region'])->tenant('org')->source($count('COUNT(*)')),
+            Metric::flow('test.org_people', 'People ordering')->aggregate(Metric::DISTINCT)->tenant('org')->source($count('COUNT(DISTINCT person)')),
+            Metric::flow('test.secret', 'Secret')->allowed(static fn (?object $user): bool => false)->source(static fn (): int => 1),
+        );
+        Application::getInstance()->applicationInfo['metrics']['tenant'] = static fn (?object $user): ?array => $user?->orgs ?? null;
+        $mine  = (object) ['userid' => 5, 'usertype' => 99, 'orgs' => [1]];
+        $boss  = (object) ['userid' => 6, 'usertype' => 99];
+        $nobody = (object) ['userid' => 7, 'usertype' => 99, 'orgs' => []];
+
+        try {
+            // Act
+            Metrics::compute(['test.org_orders', 'test.org_people'], ['month'], '2026-09-01', '2026-09-30', false, self::at('2026-11-06 12:00'));
+            $q        = static fn (string $metric): \Pramnos\Metrics\Query => Metrics::query($metric)->grain('month')->at('2026-09-01');
+            $hers     = $q('test.org_orders')->for($mine)->value();
+            $all      = $q('test.org_orders')->for($boss)->value();
+            $none     = $q('test.org_orders')->for($nobody)->value();
+            $oneOfAll = $q('test.org_orders')->for($boss)->tenant(2)->value();
+            $byRegion = $q('test.org_orders')->for($mine)->by('region')->series()['values'];
+            $people   = $q('test.org_people')->for($mine)->value();
+            $rows     = $q('test.org_orders')->for($boss)->by('region')->table();
+            $top      = $q('test.org_orders')->for($boss)->by('region')->top(1);
+            $compared = $q('test.org_orders')->for($mine)->compare(Metrics::YEAR_EARLIER)->compared();
+            $refused  = [];
+            foreach ([
+                static fn () => $q('test.org_orders')->for($mine)->tenant(2),
+                static fn () => $q('test.secret')->for($mine),
+                static fn () => $q('test.org_people')->value(),
+                static fn () => $q('test.org_orders')->top(3),
+            ] as $attempt) {
+                try {
+                    $attempt();
+                } catch (\DomainException|\LogicException $e) {
+                    $refused[] = $e::class;
+                }
+            }
+
+            // Assert
+            $this->assertSame(3.0, $hers, 'organisation 1 alone');
+            $this->assertSame(5.0, $all, 'every organisation, added up');
+            $this->assertNull($none, 'no organisation: nothing');
+            $this->assertSame(2.0, $oneOfAll);
+            $this->assertSame(['north' => [2.0], 'south' => [1.0]], $byRegion);
+            $this->assertSame(2.0, $people, 'distinct, in one organisation');
+            $this->assertSame([['period' => '2026-09-01', 'key' => 'north', 'value' => 3.0], ['period' => '2026-09-01', 'key' => 'south', 'value' => 2.0]], $rows);
+            $this->assertSame(['north' => 3.0], $top);
+            $this->assertSame(['2026-09', 3.0, '2025-09', null], [$compared['period'], $compared['value'], $compared['against'], $compared['other']]);
+            $this->assertSame([\DomainException::class, \DomainException::class, \LogicException::class, \LogicException::class], $refused,
+                'another organisation; a metric not theirs; a distinct over two organisations; a ranking with no dimension');
+        } finally {
+            unset(Application::getInstance()->applicationInfo['metrics']['tenant']);
+            $schema->dropTableIfExists('metrics_test_orgs');
         }
     }
 

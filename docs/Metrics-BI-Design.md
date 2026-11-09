@@ -701,7 +701,7 @@ Each phase ends with measured timings, not estimates.
 |---|---|---|
 | 0 | The storage benchmark (§5.2) in three sizes; PostgreSQL 10 and MySQL checks | **Done:** B, on the numbers in §5.4. MySQL is measured in phase 1, on the real code |
 | 1 | The row (§5.1): `timestamptz`, `jsonb`, tenant, version; the chosen layout; compression and retention; the migration changed in place and the one-time statement; `Store::adopt()` | **Built:** the tables per grain and their view, hypertables and compression, the store's lock, `Store::ensure()` converting the single table, `Store::adopt()`. The marketplace's import is its own data script |
-| 2 | Hour grain; tenant scope and time zone per tenant; the query API (§7), with today's calls on top | every reader on the query API; a per-tenant card on a multi-tenant application |
+| 2 | Hour grain; tenant scope and time zone per tenant; the query API (§7), with today's calls on top | every reader on the query API; a per-tenant card on a multi-tenant application. **Built so far:** `Metrics::query()` with `for()`/`tenant()`, `Metric::tenant()`; today's calls on top of it |
 | 3 | Aggregations and kinds (§4.3); declared sources (§4.4) with `time_bucket` and unix time; live metrics (§4.5); lateness (§6.3); versions and gaps (§4.6) | the sensor platform's daily report rebuilt from declarations |
 | 4 | Alerts, goals, annotations (§9) | "data stopped" and a goal's intraday progress on a real board |
 | 5 | JSON API and SPA components; XLSX; dimension hierarchy, maps, cohorts (§8) | a tenant's dashboard outside the administration |

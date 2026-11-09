@@ -65,6 +65,9 @@ final class Metric
     private ?array $keeps = null;
 
     private ?\Closure $source  = null;
+
+    /** The source's column that names the organisation a row is of; null for none. */
+    private ?string $tenantColumn = null;
     private ?\Closure $rows    = null;
     private ?\Closure $allowed = null;
 
@@ -146,6 +149,24 @@ final class Metric
         $this->source = $source;
 
         return $this;
+    }
+
+    /**
+     * The source's column that names the organisation each row is of: the source is asked by it
+     * too, beside the dimensions, and each value is kept as that organisation's. Not a dimension —
+     * a reader sees only the organisations they may ({@see Query::for()}).
+     */
+    public function tenant(string $column): self
+    {
+        $this->tenantColumn = $column;
+
+        return $this;
+    }
+
+    /** The column that names the organisation, or null. */
+    public function getTenant(): ?string
+    {
+        return $this->tenantColumn;
     }
 
     /** @param \Closure(Window, array<string, string>, \Pramnos\Database\Database): iterable<array<string, mixed>> $rows The records behind a number */
@@ -236,13 +257,14 @@ final class Metric
         if ($this->source === null) {
             throw new \LogicException('Metric ' . $this->name . ' has no source.');
         }
-        $answer = ($this->source)($window, $by, $db);
+        $asked  = $this->tenantColumn !== null ? [...$by, $this->tenantColumn] : $by;
+        $answer = ($this->source)($window, $asked, $db);
         if ($answer === null || is_int($answer) || is_float($answer) || is_numeric($answer)) {
-            if ($by !== []) {
+            if ($asked !== []) {
                 throw new \UnexpectedValueException('Metric ' . $this->name . ' answered one number when asked by ' . implode(', ', $by) . '.');
             }
 
-            return [['dims' => [], 'value' => (float) ($answer ?? 0)]];
+            return [['dims' => [], 'value' => (float) ($answer ?? 0), 'tenant' => 0]];
         }
         $out = [];
         foreach ($answer as $row) {
@@ -251,8 +273,9 @@ final class Metric
             foreach ($by as $name) {
                 $dims[$name] = (string) ($row[$name] ?? '');
             }
-            $key = json_encode($dims);
-            $out[$key] ??= ['dims' => $dims, 'value' => 0.0];
+            $tenant = $this->tenantColumn !== null ? (int) ($row[$this->tenantColumn] ?? 0) : 0;
+            $key    = $tenant . json_encode($dims);
+            $out[$key] ??= ['dims' => $dims, 'value' => 0.0, 'tenant' => $tenant];
             $out[$key]['value'] += (float) ($row['value'] ?? 0);
         }
 

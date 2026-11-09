@@ -248,7 +248,14 @@ final class Metrics
             }
         }
         if ($metric->getAggregate() === Metric::SUM && $metric->getDimensions() !== []) {
-            $rows[] = ['dims' => [], 'value' => array_sum(array_column($rows, 'value'))];
+            // Each organisation's total, its own breakdown added up.
+            $totals = [];
+            foreach ($rows as $row) {
+                $totals[$row['tenant'] ?? 0] = ($totals[$row['tenant'] ?? 0] ?? 0.0) + $row['value'];
+            }
+            foreach ($totals ?: [0 => 0.0] as $tenant => $total) {
+                $rows[] = ['dims' => [], 'value' => $total, 'tenant' => $tenant];
+            }
         }
 
         $kind = $metric->kind === Metric::LEVEL ? Store::SNAPSHOT : Store::COMPUTED;
@@ -289,7 +296,7 @@ final class Metrics
             $delete->delete();
             $insert = [];
             foreach ($rows as $row) {
-                $insert[] = Store::row($db, $metric, $window, $row['dims'], (float) $row['value'], $source, $final, $now);
+                $insert[] = Store::row($db, $metric, $window, $row['dims'], (float) $row['value'], $source, $final, $now, null, (int) ($row['tenant'] ?? 0));
             }
             foreach (array_chunk($insert, 500) as $chunk) {
                 $db->queryBuilder()->table($table)->insertMany($chunk);
@@ -328,9 +335,7 @@ final class Metrics
      */
     public static function series(string $metric, string $grain, string $from, string $to, array $filters = [], ?string $breakdown = null): array
     {
-        $periods = Window::range($grain, $from, $to);
-
-        return ['periods' => $periods, 'values' => self::valuesFor(self::get($metric), $periods, $filters, $breakdown, [])];
+        return self::query($metric)->grain($grain)->between($from, $to)->where($filters)->by($breakdown)->series();
     }
 
     /**
@@ -340,9 +345,7 @@ final class Metrics
      */
     public static function value(string $metric, string $grain, string $at, array $filters = []): ?float
     {
-        $values = self::valuesFor(self::get($metric), [Window::of($grain, $at)], $filters, null, []);
-
-        return $values[''][0] ?? null;
+        return self::query($metric)->grain($grain)->at($at)->where($filters)->value();
     }
 
     /**
@@ -354,19 +357,7 @@ final class Metrics
      */
     public static function compare(string $metric, string $grain, string $at, array $filters = [], string $against = self::PREVIOUS): array
     {
-        $window = Window::of($grain, $at);
-        $other  = $against === self::YEAR_EARLIER ? $window->yearEarlier() : $window->previous();
-        $values = self::valuesFor(self::get($metric), [$window, $other], $filters, null, []);
-        [$a, $b] = [$values[''][0] ?? null, $values[''][1] ?? null];
-
-        return [
-            'period'     => $window->label(),
-            'value'      => $a,
-            'against'    => $other->label(),
-            'other'      => $b,
-            'difference' => $a !== null && $b !== null ? $a - $b : null,
-            'change'     => $a !== null && $b !== null && $b != 0.0 ? ($a - $b) / abs($b) : null,
-        ];
+        return self::query($metric)->grain($grain)->at($at)->where($filters)->compare($against)->compared();
     }
 
     /**
@@ -380,16 +371,53 @@ final class Metrics
         return self::get($metric)->records(Window::of($grain, $at), $filters, self::sourceConnection());
     }
 
+    /** A metric read through the one query every reader uses ({@see Query}). */
+    public static function query(string $metric): Query
+    {
+        return new Query($metric);
+    }
+
+    /**
+     * The values of a metric over periods, for {@see Query}: under `''` without a breakdown, under
+     * each of the breakdown's values with one; null where a period was never computed.
+     *
+     * @param list<Window>                        $periods
+     * @param array<string, string|list<string>> $filters
+     * @param list<int>|null                      $tenants The organisations read, null for every one
+     * @return array<string, list<float|null>>
+     */
+    public static function read(string $metric, array $periods, array $filters = [], ?string $breakdown = null, ?array $tenants = null): array
+    {
+        return self::valuesFor(self::get($metric), $periods, $filters, $breakdown, [], $tenants);
+    }
+
+    /**
+     * Which organisations a viewer may read, from `metrics.tenant` in app.php — a list of ids,
+     * or null for every one (an application without organisations, or a viewer who reads them all).
+     *
+     * @return list<int>|null
+     */
+    public static function tenantsOf(?object $user): ?array
+    {
+        $scope = self::config()['tenant'] ?? null;
+        if (!is_callable($scope)) {
+            return null;
+        }
+        $ids = $scope($user);
+
+        return $ids === null ? null : array_values(array_map('intval', (array) $ids));
+    }
+
     /**
      * @param list<Window>                        $periods
      * @param array<string, string|list<string>> $filters
      * @param list<string>                        $seen    Derived metrics on the way here, against a loop
      * @return array<string, list<float|null>>
      */
-    private static function valuesFor(Metric $metric, array $periods, array $filters, ?string $breakdown, array $seen): array
+    private static function valuesFor(Metric $metric, array $periods, array $filters, ?string $breakdown, array $seen, ?array $tenants = null): array
     {
         if ($metric->kind === Metric::DERIVED) {
-            return self::derive($metric, $periods, $filters, $breakdown, $seen);
+            return self::derive($metric, $periods, $filters, $breakdown, $seen, $tenants);
         }
         $set  = self::setFor($metric, $filters, $breakdown);
         $keys = array_map(static fn (Window $w): string => $w->key(), $periods);
@@ -398,14 +426,24 @@ final class Metrics
         }
         $db      = self::db();
         $instants = array_values(array_unique(array_map(static fn (Window $w): string => Store::instant($db, $w), $periods)));
-        $result = $db->queryBuilder()->table(Store::table($periods[0]->grain))->select(['period_start', 'dimset', 'dims', 'value'])
-            ->where('metric', $metric->name)->where('version', Store::VERSION)->whereIn('dimset', array_values(array_unique([implode(',', $set), ''])))->whereIn('period_start', $instants)->get();
+        $query = $db->queryBuilder()->table(Store::table($periods[0]->grain))->select(['period_start', 'tenant', 'dimset', 'dims', 'value'])
+            ->where('metric', $metric->name)->where('version', Store::VERSION)->whereIn('dimset', array_values(array_unique([implode(',', $set), ''])))->whereIn('period_start', $instants);
+        if ($tenants !== null) {
+            // The reader's organisations: none at all reads nothing.
+            if ($tenants === []) {
+                return $breakdown === null ? ['' => array_fill(0, count($keys), null)] : [];
+            }
+            $query->whereIn('tenant', array_values(array_unique(array_map('intval', $tenants))));
+        }
+        $result = $query->get();
+        $from   = [];
         $known = [];
         $sums  = [];
         while ($result && ($row = $result->fetch()) !== null) {
             $period         = Store::key((string) $row['period_start']);
             // The total marks a period as computed; only the breakdown asked for is added up.
             $known[$period] = true;
+            $from[(int) $row['tenant']] = true;
             if ((string) $row['dimset'] !== implode(',', $set)) {
                 continue;
             }
@@ -417,6 +455,10 @@ final class Metrics
             }
             $key                  = $breakdown === null ? '' : (string) ($dims[$breakdown] ?? '');
             $sums[$key][$period]  = ($sums[$key][$period] ?? 0.0) + (float) $row['value'];
+        }
+        if (count($from) > 1 && $metric->getAggregate() === Metric::DISTINCT) {
+            // Somebody counted in two organisations is one person: their counts do not add up.
+            throw new \LogicException(sprintf(t('%s is counted once per organisation: read one organisation at a time.'), $metric->label()));
         }
         if ($sums === [] && $breakdown === null) {
             $sums[''] = [];
@@ -473,7 +515,7 @@ final class Metrics
      * @param list<string>                        $seen
      * @return array<string, list<float|null>>
      */
-    private static function derive(Metric $metric, array $periods, array $filters, ?string $breakdown, array $seen): array
+    private static function derive(Metric $metric, array $periods, array $filters, ?string $breakdown, array $seen, ?array $tenants = null): array
     {
         if (in_array($metric->name, $seen, true)) {
             throw new \LogicException('Metric ' . $metric->name . ' is worked out from itself.');
@@ -482,7 +524,7 @@ final class Metrics
         $operands = [];
         $keys     = [];
         foreach ($metric->operands() as $name) {
-            $operands[$name] = self::valuesFor(self::get($name), $periods, $filters, $breakdown, $seen);
+            $operands[$name] = self::valuesFor(self::get($name), $periods, $filters, $breakdown, $seen, $tenants);
             $keys            = array_merge($keys, array_keys($operands[$name]));
         }
         $keys = array_values(array_unique(array_map('strval', $keys ?: [''])));

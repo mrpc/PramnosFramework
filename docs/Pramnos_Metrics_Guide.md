@@ -189,6 +189,47 @@ Metrics::records('orders.count', 'month', '2026-09-01', ['region' => 'north']); 
 The value of a period that was never computed is `null`, which is different from `0`. Without a
 breakdown, `series()` keeps the values under the key `''`.
 
+### One query for every reader
+
+`Metrics::query()` is the read every reader goes through: a card, a report, an export, the JSON
+API or the assistant. The calls above are short forms of it.
+
+```php
+Metrics::query('orders.count')
+    ->grain('month')->between('2026-01-01', '2026-10-31')   // or ->at('2026-09-01'): one period
+    ->by('plan')->where(['region' => 'north'])
+    ->compare(Metrics::YEAR_EARLIER)                         // for ->compared()
+    ->for($user)                                             // what this viewer may read
+    ->series();          // or ->value(), ->compared(), ->table() (rows: period, key, value), ->top(10)
+```
+
+- **`for($user)`** refuses a metric the viewer may not read (`allowed()`), with a
+  `DomainException`. It also narrows the values to the organisations the viewer may read (below).
+  Without it, every organisation is read, as a scheduled job reads them.
+- **`tenant($id)`** narrows the read to one organisation. If `for()` came first, it must be one of
+  the viewer's.
+- **`top($n)`** gives the breakdown's largest values in the last period, largest first.
+
+### Organisations
+
+In an application whose figures belong to organisations, a metric names the source's column that
+says which organisation each row is of. Every value is then kept per organisation, and each
+organisation's total is its own breakdown added up.
+
+```php
+Metric::flow('water.consumed', 'Water consumed')->dimensions(['zone'])->tenant('organizationid')->source(…);
+
+// app/app.php: which organisations a viewer may read — a list of ids, or null for all of them
+'metrics' => ['tenant' => fn (?object $user): ?array => $user?->organizationIds()],
+```
+
+The source is asked by the organisation's column too, beside the dimensions (`$by`), so its
+`GROUP BY` covers it. The organisation is not a dimension: a reader never chooses it as a
+breakdown, and never sees an organisation that is not theirs. Sums and levels add up across a
+viewer's organisations. A distinct does not: somebody counted in two organisations is one person.
+Reading a distinct metric over more than one organisation therefore throws a `LogicException`, and
+the reader picks one with `tenant()`.
+
 ## On the dashboard and for the assistant
 
 - **Dashboard:** each metric is a card, `metric.<name>`, in the dashboard's catalogue. It is
