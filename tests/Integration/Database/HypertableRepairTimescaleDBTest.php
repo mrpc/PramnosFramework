@@ -316,9 +316,19 @@ class HypertableRepairTimescaleDBTest extends TestCase
 
         // Act
         HypertableRegistry::loadOverridesFromConfig([self::TABLE => ['retention' => null]]);
+        // What timescale:ensure reads before it applies anything: without the drift here it
+        // printed "Nothing to do" and apply() was never reached.
+        $inspect = (new \ReflectionMethod(\Pramnos\Console\Commands\TimescaleEnsure::class, 'inspect'));
+        $state   = $inspect->invoke(new \Pramnos\Console\Commands\TimescaleEnsure(), $this->schema, $this->db, self::TABLE,
+            HypertableRegistry::spec(self::TABLE));
         $done = HypertableRegistry::apply($this->schema, self::TABLE);
+        $after = $inspect->invoke(new \Pramnos\Console\Commands\TimescaleEnsure(), $this->schema, $this->db, self::TABLE,
+            HypertableRegistry::spec(self::TABLE));
 
         // Assert
+        $this->assertCount(1, $state['missing'], 'the installed policy is the drift');
+        $this->assertStringContainsString('→ kept for ever', $state['missing'][0]);
+        $this->assertSame([], $after['missing'], 'and once removed, nothing is left to do');
         $this->assertContains('retention policy removed (kept for ever, as app.php declares)', $done);
         $this->assertFalse($this->schema->hasRetentionPolicy(self::TABLE), 'read back from the catalogue');
         $this->assertSame([], HypertableRegistry::apply($this->schema, self::TABLE), 'and a second run has nothing to do');

@@ -279,7 +279,7 @@ installation:
 Then apply it:
 
 ```bash
-php pramnos timescale:ensure --dry-run   # what would change
+php pramnos timescale:ensure --dry-run   # what would change: «retention policy removed (2 years → kept for ever)»
 php pramnos timescale:ensure             # change it
 ```
 

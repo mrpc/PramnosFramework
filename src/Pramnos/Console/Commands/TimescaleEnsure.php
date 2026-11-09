@@ -301,6 +301,11 @@ class TimescaleEnsure extends Command
                         . ' → ' . $spec['retention'] . ')';
                 }
             }
+        } elseif (!empty($spec['keep_for_ever']) && $schema->hasRetentionPolicy($table)) {
+            // `retention => null` in app.php: the policy installed is the drift, and apply()
+            // removes it — so the status has to say so, or apply() is never reached.
+            $state['missing'][] = 'retention policy removed ('
+                . ($schema->policyInterval($table, 'retention') ?? 'a policy') . ' → kept for ever)';
         }
 
         return $state;
