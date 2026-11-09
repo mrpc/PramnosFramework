@@ -347,9 +347,18 @@ class AnalystTest extends LlmTestCase
         // Arrange
         $this->boot($type, $host, $port, $user);
         $this->configure(['admin_tools' => [PostsTool::class, new PostsTool('posts_today'), \stdClass::class, 'NoSuchClass']]);
+        // No metrics, whatever audience tables another test left in the database: the count is the tools'.
+        $metrics = \Pramnos\Application\Application::getInstance()->applicationInfo['metrics'] ?? null;
+        \Pramnos\Application\Application::getInstance()->applicationInfo['metrics'] = ['audience' => false];
+        \Pramnos\Metrics\Metrics::reset();
 
         // Act
-        $tools = Analyst::tools();
+        try {
+            $tools = Analyst::tools();
+        } finally {
+            \Pramnos\Application\Application::getInstance()->applicationInfo['metrics'] = $metrics;
+            \Pramnos\Metrics\Metrics::reset();
+        }
 
         // Assert
         $this->assertArrayHasKey('posts', $tools);

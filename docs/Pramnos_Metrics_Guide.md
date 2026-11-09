@@ -418,6 +418,29 @@ Metric::flow('fees', 'Fees')->tenant('org')->currency(fn (int $org): string => O
 
 There is no conversion between currencies: a figure in pounds is never turned into euros.
 
+### The audience's own metrics
+
+Where the audience's tables are, its segments and person events are metrics with nothing
+declared (`Pramnos\Audience\AudienceMetrics`):
+
+| Metric | What it counts |
+|---|---|
+| `audience.segment.members` | The people in each segment at the end of the period: a level, by `segment` |
+| `audience.segment.entered` | Who entered each segment in the period. Its first working out puts everybody in at once, and is its start, not people entering |
+| `audience.segment.left` | Who left each segment in the period |
+| `event.<key>` | A person event's occurrences, from the change log |
+| `event.<key>.people` | The people who did it |
+
+A segment's size is then a chart, a goal or an alert. A segment's past goes back as far as its
+stays are kept (`audience.segment_history_days`), and an event's as far as the change log keeps
+it. `'metrics' => ['audience' => false]` leaves them out, and a metric the application registers
+under the same name wins.
+
+**A level that knows its past.** A level is normally kept only as each period closes, because how
+things stood in an older period is not known. A level whose source can say it, from dated stays
+or a history it keeps, declares `->knowsThePast()`, and its past periods are computed as a flow's
+are. The segments' size is such a level.
+
 ## On the dashboard and for the assistant
 
 - **Dashboard:** each metric is a card, `metric.<name>`, in the dashboard's catalogue. It is

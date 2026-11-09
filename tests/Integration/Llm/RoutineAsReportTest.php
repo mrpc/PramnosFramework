@@ -28,9 +28,13 @@ class RoutineAsReportTest extends LlmTestCase
 {
     use ChatDatabase;
 
+    /** The application's metrics settings, put back after. */
+    private mixed $metricsConfig = null;
+
     /** The reports and the metrics forgotten, then the database let go. */
     protected function tearDown(): void
     {
+        \Pramnos\Application\Application::getInstance()->applicationInfo['metrics'] = $this->metricsConfig;
         ReportProposal::useClient(null);
         Metrics::reset();
         if (isset($this->db)) {
@@ -58,6 +62,9 @@ class RoutineAsReportTest extends LlmTestCase
         $owner = (int) $this->db->getInsertId();
         $this->db->queryBuilder()->table('users')->insert(['username' => 'routine-reader', 'email' => 'reader@example.test', 'usertype' => 98]);
         $reader = (int) $this->db->getInsertId();
+        // The metrics as this test declares them: no scope, tenants or audience another test left set.
+        $this->metricsConfig = \Pramnos\Application\Application::getInstance()->applicationInfo['metrics'] ?? null;
+        \Pramnos\Application\Application::getInstance()->applicationInfo['metrics'] = ['audience' => false];
         Metrics::reset();
         Metrics::register(Metric::flow('test.sales', 'Sales')->source(static fn (): int => 3));
         ReportProposal::useClient(static fn (): \Pramnos\Llm\Client => new class () extends \Pramnos\Llm\Client {

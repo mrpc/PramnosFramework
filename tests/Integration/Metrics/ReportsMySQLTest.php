@@ -517,7 +517,8 @@ class ReportsMySQLTest extends TestCase
         // Act — no metrics, no screen
         $this->signIn(98, 2);
         Metrics::reset();
-        Application::getInstance()->applicationInfo['metrics'] = [];
+        // None declared, and not the audience's either, which its tables would bring.
+        Application::getInstance()->applicationInfo['metrics'] = ['audience' => false];
         $screen->flash = [];
         $this->request('GET');
         $screen->display();

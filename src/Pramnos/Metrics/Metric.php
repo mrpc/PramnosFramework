@@ -93,6 +93,9 @@ final class Metric
     /** @var string|(\Closure(int): string)|null Its currency, or each organisation's; null: `metrics.currency` */
     private string|\Closure|null $currency = null;
 
+    /** A level whose source answers how things stood at the end of any period, past ones too. */
+    private bool $knowsThePast = false;
+
     /** Read whole by everybody who may read it, whatever their scope ({@see Metrics::scopeOf()}). */
     private bool $unscoped = false;
 
@@ -360,6 +363,24 @@ final class Metric
     public function declared(): ?array
     {
         return $this->query;
+    }
+
+    /**
+     * A level whose source can say how things stood at the end of any period — from dated stays,
+     * a history it keeps — and not only now: its past periods are computed as a flow's are, closed
+     * once computed. Without it a level is kept only as each period closes.
+     */
+    public function knowsThePast(): self
+    {
+        $this->knowsThePast = true;
+
+        return $this;
+    }
+
+    /** Whether its past periods can be computed ({@see knowsThePast()}). */
+    public function hasThePast(): bool
+    {
+        return $this->kind !== self::LEVEL || $this->knowsThePast;
     }
 
     /**

@@ -313,7 +313,7 @@ final class Metrics
         }
         $final = $closed->count() > 0;
         // A closed period is kept; a level that has ended was either kept when it closed or never can be.
-        if (($final && !$recompute) || ($metric->kind === Metric::LEVEL && $ended && ($final || !self::closesNow($window, $now)))) {
+        if (($final && !$recompute) || (!$metric->hasThePast() && $ended && ($final || !self::closesNow($window, $now)))) {
             return 'skipped';
         }
 
@@ -935,6 +935,20 @@ final class Metrics
                 } elseif ($item instanceof Dimension) {
                     self::$dimensions[$item->name] ??= $item;
                 }
+            }
+        }
+        // The audience's own — segments and person events — where its tables are, unless app.php says not.
+        if ((self::config()['audience'] ?? true) !== false) {
+            try {
+                foreach ((new \Pramnos\Audience\AudienceMetrics())->metrics() as $item) {
+                    if ($item instanceof Metric) {
+                        self::$metrics[$item->name] ??= $item;
+                    } elseif ($item instanceof Dimension) {
+                        self::$dimensions[$item->name] ??= $item;
+                    }
+                }
+            } catch (\Throwable $e) {
+                \Pramnos\Logs\Logger::log('The audience\'s metrics were left out: ' . $e->getMessage(), 'metrics');
             }
         }
         // Registered in code wins over app.php's, as with dashboard widgets.

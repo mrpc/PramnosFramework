@@ -249,6 +249,10 @@ Segments::isMember($id, $userid);
   or while something an application reports through `Segments::usage('rules', fn (int $id) =>
   [...names...])` does; the refusal lists what. Deleting takes the history with it.
 
+**Segments as metrics.** Each segment's size over time, and who entered and left it, are metrics
+with nothing declared, and so are the declared person events. See *The audience's own metrics* in
+the [Metrics guide](Pramnos_Metrics_Guide.md).
+
 ## Groups
 
 Groups are the framework's `usergroups` / `userstogroups` — the same ones permissions and the
