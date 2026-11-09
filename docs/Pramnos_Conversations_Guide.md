@@ -724,7 +724,7 @@ and only for them: the summary is answered, not posted.
 \Pramnos\Conversations\Summary::of($conversationId, $reader, 'unread', 'el');
 \Pramnos\Conversations\Summary::of($conversationId, $reader, ['hours' => 24]);
 \Pramnos\Conversations\Summary::of($conversationId, $reader, ['since' => $unix]);
-// ['summary' => markdown citing [#id], 'messages' => [the ids it cites], 'from', 'to', 'count', 'cut']
+// ['summary' => markdown citing [#id], 'messages' => [the ids it cites], 'from', 'to', 'count', 'cut', 'language']
 ```
 
 - It reads only a conversation the reader reads (`Conversations::canRead()`); another is a
@@ -734,6 +734,11 @@ and only for them: the summary is answered, not posted.
   of it, so they get its last day.
 - At most 400 messages and 60,000 characters go to the model, the newest. `cut` says older
   ones were left out, and the summary says so too.
+- It is written in the language asked for (`el`, `en`). Without one it is written in the
+  messages' own language, decided by their letters alone: Greek where Greek letters are the most,
+  English otherwise. Mentions and addresses do not count, and neither do the writers' names. A
+  model asked for "the language most messages are in" takes the names for it. The answer's
+  `language` says which.
 - `messages` holds only the ids among those read, so a link never points at a message the
   reader may not open.
 - Nothing to sum up is answered empty, without a call. The call is logged and costed to the
@@ -1210,7 +1215,7 @@ application with the `conversations` feature; an application made before adds th
 | `changeautomation/{automationId}` | POST | any of those but `kind` | `{automations, manages}` |
 | `pauseautomation/{automationId}` | POST | `paused` (yes by default) | `{automations, manages}` |
 | `deleteautomation/{automationId}` | POST | — | `{automations, manages}` |
-| `summarize/{id}` | POST | `since` (`unread`, the default, or a Unix time), `hours`, `language` | `{summary, messages, from, to, count, cut}`: see [A summary](#a-summary) |
+| `summarize/{id}` | POST | `since` (`unread`, the default, or a Unix time), `hours`, `language` | `{summary, messages, from, to, count, cut, language}`: see [A summary](#a-summary) |
 | `people` | GET | `q` | `{people}`: who may use the conversations, by a part of the name |
 | `person/{id}` | GET | `show` (`messages`, `mentions`, `files`), `q` | `{person}`: as `People::profile()` answers; with `show`, also what they wrote holding the words of `q`, what mentions them, or the files they sent — 404 for somebody the reader does not see |
 | `refs` | GET | `keys` (`user:5,jira:NAN-1`) | `{cards}`: each as the application draws it for the reader, or null |

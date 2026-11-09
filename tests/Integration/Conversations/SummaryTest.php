@@ -112,7 +112,8 @@ class SummaryTest extends TestCase
             $this->assertStringNotContainsString('Old news', $asked['user'], 'read already');
             $this->assertStringNotContainsString('A secret typo', $asked['user'], 'deleted');
             $this->assertStringNotContainsString('My own words', $asked['user']);
-            $this->assertStringContainsString('"el"', $asked['system']);
+            $this->assertStringContainsString('Write in Greek', $asked['system'], 'the language asked for, named');
+            $this->assertSame('el', $summary['language']);
             $this->assertSame(['purpose' => 'conversation_summary', 'userid' => $nikos], $asked['about'], 'costed to the reader');
         } finally {
             \Pramnos\Broadcasting\Testing\FakeDriver::restore();
@@ -164,7 +165,7 @@ class SummaryTest extends TestCase
             }
 
             // Assert
-            $this->assertSame(['summary' => '', 'messages' => [], 'from' => null, 'to' => null, 'count' => 0, 'cut' => false], $empty);
+            $this->assertSame(['summary' => '', 'messages' => [], 'from' => null, 'to' => null, 'count' => 0, 'cut' => false, 'language' => ''], $empty);
             $this->assertSame([], SummaryClient::$asked, 'no call for nothing');
             $this->assertNotNull($refused, 'not a member of the private channel');
             $this->assertNotNull($wrong);
@@ -209,6 +210,39 @@ class SummaryTest extends TestCase
             $this->assertSame(2, $tool['count'], 'the tool: the same summary, by the channel\'s name');
             $this->assertSame('Error: there is no such conversation you read.', $none);
             $this->assertSame('conversation_summary', (new ConversationSummaryTool())->name());
+        } finally {
+            \Pramnos\Broadcasting\Testing\FakeDriver::restore();
+        }
+    }
+
+    /**
+     * Without a language asked for, the summary is in the messages' own — by their letters, not
+     * the writers' names: English text between people with Greek names is summed up in English,
+     * Greek text in Greek; a mention and an address do not count.
+     */
+    #[DataProvider('databases')]
+    public function testTheLanguageIsTheMessagesOwn(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->setUpConversations($type, $host, $port, $user);
+        [$maria, $nikos] = [$this->ids['maria'], $this->ids['nikos']];
+        $english = Conversations::create('channel', 'invoices', [$nikos], $maria);
+        $greek   = Conversations::create('channel', 'timologia', [$nikos], $maria);
+        try {
+            Messages::post($english, $maria, 'We agreed to ship the new invoices screen on Thursday. <@' . $nikos . '> ok?');
+            Messages::post($english, $nikos, 'Ναι — https://example.com/τιμολόγια fine by me.');
+            Messages::post($greek, $maria, 'Συμφωνήσαμε να βγει η νέα οθόνη τιμολογίων την Πέμπτη, ok;');
+            SummaryClient::$reply = 'ok';
+
+            // Act
+            $inEnglish = Summary::of($english, $this->user('nikos'), ['hours' => 1]);
+            $inGreek   = Summary::of($greek, $this->user('nikos'), ['hours' => 1]);
+
+            // Assert
+            $this->assertSame(['en', 'el'], [$inEnglish['language'], $inGreek['language']]);
+            $this->assertStringContainsString('Write in English', SummaryClient::$asked[0]['system']);
+            $this->assertStringContainsString('Μαρία', SummaryClient::$asked[0]['user'], 'the writers\' Greek names were there, and did not decide it');
+            $this->assertStringContainsString('Write in Greek', SummaryClient::$asked[1]['system']);
         } finally {
             \Pramnos\Broadcasting\Testing\FakeDriver::restore();
         }

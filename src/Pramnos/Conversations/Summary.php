@@ -31,6 +31,9 @@ final class Summary
     /** The most characters of messages read. */
     public const MAX_CHARACTERS = 60000;
 
+    /** The languages the prompt names in words, by code. */
+    public const LANGUAGES = ['el' => 'Greek', 'en' => 'English'];
+
     /** @var (\Closure(): \Pramnos\Llm\Client)|null A test's own client */
     private static ?\Closure $client = null;
 
@@ -44,8 +47,8 @@ final class Summary
      * The summary.
      *
      * @param string|array{hours?: int, since?: int} $since `unread`, `['hours' => n]` or `['since' => unix]`
-     * @param string $language The reader's language (`el`, `en`); the messages' own when empty
-     * @return array{summary: string, messages: list<int>, from: ?int, to: ?int, count: int, cut: bool}
+     * @param string $language The language to write in (`el`, `en`); the messages' own when empty ({@see languageOf()})
+     * @return array{summary: string, messages: list<int>, from: ?int, to: ?int, count: int, cut: bool, language: string}
      * @throws \DomainException          A conversation the reader does not read
      * @throws \InvalidArgumentException `since` is none of these, or the model gave no answer
      */
@@ -55,10 +58,11 @@ final class Summary
             throw new \DomainException(t('That conversation no longer exists.'));
         }
         [$messages, $cut] = self::read($conversationId, $reader, $since);
-        $empty = ['summary' => '', 'messages' => [], 'from' => null, 'to' => null, 'count' => 0, 'cut' => false];
+        $empty = ['summary' => '', 'messages' => [], 'from' => null, 'to' => null, 'count' => 0, 'cut' => false, 'language' => $language];
         if ($messages === []) {
             return $empty;
         }
+        $language = $language !== '' ? strtolower($language) : self::languageOf($messages);
         $names = People::names(array_merge(array_column($messages, 'authorid'), self::mentioned($messages)));
         $lines = [];
         foreach ($messages as $m) {
@@ -73,7 +77,7 @@ final class Summary
             'You sum up a team conversation for one of its members. Markdown, short: the decisions, the questions still open, '
             . 'what is asked of people, by name. Cite the messages each point rests on as [#id], with the ids given. '
             . 'Do not invent anything that is not in the messages. '
-            . ($language !== '' ? 'Write in the language with code "' . $language . '".' : 'Write in the language most messages are in.')
+            . 'Write in ' . (self::LANGUAGES[$language] ?? 'the language with code "' . $language . '"') . ', whatever the people\'s names are written in.'
             . ($cut ? ' Older messages were left out; say so in one line at the start.' : ''),
             [['role' => 'user', 'content' => implode("\n", $lines)]],
         );
@@ -85,7 +89,8 @@ final class Summary
         $ids = array_column($messages, 'messageid');
 
         return ['summary' => $summary, 'messages' => array_values(array_unique(array_map('intval', array_intersect($found[1], $ids)))),
-            'from' => (int) $messages[0]['at_unix'], 'to' => (int) end($messages)['at_unix'], 'count' => count($messages), 'cut' => $cut];
+            'from' => (int) $messages[0]['at_unix'], 'to' => (int) end($messages)['at_unix'], 'count' => count($messages), 'cut' => $cut,
+            'language' => $language];
     }
 
     /**
@@ -129,6 +134,21 @@ final class Summary
         }
 
         return [array_reverse($kept), $cut];
+    }
+
+    /**
+     * The language the messages are written in, by their letters alone — not the people's names,
+     * which a model otherwise takes for the language: Greek where Greek letters are most, English
+     * otherwise. A model asked for "the language most messages are in" wrote in Greek, every time,
+     * of English messages between people with Greek names.
+     *
+     * @param list<array<string, mixed>> $messages
+     */
+    public static function languageOf(array $messages): string
+    {
+        $text = (string) preg_replace(['/<@\d+>/', '~https?://\S+~u'], ' ', implode(' ', array_column($messages, 'body')));
+
+        return preg_match_all('/\p{Greek}/u', $text) > preg_match_all('/\p{Latin}/u', $text) ? 'el' : 'en';
     }
 
     /** @param list<array<string, mixed>> $messages @return list<int> The people the messages mention */
