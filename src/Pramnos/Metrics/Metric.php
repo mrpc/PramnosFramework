@@ -139,6 +139,59 @@ final class Metric
     }
 
     /** Arithmetic over other metrics, worked out when read. */
+    /**
+     * A cohort: of those who began in a period — registered, say — how many reached an event —
+     * their first payment — within each number of days. Declared on a table:
+     *
+     * ```php
+     * Metric::cohort('parents.paid_within', 'Paid within N days')->from('users')
+     *     ->of('regdate', unix: true)->event('firstpayment', unix: true)->within([7, 14, 30]);
+     * ```
+     *
+     * Kept per cohort period with the dimension `within` (`7`, `14`, `30`), and its total the
+     * cohort's size. The values of `within` do not add up: each is read on its own.
+     */
+    public static function cohort(string $name, string $label = ''): self
+    {
+        $metric            = new self(self::FLOW, $name, $label);
+        $metric->aggregate = self::DISTINCT;
+        $metric->keeps     = [['within']];
+        $metric->dimensions = ['within'];
+
+        return $metric;
+    }
+
+    /** A cohort's start: the column each one began at — the period it is counted in. */
+    public function of(string $column, bool $unix = false): self
+    {
+        return $this->at($column, $unix);
+    }
+
+    /** A cohort's event: the column the event happened at, empty where it has not. */
+    public function event(string $column, bool $unix = false): self
+    {
+        $this->needsTable('event');
+        $this->query['event'] = self::identifier($column);
+        $this->query['eventUnix'] = $unix;
+        $this->query['fn']   = 'COHORT';
+
+        return $this;
+    }
+
+    /** A cohort's offsets: within how many days of its start the event counts. @param list<int> $days */
+    public function within(array $days): self
+    {
+        $this->needsTable('within');
+        $days = array_values(array_unique(array_map('intval', $days)));
+        if ($days === [] || min($days) < 0) {
+            throw new \InvalidArgumentException('within() takes days: [7, 14, 30].');
+        }
+        sort($days);
+        $this->query['within'] = $days;
+
+        return $this;
+    }
+
     public static function derived(string $name, string $expression, string $label = '', string $unit = ''): self
     {
         $metric          = new self(self::DERIVED, $name, $label);
@@ -386,6 +439,60 @@ final class Metric
     }
 
     /**
+     * A cohort's rows in a window: its size, and for `within` each number of days how many reached
+     * the event within it, grouped by any other dimension asked.
+     *
+     * @param array<string, mixed> $q
+     * @param list<string>         $by
+     * @return list<array<string, mixed>>
+     */
+    private static function cohortRows(array $q, Window $w, array $by, \Pramnos\Database\Database $db): array
+    {
+        $others = array_values(array_diff($by, ['within']));
+        $offsets = in_array('within', $by, true) ? ($q['within'] ?? []) : [null];
+        $rows   = [];
+        foreach ($offsets as $days) {
+            $query  = $db->queryBuilder()->table($q['table']);
+            $select = [];
+            $group  = [];
+            foreach ($others as $name) {
+                $expression = $q['columns'][$name] ?? $name;
+                $select[]   = $query->raw($expression . ' AS ' . self::identifier($name));
+                $group[]    = $query->raw($expression);
+            }
+            $select[] = $query->raw('COUNT(*) AS value');
+            $query->select($select);
+            [$from, $to] = $q['unix'] ? [$w->startsAt(), $w->endsAt()] : [\Pramnos\Database\Instant::utc($w->startsAt(), $db), \Pramnos\Database\Instant::utc($w->endsAt(), $db)];
+            $query->where($q['time'], '>=', $from)->where($q['time'], '<', $to);
+            foreach ($q['where'] as [$column, $value]) {
+                is_array($value) ? $query->whereIn($column, array_values($value)) : $query->where($column, $value);
+            }
+            if ($days !== null) {
+                // Raw: the event within N days of the start — seconds apart for unix times, an
+                // interval for dates — compared column to column.
+                $query->whereNotNull($q['event']);
+                $start = $q['unix'] ? $q['time'] : self::epoch($q['time'], $db);
+                $event = $q['eventUnix'] ? $q['event'] : self::epoch($q['event'], $db);
+                $query->whereRaw($event . ' >= ' . $start . ' AND ' . $event . ' - ' . $start . ' <= ' . ((int) $days * 86400));
+            }
+            if ($group !== []) {
+                $query->groupBy($group);
+            }
+            foreach ($query->getAllOrFail() as $row) {
+                $rows[] = $days === null ? $row : $row + ['within' => (string) $days];
+            }
+        }
+
+        return $rows;
+    }
+
+    /** A date or time column as unix seconds, in each database's own words. */
+    private static function epoch(string $column, \Pramnos\Database\Database $db): string
+    {
+        return $db->type === 'postgresql' ? 'EXTRACT(EPOCH FROM ' . $column . ')' : 'UNIX_TIMESTAMP(' . $column . ')';
+    }
+
+    /**
      * A counter's increase in a window, per breakdown: each entity's readings in time, each one's
      * rise over the one before, a fall a reset counted from nought, added up.
      *
@@ -464,6 +571,9 @@ final class Metric
             throw new \LogicException('Metric ' . $this->name . ': a declared query needs at() and what it counts (sum(), count(), countDistinct()).');
         }
 
+        if ($q['fn'] === 'COHORT') {
+            return static fn (Window $w, array $by, \Pramnos\Database\Database $db): array => self::cohortRows($q, $w, $by, $db);
+        }
         if ($q['fn'] === 'COUNTER') {
             return static fn (Window $w, array $by, \Pramnos\Database\Database $db): array => self::counterRows($q, $w, $by, $db);
         }
@@ -522,7 +632,7 @@ final class Metric
     {
         $this->ahead = [];
         $q = $this->query;
-        if ($q === null || $windows === [] || $db->type !== 'postgresql' || !$q['unix'] || $q['time'] === '' || $q['fn'] === '' || in_array($q['fn'], ['LAST', 'COUNTER'], true)) {
+        if ($q === null || $windows === [] || $db->type !== 'postgresql' || !$q['unix'] || $q['time'] === '' || $q['fn'] === '' || in_array($q['fn'], ['LAST', 'COUNTER', 'COHORT'], true)) {
             return false;
         }
         $grain = $windows[0]->grain;

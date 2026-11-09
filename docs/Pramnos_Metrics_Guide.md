@@ -120,6 +120,18 @@ Metric::flow('payments.amount', 'Revenue')
   reading lower than the one before is a reset, counted from nought. The entities are then added
   together. The increase counts from each entity's first reading in the period, not from the
   previous period's last.
+- **Cohorts.** `Metric::cohort()` counts, of those who began in a period, how many reached an event
+  within each number of days. It is declared on a table:
+
+  ```php
+  Metric::cohort('parents.paid_within', 'Paid within N days')->from('users')
+      ->of('regdate', unix: true)->event('firstpayment', unix: true)->within([7, 14, 30]);
+  ```
+
+  - **Storage.** It is kept per cohort period with the dimension `within` (`7`, `14`, `30`), and
+    its total is the cohort's size.
+  - **Reading.** Each `within` is read on its own; they do not add up.
+  - **The event column** may hold unix seconds or a time.
 - **Live.** `->live()` reads the metric from its source when it is asked for and never computes
   it into the store. It is meant for a metric over tens of thousands of entities by the hour,
   such as a device's consumption, whose source already holds the data.

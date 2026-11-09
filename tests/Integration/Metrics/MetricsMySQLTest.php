@@ -1141,6 +1141,51 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * A cohort: of those who registered in September, how many paid within 7 and within 30 days
+     * — read on its own for each, never added up — and the cohort's size as its total; the same
+     * whether the event is kept as unix seconds or as a time.
+     */
+    public function testACohortCountsWhoReachedTheEventWithinEachSpan(): void
+    {
+        // Arrange
+        $schema = $this->db->schema();
+        $schema->dropTableIfExists('metrics_test_people');
+        $schema->createTable('metrics_test_people', function ($table) {
+            $table->integer('regdate');
+            $table->integer('firstpay')->nullable();
+            $table->timestampTz('paid_at')->nullable();
+        });
+        foreach ([['09-01 10:00', '09-03 10:00'], ['09-05 10:00', '09-25 10:00'], ['09-10 10:00', null]] as [$registered, $paid]) {
+            $this->db->queryBuilder()->table('metrics_test_people')->insert(['regdate' => self::at('2026-' . $registered),
+                'firstpay' => $paid === null ? null : self::at('2026-' . $paid),
+                'paid_at'  => $paid === null ? null : \Pramnos\Database\Instant::utc(self::at('2026-' . $paid), $this->db)]);
+        }
+        Metrics::register(
+            Metric::cohort('test.paid_within', 'Paid within N days')->from('metrics_test_people')->of('regdate', unix: true)->event('firstpay', unix: true)->within([7, 30]),
+            Metric::cohort('test.paid_within_t', 'The same, from a time')->from('metrics_test_people')->of('regdate', unix: true)->event('paid_at')->within([7, 30]),
+        );
+        $refused = false;
+        try {
+            Metric::cohort('test.x')->from('t')->within([]);
+        } catch (\InvalidArgumentException) {
+            $refused = true;
+        }
+
+        try {
+            // Act
+            Metrics::compute(['test.paid_within', 'test.paid_within_t'], ['month'], '2026-09-01', '2026-09-30', false, self::at('2026-11-06 12:00'));
+            $read = static fn (string $metric, ?string $within): ?float => Metrics::value($metric, 'month', '2026-09-01', $within === null ? [] : ['within' => $within]);
+
+            // Assert
+            $this->assertSame([3.0, 1.0, 2.0], [$read('test.paid_within', null), $read('test.paid_within', '7'), $read('test.paid_within', '30')], 'size, within 7 days, within 30');
+            $this->assertSame([3.0, 1.0, 2.0], [$read('test.paid_within_t', null), $read('test.paid_within_t', '7'), $read('test.paid_within_t', '30')], 'an event kept as a time');
+            $this->assertTrue($refused);
+        } finally {
+            $schema->dropTableIfExists('metrics_test_people');
+        }
+    }
+
+    /**
      * The store's lock: while another connection holds it — a conversion, an import, another
      * computation — a computation does nothing and says it was busy (the command too, without
      * failing), and once it is let go the computation runs.
