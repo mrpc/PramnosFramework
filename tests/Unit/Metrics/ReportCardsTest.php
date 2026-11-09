@@ -134,7 +134,7 @@ class ReportCardsTest extends TestCase
         $this->assertTrue(ReportBoard::isReportBoard('report:app:monthly'));
         $this->assertFalse(ReportBoard::isReportBoard('report:'));
         $this->assertSame('app:monthly', ReportBoard::reportId(ReportBoard::board('app:monthly')));
-        $this->assertSame(['report.section', 'report.table', 'report.chart', 'report.kpi', 'report.text', 'report.rows'], $ids);
+        $this->assertSame(['report.section', 'report.table', 'report.chart', 'report.kpi', 'report.top', 'report.goal', 'report.cohorts', 'report.text', 'report.rows'], $ids);
         $this->assertSame([], array_intersect($ids, $admin), 'not on a dashboard');
         $this->assertSame('month', ReportBoard::context()['grain']);
         $this->assertNotNull(WidgetRegistry::forCard(WidgetRegistry::all('report:5'), 'report.table~abc'));

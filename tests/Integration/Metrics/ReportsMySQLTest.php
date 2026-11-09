@@ -642,6 +642,40 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * The cards a report gains: the top values of a breakdown, ranked with bars; a goal — which
+     * says so where there is no curve to judge by, or no target; and a cohort grid, each period's
+     * size and the share that reached the event within each span.
+     */
+    public function testTheTopAGoalAndACohortGrid(): void
+    {
+        // Arrange
+        Metrics::register(Metric::flow('test.cohort', 'Paid within')->aggregate(Metric::DISTINCT)->dimensions(['within'])->keeps([['within']])
+            ->source(static fn (Window $w, array $by): array|int => $by === [] ? 10 : [['within' => '7', 'value' => 3], ['within' => '30', 'value' => 6]]));
+        Metrics::compute(['test.cohort'], ['month'], '2026-08-01', '2026-09-30', false, (int) strtotime('2026-11-06 12:00 UTC'));
+        $layout = [
+            ['id' => 'report.top~a', 'settings' => ['metric' => 'test.sales', 'dimension' => 'region', 'count' => '5']],
+            ['id' => 'report.goal~b', 'settings' => ['metric' => 'test.sales', 'target' => 10]],
+            ['id' => 'report.goal~c', 'settings' => ['metric' => 'test.sales']],
+            ['id' => 'report.cohorts~d', 'settings' => ['metric' => 'test.cohort', 'periods' => 2]],
+            ['id' => 'report.top~e', 'settings' => ['metric' => 'test.sales']],
+        ];
+        $id    = (new Reports())->save(self::reader(), ['name' => 'Test new cards', 'layout' => $layout]);
+        $entry = (new Reports())->find((string) $id, self::reader());
+
+        // Act
+        $html = \Pramnos\Metrics\ReportBoard::html($entry, '2026-09-10', self::reader(), null, false);
+        \Pramnos\Metrics\ReportBoard::leave();
+
+        // Assert
+        $this->assertMatchesRegularExpression('~<th scope="row">North</th>.*?width:100%.*?>5</td>.*?<th scope="row">South</th>.*?width:20%~s', $html, 'north first, its bar the longest; south a fifth of it');
+        $this->assertStringContainsString('No curve to judge by', $html, 'last year\'s days were never computed');
+        $this->assertStringContainsString('Choose a metric and a target', $html);
+        $this->assertStringContainsString('<th scope="col" style="text-align:right">7 days</th><th scope="col" style="text-align:right">30 days</th>', $html);
+        $this->assertStringContainsString('<td style="text-align:right">10</td><td style="text-align:right">30.0%</td><td style="text-align:right">60.0%</td>', $html);
+        $this->assertStringContainsString('Choose a metric and what to rank by', $html);
+    }
+
+    /**
      * A report written as sections is read as cards: its heading, its chart, its table. Its board's
      * layout is kept in the report by its owner alone — another reader sees it and cannot change
      * it — and the dashboard serves a report's board: a card drawn for the period asked, a save by

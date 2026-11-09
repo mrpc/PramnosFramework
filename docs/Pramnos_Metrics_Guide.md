@@ -395,6 +395,9 @@ every theme lines them up the same.
 | Table of metrics | `report.table` | Rows across columns, as below. Its columns are the report's, or its own: the last N periods, a dimension's values, or columns of its own. |
 | Chart | `report.chart` | Series of metrics over the last N periods, as lines or bars, with the same periods a year earlier beside them on request. |
 | Figure | `report.kpi` | One metric's value in the period, with its change against the period before, a year earlier, or as the report compares. |
+| Top values | `report.top` | The largest values of a breakdown in the period, 5, 10 or 20, each with a bar to the largest. |
+| Goal | `report.goal` | Progress towards a target in the period, a day or a month: the actual so far, what was expected by now along the reference's curve (dashed), and the forecast (see *Goals*). Nothing where the reference has a hole. |
+| Cohorts | `report.cohorts` | A cohort metric as a grid: each of the last periods a row, its cohort's size and the share that reached the event within each span. |
 | Text | `report.text` | Words in markdown, escaped and then formatted as the assistant's answers are. |
 | Records | `report.rows` | The records behind a metric that declares `rows()`, the first ones as a table, with a link to all of them. |
 

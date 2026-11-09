@@ -52,6 +52,9 @@ final class WidgetRegistry
         \Pramnos\Metrics\Widgets\TableWidget::class,
         \Pramnos\Metrics\Widgets\ChartWidget::class,
         \Pramnos\Metrics\Widgets\KpiWidget::class,
+        \Pramnos\Metrics\Widgets\TopWidget::class,
+        \Pramnos\Metrics\Widgets\GoalWidget::class,
+        \Pramnos\Metrics\Widgets\CohortWidget::class,
         \Pramnos\Metrics\Widgets\TextWidget::class,
         \Pramnos\Metrics\Widgets\RecordsWidget::class,
     ];
