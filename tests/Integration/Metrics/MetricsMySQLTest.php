@@ -1439,7 +1439,9 @@ class MetricsMySQLTest extends TestCase
      * September, passes 250, 500 and 1000 — each dated the day it did, never 100, which it began
      * above — for the total and for each channel of its base, not a competitor's; a flow declared
      * `bestWeeks()` keeps its best week, the current one left out; a one-off reach goal met is kept
-     * with its goal, and stays when the goal is deleted; a second scan keeps nothing twice.
+     * with its goal, and stays when the goal is deleted; a second scan keeps nothing twice. A
+     * channel connected later, its first reading 3058, passes nothing at or below it — the days
+     * before it was read are not noughts — and passes 5000 the day it does.
      */
     public function testAchievementsAreKeptOnce(): void
     {
@@ -1449,13 +1451,18 @@ class MetricsMySQLTest extends TestCase
         $this->db->queryBuilder()->table(\Pramnos\Metrics\Achievements::TABLE)->delete();
         $base = self::at('2026-09-01 00:00');
         $day  = static fn (Window $w): int => (int) (($w->startsAt() - $base) / 86400);
-        Metrics::dimension(\Pramnos\Metrics\Dimension::of('channel', 'Channel')->values(['1' => 'Shop', '3' => 'Rival'])->base(static fn (): array => ['1']));
+        Metrics::dimension(\Pramnos\Metrics\Dimension::of('channel', 'Channel')->values(['1' => 'Shop', '2' => 'Later', '3' => 'Rival'])->base(static fn (): array => ['1', '2']));
         Metrics::register(
             Metric::level('test.fans', 'Fans')->dimensions(['channel'])->knowsThePast()->acrossBy('channel')->milestones()
                 ->source(static function (Window $w, array $by) use ($day): array|int {
-                    $rows = [['channel' => '1', 'value' => 150 + 100 * $day($w)], ['channel' => '3', 'value' => 99999]];
+                    // Channel 2 connected on the 10th, its first reading 3058.
+                    $later = $day($w) >= 9 ? 3058 + 1000 * ($day($w) - 9) : null;
+                    $rows  = [['channel' => '1', 'value' => 150 + 100 * $day($w)], ['channel' => '3', 'value' => 99999]];
+                    if ($later !== null) {
+                        $rows[] = ['channel' => '2', 'value' => $later];
+                    }
 
-                    return $by === [] ? 150 + 100 * $day($w) + 99999 : $rows;
+                    return $by === [] ? 150 + 100 * $day($w) + 99999 + (int) $later : $rows;
                 }),
             Metric::flow('test.views', 'Views')->bestWeeks()->source(static fn (Window $w): int => $w->startsAt() >= self::at('2026-09-07 00:00') && $w->startsAt() < self::at('2026-09-14 00:00') ? 50 : 5),
         );
@@ -1478,6 +1485,9 @@ class MetricsMySQLTest extends TestCase
         $this->assertContains('milestone {"channel":"1"} 1000 2026-09-10', $kept);
         $this->assertNotContains('milestone {"channel":"1"} 100 2026-09-01', $kept, 'it began above 100');
         $this->assertEmpty(array_filter($kept, static fn (string $k): bool => str_contains($k, '"3"')), 'no competitor\'s channel');
+        $this->assertContains('milestone {"channel":"2"} 5000 2026-09-12', $kept, 'the later channel: the day it passed 5000');
+        $this->assertSame([], array_values(array_filter($kept, static fn (string $k): bool => preg_match('/^milestone \{"channel":"2"\} (\d+) /', $k, $m) === 1 && (int) $m[1] <= 3058)),
+            'nothing at or below its first reading: the days before it was connected are not noughts');
         $this->assertContains('best [] 350 2026-09-07', $kept, 'the week of the 7th, 50 a day');
         $this->assertContains('goal {"channel":"1"} 800 2026-09-08', $kept, 'met the day it crossed 800, kept though its goal is gone');
         $this->assertStringContainsString('Fans on Shop', implode(' | ', array_column($list, 'says')));

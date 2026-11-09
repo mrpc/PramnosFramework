@@ -214,7 +214,10 @@ final class Achievements
         $across = $metric->getAcross();
         if ($across !== null) {
             $base = Metrics::dimensionOf($across[0])->baseValues();
-            foreach ($query($across[0])['values'] as $value => $values) {
+            // A value not read on a day is null, not nought: a channel connected later has no
+            // readings before it was, and a nought there would pass every rung up to its first.
+            $byValue = Metrics::readIn($metric->name, $series['periods'], [], $across[0], $tenant > 0 ? [$tenant] : null, null, true)['values'];
+            foreach ($byValue as $value => $values) {
                 if ($base === null || in_array((string) $value, $base, true)) {
                     $out[(string) json_encode([$across[0] => (string) $value], JSON_UNESCAPED_UNICODE)] = array_combine($keys, $values);
                 }

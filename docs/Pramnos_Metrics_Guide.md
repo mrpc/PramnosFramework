@@ -788,7 +788,8 @@ state before, its state now), for a rule or a to-do source to act on.
 `Achievements::list($tenant)`, newest first, each with a sentence:
 - `Metric::level(…)->milestones()` earns a milestone at each rung of the ladder (100, 250, 500,
   1k … 10M) its readings pass above their first. It is dated the day it was passed, and a crossing
-  not seen is never invented.
+  not seen is never invented. For each value of the dimension it adds up across, the first reading
+  is that value's own: a channel connected later starts from its first day, not from nought.
 - `Metric::flow(…)->bestWeeks()` earns its best week so far, Monday to Sunday, the current week
   left out. A new record is a new row.
 - A one-off `reach` goal that is met is kept with its goal's id, and stays when the goal is
