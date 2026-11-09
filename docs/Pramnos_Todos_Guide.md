@@ -73,7 +73,8 @@ A source returns what it wants on the list now, by a key that names what the ite
 - **Reopened:** a done item still wanted opens again.
 - **Dismissed:** a dismissed item still wanted stays dismissed. "Not now" holds while its reason
   does.
-- **Gone:** an item no longer wanted is closed as done.
+- **Gone:** an item no longer wanted is closed as done. A dismissed one is closed quietly, so
+  when its reason comes back the item opens again rather than staying hidden for good.
 - **Failed:** a source that fails is logged (`todos` log) and skipped; the rest still run.
 
 It runs:

@@ -145,8 +145,8 @@ class TodosMySQLTest extends TestCase
     /**
      * Sources: a new key opens an item; the title, day and assignee follow the source, but not an
      * assignee chosen by hand; a done item still wanted opens again, a dismissed one stays
-     * dismissed; one no longer wanted is closed as done; a source that fails is skipped and the
-     * rest still run — through `todos:sync` too.
+     * dismissed; one no longer wanted is closed as done — a dismissed one quietly, so a new reason
+     * opens it again; a source that fails is skipped and the rest still run — through `todos:sync` too.
      */
     public function testTheListKeepsInStepWithItsSources(): void
     {
@@ -171,6 +171,13 @@ class TodosMySQLTest extends TestCase
         $wants = ['b' => ['title' => 'Answer B'], 'c' => ['title' => 'Answer C'], 'd' => ['title' => 'Answer D']];
         $tester = new \Symfony\Component\Console\Tester\CommandTester(new \Pramnos\Console\Commands\TodosSync());
         $code   = $tester->execute([]);
+        $stays   = Todos::get($ids['d']);
+        $wants   = ['b' => ['title' => 'Answer B'], 'c' => ['title' => 'Answer C']];
+        $gone    = Todos::sync(900);
+        $quietly = Todos::get($ids['d']);
+        $wants   = ['b' => ['title' => 'Answer B'], 'c' => ['title' => 'Answer C'], 'd' => ['title' => 'Answer D']];
+        Todos::sync(900);
+        $back    = Todos::get($ids['d']);
 
         // Assert
         $this->assertSame([4, 0, ['broken']], [$first['opened'], $first['closed'], $first['failed']], 'four opened; the broken source skipped');
@@ -178,11 +185,13 @@ class TodosMySQLTest extends TestCase
         $this->assertNotNull($a['due_at']);
         $this->assertSame(9, Todos::get($ids['b'])['assigned_to'], 'an assignee chosen by hand stays');
         $this->assertSame(Todos::OPEN, Todos::get($ids['c'])['status'], 'done but still wanted: open again');
-        $this->assertSame(Todos::DISMISSED, Todos::get($ids['d'])['status'], 'dismissed and still wanted: stays dismissed');
+        $this->assertSame(Todos::DISMISSED, $stays['status'], 'dismissed and still wanted: stays dismissed');
         $this->assertSame(Todos::DONE, Todos::get($ids['a'])['status'], 'no longer wanted: done');
         $this->assertSame(1, $code, 'a failed source makes the command fail');
         $this->assertStringContainsString('broken', $tester->getDisplay());
         $this->assertSame(0, $second['opened']);
+        $this->assertSame([Todos::DONE, 0], [$quietly['status'], $gone['closed']], 'dismissed, its reason gone: done quietly, not counted');
+        $this->assertSame(Todos::OPEN, $back['status'], 'a new reason: open again, not hidden for good');
     }
 
     /** A goal that turns syncs its organisation's list; `touch()` makes the next read sync. */

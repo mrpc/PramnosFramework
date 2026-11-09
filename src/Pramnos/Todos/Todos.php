@@ -262,7 +262,8 @@ final class Todos
      *   - a new key opens an item; a done one still wanted opens again; a dismissed one still
      *     wanted stays dismissed;
      *   - the title, the day and the assignee follow the source, unless a person chose the assignee;
-     *   - an item no longer wanted is closed as done — a dismissed one stays as it is;
+     *   - an item no longer wanted is closed as done — a dismissed one quietly, so a new reason
+     *     opens it again;
      *   - a source that fails is logged and skipped, the rest still run.
      *
      * @return array{opened: int, changed: int, closed: int, failed: list<string>}
@@ -789,6 +790,12 @@ final class Todos
             }
         }
         foreach (array_diff_key($have, $wanted) as $item) {
+            // A dismissed one whose reason is gone is closed quietly, as done: "not now" lasts while
+            // its reason does, and a new reason opens it again.
+            if ($item['status'] === self::DISMISSED) {
+                $table()->where('todoid', $item['id'])->update(['status' => self::DONE, 'closed_at' => $item['closed_at'] ?? $now, 'updated_at' => $now]);
+                continue;
+            }
             if (in_array($item['status'], [self::OPEN, self::IN_PROGRESS], true)) {
                 $table()->where('todoid', $item['id'])->update(['status' => self::DONE, 'closed_at' => $now, 'updated_at' => $now]);
                 self::settle($item['id']);
