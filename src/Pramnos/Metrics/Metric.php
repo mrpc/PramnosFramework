@@ -87,6 +87,9 @@ final class Metric
     /** @var list<string>|null The grains it is kept at; null: the application's ({@see Metrics::grains()}) */
     private ?array $grains = null;
 
+    /** The definition's version: computed and read; another is kept beside it. */
+    private int $version = 1;
+
     /** Which way is good news; null: neither. */
     private ?string $direction = null;
 
@@ -250,6 +253,27 @@ final class Metric
         $this->aggregate = self::MAX;
 
         return $this->counting('MAX', $column);
+    }
+
+    /**
+     * The version of its definition, for one that was corrected: the new version is computed and
+     * read, and the figures of the old one stay beside it, read with `Query::version()` — "as
+     * before" against "corrected".
+     */
+    public function version(int $version): self
+    {
+        if ($version < 1) {
+            throw new \InvalidArgumentException('A version is 1 or more.');
+        }
+        $this->version = $version;
+
+        return $this;
+    }
+
+    /** The version computed and read. */
+    public function getVersion(): int
+    {
+        return $this->version;
     }
 
     /** Which way is good news: {@see HIGHER_IS_BETTER} or {@see LOWER_IS_BETTER}, for colouring and ranking. */

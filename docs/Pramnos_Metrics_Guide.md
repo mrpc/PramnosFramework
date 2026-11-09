@@ -166,6 +166,11 @@ Write a percentage out in the expression: `'100 * orders.count / visits.unique'`
   most. A declared source says so with `->avg($column)`, `->min($column)` and `->max($column)`. A
   closure answers each row's `value`, and for a mean its `count`.
 
+**A corrected definition.** `->version(2)` on a metric whose definition was corrected. Version 2 is
+computed and read. The figures of version 1 stay beside it and are never touched by a
+recomputation. They are figures from before the correction, or imported with `Store::adopt()`'s
+`version`. `Metrics::query($m)->version(1)` reads them, "as before" against "corrected".
+
 **Presentation.** `->direction(Metric::HIGHER_IS_BETTER | Metric::LOWER_IS_BETTER)` says which way
 is good news, for colouring a change and ranking. `->format('number' | 'currency' | 'percent' |
 'duration')` says how the value reads.
@@ -553,8 +558,8 @@ an application's own store or its statistics tables. `$map` names the columns:
 - optionally `dims` (dimension columns; an empty value is the total), `extra` (columns kept beside
   the number) and `prefix` (put before each metric's name);
 - optionally `version`, for the figures of another definition of the same metrics, such as
-  corrected ones. They are kept beside version 1, which is the version computed and read
-  (`Store::VERSION`). A recomputation never touches them.
+  corrected ones. They are kept beside the version the metric is computed and read at (its
+  `->version()`, 1 by default), and a recomputation never touches them.
 
 Every value comes in final, as `imported`. A second run replaces what the first wrote. Rows whose
 grain is none of the metrics' are counted as left out.

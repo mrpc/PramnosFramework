@@ -39,6 +39,9 @@ final class Query
     /** @var list<int>|null */
     private ?array $tenants = null;
 
+    /** The definition's version read; null: the metric's own. */
+    private ?int $version = null;
+
     /** A query of one metric; {@see Metrics::query()}. */
     public function __construct(public readonly string $metric)
     {
@@ -80,6 +83,17 @@ final class Query
     public function where(array $filters): self
     {
         $this->filters = $filters + $this->filters;
+
+        return $this;
+    }
+
+    /**
+     * Read the figures of another version of the metric's definition — `version(1)` for "as
+     * before", where the metric was corrected to version 2.
+     */
+    public function version(int $version): self
+    {
+        $this->version = $version;
 
         return $this;
     }
@@ -133,7 +147,7 @@ final class Query
     {
         $periods = $this->periods();
 
-        return ['periods' => $periods, 'values' => Metrics::read($this->metric, $periods, $this->filters, $this->by, $this->tenants)];
+        return ['periods' => $periods, 'values' => Metrics::read($this->metric, $periods, $this->filters, $this->by, $this->tenants, $this->version)];
     }
 
     /**
@@ -160,7 +174,7 @@ final class Query
     public function value(): ?float
     {
         $periods = $this->periods();
-        $values  = Metrics::read($this->metric, [end($periods)], $this->filters, null, $this->tenants);
+        $values  = Metrics::read($this->metric, [end($periods)], $this->filters, null, $this->tenants, $this->version);
 
         return $values[''][0] ?? null;
     }
@@ -175,7 +189,7 @@ final class Query
         $periods = $this->periods();
         $window  = end($periods);
         $other   = $this->against === Metrics::YEAR_EARLIER ? $window->yearEarlier() : $window->previous();
-        $values  = Metrics::read($this->metric, [$window, $other], $this->filters, null, $this->tenants);
+        $values  = Metrics::read($this->metric, [$window, $other], $this->filters, null, $this->tenants, $this->version);
         [$a, $b] = [$values[''][0] ?? null, $values[''][1] ?? null];
 
         return [
@@ -218,7 +232,7 @@ final class Query
         }
         $periods = $this->periods();
         $last    = [];
-        foreach (Metrics::read($this->metric, [end($periods)], $this->filters, $this->by, $this->tenants) as $key => $values) {
+        foreach (Metrics::read($this->metric, [end($periods)], $this->filters, $this->by, $this->tenants, $this->version) as $key => $values) {
             if (($values[0] ?? null) !== null) {
                 $last[(string) $key] = (float) $values[0];
             }

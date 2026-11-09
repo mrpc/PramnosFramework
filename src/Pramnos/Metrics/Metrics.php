@@ -220,7 +220,7 @@ final class Metrics
     {
         $open   = Window::of($grain, $now);
         $last   = self::db()->queryBuilder()->table(Store::table($grain))->where('metric', $metric->name)
-            ->where('version', Store::VERSION)->where('final', 1)->max('period_start');
+            ->where('version', $metric->getVersion())->where('final', 1)->max('period_start');
         $window = $last ? Window::of($grain, Store::key((string) $last, $grain))->next() : $open->previous();
         $due    = [];
         while ($window->start < $open->start && count($due) < self::CATCH_UP) {
@@ -283,7 +283,7 @@ final class Metrics
         }
         $ended = $window->ended($now);
         $closed = self::db()->queryBuilder()->table(Store::table($window->grain))->where('metric', $metric->name)
-            ->where('period_start', Store::instant(self::db(), $window))->where('version', Store::VERSION)->where('final', 1);
+            ->where('period_start', Store::instant(self::db(), $window))->where('version', $metric->getVersion())->where('final', 1);
         if ($tenants !== null) {
             $closed->whereIn('tenant', $tenants);
         }
@@ -331,7 +331,7 @@ final class Metrics
             }
         }
         $kind = $metric->kind === Metric::LEVEL ? Store::SNAPSHOT : Store::COMPUTED;
-        self::write($metric->name, $window, $rows, $kind, $ended, $now, $recompute, $tenants);
+        self::write($metric->name, $window, $rows, $kind, $ended, $now, $recompute, $tenants, $metric->getVersion());
 
         return $ended ? 'closed' : 'computed';
     }
@@ -350,7 +350,7 @@ final class Metrics
      *
      * @param list<array{dims: array<string, string>, value: float}> $rows
      */
-    private static function write(string $metric, Window $window, array $rows, string $source, bool $final, int $now, bool $replaceFinal, ?array $tenants = null): void
+    private static function write(string $metric, Window $window, array $rows, string $source, bool $final, int $now, bool $replaceFinal, ?array $tenants = null, int $version = Store::VERSION): void
     {
         $db    = self::db();
         $table = Store::table($window->grain);
@@ -361,7 +361,7 @@ final class Metrics
                 // tuples a DML may by default (302 400 measured): lifted for this transaction alone.
                 $db->query('SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0');
             }
-            $delete = $db->queryBuilder()->table($table)->where('metric', $metric)->where('version', Store::VERSION)->where('period_start', Store::instant($db, $window));
+            $delete = $db->queryBuilder()->table($table)->where('metric', $metric)->where('version', $version)->where('period_start', Store::instant($db, $window));
             if (!$replaceFinal) {
                 $delete->where('final', 0);
             }
@@ -372,7 +372,7 @@ final class Metrics
             $delete->delete();
             $insert = [];
             foreach ($rows as $row) {
-                $insert[] = Store::row($db, $metric, $window, $row['dims'], (float) $row['value'], $source, $final, $now, isset($row['count']) ? ['count' => (int) $row['count']] : null, (int) ($row['tenant'] ?? 0));
+                $insert[] = Store::row($db, $metric, $window, $row['dims'], (float) $row['value'], $source, $final, $now, isset($row['count']) ? ['count' => (int) $row['count']] : null, (int) ($row['tenant'] ?? 0), $version);
             }
             foreach (array_chunk($insert, 500) as $chunk) {
                 $db->queryBuilder()->table($table)->insertMany($chunk);
@@ -462,9 +462,9 @@ final class Metrics
      * @param list<int>|null                      $tenants The organisations read, null for every one
      * @return array<string, list<float|null>>
      */
-    public static function read(string $metric, array $periods, array $filters = [], ?string $breakdown = null, ?array $tenants = null): array
+    public static function read(string $metric, array $periods, array $filters = [], ?string $breakdown = null, ?array $tenants = null, ?int $version = null): array
     {
-        return self::valuesFor(self::get($metric), $periods, $filters, $breakdown, [], $tenants);
+        return self::valuesFor(self::get($metric), $periods, $filters, $breakdown, [], $tenants, $version);
     }
 
     /**
@@ -490,7 +490,7 @@ final class Metrics
      * @param list<string>                        $seen    Derived metrics on the way here, against a loop
      * @return array<string, list<float|null>>
      */
-    private static function valuesFor(Metric $metric, array $periods, array $filters, ?string $breakdown, array $seen, ?array $tenants = null): array
+    private static function valuesFor(Metric $metric, array $periods, array $filters, ?string $breakdown, array $seen, ?array $tenants = null, ?int $version = null): array
     {
         if ($metric->kind === Metric::DERIVED) {
             return self::derive($metric, $periods, $filters, $breakdown, $seen, $tenants);
@@ -520,7 +520,7 @@ final class Metrics
         }
         $instants = array_values(array_unique($instants));
         $query = $db->queryBuilder()->table(Store::table($periods[0]->grain))->select(['period_start', 'tenant', 'dimset', 'dims', 'value', 'extra'])
-            ->where('metric', $metric->name)->where('version', Store::VERSION)->whereIn('dimset', array_values(array_unique([implode(',', $set), ''])))->whereIn('period_start', $instants);
+            ->where('metric', $metric->name)->where('version', $version ?? $metric->getVersion())->whereIn('dimset', array_values(array_unique([implode(',', $set), ''])))->whereIn('period_start', $instants);
         if ($tenants !== null) {
             // The reader's organisations: none at all reads nothing.
             if ($tenants === []) {

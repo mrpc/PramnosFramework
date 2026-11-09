@@ -940,6 +940,33 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * A corrected definition: version 2 is computed and read; the figures of version 1 — "as
+     * before" — stay beside it, untouched by a recomputation, and are read with `version(1)`.
+     */
+    public function testACorrectedDefinitionKeepsTheOldFiguresBesideIt(): void
+    {
+        // Arrange
+        Metrics::register(Metric::flow('test.fixed', 'Corrected')->version(2)->source(static fn (): int => 7));
+        Metrics::import('test.fixed', 'month', '2026-08-01', [], 5);   // the figure of the first definition
+        $refused = false;
+        try {
+            Metric::flow('test.x')->version(0);
+        } catch (\InvalidArgumentException) {
+            $refused = true;
+        }
+
+        // Act
+        Metrics::compute(['test.fixed'], ['month'], '2026-08-01', '2026-08-31', true, self::at('2026-11-06 12:00'));
+        Metrics::compute(['test.fixed'], ['month'], '2026-08-01', '2026-08-31', true, self::at('2026-11-06 13:00'));
+
+        // Assert
+        $this->assertSame(7.0, Metrics::value('test.fixed', 'month', '2026-08-01'), 'corrected');
+        $this->assertSame(5.0, Metrics::query('test.fixed')->grain('month')->at('2026-08-01')->version(1)->value(), 'as before, kept');
+        $this->assertSame(2, Metrics::get('test.fixed')->getVersion());
+        $this->assertTrue($refused);
+    }
+
+    /**
      * The store's lock: while another connection holds it — a conversion, an import, another
      * computation — a computation does nothing and says it was busy (the command too, without
      * failing), and once it is let go the computation runs.
