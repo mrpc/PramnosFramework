@@ -1,0 +1,77 @@
+{
+    "size": "medium",
+    "engine": "ts",
+    "at": "2026-11-09T01:23:03+00:00",
+    "rows": {
+        "a_values": 15639000,
+        "b_day": 13149000,
+        "b_week": 1878000,
+        "b_month": 432000,
+        "b_quarter": 144000,
+        "b_year": 36000,
+        "c_coarse": 15639000
+    },
+    "layouts": {
+        "A": {
+            "card": 0.383155,
+            "chart_24_months": 0.599518,
+            "report_30x12_compare": 2.045381,
+            "report_30x12_by_hash": 1.636316,
+            "compute_open_day": 45.853416
+        },
+        "B": {
+            "card": 0.429136,
+            "chart_24_months": 0.469757,
+            "report_30x12_compare": 1.834247,
+            "report_30x12_by_hash": 1.482562,
+            "compute_open_day": 28.019401
+        },
+        "C": {
+            "card": 0.400279,
+            "chart_24_months": 0.564109,
+            "report_30x12_compare": 2.031989,
+            "report_30x12_by_hash": 1.667507,
+            "compute_open_day": 42.31864
+        }
+    },
+    "bytes": {
+        "A": 4677050368,
+        "B": 3933315072,
+        "C": 4677050368
+    },
+    "compress_ms": 75930.096002,
+    "bytes_compressed": {
+        "A": 539312128,
+        "B": 450535424,
+        "C": 538787840
+    },
+    "layouts_compressed": {
+        "A": {
+            "card": 0.445552,
+            "chart_24_months": 0.668394,
+            "report_30x12_compare": 2.470872,
+            "report_30x12_by_hash": 1.606333,
+            "compute_open_day": 39.251103,
+            "recompute_closed_day": 33.982726,
+            "recompute_closed_month": 3.752662
+        },
+        "B": {
+            "card": 0.43383,
+            "chart_24_months": 0.58959,
+            "report_30x12_compare": 2.083154,
+            "report_30x12_by_hash": 1.642122,
+            "compute_open_day": 32.397911,
+            "recompute_closed_day": 14.881552,
+            "recompute_closed_month": 3.526256
+        },
+        "C": {
+            "card": 0.498449,
+            "chart_24_months": 0.767674,
+            "report_30x12_compare": 2.946875,
+            "report_30x12_by_hash": 1.961042,
+            "compute_open_day": 38.306719,
+            "recompute_closed_day": 32.681154,
+            "recompute_closed_month": 3.608959
+        }
+    }
+}

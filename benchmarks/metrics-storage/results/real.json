@@ -1,0 +1,13 @@
+{
+    "at": "2026-11-09T01:33:59+00:00",
+    "rows": {
+        "invoices": 232212,
+        "users": 500135
+    },
+    "year_of_days_one_query_per_day_ms": 152.018463,
+    "year_of_days_one_time_bucket_query_ms": 27.7057,
+    "twelve_years_of_months_one_query_ms": 137.074868,
+    "hypertable_year_of_days_one_query_ms": 29.017652,
+    "hypertable_year_of_days_per_day_ms": 182.927206,
+    "cagg_year_of_days_read_ms": 1.630043
+}

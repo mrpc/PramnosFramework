@@ -1,0 +1,37 @@
+{
+    "size": "medium",
+    "events": 20000000,
+    "people": 400000,
+    "at": "2026-11-09T03:08:21+00:00",
+    "exact_month_ms": 243.892605,
+    "exact_month_by_region_ms": 1356.754375,
+    "exact_year_ms": 2974.173444,
+    "hll": {
+        "4096": {
+            "build_daily_ms": 3242.084125,
+            "build_monthly_ms": 56.650202,
+            "month_from_days_ms": 3.259353,
+            "month_by_region_ms": 4.011591,
+            "month_from_monthly_ms": 0.499929,
+            "year_from_monthly_ms": 1.57442,
+            "month_error_pct": -1.19,
+            "year_error_pct": -1.43,
+            "sketch_bytes": 3066,
+            "refresh_one_day_ms": 9.822294
+        },
+        "32768": {
+            "build_daily_ms": 4699.735564,
+            "build_monthly_ms": 9392.838603,
+            "month_from_days_ms": 1356.577035,
+            "month_by_region_ms": 768.172482,
+            "month_from_monthly_ms": 1092.611087,
+            "year_from_monthly_ms": 12715.892278,
+            "month_error_pct": -0.25,
+            "year_error_pct": -0.4,
+            "sketch_bytes": 24027,
+            "refresh_one_day_ms": 19.653302
+        }
+    },
+    "exact_month": 377432,
+    "exact_year": 400000
+}

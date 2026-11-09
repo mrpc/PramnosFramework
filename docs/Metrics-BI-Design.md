@@ -8,7 +8,7 @@ use_cases:
 
 # Metrics and BI — design
 
-**Status:** proposal, awaiting the owner's approval. No code is written against it before then.
+**Status:** approved (§13); phase 0 done — layout B, measured in §5.4.
 **Last updated:** 9 November 2026
 
 This page designs the framework's statistics and BI mechanism as one engine for every application:
@@ -49,13 +49,46 @@ See also [Roadmap & Open Items](Roadmap.md).
    controller. A failure leaves the previous values in place, never an empty one.
 6. **The replica is for computation only.** It has a timeout and falls back to the primary. There
    is no general read/write split.
-7. **Scale without a code change in the application.** Plain tables on MySQL or a small
-   PostgreSQL. All of TimescaleDB where it is present: hypertables, compression, retention,
-   continuous aggregates and `time_bucket`.
+7. **Built on TimescaleDB and its Toolkit; simpler elsewhere.** The advanced features use
+   TimescaleDB and the TimescaleDB Toolkit to the full, and exist only where they are installed.
+   On MySQL or plain PostgreSQL the basic mechanism runs on plain tables, and a feature that needs
+   more is not offered there. Nothing is rebuilt slower to look the same everywhere (§1.1).
 8. **One store.** An application keeps no store of its own beside the framework's. Section 10
    moves existing ones over without losing history.
 9. **Measured, not estimated.** Each phase ends with timings on real and synthetic data, and the
    storage decision in §5 is taken on measurements.
+
+### 1.1 What each database has
+
+Every report feature exists everywhere. Its more advanced forms have stated requirements, and an
+installation without them gets a simpler version.
+
+| | MySQL, plain PostgreSQL | TimescaleDB | TimescaleDB + Toolkit |
+|---|---|---|---|
+| Declaring metrics: sums, levels, derived | ✔ | ✔ | ✔ |
+| Periods of a day and longer | ✔ | ✔ | ✔ |
+| The editor for reports and dashboards: cards, tables, charts, the comparison with last year | ✔ | ✔ | ✔ |
+| Drill-down to the records | ✔ | ✔ | ✔ |
+| CSV, XLSX, print/PDF, mail with charts | ✔ | ✔ | ✔ |
+| Distinct people counted exactly, each grain from the source | ✔ | ✔ | ✔ |
+| Hour periods, and finer per metric | | ✔ | ✔ |
+| Hypertables, compression, retention per grain | | ✔ | ✔ |
+| Continuous aggregates of sources, hierarchical where they add up | | ✔ | ✔ |
+| Live metrics over large event tables | | ✔ | ✔ |
+| Distinct people and percentiles that roll up across periods (`hyperloglog`, `uddsketch`) | | | ✔ |
+| Cumulative meters with resets (`counter_agg`), time-weighted averages (`time_weight`) | | | ✔ |
+| "Data stopped" (`heartbeat_agg`) | | | ✔ |
+
+**Each feature declares what it needs**: a card, a metric, an aggregation or a field option says
+`requires('timescaledb')` or `requires('toolkit')`. The framework checks once per installation
+which extensions are present, and their versions, and keeps the answer. What is missing is not
+offered: not in the card catalogue, not in a form's choices, not in the assistant's tool. It is
+neither an error nor a slower substitute. The same report on MySQL shows fewer choices.
+
+`timescaledb_toolkit` is a trusted extension, so the application's own database user (with
+`CREATE` on the database, not a superuser) can install it. A framework migration runs
+`CREATE EXTENSION IF NOT EXISTS timescaledb_toolkit` where the package is on the server. Where it
+is not, the migration says so and the Toolkit's features stay off.
 
 ---
 
@@ -273,7 +306,6 @@ not a zero.
 ```sql
 -- PostgreSQL (MySQL: DATETIME UTC, JSON, TINYINT, BINARY(16))
 metric       text        NOT NULL,
-grain        text        NOT NULL,          -- see §5.2: absent when a table holds one grain
 tenant       bigint      NOT NULL DEFAULT 0,
 period_start timestamptz NOT NULL,          -- the period's first instant, in its tenant's zone
 dims         jsonb       NOT NULL,          -- {} for the total
@@ -284,13 +316,14 @@ extra        jsonb,                         -- AVG: {sum, count}; counter: {firs
 source       smallint    NOT NULL,          -- computed, snapshot, imported
 final        boolean     NOT NULL DEFAULT false,
 computed_at  timestamptz NOT NULL,
-PRIMARY KEY (metric, grain, tenant, dims_hash, version, period_start)
+PRIMARY KEY (metric, tenant, dims_hash, version, period_start)
+-- one table per grain (§5.2): stats.metric_values_hour, _day, _week, _month, _quarter, _year
 ```
 
 Indexes:
 
 - the primary key serves a series, where everything but time is fixed;
-- `(metric, grain, period_start)` serves a report across dimensions;
+- `(metric, period_start)` serves a report across dimensions;
 - a GIN index on `dims` is added only where a measurement shows filtering inside `dims` without
   the hash.
 
@@ -303,7 +336,7 @@ rule 15 and the rule on changing a migration that has run, **the create-table mi
 changed in place**. Installations that ran it get a one-time statement in the Upgrade Guide row,
 which converts the columns. A `metrics:adopt` command (§10) brings in an application's own store.
 
-### 5.2 One table, or a hypertable per grain — the open question
+### 5.2 One table, or a hypertable per grain
 
 | | **A. One hypertable** | **B. A hypertable per grain**, one API over them | **C. Hour (and finer) apart, the rest together** |
 |---|---|---|---|
@@ -314,30 +347,28 @@ which converts the columns. A `metrics:adopt` command (§10) brings in an applic
 | Migrations | one table | one per grain (generated from the grain list) | two |
 | MySQL / no TimescaleDB | one table | the same split, harmless; or one table, as the API hides it | either |
 
-**Tentative recommendation: B**, because TimescaleDB's policies are per hypertable, and per-grain
-chunk sizes and retention are what the fine grains need. On MySQL and plain PostgreSQL, A, since
-there is nothing to gain from splitting. The application never sees which one: it declares
-metrics, the query API reads them, and the view keeps one place for SQL.
+**Decided: B, on every database** — measured in §5.4. On TimescaleDB it is the fastest layout
+at every size and the only one whose reads stay flat as the hours grow: at 100 M rows a 24-month
+chart is 0.5 ms against 3.1 ms in A (10 ms once compressed), a 30×12 report 1.4 ms against 13 ms.
+It writes an open day fastest, recomputes a compressed closed month fastest, and is the smallest
+on disk. On plain PostgreSQL the three are within a millisecond of each other, so the same split
+is kept there too: one layout, one migration generator and one query path for every installation.
+The application never sees it: it declares metrics, the query API reads them, and the view
+`stats.metric_values` keeps one place for SQL.
 
-**The decision is taken on measurements** (§12, phase 0). There are synthetic data in three sizes:
+The sizes measured (`benchmarks/metrics-storage/`):
 
-| Size | Metrics | Tenants | Dimension combinations | Grains | Years | ≈ rows |
+| Size | Metrics | Tenants | Dimension combinations per metric | Grains | Years | Rows (all grains) |
 |---|---|---|---|---|---|---|
-| Small | 20 | 1 | 50 | day … year | 3 | 70 k |
-| Medium (the marketplace) | 150 | 1 | 2 000 | day … year | 12 | 15 M |
-| Large (the sensor platform's stored totals) | 60 | 200 | 500 | hour … year | 3 | 2 B |
+| Small | 20 | 1 | 3 | day … year | 3 | 78 k |
+| Medium (the marketplace) | 150 | 1 | 20 | day … year | 12 | 15.6 M |
+| Large (the sensor platform's stored totals) | 12 | 30 | 10 | hour … year | 3 | 99 M |
 
-The measurements are:
-
-- the read time of a card (1 value), a chart (24 periods), and a report (30 rows × 12 columns,
-  with the comparison);
-- the computation time of an open day;
-- the size on disk, with and without compression;
-- the cost of recomputing one closed month inside a compressed chunk: direct DML on TimescaleDB
-  2.31, and `DeferredWriteQueue` + `timescale:drain` on an older version.
-
-Each of these is measured for A, B and C, on TimescaleDB 2.31 and on plain PostgreSQL. MySQL is
-measured on the small size only.
+The large size was planned at 2 B rows and built at 100 M, the most this machine holds in its
+time budget with three layouts side by side. Its hourly table is 95 % of the rows; the reads that
+matter go to one series or one period, through the primary key, and stayed flat from 15 M to
+100 M rows in B and C, so the order between the layouts is not expected to change at 2 B. A's
+does not stay flat: its day and month reads pay for the hours in the same chunks.
 
 ### 5.3 TimescaleDB, all of it
 
@@ -361,9 +392,113 @@ Where the extension is present, and with no declaration from the application:
 - **A hypertable for the application's own event tables** where it asks for one (`HypertableRegistry`),
   including unix-time tables through `integer_now`.
 
-Without TimescaleDB the same declarations run on plain tables: no compression, retention by a
-scheduled delete, and materialised views refreshed by the policy engine instead of continuous
-aggregates. This is the path `ContinuousAggregateRegistry` already takes.
+- **The Toolkit**, where it is installed (§1.1):
+  - `hyperloglog` sketches let a DISTINCT metric roll up from days to months without the raw
+    events, within a stated error. A metric that must be exact declares `->exact()` and keeps
+    being counted from its source at every grain;
+  - `uddsketch` / `percentile_agg` give percentiles that roll up;
+  - `counter_agg` is the increase of a cumulative meter with resets (`counter()`, `delta()`);
+  - `time_weight` gives time-weighted averages of a gauge;
+  - `heartbeat_agg` finds the stretches with no data, for "data stopped";
+  - `stats_agg` gives averages and deviations that roll up.
+
+Without TimescaleDB the declarations that need nothing more run on plain tables. Day and coarser
+grains, sums, levels and exact distinct counts are each computed from their source, with
+retention by a scheduled delete. The features in §1.1 that need TimescaleDB or the Toolkit are
+not offered there; they are not rebuilt in PHP or plain SQL.
+
+### 5.4 Measurements
+
+Medians of 15 runs after two warm-ups, in milliseconds, on one WSL machine (TimescaleDB 2.31 and
+Toolkit 1.26 on PostgreSQL 18, 6 GB for the container), with the scripts and raw results in
+`benchmarks/metrics-storage/`. Chunks before 1 September 2026 are compressed for the second half of
+each table; "recompute a closed month" rewrites one metric's October 2025 in those compressed
+chunks, by direct DML.
+
+#### Large — 99 M rows, hour … year
+
+| ms | A | B | C | A, compressed | B, compressed | C, compressed |
+|---|---:|---:|---:|---:|---:|---:|
+| Card (1 value) | 0.4 | 0.4 | 0.4 | 0.4 | 0.4 | 0.4 |
+| Chart, 24 months | 3.1 | **0.5** | 0.5 | 10.0 | **0.6** | 0.6 |
+| Report 30×12 with last year | 13.3 | **1.4** | 1.9 | 18.8 | **1.5** | 1.8 |
+| Chart, 168 hours | 0.6 | 0.6 | 0.6 | 0.8 | 0.6 | 0.6 |
+| A day by tenant, from the hours | 1.0 | 0.9 | 0.9 | 0.9 | 0.7 | 0.8 |
+| Write an open day, every series | 48.5 | **40.8** | 49.9 | 56.2 | **40.5** | 48.8 |
+| Write an open day's 24 hours | 1 047 | 1 067 | 1 048 | 847 | **760** | 839 |
+| Recompute a closed month: its days | | | | 129 | **112** | 436 |
+| Recompute a closed month: its hours | | | | 3 022 | **2 108** | 2 136 |
+| Size on disk | 26.8 GB | **25.5 GB** | 25.6 GB | 3.70 GB | **3.02 GB** | 3.11 GB |
+
+Compressing the 3 years took 8.8 minutes for all three layouts together.
+
+#### Medium — 15.6 M rows, day … year
+
+| ms | A | B | C | A, compressed | B, compressed | C, compressed | Plain PG 18: A | B | C |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Card | 0.4 | 0.4 | 0.4 | 0.4 | 0.4 | 0.5 | 0.4 | 0.3 | 0.3 |
+| Chart, 24 months | 0.6 | 0.5 | 0.6 | 0.7 | 0.6 | 0.8 | 0.4 | 0.4 | 0.4 |
+| Report 30×12 with last year | 2.0 | 1.8 | 2.0 | 2.5 | 2.1 | 2.9 | 1.8 | 1.7 | 1.7 |
+| Write an open day | 45.9 | **28.0** | 42.3 | 39.3 | **32.4** | 38.3 | 36.6 | 32.5 | 34.7 |
+| Recompute a closed month: its days | | | | 34.0 | **14.9** | 32.7 | 15.4 | 18.0 | 9.9 |
+| Size on disk | 4.68 GB | **3.93 GB** | 4.68 GB | 539 MB | **451 MB** | 539 MB | 4.71 GB | 4.29 GB | 4.71 GB |
+
+Small (78 k rows): every read under 2 ms and every write under 7 ms in every layout, on
+TimescaleDB, on PostgreSQL 18 and on **PostgreSQL 10.21**, which runs the plain layout — `jsonb`,
+`ON CONFLICT`, the md5 hash as a `uuid` — unchanged.
+
+What follows from them:
+
+- **Compression is 7–9× on the values**, and does not slow the reads B makes. It is on by default
+  where TimescaleDB is present.
+- **Rewriting a compressed month is cheap enough to do inline**: 112 ms for a month of days, 2.1 s
+  for a month of hours of one metric (300 series), on 2.31. No queue is needed on 2.11+.
+- **A closed month of hours exceeds TimescaleDB's default limit** of 100 000 decompressed tuples
+  per DML transaction (302 400 here): the recomputation sets
+  `timescaledb.max_tuples_decompressed_per_dml_transaction = 0` for its own transaction
+  (`SET LOCAL`), and nothing else does.
+- **The cost that grows is writing hours**, about 1 s for a day of 24 hours across 3 600 series —
+  a background job's work, not a request's.
+
+#### Distinct counts — exact, against the Toolkit's `hyperloglog`
+
+People counted once per period, from events; daily sketches in a continuous aggregate, and a
+monthly one rolled up from it.
+
+| | 20 M events, 400 k people: exact | `hyperloglog(4096)` | 100 M events, 2 M people: exact | `hyperloglog(4096)` |
+|---|---:|---:|---:|---:|
+| A month | 244 ms | 3.3 ms from days, 0.5 from months | 1 643 ms | 3.3 ms, 0.5 |
+| A month by region | 1 357 ms | 4.0 ms | 7 824 ms | 3.8 ms |
+| A year | 2 974 ms | 1.6 ms | 9 340 ms | 1.7 ms |
+| Error, month / year | | −1.2 % / −1.4 % | | −1.8 % / −2.7 % |
+| Sketch | | 3 kB | | 3 kB |
+| Refreshing one day | | 10 ms | | 16 ms |
+
+**4096 buckets is the default.** 32 768 buckets cuts the error below 1.5 % but its rollup is
+erratic: 1.4 ms for a month at 2 M people, 1.1–1.4 s at 400 k, reproduced twice — the sketch's
+sparse form merges slowly. A metric that needs better than ±3 % declares `->exact()`.
+
+#### Real data — a marketplace's paid invoices and registrations
+
+232 k paid invoices and 500 k registrations, copied read-only from an anonymised copy, their times
+kept as unix integers as the application keeps them.
+
+| A year of days, revenue by gateway and renewal, paying people | ms |
+|---|---:|
+| One query per day, as a closure source runs today | 152 |
+| One `time_bucket` query over the unix column | 28 |
+| The same, the table made a hypertable on its unix column (`integer_now`) | 29 |
+| Read from a continuous aggregate of it | 1.6 |
+| Twelve years of months, one query | 137 |
+
+A declared source (§4.4) is **5× faster than the same figures computed day by day**, with no
+change to the application's schema. A continuous aggregate makes it two orders of magnitude
+faster again. Making a table of this size a hypertable buys nothing by itself; it is what allows
+the aggregate.
+
+**MySQL** is not in these numbers. The scripts generate the data in PostgreSQL. The plain layout
+is the one the current MySQL integration tests already run, and its timings are taken in phase 1,
+on the framework's own code rather than a script.
 
 ---
 
@@ -539,7 +674,7 @@ Each phase ends with measured timings, not estimates.
 
 | Phase | What | Done when |
 |---|---|---|
-| 0 | The storage benchmark (§5.2) in three sizes; PostgreSQL 10 and MySQL checks | A, B or C chosen on the numbers, and written here |
+| 0 | The storage benchmark (§5.2) in three sizes; PostgreSQL 10 and MySQL checks | **Done:** B, on the numbers in §5.4. MySQL is measured in phase 1, on the real code |
 | 1 | The row (§5.1): `timestamptz`, `jsonb`, tenant, version; the chosen layout; compression and retention; the migration changed in place and the one-time statement; `metrics:adopt` | the marketplace's store imported, its table dropped, one store |
 | 2 | Hour grain; tenant scope and time zone per tenant; the query API (§7), with today's calls on top | every reader on the query API; a per-tenant card on a multi-tenant application |
 | 3 | Aggregations and kinds (§4.3); declared sources (§4.4) with `time_bucket` and unix time; live metrics (§4.5); lateness (§6.3); versions and gaps (§4.6) | the sensor platform's daily report rebuilt from declarations |
@@ -550,16 +685,40 @@ Each phase ends with measured timings, not estimates.
 
 ---
 
-## 13. For the owner to decide
+## 13. Decisions
 
-1. **Storage layout:** approve deciding A/B/C on the phase-0 measurements, with B as the expected
-   outcome on TimescaleDB.
+Taken by the owner on 9 November 2026:
+
+1. **Storage layout:** A, B or C is decided on the phase-0 measurements. These run on synthetic
+   data in three sizes, on TimescaleDB 2.31 with the Toolkit, and on real data: an anonymised
+   copy of the marketplace for the medium size, and the sensor platform's data, arranged with the
+   owner. Plain PostgreSQL and MySQL are measured for the basic mechanism only.
 2. **`double precision` for values**, with `->exact()` for the rare metric that needs `numeric`.
-3. **Live metrics** (§4.5) for per-entity series instead of storing them, which the sensor
-   platform's volume requires.
-4. **Sub-hour grains** only per metric, and with retention.
-5. **XLSX** through a small writer of the framework's own, not a spreadsheet library.
-6. **No-cron mode** that starts the computation from a request in the background, never inside
-   the page.
-7. **The order of the phases.** Phase 1 removes the second store first; phase 2 brings tenants and
-   hours, which three applications are waiting for.
+3. **Live metrics** (§4.5) for per-entity series: approved.
+4. **Sub-hour grains** only per metric, and with retention: approved.
+5. **XLSX** through a small writer of the framework's own over `ZipArchive` and XML, the approach of
+   the assistant's document import (`Llm/DocumentText.php`). The assistant exports with it too,
+   not only CSV.
+6. **No-cron mode**, in the background and never inside the page: approved.
+7. **The order of the phases:** as in §12.
+8. **Charts:** Chart.js on the page, which keeps tooltips, zoom and a click on a point to drill
+   down. For mail and PDF the server draws SVG (`ChartImage`) and `rsvg-convert` makes the PNG.
+   Both are drawn from the same description of a chart (its series, colours, type, and the year
+   before), so a mail looks like its page.
+9. **The mechanism is built on TimescaleDB and its Toolkit.** What needs them does not exist on
+   plain PostgreSQL or MySQL, and is not offered there (§1.1).
+
+## 14. Ideas taken from other systems
+
+| From | Idea | Where it lands |
+|---|---|---|
+| Semantic layers (dbt, Cube, Looker) | Kinds **cumulative** (running total) and **conversion** (A then B within N days) beside simple, ratio and derived | §4.3, §4.6 (beside cohorts) |
+| Looker | **Drill fields** declared per metric: the columns a number's records show | §4.6, `rows()` / `drill()` |
+| Cube | Pre-aggregations with a refresh key, and **"lambda"** reads: closed periods from the store, the open one live from the source | §6.3 for late data; the query API (§7) joins the two |
+| Cube | **The tenant as a security context**: a filter on every query that no caller can leave out | §4.1, §7 |
+| Laravel Pulse | **Aggregation at write time** into buckets of several periods, for progress within the day | §9.2: the hour (and finer) of a goal's metric updated as events arrive, on TimescaleDB |
+| Grafana | **Variables in the address**, annotations from a query, alerts on **no data** | §8 dashboard variables, §9.3, §9.1 |
+| Metabase | **X-rays**: cards proposed for a metric automatically | §8.2, with `report_propose` |
+| PostHog | Ready **analysis types**: trends, funnels, retention, stickiness, lifecycle | new cards, phase 5: each a card over declared events; funnels and retention need the Toolkit's sketches or the source |
+| PostHog, Metabase | Cohorts as filters; **anomaly detection** | §4.6 cohorts as a dimension; anomaly as an alert condition (§9.1): outside a band learned from the same weekday and hour |
+

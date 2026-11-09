@@ -1,0 +1,77 @@
+{
+    "size": "small",
+    "engine": "ts",
+    "at": "2026-11-09T01:17:53+00:00",
+    "rows": {
+        "a_values": 78180,
+        "b_day": 65760,
+        "b_week": 9360,
+        "b_month": 2160,
+        "b_quarter": 720,
+        "b_year": 180,
+        "c_coarse": 78180
+    },
+    "layouts": {
+        "A": {
+            "card": 0.345201,
+            "chart_24_months": 0.587429,
+            "report_30x12_compare": 1.300312,
+            "report_30x12_by_hash": 1.48507,
+            "compute_open_day": 3.265443
+        },
+        "B": {
+            "card": 0.505237,
+            "chart_24_months": 0.580967,
+            "report_30x12_compare": 1.96915,
+            "report_30x12_by_hash": 1.884635,
+            "compute_open_day": 2.968741
+        },
+        "C": {
+            "card": 0.415506,
+            "chart_24_months": 0.553354,
+            "report_30x12_compare": 1.1448,
+            "report_30x12_by_hash": 1.398871,
+            "compute_open_day": 3.106302
+        }
+    },
+    "bytes": {
+        "A": 24395776,
+        "B": 22421504,
+        "C": 24395776
+    },
+    "compress_ms": 335.10625400000004,
+    "bytes_compressed": {
+        "A": 6963200,
+        "B": 7127040,
+        "C": 6963200
+    },
+    "layouts_compressed": {
+        "A": {
+            "card": 0.420704,
+            "chart_24_months": 0.720899,
+            "report_30x12_compare": 1.328727,
+            "report_30x12_by_hash": 1.458661,
+            "compute_open_day": 2.656525,
+            "recompute_closed_day": 7.025713,
+            "recompute_closed_month": 2.835641
+        },
+        "B": {
+            "card": 0.386724,
+            "chart_24_months": 0.590007,
+            "report_30x12_compare": 1.106056,
+            "report_30x12_by_hash": 1.412192,
+            "compute_open_day": 2.545061,
+            "recompute_closed_day": 3.499804,
+            "recompute_closed_month": 2.371818
+        },
+        "C": {
+            "card": 0.387039,
+            "chart_24_months": 0.659618,
+            "report_30x12_compare": 1.324094,
+            "report_30x12_by_hash": 1.5257,
+            "compute_open_day": 2.635977,
+            "recompute_closed_day": 6.731597,
+            "recompute_closed_month": 2.96868
+        }
+    }
+}

@@ -1,0 +1,48 @@
+{
+    "size": "small",
+    "engine": "plain",
+    "at": "2026-11-09T02:29:32+00:00",
+    "rows": {
+        "a_values": 78180,
+        "b_day": 65760,
+        "b_week": 9360,
+        "b_month": 2160,
+        "b_quarter": 720,
+        "b_year": 180,
+        "c_coarse": 78180
+    },
+    "layouts": {
+        "A": {
+            "card": 0.333383,
+            "chart_24_months": 0.365019,
+            "report_30x12_compare": 1.210336,
+            "report_30x12_by_hash": 1.464442,
+            "compute_open_day": 2.596126,
+            "recompute_closed_day": 2.757647,
+            "recompute_closed_month": 2.20969
+        },
+        "B": {
+            "card": 0.273334,
+            "chart_24_months": 0.36453,
+            "report_30x12_compare": 1.083213,
+            "report_30x12_by_hash": 1.354936,
+            "compute_open_day": 2.871787,
+            "recompute_closed_day": 5.923471,
+            "recompute_closed_month": 3.626255
+        },
+        "C": {
+            "card": 0.340266,
+            "chart_24_months": 0.326149,
+            "report_30x12_compare": 1.203591,
+            "report_30x12_by_hash": 1.434133,
+            "compute_open_day": 2.639522,
+            "recompute_closed_day": 2.723224,
+            "recompute_closed_month": 2.177514
+        }
+    },
+    "bytes": {
+        "A": 27639808,
+        "B": 24363008,
+        "C": 27639808
+    }
+}

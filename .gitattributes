@@ -2,6 +2,7 @@
 
 /build export-ignore
 /tests export-ignore
+/benchmarks export-ignore
 # brand/favicons AND brand/logos ship — Init::scaffoldLogo()/scaffoldFavicons() copy
 # from both at scaffold time, so excluding either leaves `init` silently unable to
 # write www/assets/img/logo.png (its own no-op-when-absent branch treated that as an

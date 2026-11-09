@@ -1,0 +1,100 @@
+{
+    "size": "large",
+    "engine": "ts",
+    "at": "2026-11-09T02:56:51+00:00",
+    "rows": {
+        "a_values": 99385200,
+        "b_hour": 94694400,
+        "b_day": 3945600,
+        "b_week": 561600,
+        "b_month": 129600,
+        "b_quarter": 43200,
+        "b_year": 10800,
+        "c_fine": 94694400,
+        "c_coarse": 4690800
+    },
+    "layouts": {
+        "A": {
+            "card": 0.38314,
+            "chart_24_months": 3.087944,
+            "report_30x12_compare": 13.262477,
+            "report_30x12_by_hash": 11.281311,
+            "chart_168_hours": 0.573488,
+            "day_by_tenant_from_hours": 0.959319,
+            "compute_open_day": 48.48613,
+            "compute_open_hour": 1047.104102
+        },
+        "B": {
+            "card": 0.424803,
+            "chart_24_months": 0.485642,
+            "report_30x12_compare": 1.393901,
+            "report_30x12_by_hash": 1.405974,
+            "chart_168_hours": 0.612846,
+            "day_by_tenant_from_hours": 0.880127,
+            "compute_open_day": 40.755323,
+            "compute_open_hour": 1067.295907
+        },
+        "C": {
+            "card": 0.396056,
+            "chart_24_months": 0.51109,
+            "report_30x12_compare": 1.870762,
+            "report_30x12_by_hash": 1.605337,
+            "chart_168_hours": 0.587303,
+            "day_by_tenant_from_hours": 0.866486,
+            "compute_open_day": 49.905934,
+            "compute_open_hour": 1047.552472
+        }
+    },
+    "bytes": {
+        "A": 26825162752,
+        "B": 25457844224,
+        "C": 25637650432
+    },
+    "compress_ms": 529220.383906,
+    "bytes_compressed": {
+        "A": 3699056640,
+        "B": 3016982528,
+        "C": 3107962880
+    },
+    "layouts_compressed": {
+        "A": {
+            "card": 0.421944,
+            "chart_24_months": 10.007559,
+            "report_30x12_compare": 18.84555,
+            "report_30x12_by_hash": 23.066574,
+            "chart_168_hours": 0.755959,
+            "day_by_tenant_from_hours": 0.911377,
+            "compute_open_day": 56.219505,
+            "compute_open_hour": 846.660224,
+            "recompute_closed_day": 128.975324,
+            "recompute_closed_month": 7.962868,
+            "recompute_closed_hour": 3022.105327
+        },
+        "B": {
+            "card": 0.436017,
+            "chart_24_months": 0.571549,
+            "report_30x12_compare": 1.50097,
+            "report_30x12_by_hash": 1.492589,
+            "chart_168_hours": 0.630816,
+            "day_by_tenant_from_hours": 0.735982,
+            "compute_open_day": 40.512674,
+            "compute_open_hour": 759.704288,
+            "recompute_closed_day": 112.222541,
+            "recompute_closed_month": 11.820005,
+            "recompute_closed_hour": 2107.731033
+        },
+        "C": {
+            "card": 0.420559,
+            "chart_24_months": 0.630836,
+            "report_30x12_compare": 1.797653,
+            "report_30x12_by_hash": 1.644803,
+            "chart_168_hours": 0.64104,
+            "day_by_tenant_from_hours": 0.758623,
+            "compute_open_day": 48.765612,
+            "compute_open_hour": 838.691194,
+            "recompute_closed_day": 436.111769,
+            "recompute_closed_month": 14.593356,
+            "recompute_closed_hour": 2136.230793
+        }
+    }
+}
