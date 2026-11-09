@@ -1565,6 +1565,11 @@ class MetricsMySQLTest extends TestCase
         $this->assertSame(0, $judged['streak'], 'September missed');
         $this->assertSame([225.0, 'on_track'], [$growth['target'], $growth['state']], 'the 30 days before: 150 in September, plus 50%');
         $this->assertSame(['met', '2026-09-30'], [$met['state'], $met['met_at']]);
+        $this->assertSame('Reached on 30 September.', $met['says'], 'the sentence\'s day in words; the field keeps Y-m-d');
+        $this->assertMatchesRegularExpression('/the goal is \d+ by 31 October, and about \d+ by today\.$/', $levelUp['says'],
+            'a metric counting whole things: the figures worked out from it are whole');
+        $this->assertStringContainsString('2027', $goals::judge($goals::create(['metric' => 'test.rising', 'target' => 99999, 'starts' => '2026-09-01', 'due' => '2027-03-31']), $now)['says'],
+            'a day in another year names it');
         $this->assertSame('on_track', $onTrack['state']);
         $this->assertSame('2026-11-19', $onTrack['projected'], 'ten a day from 500 on 20 October: 30 days, across the clocks changing');
         $this->assertSame('behind', $late['state']);

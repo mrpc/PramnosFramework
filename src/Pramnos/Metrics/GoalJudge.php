@@ -116,6 +116,7 @@ final class GoalJudge
     private static function at(array $goal, Metric $metric, string $kind, int $from, int $to, int $now, ?Window $window): array
     {
         $now = min($now, $to);
+        self::$year = (new \DateTimeImmutable('@' . $now))->setTimezone(Window::zoneOf((int) $goal['tenant']))->format('Y');
 
         return $metric->kind === Metric::LEVEL
             ? self::level($goal, $metric, $kind, $from, $to, $now, $window)
@@ -131,6 +132,7 @@ final class GoalJudge
     {
         $days    = self::daily($goal, $from, min($to, $now + 1) - 1);
         $values  = array_filter($days, static fn ($v): bool => $v !== null);
+        self::$whole = self::counted($metric, $values);
         $total   = (float) array_sum($values);
         $target  = (float) $goal['target'];
         $elapsed = max(0.0, min(1.0, ($now - $from) / max(1, $to - $from)));
@@ -204,6 +206,7 @@ final class GoalJudge
         if ($readings === []) {
             return ['state' => 'unknown', 'current' => null, 'enough' => false, 'says' => t('Nothing measured since this goal started.')] + $out;
         }
+        self::$whole = self::counted($metric, $readings);
         $current = end($readings);
         $out    += ['current' => $current, 'enough' => count($readings) >= 2];
         $over    = $now >= $to;
@@ -220,7 +223,7 @@ final class GoalJudge
             $out   = ['worst' => $readings[$worstAt], 'worst_at' => self::day($goal, $worstAt)] + $out;
 
             return ['state' => $state, 'says' => $held ? sprintf(t('Held: never worse than %s.'), self::n($target))
-                : sprintf(t('Not held: %s on %s.'), self::n($readings[$worstAt]), self::day($goal, $worstAt))] + $out;
+                : sprintf(t('Not held: %s on %s.'), self::n($readings[$worstAt]), self::spoken($goal, $worstAt))] + $out;
         }
 
         if ($kind === 'pace' || $kind === 'growth') {
@@ -237,7 +240,7 @@ final class GoalJudge
             $state   = $done >= $target ? 'met' : (($over || $done < $should) ? 'behind' : 'on_track');
             $says    = $kind === 'growth'
                 ? sprintf(t('From %s to %s now; the goal is %s by %s, and about %s by today.'), self::n($first), self::n($current),
-                    self::n($first * (1 + $target / 100)), self::day($goal, $to - 1), self::n($first * (1 + $should / 100)))
+                    self::n($first * (1 + $target / 100)), self::spoken($goal, $to - 1), self::n($first * (1 + $should / 100)))
                 : sprintf(t('%s done of %s; %s expected by now.'), self::n($done), self::n($target), self::n($should));
 
             return ['state' => $state, 'says' => $says, 'expected' => $should, 'current' => $done] + $out;
@@ -247,11 +250,11 @@ final class GoalJudge
         foreach ($readings as $at => $value) {
             if ($value * $direction >= $target * $direction) {
                 return ['state' => 'met', 'met_at' => self::day($goal, $at), 'projected' => self::day($goal, $at),
-                    'says' => sprintf(t('Reached on %s.'), self::day($goal, $at))] + $out;
+                    'says' => sprintf(t('Reached on %s.'), self::spoken($goal, $at))] + $out;
             }
         }
         if ($over) {
-            return ['state' => 'behind', 'says' => sprintf(t('Not reached by %s: %s.'), self::day($goal, $to - 1), self::n($current))] + $out;
+            return ['state' => 'behind', 'says' => sprintf(t('Not reached by %s: %s.'), self::spoken($goal, $to - 1), self::n($current))] + $out;
         }
         $points = count($readings);
         $span   = (int) floor((array_key_last($readings) - array_key_first($readings)) / 86400) + 1;
@@ -274,8 +277,8 @@ final class GoalJudge
         $state = $at <= $to ? 'on_track' : 'behind';
 
         return ['state' => $state, 'projected' => self::day($goal, $at), 'says' => $state === 'on_track'
-            ? sprintf(t('On this trend, %s.'), self::day($goal, $at))
-            : sprintf(t('On this trend, %s — after the %s you asked for.'), self::day($goal, $at), self::day($goal, $to - 1))] + $out;
+            ? sprintf(t('On this trend, %s.'), self::spoken($goal, $at))
+            : sprintf(t('On this trend, %s — after the %s you asked for.'), self::spoken($goal, $at), self::spoken($goal, $to - 1))] + $out;
     }
 
     /**
@@ -352,10 +355,50 @@ final class GoalJudge
         return (new \DateTimeImmutable('@' . $at))->setTimezone(Window::zoneOf((int) $goal['tenant']))->format('Y-m-d');
     }
 
-    /** A figure as a sentence writes it. */
+    /**
+     * A day as a sentence writes it, in the reader's language: "30 November", with the year when
+     * it is not this one. The answer's fields keep `Y-m-d`.
+     */
+    private static function spoken(array $goal, int $at): string
+    {
+        $day   = (new \DateTimeImmutable('@' . $at))->setTimezone(Window::zoneOf((int) $goal['tenant']));
+        $month = ['%d January', '%d February', '%d March', '%d April', '%d May', '%d June', '%d July', '%d August', '%d September',
+            '%d October', '%d November', '%d December'][(int) $day->format('n') - 1];
+        $said  = sprintf(t($month), (int) $day->format('j'));
+
+        return $day->format('Y') === self::$year ? $said : $said . ' ' . $day->format('Y');
+    }
+
+    /** @var string The year the goal is judged in: a day in another names its year */
+    private static string $year = '';
+
+    /** @var bool Whether the goal judged counts whole things: its figures are written whole */
+    private static bool $whole = false;
+
+    /**
+     * Whether a metric counts whole things — a number, every reading whole — so the figures worked
+     * out from it (a target grown by a percentage, what is expected by today) are written whole.
+     *
+     * @param array<mixed, float|int|null> $values
+     */
+    private static function counted(Metric $metric, array $values): bool
+    {
+        if ($metric->getFormat() !== 'number') {
+            return false;
+        }
+        foreach ($values as $value) {
+            if ($value !== null && abs((float) $value - round((float) $value)) > 1e-9) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** A figure as a sentence writes it: whole for a metric that counts whole things. */
     private static function n(float $value): string
     {
-        return \Pramnos\General\NumberFormat::trimmed($value, 2);
+        return \Pramnos\General\NumberFormat::trimmed(self::$whole ? round($value) : $value, self::$whole ? 0 : 2);
     }
 
     /**

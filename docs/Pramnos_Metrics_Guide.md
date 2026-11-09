@@ -766,6 +766,10 @@ Goals::judge($id);   // ['kind' => 'reach', 'state' => 'on_track', 'says' => 'On
     `history` (each past period as it stood at its end) and `streak` (the met ones in a row).
   - Days are the organisation's.
 - **States:** `met`, `on_track`, `behind`, `stalled` or `unknown`, with a sentence that says why.
+  The sentence writes a day in the reader's language ("30 November", with the year when it is
+  not this one), while the fields (`projected`, `met_at`, `worst_at`) keep `Y-m-d`. For a
+  `number` metric whose readings are whole — followers, orders — the figures worked out from it
+  (a target grown by a percentage, what is expected by today) are written whole.
   - A one-off `reach` is `unknown` until it has 12 readings over 7 days. A recurring one needs half
     its period's days.
   - After its due date a goal is still judged: a missed reach is `behind`, and a `sustain` that held
