@@ -822,7 +822,7 @@ The analyst has two tools when the application has metrics:
 person may read. Each one shows its state, its sentence, a dot for each past period (met, missed,
 not known), its streak, and the dimension values it is for. The form has a select per dimension
 of the chosen metric (those the person may read, with listed values), so a goal can be for one
-market or one package; the preview reads the same values. Its form adds a goal or changes one (`?goal=<id>`). As the form is
+market or one package, chosen when it is added and changed after; the preview reads the same values. Its form adds a goal or changes one (`?goal=<id>`). As the form is
 filled in, it shows the sentence the goal would have and the last whole period's figure. For a
 count, it also offers 10% above that figure as a target to try. `Goals::preview($goal)` gives the
 same without keeping anything. Below the form is the latest of what was reached.

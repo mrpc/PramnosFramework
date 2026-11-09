@@ -1841,8 +1841,12 @@ class MetricsMySQLTest extends TestCase
             $this->request('GET', null, ['goal' => (string) $id]);
             $screen->display();
             $open = (array) $screen->view;
-            $this->request('POST', null, [], ['goalid' => (string) $id, 'target' => '12'] + $form);
+            $this->request('POST', null, [], ['goalid' => (string) $id, 'target' => '12', 'filters' => ['test.orders' => ['region' => 'south']]] + $form);
             $screen->save();
+            $south = \Pramnos\Metrics\Goals::get($id)['filters'];
+            $this->request('POST', null, [], ['goalid' => (string) $id, 'target' => '12', 'filters' => ['test.orders' => ['region' => '']]] + $form);
+            $screen->save();
+            $every = \Pramnos\Metrics\Goals::get($id)['filters'];
             $this->request('POST', null, [], ['target' => ''] + $form);
             $bare = json_decode((string) $screen->preview()->getBody(), true);
             $this->request('POST', null, [], $form);
@@ -1856,7 +1860,8 @@ class MetricsMySQLTest extends TestCase
             $screen->delete();
 
             // Assert
-            $this->assertSame([['message', 'Saved.'], ['error', 'There is no such metric.'], ['message', 'Saved.'], ['message', 'Deleted.'], ['error', 'There is no such goal.']], $screen->flash);
+            $this->assertSame([['message', 'Saved.'], ['error', 'There is no such metric.'], ['message', 'Saved.'], ['message', 'Saved.'], ['message', 'Deleted.'], ['error', 'There is no such goal.']], $screen->flash);
+            $this->assertSame([['region' => 'south'], []], [$south, $every], 'changed: another region, then "All"');
             $this->assertCount(1, $list['goals'], 'the refused one was not kept');
             $this->assertSame('Orders', $list['goals'][0]['label']);
             $this->assertSame(['region' => 'north'], $list['goals'][0]['goal']['filters'], 'the chosen metric\'s dimension value; another metric\'s ignored');

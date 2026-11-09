@@ -63,7 +63,7 @@ $goal = $this->editing;
         <div class="pf-grid-2" data-pf-goal-dims="{{ $m['name'] }}"{!! $m['name'] === $chosen ? '' : ' hidden' !!}>
             @foreach ($m['dims'] as $dim => $d)
             <div class="pf-field"><label class="pf-label">{{ t($d['label']) }}</label>
-                <select name="filters[{{ $m['name'] }}][{{ $dim }}]" class="pf-select"{{ $goal !== null ? ' disabled' : '' }}><option value="">{{ t('All') }}</option>@foreach ($d['values'] as $value => $label)<option value="{{ $value }}"{{ (string) ($goal['filters'][$dim] ?? '') === (string) $value ? ' selected' : '' }}>{{ t($label) }}</option>@endforeach</select></div>
+                <select name="filters[{{ $m['name'] }}][{{ $dim }}]" class="pf-select"><option value="">{{ t('All') }}</option>@foreach ($d['values'] as $value => $label)<option value="{{ $value }}"{{ (string) ($goal['filters'][$dim] ?? '') === (string) $value ? ' selected' : '' }}>{{ t($label) }}</option>@endforeach</select></div>
             @endforeach
         </div>
         @endif

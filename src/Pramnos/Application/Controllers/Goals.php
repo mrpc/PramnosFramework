@@ -102,14 +102,14 @@ class Goals extends Controller
         $id   = (int) ($_POST['goalid'] ?? 0);
         try {
             $goal = $this->posted();
+            if (!Metrics::withinScope((string) ($goal['metric'] ?? ''), $goal['filters'] ?? [], $user)) {
+                throw new \DomainException(t('Those figures are not yours to set a goal on.'));
+            }
             if ($id > 0) {
                 $this->readable($id);
-                unset($goal['metric'], $goal['filters']);   // its metric, organisation and dimension values stay
-                Store::update($id, $goal);
+                unset($goal['metric']);   // its metric and organisation stay; its dimension values are as chosen, "All" none
+                Store::update($id, $goal + ['filters' => []]);
             } else {
-                if (!Metrics::withinScope((string) ($goal['metric'] ?? ''), $goal['filters'] ?? [], $user)) {
-                    throw new \DomainException(t('Those figures are not yours to set a goal on.'));
-                }
                 Store::create($goal + ['tenant' => $this->tenant($user), 'owner' => (int) $user->userid, 'by' => (int) $user->userid]);
             }
         } catch (\InvalidArgumentException|\DomainException $e) {
