@@ -791,7 +791,11 @@ real users, not from a lab run. `pf-vitals.js` measures a sampled share of page 
 `web-vitals` library (its attribution build) and sends them with `sendBeacon` once the page is
 hidden. The framework controller `ClientVitals` receives them at `/ClientVitals`, with no
 controller of the application's own needed. It applies the same checks as `ClientErrors`:
-same-origin POST, small body, a few per minute.
+same-origin POST, small body, and 30 a minute per address, answered with 429 beyond that. The
+limit is counted apart from the errors' own.
+
+A lab or a robot is not kept: Lighthouse, PageSpeed, GTmetrix, Pingdom, WebPageTest, a headless
+or automated browser, or a crawler `BotDetector` knows. Their numbers are not a visitor's.
 
 ```php
 // app/app.php — off until a sample is set
@@ -799,13 +803,21 @@ same-origin POST, small body, a few per minute.
     'sample'    => 0.1,                                   // a tenth of page views
     'groups'    => ['jobs' => '#^/(el|en)/jobs#', 'home' => '#^/(el|en)?/?$#'],
     'keep_days' => 30,                                    // older rows are pruned
+    // the application's own value for a row — a market, an area — given the path, the report
+    // and $_SERVER (a CDN's country header, say)
+    'dimension' => fn (string $path, array $report, array $server): ?string
+        => ($server['HTTP_CF_IPCOUNTRY'] ?? '') === 'CY' ? 'cy' : explode('/', trim($path, '/'))[0],
 ],
+```
+
+```php
+<?php echo \Pramnos\Logs\ClientVitals::tag(['ui' => 'new']); ?>   // the page's look, to set one theme against another
 ```
 
 The scaffolded footers print `\Pramnos\Logs\ClientVitals::tag()`. It writes the
 `<meta name="pf-vitals">`, the library and the script, and prints nothing while the sample is 0.
 In an existing project:
-1. Run `migrate` (`pramnos.client_vitals`).
+1. Run `migrate` (`pramnos.client_vitals`, and its `dimension`, `ui` and `target`).
 2. Run `project:install web-vitals` and `project:resync --js --all`.
 3. Print the tag before `</body>`.
 
@@ -814,12 +826,15 @@ Each metric is kept with what it depends on, so the numbers can be read apart:
 | Column | What it is |
 |---|---|
 | `page_group` | The first `vitals.groups` pattern the path matched, or `other` |
-| `device` | `mobile` or `desktop`, by the viewport |
+| `device` | `mobile` or `desktop`, by the viewport; from the user agent where a report has none |
 | `navigation` | How the page was reached: `navigate`, `reload`, `back-forward-cache` (a bfcache restore), `prerender`, `restore` |
 | `delivery` | The navigation's `deliveryType`: `cache`, `navigational-prefetch`, or empty for the network |
 | `worker`, `worker_ms` | Whether a service worker controls the page, could, or cannot; and `fetchStart − workerStart`, its start time |
 | `source` | The worker's own `Server-Timing: sw;desc=…`, where it sends one |
 | `logged_in` | Decided on the server, from the session |
+| `dimension` | The application's own, from `vitals.dimension` |
+| `ui` | The page's look, `tag(['ui' => …])` |
+| `target` | For LCP, INP and CLS, the element the attribution build names (the largest paint, the element interacted with, the one that shifted most), up to 100 characters |
 
 The dashboard's `vitals` card shows the 75th percentile per page group and device. That is the
 figure Google's thresholds are about, and each value is coloured good, needs improvement or poor.

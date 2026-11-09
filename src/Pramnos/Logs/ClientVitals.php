@@ -73,8 +73,13 @@ final class ClientVitals
     /**
      * The tags a page needs, for the theme to print before `</body>`: where to send, the sample,
      * the library and the script. Nothing while the sample is 0, so a theme can print it always.
+     *
+     * `ui` names the page's look — `tag(['ui' => 'new'])` — sent with every report, so one theme's
+     * numbers can be set against another's.
+     *
+     * @param array{ui?: string} $options
      */
-    public static function tag(): string
+    public static function tag(array $options = []): string
     {
         $sample = self::sample();
         if ($sample <= 0.0) {
@@ -83,7 +88,10 @@ final class ClientVitals
         $site = defined('sURL') ? (string) \sURL : '/';
         $e    = static fn (string $v): string => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
 
-        return '<meta name="pf-vitals" content="' . $e($site . 'ClientVitals') . '" data-sample="' . $e((string) $sample) . '">' . "\n"
+        $ui   = mb_substr(self::text($options['ui'] ?? ''), 0, 16);
+
+        return '<meta name="pf-vitals" content="' . $e($site . 'ClientVitals') . '" data-sample="' . $e((string) $sample) . '"'
+            . ($ui !== '' ? ' data-ui="' . $e($ui) . '"' : '') . '>' . "\n"
             . '<script src="' . $e(assetUrl(self::LIBRARY)) . '" defer></script>' . "\n"
             . '<script src="' . $e(assetUrl('assets/js/pf-vitals.js')) . '" defer></script>' . "\n";
     }
@@ -103,19 +111,32 @@ final class ClientVitals
     }
 
     /**
-     * Keep what one page view sent — `metrics`, each `{name, value, rating, navigation}`, and
-     * what they share: `path`, `device`, `delivery`, `worker`, `workerMs`, `source`. A metric
-     * that is not one of {@see METRICS}, or not a number, is left out. How many were kept.
+     * Keep what one page view sent — `metrics`, each `{name, value, rating, navigation, target}`,
+     * and what they share: `path`, `device`, `delivery`, `worker`, `workerMs`, `source`, `ui`. A
+     * metric that is not one of {@see METRICS}, or not a number, is left out. How many were kept.
      *
-     * @param array<string, mixed> $report
+     * Not kept at all from a lab or a robot — Lighthouse, PageSpeed, GTmetrix, Pingdom, a
+     * headless browser, a crawler ({@see isRobot()}): their numbers are not a visitor's. A report
+     * with no device takes it from the user agent. `vitals.dimension` — `fn (string $path, array
+     * $report, array $server): ?string` — gives the application's own value, a market say.
+     *
+     * @param array<string, mixed>      $report
+     * @param array<string, mixed>|null $server `$_SERVER`, where the user agent and the rest are read
      */
-    public function record(array $report, bool $loggedIn): int
+    public function record(array $report, bool $loggedIn, ?array $server = null): int
     {
+        $server ??= $_SERVER;
+        $agent    = (string) ($server['HTTP_USER_AGENT'] ?? '');
+        if (self::isRobot($agent)) {
+            return 0;
+        }
         $path   = mb_substr((string) (is_string($report['path'] ?? null) ? $report['path'] : ''), 0, 255);
+        $device = in_array($report['device'] ?? '', ['mobile', 'desktop'], true) ? (string) $report['device']
+            : ($agent === '' ? '' : (\Pramnos\Visits\Hits::device($agent) === 'desktop' ? 'desktop' : 'mobile'));
         $shared = [
             'page_group' => self::groupFor($path),
             'path'       => $path,
-            'device'     => in_array($report['device'] ?? '', ['mobile', 'desktop'], true) ? (string) $report['device'] : '',
+            'device'     => $device,
             'delivery'   => mb_substr(self::text($report['delivery'] ?? ''), 0, 32),
             'worker'     => in_array($report['worker'] ?? '', ['controlled', 'supported', 'unsupported'], true) ? (string) $report['worker'] : '',
             'worker_ms'  => is_numeric($report['workerMs'] ?? null) ? max(0, min(600000, (int) $report['workerMs'])) : null,
@@ -123,6 +144,13 @@ final class ClientVitals
             'logged_in'  => $loggedIn,
             'created_at' => time(),
         ];
+        $more = $this->hasDetails();
+        if ($more) {
+            $dimension = self::config()['dimension'] ?? null;
+            $value     = is_callable($dimension) ? $dimension($path, $report, $server) : null;
+            $shared += ['dimension' => is_scalar($value) && (string) $value !== '' ? mb_substr((string) $value, 0, 20) : null,
+                'ui' => mb_substr(self::text($report['ui'] ?? ''), 0, 16) ?: null];
+        }
 
         $kept = 0;
         foreach (array_slice(is_array($report['metrics'] ?? null) ? $report['metrics'] : [], 0, self::PER_REPORT) as $metric) {
@@ -135,7 +163,7 @@ final class ClientVitals
                 'value'      => max(0.0, min(1e7, (float) $metric['value'])),
                 'rating'     => in_array($metric['rating'] ?? '', ['good', 'needs-improvement', 'poor'], true) ? (string) $metric['rating'] : '',
                 'navigation' => mb_substr(self::text($metric['navigation'] ?? ''), 0, 32),
-            ]);
+            ] + ($more ? ['target' => self::selector($metric['target'] ?? null)] : []));
             $kept++;
         }
 
@@ -197,6 +225,38 @@ final class ClientVitals
         [$good, $poor] = self::THRESHOLDS[$metric] ?? [INF, INF];
 
         return $value <= $good ? 'good' : ($value <= $poor ? 'needs-improvement' : 'poor');
+    }
+
+    /**
+     * Whether a user agent is a lab or a robot rather than a visitor: the crawlers
+     * {@see \Pramnos\Http\Middleware\BotDetector} knows, and the testing tools that run a real
+     * browser and say so.
+     */
+    public static function isRobot(string $agent): bool
+    {
+        return $agent !== '' && (preg_match('/headless|lighthouse|pagespeed|gtmetrix|pingdom|ptst|speedcurve|webpagetest|phantomjs|puppeteer|playwright|selenium/i', $agent) === 1
+            || (new \Pramnos\Http\Middleware\BotDetector())->isBot($agent));
+    }
+
+    /** An element's selector as the attribution names it: one line, at most 100 characters. */
+    private static function selector(mixed $value): ?string
+    {
+        $value = is_string($value) ? trim((string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $value)) : '';
+
+        return $value === '' ? null : mb_substr($value, 0, 100);
+    }
+
+    /** Whether the table has `dimension`, `ui` and `target` yet: asked once per connection. */
+    private function hasDetails(): bool
+    {
+        static $known = null;
+        $known ??= new \WeakMap();
+        $db = $this->db ?? \Pramnos\Framework\Factory::getDatabase();
+        if (!isset($known[$db])) {
+            $known[$db] = $db->schema()->hasColumn('pramnos.client_vitals', 'target');
+        }
+
+        return $known[$db];
     }
 
     private static function text(mixed $value): string

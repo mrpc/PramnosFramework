@@ -13,7 +13,9 @@
  *   worker      whether a service worker controls the page, could, or cannot
  *   workerMs    fetchStart − workerStart: the worker's start, when one ran
  *   source      the worker's own Server-Timing `sw` description: cache, network or preload
- * and each metric its navigationType: navigate, reload, back-forward-cache, prerender, restore.
+ *   ui          the page's look, `data-ui` on the meta (`ClientVitals::tag(['ui' => …])`)
+ * and each metric its navigationType: navigate, reload, back-forward-cache, prerender, restore,
+ * and its target: the element the attribution build names for LCP, INP and CLS.
  */
 (function () {
     'use strict';
@@ -47,16 +49,29 @@
         delivery: nav.deliveryType || '',
         worker: !('serviceWorker' in navigator) ? 'unsupported' : (navigator.serviceWorker.controller ? 'controlled' : 'supported'),
         workerMs: nav.workerStart > 0 ? Math.round(nav.fetchStart - nav.workerStart) : null,
-        source: source
+        source: source,
+        ui: meta.getAttribute('data-ui') || ''
     };
     var queue = [];
+
+    /*
+     * The element a number is about, as the attribution build names it: the largest paint, the
+     * element interacted with, the one that shifted most. Cut to 100 characters.
+     */
+    function target(metric) {
+        var a = metric.attribution || {};
+        var element = a.element || a.interactionTarget || a.largestShiftTarget || '';
+
+        return typeof element === 'string' ? element.slice(0, 100) : '';
+    }
 
     function add(metric) {
         queue.push({
             name: metric.name,
             value: Math.round(metric.value * 1000) / 1000,
             rating: metric.rating,
-            navigation: metric.navigationType
+            navigation: metric.navigationType,
+            target: target(metric)
         });
     }
 

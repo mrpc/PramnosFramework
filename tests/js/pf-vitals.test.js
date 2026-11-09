@@ -31,6 +31,7 @@ function page({ sample = '1', meta = true, library = true, beacon = true, contro
         tag.setAttribute('name', 'pf-vitals');
         tag.setAttribute('content', 'https://site.test/ClientVitals');
         tag.setAttribute('data-sample', sample);
+        tag.setAttribute('data-ui', 'new');
         document.head.appendChild(tag);
     }
     const beacons = [];
@@ -46,7 +47,8 @@ function page({ sample = '1', meta = true, library = true, beacon = true, contro
     if (library) {
         window.webVitals = {};
         for (const [name, value] of [['TTFB', 80.12345], ['LCP', 2100], ['CLS', 0.031]]) {
-            window.webVitals['on' + name] = (report) => report({ name, value, rating: 'good', navigationType: 'navigate' });
+            const attribution = name === 'LCP' ? { element: 'main > img.hero' + 'x'.repeat(120) } : name === 'CLS' ? { largestShiftTarget: 'div.banner' } : {};
+            window.webVitals['on' + name] = (report) => report({ name, value, rating: 'good', navigationType: 'navigate', attribution });
         }
     }
 
@@ -76,6 +78,10 @@ test('a picked view sends every metric with what it depends on, once, as the pag
     assert.deepEqual(sent.metrics.map((m) => m.name), ['TTFB', 'LCP', 'CLS']);
     assert.equal(sent.metrics[0].value, 80.123, 'rounded to a thousandth');
     assert.equal(sent.metrics[0].navigation, 'navigate');
+    assert.equal(sent.metrics[0].target, '', 'TTFB is about no element');
+    assert.equal(sent.metrics[1].target.length, 100, 'the largest paint, cut to 100');
+    assert.equal(sent.metrics[2].target, 'div.banner', 'the element that shifted most');
+    assert.equal(sent.ui, 'new', 'the page\'s look, from the meta');
     assert.deepEqual(
         { path: sent.path, device: sent.device, delivery: sent.delivery, worker: sent.worker, workerMs: sent.workerMs, source: sent.source },
         { path: '/el/jobs/42', device: 'mobile', delivery: 'navigational-prefetch', worker: 'controlled', workerMs: 12, source: 'preload' }

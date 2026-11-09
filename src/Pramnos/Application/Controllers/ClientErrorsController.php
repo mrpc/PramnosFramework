@@ -119,7 +119,7 @@ class ClientErrorsController extends Controller
         $address = md5(\Pramnos\Http\Request::clientIp('0.0.0.0'));
         if ($this->apcuCounts()) {
             $success = false;
-            $count   = apcu_inc('clienterrors:' . $address, 1, $success, 60);
+            $count   = apcu_inc($this->limitKey() . ':' . $address, 1, $success, 60);
             if ($success) {
                 return $count > self::PER_MINUTE;
             }
@@ -128,12 +128,21 @@ class ClientErrorsController extends Controller
         // Without APCu — production often has none — the application's cache, Redis where it is
         // one: the limit held nowhere before, and one broken browser filled a PHP pool.
         try {
-            return !$this->bucket()->take('clienterrors:' . $address, self::PER_MINUTE, self::PER_MINUTE, 60)['allowed'];
+            return !$this->bucket()->take($this->limitKey() . ':' . $address, self::PER_MINUTE, self::PER_MINUTE, 60)['allowed'];
         } catch (\Throwable $e) {
             \Pramnos\Logs\Logger::log('Browser reports are not rate-limited: no APCu, and the cache refused: ' . $e->getMessage(), 'clienterrors');
 
             return false;
         }
+    }
+
+    /**
+     * What this door's limit is counted under: each its own, so a page's burst of errors does not
+     * use up its vitals' share, nor the other way round.
+     */
+    protected function limitKey(): string
+    {
+        return 'clienterrors';
     }
 
     /** Whether APCu is there to count in. */

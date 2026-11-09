@@ -90,6 +90,8 @@ class ClientVitalsTest extends TestCase
         $app = $this->getMockBuilder(Application::class)->disableOriginalConstructor()->getMock();
         $app->database = $db;
         (new \Pramnos\Framework\Migrations\Core\CreateClientVitalsTable($app))->up();
+        require_once ROOT . '/database/migrations/framework/core/2026_11_10_000003_add_dimension_ui_target_to_client_vitals.php';
+        (new \Pramnos\Framework\Migrations\Core\AddDimensionUiTargetToClientVitals($app))->up();
         Application::getInstance()->applicationInfo['vitals'] = $vitals;
     }
 
@@ -103,6 +105,45 @@ class ClientVitalsTest extends TestCase
 
         return $more + ['metrics' => $list, 'path' => $path, 'device' => 'mobile', 'delivery' => 'navigational-prefetch',
             'worker' => 'controlled', 'workerMs' => 12, 'source' => 'preload'];
+    }
+
+    /**
+     * What an application reads a measurement by besides its page and device: its own dimension
+     * (given the path, the report and the request), the page's look, and the element an LCP or a
+     * CLS is about, cut to 100 characters. A lab or a robot is not kept; a report with no device
+     * takes it from the user agent.
+     */
+    #[DataProvider('databases')]
+    public function testTheApplicationsDimensionTheLookTheTargetAndNoRobots(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connect($type, $host, $port, ['sample' => 1, 'dimension' => static fn (string $path, array $report, array $server): ?string
+            => ($server['HTTP_CF_IPCOUNTRY'] ?? '') === 'CY' ? 'cy' : (explode('/', trim($path, '/'))[0] ?: null)]);
+        $vitals = new ClientVitals();
+        $phone  = ['HTTP_USER_AGENT' => 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) Mobile/15E148 Safari/604.1', 'HTTP_CF_IPCOUNTRY' => 'GR'];
+        $report = self::report('/el/jobs', ['LCP' => 2100, 'CLS' => 0.02], ['ui' => 'new', 'device' => '']);
+        $report['metrics'][0]['target'] = 'main > img.hero' . str_repeat('x', 150);
+        $report['metrics'][1]['target'] = "div.banner\n";
+
+        // Act
+        $kept  = $vitals->record($report, false, $phone);
+        $cy    = $vitals->record(self::report('/el/', ['TTFB' => 300]), false, ['HTTP_CF_IPCOUNTRY' => 'CY'] + $phone);
+        $robots = array_map(static fn (string $ua): int => $vitals->record(self::report('/el/', ['LCP' => 1]), false, ['HTTP_USER_AGENT' => $ua]), [
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/130.0 Safari/537.36',
+            'Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 Chrome-Lighthouse',
+            'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+            'Pingdom.com_bot_version_1.4_(http://www.pingdom.com/)',
+        ]);
+        $rows = $this->db->queryBuilder()->table('pramnos.client_vitals')->orderBy('id')->getAllOrFail();
+
+        // Assert
+        $this->assertSame([2, 1, [0, 0, 0, 0]], [$kept, $cy, $robots], 'a lab or a robot is not a visitor');
+        $this->assertSame(['el', 'new', 'mobile'], [$rows[0]['dimension'], $rows[0]['ui'], $rows[0]['device']], 'the device from the user agent');
+        $this->assertSame(100, mb_strlen((string) $rows[0]['target']));
+        $this->assertSame('div.banner', $rows[1]['target'], 'one line');
+        $this->assertSame(['cy', null, null], [$rows[2]['dimension'], $rows[2]['ui'], $rows[2]['target']]);
+        $this->assertStringContainsString('data-ui="new"', ClientVitals::tag(['ui' => 'new']));
+        $this->assertStringNotContainsString('data-ui', ClientVitals::tag());
     }
 
     /**

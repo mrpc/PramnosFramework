@@ -45,6 +45,12 @@ class ClientVitals extends ClientErrorsController
         return $this->answer(204);
     }
 
+    /** Counted apart from the browser's errors: {@see ClientErrorsController::PER_MINUTE} a minute per address of its own. */
+    protected function limitKey(): string
+    {
+        return 'clientvitals';
+    }
+
     /** Where they are kept. */
     protected function vitals(): \Pramnos\Logs\ClientVitals
     {
