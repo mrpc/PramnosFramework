@@ -8,7 +8,7 @@
     import { assistant, isAnalyst } from './extras.js';
     import NewConversation from './NewConversation.svelte';
     import { t } from './t.js';
-    import { fold, withFormer } from './logic.js';
+    import { fold, withFormer, sign } from './logic.js';
 
     let { api, me, conversations = [], browse = [], online = {}, avatars = {}, links = [], page = '', filesUrl = null, noFaces = false, onopen, onfaces, oncreated, onerror } = $props();
 
@@ -35,7 +35,7 @@
                     {#if c.kind === 'dm'}
                         <Avatar id={other(c)} name={c.title} former={withFormer(c, me)} online={withFormer(c, me) ? null : !!online[other(c)]} src={c.avatar || avatars[other(c)]} html={isAnalyst(c) ? assistant().html : null} small />
                     {:else}
-                        <span class="pf-conv-avatar pf-conv-avatar-sm pf-conv-avatar-group" aria-hidden="true">{c.kind === 'private' ? '🔒' : c.slug ? '#' : c.kind === 'bot' ? '⚙' : (c.members || []).length}</span>
+                        <span class="pf-conv-avatar pf-conv-avatar-sm pf-conv-avatar-group" aria-hidden="true">{#if sign(c).image}<img class="pf-conv-avatar-img" src={sign(c).image} alt="" loading="lazy" />{:else}{sign(c).text}{/if}</span>
                     {/if}
                     <span class="pf-conv-item-name" class:pf-conv-msg-former={withFormer(c, me)} title={withFormer(c, me) ? t('Deleted profile') : null}>{c.title}</span>
                     {#if c.muted}<span class="pf-conv-muted-text" title={t('Muted')}>🔕</span>{/if}

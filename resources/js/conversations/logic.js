@@ -461,3 +461,26 @@ export function gifCommand(text, enabled) {
 
     return enabled && m ? { query: (m[1] || '').trim() } : null;
 }
+
+/**
+ * What stands for a conversation that is not a direct one, in the list, the heads and a window's
+ * header: its picture where it has one (`image`, a channel's or a group's own or the application's
+ * default), else 🔒 for a private channel, # for a channel, ⚙ for a system one's bot, or a group's
+ * member count.
+ *
+ * @param {{kind: string, slug?: string|null, image?: string|null, members?: number[]}} c
+ * @returns {{image: string}|{text: string}}
+ */
+export function sign(c) {
+    if (c.image && c.kind !== 'dm') {
+        return { image: c.image };
+    }
+    if (c.kind === 'private') {
+        return { text: '🔒' };
+    }
+    if (c.slug) {
+        return { text: '#' };
+    }
+
+    return { text: c.kind === 'bot' ? '⚙' : String((c.members || []).length) };
+}

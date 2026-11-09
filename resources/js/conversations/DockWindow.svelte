@@ -8,7 +8,7 @@
     import { assistant, isAnalyst } from './extras.js';
     import Conversation from './Conversation.svelte';
     import { t } from './t.js';
-    import { withFormer } from './logic.js';
+    import { withFormer, sign } from './logic.js';
 
     let { api, conversation, me, props, customEmoji = {}, focused = false, online = {}, avatars = {}, minimised = false, onminimise, onclose, onread, onerror } = $props();
 
@@ -26,7 +26,7 @@
             {:else if conversation.kind === 'bot'}
                 <span class="pf-conv-avatar pf-conv-avatar-sm pf-conv-avatar-system" aria-hidden="true">⚙</span>
             {:else}
-                <span class="pf-conv-avatar pf-conv-avatar-sm pf-conv-avatar-group" aria-hidden="true">{conversation.slug ? '#' : (conversation.members || []).length}</span>
+                <span class="pf-conv-avatar pf-conv-avatar-sm pf-conv-avatar-group" aria-hidden="true">{#if sign(conversation).image}<img class="pf-conv-avatar-img" src={sign(conversation).image} alt="" loading="lazy" />{:else}{sign(conversation).text}{/if}</span>
             {/if}
             <span class="pf-conv-window-name">{title}</span>
             {#if minimised && conversation.unread > 0}<span class="pf-conv-badge">{conversation.unread}</span>{/if}

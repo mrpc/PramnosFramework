@@ -694,7 +694,8 @@ final class Conversations
         return ['id' => (int) $row['conversationid'], 'kind' => (string) $row['kind'], 'slug' => $row['slug'] === null ? null : (string) $row['slug'],
             'name' => $row['name'] === null ? null : (string) $row['name'], 'topic' => $row['topic'] === null ? null : (string) $row['topic'],
             'retentionDays' => $int($row['retentiondays']), 'createdBy' => $int($row['createdby']), 'createdAt' => (int) $row['createdat'],
-            'archivedAt' => $int($row['archivedat']), 'lastMessageId' => $int($row['lastmessageid']), 'lastMessageAt' => $int($row['lastmessageat'])]
+            'archivedAt' => $int($row['archivedat']), 'lastMessageId' => $int($row['lastmessageid']), 'lastMessageAt' => $int($row['lastmessageat']),
+            'image' => Images::url($row)]
             // The analyst's own conversation: shown by its name and picture, kept under Ask::NAME.
             + ($row['kind'] === 'bot' && $row['name'] === Ask::NAME
                 ? ['displayName' => \Pramnos\Llm\Analyst\Analyst::name(), 'avatar' => \Pramnos\Llm\Analyst\Analyst::avatar()] : []);

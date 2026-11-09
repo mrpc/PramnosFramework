@@ -596,3 +596,35 @@ test('a pop-up closes on a press outside or Escape, but not on its own button', 
     assert.equal(afterBoth, 2, 'a press outside, and Escape');
     assert.equal(closed, 2, 'destroyed: no longer listening');
 });
+
+/**
+ * What stands for a conversation in the dock: a channel's or a group's picture where it has one —
+ * never a direct conversation's, whose picture is its person's — else 🔒, #, ⚙ or the number of
+ * members.
+ */
+test('a conversation is shown by its picture, else by its sign', async () => {
+    // Arrange
+    const { sign } = await load();
+
+    // Act
+    const shown = [
+        sign({ kind: 'channel', slug: 'general', image: '/admin/Conversations/image?id=1&v=2' }),
+        sign({ kind: 'group', members: [1, 2, 3], image: '/admin/Conversations/image?id=4&v=5' }),
+        sign({ kind: 'dm', members: [1, 2], image: '/x.png' }),
+        sign({ kind: 'private', slug: 'board' }),
+        sign({ kind: 'system', slug: 'alerts', image: null }),
+        sign({ kind: 'bot' }),
+        sign({ kind: 'group', members: [1, 2, 3] }),
+    ];
+
+    // Assert
+    assert.deepEqual(shown, [
+        { image: '/admin/Conversations/image?id=1&v=2' },
+        { image: '/admin/Conversations/image?id=4&v=5' },
+        { text: '2' },            // a direct one: never the conversation's picture
+        { text: '🔒' },
+        { text: '#' },
+        { text: '⚙' },
+        { text: '3' },
+    ]);
+});

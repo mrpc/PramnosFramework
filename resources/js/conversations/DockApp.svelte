@@ -14,7 +14,7 @@
     import { t } from './t.js';
     import { installLightbox } from './lightbox.js';
     import { dismiss } from './dismiss.js';
-    import { dockLayout, sidebarPrefs, keepSidebarPrefs, withFormer, openWindow, minimiseWindow, keptWindows } from './logic.js';
+    import { dockLayout, sidebarPrefs, keepSidebarPrefs, withFormer, openWindow, minimiseWindow, keptWindows, sign } from './logic.js';
 
     let { api, props } = $props();
 
@@ -209,7 +209,7 @@
             {:else if c.kind === 'bot'}
                 <span class="pf-conv-avatar pf-conv-avatar-system" aria-hidden="true">⚙</span>
             {:else}
-                <span class="pf-conv-avatar pf-conv-avatar-group" aria-hidden="true">{(c.members || []).length}</span>
+                <span class="pf-conv-avatar pf-conv-avatar-group" aria-hidden="true">{#if sign(c).image}<img class="pf-conv-avatar-img" src={sign(c).image} alt="" loading="lazy" />{:else}{sign(c).text}{/if}</span>
             {/if}
             {#if c.unread > 0 && !c.muted}<span class="pf-conv-dock-count pf-conv-dock-mention">{c.unread}</span>{/if}
         </button>

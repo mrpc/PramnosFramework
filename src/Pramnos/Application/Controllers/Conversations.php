@@ -6,6 +6,7 @@ namespace Pramnos\Application\Controllers;
 
 use Pramnos\Application\Controller;
 use Pramnos\Conversations\Access;
+use Pramnos\Conversations\Images;
 use Pramnos\Conversations\Conversations as Store;
 use Pramnos\Conversations\Files;
 use Pramnos\Conversations\Inbox;
@@ -71,7 +72,7 @@ use Pramnos\Http\Response;
 class Conversations extends Controller
 {
     /** The writes: each a POST with the session's token. */
-    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away', 'rename'];
+    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away', 'rename', 'setimage', 'clearimage'];
 
     /** The JSON body, decoded once. @var array<string, mixed>|null */
     private ?array $json = null;
@@ -666,6 +667,44 @@ class Conversations extends Controller
 
             return ['id' => $id, 'name' => $kept['name'], 'size' => $kept['size'], 'mime' => $kept['mime']];
         });
+    }
+
+    /** Give a channel or a group a picture: the upload `image`, kept square ({@see Images}). */
+    public function setimage(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $file = $_FILES['image'] ?? null;
+            if (!is_array($file) || (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                throw new \InvalidArgumentException(t('The file did not arrive.'));
+            }
+            Images::set($this->id(), (string) $file['tmp_name'], (int) $me->userid);
+
+            return ['image' => Store::get($this->id())['image'] ?? null];
+        });
+    }
+
+    /** Take a channel's or a group's picture away. */
+    public function clearimage(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            Images::clear($this->id(), (int) $me->userid);
+
+            return ['image' => Store::get($this->id())['image'] ?? null];
+        });
+    }
+
+    /**
+     * A channel's or a group's picture (`?id=`): for whoever may use the conversations, or for
+     * anybody where `conversations.images_public` says so — a desktop application has no cookie.
+     */
+    public function image(): mixed
+    {
+        if ((!Images::public() && !Access::canUse($this->me())) || !Images::send((int) ($_GET['id'] ?? 0))) {
+            return Response::json(['error' => t('That picture is not here.')], 404);
+        }
+        $this->terminate();
+
+        return null;
     }
 
     /** A file, to a reader of its conversation; a 404 to anybody else. */

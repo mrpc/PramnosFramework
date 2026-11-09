@@ -518,6 +518,39 @@ Messages::react($id, $maria, ':our-heart:');
 
 The table is `chat.conversation_emoji`, created by the migration `create_conversation_emoji_table`.
 
+## A channel's or a group's picture
+
+A channel, a private or system channel, or a group can have a picture of its own, as in Slack.
+The dock shows it in its list, its heads and a window's header, in place of #, ⚙ or the member
+count. A direct conversation shows its person's picture instead.
+
+```php
+use Pramnos\Conversations\Images;
+
+Images::set($conversationId, $_FILES['image']['tmp_name'], $by);   // PNG, WebP, JPEG or GIF
+Images::clear($conversationId, $by);
+```
+
+- **Who changes it.** In a group, any member, as with its name. In a channel, its owner or a
+  moderator (`admin.chat.moderate`).
+- **The picture.** It is cropped square from its middle and kept at 256 pixels a side. A GIF
+  keeps its animation where the server has Imagick. An SVG is refused, since it can carry a
+  script. A new picture replaces the old one's file.
+- **Where it is shown.** Each conversation (`Conversations::get()`, the list) carries `image`, a
+  versioned address (`/admin/Conversations/image?id=…&v=…`), or null. A change is told to its
+  members as `conversation.changed`, and kept in the change log.
+- **Through the screen.** `POST Conversations/setimage/{id}` takes the upload `image`, and
+  `POST Conversations/clearimage/{id}` takes the picture away. The browser may crop the upload
+  first with `\Pramnos\Html\ImageUpload` (aspect 1).
+- **The address** is read by whoever may use the conversations. With
+  `'conversations' => ['images_public' => true]` it is read without a session too, for a desktop
+  application that has no cookie.
+- **Defaults.** `'conversations' => ['images' => ['general' => '/path/to/general.png']]` gives a
+  channel a picture by its name. A picture set on the channel wins over the default, and clearing
+  it shows the default again.
+
+The column is added by the migration `add_image_to_conversations`.
+
 ## GIFs
 
 ```php
