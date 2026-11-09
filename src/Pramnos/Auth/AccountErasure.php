@@ -143,6 +143,11 @@ class AccountErasure
             \Pramnos\Email\MailPersonalData::erase((string) $account->fields['email']);
         }
 
+        // Their open to-dos go to a successor (`todos.successor`), their private ones with them.
+        if ($schema->hasTable(\Pramnos\Todos\Todos::TABLE)) {
+            \Pramnos\Todos\Todos::handOver($userId);
+        }
+
         $this->database->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->delete();
         // A role or a membership just went: answers cached about this user are stale.
         $this->database->cacheflush('permissions');

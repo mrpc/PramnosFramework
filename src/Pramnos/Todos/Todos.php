@@ -28,6 +28,10 @@ use Pramnos\Changelog\ChangelogWriter;
  *   - `tenants` fn (): list<int> — the organisations a sync runs for; [0] by default
  *   - `newest_first` bool — within a day, newest first; oldest first by default
  *   - `sync_every` int — minutes between syncs; 5 by default
+ *   - `url` string|fn (array $item): string — where a notice leads; `/admin/Todo` by default
+ *   - `due_notice` bool — tell assignees at 08:05 of items due that day or overdue; off by default
+ *   - `allowed` fn (int $tenant): bool — whether an organisation has to-dos at all; yes by default
+ *   - `successor` fn (int $tenant, int $user): ?int — who takes a removed account's open items; nobody by default
  */
 final class Todos
 {
@@ -38,6 +42,12 @@ final class Todos
     public const DONE        = 'done';
     public const DISMISSED   = 'dismissed';
     public const STATUSES    = [self::OPEN, self::IN_PROGRESS, self::DONE, self::DISMISSED];
+
+    /** The notices' group in the bell: seeing the list settles them. */
+    public const GROUP = 'todos';
+
+    /** When, in an organisation's zone, the day's "due today" notices go. */
+    public const DUE_NOTICE_AT = '08:05';
 
     /** How long a closed item stays on the list. */
     public const CLOSED_DAYS = 7;
@@ -55,7 +65,7 @@ final class Todos
      * @param array<string, mixed> $item `title` (a line: its first web address becomes the link
      *        unless `link` is given), `link`, `assigned_to` (the author by default; 0 for nobody),
      *        `private`, `due` (Y-m-d), `remind_at` (unix), `tenant`, `kind`, `source`,
-     *        `messageid`, `conversationid`
+     *        `messageid`, `conversationid`, `tell` (false: the assignee was told already)
      * @param int $by Who adds it; 0 for the system
      * @throws \InvalidArgumentException For an empty title, a bad link or day, or an assignee who may not be given items
      */
@@ -82,6 +92,9 @@ final class Todos
         $result = $insert->insert($row);
         $id     = $db->type === 'postgresql' ? (int) ($result->fields['todoid'] ?? 0) : (int) $db->getInsertId();
         ChangelogWriter::event('todo', $id, 'added', ['title' => mb_substr($title, 0, 200), 'assigned_to' => $assign], by: $by ?: null);
+        if ($assign !== null && ($item['tell'] ?? true) !== false) {
+            self::given(['id' => $id, 'title' => $title, 'link' => $link, 'tenant' => $tenant], $assign, $by);
+        }
 
         return $id;
     }
@@ -149,6 +162,13 @@ final class Todos
         }
         self::db()->queryBuilder()->table(self::TABLE)->where('todoid', $id)->update($row + ['updated_at' => time()]);
         ChangelogWriter::event('todo', $id, 'changed', array_intersect_key($row, array_flip(['status', 'assigned_to', 'due_at', 'private'])), by: $by ?: null);
+        if (isset($row['closed_at'])) {
+            self::settle($id);
+        }
+        $to = $row['assigned_to'] ?? null;
+        if ($to !== null && $to !== $item['assigned_to'] && empty($row['private'])) {
+            self::given($item, $to, $by);
+        }
     }
 
     /**
@@ -164,6 +184,7 @@ final class Todos
         }
         self::db()->queryBuilder()->table(self::TABLE)->where('todoid', $id)->delete();
         ChangelogWriter::event('todo', $id, 'deleted', ['title' => mb_substr($item['title'], 0, 200)], by: $by);
+        self::settle($id);
     }
 
     /**
@@ -278,6 +299,236 @@ final class Todos
     }
 
     /**
+     * Send the reminders that are due: each item's `remind_at` reached — to its assignee, else its
+     * author — in the bell, as a push, and as a line from "Reminders" in their conversation with
+     * the system where the conversations are installed. The time is cleared before anything is
+     * sent, so a failure is not sent again every minute, and two runners do not both send it.
+     *
+     * @return int How many were sent
+     */
+    public static function remind(?int $now = null): int
+    {
+        $now  = $now ?? time();
+        $sent = 0;
+        $rows = self::db()->queryBuilder()->table(self::TABLE)->whereNotNull('remind_at')->where('remind_at', '<=', $now)->getAllOrFail();
+        foreach (array_map([self::class, 'shape'], $rows) as $item) {
+            if (!self::claim($item['id'], 'remind_at', $item['remind_at'], null)) {
+                continue;
+            }
+            $person = $item['assigned_to'] ?? $item['created_by'];
+            if ($person === null || !in_array($item['status'], [self::OPEN, self::IN_PROGRESS], true)) {
+                continue;
+            }
+            $said = sprintf(t('Reminder: %s'), self::short($item['title']));
+            self::tell($item, $person, $said);
+            if (\Pramnos\Conversations\Conversations::installed()) {
+                try {
+                    \Pramnos\Conversations\SystemPost::post($person, $said . (self::url($item) !== '' ? "\n" . self::url($item) : ''), [],
+                        ['username' => t('Reminders'), 'source' => 'todo', 'externalid' => 'remind:' . $item['id'] . ':' . $item['remind_at']]);
+                } catch (\Throwable $e) {
+                    \Pramnos\Logs\Logger::log('todos: reminder ' . $item['id'] . ' not posted: ' . $e->getMessage(), 'todos');
+                }
+            }
+            $sent++;
+        }
+
+        return $sent;
+    }
+
+    /**
+     * Tell assignees, once per item, of items due today or overdue — from {@see DUE_NOTICE_AT} in
+     * the organisation's zone, where `todos.due_notice` is on. An item with nobody assigned is
+     * told nothing; nor is an assignee who may no longer be given items (`todos.assignable`), nor
+     * an organisation without to-dos (`todos.allowed`). Changing the day lets it be told again.
+     *
+     * @return int How many were told
+     */
+    public static function dueNotices(?int $now = null): int
+    {
+        if (empty(self::config()['due_notice'])) {
+            return 0;
+        }
+        $now  = $now ?? time();
+        $told = 0;
+        $rows = self::db()->queryBuilder()->table(self::TABLE)->whereNull('due_told_at')->whereNotNull('assigned_to')->whereNotNull('due_at')
+            ->whereIn('status', [self::OPEN, self::IN_PROGRESS])->where('due_at', '<', $now + 86400)->getAllOrFail();
+        foreach (array_map([self::class, 'shape'], $rows) as $item) {
+            $local = (new \DateTimeImmutable('@' . $now))->setTimezone(\Pramnos\Metrics\Window::zoneOf($item['tenant']));
+            if ($local->format('H:i') < self::DUE_NOTICE_AT || $item['due_at'] > $local->setTime(23, 59, 59)->getTimestamp()) {
+                continue;
+            }
+            if (!self::allowed($item['tenant']) || !self::mayBeGiven($item['tenant'], (int) $item['assigned_to'])) {
+                continue;
+            }
+            if (!self::claim($item['id'], 'due_told_at', null, $now)) {
+                continue;
+            }
+            $said = sprintf($item['due_at'] < $now ? t('Overdue: %s') : t('Due today: %s'), self::short($item['title']));
+            self::tell($item, (int) $item['assigned_to'], $said);
+            $told++;
+        }
+
+        return $told;
+    }
+
+    /** Seeing the list settles its notices in the person's bell. @return int How many */
+    public static function seen(int $viewer): int
+    {
+        return (new \Pramnos\Notification\Feed($viewer))->markAllRead(self::GROUP);
+    }
+
+    /**
+     * An account going: its open items go to its successor (`todos.successor`), or to nobody in
+     * particular, and the successor is told; its private items go with it.
+     *
+     * @return int How many were handed over
+     */
+    public static function handOver(int $user): int
+    {
+        $table = static fn () => self::db()->queryBuilder()->table(self::TABLE);
+        foreach ($table()->where('created_by', $user)->where('private', true)->select(['todoid'])->getAllOrFail() as $row) {
+            self::settle((int) $row['todoid']);
+        }
+        $table()->where('created_by', $user)->where('private', true)->delete();
+        $rows = $table()->where('assigned_to', $user)->whereIn('status', [self::OPEN, self::IN_PROGRESS])->getAllOrFail();
+        $next = self::config()['successor'] ?? null;
+        foreach (array_map([self::class, 'shape'], $rows) as $item) {
+            $to = is_callable($next) ? ((int) $next($item['tenant'], $user) ?: null) : null;
+            $to = $to === $user ? null : $to;
+            $table()->where('todoid', $item['id'])->update(['assigned_to' => $to, 'assigned_by_hand' => $to !== null, 'updated_at' => time()]);
+            self::settle($item['id']);
+            if ($to !== null) {
+                self::given($item, $to);
+            }
+        }
+
+        return count($rows);
+    }
+
+    /**
+     * The rows an export carries: a person's own items, or every own item of an organisation (or
+     * of every one, for a null tenant).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function exportable(?int $tenant, ?int $person = null): array
+    {
+        $query = self::db()->queryBuilder()->table(self::TABLE)->where('kind', 'own')->orderBy('todoid');
+        if ($tenant !== null) {
+            $query->where('tenant', $tenant);
+        }
+        if ($person !== null) {
+            $query->where('created_by', $person);
+        }
+        $keep = ['id', 'tenant', 'title', 'link', 'status', 'assigned_to', 'due_at', 'remind_at', 'private', 'created_by', 'created_at', 'updated_at', 'closed_at'];
+
+        return array_map(static fn (array $row): array => array_intersect_key(self::shape($row), array_flip($keep)), $query->getAllOrFail());
+    }
+
+    /** Whether an organisation has to-dos at all (`todos.allowed`). */
+    public static function allowed(int $tenant): bool
+    {
+        $allowed = self::config()['allowed'] ?? null;
+
+        return !is_callable($allowed) || (bool) $allowed($tenant);
+    }
+
+    /** Settle an item's notices in everybody's bell: it was closed or deleted. */
+    private static function settle(int $id): void
+    {
+        try {
+            \Pramnos\Notification\Feed::settleAbout(['todo:' . $id], null, self::db());
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('todos: ' . $id . ' not settled: ' . $e->getMessage(), 'todos');
+        }
+    }
+
+    /**
+     * Tell somebody an item is theirs now: "A to-do for you · from X". Never for their own act.
+     *
+     * @param array<string, mixed> $item
+     */
+    private static function given(array $item, int $to, int $by = 0): void
+    {
+        if ($to === $by) {
+            return;
+        }
+        $from = $by > 0 ? self::nameOf($by) : '';
+        $said = $from !== '' ? sprintf(t('A to-do for you · from %s: %s'), $from, self::short((string) $item['title']))
+            : sprintf(t('A to-do for you: %s'), self::short((string) $item['title']));
+        self::tell($item, $to, $said);
+    }
+
+    /**
+     * One notice to one person, in the bell and by push. A person not told is logged, not raised:
+     * the act that told them has happened.
+     *
+     * @param array<string, mixed> $item
+     */
+    private static function tell(array $item, int $person, string $said): void
+    {
+        try {
+            $user = new \Pramnos\User\User($person);
+            if ((int) ($user->userid ?? 0) === $person) {
+                $user->notify(new TodoNotification((int) $item['id'], $said, self::url($item)));
+            }
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('todos: ' . ($item['id'] ?? '?') . ': ' . $person . ' not told: ' . $e->getMessage(), 'todos');
+        }
+    }
+
+    /** Where a notice of an item leads: `todos.url`, the list by default. @param array<string, mixed> $item */
+    private static function url(array $item): string
+    {
+        $url = self::config()['url'] ?? '/admin/Todo';
+
+        return is_callable($url) ? (string) $url($item) : (string) $url;
+    }
+
+    /** A person's name: first and last, or the username. */
+    private static function nameOf(int $user): string
+    {
+        try {
+            $u = new \Pramnos\User\User($user);
+            $full = trim((string) ($u->firstname ?? '') . ' ' . (string) ($u->lastname ?? ''));
+
+            return $full !== '' ? $full : (string) ($u->username ?? '');
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
+    /** A title cut for a notice. */
+    private static function short(string $title): string
+    {
+        $line = trim((string) preg_replace('~\s+~u', ' ', $title));
+
+        return mb_strlen($line) > 120 ? mb_substr($line, 0, 119) . '…' : $line;
+    }
+
+    /** Change a column from what it was, if it still is: true when this runner did it. */
+    private static function claim(int $id, string $column, ?int $was, ?int $to): bool
+    {
+        $query = self::db()->queryBuilder()->table(self::TABLE)->where('todoid', $id);
+        $was === null ? $query->whereNull($column) : $query->where($column, $was);
+        $result = $query->update([$column => $to]);
+
+        return is_object($result) && method_exists($result, 'getAffectedRows') ? (int) $result->getAffectedRows() > 0 : (bool) $result;
+    }
+
+    /** Whether somebody may be given items, without raising. */
+    private static function mayBeGiven(int $tenant, int $user): bool
+    {
+        try {
+            self::assignable($tenant, $user);
+
+            return true;
+        } catch (\InvalidArgumentException) {
+            return false;
+        }
+    }
+
+    /**
      * One source's wants against its items.
      *
      * @param array<string, array<string, mixed>> $wanted
@@ -298,7 +549,7 @@ final class Todos
             $item  = $have[$key] ?? null;
             if ($item === null) {
                 self::add(['tenant' => $tenant, 'kind' => $kind, 'source' => $key, 'title' => $title, 'link' => $want['link'] ?? null,
-                    'assigned_to' => $to ?? 0, 'due' => $want['due'] ?? null]);
+                    'assigned_to' => $to ?? 0, 'due' => $want['due'] ?? null, 'tell' => ($want['tell'] ?? true) !== false]);
                 $out['opened']++;
                 continue;
             }
@@ -307,7 +558,7 @@ final class Todos
                 $row['title'] = $title;
             }
             if ($item['due_at'] !== $due) {
-                $row['due_at'] = $due;
+                $row += ['due_at' => $due, 'due_told_at' => null];
             }
             if (!$item['assigned_by_hand'] && $item['assigned_to'] !== $to) {
                 $row['assigned_to'] = $to;
@@ -318,11 +569,15 @@ final class Todos
             if ($row !== []) {
                 $table()->where('todoid', $item['id'])->update($row + ['updated_at' => $now]);
                 $out['changed']++;
+                if (isset($row['assigned_to']) && ($want['tell'] ?? true) !== false && $item['status'] !== self::DISMISSED) {
+                    self::given(['title' => $title] + $item, $row['assigned_to']);
+                }
             }
         }
         foreach (array_diff_key($have, $wanted) as $item) {
             if (in_array($item['status'], [self::OPEN, self::IN_PROGRESS], true)) {
                 $table()->where('todoid', $item['id'])->update(['status' => self::DONE, 'closed_at' => $now, 'updated_at' => $now]);
+                self::settle($item['id']);
                 $out['closed']++;
             }
         }

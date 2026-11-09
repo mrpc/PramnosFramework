@@ -2738,6 +2738,8 @@ class Account extends Controller
                 ->rowsFor($userId, (string) ($userData['email'] ?? '')),
             // What they were sent, with each message's body as it went.
             'mail'             => fn (): array => \Pramnos\Email\MailPersonalData::export((string) ($userData['email'] ?? '')),
+            // The to-dos they wrote for themselves.
+            'todos'            => fn (): array => \Pramnos\Todos\Todos::exportable(null, $userId),
             // The picture itself is at the URL: the export says where, and the person downloads it.
             'profile_photo'    => fn (): array => (int) ($userData['photo'] ?? 0) > 0
                 ? ['url' => \Pramnos\User\ProfilePhoto::url((int) $userData['photo'])]

@@ -4,6 +4,8 @@ use_cases:
   - Putting an item on the list for each ticket, comment or goal that needs someone, and taking it off when it no longer does
   - Assigning a to-do to someone, giving it a day, or hiding it without doing it
   - Deciding who may be given to-dos and who sees which
+  - Reminding someone of a to-do, or telling them what is due today
+  - Handing a leaving person's to-dos to someone else
 ---
 
 # To-dos
@@ -77,6 +79,32 @@ It runs:
   changes a source, so the item goes at once;
 - when a goal turns (`goal.turned`), for that goal's organisation.
 
+## Telling
+
+- **Given to someone.** An item assigned to a person — when added, when its assignee changes, or
+  when a source opens it — is told in their bell and by push: "A to-do for you · from X". Never
+  for one's own act. A source that told its assignee already gives `'tell' => false`.
+- **A reminder.** `remind_at` is sent to the minute by `todos:remind`, to the assignee, else the
+  author: the bell, a push, and a line from "Reminders" in their conversation with the system
+  where the conversations are installed. It is cleared before it is sent, so a failure is not
+  repeated every minute. A closed item's reminder is cleared without a word.
+- **Due today, or overdue.** With `todos.due_notice` on, each item with an assignee is told once,
+  from 08:05 in the organisation's zone, on its day or after it. Not to somebody who may no
+  longer be given items (`todos.assignable`), nor in an organisation without to-dos
+  (`todos.allowed`). Changing the day lets it be told again.
+- **Settled.** A notice is about its item (`todo:ID`): closing or deleting the item settles it in
+  every bell. `Todos::seen($viewer)` settles a person's to-do notices; a screen showing the list
+  calls it.
+- **Where it leads:** `todos.url`, the list at `/admin/Todo` by default.
+
+## An account that goes
+
+`AccountErasure` calls `Todos::handOver($user)`: the open items assigned to the person go to
+`todos.successor` — told, as any item given — or to nobody in particular; their private items
+go with them. The account's export carries the items they wrote for themselves, and
+`Todos::exportable($tenant, ?$person)` gives an organisation's own items, or a person's, for an
+export of the application's.
+
 ## Settings
 
 ```php
@@ -85,8 +113,11 @@ It runs:
     'tenants'      => fn (): array => […],                      // the organisations a sync runs for
     'newest_first' => false,
     'sync_every'   => 5,                                        // minutes
+    'url'          => '/admin/Todo',                            // or fn (array $item): string
+    'due_notice'   => false,                                    // "due today" at 08:05
+    'allowed'      => fn (int $tenant): bool => …,              // an organisation has to-dos at all
+    'successor'    => fn (int $tenant, int $user): ?int => …,   // who takes a leaving person's items
 ],
 ```
 
-The rest of the design (reminders, the due-today notice, the conversations, the screens, the
-tool and the API) is in [To-dos (design)](Todos-Design.md), built in order.
+The rest of the design (the conversations, the screens, the tool and the API) is in [To-dos (design)](Todos-Design.md), built in order.

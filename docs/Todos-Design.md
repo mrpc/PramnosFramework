@@ -157,7 +157,7 @@ it gives is `source => [kind, title, link?, assigned_to?, due_at?]`.
 | Step | What |
 |---|---|
 | 1 | **Built:** the table, the item's life, sync, sources ([guide](Pramnos_Todos_Guide.md)) |
-| 2 | Telling: given, reminders, due today, settling, successor |
+| 2 | **Built:** telling — given, reminders, due today, settling, successor, export |
 | 3 | The conversations: from a message, remind me, the chat's list |
 | 4 | The screens, the header, the card, "about this", the calendar, the rule action, the tool, the API |
 

@@ -307,6 +307,13 @@ class FrameworkSchedule
                 'description' => 'Keep the to-do list in step with the application\'s sources',
             ],
 
+            // The to-dos' reminders, to the minute, and the "due today" notices from 08:05 in
+            // each organisation's zone. Nothing to do where no item has a reminder or a day.
+            'todos:remind' => [
+                'cadence'     => [['everyMinute']],
+                'description' => 'Send the to-dos\' reminders, and the "due today" notices',
+            ],
+
             'queue:cleanup' => [
                 'cadence'     => [['daily'], ['at', '03:10']],
                 'description' => 'Remove completed and expired queue items',
