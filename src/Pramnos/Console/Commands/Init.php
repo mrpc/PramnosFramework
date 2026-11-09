@@ -3614,6 +3614,10 @@ PHP;
             $lines[] = "        // Notifications: GET /notifications, /notifications/count, POST /notifications/read, /readall";
             $lines[] = "        \\Pramnos\\Notification\\FeedApi::routes(\$r);";
             $lines[] = "";
+            // The account's own pages, for an app: sessions, password, profile, export, deletion.
+            $lines[] = "        // Account: /me/sessions, /me/password, /me/profile, /me/photo, /me/export, /me/delete, /me/applications, /me/devices";
+            $lines[] = "        \\Pramnos\\Auth\\Controllers\\AccountApi::routes(\$r);";
+            $lines[] = "";
         }
 
         // The conversations, for a client that is not the administration's page — a desktop or

@@ -1628,52 +1628,12 @@ class Account extends Controller
                 return;
             }
 
-            $firstname = trim((string) ($_POST['firstname'] ?? ''));
-            $lastname  = trim((string) ($_POST['lastname']  ?? ''));
-            $email     = trim((string) ($_POST['email']     ?? ''));
-            $phone     = trim((string) ($_POST['phone']     ?? ''));
-
-            if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
-                $this->addError(t('Please enter a valid email address.'));
+            $error = $this->applyProfile($currentUser, $_POST);
+            if ($error !== null) {
+                $this->addError($error);
                 $this->redirect(sURL . $this->routeBase . '/profile');
                 return;
             }
-
-            // Kept before the assignment: after `save()` the account no longer knows what
-            // its address used to be, and that address is the only place a warning can
-            // reach the real owner when this change was not theirs.
-            $previousEmail = (string) ($currentUser->email ?? '');
-            $submitted     = ['firstname' => $firstname, 'lastname' => $lastname, 'email' => $email, 'phone' => $phone];
-            $changed       = array_keys(array_filter(
-                $submitted,
-                static fn ($value, $field) => (string) ($currentUser->$field ?? '') !== $value,
-                ARRAY_FILTER_USE_BOTH
-            ));
-
-            $currentUser->firstname = $firstname;
-            $currentUser->lastname  = $lastname;
-            $currentUser->email     = $email;
-            $currentUser->phone     = $phone;
-            $currentUser->save();
-
-            if (strcasecmp($previousEmail, $email) !== 0) {
-                \Pramnos\Auth\ActivityLog::record((int) $currentUser->userid, 'email_changed');
-                \Pramnos\Auth\SecurityChangeNotifier::notify(
-                    (int) $currentUser->userid,
-                    \Pramnos\Auth\SecurityChangeNotifier::EMAIL,
-                    '',
-                    $previousEmail
-                );
-            }
-
-            // The fields, not their values: an application that wants them reads /me.
-            if ($changed !== []) {
-                \Pramnos\Auth\WebhookService::userEvent('user_profile_changed', (int) $currentUser->userid, [
-                    'changed'    => $changed,
-                    'changed_by' => (int) $currentUser->userid,
-                ]);
-            }
-
             $this->addMessage(t('Your profile has been updated.'));
             $this->redirect(sURL . $this->routeBase . '/profile');
             return;
@@ -2302,7 +2262,145 @@ class Account extends Controller
         $this->redirect(sURL . $this->routeBase . '/security');
     }
 
+    /**
+     * Change one's own name, address and phone: the address checked, the change kept, an address
+     * changed told to the old one, the fields changed sent to the applications that listen. The
+     * page and the API share it.
+     *
+     * @param array<string, mixed> $fields `firstname`, `lastname`, `email`, `phone`
+     * @return string|null Why it was refused; null when it was kept
+     */
+    protected function applyProfile(object $currentUser, array $fields): ?string
+    {
+        $firstname = trim((string) ($fields['firstname'] ?? ''));
+        $lastname  = trim((string) ($fields['lastname']  ?? ''));
+        $email     = trim((string) ($fields['email']     ?? ''));
+        $phone     = trim((string) ($fields['phone']     ?? ''));
+
+        if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            return t('Please enter a valid email address.');
+        }
+
+        // Kept before the assignment: after `save()` the account no longer knows what
+        // its address used to be, and that address is the only place a warning can
+        // reach the real owner when this change was not theirs.
+        $previousEmail = (string) ($currentUser->email ?? '');
+        $submitted     = ['firstname' => $firstname, 'lastname' => $lastname, 'email' => $email, 'phone' => $phone];
+        $changed       = array_keys(array_filter(
+            $submitted,
+            static fn ($value, $field) => (string) ($currentUser->$field ?? '') !== $value,
+            ARRAY_FILTER_USE_BOTH
+        ));
+
+        $currentUser->firstname = $firstname;
+        $currentUser->lastname  = $lastname;
+        $currentUser->email     = $email;
+        $currentUser->phone     = $phone;
+        $currentUser->save();
+
+        if (strcasecmp($previousEmail, $email) !== 0) {
+            \Pramnos\Auth\ActivityLog::record((int) $currentUser->userid, 'email_changed');
+            \Pramnos\Auth\SecurityChangeNotifier::notify(
+                (int) $currentUser->userid,
+                \Pramnos\Auth\SecurityChangeNotifier::EMAIL,
+                '',
+                $previousEmail
+            );
+        }
+
+        // The fields, not their values: an application that wants them reads /me.
+        if ($changed !== []) {
+            \Pramnos\Auth\WebhookService::userEvent('user_profile_changed', (int) $currentUser->userid, [
+                'changed'    => $changed,
+                'changed_by' => (int) $currentUser->userid,
+            ]);
+        }
+
+        return null;
+    }
+
     // ── Change password ───────────────────────────────────────────────────────
+
+    /**
+     * Change a password: the current one checked, the policy and the history applied, the change
+     * kept, recorded and told; the other sessions ended where `auth.security` asks — all but
+     * `$keepSession` (the hash of the session to spare; '' for none, as a token's call has).
+     * The page and the API share it.
+     *
+     * @return array{error: ?string, ended: int} Why it was refused, in words for the person (null
+     *         when it was changed), and how many other sessions it ended
+     */
+    protected function applyPasswordChange(object $currentUser, string $currentPassword, string $newPassword, string $confirmPassword, string $keepSession): array
+    {
+        if (!$this->verifyUserPassword((int) $currentUser->userid, $currentPassword)) {
+            return ['error' => $this->passwordErrorMessage('wrong_password'), 'ended' => 0];
+        }
+
+        $policyError = $this->validatePasswordPolicy($newPassword, $confirmPassword);
+        if ($policyError !== null) {
+            return ['error' => $this->passwordErrorMessage($policyError), 'ended' => 0];
+        }
+
+        /**
+         * Refuse a password this account has already used, when asked to.
+         *
+         * Checked after the policy and before the write, so the message is about the
+         * password rather than about the attempt. Only meaningful where there is a
+         * reason to change — in that situation the first instinct is the password the
+         * person already knows, which looks like a change and is not one.
+         */
+        $history = new \Pramnos\Auth\PasswordHistory();
+        if ($history->wasUsedBefore((int) $currentUser->userid, $newPassword)) {
+            return ['error' => t('You have used that password before. Please choose a different one.'), 'ended' => 0];
+        }
+
+        // Kept before the write: this is the hash the account is moving away from, and
+        // it is what the list of "may not be reused" is made of.
+        $previousHash = (string) ($currentUser->password ?? '');
+
+        $this->updatePassword((int) $currentUser->userid, $newPassword);
+        $history->remember((int) $currentUser->userid, $previousHash);
+        \Pramnos\Auth\ActivityLog::record(
+            (int) $currentUser->userid,
+            'password_changed'
+        );
+
+        /**
+         * End the other sessions, when the application asked for it.
+         *
+         * People change a password *because* they think somebody else has it. Leaving
+         * the other sessions alive means the other person keeps the account while the
+         * owner believes they have just taken it back — which is worse than not
+         * offering the change, because it manufactures false confidence.
+         *
+         * The current session is spared: being signed out by your own password change
+         * reads as a failure, and the person then cannot tell whether it worked.
+         *
+         * Opt-in, like the rest of `auth.security`: for an application that treats a
+         * password change as routine hygiene rather than as a response to compromise,
+         * signing every device out is a support call.
+         */
+        $endedOthers = 0;
+        if (\Pramnos\Auth\SecurityPolicy::revokesSessionsOnPasswordChange()) {
+            $endedOthers = (new \Pramnos\User\User((int) $currentUser->userid))
+                ->revokeOtherSessions($keepSession);
+
+            if ($endedOthers > 0) {
+                \Pramnos\Auth\ActivityLog::record(
+                    (int) $currentUser->userid,
+                    'sessions_revoked_on_password_change',
+                    ['count' => $endedOthers]
+                );
+            }
+        }
+
+        \Pramnos\Auth\SecurityChangeNotifier::notify(
+            (int) $currentUser->userid,
+            \Pramnos\Auth\SecurityChangeNotifier::PASSWORD
+        );
+
+        return ['error' => null, 'ended' => $endedOthers];
+    }
 
     /**
      * Change password.
@@ -2333,83 +2431,19 @@ class Account extends Controller
                 return;
             }
 
-            $currentPassword = (string) ($_POST['current_password'] ?? '');
-            $newPassword     = (string) ($_POST['new_password']     ?? '');
-            $confirmPassword = (string) ($_POST['confirm_password'] ?? '');
-
-            if (!$this->verifyUserPassword((int) $currentUser->userid, $currentPassword)) {
-                $this->addError($this->passwordErrorMessage('wrong_password'));
-                $this->redirect($back);
-                return;
-            }
-
-            $policyError = $this->validatePasswordPolicy($newPassword, $confirmPassword);
-            if ($policyError !== null) {
-                $this->addError($this->passwordErrorMessage($policyError));
-                $this->redirect($back);
-                return;
-            }
-
-            /**
-             * Refuse a password this account has already used, when asked to.
-             *
-             * Checked after the policy and before the write, so the message is about the
-             * password rather than about the attempt. Only meaningful where there is a
-             * reason to change — in that situation the first instinct is the password the
-             * person already knows, which looks like a change and is not one.
-             */
-            $history = new \Pramnos\Auth\PasswordHistory();
-            if ($history->wasUsedBefore((int) $currentUser->userid, $newPassword)) {
-                $this->addError(t('You have used that password before. Please choose a different one.'));
-                $this->redirect($back);
-
-                return;
-            }
-
-            // Kept before the write: this is the hash the account is moving away from, and
-            // it is what the list of "may not be reused" is made of.
-            $previousHash = (string) ($currentUser->password ?? '');
-
-            $this->updatePassword((int) $currentUser->userid, $newPassword);
-            $history->remember((int) $currentUser->userid, $previousHash);
-            \Pramnos\Auth\ActivityLog::record(
-                (int) $currentUser->userid,
-                'password_changed'
+            $changed = $this->applyPasswordChange(
+                $currentUser,
+                (string) ($_POST['current_password'] ?? ''),
+                (string) ($_POST['new_password'] ?? ''),
+                (string) ($_POST['confirm_password'] ?? ''),
+                md5(session_id())
             );
-
-            /**
-             * End the other sessions, when the application asked for it.
-             *
-             * People change a password *because* they think somebody else has it. Leaving
-             * the other sessions alive means the other person keeps the account while the
-             * owner believes they have just taken it back — which is worse than not
-             * offering the change, because it manufactures false confidence.
-             *
-             * The current session is spared: being signed out by your own password change
-             * reads as a failure, and the person then cannot tell whether it worked.
-             *
-             * Opt-in, like the rest of `auth.security`: for an application that treats a
-             * password change as routine hygiene rather than as a response to compromise,
-             * signing every device out is a support call.
-             */
-            $endedOthers = 0;
-            if (\Pramnos\Auth\SecurityPolicy::revokesSessionsOnPasswordChange()) {
-                $endedOthers = (new \Pramnos\User\User((int) $currentUser->userid))
-                    ->revokeOtherSessions(md5(session_id()));
-
-                if ($endedOthers > 0) {
-                    \Pramnos\Auth\ActivityLog::record(
-                        (int) $currentUser->userid,
-                        'sessions_revoked_on_password_change',
-                        ['count' => $endedOthers]
-                    );
-                }
+            if ($changed['error'] !== null) {
+                $this->addError($changed['error']);
+                $this->redirect($back);
+                return;
             }
-
-            \Pramnos\Auth\SecurityChangeNotifier::notify(
-                (int) $currentUser->userid,
-                \Pramnos\Auth\SecurityChangeNotifier::PASSWORD
-            );
+            $endedOthers = $changed['ended'];
 
             \Pramnos\Http\Session::getInstance()->remove(self::PASSWORD_RETURN_SESSION_KEY);
             if ($returnUrl !== '') {

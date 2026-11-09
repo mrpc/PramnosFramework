@@ -1,5 +1,6 @@
 ---
 use_cases:
+  - Letting a desktop or mobile app change a password, edit a profile, export data or delete the account through the API
   - Deciding what each user type may do, and changing it
   - Seeing and editing a user from the administration screen, with an audit trail
   - Letting people register themselves: open, by domain or by invitation
@@ -536,6 +537,32 @@ class Invitations extends \Pramnos\Auth\Invitations
 that nobody accepted hold other people's addresses and are deleted; the ones that were accepted
 stay, with `invited_by` cleared, because they belong to the account they created; the invitation
 the erased account itself came from is deleted.
+
+## The account's own pages, under the API
+
+A desktop or mobile application, or a SPA, does what the account's pages do through the
+application's API, with the API's credentials:
+
+```php
+\Pramnos\Auth\Controllers\AccountApi::routes($r);           // under /me; init mounts it with `auth`
+```
+
+| | |
+|---|---|
+| `GET /me/sessions`, `DELETE /me/sessions/{sid}` | the sessions one is signed in with; sign one out |
+| `POST /me/password` | `current_password`, `new_password`, `confirm_password` |
+| `PUT /me/profile` | `firstname`, `lastname`, `email`, `phone` |
+| `POST /me/photo`, `DELETE /me/photo` | the upload `photo`, or `gravatar` = 1; take it away |
+| `GET /me/export` | everything held about one, as the page's export |
+| `POST /me/delete` | `password`, `confirmation` = `DELETE`, and `tasks` to hand over: the account erased |
+| `GET /me/applications`, `DELETE /me/applications/{client_id}` | the applications given access; take one's away |
+| `GET /me/devices`, `DELETE /me/devices/{device_id}`, `DELETE /me/devices` | the trusted devices; forget one, or all |
+
+The same code as the pages runs behind each: the password's policy and history, the notices of a
+changed address, the export's sections, the erasure's order. App stores require deleting the
+account inside the app; `/me/delete` is that. A password changed through the API signs out every
+session where `auth.security` asks for it, since a token's call has no session of its own to
+spare. Each route is described in the API's document (`api:docs`).
 
 ## The data export, section by section
 
