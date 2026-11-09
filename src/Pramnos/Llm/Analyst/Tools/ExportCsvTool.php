@@ -40,7 +40,9 @@ final class ExportCsvTool implements McpToolInterface
         return 'Write the rows of one read-only SELECT to a CSV file the administrator downloads, when '
             . 'they ask for a list or a file rather than an answer — up to ' . self::MAX_ROWS . ' rows. '
             . 'You get the link, the row count and five sample rows. Give the link as a Markdown link. '
-            . 'The file is theirs alone and is kept ' . Exports::DAYS . ' days.';
+            . 'The file is theirs alone and is kept ' . Exports::DAYS . ' days. Use it for more rows than an artifact holds '
+            . '(' . \Pramnos\Llm\Chat\Artifacts::ROWS . '), or rows whose columns come from the database, written in one SELECT '
+            . 'without retyping them; otherwise save_artifact. Never both for the same rows.';
     }
 
     public function inputSchema(): array

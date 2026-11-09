@@ -356,6 +356,18 @@ For a question no tool answers, the analyst can write SQL — when the applicati
 ]],
 ```
 
+**Credentials are never read.**
+- A column whose name says it holds one (`password`, `token`, `secret`, `api_key`, `salt`,
+  `otp`…) or one the application names (`'llm' => ['withheld' => ['devices.devkey', 'pin']]`) is
+  withheld, as `[withheld]`, from what `SELECT *` brings: in the rows `sql` answers and in the
+  file `export_csv` writes.
+- A statement that names such a column, under any alias, is refused before it runs.
+
+**A list goes in an artifact, or a file.** A list someone asks for goes in an artifact
+(`save_artifact`, a table of up to 1,000 rows). A longer one, or one whose columns come from the
+database rather than from a tool's answer, goes in `export_csv`, which writes it in one SELECT.
+Never both for the same rows. The two tools' descriptions say so to the model.
+
 `schema` lists the tables, or one table's columns with their keys, and the application's notes,
 keyed without the table prefix. `sql` answers rows. `export_csv` writes them to a file. It
 answers with its `link`, and with `xlsx`, the same file as a spreadsheet (`?as=xlsx`). A list of

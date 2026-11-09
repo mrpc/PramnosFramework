@@ -176,6 +176,44 @@ class AnalystSqlTest extends LlmTestCase
     }
 
     /**
+     * A credential is never handed on, whatever the statement selects: a column whose name says
+     * so (`password`), or that the application names in `llm.withheld` (a device's key the
+     * pattern cannot know), is withheld from what `SELECT *` brings, in the rows `sql` answers and
+     * in the file `export_csv` writes; a statement naming one, under any alias, is refused.
+     */
+    #[DataProvider('databases')]
+    public function testACredentialIsWithheld(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $app  = \Pramnos\Application\Application::getInstance();
+        $llm  = $app->applicationInfo['llm'] ?? null;
+        $app->applicationInfo['llm'] = ['withheld' => ['users.lastname']];
+        ReadOnlySql::forgetWithheld();
+
+        try {
+            // Act
+            $rows    = (new SqlTool())->execute(['sql' => 'SELECT * FROM users WHERE userid > 1 ORDER BY userid', 'limit' => 1])['rows'];
+            $aliased = (new SqlTool())->execute(['sql' => 'SELECT username, password AS x FROM users']);
+            $theirs  = (new SqlTool())->execute(['sql' => 'SELECT UPPER(lastname) AS y FROM users']);
+            $made    = (new ExportCsvTool(7))->execute(['sql' => 'SELECT * FROM users WHERE userid > 1 ORDER BY userid']);
+            $file = (string) file_get_contents(Exports::path(basename((string) parse_url($made['link'], PHP_URL_PATH)), 7));
+        } finally {
+            $app->applicationInfo['llm'] = $llm;
+            ReadOnlySql::forgetWithheld();
+        }
+
+        // Assert
+        $this->assertSame(['maria', '[withheld]', '[withheld]'], [$rows[0]['username'], $rows[0]['password'], $rows[0]['lastname']],
+            'what SELECT * brings: a password by its name, the application\'s own key by its');
+        $this->assertSame('maria@example.com', $rows[0]['email'], 'every other column as it is');
+        $this->assertStringStartsWith('Refused: That statement reads "password"', (string) $aliased, 'named, under any alias: refused');
+        $this->assertStringStartsWith('Refused: That statement reads "lastname"', (string) $theirs);
+        $this->assertStringContainsString('[withheld]', $file, 'the file has no password either');
+        $this->assertStringNotContainsString(',x,', $file);
+    }
+
+    /**
      * What the lexer cannot see, the transaction refuses: `nextval()` reads like a function and
      * writes a sequence. PostgreSQL only — MySQL has no read that writes past the lexer.
      */

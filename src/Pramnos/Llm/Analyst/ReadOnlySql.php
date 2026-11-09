@@ -57,6 +57,14 @@ final class ReadOnlySql
             return 'That statement locks rows or writes a file; a read does neither.';
         }
 
+        // A credential named in the statement: refused, so no alias or expression carries it out.
+        preg_match_all('/[a-z_][a-z0-9_]*/', $stripped, $words);
+        foreach (array_unique($words[0]) as $word) {
+            if (self::isSecret($word)) {
+                return 'That statement reads "' . $word . '", which holds a credential; credentials are not read.';
+            }
+        }
+
         return null;
     }
 
@@ -103,7 +111,8 @@ final class ReadOnlySql
         try {
             $result = $db->query($sql);
             while ($count < $limit && $result && $result->fetch()) {
-                $row(is_array($result->fields) ? $result->fields : []);
+                // A credential is never handed on, whatever the statement selected.
+                $row(self::withhold(is_array($result->fields) ? $result->fields : []));
                 $count++;
             }
         } finally {
@@ -114,6 +123,51 @@ final class ReadOnlySql
         }
 
         return $count;
+    }
+
+    /** A column whose name says it holds a credential: its value is never handed on. */
+    public const SECRET = '/(^|_)(pass(word|wd)?|pwd|secret|token|api_?key|apikey|private_?key|salt|otp|totp|mfa|2fa|credential|auth_?key|signing_?key|access_?key)(_|$)|(password|secret|token|apikey)/i';
+
+    /**
+     * A row with every credential's value replaced by `[withheld]`: a column whose name says so
+     * ({@see SECRET}), or one the application names in `'llm' => ['withheld' => ['devices.devkey', 'pin']]`
+     * — a bare column name, wherever it is, or the table's — for a key the pattern cannot know.
+     * What `SELECT *` brings is withheld here; a statement that names such a column, under any
+     * alias, is refused before it runs ({@see refusal()}).
+     *
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    public static function withhold(array $row): array
+    {
+        foreach ($row as $column => $value) {
+            if ($value !== null && $value !== '' && self::isSecret((string) $column)) {
+                $row[$column] = '[withheld]';
+            }
+        }
+
+        return $row;
+    }
+
+    /** Whether a column's name says it holds a credential, or the application names it so. */
+    private static function isSecret(string $name): bool
+    {
+        if (self::$named === null) {
+            $app         = \Pramnos\Application\Application::currentInstance();
+            self::$named = array_map(static fn ($c): string => strtolower((string) substr(strrchr('.' . $c, '.'), 1)),
+                (array) (is_object($app) ? ($app->applicationInfo['llm']['withheld'] ?? []) : []));
+        }
+
+        return preg_match(self::SECRET, $name) === 1 || in_array(strtolower($name), self::$named, true);
+    }
+
+    /** @var list<string>|null The application's own withheld column names, read once */
+    private static ?array $named = null;
+
+    /** Read the application's own withheld columns again: for a test, or after app.php changed. */
+    public static function forgetWithheld(): void
+    {
+        self::$named = null;
     }
 
     /**

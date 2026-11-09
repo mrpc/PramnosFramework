@@ -106,7 +106,8 @@ final class Artifacts
             'description' => 'Keep a result as an artifact the person can open, share and act on: a table, a list of records, or a text. '
                 . 'Use it when the answer is a table of more than a few rows, a list of records (users, orders, devices…) the person may want to do something with, '
                 . 'or a document they asked you to write — and when they ask to keep, share or export something. Give the data itself here; '
-                . 'in the answer, say briefly what it holds rather than repeating it.',
+                . 'in the answer, say briefly what it holds rather than repeating it. A table holds up to ' . self::ROWS . ' rows: past that, '
+                . 'or for rows read from the database rather than from a tool\'s answer, use export_csv where it is offered. Never both for the same rows.',
             'parameters'  => ['type' => 'object', 'properties' => [
                 'kind'    => ['type' => 'string', 'enum' => self::KINDS],
                 'title'   => ['type' => 'string', 'description' => 'A short name for it.'],
