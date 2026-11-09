@@ -183,7 +183,7 @@ framework itself calls it somewhere.
 | `database.transaction.rolledback` | `Database.php::rollbackTransaction()` |
 | `model.changed` | `Event/ChangeFeed.php`, fed by `Application/Model.php::emitChange()` — see `Pramnos_Change_Feed_Guide.md` |
 | `moderation.kicked` (`Events\Kicked`) | `Moderation/Moderation.php` |
-| `conversation.created` (`Events\ConversationCreated`) | `Conversations/Conversations.php` |
+| `conversation.created` (`Events\ConversationCreated`) / `conversation.member_joined` (`Events\MemberJoined`) | `Conversations/Conversations.php` |
 | `conversation.message.posted` (`Events\MessagePosted`) / `conversation.mention.received` (`Events\MentionReceived`) | `Conversations/Messages.php` |
 | `segment.entered` (`SegmentEntered`) / `segment.left` (`SegmentLeft`) | `Audience/Segments.php` |
 

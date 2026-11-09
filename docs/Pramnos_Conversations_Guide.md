@@ -794,6 +794,7 @@ leaves no row behind.
 | `conversation.created` | `Events\ConversationCreated` | a conversation was made |
 | `conversation.message.posted` | `Events\MessagePosted` | a message was written, a reply among them |
 | `conversation.mention.received` | `Events\MentionReceived` | somebody was mentioned: `person`, `all` or `online` |
+| `conversation.member_joined` | `Events\MemberJoined` | somebody came in — joined, or was added (`addedBy`) — each time they come in, not when they were in already |
 
 Each is a `QueueableEvent`: a queued listener — a notification, a rule, an integration — takes it
 in the queue or the event stream like any other.
@@ -906,6 +907,49 @@ is its record. Its writer must still be in the conversation; if not, or the thre
 gone, it stays in `mine()` with its `error` and is not tried again until it is changed. Its time is
 Unix seconds and must be in the future. Files are uploaded first, as for any message, and wait
 unattached until it is sent.
+
+## Automations
+
+What a conversation does by itself, as Slack's workflows (`Pramnos\Conversations\Automations`):
+
+```php
+Automations::add($general, $me, ['kind' => 'repeat', 'body' => 'Stand-up!', 'every' => 'weekdays', 'time' => '09:30']);
+Automations::add($general, $me, ['kind' => 'repeat', 'body' => '…', 'every' => 'week', 'days' => [1, 4], 'time' => '17:00', 'sender' => 'creator']);
+Automations::add($general, $me, ['kind' => 'repeat', 'body' => '…', 'every' => 'month', 'day' => 31, 'time' => '10:00']);
+Automations::add($general, $me, ['kind' => 'welcome', 'body' => 'Καλώς ήρθες!', 'to' => 'channel']);   // or 'person'
+Automations::add($general, $me, ['kind' => 'ask', 'body' => 'Πόσες εγγραφές είχαμε χθες;', 'every' => 'day', 'time' => '08:00']);
+Automations::of($general);
+Automations::change($id, $me, ['time' => '10:00']);
+Automations::pause($id, $me);           // pause($id, $me, false) lets it go on
+Automations::delete($id, $me);
+```
+
+| kind | what it does |
+| --- | --- |
+| `repeat` | posts the message on its schedule |
+| `welcome` | greets whoever comes in, each time they come in: `to` `channel` posts in the conversation mentioning them; `person` reaches them alone, in their conversation with the system signed with the conversation's name, or in a direct message from its creator with `sender` `creator` |
+| `ask` | puts the question to the analyst on its schedule, as `@Ask` in the conversation, from its creator: answered in the message's thread with the rights of the conversation's least privileged reader, and costed to the creator. Only somebody who may ask the analyst sets one |
+
+- **The schedule:**
+  - `every` is `day`, `weekdays`, `week` (with `days`, 1–7, Monday first) or `month` (with
+    `day`; the 31st falls on a shorter month's last day).
+  - `time` is `HH:MM` on the installation's clock (PHP's zone), so 09:30 stays 09:30 when summer
+    time begins or ends.
+  - `conversations:send-scheduled` runs what is due every minute. Each one moves on to its next
+    time before it runs, so one that fails is not tried every minute. A run missed while the
+    server was down is not made up.
+- **From whom:**
+  - `sender` `automation`, the default, posts as "Automation".
+  - `creator` posts as whoever set it up, while they are still in the conversation. Otherwise it
+    keeps an `error` until it is changed.
+  - A question is always its creator's.
+- **Who manages them:** those who manage the conversation's tabs (`tabsBy`: its admins, or every
+  member). Every reader sees them (`automations/{id}`).
+- **What is kept:**
+  - A row is the automation as it is set now: `chat.conversation_automations`.
+  - Adding, changing, pausing, resuming and deleting are `conversation.automation_*` events in
+    the changelog, and the members' pages are told (`conversation.changed`).
+  - Deleting the conversation deletes its automations; archiving it stops them.
 
 ## Drafts
 
@@ -1161,6 +1205,11 @@ application with the `conversations` feature; an application made before adds th
 | `savecanvas/{canvasId}` | POST | `title`, `body` | `{version, canvas}` |
 | `restorecanvas/{canvasId}` | POST | `version` | `{version}` |
 | `deletecanvas/{canvasId}` | POST | — | `{ok}` |
+| `automations/{id}` | GET | — | `{automations, manages}`: each `{id, kind, body, sender, schedule: {every, time, days?, day?}, to, nextAt, paused, error, createdBy, createdByName}` |
+| `addautomation/{id}` | POST | `kind`, `body`, `sender`, `every`, `days`, `day`, `time`, `to` | `{automations, manages}` — see [Automations](#automations) |
+| `changeautomation/{automationId}` | POST | any of those but `kind` | `{automations, manages}` |
+| `pauseautomation/{automationId}` | POST | `paused` (yes by default) | `{automations, manages}` |
+| `deleteautomation/{automationId}` | POST | — | `{automations, manages}` |
 | `summarize/{id}` | POST | `since` (`unread`, the default, or a Unix time), `hours`, `language` | `{summary, messages, from, to, count, cut}`: see [A summary](#a-summary) |
 | `people` | GET | `q` | `{people}`: who may use the conversations, by a part of the name |
 | `person/{id}` | GET | `show` (`messages`, `mentions`, `files`), `q` | `{person}`: as `People::profile()` answers; with `show`, also what they wrote holding the words of `q`, what mentions them, or the files they sent — 404 for somebody the reader does not see |

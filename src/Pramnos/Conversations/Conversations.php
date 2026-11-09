@@ -182,7 +182,11 @@ final class Conversations
         if (!in_array($conversation['kind'], self::OPEN, true)) {
             throw new \InvalidArgumentException(t('This conversation is joined by being added to it.'));
         }
+        $new = self::member($id, $person) === null;
         self::addRow($id, $person, 'member');
+        if ($new) {
+            self::cameIn($id, $person, null);
+        }
     }
 
     /** Add somebody to a private channel or a group — by one of its members. */
@@ -198,7 +202,18 @@ final class Conversations
         if ($conversation['kind'] === 'group' && count(self::members($id)) >= self::GROUP_MAX) {
             throw new \InvalidArgumentException(t('A group conversation has three to %s people.', (string) self::GROUP_MAX));
         }
+        $new = self::member($id, $person) === null;
         self::addRow($id, $person, 'member');
+        if ($new) {
+            self::cameIn($id, $person, $by);
+        }
+    }
+
+    /** Somebody came in: told to whoever listens, and welcomed where the conversation does. */
+    private static function cameIn(int $id, int $person, ?int $by): void
+    {
+        \Pramnos\Event\Event::dispatch(new Events\MemberJoined($id, $person, $by));
+        Automations::welcome($id, $person);
     }
 
     /** Leave a conversation; a dm cannot be left. */

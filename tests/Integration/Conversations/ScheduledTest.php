@@ -177,7 +177,7 @@ class ScheduledTest extends TestCase
         $tester->execute([]);
 
         // Assert
-        $this->assertSame('1 scheduled message(s) sent.', trim($tester->getDisplay()));
+        $this->assertSame("1 scheduled message(s) sent.\n0 automation(s) ran.", trim($tester->getDisplay()), 'the automations\' line too, none here');
         $this->assertSame(['Τώρα'], $this->bodies($ops));
         $this->assertContains('conversations:send-scheduled', \Pramnos\Scheduling\FrameworkSchedule::commands(), 'run by the framework');
         $this->db->schema()->dropTableIfExists('chat.conversation_scheduled');

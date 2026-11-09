@@ -357,7 +357,7 @@ final class Details
             $q('chat.conversation_saved')->whereIn('messageid', $chunk)->delete();
         }
         foreach (['chat.conversation_mentions', 'chat.conversation_pins', 'chat.conversation_files', 'chat.conversation_scheduled',
-            'chat.conversation_drafts', 'chat.conversation_canvases', 'chat.conversation_messages', 'chat.conversation_members'] as $table) {
+            'chat.conversation_drafts', 'chat.conversation_canvases', 'chat.conversation_automations', 'chat.conversation_messages', 'chat.conversation_members'] as $table) {
             if ($db->schema()->hasTable($table)) {
                 $q($table)->where('conversationid', $id)->delete();
             }

@@ -74,7 +74,8 @@ class Conversations extends Controller
     /** The writes: each a POST with the session's token. */
     private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away', 'rename', 'setimage', 'clearimage', 'addtodo', 'changetodo', 'deletetodo', 'savetodo',
         'describe', 'setprivate', 'archive', 'unarchive', 'removemember', 'setrole', 'destroy', 'settings',
-        'addtab', 'removetab', 'hidetab', 'ordertabs', 'newcanvas', 'savecanvas', 'lockcanvas', 'unlockcanvas', 'restorecanvas', 'deletecanvas', 'summarize'];
+        'addtab', 'removetab', 'hidetab', 'ordertabs', 'newcanvas', 'savecanvas', 'lockcanvas', 'unlockcanvas', 'restorecanvas', 'deletecanvas', 'summarize',
+        'addautomation', 'changeautomation', 'pauseautomation', 'deleteautomation'];
 
     /** The JSON body, decoded once. @var array<string, mixed>|null */
     private ?array $json = null;
@@ -82,7 +83,7 @@ class Conversations extends Controller
     /** Registers the actions: all behind sign-in, the writes POSTs with the session's token. */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'emoji', 'preview', 'gifs', 'refs', 'emergencykey', 'reach', 'scheduled', 'drafts', 'todolist', 'members', 'links', 'archived', 'tabs', 'canvases', 'canvas', 'canvasversions'], self::WRITES));
+        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'emoji', 'preview', 'gifs', 'refs', 'emergencykey', 'reach', 'scheduled', 'drafts', 'todolist', 'members', 'links', 'archived', 'tabs', 'canvases', 'canvas', 'canvasversions', 'automations'], self::WRITES));
         $this->addWriteAction(self::WRITES);
         // A conversation's picture: an <img> may ask without a session where `images_public` is on;
         // image() itself asks whether the reader may see it.
@@ -542,6 +543,82 @@ class Conversations extends Controller
 
             return \Pramnos\Conversations\Summary::of($this->id(), $me, $since, (string) ($this->in('language') ?? ''));
         });
+    }
+
+    /** A conversation's automations, and whether the reader manages them. */
+    public function automations(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $this->reads($me);
+
+            return $this->automationsOf($this->id(), $me);
+        });
+    }
+
+    /**
+     * Set up an automation: `kind` (`repeat`, `welcome`, `ask`), `body`, `sender` (`automation`,
+     * `creator`); for a schedule `every` (`day`, `weekdays`, `week`, `month`), `days` (1–7, Monday
+     * first), `day` (of the month), `time` (`09:30`, the installation's clock); for a welcome `to`
+     * (`person`, `channel`).
+     */
+    public function addautomation(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Automations::add($this->id(), (int) $me->userid, $this->automationFields());
+
+            return $this->automationsOf($this->id(), $me);
+        });
+    }
+
+    /** Change an automation: any of the fields it was set up with, but its kind. */
+    public function changeautomation(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Automations::change($this->id(), (int) $me->userid, $this->automationFields());
+
+            return $this->automationsOf((int) \Pramnos\Conversations\Automations::get($this->id())['conversationId'], $me);
+        });
+    }
+
+    /** Pause an automation (`paused`, yes by default), or let it go on. */
+    public function pauseautomation(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Automations::pause($this->id(), (int) $me->userid, $this->flag('paused'));
+
+            return $this->automationsOf((int) \Pramnos\Conversations\Automations::get($this->id())['conversationId'], $me);
+        });
+    }
+
+    /** Delete an automation. */
+    public function deleteautomation(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $conversation = (int) (\Pramnos\Conversations\Automations::get($this->id())['conversationId'] ?? 0);
+            \Pramnos\Conversations\Automations::delete($this->id(), (int) $me->userid);
+
+            return $this->automationsOf($conversation, $me);
+        });
+    }
+
+    /** @return array{automations: list<array<string, mixed>>, manages: bool} */
+    private function automationsOf(int $conversation, object $me): array
+    {
+        return ['automations' => \Pramnos\Conversations\Automations::of($conversation),
+            'manages' => \Pramnos\Conversations\Tabs::manages($conversation, (int) $me->userid)];
+    }
+
+    /** @return array<string, mixed> The automation's fields the request sends */
+    private function automationFields(): array
+    {
+        $fields = [];
+        foreach (['kind', 'body', 'sender', 'every', 'days', 'day', 'time', 'to'] as $name) {
+            if ($this->in($name) !== null) {
+                $fields[$name] = $name === 'days' && is_string($this->in($name)) ? explode(',', $this->in($name)) : $this->in($name);
+            }
+        }
+
+        return $fields;
     }
 
     /** A conversation's tabs, in order, and whether the reader manages them. */

@@ -11,8 +11,9 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * `conversations:send-scheduled` — send the conversations' scheduled messages that are due, each
- * as its writer ({@see Scheduled::due()}). Scheduled every minute by the framework; a no-op
- * without the table.
+ * as its writer ({@see Scheduled::due()}), and run their automations that are due
+ * ({@see \Pramnos\Conversations\Automations::due()}). Scheduled every minute by the framework; a
+ * no-op without the tables.
  *
  * ```bash
  * php bin/pramnos conversations:send-scheduled
@@ -36,6 +37,8 @@ class ConversationsSendScheduled extends Command
             return Command::SUCCESS;
         }
         $output->writeln(sprintf('%d scheduled message(s) sent.', Scheduled::due()));
+        // The conversations' own automations: a message again, a question to the analyst.
+        $output->writeln(sprintf('%d automation(s) ran.', \Pramnos\Conversations\Automations::due()));
 
         return Command::SUCCESS;
     }
