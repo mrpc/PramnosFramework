@@ -77,6 +77,12 @@ class MetricsCompute extends Command
             return Command::SUCCESS;
         }
         $output->writeln(sprintf('Computed %d open, closed %d, skipped %d.', $report['computed'], $report['closed'], $report['skipped']));
+        // The alerts read what was just computed.
+        if (Metrics::connection()->schema()->hasTable(\Pramnos\Metrics\Alerts::TABLE)) {
+            foreach (\Pramnos\Metrics\Alerts::evaluate() as $id => $said) {
+                $output->writeln('Alert ' . $id . ': ' . $said);
+            }
+        }
         foreach ($report['failed'] as $what => $why) {
             $output->writeln('<error>' . $what . ': ' . $why . '</error>');
         }

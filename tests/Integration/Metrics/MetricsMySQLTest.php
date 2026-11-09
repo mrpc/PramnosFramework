@@ -49,7 +49,10 @@ class MetricsMySQLTest extends TestCase
         Settings::loadSettings(ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php');
         $this->db = $this->connect();
         require_once ROOT . '/database/migrations/framework/stats/2026_11_09_000004_create_goals_table.php';
-        \Pramnos\Framework\Testing\Schema::ensure([CreateMetricValuesTable::class, \Pramnos\Framework\Migrations\Stats\CreateGoalsTable::class], $this->db);
+        require_once ROOT . '/database/migrations/framework/stats/2026_11_09_000005_create_alert_rules_table.php';
+        \Pramnos\Framework\Testing\Schema::ensure([CreateMetricValuesTable::class, \Pramnos\Framework\Migrations\Stats\CreateGoalsTable::class,
+            \Pramnos\Framework\Migrations\Stats\CreateAlertRulesTable::class], $this->db);
+        $this->db->queryBuilder()->table(\Pramnos\Metrics\Alerts::TABLE)->where('metric', 'like', 'test.%')->delete();
         $this->db->queryBuilder()->table(\Pramnos\Metrics\Goals::TABLE)->where('metric', 'like', 'test.%')->delete();
         $schema = $this->db->schema();
         $schema->dropTableIfExists(self::ORDERS);
@@ -1265,6 +1268,57 @@ class MetricsMySQLTest extends TestCase
         $this->assertNull(\Pramnos\Metrics\Goals::get($mine));
         $this->assertNull(\Pramnos\Metrics\Goals::progress($mine));
         $this->assertSame(2, $refused);
+    }
+
+    /**
+     * Alerts: a threshold crossed by the last completed period; a fall against a year earlier;
+     * data that stopped — nought for the last two completed hours — only within its hours of the
+     * day; a rule that fired waits before it may fire again; a kind, a direction or hours it does
+     * not know are refused.
+     */
+    public function testAlertsFireOnWhatTheyWatch(): void
+    {
+        // Arrange — September: 3 orders; September a year before: 10; the morning of 6 November: one at 08:20
+        foreach (['2026-09-05 10:00:00', '2026-09-06 10:00:00', '2026-09-07 10:00:00', '2026-11-06 08:20:00'] as $at) {
+            $this->order($at, 'north', 1);
+        }
+        for ($i = 0; $i < 10; $i++) {
+            $this->order('2025-09-10 10:00:00', 'north', 2);
+        }
+        Metrics::register(Metric::flow('test.hourly_orders', 'Orders')->grains(['hour'])->source(function (Window $w, array $by, Database $db): int {
+            return (int) $db->queryBuilder()->table(self::ORDERS)->where('placed_at', '>=', $w->startsAt())->where('placed_at', '<', $w->endsAt())->count();
+        }));
+        Metrics::compute(['test.orders'], ['month'], '2025-09-01', '2026-10-31', false, self::at('2026-11-06 12:00'));
+        Metrics::compute(['test.hourly_orders'], ['hour'], '2026-11-06', '2026-11-06', false, self::at('2026-11-06 12:30'));
+        $threshold = \Pramnos\Metrics\Alerts::create(['metric' => 'test.orders', 'grain' => 'month', 'kind' => 'threshold', 'op' => 'below', 'value' => 5]);
+        $fall      = \Pramnos\Metrics\Alerts::create(['metric' => 'test.orders', 'grain' => 'month', 'kind' => 'change', 'op' => 'below', 'value' => -0.5, 'against' => Metrics::YEAR_EARLIER, 'name' => 'Orders']);
+        $stopped   = \Pramnos\Metrics\Alerts::create(['metric' => 'test.hourly_orders', 'kind' => 'stopped', 'value' => 7200, 'hours' => '9-23']);
+        $refused   = 0;
+        foreach ([['kind' => 'mood'], ['kind' => 'threshold', 'op' => 'sideways'], ['kind' => 'threshold', 'hours' => 'mornings']] as $bad) {
+            try {
+                \Pramnos\Metrics\Alerts::create(['metric' => 'test.orders'] + $bad);
+            } catch (\InvalidArgumentException) {
+                $refused++;
+            }
+        }
+
+        // Act — September's figures checked on 5 October; the hours at 12:30, then at 08:30 (outside 9-23)
+        $september = \Pramnos\Metrics\Alerts::evaluate(self::at('2026-10-05 10:00'));
+        $again     = \Pramnos\Metrics\Alerts::evaluate(self::at('2026-10-05 10:20'));
+        $noon      = \Pramnos\Metrics\Alerts::evaluate(self::at('2026-11-06 12:30'));
+        \Pramnos\Metrics\Alerts::enable($stopped);
+        $this->db->queryBuilder()->table(\Pramnos\Metrics\Alerts::TABLE)->where('ruleid', $stopped)->update(['lastfired' => 0]);
+        $morning   = \Pramnos\Metrics\Alerts::evaluate(self::at('2026-11-06 08:30'));
+        \Pramnos\Metrics\Alerts::delete($threshold);
+
+        // Assert
+        $this->assertSame([$threshold, $fall, $stopped], array_keys($september), 'three is below five; three against ten is -70 %; and no orders those October hours');
+        $this->assertStringContainsString('-70.0%', $september[$fall]);
+        $this->assertSame([], $again, 'not again within the hour');
+        $this->assertArrayHasKey($stopped, $noon, 'nothing at 10:00 and 11:00');
+        $this->assertSame([], $morning, 'outside its hours');
+        $this->assertSame(0, $this->db->queryBuilder()->table(\Pramnos\Metrics\Alerts::TABLE)->where('ruleid', $threshold)->count());
+        $this->assertSame(3, $refused);
     }
 
     /**

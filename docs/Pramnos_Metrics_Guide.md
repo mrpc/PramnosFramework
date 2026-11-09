@@ -560,6 +560,34 @@ Goals::progress($id);
 - **Where they are kept.** Goals are kept in `stats.goals`. They are state; a missed goal is an
   alert.
 
+## Alerts
+
+What is watched on a metric, and who is told:
+
+```php
+// Payments at nought for two hours, between nine and eleven at night: a gateway in trouble.
+Alerts::create(['metric' => 'payments.count', 'kind' => Alerts::STOPPED, 'value' => 7200, 'hours' => '9-23',
+    'notify' => ['users' => [1], 'conversation' => $opsChannel]]);
+// Registrations down 30 % against a year earlier.
+Alerts::create(['metric' => 'registrations', 'grain' => 'day', 'kind' => Alerts::CHANGE, 'op' => 'below',
+    'value' => -0.3, 'against' => Metrics::YEAR_EARLIER, 'notify' => ['users' => [1]]]);
+```
+
+- **What can be watched.**
+  - **threshold**: the last completed period's value is above (or below) `value`.
+  - **change**: its change against the period before, or a year earlier, is above (or below)
+    `value`, a fraction.
+  - **stopped**: the metric is at nought, with nothing coming, for the last `value` seconds of
+    completed hours. It reads the metric by the hour.
+- **When.** `hours` keeps a rule to those hours of the day, in the metrics' zone (`9-23`).
+- **Who is told.** A rule that fires tells its users in the bell, and as a push where they have
+  one (`AlertNotification`). It also posts the line in its conversation, the team's channel. It
+  then waits `every` seconds (an hour by default) before it may fire again.
+- **When it is checked.** `metrics:compute` checks every rule after it computes
+  (`Alerts::evaluate()`).
+- **Where it is kept.** The rules are kept in `stats.alert_rules`, which is state. Each firing is
+  kept in the changelog (`alert.fired`), not in a table of its own.
+
 ## Where the values are kept
 
 Each grain has a table of its own: `stats.metric_values_day`, `_week`, `_month`, `_quarter` and

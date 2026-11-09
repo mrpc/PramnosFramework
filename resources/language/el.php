@@ -2280,4 +2280,13 @@ return [
     'No data before %s.' => 'Δεν υπάρχουν στοιχεία πριν από %s.',
     'A goal is for a day or a month.' => 'Ένας στόχος είναι για μια μέρα ή έναν μήνα.',
     'A goal follows last year or the same weekdays.' => 'Ένας στόχος ακολουθεί την περσινή πορεία ή τις ίδιες μέρες της εβδομάδας.',
+    'An alert is a threshold, a change or data that stopped.' => 'Μια ειδοποίηση είναι όριο, μεταβολή ή δεδομένα που σταμάτησαν.',
+    'An alert needs a grain and above or below.' => 'Μια ειδοποίηση χρειάζεται περίοδο και «πάνω» ή «κάτω».',
+    'Hours are from-to, e.g. 9-23.' => 'Οι ώρες γράφονται από-έως, π.χ. 9-23.',
+    '%s: nothing for %s hours, since %s.' => '%s: τίποτα για %s ώρες, από %s.',
+    '%s was %s in %s: %s %s.' => '%s ήταν %s στο %s: %s του %s.',
+    '%s in %s: %s%% against %s.' => '%s στο %s: %s%% σε σχέση με %s.',
+    'above' => 'πάνω',
+    'below' => 'κάτω',
+    'Alert' => 'Ειδοποίηση',
 ];
