@@ -1594,6 +1594,14 @@ class Application extends Base
             icon: 'chart',
             when: static fn (): bool => \Pramnos\Metrics\Metrics::all() !== [],
         ));
+        // The to-do list, where it is installed, for whoever may read it (`todos.can`); an
+        // organisation's member below the floor reaches it from the application's own menu.
+        NavRegistry::register(new NavItem(
+            'admin.todos', 'To-dos', $admin('Todo'),
+            NavSection::Admin, 4, requireAuth: true, minUserType: $floor,
+            icon: 'check',
+            when: static fn (): bool => \Pramnos\Todos\Todos::installed() && \Pramnos\Todos\Todos::can(\Pramnos\User\User::current(), 'read'),
+        ));
         NavRegistry::register(new NavItem(
             'admin.goals', 'Goals', $admin('Goals'),
             NavSection::Admin, 3, requireAuth: true, minUserType: $floor,

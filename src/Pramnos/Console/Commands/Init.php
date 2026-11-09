@@ -4358,6 +4358,7 @@ PHP;
                     <?php echo \Pramnos\Llm\Analyst\Analyst::headerButton('<li class="nav-item">', '</li>'); ?>
                     <?php echo \Pramnos\Assist\WhatsNew::button('<li class="nav-item">', '</li>'); ?>
                     <?php echo \Pramnos\Html\NotificationBell::headerButton('<li class="nav-item">', '</li>', ['class' => 'nav-link']); ?>
+                    <?php echo \Pramnos\Todos\Html::headerButton('<li class="nav-item">', '</li>', ['class' => 'nav-link']); ?>
                     <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value])): ?>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">Admin</a>
@@ -4463,6 +4464,7 @@ HTML,
             <?php echo \Pramnos\Llm\Analyst\Analyst::headerButton(); ?>
             <?php echo \Pramnos\Assist\WhatsNew::button('<span class="btn btn-ghost btn-sm">', '</span>'); ?>
             <?php echo \Pramnos\Html\NotificationBell::headerButton('', '', ['class' => 'btn btn-ghost btn-sm btn-circle']); ?>
+            <?php echo \Pramnos\Todos\Html::headerButton('', '', ['class' => 'btn btn-ghost btn-sm btn-circle']); ?>
 
             <?php
             /**
@@ -4522,6 +4524,7 @@ HTML,
                     <?php echo \Pramnos\Llm\Analyst\Analyst::headerButton('<li class="nav-item">', '</li>'); ?>
                     <?php echo \Pramnos\Assist\WhatsNew::button('<li class="nav-item">', '</li>'); ?>
                     <?php echo \Pramnos\Html\NotificationBell::headerButton('<li class="nav-item">', '</li>', ['class' => 'nav-link']); ?>
+                    <?php echo \Pramnos\Todos\Html::headerButton('<li class="nav-item">', '</li>', ['class' => 'nav-link']); ?>
                     <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value])): ?>
                     <li class="nav-admin">
                         <span>Admin</span>

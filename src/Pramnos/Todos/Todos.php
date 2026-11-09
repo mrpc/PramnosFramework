@@ -428,6 +428,197 @@ final class Todos
         return array_map(static fn (array $row): array => array_intersect_key(self::shape($row), array_flip($keep)), $query->getAllOrFail());
     }
 
+    /** Whether this installation has the to-do list: its table made. */
+    public static function installed(): bool
+    {
+        try {
+            // Only a yes is kept: a table made later in the process (a migration, a test) is found.
+            if (self::$installed !== true) {
+                self::$installed = self::db()->schema()->hasTable(self::TABLE);
+            }
+
+            return self::$installed;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /** @var bool|null Whether the table is there, asked once */
+    private static ?bool $installed = null;
+
+    /** The organisation a person's list is of: `todos.tenant`, 0 by default. */
+    public static function tenantOf(?object $user): int
+    {
+        $of = self::config()['tenant'] ?? null;
+
+        return is_callable($of) && $user !== null ? (int) $of($user) : 0;
+    }
+
+    /**
+     * Whether a person may `read` the list, or `write` to it: `todos.can`, else from the
+     * administration's floor up. A role may only read — the content platform's client.
+     */
+    public static function can(?object $user, string $what = 'write'): bool
+    {
+        if ($user === null || (int) ($user->userid ?? 0) <= 1) {
+            return false;
+        }
+        $can = self::config()['can'] ?? null;
+        if (is_callable($can)) {
+            return (bool) $can($user, $what);
+        }
+
+        return (int) ($user->usertype ?? 0) >= \Pramnos\Auth\AdminAccess::defaultUsertype();
+    }
+
+    /**
+     * Who may be given items in an organisation, by id: `todos.people`, else the active accounts
+     * from the administration's floor up — those `todos.assignable` allows.
+     *
+     * @return array<int, string>
+     */
+    public static function people(int $tenant): array
+    {
+        $people = self::config()['people'] ?? null;
+        if (is_callable($people)) {
+            $list = array_map('strval', (array) $people($tenant));
+        } else {
+            $list = [];
+            foreach (self::db()->queryBuilder()->table('#PREFIX#users')->select(['userid', 'username', 'firstname', 'lastname'])
+                ->where('usertype', '>=', \Pramnos\Auth\AdminAccess::defaultUsertype())->where('active', 1)->orderBy('username')->limit(500)->getAllOrFail() as $row) {
+                $full = trim((string) $row['firstname'] . ' ' . (string) $row['lastname']);
+                $list[(int) $row['userid']] = $full !== '' ? $full : (string) $row['username'];
+            }
+        }
+
+        return array_filter($list, static fn (string $name, int $id): bool => self::mayBeGiven($tenant, $id), ARRAY_FILTER_USE_BOTH);
+    }
+
+    /**
+     * The header's urgent five: the person's open items, soonest first, and the overdue ones
+     * nobody has — or, with `todos.urgent_any_overdue`, every overdue one. `count` is how many there
+     * are in all.
+     *
+     * @return array{items: list<array<string, mixed>>, count: int}
+     */
+    public static function urgent(int $tenant, int $viewer, int $limit = 5, ?int $now = null): array
+    {
+        $now  = $now ?? time();
+        $any  = !empty(self::config()['urgent_any_overdue']);
+        $when = static fn (array $i): ?int => $i['remind_at'] ?? $i['due_at'];
+        $hits = array_values(array_filter(self::list($tenant, $viewer, $now), static function (array $i) use ($viewer, $any, $now, $when): bool {
+            if (!in_array($i['status'], [self::OPEN, self::IN_PROGRESS], true)) {
+                return false;
+            }
+            $overdue = $i['due_at'] !== null && $i['due_at'] < $now;
+
+            return $i['assigned_to'] === $viewer || ($overdue && ($any || $i['assigned_to'] === null));
+        }));
+        usort($hits, static fn (array $a, array $b): int => [$when($a) ?? PHP_INT_MAX, $a['id']] <=> [$when($b) ?? PHP_INT_MAX, $b['id']]);
+
+        return ['items' => array_slice($hits, 0, $limit), 'count' => count($hits)];
+    }
+
+    /**
+     * "To-dos about this": the open items a person sees whose link is a page — its path, with or
+     * without the site's address.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function about(string $link, int $tenant, int $viewer): array
+    {
+        $path = (string) (parse_url($link, PHP_URL_PATH) ?? $link) . (($q = parse_url($link, PHP_URL_QUERY)) ? '?' . $q : '');
+
+        return array_values(array_filter(self::list($tenant, $viewer), static function (array $i) use ($link, $path): bool {
+            if ($i['link'] === null || !in_array($i['status'], [self::OPEN, self::IN_PROGRESS], true)) {
+                return false;
+            }
+            $their = (string) (parse_url($i['link'], PHP_URL_PATH) ?? '') . (($q = parse_url($i['link'], PHP_URL_QUERY)) ? '?' . $q : '');
+
+            return $i['link'] === $link || ($path !== '' && $their === $path);
+        }));
+    }
+
+    /**
+     * The calendar's feed: the items a person sees with a day in the range, as a `pf-calendar`
+     * takes them — `[{id, title, start, allDay, url, classNames}]`.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function feed(int $tenant, int $viewer, string $start, string $end): array
+    {
+        $from = strtotime($start);
+        $to   = strtotime($end);
+        if ($from === false || $to === false) {
+            return [];
+        }
+        $zone = \Pramnos\Metrics\Window::zoneOf($tenant);
+        $out  = [];
+        foreach (self::list($tenant, $viewer) as $i) {
+            if ($i['due_at'] === null || $i['due_at'] < $from || $i['due_at'] >= $to + 86400) {
+                continue;
+            }
+            $closed = in_array($i['status'], [self::DONE, self::DISMISSED], true);
+            $out[]  = ['id' => $i['id'], 'title' => self::short($i['title']), 'start' => (new \DateTimeImmutable('@' . $i['due_at']))->setTimezone($zone)->format('Y-m-d'),
+                'allDay' => true, 'url' => $i['link'], 'classNames' => $closed ? ['pf-todo-closed'] : ($i['due_at'] < time() ? ['pf-todo-overdue'] : [])];
+        }
+
+        return $out;
+    }
+
+    /**
+     * An item dragged to another day on the calendar: `{id, start}`, its day the start's.
+     *
+     * @param array<string, mixed> $body
+     * @return array{ok: bool, due: string}
+     */
+    public static function move(array $body, int $by): array
+    {
+        $at = is_string($body['start'] ?? null) ? strtotime($body['start']) : false;
+        if ($at === false) {
+            throw new \InvalidArgumentException(t('A to-do\'s day is YYYY-MM-DD.'));
+        }
+        $item = self::get((int) ($body['id'] ?? 0)) ?? throw new \InvalidArgumentException(t('There is no such to-do.'));
+        $day  = (new \DateTimeImmutable('@' . $at))->setTimezone(\Pramnos\Metrics\Window::zoneOf($item['tenant']))->format('Y-m-d');
+        // A day given as a date alone is that date wherever the reader is.
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $body['start']) === 1) {
+            $day = (string) $body['start'];
+        }
+        self::update($item['id'], ['due' => $day], $by);
+
+        return ['ok' => true, 'due' => $day];
+    }
+
+    /**
+     * Items in the list's groups: overdue, today, the next seven days, later, without a day, and
+     * apart from them, the system's waiting for nobody and those closed this week.
+     *
+     * @param list<array<string, mixed>> $items
+     * @return array<string, list<array<string, mixed>>>
+     */
+    public static function groups(array $items, int $tenant, ?int $now = null): array
+    {
+        $now    = $now ?? time();
+        $local  = (new \DateTimeImmutable('@' . $now))->setTimezone(\Pramnos\Metrics\Window::zoneOf($tenant));
+        $today  = $local->setTime(23, 59, 59)->getTimestamp();
+        $week   = $today + 7 * 86400;
+        $groups = ['overdue' => [], 'today' => [], 'week' => [], 'later' => [], 'none' => [], 'system' => [], 'closed' => []];
+        foreach ($items as $i) {
+            $key = match (true) {
+                in_array($i['status'], [self::DONE, self::DISMISSED], true) => 'closed',
+                $i['kind'] !== 'own' && $i['assigned_to'] === null => 'system',
+                $i['due_at'] === null => 'none',
+                $i['due_at'] < $now => 'overdue',
+                $i['due_at'] <= $today => 'today',
+                $i['due_at'] <= $week => 'week',
+                default => 'later',
+            };
+            $groups[$key][] = $i;
+        }
+
+        return $groups;
+    }
+
     /** Whether an organisation has to-dos at all (`todos.allowed`). */
     public static function allowed(int $tenant): bool
     {

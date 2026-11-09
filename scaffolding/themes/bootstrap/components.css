@@ -2384,3 +2384,33 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-conv-lightbox-stage img { position: absolute; top: 0; left: 0; transform-origin: 0 0; max-width: none; user-select: none; }
 .pf-conv-lightbox-zoomed { cursor: grab; }
 .pf-conv-lightbox-zoomed:active { cursor: grabbing; }
+
+/* The to-do list (/admin/Todo) and the header's urgent five */
+.pf-todo-list { list-style: none; margin: 0; padding: 0; }
+.pf-todo { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.5rem 0; border-top: 1px solid var(--pf-line); }
+.pf-todo:first-child { border-top: 0; }
+.pf-todo-done { margin-top: 0.3rem; }
+.pf-todo-main { flex: 1; min-width: 0; }
+.pf-todo-title { white-space: pre-wrap; overflow-wrap: anywhere; outline: none; }
+.pf-todo-title[contenteditable]:focus { box-shadow: 0 0 0 2px var(--pf-subtle); border-radius: 0.25rem; }
+.pf-todo-link { margin-left: 0.4rem; font-size: 0.85rem; }
+.pf-todo-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.25rem; font-size: 0.85rem; }
+.pf-todo-chip { width: auto; height: 1.8rem; padding: 0 0.4rem; font-size: 0.85rem; }
+.pf-todo-closed .pf-todo-title { color: var(--pf-muted); text-decoration: line-through; }
+.pf-todo-overdue .pf-todo-title { color: var(--pf-bad); }
+.pf-todo-error { outline: 1px solid var(--pf-bad); }
+.pf-todo-menu { position: relative; }
+.pf-todo-menu > summary { list-style: none; cursor: pointer; padding: 0 0.4rem; border-radius: var(--pf-radius); }
+.pf-todo-menu > summary::-webkit-details-marker { display: none; }
+.pf-todo-menu-body { position: absolute; right: 0; z-index: 5; display: flex; flex-direction: column; gap: 0.25rem; min-width: 12rem; padding: 0.4rem; background: var(--pf-surface); border: 1px solid var(--pf-line); border-radius: var(--pf-radius); box-shadow: var(--pf-shadow); }
+.pf-todo-bar { display: flex; height: 0.6rem; background: var(--pf-subtle); border-radius: 999px; overflow: hidden; }
+.pf-todo-bar-done { background: var(--pf-ok); }
+.pf-todo-bar-open { background: var(--pf-info); }
+.pf-todo-bar-overdue { background: var(--pf-bad); }
+.pf-todo-urgent { position: relative; display: inline-block; }
+.pf-todo-urgent > summary { list-style: none; cursor: pointer; }
+.pf-todo-urgent > summary::-webkit-details-marker { display: none; }
+.pf-todo-urgent-count { display: inline-block; min-width: 1.1rem; padding: 0 0.3rem; margin-left: 0.15rem; font-size: 0.7rem; line-height: 1.1rem; text-align: center; color: #fff; background: var(--pf-bad); border-radius: 999px; }
+.pf-todo-urgent-panel { position: absolute; right: 0; z-index: 50; width: 20rem; max-width: 90vw; margin: 0; padding: 0.4rem; list-style: none; background: var(--pf-surface); color: var(--pf-fg); border: 1px solid var(--pf-line); border-radius: var(--pf-radius); box-shadow: var(--pf-shadow); }
+.pf-todo-urgent-panel li { padding: 0.35rem 0.4rem; border-radius: var(--pf-radius); overflow-wrap: anywhere; }
+.pf-todo-urgent-panel .pf-todo-overdue { color: var(--pf-bad); }

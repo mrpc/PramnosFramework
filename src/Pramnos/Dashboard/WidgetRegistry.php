@@ -110,6 +110,10 @@ final class WidgetRegistry
                 $widgets['metric.goal'] ??= new \Pramnos\Metrics\Widgets\DashboardGoalWidget();
             }
         }
+        // The to-do card, where the list is installed.
+        if (($config['todos'] ?? true) !== false && \Pramnos\Todos\Todos::installed()) {
+            $widgets['todos'] ??= new \Pramnos\Todos\TodosWidget();
+        }
         $widgets = array_replace($widgets, self::$registered);
         if ($board === null) {
             return $widgets;

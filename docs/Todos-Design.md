@@ -159,6 +159,6 @@ it gives is `source => [kind, title, link?, assigned_to?, due_at?]`.
 | 1 | **Built:** the table, the item's life, sync, sources ([guide](Pramnos_Todos_Guide.md)) |
 | 2 | **Built:** telling — given, reminders, due today, settling, successor, export |
 | 3 | **Built:** the conversations — from a message, remind me, written, the chat's list (data and API; the full list screen is the application's chat) |
-| 4 | The screens, the header, the card, "about this", the calendar, the rule action, the tool, the API |
+| 4 | **Built:** the screens, the header, the card, "about this", the calendar. Then: the rule action, the tool, the API |
 
 It comes after FW-360, whose `goal.turned` is one of its sources.

@@ -8,6 +8,8 @@ use_cases:
   - Handing a leaving person's to-dos to someone else
   - Making a to-do of a chat message, or being reminded of one
   - Building a chat's to-do list on the conversations' JSON API
+  - Showing a person's urgent to-dos in the header or on the dashboard
+  - Listing the to-dos about a record on its page
 ---
 
 # To-dos
@@ -140,6 +142,34 @@ Through the conversations' screen (JSON, behind sign-in, writes with the session
 The `messages` answer carries `todos`, the marks of the messages it gives. The dock offers "Add
 to-do" and "Remind me about this" on each message, and shows the mark.
 
+## The screens
+
+- **`/admin/Todo`** (in the administration's menu as "To-dos"):
+  - views: mine (the default), everyone's, the team's counts, and a calendar;
+  - groups: overdue, today, the next seven days, later, no date; apart from them, the system's
+    items waiting for nobody, and those closed this week;
+  - a line to add an item (N focuses it), for someone, with a day, a reminder, private or not;
+  - in place: the done box, the assignee and day chips, a hand-written title edited where it
+    stands (Enter keeps it, Escape puts it back), and the ⋯ menu — in progress, hide, reopen, a
+    reminder, private or public, delete;
+  - the team view: each person's open, overdue and done this week, with a bar;
+  - the calendar (`pf-calendar`, see the [Calendar guide](Pramnos_Calendar_Guide.md)): items on
+    their day; dragging one to another day changes its day.
+
+  Opening it settles the person's to-do notices.
+- **The header's urgent five:** `\Pramnos\Todos\Html::headerButton($before, $after, $options)` —
+  the person's open items soonest first, and the overdue ones nobody has; with
+  `todos.urgent_any_overdue`, every overdue one. A scaffolded header has it beside the bell.
+- **"To-dos about this":** `\Pramnos\Todos\Html::aboutThis($link)` on a record's page — the open
+  items whose link is that page, with or without the site's address; nothing when there are none.
+- **The dashboard's card** `todos`: open and overdue counts and the urgent five. Offered where the
+  list is installed; `'dashboard' => ['todos' => false]` takes it out.
+- **Who may:** `todos.can` (`fn (object $user, string $what): bool`, `$what` `read` or `write`)
+  decides; without it, accounts from the administration's floor up. A role may only read: it sees
+  the list and the calendar, and changes nothing. `todos.tenant` (`fn (object $user): int`) says
+  which organisation's list a person sees, and `todos.people` (`fn (int $tenant): array`) who is
+  offered as an assignee; by default the active accounts from the floor up.
+
 ## An account that goes
 
 `AccountErasure` calls `Todos::handOver($user)`: the open items assigned to the person go to
@@ -160,7 +190,11 @@ export of the application's.
     'due_notice'   => false,                                    // "due today" at 08:05
     'allowed'      => fn (int $tenant): bool => …,              // an organisation has to-dos at all
     'successor'    => fn (int $tenant, int $user): ?int => …,   // who takes a leaving person's items
+    'can'          => fn (object $user, string $what): bool => …, // read or write the list
+    'tenant'       => fn (object $user): int => …,              // the organisation a person's list is of
+    'people'       => fn (int $tenant): array => […],           // id => name, offered as assignees
+    'urgent_any_overdue' => false,                              // the header counts every overdue item
 ],
 ```
 
-The rest of the design (the conversations, the screens, the tool and the API) is in [To-dos (design)](Todos-Design.md), built in order.
+The rest of the design (the rule action, the tool and the API) is in [To-dos (design)](Todos-Design.md), built in order.
