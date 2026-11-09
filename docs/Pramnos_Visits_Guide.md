@@ -98,6 +98,30 @@ how many there were. A flag that turns out wrong can be corrected later.
 A hit is appended through the [write spool](Pramnos_Workers_And_Daemons_Guide.md#1d-the-write-spool-rows-written-out-of-the-request-path): a line in a file, or in
 Redis. `spool:drain` writes the lines in batches every minute, so a page never waits on an INSERT.
 
+## Addresses keep no token
+
+The page, its referrer and a click's link out are kept through the
+[urls registry](Pramnos_Logging_Guide.md#the-urls-registry), and the hits are kept for good. So
+an address is kept without its fragment, and with no query but its `utm_*`. That way a token, a
+session or a search in the query is not kept. `visits.url` goes on from there. An application
+whose links carry a token in the path, such as a reset link or an invitation, masks those
+paths:
+
+```php
+'visits' => [
+    'url' => static function (string $url): string {
+        $path = (string) parse_url($url, PHP_URL_PATH);
+
+        return preg_match('#^/(el|en)/account/rpc/|^/rsvp/#', $path) === 1
+            ? str_replace($path, \Pramnos\Logs\PagePath::mask($path), $url)   // /rsvp/12/34/ab9… → /rsvp/:id/:id/:id
+            : $url;
+    },
+],
+```
+
+It applies to every hit, from the beacon or from `Hits::record()`. The campaign is read from the
+address as it came, before it is cut.
+
 ## From an existing tracker
 
 During a move, an application's own tracker writes the framework's row beside its own:

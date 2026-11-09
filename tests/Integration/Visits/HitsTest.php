@@ -387,4 +387,42 @@ class HitsTest extends TestCase
         $this->assertContains('www.google.com', array_column($refs['breakdown']['referrers'], 'name'));
         $this->assertStringContainsString('nothing to roll up', $idle);
     }
+
+    /**
+     * An address is kept without its fragment and with no query but its utm — the page, the
+     * referrer and a click's link out alike, through the beacon or `record()` — and `visits.url`
+     * goes on from there: here, masking the paths that carry a token.
+     */
+    #[DataProvider('databases')]
+    public function testAnAddressKeepsNoToken(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        Application::getInstance()->applicationInfo['visits']['url'] = static function (string $url): string {
+            $path = (string) parse_url($url, PHP_URL_PATH);
+
+            return preg_match('#^/(el|en)/account/rpc/|^/rsvp/#', $path) === 1 ? str_replace($path, \Pramnos\Logs\PagePath::mask($path), $url) : $url;
+        };
+        Hits::limitWith(static fn (): bool => true);
+        $urls = fn (): array => array_column($this->db->queryBuilder()->table('#PREFIX#urls')->select(['url'])->getAllOrFail(), 'url');
+
+        // Act
+        Hits::take([['k' => 'view', 'u' => 'https://site.test/el/account/rpc/u/48211/v/9f3c0a?token=abc&utm_source=mail#x', 'r' => 'https://other.test/search?q=private']],
+            self::server(), []);
+        Hits::take([['k' => 'click', 'u' => 'https://site.test/el/', 't' => 'https://out.test/a?session=s3cret']], self::server(), []);
+        Hits::record(['site' => 'main', 'url' => 'https://site.test/rsvp/12/34/abcdef9?x=1', 'visitor' => 5, 'ua' => self::PHONE]);
+        $kept = $urls();
+
+        // Assert
+        $this->assertContains('https://site.test/el/account/rpc/u/:id/v?utm_source=mail', $kept, 'the token in the path masked, the query but its utm gone');
+        $this->assertContains('https://other.test/search', $kept, 'a referrer\'s query gone');
+        $this->assertContains('https://out.test/a', $kept, 'a link out\'s query gone');
+        $this->assertContains('https://site.test/rsvp/:id/:id/:id', $kept, 'record() as the beacon');
+        foreach ($kept as $url) {
+            $this->assertStringNotContainsString('9f3c0a', $url);
+            $this->assertStringNotContainsString('s3cret', $url);
+            $this->assertStringNotContainsString('private', $url);
+        }
+        $this->assertSame('mail', $this->rows()[0]['medium'], 'the campaign read from the address as it came: utm_source stands for the medium');
+    }
 }

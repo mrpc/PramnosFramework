@@ -119,6 +119,26 @@ final class Visits
         return is_scalar($value) && (string) $value !== '' ? mb_substr((string) $value, 0, 20) : null;
     }
 
+    /**
+     * An address as a hit keeps it — the page, its referrer, a click's link out: without its
+     * fragment, and with no query but its `utm_*`, so a token or a search in it is not kept for
+     * good. `visits.url` — `fn (string $url): string` — goes on from there: an application whose
+     * links carry a token in the path masks them ({@see \Pramnos\Logs\PagePath}).
+     */
+    public static function url(string $url): string
+    {
+        $url  = (string) preg_replace('/#.*$/s', '', trim($url));
+        $mark = strpos($url, '?');
+        if ($mark !== false) {
+            parse_str(substr($url, $mark + 1), $query);
+            $kept = array_filter($query, static fn ($v, $k): bool => is_string($k) && str_starts_with(strtolower($k), 'utm_') && is_scalar($v), ARRAY_FILTER_USE_BOTH);
+            $url  = substr($url, 0, $mark) . ($kept !== [] ? '?' . http_build_query($kept) : '');
+        }
+        $own = self::config()['url'] ?? null;
+
+        return is_callable($own) ? (string) $own($url) : $url;
+    }
+
     /** Whether a referrer's host is on the spam list: the file `visits:update` keeps, and `visits.spam`. */
     public static function spam(string $host): bool
     {

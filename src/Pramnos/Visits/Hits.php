@@ -119,6 +119,9 @@ final class Hits
         if ($url === '' || !isset($site['id'])) {
             return null;
         }
+        // The campaign is read from the address as it came; the address is kept as Visits::url() makes it.
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+        $kept = Visits::url($url);
         $kind     = in_array($hit['kind'] ?? 'view', self::KINDS, true) ? (string) ($hit['kind'] ?? 'view') : 'view';
         $referrer = is_string($hit['referrer'] ?? null) && $hit['referrer'] !== '' ? (string) $hit['referrer'] : null;
         $refHost  = $referrer === null ? null : strtolower((string) parse_url($referrer, PHP_URL_HOST));
@@ -132,17 +135,16 @@ final class Hits
             'visitor' => (int) ($hit['visitor'] ?? 0), 'visit' => isset($hit['visit']) ? (int) $hit['visit'] : null,
             'seq' => isset($hit['seq']) ? (int) $hit['seq'] : null, 'kind' => $kind,
             'event' => $kind === 'event' && is_string($hit['event'] ?? null) ? mb_substr($hit['event'], 0, 64) : null,
-            'urlid' => (int) \Pramnos\User\Token::urlId(mb_substr($url, 0, 2048)),
-            'target' => $kind === 'click' && is_string($hit['target'] ?? null) && $hit['target'] !== '' ? (int) \Pramnos\User\Token::urlId(mb_substr($hit['target'], 0, 2048)) : null,
+            'urlid' => (int) \Pramnos\User\Token::urlId(mb_substr($kept, 0, 2048)),
+            'target' => $kind === 'click' && is_string($hit['target'] ?? null) && $hit['target'] !== '' ? (int) \Pramnos\User\Token::urlId(mb_substr(Visits::url($hit['target']), 0, 2048)) : null,
             'userid' => isset($hit['userid']) && (int) $hit['userid'] > 1 ? (int) $hit['userid'] : null, 'flags' => $flags,
             'screen' => is_string($hit['screen'] ?? null) && preg_match('/^\d{2,5}x\d{2,5}$/', $hit['screen']) === 1 ? $hit['screen'] : null];
         if ($first) {
-            parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
             $utm  = array_intersect_key((array) ($hit['utm'] ?? []) + $query, array_flip(['utm_source', 'utm_medium', 'utm_campaign']));
             $from = Source::classify($referrer, array_map('strval', array_filter($utm, 'is_scalar')), $url, Visits::hosts());
             $row += ['source' => $from['source'], 'medium' => $from['medium'], 'campaign' => $from['campaign'],
                 'referrer_host' => $refHost !== null && $refHost !== '' ? mb_substr($refHost, 0, 255) : null,
-                'referrer' => $referrer !== null && $from['source'] !== 'internal' ? (int) \Pramnos\User\Token::urlId(mb_substr($referrer, 0, 2048)) : null];
+                'referrer' => $referrer !== null && $from['source'] !== 'internal' ? (int) \Pramnos\User\Token::urlId(mb_substr(Visits::url($referrer), 0, 2048)) : null];
         }
         $place = GeoIp::lookup((string) ($hit['ip'] ?? ''));
         if ($place !== null) {
@@ -150,7 +152,7 @@ final class Hits
         }
         [$browser, $os] = explode('|', \Pramnos\Auth\SignInFingerprint::fromUserAgent($ua));
         $row += ['device' => self::device($ua), 'browser' => $browser, 'os' => $os,
-            'dimension' => Visits::dimension((string) (parse_url($url, PHP_URL_PATH) ?? '/'), $row)];
+            'dimension' => Visits::dimension((string) (parse_url($kept, PHP_URL_PATH) ?? '/'), $row)];
         \Pramnos\Database\WriteSpool::append('pramnos.page_hits', $row);
 
         return $row;
