@@ -57,8 +57,9 @@ class AccountApi extends Account
      *
      * @return array<string, mixed>
      */
-    public function signOutSession(string $sid): array
+    public function signOutSession(mixed $sid): array
     {
+        $sid = is_scalar($sid) ? (string) $sid : '';
         return $this->asMe(function (object $me) use ($sid): array {
             $this->database()->queryBuilder()->table('#PREFIX#sessions')->where('userid', (int) $me->userid)->where('sid', $sid)->update(['logout' => 1]);
             \Pramnos\Auth\ActivityLog::record((int) $me->userid, 'session_revoked');
@@ -206,8 +207,9 @@ class AccountApi extends Account
      *
      * @return array<string, mixed>
      */
-    public function revokeApplicationAccess(string $clientId): array
+    public function revokeApplicationAccess(mixed $clientId): array
     {
+        $clientId = is_scalar($clientId) ? (string) $clientId : '';
         return $this->asMe(function (object $me) use ($clientId): array {
             $service = new \Pramnos\Auth\AuthorizedApplications();
             $app     = $service->byClientId($clientId) ?? throw new \DomainException(t('Application not found'));
@@ -234,8 +236,9 @@ class AccountApi extends Account
      *
      * @return array<string, mixed>
      */
-    public function forgetDevice(int $deviceId): array
+    public function forgetDevice(mixed $deviceId): array
     {
+        $deviceId = is_scalar($deviceId) ? (int) $deviceId : 0;
         return $this->asMe(function (object $me) use ($deviceId): array {
             $done = $deviceId > 0 ? $this->trustedDevices()->revoke((int) $me->userid, $deviceId) : $this->trustedDevices()->revokeAll((int) $me->userid) > 0;
             if ($deviceId > 0 && !$done) {
