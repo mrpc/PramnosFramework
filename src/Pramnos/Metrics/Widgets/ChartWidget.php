@@ -95,7 +95,11 @@ class ChartWidget extends TableWidget
         }
         $notes  = \Pramnos\Metrics\Annotations::forPeriods(Window::range($report['grain'], $first->key(), $last->key()));
 
-        return \Pramnos\Html\Chart::render($type, $labels, $sets, ['title' => $this->heading(), 'height' => 260, 'annotations' => $notes]);
+        // Its series' currency, where they share one: the axis and the tooltips written as money.
+        $currencies = array_values(array_unique(array_map(static fn (array $r): string => (string) ($r['currency'] ?? ''), array_merge(...array_column($now['sections'], 'rows')))));
+        $money      = count($currencies) === 1 && $currencies[0] !== '' ? ['format' => 'currency', 'currency' => $currencies[0]] : [];
+
+        return \Pramnos\Html\Chart::render($type, $labels, $sets, ['title' => $this->heading(), 'height' => 260, 'annotations' => $notes] + $money);
     }
 
     /**
@@ -115,7 +119,7 @@ class ChartWidget extends TableWidget
         foreach ($sets as $set) {
             $html .= '<tr><th scope="row">' . $e($set['label']) . '</th>';
             foreach ($set['data'] as $value) {
-                $html .= '<td style="text-align:right">' . ($value === null ? '—' : $e(rtrim(rtrim(number_format((float) $value, 2, ',', '.'), '0'), ','))) . '</td>';
+                $html .= '<td style="text-align:right">' . ($value === null ? '—' : $e(\Pramnos\General\NumberFormat::trimmed((float) $value, 2))) . '</td>';
             }
             $html .= '</tr>';
         }

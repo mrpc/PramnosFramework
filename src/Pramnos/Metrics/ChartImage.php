@@ -200,9 +200,9 @@ final class ChartImage
         $abs = abs($v);
 
         return match (true) {
-            $abs >= 1_000_000 => rtrim(rtrim(number_format($v / 1_000_000, 1, ',', '.'), '0'), ',') . 'M',
-            $abs >= 10_000    => rtrim(rtrim(number_format($v / 1_000, 1, ',', '.'), '0'), ',') . 'k',
-            default           => rtrim(rtrim(number_format($v, 2, ',', '.'), '0'), ','),
+            $abs >= 1_000_000 => \Pramnos\General\NumberFormat::trimmed($v / 1_000_000, 1) . 'M',
+            $abs >= 10_000    => \Pramnos\General\NumberFormat::trimmed($v / 1_000, 1) . 'k',
+            default           => \Pramnos\General\NumberFormat::trimmed($v, 2),
         };
     }
 }

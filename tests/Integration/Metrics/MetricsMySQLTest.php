@@ -382,10 +382,16 @@ class MetricsMySQLTest extends TestCase
         Application::getInstance()->applicationInfo['dashboard'] = ['metrics' => false];
         $this->assertArrayNotHasKey('metric.test.orders', \Pramnos\Dashboard\WidgetRegistry::all());
         unset(Application::getInstance()->applicationInfo['dashboard']);
+        // In the page's language: written as Greek writes numbers, then as English does.
+        $language = strtolower((string) \Pramnos\Framework\Factory::getLanguage()->currentlang());
+        Application::getInstance()->applicationInfo['numbers'] = [$language => \Pramnos\General\NumberFormat::CONVENTIONS['default']];
         $this->assertSame('1.234,50 €', \Pramnos\Dashboard\Widgets\MetricCard::format(1234.5, '€'));
         $this->assertSame('12,5%', \Pramnos\Dashboard\Widgets\MetricCard::format(12.5, '%'));
         $this->assertSame('1.234', \Pramnos\Dashboard\Widgets\MetricCard::format(1234.0, ''));
         $this->assertSame('2,50', \Pramnos\Dashboard\Widgets\MetricCard::format(2.5, ''));
+        Application::getInstance()->applicationInfo['numbers'] = [$language => \Pramnos\General\NumberFormat::CONVENTIONS['en']];
+        $this->assertSame('1,234.50 €', \Pramnos\Dashboard\Widgets\MetricCard::format(1234.5, '€'));
+        unset(Application::getInstance()->applicationInfo['numbers']);
     }
 
     /**
@@ -689,6 +695,79 @@ class MetricsMySQLTest extends TestCase
         } finally {
             unset(Application::getInstance()->applicationInfo['metrics']['tenant']);
             $schema->dropTableIfExists('metrics_test_orgs');
+        }
+    }
+
+    /**
+     * Money in two currencies is never added: an organisation in euros and one in pounds are each
+     * read on their own, in their own currency — kept with each value, so a later change of an
+     * organisation's currency does not relabel what it earned — and read together they are refused.
+     * A report's cells are written in the reader's language: a comma in Greek, a dot and the symbol
+     * first in English. The section's total over two currencies is not drawn.
+     */
+    public function testMoneyIsReadOneCurrencyAtATime(): void
+    {
+        // Arrange
+        $schema = $this->db->schema();
+        $schema->dropTableIfExists('metrics_test_pay');
+        $schema->createTable('metrics_test_pay', function ($table) {
+            $table->integer('paid_at');
+            $table->integer('org');
+            $table->decimal('amount', 10, 2);
+        });
+        foreach ([[1, 1200.5], [1, 34], [2, 80]] as [$org, $amount]) {
+            $this->db->queryBuilder()->table('metrics_test_pay')->insert(['paid_at' => self::at('2026-09-05 10:00'), 'org' => $org, 'amount' => $amount]);
+        }
+        $pounds = [2];
+        Metrics::register(Metric::flow('test.paid', 'Paid')->tenant('org')->currency(static function (int $tenant) use (&$pounds): string {
+            return in_array($tenant, $pounds, true) ? 'GBP' : 'EUR';
+        })->source(static function (Window $w, array $by, Database $db): array {
+            $query = $db->queryBuilder()->table('metrics_test_pay');
+
+            return $query->select([...$by, $query->raw('SUM(amount) AS value')])
+                ->where('paid_at', '>=', $w->startsAt())->where('paid_at', '<', $w->endsAt())->groupBy($by)->getAllOrFail();
+        }));
+        $boss = (object) ['userid' => 6, 'usertype' => 99];
+        $q    = static fn (): \Pramnos\Metrics\Query => Metrics::query('test.paid')->grain('month')->at('2026-09-01')->for($boss);
+
+        try {
+            // Act
+            Metrics::compute(['test.paid'], ['month'], '2026-09-01', '2026-09-30', false, self::at('2026-11-06 12:00'));
+            $pounds = [];   // organisation 2 moves to euros: what it earned in September stays in pounds
+            $euros  = $q()->tenant(1);
+            $one    = $euros->value();
+            $gbp    = $q()->tenant(2);
+            $two    = $gbp->value();
+            $mixed  = null;
+            try {
+                $q()->value();
+            } catch (\LogicException $e) {
+                $mixed = $e->getMessage();
+            }
+            $report = \Pramnos\Metrics\Report::fromArray(['name' => 'Pay', 'grain' => 'month', 'sections' => [['total' => true, 'rows' => [['metric' => 'test.paid']]]]]);
+            $table  = $report->forTenant(1)->build('2026-09-10', $boss);
+            // The page's language written each way: as English writes numbers, and as Greek does.
+            $language = strtolower((string) \Pramnos\Framework\Factory::getLanguage()->currentlang());
+            Application::getInstance()->applicationInfo['numbers'] = [$language => \Pramnos\General\NumberFormat::CONVENTIONS['en']];
+            $english = \Pramnos\Metrics\Report::html($table);
+            Application::getInstance()->applicationInfo['numbers'] = [$language => \Pramnos\General\NumberFormat::CONVENTIONS['default']];
+            $greek  = \Pramnos\Metrics\Report::html($table);
+            $money  = Metric::flow('test.money', 'M')->format('currency')->display(5);
+            unset(Application::getInstance()->applicationInfo['numbers']);
+            $csv    = \Pramnos\Metrics\Report::csv($table);
+
+            // Assert
+            $this->assertSame([1234.5, 'EUR'], [$one, $euros->currency()]);
+            $this->assertSame([80.0, 'GBP'], [$two, $gbp->currency()], 'kept in the currency it was counted in');
+            $this->assertSame('Paid is in EUR, GBP: read one currency at a time.', $mixed);
+            $this->assertStringContainsString('1.234,50 €', $greek);
+            $this->assertStringContainsString('€1,234.50', $english);
+            $this->assertStringContainsString('Paid (EUR)', $csv, 'the currency beside the label; the number plain');
+            $this->assertStringContainsString(',1234.5', $csv);
+            $this->assertSame('EUR', Metrics::get('test.paid')->getCurrency(1));
+            $this->assertSame('5,00 €', $money, 'no currency named: metrics.currency, else euros');
+        } finally {
+            $schema->dropTableIfExists('metrics_test_pay');
         }
     }
 

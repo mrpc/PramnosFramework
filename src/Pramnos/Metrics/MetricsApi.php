@@ -43,7 +43,7 @@ class MetricsApi
             $out = [];
             foreach (Metrics::all($user, false) as $metric) {
                 $out[] = ['name' => $metric->name, 'label' => $metric->label(), 'unit' => $metric->getUnit(), 'kind' => $metric->kind,
-                    'aggregate' => $metric->getAggregate(), 'dimensions' => $metric->getDimensions(), 'format' => $metric->getFormat(),
+                    'aggregate' => $metric->getAggregate(), 'dimensions' => $metric->getDimensions(), 'format' => $metric->getFormat(), 'currency' => $metric->getCurrency(),
                     'direction' => $metric->getDirection(), 'grains' => $metric->getGrains() ?? Metrics::grains(), 'live' => $metric->isLive(),
                     // Each dimension's words and what it is a part of: a client drills from the one to the other.
                     'hierarchy' => (object) array_combine($metric->getDimensions(), array_map(static function (string $d): array {
@@ -70,7 +70,7 @@ class MetricsApi
                 'labels'  => array_map(static fn (Window $w): string => $w->label(), $series['periods']),
                 'values'  => (object) $series['values'],
                 'gaps'    => (object) $query->gaps(),
-            ];
+            ] + array_filter(['currency' => $query->currency()]);
         });
     }
 
@@ -80,10 +80,10 @@ class MetricsApi
         return $this->answer(function (object $user): array {
             $query = $this->query($user)->at((string) ($_GET['at'] ?? date('Y-m-d')));
             if (($_GET['compare'] ?? '') !== '') {
-                return $query->compare((string) $_GET['compare'])->compared();
+                return $query->compare((string) $_GET['compare'])->compared() + array_filter(['currency' => $query->currency()]);
             }
 
-            return ['value' => $query->value()];
+            return ['value' => $query->value()] + array_filter(['currency' => $query->currency()]);
         });
     }
 

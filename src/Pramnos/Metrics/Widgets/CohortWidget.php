@@ -73,7 +73,7 @@ class CohortWidget extends ReportWidget
             $html .= '<tr><th scope="row">' . $e($window->label()) . '</th><td style="text-align:right">' . ($size === null ? '—' : $e((string) (int) $size)) . '</td>';
             foreach ($spans as $span) {
                 $reached = $within[$span][$i] ?? null;
-                $html   .= '<td style="text-align:right">' . ($size === null || $size <= 0 || $reached === null ? '—' : $e(number_format(100 * $reached / $size, 1) . '%')) . '</td>';
+                $html   .= '<td style="text-align:right">' . ($size === null || $size <= 0 || $reached === null ? '—' : $e(\Pramnos\General\NumberFormat::number(100 * $reached / $size, 1) . '%')) . '</td>';
             }
             $html .= '</tr>';
         }

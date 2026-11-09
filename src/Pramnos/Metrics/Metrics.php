@@ -395,8 +395,12 @@ final class Metrics
             }
             $delete->delete();
             $insert = [];
+            $money  = self::get($metric);
             foreach ($rows as $row) {
-                $insert[] = Store::row($db, $metric, $window, $row['dims'], (float) $row['value'], $source, $final, $now, isset($row['count']) ? ['count' => (int) $row['count']] : null, (int) ($row['tenant'] ?? 0), $version);
+                // The currency it was counted in, kept with it: an organisation that changes
+                // currency later does not relabel what it earned before.
+                $extra    = array_filter(['count' => isset($row['count']) ? (int) $row['count'] : null, 'currency' => $money->getCurrency((int) ($row['tenant'] ?? 0))], static fn ($v): bool => $v !== null);
+                $insert[] = Store::row($db, $metric, $window, $row['dims'], (float) $row['value'], $source, $final, $now, $extra === [] ? null : $extra, (int) ($row['tenant'] ?? 0), $version);
             }
             foreach (array_chunk($insert, 500) as $chunk) {
                 $db->queryBuilder()->table($table)->insertMany($chunk);
@@ -419,8 +423,9 @@ final class Metrics
     {
         self::get($metric);
         $window = Window::of($grain, $period);
-        $row    = Store::row(self::db(), $metric, $window, $dims, (float) $value, Store::IMPORTED, true, time());
-        self::db()->queryBuilder()->table(Store::table($grain))->upsert($row, Store::KEY, ['value', 'source', 'final', 'computed_at']);
+        $currency = self::get($metric)->getCurrency();
+        $row      = Store::row(self::db(), $metric, $window, $dims, (float) $value, Store::IMPORTED, true, time(), $currency !== null ? ['currency' => $currency] : null);
+        self::db()->queryBuilder()->table(Store::table($grain))->upsert($row, Store::KEY, ['value', 'extra', 'source', 'final', 'computed_at']);
     }
 
     // ------------------------------------------------------------------ reading
@@ -488,7 +493,26 @@ final class Metrics
      */
     public static function read(string $metric, array $periods, array $filters = [], ?string $breakdown = null, ?array $tenants = null, ?int $version = null): array
     {
-        return self::valuesFor(self::get($metric), $periods, $filters, $breakdown, [], $tenants, $version);
+        return self::readIn($metric, $periods, $filters, $breakdown, $tenants, $version)['values'];
+    }
+
+    /**
+     * {@see read()}, and the currency its amounts are in — null for a metric that is not money.
+     * Amounts in two currencies are never added: such a read throws a `LogicException`, and the
+     * reader reads one organisation, or one currency, at a time.
+     *
+     * @param list<Window>                        $periods
+     * @param array<string, string|list<string>> $filters
+     * @param list<int>|null                      $tenants
+     * @return array{values: array<string, list<float|null>>, currency: ?string}
+     */
+    public static function readIn(string $metric, array $periods, array $filters = [], ?string $breakdown = null, ?array $tenants = null, ?int $version = null): array
+    {
+        $model    = self::get($metric);
+        $currency = $model->getCurrency($tenants !== null && count($tenants) === 1 ? (int) $tenants[0] : 0);
+        $values   = self::valuesFor($model, $periods, $filters, $breakdown, [], $tenants, $version, $currency);
+
+        return ['values' => $values, 'currency' => $currency];
     }
 
     /**
@@ -587,7 +611,7 @@ final class Metrics
      * @param list<string>                        $seen    Derived metrics on the way here, against a loop
      * @return array<string, list<float|null>>
      */
-    private static function valuesFor(Metric $metric, array $periods, array $filters, ?string $breakdown, array $seen, ?array $tenants = null, ?int $version = null): array
+    private static function valuesFor(Metric $metric, array $periods, array $filters, ?string $breakdown, array $seen, ?array $tenants = null, ?int $version = null, ?string &$currency = null): array
     {
         if ($metric->kind === Metric::DERIVED) {
             return self::derive($metric, $periods, $filters, $breakdown, $seen, $tenants);
@@ -634,6 +658,7 @@ final class Metrics
         $aggregate = $metric->getAggregate();
         $known = [];
         $sums  = [];
+        $money = [];
         while ($result && ($row = $result->fetch()) !== null) {
             $period         = Store::key((string) $row['period_start'], $periods[0]->grain, $zones === null ? null : Window::zoneOf((int) $row['tenant']));
             // The total marks a period as computed; only the breakdown asked for is added up.
@@ -650,6 +675,11 @@ final class Metrics
             }
             $key   = $breakdown === null ? '' : (string) ($dims[$breakdown] ?? '');
             $value = (float) $row['value'];
+            if ($metric->getFormat() === 'currency') {
+                // Each row in the currency it was counted in: a row from before currencies were kept, in today's.
+                $extra = is_string($row['extra'] ?? null) ? json_decode($row['extra'], true) : null;
+                $money[(string) ($extra['currency'] ?? $metric->getCurrency((int) $row['tenant']))] = true;
+            }
             if (!isset($sums[$key][$period])) {
                 $sums[$key][$period]    = $value;
                 $weights[$key][$period] = $weight = self::weight($row);
@@ -665,6 +695,12 @@ final class Metrics
             if ($aggregate === Metric::AVG) {
                 $weights[$key][$period] += $weight;
             }
+        }
+        if (count($money) > 1) {
+            throw new \LogicException(sprintf(t('%s is in %s: read one currency at a time.'), $metric->label(), implode(', ', array_keys($money))));
+        }
+        if ($money !== []) {
+            $currency = (string) array_key_first($money);
         }
         if (count($from) > 1 && $metric->getAggregate() === Metric::DISTINCT) {
             // Somebody counted in two organisations is one person: their counts do not add up.

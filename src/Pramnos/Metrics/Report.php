@@ -348,6 +348,10 @@ final class Report
                     $cells     = array_filter(array_map(static fn (array $r): ?float => $r['cells'][$i]['value'] ?? null, array_filter($rows, static fn (array $r): bool => !$r['subtotal'])), static fn ($v): bool => $v !== null);
                     $total[$i] = $cells === [] ? null : array_sum($cells);
                 }
+                // Amounts in more than one currency, or money beside counts, make no total.
+                if (count(array_unique(array_map(static fn (array $r): string => (string) $r['currency'], array_filter($rows, static fn (array $r): bool => !$r['subtotal'] && $r['error'] === null)))) > 1) {
+                    $total = null;
+                }
             }
             $sections[] = ['title' => $section['title'], 'chart' => $section['chart'], 'rows' => $rows, 'total' => $total];
         }
@@ -455,7 +459,7 @@ final class Report
     private function buildRow(array $row, array $visible, array $columns, Window $anchor, ?string $compare, string $grain): array
     {
         $unit  = $visible[$row['metric']]->getUnit();
-        $built = ['label' => $row['label'], 'unit' => $unit, 'subtotal' => $row['subtotal'], 'cells' => [], 'other' => null, 'change' => null, 'error' => $row['error'] ?? null];
+        $built = ['label' => $row['label'], 'unit' => $unit, 'currency' => null, 'subtotal' => $row['subtotal'], 'cells' => [], 'other' => null, 'change' => null, 'error' => $row['error'] ?? null];
         if ($built['error'] !== null) {
             return $built;
         }
@@ -473,8 +477,18 @@ final class Report
                 continue;
             }
             try {
+                $query = $this->read($name)->grain($grain)->at($column['window']->key())->where($filters);
+                $value = $query->value();
+                if ($name === $row['metric']) {
+                    // The row's own amounts in one currency: its first cell's, the rest checked against it.
+                    $built['currency'] ??= $query->currency();
+                    if ($query->currency() !== $built['currency']) {
+                        throw new \LogicException(sprintf(t('%s is in %s here, %s elsewhere in the row.'), $visible[$name]->label(), (string) $query->currency(), (string) $built['currency']));
+                    }
+                }
                 $built['cells'][] = [
-                    'value' => $this->read($name)->grain($grain)->at($column['window']->key())->where($filters)->value(),
+                    'currency' => $query->currency(),
+                    'value' => $value,
                     'link'  => $visible[$name]->hasRows() ? ['metric' => $name, 'grain' => $grain, 'period' => $column['window']->key(), 'filters' => $filters,
                         'url' => $visible[$name]->drillUrl($column['window'], $filters)] : null,
                     'error' => null,
@@ -547,7 +561,7 @@ final class Report
                         $body .= '<td class="pf-muted" style="text-align:right" title="' . $e($cell['error']) . '">—</td>';
                         continue;
                     }
-                    $text = $e(self::number($cell['value'], $row['unit']));
+                    $text = $e(self::number($cell['value'], $row['unit'], $cell['currency'] ?? null));
                     if ($rowsUrl !== null && $cell['link'] !== null && $cell['value'] !== null) {
                         // The application's own list where the metric has one, else the framework's records.
                         $query = http_build_query(['metric' => $cell['link']['metric'], 'grain' => $cell['link']['grain'], 'period' => $cell['link']['period'], 'f' => $cell['link']['filters']]);
@@ -557,14 +571,15 @@ final class Report
                     $body .= $td . $text . '</td>';
                 }
                 if ($table['compare'] !== null) {
-                    $body .= $td . $e(self::number($row['other'], $row['unit'])) . '</td>' . $td . $e($row['change'] === null ? '—' : sprintf('%+.1f%%', $row['change'] * 100)) . '</td>';
+                    $body .= $td . $e(self::number($row['other'], $row['unit'], $row['currency'])) . '</td>' . $td . $e($row['change'] === null ? '—' : ($row['change'] >= 0 ? '+' : '') . \Pramnos\General\NumberFormat::number($row['change'] * 100, 1) . '%') . '</td>';
                 }
                 $body .= '</tr>';
             }
             if ($section['total'] !== null) {
                 $body .= '<tr class="pf-report-total"><th scope="row">' . $e($t('Total')) . '</th>';
+                $currency = $section['rows'][0]['currency'] ?? null;
                 foreach ($section['total'] as $cell) {
-                    $body .= $td . $e(self::number($cell, '')) . '</td>';
+                    $body .= $td . $e(self::number($cell, '', $currency)) . '</td>';
                 }
                 $body .= ($table['compare'] !== null ? '<td></td><td></td>' : '') . '</tr>';
             }
@@ -588,7 +603,8 @@ final class Report
         fputcsv($out, $head, ',', '"', '');
         foreach ($table['sections'] as $section) {
             foreach ($section['rows'] as $row) {
-                $line = [$section['title'], $row['label']];
+                // An amount's currency beside its label: the cells stay plain numbers, to add up.
+                $line = [$section['title'], $row['label'] . (($row['currency'] ?? null) !== null ? ' (' . $row['currency'] . ')' : '')];
                 if ($row['error'] !== null) {
                     $line[] = $row['error'];
                 } else {
@@ -614,8 +630,12 @@ final class Report
     }
 
     /** A cell as people read it: a dash for no value. */
-    private static function number(?float $value, string $unit): string
+    private static function number(?float $value, string $unit, ?string $currency = null): string
     {
-        return $value === null ? '—' : \Pramnos\Dashboard\Widgets\MetricCard::format($value, $unit);
+        if ($value === null) {
+            return '—';
+        }
+
+        return $currency !== null ? \Pramnos\General\NumberFormat::money($value, $currency) : \Pramnos\Dashboard\Widgets\MetricCard::format($value, $unit);
     }
 }

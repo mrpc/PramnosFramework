@@ -43,6 +43,9 @@ final class Query
     /** Whose scope the filters are narrowed to ({@see for()}); false: nobody's, every value. */
     private object|false|null $viewer = false;
 
+    /** The currency the last read's amounts were in; null: not money, or nothing read yet. */
+    private ?string $currency = null;
+
     /** The definition's version read; null: the metric's own. */
     private ?int $version = null;
 
@@ -152,7 +155,7 @@ final class Query
     {
         $periods = $this->periods();
 
-        return ['periods' => $periods, 'values' => Metrics::read($this->metric, $periods, $this->filters($this->by), $this->by, $this->tenants, $this->version)];
+        return ['periods' => $periods, 'values' => $this->read($periods, $this->filters($this->by), $this->by)];
     }
 
     /**
@@ -179,7 +182,7 @@ final class Query
     public function value(): ?float
     {
         $periods = $this->periods();
-        $values  = Metrics::read($this->metric, [end($periods)], $this->filters(), null, $this->tenants, $this->version);
+        $values  = $this->read([end($periods)], $this->filters(), null);
 
         return $values[''][0] ?? null;
     }
@@ -194,7 +197,7 @@ final class Query
         $periods = $this->periods();
         $window  = end($periods);
         $other   = $this->against === Metrics::YEAR_EARLIER ? $window->yearEarlier() : $window->previous();
-        $values  = Metrics::read($this->metric, [$window, $other], $this->filters(), null, $this->tenants, $this->version);
+        $values  = $this->read([$window, $other], $this->filters(), null);
         [$a, $b] = [$values[''][0] ?? null, $values[''][1] ?? null];
 
         return [
@@ -237,7 +240,7 @@ final class Query
         }
         $periods = $this->periods();
         $last    = [];
-        foreach (Metrics::read($this->metric, [end($periods)], $this->filters($this->by), $this->by, $this->tenants, $this->version) as $key => $values) {
+        foreach ($this->read([end($periods)], $this->filters($this->by), $this->by) as $key => $values) {
             if (($values[0] ?? null) !== null) {
                 $last[(string) $key] = (float) $values[0];
             }
@@ -245,6 +248,29 @@ final class Query
         arsort($last);
 
         return array_slice($last, 0, max(0, $count), true);
+    }
+
+    /**
+     * The currency of the amounts read last — after {@see series()}, {@see value()},
+     * {@see compared()} or {@see top()} — or, before any read, the metric's own; null for a metric
+     * that is not money.
+     */
+    public function currency(): ?string
+    {
+        return $this->currency ?? Metrics::get($this->metric)->getCurrency($this->tenants !== null && count($this->tenants) === 1 ? $this->tenants[0] : 0);
+    }
+
+    /**
+     * @param list<Window>                        $periods
+     * @param array<string, string|list<string>> $filters
+     * @return array<string, list<float|null>>
+     */
+    private function read(array $periods, array $filters, ?string $by): array
+    {
+        $read           = Metrics::readIn($this->metric, $periods, $filters, $by, $this->tenants, $this->version);
+        $this->currency = $read['currency'];
+
+        return $read['values'];
     }
 
     /** @return array<string, string|list<string>> The filters, narrowed to the viewer's scope where read for one */

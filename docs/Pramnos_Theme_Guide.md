@@ -38,6 +38,21 @@ then `app.php`'s `'dates' => ['el' => [...]]`, then the framework's table — se
 A value a machine reads is the exception: an `<input type="date">`, a `<time datetime>` attribute
 and an export filename stay ISO, and `date()` is right there.
 
+## Numbers and money
+
+Likewise never `number_format($v, 2, ',', '.')`. Two helpers follow the page's language:
+
+```php
+<?php echo localNumber(1234.5, 2); ?>        <!-- 1.234,50   (el)   1,234.50   (en) -->
+<?php echo localMoney(1234.5, 'EUR'); ?>     <!-- 1.234,50 € (el)   €1,234.50  (en) -->
+```
+
+The convention is the decimal mark, the thousands mark, and whether a currency's symbol goes
+before or after the number. It comes from `app.php`'s `'numbers' => ['fr' => ['thousands' => '
+']]`, then from the framework's table in `Pramnos\General\NumberFormat`. A language listed in
+neither is written with a comma, a dot and the symbol after. A currency with no symbol of its own
+is written with its code. A number a machine reads, in a CSV, an `<input>` or JSON, stays plain.
+
 ## Architecture Overview
 
 The theme system is built around the `\Pramnos\Theme\Theme` class and integrates seamlessly with the document and view systems. Themes live under `app/themes/` (`APP_PATH/themes`):

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Pramnos\Metrics\Widgets;
 
 use Pramnos\Dashboard\Widgets\Figures;
-use Pramnos\Dashboard\Widgets\MetricCard;
 use Pramnos\Metrics\Metrics;
 
 /**
@@ -64,8 +63,9 @@ class MapWidget extends ReportWidget
             return self::note(Figures::words('Choose a metric and a dimension with places in the card\'s settings.'));
         }
         try {
-            $values = $this->read($name)->grain($report['window']->grain)->at($report['window']->key())
-                ->where($this->narrowed((array) ($this->setting('filters') ?? [])))->by($dimension->name)->series()['values'];
+            $query  = $this->read($name)->grain($report['window']->grain)->at($report['window']->key())
+                ->where($this->narrowed((array) ($this->setting('filters') ?? [])))->by($dimension->name);
+            $values = $query->series()['values'];
         } catch (\InvalidArgumentException|\LogicException $e) {
             return self::note($e->getMessage());
         }
@@ -74,7 +74,7 @@ class MapWidget extends ReportWidget
             $where = $dimension->geoOf((string) $key);
             if ($where !== null && ($series[0] ?? null) !== null) {
                 $points[] = ['lat' => $where[0], 'lng' => $where[1], 'label' => $dimension->labelOf((string) $key), 'value' => (float) $series[0],
-                    'text' => MetricCard::format((float) $series[0], $metric->getUnit())];
+                    'text' => $metric->display((float) $series[0], $query->currency())];
             }
         }
         if ($points === []) {

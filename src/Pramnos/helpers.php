@@ -458,6 +458,26 @@ if (!function_exists('localDate')) {
     }
 }
 
+if (!function_exists('localNumber')) {
+    /**
+     * A number in the current language's convention. {@see \Pramnos\General\NumberFormat}
+     */
+    function localNumber(float|int $value, int $decimals = 0): string
+    {
+        return \Pramnos\General\NumberFormat::number((float) $value, $decimals);
+    }
+}
+
+if (!function_exists('localMoney')) {
+    /**
+     * An amount in a currency (`EUR`), in the current language's convention. {@see \Pramnos\General\NumberFormat}
+     */
+    function localMoney(float|int $value, string $currency, int $decimals = 2): string
+    {
+        return \Pramnos\General\NumberFormat::money((float) $value, $currency, $decimals);
+    }
+}
+
 if (!function_exists('localDateTime')) {
     /**
      * A date and a time, in the current language's convention. {@see localDate()}

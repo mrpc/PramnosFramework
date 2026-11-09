@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Pramnos\Metrics\Widgets;
 
 use Pramnos\Dashboard\Widgets\Figures;
-use Pramnos\Dashboard\Widgets\MetricCard;
 use Pramnos\Metrics\Metrics;
 
 /**
@@ -57,8 +56,9 @@ class TopWidget extends ReportWidget
             return self::note(Figures::words($metric === null && $name !== '' ? 'This metric is not available to you.' : 'Choose a metric and what to rank by in the card\'s settings.'));
         }
         try {
-            $top = $this->read($name)->grain($report['window']->grain)->at($report['window']->key())
-                ->where($this->narrowed((array) ($this->setting('filters') ?? [])))->by($dimension)->top((int) ($this->setting('count') ?? 10));
+            $query = $this->read($name)->grain($report['window']->grain)->at($report['window']->key())
+                ->where($this->narrowed((array) ($this->setting('filters') ?? [])))->by($dimension);
+            $top   = $query->top((int) ($this->setting('count') ?? 10));
         } catch (\InvalidArgumentException|\LogicException $e) {
             return self::note($e->getMessage());
         }
@@ -71,7 +71,7 @@ class TopWidget extends ReportWidget
         foreach ($top as $key => $value) {
             $html .= '<tr><th scope="row">' . $e(Metrics::dimensionOf($dimension)->labelOf((string) $key)) . '</th>'
                 . '<td style="width:50%"><span style="display:block;height:.6em;background:currentColor;opacity:.35;width:' . round(100 * abs($value) / $most, 1) . '%"></span></td>'
-                . '<td style="text-align:right">' . $e(MetricCard::format($value, $metric->getUnit())) . '</td></tr>';
+                . '<td style="text-align:right">' . $e($metric->display($value, $query->currency())) . '</td></tr>';
         }
 
         return $html . '</tbody></table>';

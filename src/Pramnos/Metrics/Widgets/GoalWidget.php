@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Pramnos\Metrics\Widgets;
 
 use Pramnos\Dashboard\Widgets\Figures;
-use Pramnos\Dashboard\Widgets\MetricCard;
 use Pramnos\Metrics\Goals;
 use Pramnos\Metrics\Metrics;
 use Pramnos\Metrics\Window;
@@ -71,14 +70,14 @@ class GoalWidget extends ReportWidget
         if ($progress === null) {
             return self::note(Figures::words('No curve to judge by: the reference period is not all there.'));
         }
-        $unit = $metric->getUnit();
+        $show = static fn (float $v): string => $metric->display($v, $metric->getCurrency((int) ($report['tenant'] ?? 0)));
         $done = min(100.0, 100 * $progress['actual'] / $target);
         $due  = min(100.0, 100 * $progress['expected'] / $target);
 
         return \Pramnos\Html\StatTile::render(
             $this->heading() !== '' ? $this->heading() : Figures::words($metric->label()),
-            MetricCard::format($progress['actual'], $unit) . ' / ' . MetricCard::format($target, $unit),
-            sprintf(Figures::words('%s expected by now · %s forecast'), MetricCard::format($progress['expected'], $unit), $progress['forecast'] === null ? '—' : MetricCard::format($progress['forecast'], $unit)),
+            $show($progress['actual']) . ' / ' . $show($target),
+            sprintf(Figures::words('%s expected by now · %s forecast'), $show($progress['expected']), $progress['forecast'] === null ? '—' : $show($progress['forecast'])),
         ) . '<div role="img" aria-label="' . htmlspecialchars(round($done) . '%', ENT_QUOTES) . '" style="position:relative;height:.5em;background:rgba(127,127,127,.2);margin-top:.35rem">'
             . '<span style="position:absolute;inset:0 auto 0 0;width:' . round($done, 1) . '%;background:currentColor;opacity:.55"></span>'
             . '<span style="position:absolute;top:-.2em;bottom:-.2em;left:' . round($due, 1) . '%;border-left:2px dashed currentColor"></span></div>';

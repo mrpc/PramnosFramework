@@ -392,6 +392,32 @@ the same `Gate`. Somebody without the ability does not break down or filter by t
 the metric's totals stay theirs. `Metrics::scoped($metric, $filters, $user)` gives the filters a
 viewer reads with, for code that reads a metric some other way.
 
+### Money: one currency at a time
+
+```php
+Metric::flow('payments.amount', 'Payments')->sum('amount')->currency('EUR')…;
+Metric::flow('fees', 'Fees')->tenant('org')->currency(fn (int $org): string => Organizations::currency($org))…;
+
+// app/app.php: the currency of a currency metric that names none (euros by default)
+'metrics' => ['currency' => 'GBP'],
+```
+
+- **Kept with each value.** The currency is written beside each value as it is computed, in the
+  row's `extra`. An organisation that changes currency later does not relabel what it earned
+  before.
+- **Never added.** A read whose values are in two currencies throws a `LogicException`, as a
+  distinct metric over two organisations does. Read one organisation, or one currency, at a time.
+  A report section's total over rows in different currencies, or over money beside counts, is not
+  drawn.
+- **Told to the reader.** `Query::currency()` gives the currency the last read's amounts were in.
+  The JSON API answers with `currency`, the assistant's tool says it, and a CSV writes it beside
+  the row's label (`Paid (EUR)`), leaving the cells plain numbers.
+- **Written in the reader's language.** Cards, report cells, chart axes and their images use
+  `Metric::display()`: `1.234,50 €` on a Greek page and `€1,234.50` on an English one (see
+  `NumberFormat` in the Theme guide).
+
+There is no conversion between currencies: a figure in pounds is never turned into euros.
+
 ## On the dashboard and for the assistant
 
 - **Dashboard:** each metric is a card, `metric.<name>`, in the dashboard's catalogue. It is

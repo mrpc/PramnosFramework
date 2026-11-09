@@ -90,6 +90,9 @@ final class Metric
     /** Read from its source when asked, never stored. */
     private bool $live = false;
 
+    /** @var string|(\Closure(int): string)|null Its currency, or each organisation's; null: `metrics.currency` */
+    private string|\Closure|null $currency = null;
+
     /** Read whole by everybody who may read it, whatever their scope ({@see Metrics::scopeOf()}). */
     private bool $unscoped = false;
 
@@ -436,6 +439,43 @@ final class Metric
     public function getFormat(): string
     {
         return $this->format;
+    }
+
+    /**
+     * The currency its amounts are in — `'EUR'`, or each organisation's, `fn (int $tenant): string`
+     * — which makes it a currency metric. Without it a currency metric is in `metrics.currency`,
+     * else euros. Amounts in different currencies are never added up ({@see Metrics::read()}).
+     */
+    public function currency(string|\Closure $currency): self
+    {
+        $this->currency = is_string($currency) ? strtoupper(trim($currency)) : $currency;
+        $this->format   = 'currency';
+
+        return $this;
+    }
+
+    /** The currency of its amounts — an organisation's, where they differ — or null for a metric that is not money. */
+    public function getCurrency(int $tenant = 0): ?string
+    {
+        if ($this->format !== 'currency') {
+            return null;
+        }
+        $currency = $this->currency instanceof \Closure ? ($this->currency)($tenant) : $this->currency;
+
+        return strtoupper(trim((string) ($currency ?? (Metrics::config()['currency'] ?? 'EUR'))));
+    }
+
+    /**
+     * A value as people read it, in the reader's language: an amount with its currency's symbol,
+     * a percentage, or a number with its unit.
+     */
+    public function display(float $value, ?string $currency = null): string
+    {
+        if ($this->format === 'currency') {
+            return \Pramnos\General\NumberFormat::money($value, $currency ?? (string) $this->getCurrency());
+        }
+
+        return \Pramnos\Dashboard\Widgets\MetricCard::format($value, $this->format === 'percent' && $this->unit === '' ? '%' : $this->unit);
     }
 
     /** Count the distinct values of a column — people, say: a distinct metric, which does not add up. */

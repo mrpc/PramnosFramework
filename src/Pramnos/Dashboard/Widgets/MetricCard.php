@@ -113,7 +113,8 @@ final class MetricCard extends Widget
             for ($i = 1; $i < $periods; $i++) {
                 $first = $first->previous();
             }
-            $series = $this->read()->grain($grain)->between($first->key(), $now->key())->where($filters)->by($breakdown !== '' ? $breakdown : null)->series();
+            $query  = $this->read()->grain($grain)->between($first->key(), $now->key())->where($filters)->by($breakdown !== '' ? $breakdown : null);
+            $series = $query->series();
         } catch (\InvalidArgumentException|\LogicException $e) {
             return '<p class="pf-muted">' . htmlspecialchars($e->getMessage(), ENT_QUOTES) . '</p>';
         }
@@ -127,7 +128,8 @@ final class MetricCard extends Widget
             (string) ($this->setting('chart') ?? 'line'),
             array_map(static fn (Window $w): string => $w->label(), $series['periods']),
             $sets,
-            ['title' => $this->title(), 'height' => 220, 'format' => $this->metric->getUnit() === '%' ? 'percent' : 'number', 'decimals' => $this->metric->getUnit() === '' ? 0 : 2,
+            ['title' => $this->title(), 'height' => 220, 'format' => $query->currency() !== null ? 'currency' : ($this->metric->getUnit() === '%' ? 'percent' : 'number'),
+                'currency' => $query->currency(), 'decimals' => $this->metric->getUnit() === '' && $query->currency() === null ? 0 : 2,
                 'annotations' => \Pramnos\Metrics\Annotations::forPeriods($series['periods'])],
         );
     }
@@ -137,24 +139,26 @@ final class MetricCard extends Widget
     {
         $against = (string) $this->setting('compare');
         $note    = $now->label();
+        $query   = $this->read()->grain($now->grain)->at($now->key())->where($filters);
         if ($against !== '') {
-            $compare = $this->read()->grain($now->grain)->at($now->key())->where($filters)->compare($against)->compared();
+            $compare = $query->compare($against)->compared();
             $value   = $compare['value'];
             if ($compare['change'] !== null) {
-                $note .= ' · ' . sprintf(Figures::words('%s against %s'), ($compare['change'] >= 0 ? '+' : '') . number_format($compare['change'] * 100, 1) . '%', $compare['against']);
+                $note .= ' · ' . sprintf(Figures::words('%s against %s'), ($compare['change'] >= 0 ? '+' : '') . \Pramnos\General\NumberFormat::number($compare['change'] * 100, 1) . '%', $compare['against']);
             }
         } else {
-            $value = $this->read()->grain($now->grain)->at($now->key())->where($filters)->value();
+            $value = $query->value();
         }
 
-        return \Pramnos\Html\StatTile::render(Figures::words($this->metric->label()), $value === null ? '—' : self::format($value, $this->metric->getUnit()), $note);
+        return \Pramnos\Html\StatTile::render(Figures::words($this->metric->label()), $value === null ? '—' : $this->metric->display((float) $value, $query->currency()), $note);
     }
 
     /** A value as people read it, with the metric's unit. */
     public static function format(float $value, string $unit): string
     {
         $decimals = $unit === '' && floor($value) === $value ? 0 : ($unit === '' ? 2 : ($unit === '%' ? 1 : 2));
-        $number   = number_format($value, $decimals, ',', '.');
+        // In the reader's language: a comma for the decimals in Greek, a dot in English.
+        $number   = \Pramnos\General\NumberFormat::number($value, $decimals);
 
         return match ($unit) {
             ''      => $number,

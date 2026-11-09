@@ -842,7 +842,7 @@ The order is correctness first, then what the joins open, then convenience:
 | Step | What | Done when |
 |---|---|---|
 | 7a | Scope by dimension values (15.1.1), shared with the audience's abilities (15.2.9) | a manager scoped to one region sees only that region in a report, the API, an export and the assistant, and the totals are theirs **Built:** `metrics.scope`, `Metric::unscoped()`, `Dimension::ability()` through the audience's `Gate`, `Metrics::scoped()`/`withinScope()`. The audience's own people lists are narrowed when segments and attributes become dimensions (7d) |
-| 7b | Currency and locale (15.1.2) | a two-currency installation refuses a mixed total and writes each value in its currency and the reader's locale |
+| 7b | Currency and locale (15.1.2) | a two-currency installation refuses a mixed total and writes each value in its currency and the reader's locale **Built:** `Metric::currency()` (one, or per organisation), kept in each row's `extra`; mixed reads refused; `Query::currency()`; `General\NumberFormat` with `localNumber()`/`localMoney()`; cards, cells, charts and images in the reader's language |
 | 7c | Segments and person events as metrics (15.2.1, 15.2.2) | a segment's size over a year on a chart; a declared event as a metric with no declaration of its own |
 | 7d | Segments and attributes as dimensions; from a number to people (15.2.3, 15.2.4) | "revenue by segment" in a report; a cell made into a segment |
 | 7e | One automation engine; rules and tests measured; annotations from the audience (15.2.5–15.2.7) | an alert starts a rule; a rule's goals per version in a report; a rule's change marked on a chart |

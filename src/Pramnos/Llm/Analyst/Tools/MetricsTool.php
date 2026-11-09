@@ -98,6 +98,7 @@ final class MetricsTool implements McpToolInterface
                 'kind'        => $metric->kind,
                 'aggregate'   => $metric->kind === Metric::DERIVED ? null : $metric->getAggregate(),
                 'unit'        => $metric->getUnit(),
+                'currency'    => $metric->getCurrency(),
                 'description' => $metric->description(),
                 'dimensions'  => $dimensions,
                 'breakdowns'  => $metric->kind !== Metric::DERIVED && $metric->getAggregate() === Metric::DISTINCT
@@ -122,14 +123,17 @@ final class MetricsTool implements McpToolInterface
             throw new \InvalidArgumentException('at most ' . self::PERIODS . ' periods at once: a coarser grain, or a shorter span.');
         }
         $breakdown = isset($input['breakdown']) && $input['breakdown'] !== '' ? (string) $input['breakdown'] : null;
-        $series    = Metrics::query($metric->name)->grain($grain)->between($from, $to)->where($filters)->by($breakdown)->for($this->user())->series();
+        $query     = Metrics::query($metric->name)->grain($grain)->between($from, $to)->where($filters)->by($breakdown)->for($this->user());
+        $series    = $query->series();
         $labels    = array_map(static fn (Window $w): string => $w->label(), $series['periods']);
         $values    = [];
         foreach ($series['values'] as $key => $list) {
             $values[$key === '' ? 'total' : (string) $key] = array_combine($labels, $list);
         }
 
-        return ['metric' => $metric->name, 'unit' => $metric->getUnit(), 'grain' => $grain] + ($breakdown !== null ? ['breakdown' => $breakdown] : []) + ['values' => $values];
+        // The currency the amounts are in, so they are never added to another's.
+        return ['metric' => $metric->name, 'unit' => $metric->getUnit(), 'grain' => $grain] + array_filter(['currency' => $query->currency()])
+            + ($breakdown !== null ? ['breakdown' => $breakdown] : []) + ['values' => $values];
     }
 
     /**

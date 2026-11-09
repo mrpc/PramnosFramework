@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Pramnos\Metrics\Widgets;
 
 use Pramnos\Dashboard\Widgets\Figures;
-use Pramnos\Dashboard\Widgets\MetricCard;
 use Pramnos\Metrics\Metrics;
 
 /**
@@ -65,14 +64,15 @@ class KpiWidget extends ReportWidget
         $window  = $report['window'];
         $note    = $window->label();
         try {
+            $query = $this->read($name)->grain($window->grain)->at($window->key())->where($filters);
             if ($against !== '') {
-                $result = $this->read($name)->grain($window->grain)->at($window->key())->where($filters)->compare($against)->compared();
+                $result = $query->compare($against)->compared();
                 $value  = $result['value'];
                 if ($result['change'] !== null) {
-                    $note .= ' · ' . sprintf(Figures::words('%s against %s'), ($result['change'] >= 0 ? '+' : '') . number_format($result['change'] * 100, 1) . '%', $result['against']);
+                    $note .= ' · ' . sprintf(Figures::words('%s against %s'), ($result['change'] >= 0 ? '+' : '') . \Pramnos\General\NumberFormat::number($result['change'] * 100, 1) . '%', $result['against']);
                 }
             } else {
-                $value = $this->read($name)->grain($window->grain)->at($window->key())->where($filters)->value();
+                $value = $query->value();
             }
         } catch (\InvalidArgumentException|\LogicException $e) {
             return self::note($e->getMessage());
@@ -80,7 +80,7 @@ class KpiWidget extends ReportWidget
 
         return \Pramnos\Html\StatTile::render(
             $this->heading() !== '' ? $this->heading() : Figures::words($metric->label()),
-            $value === null ? '—' : MetricCard::format((float) $value, $metric->getUnit()),
+            $value === null ? '—' : $metric->display((float) $value, $query->currency()),
             $note,
         );
     }
