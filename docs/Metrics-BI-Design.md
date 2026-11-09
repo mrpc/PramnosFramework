@@ -850,3 +850,135 @@ The order is correctness first, then what the joins open, then convenience:
 | 7g | Funnels; "unusual"; testing helpers (15.1.6, 15.1.9, 15.1.8) | a three-step funnel by segment; an alert on the weekday band; `assertMetric()` in an application's test |
 | 7h | MySQL parity table and fallbacks; organisations' figures as attributes (15.1.7, 15.2.8) | the guide's table; a segment over an organisation's metric |
 | 7i | Metrics without code (15.1.10) | a metric defined on the screen, on allowed tables only, with its query's cost shown |
+
+---
+
+## 16. One goals system (FW-360)
+
+Three goals systems exist: the framework's `Metrics\Goals` (a day or month target along last year's
+curve), the marketplace's administration goals, and the content platform's goals with their
+achievements. They become one, `Pramnos\Metrics\Goals`, and neither application loses a feature.
+Each application moves its own goals once, by its own script; the marketplace has none to move.
+
+### 16.1 What a goal reads
+
+A goal reads a **declared metric** through the one query (§7), with its filters and organisation,
+as the person asking. The applications' own sources become metrics:
+- the marketplace's daily figures, invoices and verifications, with `who`, `renewal`, `product`,
+  `pillar` and `market` as dimensions;
+- the content platform's channel readings, as a level metric with `channel` as a dimension and the
+  organisation as the tenant.
+
+A flow is a **total** over the goal's period and a level is a **reading**. `Metric::direction()`
+says which way is good, for a figure where lower is better.
+
+### 16.2 Kinds
+
+| Kind | On | Met when | Expected now | From |
+|---|---|---|---|---|
+| `count` | total | the period's total reaches the target | target × the reference's curve, or × elapsed time | marketplace, framework |
+| `growth` | total | the total reaches the reference × (1 + growth) | as `count` | marketplace, framework |
+| `reach` | level | a reading crosses the target, in the metric's direction | the least-squares trend, crossing date compared with the due date | both |
+| `sustain` | level | no reading worse than the target until the due date | — (the worst reading and its date) | both |
+| `pace` | level | the change since the start reaches the target | target × elapsed | content platform |
+| `growth` | level | the change since the start, in %, reaches the target | target × elapsed | both |
+
+The states are `met`, `on_track`, `behind`, `stalled` (a reach moving the wrong way) and
+`unknown`. Each answer carries a `says` sentence written on the server, `projected_at` where there
+is one, and the worst reading for `sustain`. A `sustain` is `met` after its due date, as in the
+marketplace. A per-goal choice is not needed, because the content platform never asks after the
+due date.
+
+### 16.3 References
+
+- `previous`: the same length of time just before. The marketplace's total growth.
+- `lastyear`: the same period a year earlier, the same weekday for a day. The framework's daily
+  goal.
+- `weekdays`: the mean of the last four same weekdays.
+- `first`: the period's first reading. Level growth.
+- For a recurring level goal, `first` is the last reading before the period, so growth compounds,
+  as in the content platform.
+
+Where the metric is kept by the hour, a day's or month's expected value follows the reference's
+curve (§9.2), and the goal card draws it.
+
+### 16.4 When
+
+- **Once:** `starts_at` (it may be in the past: "measure from an earlier day") and `due_at`.
+- **Every** `day`, `week`, `month` or `quarter`. A recurring goal is judged on the current period
+  in the zone of the goal's organisation. The marketplace uses local time and the content platform
+  UTC; the zone settles it.
+- **History and streak:** each of the last 12 weeks, 12 months or 8 quarters (and 30 days) is
+  judged as it stood at its end. A period with too little data is `null`, which ends a streak. The
+  streak counts consecutive met periods back from the newest past one.
+
+### 16.5 Too early to say
+
+A `reach` is `unknown` until it has 12 readings and 7 days of them, and it says which is missing:
+"N more readings needed" or "ask again in N days". Totals need no minimum. `pace` and `growth` need
+two readings.
+
+### 16.6 Who, and telling
+
+A goal has:
+- an organisation, or none for all of them added up (the content platform's "all channels" is the
+  `channel` dimension left unfiltered);
+- filters;
+- an owner (optional);
+- a note;
+- where it is told, `notify`: the owner, the organisation's members, or a conversation.
+
+`Goals::check()` keeps `last_state` and `last_told_at`. It tells once, on a turn from good (`met`,
+`on_track`) to bad (`behind`, `stalled`). A first state, a move to or from `unknown`, and an
+improvement tell nobody. A changed goal starts again with no state. It tells through:
+- the bell and push, with a push tag per goal so one replaces the last, and no mail;
+- a line in the conversation where one is named;
+- the event `goal.turned`, which a to-do source (FW-363) or a rule can listen to.
+
+The marketplace's to-do item that stays open while a goal is behind is such a source.
+`goals:check` runs from the framework's schedule.
+
+### 16.7 Achievements
+
+Records of what was reached, kept for good:
+- `milestone`: a reading passing a rung of 100, 250, 500, 1k, … 10M, above the first reading;
+  never one not seen;
+- `best`: the best week of a flow, the current week excluded;
+- `goal`: a one-off reach goal met.
+
+Each is dated when it happened (backdated) and never kept twice: there is one per organisation,
+dimension values, kind, metric and value. Deleting a goal keeps its record.
+
+Achievements need a table (`stats.achievements`), because none of the four logs (rule 14) can hold
+them:
+- they are kept for good, while the change log keeps two years;
+- they are unique per organisation, kind, metric and value, an index no log has;
+- they are listed as a trophy case, not read back as a history of a record.
+
+The migration says so. The content platform's badges stay its own: a catalogue of its game, fed by
+`Goals::growthMonths()` and the achievements.
+
+### 16.8 Surfaces
+
+- **Administration screen** `/admin/Goals` (`.tpl.php`):
+  - the list, with state, sentence, history dots and streak;
+  - add, change and drop;
+  - "try" suggestions from the last whole period;
+  - a live sentence preview.
+- **Dashboard card:** `metric.goal` grows to show any stored goal.
+- **Ask and MCP tool `goals`:**
+  - `list`, `metrics`, `add` and `update`; the last two only when asked, and an update keeps what
+    it does not name;
+  - the owner by "me", an id or a name;
+  - achievements.
+- **JSON API** (`MetricsApi`): `GET/POST/PUT/DELETE /metrics/goals` and `GET
+  /metrics/achievements`, as the person asking: their organisations, their scope (§15.1.1).
+
+### 16.9 Order
+
+| Step | What |
+|---|---|
+| 16a | The kinds, references, recurrence, history, streak and minimum history on the store; `stats.goals` gains `kind`, `starts_at`, `due_at`, `repeats`, `owner`, `note`, `notify`, `last_state`, `last_told_at` (the migration changed in place, as on 9 November, with the columns added to tables made before) |
+| 16b | `Goals::check()`, the notification, `goal.turned`, the schedule |
+| 16c | Achievements |
+| 16d | The screen, the card, the tool and the API |
