@@ -707,6 +707,7 @@ Each phase ends with measured timings, not estimates.
 | 5 | JSON API and SPA components; XLSX; dimension hierarchy, maps, cohorts (§8) | a tenant's dashboard outside the administration. **Built:** `MetricsApi`, `Export\Xlsx`, `Dimension::parent()`/`geo()`, the top, goal, cohort and map cards, board variables. The SPA's own card components are the application's, over the JSON API |
 | 5a | One report system with the assistant's routines; analysis card; `report_propose` and *Ask about this* (§8.1, §8.2) | a routine sent as a report with charts; a report built from one sentence. **Built:** the analysis card, *Ask about this*, `ReportProposal` (the editor's "build it from words", answered as the editor's text rather than through a tool), `Routines::asReport()` |
 | 6 | Moving each application over (§10) | each one's own mechanism removed |
+| 7 | One framework for many applications (§15): the gaps that show once a third application arrives, and the metrics joined to the audience — segments, events, rules, tests | each item of §15.3 in its order, with the done-when written there |
 
 ---
 
@@ -747,3 +748,105 @@ Taken by the owner on 9 November 2026:
 | PostHog | Ready **analysis types**: trends, funnels, retention, stickiness, lifecycle | new cards, phase 5: each a card over declared events; funnels and retention need the Toolkit's sketches or the source |
 | PostHog, Metabase | Cohorts as filters; **anomaly detection** | §4.6 cohorts as a dimension; anomaly as an alert condition (§9.1): outside a band learned from the same weekday and hour |
 
+---
+
+## 15. Phase 7: one framework, many applications
+
+Phases 0 to 5a were built against two applications. This section is what a third one would find
+missing, and how the metrics meet the audience module (attributes, person events, segments,
+rules, A/B tests), which today knows nothing of them, and they nothing of it.
+
+### 15.1 Gaps
+
+1. **Scope by a dimension's values.** `allowed()` says whether a person sees a metric at all, and
+   the tenant scope cuts by organisation. Nothing says "this manager sees region north only". It
+   has to be one rule that the query applies (`Metrics::scope(fn (object $user): ?array)`, a
+   dimension => values), so the assistant, the JSON API, reports and exports cannot go round it.
+   A cell outside the scope is not shown. A total is the total of what the person may see, never
+   the whole with parts hidden.
+2. **Currency and locale.** `format('currency')` does not say which currency. A metric, or a
+   tenant, gets one (`currency('EUR')` or a closure per tenant). Values in different currencies
+   are never added: across tenants with different currencies a total is refused, not summed.
+   Numbers are written in the reader's locale.
+3. **Shared links.** A report or a board is opened by somebody without an account through a
+   signed, expiring, revocable link. It reads with the scope of whoever made it. Opening it is in
+   the audit log.
+4. **Where a report goes.** Today it goes by mail only. Adding a webhook, a conversation channel,
+   and a CSV/XLSX file in the application's storage (`Storage`) gives one sender with four
+   destinations. The CSV attachment to the mail is part of this.
+5. **Health.** `metrics:status`, and a card on the operators' board: for each metric, when it was
+   last computed, how long it took, what failed, which periods are missing, and how late it is.
+   A source that breaks today is found only when a number looks wrong.
+6. **Funnels.** Steps A → B → C over person events, the same people at each step, with the share
+   and the time between steps, broken down by a dimension or a segment. This is a card and a
+   query over `pramnos.changelog_events`, not a stored metric.
+7. **The same answer on MySQL.** Live metrics, the many-periods prefetch and compression are
+   PostgreSQL/TimescaleDB only. The guide gets a table of what each database does, and a fallback
+   where one is possible (prefetch with `DATE_FORMAT`, live as a plain read).
+8. **Testing an application's metrics.** `Metrics::fake()` keeps values in memory, and
+   `assertMetric('orders', '2026-09', 12, ['region' => 'north'])` checks one. Without them every
+   application builds tables and runs compute to check a single number.
+9. **"Unusual" as an alert.** A value outside the band of the same weekday and hour, using the
+   curve that goals already read (§9.2). This needs no model.
+10. **Metrics without code.** A declared source stored as data, chosen from tables and columns an
+    application allows, so an administrator defines "paid orders per store" without a developer.
+    It is last because it carries the most risk: which tables, and what each query costs.
+
+### 15.2 The metrics and the audience
+
+The two modules answer the same questions from opposite ends. The audience asks "who": attributes,
+events, segments. The metrics ask "how many, over time". Joining them removes several things each
+application would otherwise write twice.
+
+1. **A segment is a metric.** Every segment gets three metrics without a declaration: members (a
+   level, at the end of each period, from `pramnos.segment_members`' stays), entered and left
+   (flows). A segment's size over a year becomes a chart, a goal or an alert ("the at-risk segment
+   grew by 20% this week"). This removes `Segments::movement()`'s fixed seven days as the only
+   view.
+2. **A person event is a metric.** A declared `PersonEvents::define()` event is offered as a
+   metric: occurrences (count) and people (count distinct), from the change log, with its declared
+   properties as dimensions. An application stops declaring the same thing twice.
+3. **Segments and attributes as dimensions.** A metric that says whose rows it counts
+   (`->person('userid')`) can be filtered and broken down by a segment ("revenue from the dormant
+   segment") or by any audience attribute (`usertype`, `language`, an application's own). The
+   query uses the audience's own `Filter`, so an attribute means the same thing in both places and
+   keeps its `ability()`. A segment is read as of each period, from its stays, not as of today.
+4. **From a number to people.** A cell whose metric is per person, and whose `rows()` carry the
+   person, offers "these people as a segment" (a static segment, or the filter that gives them)
+   and "a rule for them". This is the drill of §4.6, with somewhere to go.
+5. **One automation engine.** An alert that fires is an event (`metric.alert`, with the rule, the
+   value and the period) that a rule can be triggered on. Alerts' own "notify" becomes a rule with
+   `bell`, `conversation_post`, `webhook`, `ai` and the rest: the hours, caps and audit of rules
+   are not written a second time. A plain alert keeps its simple notify, which is a default rule
+   made with it.
+6. **Rules and tests measured.** The framework declares, for every rule and version: entered,
+   messages sent per channel, goal reached, exited. For every A/B test and variant: assigned and
+   goal reached. A report then answers "how is the win-back series doing this month against last"
+   without the rule's own screen. `Experiments::results()` becomes a report card with its
+   confidence.
+7. **Annotations from the audience.** A rule switched on or changed, a test started or decided,
+   and a segment's filter changed are written as annotations, as deploys are. A step in a chart
+   then carries its reason.
+8. **Organisations' figures as attributes.** For applications whose people belong to
+   organisations: `Attribute::metric('org_revenue', 'payments.revenue', 'month')` reads the
+   person's organisation's value from the store, so a segment can be "members of organisations
+   whose revenue fell". This reads one row from the store and is not computed per person.
+9. **One scope.** The row-level scope (15.1.1) and an attribute's `ability()` are one mechanism:
+   who sees which values of what. The assistant, which reads both modules, cannot then answer
+   with numbers about people whose details it could not list.
+
+### 15.3 Order
+
+The order is correctness first, then what the joins open, then convenience:
+
+| Step | What | Done when |
+|---|---|---|
+| 7a | Scope by dimension values (15.1.1), shared with the audience's abilities (15.2.9) | a manager scoped to one region sees only that region in a report, the API, an export and the assistant, and the totals are theirs |
+| 7b | Currency and locale (15.1.2) | a two-currency installation refuses a mixed total and writes each value in its currency and the reader's locale |
+| 7c | Segments and person events as metrics (15.2.1, 15.2.2) | a segment's size over a year on a chart; a declared event as a metric with no declaration of its own |
+| 7d | Segments and attributes as dimensions; from a number to people (15.2.3, 15.2.4) | "revenue by segment" in a report; a cell made into a segment |
+| 7e | One automation engine; rules and tests measured; annotations from the audience (15.2.5–15.2.7) | an alert starts a rule; a rule's goals per version in a report; a rule's change marked on a chart |
+| 7f | Health; destinations; shared links (15.1.5, 15.1.4, 15.1.3) | `metrics:status`; a report into a channel and to a webhook; a link opened without an account |
+| 7g | Funnels; "unusual"; testing helpers (15.1.6, 15.1.9, 15.1.8) | a three-step funnel by segment; an alert on the weekday band; `assertMetric()` in an application's test |
+| 7h | MySQL parity table and fallbacks; organisations' figures as attributes (15.1.7, 15.2.8) | the guide's table; a segment over an organisation's metric |
+| 7i | Metrics without code (15.1.10) | a metric defined on the screen, on allowed tables only, with its query's cost shown |
