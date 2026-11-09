@@ -967,6 +967,44 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * Many periods of a declared unix-time source are read in one query on PostgreSQL — grouped by
+     * the period in the metrics' zone — and give the same figures as one query each, which MySQL
+     * keeps: an order at half past midnight in Athens is the next day's, by days and by weeks.
+     */
+    public function testManyPeriodsAreReadAtOnce(): void
+    {
+        // Arrange
+        $schema = $this->db->schema();
+        $schema->dropTableIfExists('metrics_test_sales');
+        $schema->createTable('metrics_test_sales', function ($table) {
+            $table->integer('at');
+            $table->string('region', 10);
+            $table->integer('amount');
+        });
+        foreach ([['2026-09-07 10:00', 'north', 5], ['2026-09-08 00:30', 'north', 7], ['2026-09-13 23:30', 'south', 2], ['2026-09-14 00:10', 'south', 3]] as [$local, $region, $amount]) {
+            $this->db->queryBuilder()->table('metrics_test_sales')->insert(['at' => self::at($local), 'region' => $region, 'amount' => $amount]);
+        }
+        $metric = Metric::flow('test.sales', 'Sales')->from('metrics_test_sales')->at('at', unix: true)->sum('amount')->dimension('region', 'region');
+        Metrics::register($metric);
+
+        try {
+            // Act
+            $ahead = $metric->prefetch(Window::range('day', '2026-09-07', '2026-09-08'), $this->db);
+            $metric->forgetAhead();
+            Metrics::compute(['test.sales'], ['day', 'week'], '2026-09-07', '2026-09-14', false, self::at('2026-11-06 12:00'));
+            $days  = Metrics::series('test.sales', 'day', '2026-09-07', '2026-09-14')['values'][''];
+            $weeks = Metrics::series('test.sales', 'week', '2026-09-07', '2026-09-14', [], 'region')['values'];
+
+            // Assert
+            $this->assertSame($this->db->type === 'postgresql', $ahead, 'read at once where it can be exactly');
+            $this->assertSame([5.0, 7.0, 0.0, 0.0, 0.0, 0.0, 2.0, 3.0], $days, 'half past midnight is the next day');
+            $this->assertSame(['north' => [12.0, 0.0], 'south' => [2.0, 3.0]], $weeks, 'Sunday night in the first week, Monday in the next');
+        } finally {
+            $schema->dropTableIfExists('metrics_test_sales');
+        }
+    }
+
+    /**
      * The store's lock: while another connection holds it — a conversion, an import, another
      * computation — a computation does nothing and says it was busy (the command too, without
      * failing), and once it is let go the computation runs.

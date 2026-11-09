@@ -191,9 +191,17 @@ final class Metrics
                     $windows = $from !== null || $to !== null
                         ? Window::range($grain, $from ?? (string) $to, $last)
                         : self::due($metric, $grain, $now);
-                    foreach ($windows as $window) {
-                        $done = self::computeOne($metric, $window, $source, $recompute, $now);
-                        $report[$done] = ($report[$done] ?? 0) + 1;
+                    // Many periods of a declared source: read in one query where it can be, not one each.
+                    if (count($windows) > 1 && self::zones() === null) {
+                        $metric->prefetch($windows, $source);
+                    }
+                    try {
+                        foreach ($windows as $window) {
+                            $done = self::computeOne($metric, $window, $source, $recompute, $now);
+                            $report[$done] = ($report[$done] ?? 0) + 1;
+                        }
+                    } finally {
+                        $metric->forgetAhead();
                     }
                 } catch (\Throwable $e) {
                     $report['failed'][$metric->name . '@' . $grain] = $e->getMessage();

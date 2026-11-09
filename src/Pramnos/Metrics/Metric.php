@@ -415,6 +415,75 @@ final class Metric
         };
     }
 
+    /** @var array<string, list<array<string, mixed>>> Rows read ahead, by period and breakdown ({@see prefetch()}) */
+    private array $ahead = [];
+
+    /**
+     * Read many periods of a declared source at once — one query per breakdown, grouped by the
+     * period in the metrics' zone — instead of one query per period, where it can be done exactly:
+     * PostgreSQL, a unix-time column. {@see measure()} then answers from what was read. Elsewhere
+     * nothing is read ahead and each period is queried on its own.
+     *
+     * @param list<Window> $windows
+     * @return bool Whether it was read ahead
+     */
+    public function prefetch(array $windows, \Pramnos\Database\Database $db): bool
+    {
+        $this->ahead = [];
+        $q = $this->query;
+        if ($q === null || $windows === [] || $db->type !== 'postgresql' || !$q['unix'] || $q['time'] === '' || $q['fn'] === '') {
+            return false;
+        }
+        $grain = $windows[0]->grain;
+        $zone  = $windows[0]->start->getTimezone()->getName();
+        if (preg_match('~^[A-Za-z0-9_/+-]+$~', $zone) !== 1) {
+            return false;
+        }
+        $first = $windows[0]->startsAt();
+        $last  = end($windows)->endsAt();
+        foreach ($this->storedSets() as $set) {
+            $by     = $this->tenantColumn !== null ? [...$set, $this->tenantColumn] : $set;
+            $query  = $db->queryBuilder()->table($q['table']);
+            // Raw: the period of each row in the metrics' zone is PostgreSQL's date_trunc.
+            $bucket = "date_trunc('" . $grain . "', to_timestamp(" . $q['time'] . ") AT TIME ZONE '" . $zone . "')";
+            $select = [$query->raw($bucket . ' AS pf_period')];
+            $group  = [$query->raw($bucket)];
+            foreach ($by as $name) {
+                $expression = $q['columns'][$name] ?? $name;
+                $select[] = $query->raw($expression . ' AS ' . self::identifier($name));
+                $group[]  = $query->raw($expression);
+            }
+            $select[] = $query->raw(match ($q['fn']) {
+                'COUNT'          => 'COUNT(*)',
+                'COUNT DISTINCT' => 'COUNT(DISTINCT ' . $q['column'] . ')',
+                default          => $q['fn'] . '(' . $q['column'] . ')',
+            } . ' AS value');
+            if ($q['fn'] === 'AVG') {
+                $select[] = $query->raw('COUNT(' . $q['column'] . ') AS count');
+            }
+            $query->select($select)->where($q['time'], '>=', $first)->where($q['time'], '<', $last);
+            foreach ($q['where'] as [$column, $value]) {
+                is_array($value) ? $query->whereIn($column, array_values($value)) : $query->where($column, $value);
+            }
+            foreach ($query->groupBy($group)->getAllOrFail() as $row) {
+                $key = Window::of($grain, substr((string) $row['pf_period'], 0, 19), new \DateTimeZone($zone))->key();
+                unset($row['pf_period']);
+                $this->ahead[$key . '|' . implode(',', $by)][] = $row;
+            }
+            foreach ($windows as $window) {
+                $this->ahead[$window->key() . '|' . implode(',', $by)] ??= [];
+            }
+        }
+
+        return true;
+    }
+
+    /** Let go of what {@see prefetch()} read. */
+    public function forgetAhead(): void
+    {
+        $this->ahead = [];
+    }
+
     /** @param \Closure(Window, list<string>, \Pramnos\Database\Database): (iterable<array<string, mixed>>|int|float|null) $source */
     public function source(\Closure $source): self
     {
@@ -608,7 +677,7 @@ final class Metric
             throw new \LogicException('Metric ' . $this->name . ' has no source.');
         }
         $asked  = $this->tenantColumn !== null ? [...$by, $this->tenantColumn] : $by;
-        $answer = ($this->source)($window, $asked, $db);
+        $answer = $this->ahead[$window->key() . '|' . implode(',', $asked)] ?? ($this->source)($window, $asked, $db);
         if ($answer === null || is_int($answer) || is_float($answer) || is_numeric($answer)) {
             if ($asked !== []) {
                 throw new \UnexpectedValueException('Metric ' . $this->name . ' answered one number when asked by ' . implode(', ', $by) . '.');
