@@ -21,6 +21,12 @@ final class Dimension
     /** @var array<string, string>|\Closure(): array<string, string> */
     private array|\Closure $values = [];
 
+    /** The dimension this one is a part of — an area's region — or null. */
+    private ?string $parent = null;
+
+    /** Where a value is on a map, or null. */
+    private ?\Closure $geo = null;
+
     private function __construct(public readonly string $name, public readonly string $label)
     {
     }
@@ -53,6 +59,48 @@ final class Dimension
         $values = $this->values instanceof \Closure ? ($this->values)() : $this->values;
 
         return array_map('strval', is_array($values) ? $values : []);
+    }
+
+    /**
+     * The dimension this one is a part of: `Dimension::of('area')->parent('region')`. A reader
+     * drills from a region to its areas by filtering on the region and breaking down by the area.
+     */
+    public function parent(string $dimension): self
+    {
+        $this->parent = $dimension;
+
+        return $this;
+    }
+
+    /** The dimension this one is a part of, or null. */
+    public function getParent(): ?string
+    {
+        return $this->parent;
+    }
+
+    /**
+     * Where each value is, for a map: `fn (string $value): ?array => [$lat, $lng]`, or null where
+     * a value has no place.
+     */
+    public function geo(\Closure $where): self
+    {
+        $this->geo = $where;
+
+        return $this;
+    }
+
+    /** Whether its values have places on a map. */
+    public function hasGeo(): bool
+    {
+        return $this->geo !== null;
+    }
+
+    /** Where a value is — `[lat, lng]` — or null. @return array{0: float, 1: float}|null */
+    public function geoOf(string $value): ?array
+    {
+        $where = $this->geo !== null ? ($this->geo)($value) : null;
+
+        return is_array($where) && isset($where[0], $where[1]) && is_numeric($where[0]) && is_numeric($where[1]) ? [(float) $where[0], (float) $where[1]] : null;
     }
 
     /** One value's words: its label, or the value itself. */

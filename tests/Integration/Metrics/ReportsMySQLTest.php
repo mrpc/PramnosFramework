@@ -676,6 +676,37 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * A metric on a map: each value of a dimension with places a point, at its place, with its
+     * figure — a value with no place left out — for the page to draw, and the figures as a table;
+     * a dimension without places, or no metric, says what to choose. A dimension says what it is
+     * a part of.
+     */
+    public function testAMetricOnAMap(): void
+    {
+        // Arrange
+        Metrics::dimension(Dimension::of('region', 'Region')->values(['north' => 'North', 'south' => 'South'])->parent('country')
+            ->geo(static fn (string $value): ?array => ['north' => [40.64, 22.94], 'south' => null][$value] ?? null));
+        $layout = [
+            ['id' => 'report.map~a', 'settings' => ['metric' => 'test.sales', 'dimension' => 'region']],
+            ['id' => 'report.map~b', 'settings' => ['metric' => 'test.sales', 'dimension' => 'customer']],
+        ];
+        $id    = (new Reports())->save(self::reader(), ['name' => 'Test map', 'layout' => $layout]);
+        $entry = (new Reports())->find((string) $id, self::reader());
+
+        // Act
+        $html = \Pramnos\Metrics\ReportBoard::html($entry, '2026-09-10', self::reader(), null, false);
+        \Pramnos\Metrics\ReportBoard::leave();
+
+        // Assert
+        $this->assertStringContainsString('data-pf-map="[{&quot;lat&quot;:40.64,&quot;lng&quot;:22.94,&quot;label&quot;:&quot;North&quot;,&quot;value&quot;:5', $html, 'north at its place, its figure');
+        $this->assertStringNotContainsString('&quot;label&quot;:&quot;South&quot;', $html, 'south has no place');
+        $this->assertStringContainsString('<th scope="row">North</th><td style="text-align:right">5</td>', $html, 'the figures as a table');
+        $this->assertStringContainsString('Choose a metric and a dimension with places', $html);
+        $this->assertSame('country', Metrics::dimensionOf('region')->getParent());
+        $this->assertNull(Metrics::dimensionOf('customer')->geoOf('new'));
+    }
+
+    /**
      * A report written as sections is read as cards: its heading, its chart, its table. Its board's
      * layout is kept in the report by its owner alone — another reader sees it and cannot change
      * it — and the dashboard serves a report's board: a card drawn for the period asked, a save by

@@ -1432,6 +1432,8 @@ class MetricsMySQLTest extends TestCase
         // Assert
         $this->assertSame(200, $catalogue['status']);
         $this->assertContains('test.orders', array_column($catalogue['data'], 'name'));
+        $orders = array_values(array_filter($catalogue['data'], static fn (array $m): bool => $m['name'] === 'test.orders'))[0];
+        $this->assertSame(['label' => 'region', 'parent' => null, 'map' => false], ((array) $orders['hierarchy'])['region'], 'each dimension, what it is a part of, and whether it maps');
         $this->assertSame(['2026-08-01', '2026-09-01'], $series['data']['periods']);
         $this->assertSame(['2026-08', '2026-09'], $series['data']['labels']);
         $this->assertSame([0.0, 1.0], ((array) $series['data']['values'])['']);

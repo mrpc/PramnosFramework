@@ -2306,4 +2306,8 @@ return [
     'Of those who began in each period, the share that reached the event within each span' => 'Από όσους ξεκίνησαν σε κάθε περίοδο, το ποσοστό που έφτασε στο γεγονός μέσα σε κάθε διάστημα',
     'Choose a cohort metric in the card\'s settings.' => 'Διαλέξτε δείκτη κοόρτης στις ρυθμίσεις της κάρτας.',
     'Nothing in this period.' => 'Τίποτα σε αυτή την περίοδο.',
+    'Map' => 'Χάρτης',
+    'A metric by place, on a map' => 'Ένας δείκτης ανά τόπο, σε χάρτη',
+    'Places' => 'Τόποι',
+    'Choose a metric and a dimension with places in the card\'s settings.' => 'Διαλέξτε δείκτη και ανάλυση με τόπους στις ρυθμίσεις της κάρτας.',
 ];

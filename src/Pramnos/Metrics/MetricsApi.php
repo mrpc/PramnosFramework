@@ -44,7 +44,13 @@ class MetricsApi
             foreach (Metrics::all($user, false) as $metric) {
                 $out[] = ['name' => $metric->name, 'label' => $metric->label(), 'unit' => $metric->getUnit(), 'kind' => $metric->kind,
                     'aggregate' => $metric->getAggregate(), 'dimensions' => $metric->getDimensions(), 'format' => $metric->getFormat(),
-                    'direction' => $metric->getDirection(), 'grains' => $metric->getGrains() ?? Metrics::grains(), 'live' => $metric->isLive()];
+                    'direction' => $metric->getDirection(), 'grains' => $metric->getGrains() ?? Metrics::grains(), 'live' => $metric->isLive(),
+                    // Each dimension's words and what it is a part of: a client drills from the one to the other.
+                    'hierarchy' => (object) array_combine($metric->getDimensions(), array_map(static function (string $d): array {
+                        $dimension = Metrics::dimensionOf($d);
+
+                        return ['label' => $dimension->label, 'parent' => $dimension->getParent(), 'map' => $dimension->hasGeo()];
+                    }, $metric->getDimensions()))];
             }
 
             return $out;

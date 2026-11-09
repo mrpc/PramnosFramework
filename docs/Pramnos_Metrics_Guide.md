@@ -397,6 +397,7 @@ every theme lines them up the same.
 | Figure | `report.kpi` | One metric's value in the period, with its change against the period before, a year earlier, or as the report compares. |
 | Top values | `report.top` | The largest values of a breakdown in the period, 5, 10 or 20, each with a bar to the largest. |
 | Goal | `report.goal` | Progress towards a target in the period, a day or a month: the actual so far, what was expected by now along the reference's curve (dashed), and the forecast (see *Goals*). Nothing where the reference has a hole. |
+| Map | `report.map` | A metric by place: a circle at each value of a dimension that has places (`Dimension::geo()`), sized by its figure, over OpenStreetMap. It is drawn with Leaflet where the page has it, and the figures are a table under it, or alone without Leaflet. |
 | Cohorts | `report.cohorts` | A cohort metric as a grid: each of the last periods a row, its cohort's size and the share that reached the event within each span. |
 | Text | `report.text` | Words in markdown, escaped and then formatted as the assistant's answers are. |
 | Records | `report.rows` | The records behind a metric that declares `rows()`, the first ones as a table, with a link to all of them. |
@@ -747,6 +748,21 @@ events (logins, readings, page views) with an aggregate per day, which a metric'
 reads instead of the raw rows. That is where TimescaleDB saves work, and the source decides it.
 The business's own tables (customers, orders, invoices) change state, so they stay ordinary
 tables, and their metrics read them as they are.
+
+## Dimensions: parts and places
+
+```php
+Metrics::dimension(Dimension::of('area', 'Area')->values(…)->parent('region')
+    ->geo(fn (string $area): ?array => Areas::centre($area)));   // [lat, lng], or null
+```
+
+- **`parent()`** says what a dimension is a part of. A reader drills from a region to its areas by
+  filtering on the region and breaking down by the area (`->where(['region' => 'north'])->by('area')`).
+  The JSON API's catalogue gives each metric's `hierarchy`: each dimension's label, parent, and
+  whether it maps.
+- **`geo()`** gives a value its place, for the map card.
+- **The zone at the time, or the zone today**, is a source's choice, made with two dimensions
+  (`zone_then`, `zone_now`), not a feature of the store.
 
 ## Periods: `Window`
 

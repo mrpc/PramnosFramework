@@ -2207,10 +2207,33 @@
             if (table) { table.classList.add('pf-visually-hidden'); }
         }
 
-        function drawAll() { figures().forEach(draw); }
+        // A metric on a map (report.map): a circle at each place, sized by its figure, over
+        // OpenStreetMap — where the page has Leaflet; the table under it stays otherwise.
+        function drawMaps(root) {
+            if (typeof window.L === 'undefined') { return; }
+            Array.prototype.forEach.call((root || document).querySelectorAll('[data-pf-map]'), function (box) {
+                if (box._pfMap) { return; }
+                var points = [];
+                try { points = JSON.parse(box.getAttribute('data-pf-map') || '[]'); } catch (err) { return; }
+                if (!points.length) { return; }
+                box.hidden = false;
+                var map = window.L.map(box, { scrollWheelZoom: false });
+                window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap', maxZoom: 18 }).addTo(map);
+                var most = Math.max.apply(null, points.map(function (p) { return Math.abs(p.value); })) || 1;
+                points.forEach(function (p) {
+                    window.L.circleMarker([p.lat, p.lng], { radius: 4 + 20 * Math.sqrt(Math.abs(p.value) / most) }).bindTooltip(p.label + ': ' + p.text).addTo(map);
+                });
+                map.fitBounds(points.map(function (p) { return [p.lat, p.lng]; }), { padding: [20, 20], maxZoom: 12 });
+                box._pfMap = map;
+                var table = box.parentNode ? box.parentNode.querySelector('[data-pf-map-table]') : null;
+                if (table) { table.classList.add('pf-visually-hidden'); }
+            });
+        }
+
+        function drawAll() { figures().forEach(draw); drawMaps(document); }
 
         // The figures under `root` not drawn yet — a card a page inserted after it loaded.
-        function drawNew(root) { figures(root).forEach(function (fig) { if (!fig._pfChart) { draw(fig); } }); }
+        function drawNew(root) { figures(root).forEach(function (fig) { if (!fig._pfChart) { draw(fig); } }); drawMaps(root); }
         window.pfCharts = { draw: drawNew };
 
         drawAll();
