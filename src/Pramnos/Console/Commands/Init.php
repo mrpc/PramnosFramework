@@ -3628,6 +3628,13 @@ PHP;
             $lines[] = "";
         }
 
+        // Realtime channels authorized for a client signed in with a token: an app, a SPA.
+        if (in_array('broadcasting', $features, true)) {
+            $lines[] = "        // Realtime: POST /broadcasting/auth — a Pusher client's authEndpoint";
+            $lines[] = "        \\Pramnos\\Broadcasting\\BroadcastingApi::routes(\$r);";
+            $lines[] = "";
+        }
+
         // A record's history as JSON, for the SPA's HistoryPanel.
         if (in_array('changelog', $features, true)) {
             $lines[] = "        // History: GET /history?entity=&itemid=";

@@ -35,6 +35,7 @@ class ApiRoutesDescribedTest extends TestCase
         \Pramnos\Llm\Chat\Api\Routes::register($router);
         \Pramnos\Conversations\ConversationsApi::routes($router);
         \Pramnos\Auth\Controllers\AccountApi::routes($router);
+        \Pramnos\Broadcasting\BroadcastingApi::routes($router);
 
         // Act
         $bare  = [];

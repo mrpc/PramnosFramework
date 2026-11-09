@@ -915,6 +915,19 @@ POST /broadcasting/auth      socket_id, channel_name[, app_key]
     `exec()` resolves `strtolower(METHOD . ucfirst($action))`, so `POST` on the
     `auth` segment lands on `postAuth` with no route entry.
 
+**From an app signed in with a token.** A page authorizes with its session. A desktop or mobile
+application, or a SPA on the API, uses the same endpoint under the API, with the API's
+credentials:
+
+```php
+\Pramnos\Broadcasting\BroadcastingApi::routes($r);     // POST /api/<version>/broadcasting/auth
+```
+
+The client's library points its `authEndpoint` there and sends its token in the
+`Authorization` header. The answer is the protocol's own, as above, not the API's envelope. The
+same rules decide which channels the person joins. `init` mounts it for an application with
+`broadcasting`.
+
 **403 is deliberately one answer for four causes.** A rejected rule, a channel with
 no rule, a public channel and an unknown app key return the same body. Telling them
 apart would let a caller enumerate which channels have rules and which keys are
