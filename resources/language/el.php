@@ -2277,4 +2277,5 @@ return [
     'There is no metric "%s" you may read.' => 'Δεν υπάρχει δείκτης «%s» που μπορείτε να δείτε.',
     'That organisation\'s figures are not yours to read.' => 'Τα στοιχεία αυτού του οργανισμού δεν είναι δικά σας για ανάγνωση.',
     'Choose a dimension to rank by.' => 'Διαλέξτε μια ανάλυση για την κατάταξη.',
+    'No data before %s.' => 'Δεν υπάρχουν στοιχεία πριν από %s.',
 ];

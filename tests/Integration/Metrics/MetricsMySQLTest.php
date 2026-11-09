@@ -849,6 +849,47 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * Gaps: a period before the source's data begins (`since()`), or one the metric says it
+     * cannot answer (`missing()`), is not computed — no nought written — and says why, to a query
+     * and in a report's cell; `expect()` is kept, and a length that is none refused.
+     */
+    public function testAPeriodTheSourceCannotAnswerSaysWhy(): void
+    {
+        // Arrange
+        $this->order('2026-09-10 10:00:00', 'north', 1);
+        $this->order('2026-09-20 10:00:00', 'north', 2);
+        Metrics::register(Metric::flow('test.since', 'Orders, counted since the 15th')->since('2026-09-15')
+            ->missing(static fn (Window $w): ?string => $w->key() === '2026-09-20' ? 'The feed was down that day.' : null)
+            ->expect('1 day')
+            ->source(function (Window $w, array $by, Database $db): int {
+                return (int) $db->queryBuilder()->table(self::ORDERS)->where('placed_at', '>=', $w->startsAt())->where('placed_at', '<', $w->endsAt())->count();
+            }));
+        $refused = [];
+        foreach ([static fn () => Metric::flow('test.x')->since('15/9'), static fn () => Metric::flow('test.x')->expect('soon')] as $attempt) {
+            try {
+                $attempt();
+            } catch (\InvalidArgumentException $e) {
+                $refused[] = $e->getMessage();
+            }
+        }
+
+        // Act
+        Metrics::compute(['test.since'], ['day'], '2026-09-09', '2026-09-21', false, self::at('2026-11-06 12:00'));
+        $gaps   = Metrics::query('test.since')->grain('day')->between('2026-09-13', '2026-09-21')->gaps();
+        $report = \Pramnos\Metrics\Report::fromArray(['name' => 'Gaps', 'grain' => 'day', 'columns' => [['label' => 'Before', 'offset' => 0], ['label' => 'After', 'offset' => 0]], 'sections' => [['rows' => [['metric' => 'test.since']]]]]);
+        $cell   = $report->build('2026-09-10', (object) ['userid' => 1, 'usertype' => 99])['sections'][0]['rows'][0]['cells'][0];
+
+        // Assert
+        $this->assertNull(Metrics::value('test.since', 'day', '2026-09-10'), 'before its data: no nought written');
+        $this->assertNull(Metrics::value('test.since', 'day', '2026-09-20'), 'a day it cannot answer');
+        $this->assertSame(0.0, Metrics::value('test.since', 'day', '2026-09-16'));
+        $this->assertSame(['2026-09-13' => 'No data before 2026-09-15.', '2026-09-14' => 'No data before 2026-09-15.', '2026-09-20' => 'The feed was down that day.'], $gaps);
+        $this->assertSame(['value' => null, 'link' => null, 'error' => 'No data before 2026-09-15.'], $cell, 'a report\'s cell says why');
+        $this->assertSame('1 day', Metrics::get('test.since')->getExpect());
+        $this->assertCount(2, $refused);
+    }
+
+    /**
      * The store's lock: while another connection holds it — a conversion, an import, another
      * computation — a computation does nothing and says it was busy (the command too, without
      * failing), and once it is let go the computation runs.

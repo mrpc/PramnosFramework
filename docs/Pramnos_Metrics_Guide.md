@@ -114,6 +114,21 @@ Metric::flow('payments.amount', 'Revenue')
   application's own SQL. A declaration with no time column, or with nothing to count, fails when
   it is computed.
 
+**Gaps.** A period the source cannot answer shows why, not a nought:
+
+```php
+Metric::flow('visits.count')->since('2026-10-16')                                   // no data before it
+    ->missing(fn (Window $w): ?string => Outages::during($w) ? 'The tracker was down.' : null)
+    ->expect('1 hour');                                                              // how often data should arrive
+```
+
+- **Not computed.** Such a period is never computed, so nothing is written for it and it reads as
+  no figure.
+- **The reason.** `Metrics::query()->gaps()` gives the reasons by period, and a report's cell shows
+  the reason in place of a number.
+- **`expect()`** says how often new data should arrive, for a card's staleness and the "data
+  stopped" alert.
+
 `rows()` is optional: it lists the records behind a number, for a drill-down.
 
 `allowed(fn (?object $user): bool)` decides who may see the metric. By default that is the

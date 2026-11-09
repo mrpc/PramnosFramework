@@ -136,6 +136,26 @@ final class Query
         return ['periods' => $periods, 'values' => Metrics::read($this->metric, $periods, $this->filters, $this->by, $this->tenants)];
     }
 
+    /**
+     * Why periods asked have no figure, by period key — before the source's data begins, or as
+     * the metric says (`since()`, `missing()`) — for a reader to show the reason, not a nought.
+     *
+     * @return array<string, string>
+     */
+    public function gaps(): array
+    {
+        $metric = Metrics::get($this->metric);
+        $out    = [];
+        foreach ($this->periods() as $window) {
+            $why = $metric->gapOf($window);
+            if ($why !== null) {
+                $out[$window->key()] = $why;
+            }
+        }
+
+        return $out;
+    }
+
     /** The value of the last period asked, or null when it was never computed. */
     public function value(): ?float
     {

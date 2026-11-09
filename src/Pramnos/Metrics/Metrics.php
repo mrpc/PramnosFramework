@@ -277,7 +277,8 @@ final class Metrics
      */
     private static function computeIn(Metric $metric, Window $window, Database $source, bool $recompute, int $now, ?array $tenants): string
     {
-        if (!$window->begun($now)) {
+        // Not begun, or a period the source cannot answer: nothing written, so it reads as no figure.
+        if (!$window->begun($now) || $metric->gapOf($window) !== null) {
             return 'skipped';
         }
         $ended = $window->ended($now);

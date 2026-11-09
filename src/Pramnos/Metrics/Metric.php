@@ -69,6 +69,15 @@ final class Metric
     /** @var list<string>|null The grains it is kept at; null: the application's ({@see Metrics::grains()}) */
     private ?array $grains = null;
 
+    /** The first day the source can answer; null: every day. */
+    private ?string $since = null;
+
+    /** Why a period cannot be answered, or null when it can: the application's own rule. */
+    private ?\Closure $missing = null;
+
+    /** How often new data should arrive (`1 hour`); null: no expectation. */
+    private ?string $expect = null;
+
     /** The source's column that names the organisation a row is of; null for none. */
     private ?string $tenantColumn = null;
     private ?\Closure $rows    = null;
@@ -338,6 +347,59 @@ final class Metric
     public function getGrains(): ?array
     {
         return $this->grains;
+    }
+
+    /** The first day the source has data for: a period before it shows why, not a nought. */
+    public function since(string $day): self
+    {
+        if (\DateTime::createFromFormat('!Y-m-d', $day) === false) {
+            throw new \InvalidArgumentException('since() takes a day, YYYY-MM-DD.');
+        }
+        $this->since = $day;
+
+        return $this;
+    }
+
+    /**
+     * Which periods the source cannot answer, and why: `fn (Window $w): ?string` — the reason, or
+     * null when it can.
+     */
+    public function missing(\Closure $why): self
+    {
+        $this->missing = $why;
+
+        return $this;
+    }
+
+    /**
+     * Why a period has no figure from the source — before {@see since()}, or as {@see missing()}
+     * says — or null when it has one.
+     */
+    public function gapOf(Window $window): ?string
+    {
+        if ($this->since !== null && $window->end <= Window::of(Window::DAY, $this->since)->start) {
+            return sprintf(t('No data before %s.'), $this->since);
+        }
+        $why = $this->missing !== null ? ($this->missing)($window) : null;
+
+        return is_string($why) && $why !== '' ? $why : null;
+    }
+
+    /** How often new data should arrive — `1 hour`, `1 day` — for a card's staleness and "data stopped". */
+    public function expect(string $every): self
+    {
+        if (strtotime('+' . $every, 0) === false || strtotime('+' . $every, 0) <= 0) {
+            throw new \InvalidArgumentException('expect() takes a length of time: "1 hour", "1 day".');
+        }
+        $this->expect = $every;
+
+        return $this;
+    }
+
+    /** How often new data should arrive, or null. */
+    public function getExpect(): ?string
+    {
+        return $this->expect;
     }
 
     /** The column that names the organisation, or null. */

@@ -454,6 +454,12 @@ final class Report
                 continue;
             }
             $filters = $column['filters'] + $row['filters'];
+            $gap     = $visible[$name]->gapOf($column['window']);
+            if ($gap !== null) {
+                // A period the source cannot answer says why, not a nought.
+                $built['cells'][] = ['value' => null, 'link' => null, 'error' => $gap];
+                continue;
+            }
             try {
                 $built['cells'][] = [
                     'value' => $this->read($name)->grain($grain)->at($column['window']->key())->where($filters)->value(),
