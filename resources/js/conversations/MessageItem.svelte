@@ -10,10 +10,10 @@
     import Card from './Card.svelte';
     import { cardsFor, drawable, charts } from './extras.js';
     import { t, tn, clock } from './t.js';
-    import { size, tokensToText, mentionsToTokens, initials, playerUrl } from './logic.js';
+    import { size, tokensToText, mentionsToTokens, initials, playerUrl, reactionGlyph } from './logic.js';
 
     let {
-        message, continued = false, me, names = {}, avatars = {}, api, emoji = {}, moderator = false, inThread = false,
+        message, continued = false, me, names = {}, avatars = {}, api, emoji = {}, customEmoji = {}, moderator = false, inThread = false,
         online = {}, onreply = null, onerror = () => {}, saved = false, onsave = null,
     } = $props();
 
@@ -47,8 +47,8 @@
         return String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     }
 
-    /** A shortcode reaction as its emoji. */
-    const glyph = (e) => (/^:[\w+-]+:$/.test(e) ? (emoji[e.slice(1, -1)] || e) : e);
+    /** A reaction as it is drawn: a shortcode as its emoji, one of the team's own as its picture. */
+    const glyph = (e) => reactionGlyph(e, emoji, customEmoji);
 
     /** Who reacted so, by name. */
     const who = (people) => people.map((id) => (id === me ? t('You') : names[id] || '#' + id)).join(', ');
@@ -228,7 +228,7 @@
                 {#each message.reactions as reaction (reaction.emoji)}
                     <button type="button" class="pf-conv-reaction" class:pf-conv-reaction-mine={reaction.people.includes(me)}
                         title={who(reaction.people)} onclick={() => toggle(reaction.emoji)}>
-                        <span>{glyph(reaction.emoji)}</span><span class="pf-conv-reaction-count">{reaction.count}</span>
+                        {#if glyph(reaction.emoji).src}<img class="pf-conv-custom-emoji" src={glyph(reaction.emoji).src} alt={reaction.emoji} title={reaction.emoji}>{:else}<span>{glyph(reaction.emoji).text}</span>{/if}<span class="pf-conv-reaction-count">{reaction.count}</span>
                     </button>
                 {/each}
                 <button type="button" class="pf-conv-reaction pf-conv-reaction-add" aria-label={t('Add a reaction')} onclick={() => (picking = !picking)}>☺+</button>

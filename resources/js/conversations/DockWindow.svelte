@@ -10,7 +10,7 @@
     import { t } from './t.js';
     import { withFormer } from './logic.js';
 
-    let { api, conversation, me, props, online = {}, avatars = {}, minimised = false, onminimise, onclose, onread, onerror } = $props();
+    let { api, conversation, me, props, customEmoji = {}, online = {}, avatars = {}, minimised = false, onminimise, onclose, onread, onerror } = $props();
 
     const other = $derived((conversation.members || []).find((id) => id !== me) ?? me);
     const title = $derived(conversation.title || (conversation.slug ? '#' + conversation.slug : ''));
@@ -37,7 +37,7 @@
     </header>
     {#if !minimised}
         <div class="pf-conv-window-body">
-            <Conversation {api} id={conversation.id} {me} emoji={props.emoji} maxFileMb={props.maxFileMb} maxVideoMb={props.maxVideoMb} {online} compact
+            <Conversation {api} id={conversation.id} {me} emoji={props.emoji} {customEmoji} maxFileMb={props.maxFileMb} maxVideoMb={props.maxVideoMb} {online} compact
                 onread={onread} {onerror} />
         </div>
     {/if}

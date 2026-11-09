@@ -342,3 +342,38 @@ export function playerUrl(embed) {
 
     return id !== '' && players[embed.provider] ? players[embed.provider] : null;
 }
+
+/**
+ * A reaction as it is drawn: the team's own emoji (`:name:`) as its picture, a shortcode as its
+ * emoji, anything else as it is.
+ *
+ * @param {string} reaction
+ * @param {Record<string, string>} emoji shortcode → emoji
+ * @param {Record<string, string>} custom name → picture
+ * @returns {{text: string}|{src: string, alt: string}}
+ */
+export function reactionGlyph(reaction, emoji = {}, custom = {}) {
+    const name = /^:([a-z0-9_+-]+):$/.exec(reaction)?.[1];
+    if (name && emoji[name]) {
+        return { text: emoji[name] };
+    }
+
+    return name && custom[name] ? { src: custom[name], alt: reaction } : { text: reaction };
+}
+
+/**
+ * The team's own emoji drawn in HTML the server did not draw (a preview, a message before the
+ * server answers), as the server draws them: `:name:` as its picture, never inside code, and a
+ * name there is none for left as it is.
+ *
+ * @param {string} html
+ * @param {Record<string, string>} custom name → picture
+ * @returns {string}
+ */
+export function customEmojiHtml(html, custom = {}) {
+    const attr = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+    return String(html).split(/(<(?:code|pre)\b[\s\S]*?<\/(?:code|pre)>|<[^>]*>)/i).map((part, i) => (i % 2 === 1 ? part
+        : part.replace(/:([a-z0-9_+-]+):/g, (all, name) => (custom[name]
+            ? '<img class="pf-conv-custom-emoji" src="' + attr(custom[name]) + '" alt="' + attr(all) + '" title="' + attr(all) + '">' : all)))).join('');
+}

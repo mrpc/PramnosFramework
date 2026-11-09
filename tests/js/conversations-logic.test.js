@@ -334,3 +334,46 @@ test('a card\'s video plays in its site\'s player, without cookies where there i
     assert.equal(playerUrl({ provider: 'spotify', id: 'x' }), null);
     assert.equal(playerUrl(null), null);
 });
+
+/**
+ * A reaction is drawn as a standard shortcode's emoji, as one of the team's own pictures, or as it
+ * is: a name with no emoji left (removed) reads as its text, never as a broken picture.
+ */
+test('a reaction is drawn as its emoji, its picture, or its text', async () => {
+    // Arrange
+    const { reactionGlyph } = await load();
+    const emoji = { tada: '🎉' };
+    const custom = { 'team-heart': '/e?name=team-heart' };
+
+    // Act
+    const shortcode = reactionGlyph(':tada:', emoji, custom);
+    const ours = reactionGlyph(':team-heart:', emoji, custom);
+    const gone = reactionGlyph(':old-one:', emoji, custom);
+    const plain = reactionGlyph('👍', emoji, custom);
+
+    // Assert
+    assert.deepEqual(shortcode, { text: '🎉' });
+    assert.deepEqual(ours, { src: '/e?name=team-heart', alt: ':team-heart:' });
+    assert.deepEqual(gone, { text: ':old-one:' });
+    assert.deepEqual(plain, { text: '👍' });
+});
+
+/**
+ * The team's own emoji in HTML drawn on the client, as the server draws them: `:name:` becomes its
+ * picture with the name as its words; inside code, inside a tag's attribute and for a name with
+ * no emoji, it stays as written; an address cannot break out of the attribute.
+ */
+test('the team\'s emoji are drawn in HTML as the server draws them, never in code', async () => {
+    // Arrange
+    const { customEmojiHtml } = await load();
+    const custom = { 'team-heart': '/e?name=team-heart&v=1', bad: '/x"onerror="y' };
+
+    // Act
+    const html = customEmojiHtml('<p>We :team-heart: it <code>:team-heart:</code> <a title=":team-heart:">x</a> :nope:</p>', custom);
+    const odd = customEmojiHtml(':bad:', custom);
+
+    // Assert
+    assert.equal(html, '<p>We <img class="pf-conv-custom-emoji" src="/e?name=team-heart&amp;v=1" alt=":team-heart:" title=":team-heart:"> it '
+        + '<code>:team-heart:</code> <a title=":team-heart:">x</a> :nope:</p>');
+    assert.ok(odd.includes('src="/x&quot;onerror=&quot;y"'), 'escaped: ' + odd);
+});

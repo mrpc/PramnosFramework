@@ -205,8 +205,12 @@ final class Primary
                 if ($where === Store::EMERGENCY && Conversations::member($conversation, (int) $person) === null && self::mayUse((int) $person)) {
                     Conversations::join($conversation, (int) $person);
                 }
-                if (Conversations::member($conversation, (int) $person) !== null) {
-                    Messages::react($id, (int) $person, (string) $emoji);
+                try {
+                    if (Conversations::member($conversation, (int) $person) !== null) {
+                        Messages::react($id, (int) $person, (string) $emoji);
+                    }
+                } catch (\InvalidArgumentException) {
+                    // One of the team's own emoji removed meanwhile: the message stays, without that reaction.
                 }
             }
         }

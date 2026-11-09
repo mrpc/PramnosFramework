@@ -14,7 +14,7 @@
     import { assistant, analystState } from './extras.js';
 
     // `openThread`: a thread to open with it — from the sidebar's Threads or Activity.
-    let { api, id, me, emoji = {}, maxFileMb = 25, maxVideoMb = 100, online = {}, resync = 0, onread = () => {}, onerror = () => {}, compact = false,
+    let { api, id, me, emoji = {}, customEmoji = {}, maxFileMb = 25, maxVideoMb = 100, online = {}, resync = 0, onread = () => {}, onerror = () => {}, compact = false,
         openThread: threadToOpen = null } = $props();
 
     let conversation = $state(null);
@@ -377,7 +377,7 @@
                 {:else if item.type === 'new'}
                     <div class="pf-conv-new" role="separator"><span>{t('New messages')}</span></div>
                 {:else}
-                    <MessageItem {avatars} message={item.message} continued={item.continued} {me} {names} {api} {emoji} {online} {moderator}
+                    <MessageItem {avatars} message={item.message} continued={item.continued} {me} {names} {api} {emoji} {customEmoji} {online} {moderator}
                         onreply={openThread} {onerror} saved={saved.includes(item.message.id)} onsave={save} />
                 {/if}
             {/each}
@@ -422,12 +422,12 @@
                 <button type="button" class="pf-conv-icon-btn" aria-label={t('Close')} onclick={() => (thread = null)}>×</button>
             </header>
             <div class="pf-conv-scroll">
-                <MessageItem {avatars} message={thread.root} {me} {names} {api} {emoji} {online} {moderator} inThread {onerror}
+                <MessageItem {avatars} message={thread.root} {me} {names} {api} {emoji} {customEmoji} {online} {moderator} inThread {onerror}
                     saved={saved.includes(thread.root.id)} onsave={save} />
                 <div class="pf-conv-day" role="separator"><span>{tn(replies.length, '%s reply', '%s replies')}</span></div>
                 {#each replies as reply, i (reply.id)}
                     <MessageItem {avatars} message={reply} continued={i > 0 && replies[i - 1].authorId === reply.authorId && reply.at - replies[i - 1].at < 300}
-                        {me} {names} {api} {emoji} {online} {moderator} inThread {onerror} saved={saved.includes(reply.id)} onsave={save} />
+                        {me} {names} {api} {emoji} {customEmoji} {online} {moderator} inThread {onerror} saved={saved.includes(reply.id)} onsave={save} />
                 {/each}
             </div>
             <p class="pf-conv-typing" aria-live="polite">{#if threadTypers.length}{t('%s is typing…', threadTypers[0])}{/if}</p>

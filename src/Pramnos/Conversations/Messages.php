@@ -331,7 +331,9 @@ final class Messages
     public static function react(int $id, int $person, string $emoji, bool $on = true, ?int $at = null, bool $quiet = false): void
     {
         $emoji = trim($emoji);
-        if ($emoji === '' || mb_strlen($emoji) > 64) {
+        // An emoji, or one of the team's own by its :name: — not any text.
+        $custom = preg_match('/^:([a-z0-9_+-]+):$/', $emoji, $m) === 1;
+        if ($emoji === '' || mb_strlen($emoji) > 64 || ($custom ? !isset(Markdown::EMOJI[$m[1]]) && !CustomEmoji::exists($m[1]) : preg_match('/[\sA-Za-z<>&"\'`]/', $emoji) === 1)) {
             throw new \InvalidArgumentException(t('That is not an emoji.'));
         }
         $table = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_reactions');

@@ -26,6 +26,8 @@
     let windows = $state(restore());           // [{ id, min }]
     let listOpen = $state(false);
     let online = $state({});
+    // svelte-ignore state_referenced_locally
+    let customEmoji = $state(props.customEmoji || {});   // the team's own: name → picture
     let error = $state('');
     let width = $state(typeof window !== 'undefined' ? window.innerWidth : 1280);
     let known = null;                          // unread per conversation at the last reading
@@ -163,13 +165,16 @@
             // A message somewhere, or what the reader has read moved — on another page, or marked unread.
             const mine = realtime.channel(props.userChannel).listen('conversation.activity', soon).listen('conversation.read', soon)
                 .listen('conversation.changed', soon);
+            // The team's emoji added, renamed or removed: the new list, without a reload.
+            const emojiChanged = (payload) => { customEmoji = payload?.customEmoji || {}; };
             const room = realtime.channel('presence-chat').listen('pusher:subscription_succeeded', here)
-                .listen('pusher:member_added', here).listen('pusher:member_removed', here);
+                .listen('pusher:member_added', here).listen('pusher:member_removed', here).listen('emoji.changed', emojiChanged);
             cleanup.push(() => {
                 mine.stopListening?.('conversation.activity', soon);
                 mine.stopListening?.('conversation.read', soon);
                 mine.stopListening?.('conversation.changed', soon);
                 ['pusher:subscription_succeeded', 'pusher:member_added', 'pusher:member_removed'].forEach((e) => room.stopListening?.(e, here));
+                room.stopListening?.('emoji.changed', emojiChanged);
             });
         } else {
             const timer = setInterval(() => { if (!document.hidden) { refresh(); } }, 30000);
@@ -183,7 +188,7 @@
 <div class="pf-conv-dock-windows">
     {#each layout.windows as w (w.id)}
         {#if byId[w.id]}
-            <DockWindow {api} conversation={byId[w.id]} {me} {props} {online} {avatars} minimised={w.min}
+            <DockWindow {api} conversation={byId[w.id]} {me} {props} {customEmoji} {online} {avatars} minimised={w.min}
                 onminimise={() => minimise(w.id)} onclose={() => close(w.id)} onread={read} onerror={fail} />
         {/if}
     {/each}

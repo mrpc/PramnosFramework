@@ -437,6 +437,48 @@ an edit keeps it off.
 (30, by default — a cache, so it prunes even unconfigured), and the picture files no remaining
 row still names. Scheduled daily by the framework; `Unfurls::prune()` is the static it calls.
 
+## The team's own emoji
+
+Besides the standard shortcodes (`Markdown::EMOJI`), a team can add emoji of its own, as Slack
+does: a picture under a name, written `:name:` in a message and used as a reaction.
+
+```php
+use Pramnos\Conversations\CustomEmoji;
+
+CustomEmoji::add('team-heart', $_FILES['emoji']['tmp_name'], $adminId);
+CustomEmoji::alias('our-love', 'team-heart', $adminId);   // another name for the same picture
+CustomEmoji::rename('team-heart', 'our-heart', $adminId); // its aliases follow
+CustomEmoji::remove('our-heart', $adminId);               // its aliases and picture go too
+CustomEmoji::all();                                       // name => picture address, aliases included
+Messages::react($id, $maria, ':our-heart:');
+```
+
+- **Names** are 2 to 32 characters from `a-z 0-9 _ + -`. A name that is a standard shortcode, or
+  that is already taken, is refused.
+- **Pictures** are PNG, GIF, WebP or JPEG, never SVG, which can carry a script. They may be no
+  larger than a file sent in a conversation, and are kept at most 128 pixels a side with their
+  proportions and transparency. A GIF is made smaller frame by frame where the server has the
+  Imagick extension, so its animation stays; without it, the GIF is kept as it came. A screen that
+  uploads them can crop the picture square in the browser (`\Pramnos\Html\ImageUpload` with
+  aspect 1), but not for a GIF, because a canvas would stop the animation.
+- **Rendering.** `:name:` is drawn as `<img class="pf-conv-custom-emoji" alt=":name:">`. Code is
+  left alone, and a name with no emoji stays as its text. Messages are drawn when they are read,
+  so an emoji that is removed or renamed reads as `:name:` text wherever it was written. Its
+  reactions are kept as that text.
+- **Reactions.** `react()` takes an emoji, a standard `:shortcode:`, or the `:name:` of an emoji
+  that exists, and nothing else.
+- **Serving.** Pictures are served by `Conversations/emoji?name=` to whoever may use the
+  conversations. They are cached for a year, because a new picture gets a new address.
+- **The client.** The dock's props carry `customEmoji` (name => address) and `manageEmoji`. Each
+  change is told on the presence channel as `emoji.changed`, with the whole new list, so open
+  pages update without a reload. The dock draws reactions with the picture. `logic.js` exports
+  `reactionGlyph()` and `customEmojiHtml()` for a page of the application's own.
+- **Permissions.** Whoever uses the conversations may use the emoji. Managing them takes
+  `admin.chat.emoji` (`Access::managesEmoji()`), which only a superuser has by default. Each change
+  is written to the audit log (`conversations.emoji_*`).
+
+The table is `conversation_emoji`, created by the migration `create_conversation_emoji_table`.
+
 ## GIFs
 
 ```php

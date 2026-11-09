@@ -31,6 +31,9 @@ final class Access
     /** The ability that moderates every conversation: mutes, bans, kicks, slow mode. */
     public const MODERATE = 'admin.chat.moderate';
 
+    /** The ability that adds, renames and removes the team's own emoji. */
+    public const EMOJI = 'admin.chat.emoji';
+
     /** The usertype that opens them, in usertype mode. */
     public static function floor(): int
     {
@@ -56,6 +59,12 @@ final class Access
     public static function managesFiles(?object $user): bool
     {
         return self::active($user) && \Pramnos\Auth\AdminAccess::allows($user, self::FILES, \Pramnos\Auth\AdminAccess::superuserUsertype());
+    }
+
+    /** Whether an account manages the team's own emoji ({@see CustomEmoji}) — a superuser's by default; using them is everybody's. */
+    public static function managesEmoji(?object $user): bool
+    {
+        return self::canUse($user) && \Pramnos\Auth\AdminAccess::allows($user, self::EMOJI, \Pramnos\Auth\AdminAccess::superuserUsertype());
     }
 
     /**

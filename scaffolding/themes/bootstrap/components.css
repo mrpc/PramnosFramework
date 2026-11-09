@@ -1522,6 +1522,8 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-conv-file-removed { color: var(--pf-muted) !important; font-style: italic; font-size: 0.8125rem; }
 
 /* Reactions and the thread under a message */
+/* The team's own emoji, as tall as the text around it. */
+.pf-conv-custom-emoji { display: inline-block; width: auto; height: 1.375em; max-width: 4em; vertical-align: -0.3em; object-fit: contain; }
 .pf-conv-reactions { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
 .pf-conv-reaction {
     display: inline-flex;

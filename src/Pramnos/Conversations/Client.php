@@ -57,6 +57,9 @@ final class Client
             'maxFileMb' => Files::maxMegabytes(),
             'maxVideoMb' => Files::maxVideoMegabytes(),
             'emoji'     => Markdown::EMOJI,
+            // The team's own, name => picture; `emoji.changed` on the presence channel brings a new list.
+            'customEmoji' => (object) CustomEmoji::all(),
+            'manageEmoji' => Access::managesEmoji($me),
             'refTypes'  => References::types(),
             'commands'  => Commands::all(),
             'ask'       => Ask::canAsk($me),

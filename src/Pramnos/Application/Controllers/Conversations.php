@@ -79,7 +79,7 @@ class Conversations extends Controller
     /** Registers the actions: all behind sign-in, the writes POSTs with the session's token. */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'preview', 'gifs', 'refs', 'emergencykey', 'reach', 'scheduled', 'drafts'], self::WRITES));
+        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'emoji', 'preview', 'gifs', 'refs', 'emergencykey', 'reach', 'scheduled', 'drafts'], self::WRITES));
         $this->addWriteAction(self::WRITES);
         // Every read action here — including `conversations`, polled often from an open tab —
         // only reads $_SESSION (through User::current()/Session::staticIsLogged()), never writes
@@ -674,6 +674,17 @@ class Conversations extends Controller
         $me = $this->me();
         if (!Access::canUse($me) || !Files::send($this->id(), $me, $this->flag('thumbnail', false))) {
             return Response::json(['error' => t('That file is not here.')], 404);
+        }
+        $this->terminate();
+
+        return null;
+    }
+
+    /** One of the team's own emoji, its picture (`?name=`), for whoever may use the conversations. */
+    public function emoji(): mixed
+    {
+        if (!Access::canUse($this->me()) || !\Pramnos\Conversations\CustomEmoji::send((string) ($_GET['name'] ?? ''))) {
+            return Response::json(['error' => t('That emoji is not here.')], 404);
         }
         $this->terminate();
 

@@ -180,9 +180,19 @@ final class Markdown
         $html = (string) preg_replace('/~~(?=\S)(.+?)(?<=\S)~~/', '<del>$1</del>', $html);
         $html = (string) preg_replace('/(?<![\w*])\*(?=\S)(.+?)(?<=\S)\*(?![\w*])/', '<em>$1</em>', $html);
         $html = (string) preg_replace('/(?<!\w)_(?=\S)(.+?)(?<=\S)_(?!\w)/', '<em>$1</em>', $html);
-        $html = (string) preg_replace_callback('/:([a-z0-9_+-]+):/', static fn (array $m): string => self::EMOJI[$m[1]] ?? $m[0], $html);
+        $custom = CustomEmoji::all();
+        $html   = (string) preg_replace_callback('/:([a-z0-9_+-]+):/', static fn (array $m): string => self::EMOJI[$m[1]]
+            ?? (isset($custom[$m[1]]) ? self::customEmoji($m[1], $custom[$m[1]]) : $m[0]), $html);
 
         return (string) preg_replace_callback("/\x02(\d+)\x02/", static fn (array $m): string => $kept[(int) $m[1]] ?? '', $html);
+    }
+
+    /** One of the team's own emoji, as its picture; its name for whoever cannot see it. */
+    public static function customEmoji(string $name, string $url): string
+    {
+        $alt = htmlspecialchars(':' . $name . ':', ENT_QUOTES, 'UTF-8');
+
+        return '<img class="pf-conv-custom-emoji" src="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '" alt="' . $alt . '" title="' . $alt . '">';
     }
 
     /** A link that opens apart and tells the page nothing. */
