@@ -1,0 +1,565 @@
+---
+use_cases:
+  - Deciding how an application's figures are stored, computed and shown by the framework instead of its own statistics code
+  - Planning the move of an application's own report builder, statistics tables or metric store onto the framework's metrics
+  - Choosing between one values table and a hypertable per period on TimescaleDB
+  - Adding hourly figures, per-organisation figures, alerts or goals to an application
+---
+
+# Metrics and BI — design
+
+**Status:** proposal, awaiting the owner's approval. No code is written against it before then.
+**Last updated:** 9 November 2026
+
+This page designs the framework's statistics and BI mechanism as one engine for every application:
+an application **declares its metrics, and nothing else**. Storage, periods, history, closing,
+replica, scaling, the editor, charts, drill-down, goals, alerts, exports, the API and the
+assistant are the framework's, the same everywhere.
+
+It starts from what exists today ([Metrics guide](Pramnos_Metrics_Guide.md)), and from the needs
+of six applications built on the framework. Section 2 describes those applications by kind:
+
+- a marketplace;
+- a sensor platform with half a terabyte of readings;
+- a multi-tenant analytics service;
+- a prepaid-card service on PostgreSQL 10;
+- a hosting and billing application;
+- a real-time chat service.
+
+Small applications on MySQL or without TimescaleDB count as a seventh case.
+
+See also [Roadmap & Open Items](Roadmap.md).
+
+---
+
+## 1. Principles
+
+1. **An application declares; the framework does the rest.** A declaration says what is counted,
+   from where, broken down by what, who may see it, and what lies behind each number. Nothing in
+   an application stores values, schedules computations, draws charts or decides periods.
+2. **Values are stored, not pages.** A page, card, report, mail or API call reads stored values. No
+   screen computes when it is opened. A rendered artefact is cached only where measured to help:
+   a chart's PNG for a mail.
+3. **One value per period, tenant and combination of dimensions.** While the period is open, the
+   value is replaced in place. The number of rows follows the dimensions, not how often
+   computation runs.
+4. **One definition per number.** Pages, cards, reports, the API and the assistant read the same
+   metric, so the same question gives the same answer everywhere.
+5. **Computation needs no request.** It runs from the scheduler or a worker, with no session or
+   controller. A failure leaves the previous values in place, never an empty one.
+6. **The replica is for computation only.** It has a timeout and falls back to the primary. There
+   is no general read/write split.
+7. **Scale without a code change in the application.** Plain tables on MySQL or a small
+   PostgreSQL. All of TimescaleDB where it is present: hypertables, compression, retention,
+   continuous aggregates and `time_bucket`.
+8. **One store.** An application keeps no store of its own beside the framework's. Section 10
+   moves existing ones over without losing history.
+9. **Measured, not estimated.** Each phase ends with timings on real and synthetic data, and the
+   storage decision in §5 is taken on measurements.
+
+---
+
+## 2. What the applications need
+
+| Need | Marketplace | Sensor platform | Analytics service | Prepaid-card service | Billing | Chat | Small / MySQL |
+|---|---|---|---|---|---|---|---|
+| Hour (and finer) periods | later | ✔ | ✔ | | | ✔ | |
+| A tenant (organisation, site) on every row | | ✔ | ✔ | ✔ | | | |
+| A time zone per tenant | | ✔ | ✔ | | | | |
+| Many series per entity (device, account) | | ✔ (tens of thousands) | ✔ | ✔ | | | |
+| avg / min / max / last / peak; counter, gauge, rate | ✔ | ✔ | ✔ | | | ✔ | |
+| Formulas; the difference of a cumulative reading | ✔ | ✔ | | | | | |
+| Late data, a correction window before closing | | 7 days | 3 days | | | | |
+| Cohorts, "within N days" | ✔ | | | | | | |
+| Drill-down into the application's own lists | ✔ | ✔ | | | | | |
+| Dimension hierarchy, map | ✔ | ✔ | ✔ | | | | |
+| How a dimension stood then vs now (an entity's zone) | | ✔ | | | | | |
+| Alerts: threshold, change vs last year, data stopped | ✔ | ✔ | ✔ | ✔ | | | |
+| Goals, intraday progress, forecast | ✔ | | ✔ | | | | |
+| Annotations | ✔ | | ✔ | | | | |
+| JSON API and SPA outside the administration, by tenant | | ✔ | ✔ | ✔ | ✔ | | |
+| Mail, CSV, XLSX, PDF | ✔ | ✔ (XLSX) | ✔ | | | ✔ | |
+| Versions of a corrected definition, side by side | ✔ | | | | | | |
+| The assistant's reports as reports; the assistant in the editor | ✔ | | | | | | |
+| Import of history from older reports | ✔ (12 years) | ✔ | ✔ | | | ✔ | |
+| No cron, old PostgreSQL, MySQL | | | | PG 10 | | no cron | ✔ |
+
+Volumes that set the upper bound:
+
+- **The sensor platform** keeps 457 GiB of readings at five-minute resolution, 18 GiB once
+  compressed, in a 418 GB database. It logs about 3.1 million rows a day, and already runs
+  continuous aggregates per day, month and year by area and zone.
+- **The analytics service** keeps eight real-time continuous aggregates, hourly and daily.
+
+None of these applications uses the framework's metrics today. Four of them have their own
+mechanism, and the framework's has to replace each one:
+
+- a report builder with a formula language over continuous aggregates;
+- a metric catalogue with goals and annotations;
+- `stats_hourly` … `stats_yearly` tables rolled up in PL/pgSQL;
+- revenue reports summed in PHP.
+
+**A name to live beside.** In one application, `Metric` is a sensor channel: a model and a
+`metricvalues` table. The framework's metrics stay in `Pramnos\Metrics` and the `stats` schema,
+and its configuration stays under `'metrics'`, so the two never meet in a namespace or a table.
+Its docs call them *business metrics* wherever both could be meant.
+
+---
+
+## 3. What exists, and what changes
+
+**Exists** (Metrics guide):
+
+- flow, level and derived metrics;
+- sum and distinct aggregation, with the breakdowns each keeps;
+- dimensions with values;
+- `rows()` behind a number;
+- day to year periods (`Window`) in one time zone;
+- closing a period, recomputing and backfilling;
+- `Metrics::import()` for history;
+- a replica for computation;
+- `stats.metric_values`;
+- the dashboard's metric cards;
+- reports as boards of cards, mailed with charts as PNG, and CSV export;
+- the assistant's `metrics` tool.
+
+The TimescaleDB machinery is there as well: `HypertableRegistry`, `ContinuousAggregateRegistry`,
+`DeferredWriteQueue` and `timescale:drain`.
+
+**Changes, in short:**
+
+| Area | Today | Designed |
+|---|---|---|
+| Time | `period_start date`, `computed_at integer` | `timestamptz` (MySQL `DATETIME`, UTC) |
+| Dimensions | `dims text` + md5 | `jsonb` (MySQL `JSON`) + a 16-byte hash |
+| Tenant | none | a `tenant` column on every row, and a scope on every read |
+| Grains | day … year | `hour` added; sub-hour as an option (§4.2) |
+| Aggregation | sum, distinct, level, derived | + avg, min, max, last, peak; counter, gauge, rate (§4.3) |
+| Closing | once, at the period's end | after a correction window per metric (§6.3) |
+| Storage on TimescaleDB | a plain table | hypertables with compression and retention (§5) |
+| Sources | a closure | a closure, or a declared query the framework can turn into `time_bucket` SQL and continuous aggregates (§4.4) |
+| High-cardinality series | stored like any other | read live from a continuous aggregate, not copied (§4.5) |
+| Reads | `Metrics::series/value/compare` | one query API used by cards, reports, the JSON API and the assistant (§7) |
+| Signals | none | alerts, goals, annotations (§9) |
+| The assistant | reads metrics; its routines are mailed apart, without charts | its routines are reports; it writes an analysis card, proposes cards in the editor, and explains a number (§8.1, §8.2) |
+
+---
+
+## 4. Declaring a metric
+
+Everything here is **additive**: a metric declared today keeps working unchanged.
+
+### 4.1 The tenant
+
+```php
+// app/app.php
+'metrics' => [
+    // Which tenants a viewer may read: a list of ids, or null for all of them.
+    'tenant'   => fn (?object $user): ?array => $user?->organizationIds(),
+    // A tenant's time zone, when periods follow it.
+    'timezone' => fn (int $tenant): string => Organizations::timezone($tenant),
+],
+
+Metric::flow('water.consumed', 'Water consumed')
+    ->tenant('organizationid')      // the source's column that names the tenant
+    ->unit('m³');
+```
+
+The tenant is not a dimension. Every stored row carries one (`0` for an application without
+tenants), every read is narrowed to the viewer's tenants, and the narrowing happens in the query
+API: a card, a report, the JSON API and the assistant cannot leave it out. `allowed()` stays as
+it is, deciding per metric whether a viewer may read it at all.
+
+**A time zone per tenant.** When the application names one, a tenant's day is its own local day.
+`period_start` is that local midnight as a `timestamptz`, so two tenants' "9 November" are
+different instants. Day and night split by a tenant's local hour.
+
+### 4.2 Grains
+
+`Window::GRAINS` gains `hour`. A grain finer than an hour (`15min`, `5min`) is declared per
+metric (`->grains(['5min', 'hour', 'day'])`). Only a metric that asks for it is stored that finely,
+and retention keeps it short (§5.3). A metric declares the grains it is kept at; the default stays
+day to year.
+
+### 4.3 Aggregation and kind
+
+| Declared | How a period's value is made | How a coarser period is made |
+|---|---|---|
+| `SUM` (today) | the source's sum | sum of the finer, or from the source |
+| `DISTINCT` (today) | counted in the period | always from the source |
+| `level()` (today) | as it stood when computed | the last of the finer |
+| `AVG` | sum and count kept together | sum of sums ÷ sum of counts |
+| `MIN`, `MAX` | the source's | min / max of the finer |
+| `LAST` | the latest reading | the last of the finer |
+| `PEAK` | the highest of a finer grain within the period (the busiest hour of a day) | the max of the finer's peaks |
+| `counter()` | a cumulative reading (a meter): the increase over the period, a reset detected and added back | sum of the increases |
+| `gauge()` | a reading of how things stand: `LAST` unless told `AVG` / `MAX` | as its aggregation |
+| `rate('per hour')` | derived: the value ÷ the period's length | — |
+
+Also:
+
+- **Presentation:** `->direction(Metric::HIGHER_IS_BETTER)` colours a change and orders a top-N.
+  `->format('currency' | 'percent' | 'duration' | 'number')` reads it.
+- **Derived metrics** keep their `+ - * /` and gain `delta()`, the difference of a cumulative
+  reading, and `ifnull()`.
+- **A wider formula language** is not designed: one application's own formula language is moved
+  as derived metrics and declared sources (§10).
+
+### 4.4 The source
+
+There are two ways to declare a source.
+
+- **A closure, as today.** It receives the window, the dimensions to group by and the connection,
+  and returns rows. It is the only way for a level, a cohort or anything that needs code.
+- **A declared query** that the framework turns into SQL:
+
+```php
+Metric::flow('payments.amount', 'Revenue')
+    ->from('invoices')
+    ->at('date', unix: true)                 // a unix-time column, read as time without a schema change
+    ->sum('amount')                          // or ->count(), ->countDistinct('userid'), ->avg(), ->max()…
+    ->where('status', 1)
+    ->dimension('market', 'countryid')       // dimension => column, or => an SQL expression
+    ->tenant('organizationid');
+```
+
+A declared query lets the framework do what a closure cannot:
+
+- compute every grain with one `time_bucket` query instead of one query per period;
+- offer a continuous aggregate of the source, and build it, register its refresh policy and read
+  from it;
+- read unix-time columns as `to_timestamp(col)`. Where the source table is itself a hypertable on
+  an integer column, it uses `integer_now` for the policies. Either way the application's schema
+  stays as it is.
+
+### 4.5 Stored or live
+
+A metric is **stored** by default: its values are computed and kept (§5).
+
+A metric over tens of thousands of entities at the hour can be declared **live**. The sensor
+platform is the case: a device's consumption by hour is 50,000 devices × 24 × 365, about 440
+million rows a year. Copying that into a second table doubles a store that already has it, so a
+live metric is read at query time from the continuous aggregate its declared source defines,
+narrowed to the entities asked for. Its totals (by zone, by tenant) are stored as usual. The
+query API hides the difference (§7).
+
+### 4.6 Records, cohorts, versions, gaps
+
+**Records.** `rows()` stays. `->drill(fn (Window $w, array $filters): string => adminUrl('Users?…'))`
+sends a number to the application's own list, with filters, instead of the framework's.
+
+**Cohorts.** `Metric::cohort('parents.paid_within', 'Paid within N days')->of('registered_at')->event('first_payment_at')->within([7, 14, 30])`.
+It is stored per cohort period and offset, as a dimension.
+
+**Versions.** `->version(2)` on a definition that was corrected. The new version is computed beside
+the old one for the same periods, and a switch per report or card shows "as before" or
+"corrected". The old version stops being computed once nothing reads it.
+
+**Gaps.** `->since('2026-10-16')`, or `->missing(fn (Window $w): ?string => …)`, says which
+periods the source cannot answer. Such a period shows why ("no data before 16 October 2026"),
+not a zero.
+
+### 4.7 The time a source runs on
+
+`->expect('1 hour')` declares how often new data should arrive. It feeds the alert "data stopped"
+(§9.1) and the staleness shown on a card.
+
+---
+
+## 5. Storage
+
+### 5.1 The row
+
+```sql
+-- PostgreSQL (MySQL: DATETIME UTC, JSON, TINYINT, BINARY(16))
+metric       text        NOT NULL,
+grain        text        NOT NULL,          -- see §5.2: absent when a table holds one grain
+tenant       bigint      NOT NULL DEFAULT 0,
+period_start timestamptz NOT NULL,          -- the period's first instant, in its tenant's zone
+dims         jsonb       NOT NULL,          -- {} for the total
+dims_hash    uuid        NOT NULL,          -- md5 of the canonical dims, as a uuid: 16 bytes
+version      smallint    NOT NULL DEFAULT 1,
+value        double precision,
+extra        jsonb,                         -- AVG: {sum, count}; counter: {first, last, resets}
+source       smallint    NOT NULL,          -- computed, snapshot, imported
+final        boolean     NOT NULL DEFAULT false,
+computed_at  timestamptz NOT NULL,
+PRIMARY KEY (metric, grain, tenant, dims_hash, version, period_start)
+```
+
+Indexes:
+
+- the primary key serves a series, where everything but time is fixed;
+- `(metric, grain, period_start)` serves a report across dimensions;
+- a GIN index on `dims` is added only where a measurement shows filtering inside `dims` without
+  the hash.
+
+`double precision` rather than `numeric`: TimescaleDB compresses it several times better. Money
+stored as euros with cents stays exact up to 2⁵³ cents. A metric that needs exact decimals beyond
+that declares `->exact()`, and is kept in a second column.
+
+The table already exists with `date`, `integer` and `text` columns, in at least one production. By
+rule 15 and the rule on changing a migration that has run, **the create-table migration is
+changed in place**. Installations that ran it get a one-time statement in the Upgrade Guide row,
+which converts the columns. A `metrics:adopt` command (§10) brings in an application's own store.
+
+### 5.2 One table, or a hypertable per grain — the open question
+
+| | **A. One hypertable** | **B. A hypertable per grain**, one API over them | **C. Hour (and finer) apart, the rest together** |
+|---|---|---|---|
+| Chunk size | one size for all: always wrong for some grain | each grain its own (hour: 7 days; day: 3 months; month and up: 5 years) | right for the fine grains, one size for the coarse |
+| Compression and retention | one policy for all grains | per grain: hours deleted after weeks, days compressed after months, months kept | per fine grain; one for the rest |
+| Hierarchical continuous aggregates (day from hour) | not possible on the values | possible for SUM/MIN/MAX/LAST/counter | possible from the hour table |
+| One place to query (SQL, the assistant, exports) | yes | through a view, `stats.metric_values`, `UNION ALL` of the grain tables, and the API | through a view |
+| Migrations | one table | one per grain (generated from the grain list) | two |
+| MySQL / no TimescaleDB | one table | the same split, harmless; or one table, as the API hides it | either |
+
+**Tentative recommendation: B**, because TimescaleDB's policies are per hypertable, and per-grain
+chunk sizes and retention are what the fine grains need. On MySQL and plain PostgreSQL, A, since
+there is nothing to gain from splitting. The application never sees which one: it declares
+metrics, the query API reads them, and the view keeps one place for SQL.
+
+**The decision is taken on measurements** (§12, phase 0). There are synthetic data in three sizes:
+
+| Size | Metrics | Tenants | Dimension combinations | Grains | Years | ≈ rows |
+|---|---|---|---|---|---|---|
+| Small | 20 | 1 | 50 | day … year | 3 | 70 k |
+| Medium (the marketplace) | 150 | 1 | 2 000 | day … year | 12 | 15 M |
+| Large (the sensor platform's stored totals) | 60 | 200 | 500 | hour … year | 3 | 2 B |
+
+The measurements are:
+
+- the read time of a card (1 value), a chart (24 periods), and a report (30 rows × 12 columns,
+  with the comparison);
+- the computation time of an open day;
+- the size on disk, with and without compression;
+- the cost of recomputing one closed month inside a compressed chunk: direct DML on TimescaleDB
+  2.31, and `DeferredWriteQueue` + `timescale:drain` on an older version.
+
+Each of these is measured for A, B and C, on TimescaleDB 2.31 and on plain PostgreSQL. MySQL is
+measured on the small size only.
+
+### 5.3 TimescaleDB, all of it
+
+Where the extension is present, and with no declaration from the application:
+
+- **Hypertables** on `period_start`. Chunk intervals follow §5.2.
+- **Compression** of chunks older than the longest correction window plus a margin. Segment by
+  `(metric, tenant, dims_hash)`, order by `period_start DESC`. Recomputing a closed period writes
+  into compressed chunks directly on 2.11+ (DML on compressed data). On older versions it goes
+  through `DeferredWriteQueue`, grouped per chunk. It is rare and heavy, never blocked.
+- **Retention** per grain, from `'metrics' => ['retention' => ['5min' => '14 days', 'hour' => '90 days']]`.
+  Day and coarser are kept for ever by default.
+- **Continuous aggregates** of declared sources (§4.4), with refresh policies registered in
+  `ContinuousAggregateRegistry`. They become the source the framework computes from, or the live
+  series (§4.5). On the values themselves there is no aggregate across grains for DISTINCT and
+  level, because those do not roll up. Under option B, hierarchical aggregates roll up SUM, MIN,
+  MAX, LAST and counter where a measurement shows them to be cheaper than computing from the
+  source.
+- **`time_bucket` and `time_bucket_gapfill`** for the declared queries and for charts with empty
+  periods. Elsewhere the framework fills the gaps in PHP.
+- **A hypertable for the application's own event tables** where it asks for one (`HypertableRegistry`),
+  including unix-time tables through `integer_now`.
+
+Without TimescaleDB the same declarations run on plain tables: no compression, retention by a
+scheduled delete, and materialised views refreshed by the policy engine instead of continuous
+aggregates. This is the path `ContinuousAggregateRegistry` already takes.
+
+---
+
+## 6. Computation
+
+### 6.1 Who runs it
+
+`metrics:compute` runs from the framework's schedule. It computes the open periods of every grain
+and those still inside their correction window, closes the ones past it, and backfills on request
+(`--from`, `--metric`, `--recompute`).
+
+An application without cron gets the same command through the queue worker. Where there is
+neither, a request starts the command in the background once its interval has passed, behind a
+lock. It never runs inside the page that started it, and the page shows the stored values as
+they are.
+
+### 6.2 How
+
+- **One query per metric and grain, for every open period at once**, where the source is declared
+  (`GROUP BY time_bucket(…)`). A closure is called per period, as today.
+- **The replica**, with its timeout and fallback (`'metrics' => ['replica' => …]`).
+- **A failure leaves the previous value.** A period is replaced only by a complete computation of
+  that period. It is written in one transaction per metric and grain.
+- **Each run is recorded** in `changelog_events`: what was computed, how long it took, and what
+  failed (rule 14). No runs table.
+
+### 6.3 Late data and closing
+
+`->lateness('7 days')` keeps a period open, and recomputed, for that long after it ends. Only then
+is it `final` and left alone, until `--recompute` or a new `version`. The default is the current
+behaviour, closing at the period's end. Compression waits for the longest lateness declared.
+
+### 6.4 History
+
+`Metrics::import()` stays the way in for old reports, and gains a bulk form for a whole table.
+`metrics:adopt` maps an application's existing store or statistics tables onto metrics, with the
+tenant, dimensions and grains each column means, and imports them once (§10).
+
+---
+
+## 7. Reading: one query API
+
+```php
+Metrics::query('payments.amount')
+    ->grain('month')->between('2026-01-01', '2026-11-01')
+    ->by('market')->where(['package' => ['premium', 'plus']])
+    ->compare(Metrics::YEAR_EARLIER)
+    ->fill()                                   // a value for every period, null where none
+    ->for($user)                               // allowed() and the tenant scope
+    ->series();                                // or ->value(), ->table(), ->top(10)
+```
+
+Every reader goes through it: cards, reports, the JSON API, exports and the assistant's tool. So
+`allowed()`, the tenant scope, versions, gaps and live metrics are applied once. It reads the store
+(§5), or the continuous aggregate of a live metric, or works out a derived metric from its
+operands. `Metrics::series/value/compare` become thin calls into it and keep their signatures.
+
+---
+
+## 8. Presentation and delivery
+
+- **The editor:** one for dashboards and reports, already built (reports are boards of cards).
+  New cards come with the needs:
+  - a time series with zoom and range, the same period a year earlier on the same chart, and
+    stacking by a dimension;
+  - progress towards a goal;
+  - a map;
+  - a top-N;
+  - a cohort grid.
+- **Dashboard variables:** pickers at the top that set a dimension, tenant or period for every
+  card on the board, kept in the address.
+- **Dimension hierarchy:** `Dimension::of('area')->parent('region')`. A drill goes from region to
+  area, and a map card reads `->geo(fn ($value): ?array => [lat, lng] | geojson)`.
+  **Then-or-now** (an entity's zone at the time, or its zone today) is a source's choice, made
+  with two dimensions (`zone_then`, `zone_now`), not a feature of the store.
+- **A JSON API outside the administration:** `/api/{version}/metrics/...` on the framework's API
+  stack, with the API key or user token, the same query API and the tenant scope. The SPA stack
+  gets the card and chart components.
+- **Exports:**
+  - CSV, as today;
+  - XLSX, a minimal writer over `ext-zip` (no spreadsheet library);
+  - PDF from the browser's print;
+  - mail with PNG charts, as today.
+
+### 8.1 One report system, for people and for the assistant
+
+The assistant's scheduled reports (its routines, sent by mail, push or the bell without charts)
+and the reports people build become **one system**. A routine becomes a report:
+
+- the same board of cards;
+- the same sharing and schedule;
+- the same mail, with charts as PNG.
+
+The assistant's part is a card: **an analysis card**, whose words the assistant writes from the
+report's own numbers each time the report is drawn for sending. It is cached per period, so
+opening the report does not ask again. A routine that today is only a prompt is moved as a report
+with one analysis card and the metrics its prompt read. Its schedule and recipients move with it,
+and `llm:routines` hands such reports to `metrics:reports-send`.
+
+### 8.2 The assistant inside the editor
+
+- **Building from words.** "Sales by pillar compared with last year" in the editor asks the
+  assistant, through a tool of its own (`report_propose`), for cards: their kinds, metrics,
+  dimensions, filters, comparison and layout. It answers only from the catalogue the person may
+  read. The proposal is drawn as a preview on the board, with the real numbers. The person keeps,
+  changes or drops each card. Nothing is saved until they save, as with any edit.
+- **Explaining a number.** Each card offers *Ask about this*. The assistant opens with the card's
+  context: metric, filters, tenant, period, value, comparison, the annotations near it, and the
+  breakdown that moved most. It reads further through the query API, under the same scope.
+
+Both go through the query API (§7). The assistant cannot read a metric, tenant or record the
+person could not.
+
+---
+
+## 9. Signals
+
+### 9.1 Alerts
+
+The rule is state. A row in `stats.alert_rules` holds:
+
+- the metric, filters, tenant, grain and condition. The condition is a threshold, a change against
+  the period before or a year earlier, or **data stopped**, which needs no new data for longer
+  than `expect()`;
+- who is told (users, roles, a conversation channel);
+- how often it repeats.
+
+It is evaluated after each `metrics:compute`, and the "data stopped" check on its own schedule.
+A firing is history: it goes to `changelog_events` and is sent through the notifier (bell, push,
+the conversation), with a link to the chart.
+
+### 9.2 Goals
+
+`stats.goals` holds a target per metric, period, tenant and filters. Progress within a day reads
+the hour grain. **The expected curve** is the same weekday a year earlier, by hour, scaled to the
+target, and the **forecast** extrapolates from it. Goals that a person sets are state; a missed
+goal is an alert (§9.1).
+
+### 9.3 Annotations
+
+`stats.annotations` holds a moment or a span, a tenant, words, a kind and an optional link. They
+are written by people, and by the application's own sources: deploys from the changelog, price
+changes, campaigns. Charts draw them, and the assistant reads them as context.
+
+These three tables are state, not logs (rule 14). Firings and changes go to the logs.
+
+---
+
+## 10. Moving the applications over
+
+| Application | What goes | How, without losing history |
+|---|---|---|
+| Marketplace | its own metric store (`timestamptz`) and its monthly report classes | its metrics are declared; `metrics:adopt` imports its store into `stats`; its two ready reports are rebuilt as boards; its table is dropped once compared for a month |
+| Sensor platform | its report builder, formula language and aggregate tables | declared sources over its readings hypertable; its day/month/year continuous aggregates become the metrics' sources (live per device, stored per zone and tenant); its formulas become derived metrics with `delta()`; XLSX from §8 |
+| Analytics service | its catalogue, goals, annotations, SVG charts | catalogue → metrics (counter/gauge/rate, direction, format); its hourly and daily continuous aggregates → sources; goals and annotations imported into §9's tables |
+| Chat service | `stats_hourly` … `stats_yearly` and the PL/pgSQL roll-up | metrics at hour to year; the tables imported; no-cron mode (§6.1) |
+| Billing | reports summed in PHP | declared sum metrics over invoices |
+| Prepaid-card service | `DATE_TRUNC` SQL in its API | declared metrics, read through the JSON API with the tenant scope; PostgreSQL 10 compatibility verified in phase 0 |
+
+---
+
+## 11. What stays the application's
+
+The metrics and their sources, the dimensions' words and values, who may see what (`allowed()`,
+the tenant scope), the drill-down lists, which annotations its own events make, and the retention
+it wants.
+
+---
+
+## 12. Phases
+
+Each phase ends with measured timings, not estimates.
+
+| Phase | What | Done when |
+|---|---|---|
+| 0 | The storage benchmark (§5.2) in three sizes; PostgreSQL 10 and MySQL checks | A, B or C chosen on the numbers, and written here |
+| 1 | The row (§5.1): `timestamptz`, `jsonb`, tenant, version; the chosen layout; compression and retention; the migration changed in place and the one-time statement; `metrics:adopt` | the marketplace's store imported, its table dropped, one store |
+| 2 | Hour grain; tenant scope and time zone per tenant; the query API (§7), with today's calls on top | every reader on the query API; a per-tenant card on a multi-tenant application |
+| 3 | Aggregations and kinds (§4.3); declared sources (§4.4) with `time_bucket` and unix time; live metrics (§4.5); lateness (§6.3); versions and gaps (§4.6) | the sensor platform's daily report rebuilt from declarations |
+| 4 | Alerts, goals, annotations (§9) | "data stopped" and a goal's intraday progress on a real board |
+| 5 | JSON API and SPA components; XLSX; dimension hierarchy, maps, cohorts (§8) | a tenant's dashboard outside the administration |
+| 5a | One report system with the assistant's routines; analysis card; `report_propose` and *Ask about this* (§8.1, §8.2) | a routine sent as a report with charts; a report built from one sentence |
+| 6 | Moving each application over (§10) | each one's own mechanism removed |
+
+---
+
+## 13. For the owner to decide
+
+1. **Storage layout:** approve deciding A/B/C on the phase-0 measurements, with B as the expected
+   outcome on TimescaleDB.
+2. **`double precision` for values**, with `->exact()` for the rare metric that needs `numeric`.
+3. **Live metrics** (§4.5) for per-entity series instead of storing them, which the sensor
+   platform's volume requires.
+4. **Sub-hour grains** only per metric, and with retention.
+5. **XLSX** through a small writer of the framework's own, not a spreadsheet library.
+6. **No-cron mode** that starts the computation from a request in the background, never inside
+   the page.
+7. **The order of the phases.** Phase 1 removes the second store first; phase 2 brings tenants and
+   hours, which three applications are waiting for.

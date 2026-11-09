@@ -76,6 +76,7 @@ nav:
     - Roadmap & Open Items: Roadmap.md
     - Mail Body Storage (design): Mail-Body-Storage-Design.md
     - hreflang and Sitemaps (design): Hreflang-And-Sitemap-Design.md
+    - Metrics and BI (design): Metrics-BI-Design.md
   - Documentation:
     - Core Framework:
       - Framework Overview: Pramnos_Framework_Guide.md
