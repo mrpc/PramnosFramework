@@ -9,7 +9,7 @@ use_cases:
 
 # Site traffic (design, FW-365)
 
-**Status:** proposal, for the marketplace's approval before any code.
+**Status:** approved by the marketplace (raw hits kept for good; one site, the market a dimension). Step 1 is built.
 
 **Scope: an application's own traffic** — the visits to its own site and screens. The
 marketplace counts its own with a small Matomo: a visit with a cookie, its pages, its source, the
@@ -129,7 +129,7 @@ the same way, so its pages no longer wait on an INSERT.
 
 ### 3.5 Place and device
 
-- `Pramnos\Visits\GeoIp`: a reader of a MaxMind-format database (the content platform's, taken as
+- A GeoIP reader of the framework's (`GeoIp`, with the feature): a reader of a MaxMind-format database (the content platform's, taken as
   a technique), DB-IP City
   Lite by default, refreshed monthly by `geoip:update`. The marketplace's own GeoIP2 database
   works with it unchanged. `maxmind-db/reader` is a `suggest`; without it there is no place, and
@@ -159,8 +159,9 @@ collisions: a new URL whose hash matches an old one silently takes the old one's
   PostgreSQL), the SHA-1 of the whole URL, with a **unique** index. `Token::urlId()` looks up by
   it and inserts with "on conflict, read the one there", which ends the duplicates. `hash`
   (crc32) stays, unread, so nothing that reads it breaks. It goes in a later version.
-- **The text:** `url` widens to 2000 characters. A longer URL is kept cut and found by the hash
-  of the whole of it, as now.
+- **The text** stays up to 255 characters. A longer URL is kept cut and found by the hash of the
+  whole of it. A row from before keeps the hash of its cut text, so a long address from then gets
+  a new row once.
 - **Moving an installation** (`urls:rehash`, in batches by `urlid`, resumable):
   1. fill `sha` for every row;
   2. URLs there twice: point every reference at the lower `urlid`, then delete the other;
@@ -225,17 +226,15 @@ it, once its before/after comparison (P0) is done.
 
 ## 9. Questions for the marketplace
 
-1. **Marketplace:** keep the raw hits for good (`keep` null, about 1 GB a quarter compressed far
-   smaller), or 13 months with the aggregates for ever?
-2. **Marketplace:** the three markets — one site with a market dimension from the path (as
-   vitals does), or three sites?
+1. **Answered:** the raw hits are kept for good (`keep` null), compressed.
+2. **Answered:** one site, the market a dimension (its values the application's own).
 3. Anything a report of yours reads that §2.1's columns or §4's aggregates do not cover.
 
 ## 10. Order
 
 | Step | What |
 |---|---|
-| 1 | `urls`: `sha`, unique index, `urls:rehash`, `urls:prune`, references declared |
+| 1 | **Built:** `urls` — `sha`, unique index, `urls:rehash`, `urls:prune`, references declared ([guide](Pramnos_Logging_Guide.md#the-urls-registry)) |
 | 2 | `HypertableRegistry` primary key; `timescale:ensure` for an existing small table |
 | 3 | `pramnos.sites`, `page_hits`, the beacon, refusals, spool, GeoIP, source classes |
 | 4 | Aggregates (CAggs, or the rollup), the metrics, the tool, the card, the API |

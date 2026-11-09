@@ -8,6 +8,7 @@ use_cases:
   - Finding which command or request ran out of memory or died of a fatal error
   - Logging an exception without writing the arguments its calls carried
   - Finding out which JavaScript errors visitors hit in the browser
+  - Cleaning the urls registry of addresses nothing refers to, or of the ones kept twice
   - Measuring how fast pages are for real visitors (Core Web Vitals)
 ---
 
@@ -1154,6 +1155,33 @@ Nothing here affects authentication, rate limiting, or the token's own
 and served identically; only the audit row is skipped.
 
 ---
+
+## The `urls` registry
+
+`tokenactions`, and any table of the application's that keeps a page as a number, refer to
+`urls`: each address once, its id from `Token::urlId($url)`.
+
+- **The lookup** is by `sha`, the SHA-1 of the whole address, where the column is there (the
+  migration `add_sha_to_urls`). A row from before it is found by its crc32 **and its own text**,
+  and given its `sha` then. Two addresses that share a crc32 are never one id.
+- **`urls:rehash`** fills `sha` for every row, in batches and resumably. It merges an address kept
+  twice into its first, with the references moved, and makes the unique index `uq_urls_sha`;
+  from then on two writers cannot add the same address twice. A second run does nothing.
+- **`urls:prune`** deletes the addresses nothing refers to, a range of ids at a time (`--batch`,
+  `--dry-run`). An address first seen in the last day stays: a hit may still be in a spool. It is
+  not scheduled: run it when the database is quiet, then as often as wanted.
+- **References are declared:** `tokenactions.urlid` is the framework's, and an application adds
+  its own before pruning:
+
+  ```php
+  \Pramnos\User\UrlRegistry::referencedBy('#PREFIX#visitactions', 'urlid');
+  ```
+
+  A declared table that is not there stops both commands before they change anything. An
+  address only it referred to would otherwise go, and the foreign key from `tokenactions` takes
+  rows with an address that goes.
+- **On a large table**, run `urls:prune` first, then `urls:rehash`: the unique index is then built
+  over what is left.
 
 ## Troubleshooting
 

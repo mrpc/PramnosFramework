@@ -828,13 +828,18 @@ class Token extends \Pramnos\Framework\Base
      */
     public static function urlId($url)
     {
+        $url = (string) $url;
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        // A hash that does not collide, where `urls` has it (FW-365): see UrlRegistry.
+        if (self::urlsHaveSha($database)) {
+            return self::urlIdBySha($url, $database);
+        }
+
         $hash = (string) crc32($url);
 
         if (isset(self::$urlIdCache[$hash])) {
             return self::$urlIdCache[$hash];
         }
-
-        $database = \Pramnos\Framework\Factory::getDatabase();
 
         try {
             $result = $database->queryBuilder()
@@ -858,6 +863,69 @@ class Token extends \Pramnos\Framework\Base
             ]);
 
             return self::rememberUrlId($hash, (int) $database->getInsertId());
+        } catch (\Throwable $ex) {
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+
+            return 0;
+        }
+    }
+
+    /** @var bool|null Whether `urls` has its `sha` column, asked once per process */
+    protected static $urlsHaveSha = null;
+
+    /**
+     * Whether `urls` has its `sha` column, asked once per process: a lookup is on every logged
+     * request, and a deploy that runs the migration restarts the workers that would ask again.
+     */
+    protected static function urlsHaveSha(\Pramnos\Database\Database $database): bool
+    {
+        if (self::$urlsHaveSha === null) {
+            try {
+                self::$urlsHaveSha = $database->schema()->hasColumn('urls', 'sha');
+            } catch (\Throwable) {
+                self::$urlsHaveSha = false;
+            }
+        }
+
+        return self::$urlsHaveSha;
+    }
+
+    /**
+     * An address's id by the SHA-1 of the whole of it: found; or an old row with the same crc32
+     * **and the same text**, its sha filled now; or a new row. Two writers adding the same one
+     * at once: the unique index refuses the second, which reads the first.
+     */
+    protected static function urlIdBySha(string $url, \Pramnos\Database\Database $database): int
+    {
+        $sha = sha1($url);
+        if (isset(self::$urlIdCache[$sha])) {
+            return self::$urlIdCache[$sha];
+        }
+        $table = static fn () => $database->queryBuilder()->table('#PREFIX#urls');
+        try {
+            $found = $table()->select(['urlid'])->where('sha', $sha)->orderBy('urlid')->limit(1)->getAllOrFail()[0] ?? null;
+            if ($found !== null) {
+                return self::rememberUrlId($sha, (int) $found['urlid']);
+            }
+            $kept = mb_substr($url, 0, 255);
+            $old  = $table()->select(['urlid'])->where('hash', crc32($url))->where('url', $kept)->whereNull('sha')->orderBy('urlid')->limit(1)->getAllOrFail()[0] ?? null;
+            if ($old !== null) {
+                $table()->where('urlid', (int) $old['urlid'])->update(['sha' => $sha]);
+
+                return self::rememberUrlId($sha, (int) $old['urlid']);
+            }
+            try {
+                $table()->insert(['url' => $kept, 'hash' => crc32($url), 'sha' => $sha, 'createdat' => time()]);
+
+                return self::rememberUrlId($sha, (int) $database->getInsertId());
+            } catch (\Throwable $raced) {
+                $again = $table()->select(['urlid'])->where('sha', $sha)->limit(1)->getAllOrFail()[0] ?? null;
+                if ($again === null) {
+                    throw $raced;
+                }
+
+                return self::rememberUrlId($sha, (int) $again['urlid']);
+            }
         } catch (\Throwable $ex) {
             \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
 
