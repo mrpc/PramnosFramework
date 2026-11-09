@@ -25,6 +25,10 @@ class TodosRemind extends Command
     /** Send them. */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        // An application that has not adopted the to-dos has no table: nothing to do, not a failure.
+        if (!Todos::installed()) {
+            return Command::SUCCESS;
+        }
         $reminded = Todos::remind();
         $due      = Todos::dueNotices();
         $output->writeln(sprintf('%d reminded, %d told of their day.', $reminded, $due), OutputInterface::VERBOSITY_VERBOSE);

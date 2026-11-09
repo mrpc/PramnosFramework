@@ -78,7 +78,8 @@ A source returns what it wants on the list now, by a key that names what the ite
 - **Failed:** a source that fails is logged (`todos` log) and skipped; the rest still run.
 
 It runs:
-- from the framework's schedule, `todos:sync`, every `todos.sync_every` minutes (5 by default),
+- from the framework's schedule, `todos:sync` (with `todos:remind` beside it; both do nothing where
+  the to-dos are not installed), every `todos.sync_every` minutes (5 by default),
   for each organisation `todos.tenants` lists, or for none;
 - when a list is read, at most once per that interval;
 - after `Todos::touch($tenant)`, on the next read. An application calls it after an act that

@@ -215,4 +215,38 @@ class TodosMySQLTest extends TestCase
         $this->assertSame(['Revenue is behind'], $after, 'the turn opened it');
         $this->assertSame([], $read, 'touched, the next read synced: closed');
     }
+
+    /**
+     * An application that has not adopted the to-dos — no `pramnos.todos` — gets nothing from the
+     * framework's schedule: `todos:remind` and `todos:sync` end in success, not a failure a minute.
+     */
+    public function testTheCommandsDoNothingWithoutTheTable(): void
+    {
+        // Arrange — the same connection, a prefix under which there is no to-do table (MySQL names it by prefix)
+        if ($this->db->type !== 'mysql') {
+            $this->markTestSkipped('A prefix hides a table on MySQL only.');
+        }
+        $bare         = clone $this->db;
+        $bare->prefix = 'pf_none_';
+        $previous     = Database::getInstance();
+        $reference    = &Database::getInstance();
+        $reference    = $bare;
+        $installed    = new \ReflectionProperty(Todos::class, 'installed');
+        $installed->setValue(null, null);
+
+        try {
+            // Act
+            $remind = (new \Symfony\Component\Console\Tester\CommandTester(new \Pramnos\Console\Commands\TodosRemind()))->execute([]);
+            $sync   = (new \Symfony\Component\Console\Tester\CommandTester(new \Pramnos\Console\Commands\TodosSync()))->execute([]);
+            $there  = Todos::installed();
+        } finally {
+            $reference = &Database::getInstance();
+            $reference = $previous;
+            $installed->setValue(null, null);
+        }
+
+        // Assert
+        $this->assertFalse($there, 'no table under that prefix');
+        $this->assertSame([0, 0], [$remind, $sync], 'success, not a failure every minute');
+    }
 }

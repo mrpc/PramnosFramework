@@ -23,6 +23,10 @@ class TodosSync extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        // An application that has not adopted the to-dos has no table: nothing to do, not a failure.
+        if (!Todos::installed()) {
+            return Command::SUCCESS;
+        }
         $done = Todos::sync();
         $output->writeln(sprintf('%d opened, %d changed, %d closed.', $done['opened'], $done['changed'], $done['closed']), OutputInterface::VERBOSITY_VERBOSE);
         foreach ($done['failed'] as $kind) {
