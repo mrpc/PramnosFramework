@@ -1170,12 +1170,17 @@ and served identically; only the audit row is skipped.
 - **`urls:prune`** deletes the addresses nothing refers to, a range of ids at a time (`--batch`,
   `--dry-run`). An address first seen in the last day stays: a hit may still be in a spool. It is
   not scheduled: run it when the database is quiet, then as often as wanted.
-- **References are declared:** `tokenactions.urlid` is the framework's, and an application adds
-  its own before pruning:
+- **References are declared:** `tokenactions.urlid` is the framework's, and so are
+  `page_hits.urlid`, `target` and `referrer` wherever the [site's traffic](Pramnos_Visits_Guide.md)
+  is installed. An application adds its own before pruning, each column on its own line:
 
   ```php
   \Pramnos\User\UrlRegistry::referencedBy('#PREFIX#visitactions', 'urlid');
+  \Pramnos\User\UrlRegistry::referencedBy('#PREFIX#visitactions', 'target');
   ```
+
+  `UrlRegistry::columns()` lists every one as `[table, column]`. `references()` gives each table
+  with its first column.
 
   A declared table that is not there stops both commands before they change anything. An
   address only it referred to would otherwise go, and the foreign key from `tokenactions` takes

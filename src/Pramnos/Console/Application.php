@@ -279,6 +279,7 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\TodosRemind());
         $this->add(new \Pramnos\Console\Commands\UrlsPrune());
         $this->add(new \Pramnos\Console\Commands\UrlsRehash());
+        $this->add(new \Pramnos\Console\Commands\VisitsUpdate());
         // Push has five parts and four of them are invisible when missing. Five numbered steps
         // in a guide are five chances to stop after four.
         $this->add(new \Pramnos\Console\Commands\PushSetup());

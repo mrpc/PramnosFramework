@@ -419,6 +419,13 @@ class FrameworkSchedule
                 'cadence'     => [['everyFiveMinutes']],
                 'description' => 'Deliver queued OAuth2 webhook events',
             ],
+
+            // The GeoIP database and the referrer spam list the site's traffic reads, on the 3rd of
+            // the month, once DB-IP has published the month's. A no-op without `visits.sites`.
+            'visits:update' => [
+                'cadence'     => [['cron', '30 4 3 * *']],
+                'description' => 'Refresh the GeoIP database and the referrer spam list',
+            ],
         ];
     }
 }

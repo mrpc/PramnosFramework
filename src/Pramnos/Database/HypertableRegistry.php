@@ -706,6 +706,18 @@ class HypertableRegistry
                 'deferred_writes' => true,
                 'feature'         => 'changelog',
             ],
+            // Every page view and click out of the application's own sites: kept for good unless
+            // the application says otherwise, compressed by site after a week.
+            'pramnos.page_hits' => [
+                'time_column'     => 'at',
+                'chunk_interval'  => '1 day',
+                'compress_after'  => '7 days',
+                'retention'       => null,
+                'segmentby'       => 'site',
+                'orderby'         => 'at DESC',
+                'deferred_writes' => true,
+                'feature'         => 'visits',
+            ],
             'pramnos.changelog_events' => [
                 'time_column'     => 'created_at',
                 'chunk_interval'  => '7 days',

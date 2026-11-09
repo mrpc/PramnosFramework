@@ -296,6 +296,13 @@ class FeatureRegistry
                 dirname(__DIR__, 3) . '/database/migrations/framework/conversations',
             ],
         ]);
+        // The site's own traffic: page views and clicks out, where from, place and device.
+        static::register('visits', [
+            'description' => 'Site traffic — page views, clicks out, sources, places and devices',
+            'migrations'  => [
+                dirname(__DIR__, 3) . '/database/migrations/framework/visits',
+            ],
+        ]);
         // Moderation: bans, mutes, kicks, slow mode, rates, the filter and reports —
         // for conversations with visitors, comments, anything people write.
         static::register('moderation', [

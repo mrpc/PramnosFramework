@@ -28,6 +28,7 @@
     <?php endif; ?>
     <?php echo \Pramnos\Security\CookieConsent::tag(sURL); ?>
     <?php echo \Pramnos\Logs\ClientVitals::tag(); /* nothing until 'vitals' => ['sample' => …] */ ?>
+    <?php echo \Pramnos\Visits\Visits::tag(); /* nothing until 'visits' => ['sites' => …] */ ?>
     <script src="<?php echo assetUrl('assets/js/pf-utils.js'); ?>"></script>
     <?php // The team's conversations over the administration's pages, for whoever may use them. ?>
     <?php echo \Pramnos\Conversations\Dock::render(); ?>

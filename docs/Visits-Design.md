@@ -236,7 +236,7 @@ it, once its before/after comparison (P0) is done.
 |---|---|
 | 1 | **Built:** `urls` — `sha`, unique index, `urls:rehash`, `urls:prune`, references declared ([guide](Pramnos_Logging_Guide.md#the-urls-registry)) |
 | 2 | **Built:** `HypertableRegistry` `primary_key`; `timescale:ensure` rewrites a small table's key, refuses above `--max-rows` ([guide](Pramnos_Hypertable_Guide.md#a-table-made-with-its-id-alone-as-its-key)) |
-| 3 | `pramnos.sites`, `page_hits`, the beacon, refusals, spool, GeoIP, source classes |
+| 3 | **Built:** `pramnos.sites`, `page_hits`, the beacon (`/Hits`, `pf-hits.js`), refusals, spool, GeoIP (`visits:update`), source classes ([guide](Pramnos_Visits_Guide.md)) |
 | 4 | Aggregates (CAggs, or the rollup), the metrics, the tool, the card, the API |
 | 5 | `Visits::import()`, `visits:compare`; the marketplace's move |
 | 6 | Web Vitals: `vitals.dimensions` and the hypertable entry |

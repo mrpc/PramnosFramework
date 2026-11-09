@@ -19,7 +19,7 @@ namespace Pramnos\User;
  * **and its own text** — never by the crc32 alone, which is what filed a new address under an old
  * one whose crc32 it shared — and its `sha` is filled then.
  *
- * Which tables keep url ids is declared, not guessed: `tokenactions.urlid` is the framework's;
+ * Which tables keep url ids is declared, not guessed: `tokenactions.urlid` is the framework's, and `page_hits`' `urlid`, `target` and `referrer` where the site's traffic is installed;
  * an application adds its own. A prune deletes only what none of them refers to, and never an
  * address first seen less than a day ago, which may still be waiting in a spool.
  *
@@ -31,17 +31,36 @@ final class UrlRegistry
     /** The unique index on `sha`. */
     public const INDEX = 'uq_urls_sha';
 
-    /** @var array<string, string> Tables that keep url ids: table => column */
-    private static array $references = ['#PREFIX#tokenactions' => 'urlid'];
+    /** The framework's own columns that keep url ids where their feature is installed: the site's traffic. */
+    public const WHERE_INSTALLED = [['pramnos.page_hits', 'urlid'], ['pramnos.page_hits', 'target'], ['pramnos.page_hits', 'referrer']];
 
-    /** Declare a table (and its column) that keeps url ids: a prune keeps what it refers to. */
+    /** @var list<array{0: string, 1: string}> The columns that keep url ids: [table, column] */
+    private static array $references = [['#PREFIX#tokenactions', 'urlid']];
+
+    /**
+     * Declare a column that keeps url ids: a prune keeps what it refers to. A table with several
+     * — a page, a link out, a referrer — declares each.
+     */
     public static function referencedBy(string $table, string $column): void
     {
-        self::$references[$table] = $column;
+        if (!in_array([$table, $column], self::$references, true)) {
+            self::$references[] = [$table, $column];
+        }
     }
 
-    /** @return array<string, string> The tables that keep url ids */
+    /** @return array<string, string> The tables that keep url ids, each with its first column; {@see columns()} has every one */
     public static function references(): array
+    {
+        $tables = [];
+        foreach (self::$references as [$table, $column]) {
+            $tables[$table] ??= $column;
+        }
+
+        return $tables;
+    }
+
+    /** @return list<array{0: string, 1: string}> Every column that keeps url ids, as [table, column] */
+    public static function columns(): array
     {
         return self::$references;
     }
@@ -49,7 +68,7 @@ final class UrlRegistry
     /** Back to the framework's own reference: for a test. */
     public static function reset(): void
     {
-        self::$references = ['#PREFIX#tokenactions' => 'urlid'];
+        self::$references = [['#PREFIX#tokenactions', 'urlid']];
     }
 
     /**
@@ -71,7 +90,7 @@ final class UrlRegistry
         for ($from = 0; $from <= $max; $from += $batch) {
             $to   = $from + $batch;
             $kept = [];
-            foreach ($refs as $table => $column) {
+            foreach ($refs as [$table, $column]) {
                 foreach ($db->queryBuilder()->table($table)->select([$column])->distinct()->where($column, '>', $from)->where($column, '<=', $to)->getAllOrFail() as $row) {
                     $kept[(int) $row[$column]] = true;
                 }
@@ -101,19 +120,20 @@ final class UrlRegistry
      * rather than being passed over: an address only it referred to would be deleted, and the
      * foreign key from `tokenactions` would take that table's rows with it.
      *
-     * @return array<string, string>
+     * @return list<array{0: string, 1: string}>
      * @throws \RuntimeException For a declared table that is not there
      */
     private static function present(\Pramnos\Database\SchemaBuilder $schema): array
     {
-        foreach (self::$references as $table => $column) {
+        $optional = $schema->hasTable('pramnos.page_hits') ? self::WHERE_INSTALLED : [];
+        foreach (self::$references as [$table, $column]) {
             $name = str_replace('#PREFIX#', '', $table);
             if (!$schema->hasTable($name) || !$schema->hasColumn($name, $column)) {
                 throw new \RuntimeException('urls: the reference ' . $name . '.' . $column . ' is not there; nothing was pruned or merged. Declare only tables that exist.');
             }
         }
 
-        return self::$references;
+        return array_merge(self::$references, array_values(array_filter($optional, static fn (array $r): bool => !in_array($r, self::$references, true))));
     }
 
     /**
@@ -149,7 +169,7 @@ final class UrlRegistry
         foreach ($table()->select(['sha'])->groupBy(['sha'])->havingRaw('COUNT(*) > 1')->getAllOrFail() as $double) {
             $ids  = array_map('intval', array_column($table()->select(['urlid'])->where('sha', $double['sha'])->orderBy('urlid')->getAllOrFail(), 'urlid'));
             $keep = array_shift($ids);
-            foreach ($refs as $refTable => $column) {
+            foreach ($refs as [$refTable, $column]) {
                 $db->queryBuilder()->table($refTable)->whereIn($column, $ids)->update([$column => $keep]);
             }
             $table()->whereIn('urlid', $ids)->delete();

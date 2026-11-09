@@ -175,6 +175,7 @@ nav:
       - Deploy webhooks: Pramnos_Deploy_Webhook_Guide.md
       - Moving from MySQL: Pramnos_Moving_From_MySQL_Guide.md
       - Logging: Pramnos_Logging_Guide.md
+      - Site traffic: Pramnos_Visits_Guide.md
       - Testing:
         - Overview: Pramnos_Testing_Guide.md
         - "Databases in tests": Pramnos_Testing_Databases_Guide.md
