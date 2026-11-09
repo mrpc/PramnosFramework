@@ -17,7 +17,7 @@ use Pramnos\Framework\Migrations\Conversations\MoveConversationsAndAskToSchemas;
  * tables in the application's schema, rows in them, the messages a TimescaleDB hypertable. The
  * migration moves each — rows, ids and all — the assistant's first, so the conversations' new
  * name on MySQL is free; an application's own `chat_clients` is not touched; running it again
- * does nothing; and until it runs, `chat.x` is read where the table was, on PostgreSQL.
+ * does nothing; a `chat` schema the application made for a table of its own is shared.
  */
 #[CoversClass(MoveConversationsAndAskToSchemas::class)]
 #[CoversClass(SchemaBuilder::class)]
@@ -39,8 +39,8 @@ class MoveConversationsToSchemasMigrationTest extends TestCase
     /**
      * The old layout moved: the assistant's `chat_conversations` and the conversations'
      * `conversations` and `conversation_messages` (a hypertable on TimescaleDB), each with its
-     * rows; the application's `chat_clients` left where it is; a second run a no-op; and, before
-     * the run on PostgreSQL, `chat.conversations` read in the old place.
+     * rows; the application's `chat_clients` left where it is, and its `chat.devices` beside the
+     * moved ones; a second run a no-op.
      */
     #[DataProvider('databases')]
     public function testTheOldTablesMoveWithTheirRows(string $type, string $host, int $port, string $user, string $prefix): void
@@ -66,7 +66,6 @@ class MoveConversationsToSchemasMigrationTest extends TestCase
         $db->query('INSERT INTO ' . $t('conversation_messages') . " VALUES (70, 7, '2026-11-01 10:00:00')");
         $db->query('INSERT INTO ' . $t('chat_clients') . ' VALUES (3)');
         SchemaBuilder::forgetWhatExists($db);
-        $before = $type === 'postgresql' ? $db->queryBuilder()->table('chat.conversations')->value('slug') : null;
         $migration = new MoveConversationsAndAskToSchemas($app);
 
         try {
@@ -76,9 +75,6 @@ class MoveConversationsToSchemasMigrationTest extends TestCase
             $read = static fn (string $table, string $column) => $db->queryBuilder()->table($table)->value($column);
 
             // Assert
-            if ($type === 'postgresql') {
-                $this->assertSame('general', $before, 'not moved yet — though a `chat` schema of the application\'s is there: read in the old place');
-            }
             $this->assertSame('Ask', $read('assist.chat_conversations', 'title'), 'the assistant\'s, moved');
             $this->assertSame('general', $read('chat.conversations', 'slug'), 'the conversations\', moved — on MySQL to the assistant\'s old name');
             $this->assertSame(70, (int) $read('chat.conversation_messages', 'messageid'));
