@@ -772,6 +772,18 @@ Goals::judge($id);   // ['kind' => 'reach', 'state' => 'on_track', 'says' => 'On
     is `met`.
 - **Changes:** `Goals::update($id, [...])` keeps what it does not name, and forgets the goal's state.
 
+**Told when a goal turns.** `metrics:compute` judges every goal after computing
+(`Goals::check()`) and keeps its state. It tells once, when a goal turns from good (met, on track)
+to bad (behind, stalled). A first state, a move to or from unknown, and an improvement tell
+nobody. A goal's `notify` says whom:
+- `owner`, the default where it has one;
+- `members`, the organisation's, from `'metrics' => ['goals' => ['members' => fn (int $tenant): array => …]]`;
+- `conversation:ID`, a line there.
+
+The bell and a push (one per goal, replacing its last) link where `metrics.goals.link` says.
+There is no mail. The turn is kept in the changelog and fired as `goal.turned` (the goal, its
+state before, its state now), for a rule or a to-do source to act on.
+
 **A target relative to last year.** Instead of a fixed number, a goal can grow over its
 reference: the reference period's total times 1 + growth, worked out each period. One goal set
 once then serves every day, with no daily script:

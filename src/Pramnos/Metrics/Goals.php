@@ -169,6 +169,96 @@ final class Goals
     }
 
     /**
+     * Judge every goal and keep each one's state; tell of those that turned from good (met, on
+     * track) to bad (behind, stalled) — once, at the turn. A first state, a move to or from
+     * unknown, and an improvement tell nobody. Run after the metrics are computed
+     * (`metrics:compute`).
+     *
+     * Told: whom the goal's `notify` names — `owner` (the default where it has one), `members`
+     * (the organisation's, from `metrics.goals.members`, `fn (int $tenant): list<int>`) or
+     * `conversation:ID` — in the bell and as a push, linked where `metrics.goals.link` says. Kept in
+     * the changelog, and dispatched as `goal.turned` for a rule or a to-do source to act on.
+     *
+     * @return array<int, string> The goals that turned, and what was said
+     */
+    public static function check(?int $now = null): array
+    {
+        $now    = $now ?? time();
+        $turned = [];
+        foreach (self::all() as $goal) {
+            try {
+                $state = GoalJudge::judge($goal, $now)['state'];
+            } catch (\Throwable $e) {
+                \Pramnos\Logs\Logger::log('Goal ' . $goal['id'] . ' not judged: ' . $e->getMessage(), 'metrics');
+                continue;
+            }
+            $was = $goal['last_state'];
+            if ($state === $was) {
+                continue;
+            }
+            $values = ['last_state' => $state];
+            if ($was !== null && in_array($was, GoalJudge::GOOD, true) && in_array($state, GoalJudge::BAD, true)) {
+                $said = self::sentence($goal, $state);
+                self::tell($goal, $said);
+                \Pramnos\Changelog\ChangelogWriter::event('goal', $goal['id'], GoalTurned::EVENT, ['metric' => $goal['metric'], 'from' => $was, 'to' => $state], at: $now);
+                \Pramnos\Event\Event::fire(GoalTurned::EVENT, $goal, $was, $state);
+                $values['last_told_at'] = $now;
+                $turned[$goal['id']]    = $said;
+            }
+            Metrics::connection()->queryBuilder()->table(self::TABLE)->where('goalid', $goal['id'])->update($values);
+        }
+
+        return $turned;
+    }
+
+    /** What is said of a goal that turned: its metric, for which value, and how. */
+    private static function sentence(array $goal, string $state): string
+    {
+        $label = Metrics::get($goal['metric'])->label();
+        $for   = [];
+        foreach ((array) $goal['filters'] as $dimension => $value) {
+            if (is_scalar($value)) {
+                $for[] = Metrics::dimensionOf((string) $dimension)->labelOf((string) $value);
+            }
+        }
+        $what = $for === [] ? $label : sprintf(t('%s on %s'), $label, implode(', ', $for));
+
+        return sprintf($state === 'stalled' ? t('%s is going the other way') : t('%s is behind'), $what);
+    }
+
+    /** Tell those a goal names: in the bell and by push, or as a line in a conversation. */
+    private static function tell(array $goal, string $said): void
+    {
+        $config = (array) (Metrics::config()['goals'] ?? []);
+        $link   = $config['link'] ?? '';
+        $url    = is_callable($link) ? (string) $link($goal) : (string) $link;
+        $notify = (string) ($goal['notify'] ?? '');
+        if (str_starts_with($notify, 'conversation:')) {
+            try {
+                \Pramnos\Conversations\Messages::post((int) substr($notify, 13), null, $said);
+            } catch (\Throwable $e) {
+                \Pramnos\Logs\Logger::log('Goal ' . $goal['id'] . ': not posted: ' . $e->getMessage(), 'metrics');
+            }
+
+            return;
+        }
+        $people = $notify === 'members' && is_callable($config['members'] ?? null)
+            ? array_map('intval', (array) $config['members']((int) $goal['tenant']))
+            : ($goal['owner'] !== null ? [(int) $goal['owner']] : []);
+        foreach (array_unique($people) as $person) {
+            try {
+                $user = new \Pramnos\User\User($person);
+                if ((int) ($user->userid ?? 0) === $person) {
+                    $user->notify(new GoalTurned($goal['id'], $said, $url));
+                }
+            } catch (\Throwable $e) {
+                // One person not told does not stop the others.
+                \Pramnos\Logs\Logger::log('Goal ' . $goal['id'] . ': ' . $person . ' not told: ' . $e->getMessage(), 'metrics');
+            }
+        }
+    }
+
+    /**
      * The goals of an organisation (0: those of none), or of every one.
      *
      * @return list<array<string, mixed>>

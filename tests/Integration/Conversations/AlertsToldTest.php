@@ -66,4 +66,57 @@ class AlertsToldTest extends TestCase
         $this->assertCount(1, $lines);
         $this->assertStringContainsString('Payments was 0 in 2026-11-05', $lines[0]);
     }
+
+    /**
+     * A goal that turns from on track to behind is told once (FW-360, 16b): its owner in the bell,
+     * a goal whose notice goes to a conversation as a line there; the turn is kept in the
+     * changelog and dispatched as `goal.turned`. Its first state tells nobody, and a state that
+     * stays tells nobody again.
+     */
+    #[DataProvider('databases')]
+    public function testAGoalThatTurnsIsToldOnce(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — one payment a day until the 10th, none after
+        $this->boot($type, $host, $port, $user);
+        require_once ROOT . '/database/migrations/framework/stats/2026_11_06_000001_create_metric_values_table.php';
+        require_once ROOT . '/database/migrations/framework/stats/2026_11_09_000004_create_goals_table.php';
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Stats\CreateMetricValuesTable::class,
+            \Pramnos\Framework\Migrations\Stats\CreateGoalsTable::class], $this->db);
+        $this->db->queryBuilder()->table(\Pramnos\Metrics\Goals::TABLE)->delete();
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
+        Application::getInstance()->applicationInfo['metrics'] = ['timezone' => 'UTC', 'audience' => false];
+        Metrics::reset();
+        $tenth = (int) strtotime('2026-11-11 00:00 UTC');
+        Metrics::register(Metric::flow('test.paid', 'Payments')->source(static fn (\Pramnos\Metrics\Window $w): int => $w->startsAt() < $tenth ? 1 : 0));
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        $ops = Conversations::create('channel', 'ops', [$maria], $eleni);
+        $owned   = \Pramnos\Metrics\Goals::create(['metric' => 'test.paid', 'target' => 30, 'starts' => '2026-11-01', 'due' => '2026-11-30', 'owner' => $maria]);
+        $channel = \Pramnos\Metrics\Goals::create(['metric' => 'test.paid', 'target' => 30, 'starts' => '2026-11-01', 'due' => '2026-11-30', 'notify' => 'conversation:' . $ops]);
+        $heard = [];
+        \Pramnos\Event\Event::listen(\Pramnos\Metrics\GoalTurned::EVENT, static function (array $goal, string $was, string $state) use (&$heard): void {
+            $heard[] = $goal['id'] . ':' . $was . '>' . $state;
+        });
+        $check = function (string $day): array {
+            Metrics::compute(['test.paid'], ['day'], '2026-11-01', $day, false, (int) strtotime($day . ' 23:00 UTC'));
+
+            return \Pramnos\Metrics\Goals::check((int) strtotime($day . ' 23:00 UTC'));
+        };
+
+        // Act
+        $first  = $check('2026-11-05');
+        $turned = $check('2026-11-20');
+        $again  = $check('2026-11-21');
+        $bell   = $this->db->queryBuilder()->table('notifications')->where('notifiable_id', $maria)->getAllOrFail();
+        $lines  = array_column(Messages::list($ops), 'body');
+
+        // Assert
+        $this->assertSame([], $first, 'on track at first: its first state tells nobody');
+        $this->assertSame([$owned => 'Payments is behind', $channel => 'Payments is behind'], $turned);
+        $this->assertSame([], $again, 'still behind: told once');
+        $this->assertCount(1, $bell, 'the owner, once');
+        $this->assertSame(['Payments is behind'], $lines, 'a line in the conversation');
+        $this->assertSame([$owned . ':on_track>behind', $channel . ':on_track>behind'], $heard);
+        $this->assertSame('behind', \Pramnos\Metrics\Goals::get($owned)['last_state']);
+    }
 }
+

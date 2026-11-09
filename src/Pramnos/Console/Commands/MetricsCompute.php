@@ -83,6 +83,12 @@ class MetricsCompute extends Command
                 $output->writeln('Alert ' . $id . ': ' . $said);
             }
         }
+        // And the goals: each judged, those that turned told.
+        if (Metrics::connection()->schema()->hasTable(\Pramnos\Metrics\Goals::TABLE)) {
+            foreach (\Pramnos\Metrics\Goals::check() as $id => $said) {
+                $output->writeln('Goal ' . $id . ': ' . $said);
+            }
+        }
         foreach ($report['failed'] as $what => $why) {
             $output->writeln('<error>' . $what . ': ' . $why . '</error>');
         }
