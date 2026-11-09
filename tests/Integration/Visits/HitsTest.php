@@ -33,6 +33,8 @@ use Pramnos\Visits\Visits;
 #[CoversClass(\Pramnos\User\UrlRegistry::class)]
 #[CoversClass(\Pramnos\Visits\VisitsMetrics::class)]
 #[CoversClass(\Pramnos\Llm\Analyst\Tools\VisitsTool::class)]
+#[CoversClass(\Pramnos\Visits\Rollup::class)]
+#[CoversClass(\Pramnos\Console\Commands\VisitsRollup::class)]
 class HitsTest extends TestCase
 {
     use \Pramnos\Tests\Support\ReusesProbeDatabase;
@@ -325,11 +327,64 @@ class HitsTest extends TestCase
         $this->assertSame(['direct', 'search'], array_column(array_values(array_filter($read['breakdown']['sources'], static fn (array $r): bool => $r['visits'] > 0)), 'name'));
         $this->assertSame(2, $jobs['figures']['views'], 'only pages holding "jobs"');
         $this->assertCount(2, $jobs['breakdown']['pages']);
-        $this->assertSame('https://out.test/', $clicks['breakdown']['clicks'][0]['name']);
+        $this->assertSame(['name' => 'https://out.test/', 'clicks' => 1], $clicks['breakdown']['clicks'][0]);
+        $this->assertSame([1, 0], [$jobs['breakdown']['pages'][0]['views'], $jobs['breakdown']['pages'][0]['visits'] + $jobs['breakdown']['pages'][1]['visits']],
+            'each page its views; no visit began on a jobs page: the landings were /el/ and /uk/');
         foreach ($wrong as $answer) {
             $this->assertIsString($answer);
             $this->assertStringStartsWith('Error:', $answer);
         }
         $this->assertSame('visits', $tool->name());
+    }
+
+    /**
+     * The daily rollup of pages, referrers, clicks and campaigns: a table `visits:rollup` fills on
+     * MySQL, each day replaced whole; a continuous aggregate on TimescaleDB, once `page_hits` is a
+     * hypertable, kept by its policy. A period over a month reads it — the same figures as the
+     * hits. Days written otherwise are refused; with no site, nothing to do.
+     */
+    #[DataProvider('databases')]
+    public function testTheDailyRollup(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        Application::getInstance()->applicationInfo['metrics'] = ['timezone' => 'UTC'];
+        Hits::limitWith(static fn (): bool => true);
+        $ten = (int) gmmktime(10, 0, 0, 10, 5, 2026);
+        $a   = Hits::take([['k' => 'view', 'u' => 'https://site.test/el/', 'r' => 'https://www.google.com/']], self::server(), [], null, $ten);
+        Hits::take([['k' => 'view', 'u' => 'https://site.test/el/jobs'], ['k' => 'click', 'u' => 'https://site.test/el/jobs', 't' => 'https://out.test/']],
+            self::server(), self::cookies($a['cookies']), null, $ten + 60);
+        Hits::take([['k' => 'view', 'u' => 'https://site.test/el/']], self::server('Mozilla/5.0 (compatible; bingbot/2.0)'), [], null, $ten);
+        $timescale = $this->db->type === 'postgresql' && $this->db->capabilities()->hasTimescaleDB();
+        if ($timescale) {
+            \Pramnos\Database\HypertableRegistry::apply($this->db->schema(), 'pramnos.page_hits');
+        }
+        $command = static function (array $options): array {
+            $tester = new \Symfony\Component\Console\Tester\CommandTester(new \Pramnos\Console\Commands\VisitsRollup());
+
+            return [$tester->execute($options), $tester->getDisplay()];
+        };
+
+        // Act
+        [$code, $said] = $command(['--from' => '2026-10-05', '--to' => '2026-10-05']);
+        [$again]       = $command(['--from' => '2026-10-05', '--to' => '2026-10-05']);
+        [$wrong]       = $command(['--from' => '5/10/2026']);
+        $rows  = $this->db->queryBuilder()->table(\Pramnos\Visits\Rollup::NAME)->orderBy('views', 'desc')->getAllOrFail();
+        $tool  = (new \Pramnos\Llm\Analyst\Tools\VisitsTool(2))->execute(['from' => '2026-09-01', 'to' => '2026-10-31', 'breakdown' => 'pages']);
+        $refs  = (new \Pramnos\Llm\Analyst\Tools\VisitsTool(2))->execute(['from' => '2026-09-01', 'to' => '2026-10-31', 'breakdown' => 'referrers']);
+        Application::getInstance()->applicationInfo['visits']['sites'] = [];
+        [, $idle] = $command([]);
+
+        // Assert
+        $this->assertSame(0, $code);
+        $this->assertStringContainsString($timescale ? 'continuous aggregate' : '1 day(s) rolled up', $said);
+        $this->assertSame(0, $again);
+        $this->assertSame(1, $wrong);
+        $this->assertSame(3, count($rows), 'two pages and a click: the robot left out, the day replaced, not added to');
+        $this->assertSame(3, array_sum(array_map(static fn (array $r): int => (int) $r['views'], $rows)));
+        $this->assertSame([['name' => 'https://site.test/el/', 'views' => 1, 'visits' => 1], ['name' => 'https://site.test/el/jobs', 'views' => 1, 'visits' => 0]],
+            $tool['breakdown']['pages'], 'read from the rollup: the same as the hits');
+        $this->assertContains('www.google.com', array_column($refs['breakdown']['referrers'], 'name'));
+        $this->assertStringContainsString('nothing to roll up', $idle);
     }
 }

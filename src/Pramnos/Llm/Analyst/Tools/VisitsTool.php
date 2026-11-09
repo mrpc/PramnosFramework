@@ -46,8 +46,8 @@ final class VisitsTool implements McpToolInterface
             . 'left out of the figures and counted apart (say so). from/to: YYYY-MM-DD, both days included (the last 7 days by default). '
             . 'Answers the period\'s figures — views, visits, visitors, signed_in visits, single_page visits, mean visit seconds, bots, no_js — '
             . 'and, with compare: true, the same for the period before it. breakdown: ' . implode(', ', array_keys(self::BREAKDOWNS))
-            . ' — each row with its views and visits, largest first; sources/campaigns/referrers count visits by where they came from; '
-            . 'clicks are links out; usertypes the kinds of account signed in. page: a part of the page\'s address, to keep only pages '
+            . ' — each row with its views and the visits that began there (landing page, or where they came from), largest first; '
+            . 'clicks are links out, each with its clicks; usertypes the kinds of account signed in. Over a month, by whole UTC days. page: a part of the page\'s address, to keep only pages '
             . 'containing it (with breakdown pages, or for the figures). site: one site\'s name, when there are several.';
     }
 
@@ -136,10 +136,33 @@ final class VisitsTool implements McpToolInterface
         ], static fn ($v): bool => $v !== null);
     }
 
-    /** A breakdown's rows: views and visits each, largest first. @return list<array<string, mixed>> */
+    /**
+     * A breakdown's rows, largest first: each with its `views` and the `visits` that began there
+     * (the landing page, the source a visit came from) — a click out's with its `clicks`. A period
+     * longer than a month reads the daily rollup ({@see \Pramnos\Visits\Rollup}), by whole UTC days,
+     * where it can.
+     *
+     * @return list<array<string, mixed>>
+     */
     private function breakdown(string $breakdown, int $start, int $end, ?int $site, string $page): array
     {
-        $q      = $this->hits($start, $end, $site, $page)->whereIn('h.flags', VisitsMetrics::PEOPLE);
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $rolled = $end - $start > 31 * 86400 && in_array($breakdown, ['pages', 'clicks', 'referrers', 'campaigns', 'sources'], true)
+            && \Pramnos\Visits\Rollup::readable($db);
+        if ($rolled) {
+            $q = $db->queryBuilder()->table(\Pramnos\Visits\Rollup::NAME . ' AS h')->join('#PREFIX#urls AS u', 'u.urlid', '=', 'h.urlid')
+                ->where('h.day', '>=', Instant::utc(intdiv($start, 86400) * 86400, $db))->where('h.day', '<', Instant::utc(intdiv($end, 86400) * 86400, $db));
+            if ($site !== null) {
+                $q->where('h.site', $site);
+            }
+            if ($page !== '') {
+                $q->whereLike('u.url', '%' . $page . '%');
+            }
+            [$views, $visits] = ['SUM(h.views)', 'SUM(h.visits)'];
+        } else {
+            $q = $this->hits($start, $end, $site, $page)->whereIn('h.flags', VisitsMetrics::PEOPLE);
+            [$views, $visits] = ['COUNT(*)', 'SUM(CASE WHEN h.seq = 1 THEN 1 ELSE 0 END)'];
+        }
         $column = self::BREAKDOWNS[$breakdown];
         if ($breakdown === 'clicks') {
             $q->where('h.kind', 'click')->join('#PREFIX#urls AS t', 't.urlid', '=', 'h.target');
@@ -154,11 +177,12 @@ final class VisitsTool implements McpToolInterface
             $q->where('h.kind', 'view');
             $key = 'h.' . $column;
         }
-        $rows = $q->select([$q->raw($key . ' AS name'), $q->raw('COUNT(*) AS views'), $q->raw('SUM(CASE WHEN h.seq = 1 THEN 1 ELSE 0 END) AS visits'),
-            $q->raw('COUNT(DISTINCT h.visit) AS visits_seen')])->groupBy([$q->raw($key)])->orderBy('views', 'desc')->limit(self::LIMIT)->getAllOrFail();
+        $rows = $q->select([$q->raw($key . ' AS name'), $q->raw($views . ' AS views'), $q->raw($visits . ' AS visits')])
+            ->groupBy([$q->raw($key)])->orderBy('views', 'desc')->limit(self::LIMIT)->getAllOrFail();
 
-        return array_map(static fn (array $r): array => ['name' => $r['name'] ?? '(none)', 'views' => (int) $r['views'],
-            in_array($breakdown, ['sources', 'campaigns', 'referrers'], true) ? 'visits' : 'visits_with_it' => in_array($breakdown, ['sources', 'campaigns', 'referrers'], true) ? (int) $r['visits'] : (int) $r['visits_seen']], $rows);
+        return array_map(static fn (array $r): array => $breakdown === 'clicks'
+            ? ['name' => $r['name'] ?? '(none)', 'clicks' => (int) $r['views']]
+            : ['name' => $r['name'] ?? '(none)', 'views' => (int) $r['views'], 'visits' => (int) $r['visits']], $rows);
     }
 
     /** The hits of the period — of one site, of pages holding a part of an address — joined to their pages. */

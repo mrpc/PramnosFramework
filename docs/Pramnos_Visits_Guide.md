@@ -147,6 +147,23 @@ They break down by `visit_site`, `visit_source`, `visit_country`, `visit_device`
 say, lets one filter cover both, and the application's values win. A visit's breakdown is its
 landing page's. `'metrics' => ['visits' => false]` leaves them out.
 
+## The daily rollup
+
+The counts by source, country, device and the rest are kept by the metrics' store. Pages,
+referrers, clicks out and campaigns are not, and reading them over a long period from the hits
+is a scan. So `stats.visit_pages_daily` keeps people's page views and clicks out per UTC day, by
+site, page, link out, referrer, source and campaign. For each it keeps the `views` (a click's
+clicks) and the `visits` that began there.
+
+- **On TimescaleDB**, once `timescale:ensure` has made `page_hits` a hypertable, it is a
+  continuous aggregate. It is refreshed by its own policy, and reads include the hours not
+  materialised yet.
+- **Elsewhere** it is a table that `visits:rollup` fills, every 30 minutes, for yesterday and
+  today, each day replaced whole. Older days are filled with
+  `php bin/pramnos visits:rollup --from=2026-01-01 --to=2026-10-31`.
+
+The assistant's tool reads it for a period longer than a month, by whole UTC days.
+
 ## For the assistant
 
 The analyst's `visits` tool (`visits.tool` renames it) reads the hits directly, for any days.

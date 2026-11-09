@@ -426,6 +426,13 @@ class FrameworkSchedule
                 'cadence'     => [['cron', '30 4 3 * *']],
                 'description' => 'Refresh the GeoIP database and the referrer spam list',
             ],
+
+            // The daily rollup of the site's pages, referrers, clicks and campaigns, where it is a
+            // table; a continuous aggregate keeps itself. A no-op without `visits.sites`.
+            'visits:rollup' => [
+                'cadence'     => [['cron', '*/30 * * * *']],
+                'description' => 'Keep the daily rollup of the site\'s pages, referrers, clicks and campaigns',
+            ],
         ];
     }
 }
