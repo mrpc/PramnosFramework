@@ -26,6 +26,7 @@
     let messages = $state([]);
     let pinned = $state([]);
     let saved = $state([]);
+    let todos = $state([]);         // the messages the reader made a to-do of
     let openedAt = $state(0);         // what the reader had read when it opened: where "New" goes
     let loading = $state(true);
     let more = $state(true);
@@ -76,6 +77,7 @@
             messages = answer.messages;
             pinned = answer.pinned;
             saved = answer.saved ?? [];
+            todos = answer.todos ?? [];
             openedAt = answer.conversation.member?.lastreadid ?? 0;
             readUpTo = openedAt;
             more = answer.messages.length >= 50;
@@ -235,11 +237,22 @@
         }
     }
 
+    /** A to-do of a message: "Add to-do", or with a preset "Remind me about this". */
+    async function todo(message, preset) {
+        try {
+            await api.post('todo', preset ? { message: message.id, preset } : { message: message.id });
+            todos = [...new Set([...todos, message.id])];
+        } catch (err) {
+            onerror(err.message);
+        }
+    }
+
     async function openThread(root) {
         try {
             const answer = await api.get('messages/' + id, { thread: root.id });
             thread = { root: answer.messages[0] ?? root, replies: answer.messages.slice(1) };
             saved = [...new Set([...saved, ...(answer.saved ?? [])])];
+            todos = [...new Set([...todos, ...(answer.todos ?? [])])];
         } catch (err) {
             onerror(err.message);
         }
@@ -380,7 +393,7 @@
                     <div class="pf-conv-new" role="separator"><span>{t('New messages')}</span></div>
                 {:else}
                     <MessageItem {avatars} message={item.message} continued={item.continued} {me} {names} {api} {emoji} {customEmoji} {online} {moderator}
-                        onreply={openThread} {onerror} saved={saved.includes(item.message.id)} onsave={save} />
+                        onreply={openThread} {onerror} saved={saved.includes(item.message.id)} onsave={save} todo={todos.includes(item.message.id)} ontodo={todo} />
                 {/if}
             {/each}
             {#each notes as n (n.key)}
@@ -425,11 +438,11 @@
             </header>
             <div class="pf-conv-scroll">
                 <MessageItem {avatars} message={thread.root} {me} {names} {api} {emoji} {customEmoji} {online} {moderator} inThread {onerror}
-                    saved={saved.includes(thread.root.id)} onsave={save} />
+                    saved={saved.includes(thread.root.id)} onsave={save} todo={todos.includes(thread.root.id)} ontodo={todo} />
                 <div class="pf-conv-day" role="separator"><span>{tn(replies.length, '%s reply', '%s replies')}</span></div>
                 {#each replies as reply, i (reply.id)}
                     <MessageItem {avatars} message={reply} continued={i > 0 && replies[i - 1].authorId === reply.authorId && reply.at - replies[i - 1].at < 300}
-                        {me} {names} {api} {emoji} {customEmoji} {online} {moderator} inThread {onerror} saved={saved.includes(reply.id)} onsave={save} />
+                        {me} {names} {api} {emoji} {customEmoji} {online} {moderator} inThread {onerror} saved={saved.includes(reply.id)} onsave={save} todo={todos.includes(reply.id)} ontodo={todo} />
                 {/each}
             </div>
             <p class="pf-conv-typing" aria-live="polite">{#if threadTypers.length}{t('%s is typing…', threadTypers[0])}{/if}</p>

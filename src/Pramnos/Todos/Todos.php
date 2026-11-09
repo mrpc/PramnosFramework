@@ -95,6 +95,7 @@ final class Todos
         if ($assign !== null && ($item['tell'] ?? true) !== false) {
             self::given(['id' => $id, 'title' => $title, 'link' => $link, 'tenant' => $tenant], $assign, $by);
         }
+        self::changed($id, [$assign, $by]);
 
         return $id;
     }
@@ -169,6 +170,7 @@ final class Todos
         if ($to !== null && $to !== $item['assigned_to'] && empty($row['private'])) {
             self::given($item, $to, $by);
         }
+        self::changed($id, [$item['assigned_to'], $item['created_by'], $to, $by]);
     }
 
     /**
@@ -185,6 +187,7 @@ final class Todos
         self::db()->queryBuilder()->table(self::TABLE)->where('todoid', $id)->delete();
         ChangelogWriter::event('todo', $id, 'deleted', ['title' => mb_substr($item['title'], 0, 200)], by: $by);
         self::settle($id);
+        self::changed($id, [$item['assigned_to'], $by], true);
     }
 
     /**
@@ -431,6 +434,20 @@ final class Todos
         $allowed = self::config()['allowed'] ?? null;
 
         return !is_callable($allowed) || (bool) $allowed($tenant);
+    }
+
+    /**
+     * Tell the people an item concerns that it changed (`todo.changed`), where the conversations'
+     * realtime is there.
+     *
+     * @param list<?int> $people
+     */
+    private static function changed(int $id, array $people, bool $deleted = false): void
+    {
+        $people = array_values(array_unique(array_filter($people, static fn (?int $p): bool => $p !== null && $p > 0)));
+        if ($people !== []) {
+            \Pramnos\Conversations\Realtime::todo($people, $id, $deleted);
+        }
     }
 
     /** Settle an item's notices in everybody's bell: it was closed or deleted. */

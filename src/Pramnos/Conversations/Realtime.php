@@ -119,6 +119,19 @@ final class Realtime
         self::tell(self::userChannel($person), 'conversation.draft', $draft);
     }
 
+    /**
+     * A to-do added, changed or deleted — told as `todo.changed` on the people's own channels, so
+     * their lists and a message's mark are drawn again on every device and tab.
+     *
+     * @param list<int> $people
+     */
+    public static function todo(array $people, int $todoId, bool $deleted = false): void
+    {
+        foreach (array_unique($people) as $person) {
+            self::tell(self::userChannel($person), 'todo.changed', ['id' => $todoId, 'deleted' => $deleted]);
+        }
+    }
+
     /** A message changed — edited, deleted, reacted to, pinned — told as it now reads. */
     public static function changed(int $messageId, string $event): void
     {

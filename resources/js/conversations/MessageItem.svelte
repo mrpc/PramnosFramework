@@ -14,8 +14,12 @@
 
     let {
         message, continued = false, me, names = {}, avatars = {}, api, emoji = {}, customEmoji = {}, moderator = false, inThread = false,
-        online = {}, onreply = null, onerror = () => {}, saved = false, onsave = null,
+        online = {}, onreply = null, onerror = () => {}, saved = false, onsave = null, todo = false, ontodo = null,
     } = $props();
+
+    // "Remind me about this": the presets, the server's keys.
+    const presets = [['20m', 'In 20 minutes'], ['1h', 'In 1 hour'], ['3h', 'In 3 hours'], ['tomorrow', 'Tomorrow at 9:00'], ['monday', 'Next Monday at 9:00']];
+    let reminding = $state(false);
 
     let picking = $state(false);
     let pickAt = $state(null);                 // the button the reaction picker floats beside
@@ -250,6 +254,10 @@
             {#if !inThread && message.threadRootId === null && onreply}
                 <button type="button" title={t('Reply in thread')} aria-label={t('Reply in thread')} onclick={() => onreply(message)}>💬</button>
             {/if}
+            {#if ontodo}
+                <button type="button" class:pf-conv-active={todo} title={t('Add to-do')} aria-label={t('Add to-do')} disabled={todo} onclick={() => ontodo(message, null)}>☑</button>
+                <button type="button" title={t('Remind me about this')} aria-label={t('Remind me about this')} aria-expanded={reminding} onclick={() => (reminding = !reminding)}>⏰</button>
+            {/if}
             {#if onsave}
                 <button type="button" class:pf-conv-active={saved} aria-pressed={saved} title={saved ? t('Remove from saved') : t('Save for later')}
                     aria-label={saved ? t('Remove from saved') : t('Save for later')} onclick={() => onsave(message, !saved)}>🔖</button>
@@ -262,6 +270,16 @@
                 <button type="button" class="pf-conv-danger" title={t('Delete message')} aria-label={t('Delete message')} onclick={remove}>🗑</button>
             {/if}
         </div>
+    {/if}
+    {#if reminding}
+        <div class="pf-conv-menu" role="menu" aria-label={t('Remind me about this')}>
+            {#each presets as [key, label] (key)}
+                <button type="button" role="menuitem" onclick={() => { reminding = false; ontodo(message, key); }}>{t(label)}</button>
+            {/each}
+        </div>
+    {/if}
+    {#if todo && !deleted}
+        <span class="pf-conv-todo-mark">✓ {t('to-do added')}</span>
     {/if}
     {#if picking}
         <EmojiPicker onpick={toggle} onclose={() => (picking = false)} custom={customEmoji} shortcodes={emoji} anchor={pickAt} />

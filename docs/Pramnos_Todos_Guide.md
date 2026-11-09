@@ -6,6 +6,8 @@ use_cases:
   - Deciding who may be given to-dos and who sees which
   - Reminding someone of a to-do, or telling them what is due today
   - Handing a leaving person's to-dos to someone else
+  - Making a to-do of a chat message, or being reminded of one
+  - Building a chat's to-do list on the conversations' JSON API
 ---
 
 # To-dos
@@ -96,6 +98,47 @@ It runs:
   every bell. `Todos::seen($viewer)` settles a person's to-do notices; a screen showing the list
   calls it.
 - **Where it leads:** `todos.url`, the list at `/admin/Todo` by default.
+
+## In the conversations
+
+`Pramnos\Todos\Chat` makes to-dos from the chat:
+
+```php
+Chat::fromMessage($messageId, $reader);                 // "Add to-do": the whole message, private, the reader's
+Chat::fromMessage($messageId, $reader, preset: '1h');   // "Remind me about this": "Message from Maria: …"
+Chat::write($reader, "Book the room\n- for **ten**", preset: 'tomorrow');
+Chat::list($reader, filter: 'overdue', order: 'when');
+```
+
+- **From a message.** Only from a message the reader can read. The item keeps the message's whole
+  text and its `messageid` and `conversationid`, in place of a link.
+- **Reminder presets:** `20m`, `1h`, `3h`, `tomorrow` (9:00), `monday` (next Monday, 9:00), in the
+  organisation's zone; `Chat::presets()` gives their labels and times.
+- **Written in the chat.** Several lines, Markdown, emoji and mentions, up to 4000 characters, kept
+  as written; its first web address is also its link.
+- **The chat's list.** The reader's items and the unassigned they wrote; automatic items while
+  open, and for ten minutes after they close. Filters `all`, `messages`, `automatic`, `overdue`;
+  order `when` (the reminder, else the day, soonest first) or `newest`. Each item carries `from`
+  ("Maria in #general", "Direct with Maria"), `when`, `overdue` and `editable` (a hand-written
+  item's text can be edited in place; a message's or an automatic one opens what it is about).
+- **The mark.** `Chat::messageIds($reader, $ids)` lists the messages with the reader's open
+  to-do: the "✓ to-do added" mark.
+- **Move to saved.** `Chat::toSaved($id, $reader)` saves the message for later and the item goes.
+- **Live.** Every add, change and delete is told as `todo.changed` (`{id, deleted}`) on the
+  people's own channels, so a list and the marks are drawn again on every device and tab.
+
+Through the conversations' screen (JSON, behind sign-in, writes with the session's token):
+
+| Action | What |
+|---|---|
+| `GET Conversations/todos?filter=&order=` | The list and the presets; settles the reader's to-do notices |
+| `POST Conversations/todo` | `message` and/or `preset`/`remind_at`; or `text` |
+| `POST Conversations/todoupdate/{id}` | `status`, `title`, `due`, `preset` or `remind_at` |
+| `POST Conversations/tododelete/{id}` | One's own item |
+| `POST Conversations/todosave/{id}` | Move to saved |
+
+The `messages` answer carries `todos`, the marks of the messages it gives. The dock offers "Add
+to-do" and "Remind me about this" on each message, and shows the mark.
 
 ## An account that goes
 

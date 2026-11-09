@@ -72,7 +72,7 @@ use Pramnos\Http\Response;
 class Conversations extends Controller
 {
     /** The writes: each a POST with the session's token. */
-    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away', 'rename', 'setimage', 'clearimage'];
+    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away', 'rename', 'setimage', 'clearimage', 'todo', 'todoupdate', 'tododelete', 'todosave'];
 
     /** The JSON body, decoded once. @var array<string, mixed>|null */
     private ?array $json = null;
@@ -80,7 +80,7 @@ class Conversations extends Controller
     /** Registers the actions: all behind sign-in, the writes POSTs with the session's token. */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'emoji', 'preview', 'gifs', 'refs', 'emergencykey', 'reach', 'scheduled', 'drafts'], self::WRITES));
+        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'emoji', 'preview', 'gifs', 'refs', 'emergencykey', 'reach', 'scheduled', 'drafts', 'todos'], self::WRITES));
         $this->addWriteAction(self::WRITES);
         // A conversation's picture: an <img> may ask without a session where `images_public` is on;
         // image() itself asks whether the reader may see it.
@@ -248,6 +248,8 @@ class Conversations extends Controller
                 'formers' => Store::formers([$id])[$id] ?? [],
                 'messages' => $messages, 'pinned' => array_column(Messages::pinned($id), 'id'),
                 'saved' => Inbox::savedIds((int) $me->userid, array_column($messages, 'id')),
+                // The reader's "✓ to-do added" marks.
+                'todos' => \Pramnos\Todos\Chat::messageIds((int) $me->userid, array_column($messages, 'id')),
                 'draft' => \Pramnos\Conversations\Drafts::get((int) $me->userid, $id, isset($options['thread']) ? (int) $options['thread'] : null)];
         });
     }
@@ -305,6 +307,82 @@ class Conversations extends Controller
                 throw new \DomainException(t('That message no longer exists.'));
             }
             Inbox::save($message['id'], (int) $me->userid, $this->flag('on'));
+
+            return ['ok' => true];
+        });
+    }
+
+    /**
+     * The reader's to-dos as the chat lists them (`?filter=all|messages|automatic|overdue`,
+     * `&order=when|newest`), and the reminder presets.
+     */
+    public function todos(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $filter = in_array($this->in('filter'), \Pramnos\Todos\Chat::FILTERS, true) ? (string) $this->in('filter') : 'all';
+            \Pramnos\Todos\Todos::seen((int) $me->userid);
+
+            return ['todos' => \Pramnos\Todos\Chat::list($me, $filter, $this->in('order') === 'newest' ? 'newest' : 'when'),
+                'presets' => \Pramnos\Todos\Chat::presets()];
+        });
+    }
+
+    /**
+     * A to-do: from a message (`message`), or written (`text`) — with a reminder at a preset
+     * (`preset`) or a time (`remind_at`).
+     */
+    public function todo(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $preset = $this->in('preset') !== null ? (string) $this->in('preset') : null;
+            $at     = (int) ($this->in('remind_at') ?? 0) ?: null;
+            $item   = (int) ($this->in('message') ?? 0) > 0
+                ? \Pramnos\Todos\Chat::fromMessage((int) $this->in('message'), $me, $preset, $at)
+                : \Pramnos\Todos\Chat::write($me, (string) $this->in('text'), $preset, $at);
+
+            return ['todo' => $item];
+        });
+    }
+
+    /**
+     * Change one of the reader's to-dos: `status`, `title`, `due` (Y-m-d, '' clears it), and the
+     * reminder — `preset`, or `remind_at` (0 clears it).
+     */
+    public function todoupdate(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $changes = [];
+            foreach (['status', 'title', 'due'] as $key) {
+                if ($this->in($key) !== null) {
+                    $changes[$key] = (string) $this->in($key);
+                }
+            }
+            if ($this->in('preset') !== null && $this->in('preset') !== '') {
+                $changes['remind_at'] = \Pramnos\Todos\Chat::at((string) $this->in('preset'));
+            } elseif ($this->in('remind_at') !== null) {
+                $changes['remind_at'] = (int) $this->in('remind_at');
+            }
+            \Pramnos\Todos\Todos::update($this->id(), $changes, (int) $me->userid);
+
+            return ['ok' => true];
+        });
+    }
+
+    /** Delete one of the reader's own to-dos. */
+    public function tododelete(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Todos\Todos::delete($this->id(), (int) $me->userid);
+
+            return ['ok' => true];
+        });
+    }
+
+    /** "Move to saved": a message's to-do becomes the message saved for later. */
+    public function todosave(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Todos\Chat::toSaved($this->id(), $me);
 
             return ['ok' => true];
         });

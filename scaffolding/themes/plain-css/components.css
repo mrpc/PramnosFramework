@@ -1467,6 +1467,24 @@ a.pf-person:hover { background: var(--pf-subtle); }
 }
 .pf-conv-msg-actions button:hover { background: var(--pf-subtle); }
 .pf-conv-msg-actions .pf-conv-danger:hover { color: var(--pf-bad); background: color-mix(in oklab, var(--pf-bad) 10%, transparent); }
+/* "Remind me about this": its presets, under the message's actions */
+.pf-conv-menu {
+    position: absolute;
+    top: 1.4rem;
+    right: var(--pf-conv-gutter);
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    padding: 0.25rem;
+    background: var(--pf-surface);
+    border: 1px solid var(--pf-line);
+    border-radius: var(--pf-radius);
+    box-shadow: var(--pf-shadow);
+}
+.pf-conv-menu button { padding: 0.35rem 0.6rem; text-align: left; background: none; border: 0; border-radius: var(--pf-radius); cursor: pointer; color: inherit; }
+.pf-conv-menu button:hover { background: var(--pf-subtle); }
+/* A message the reader made a to-do of */
+.pf-conv-todo-mark { display: inline-block; margin-top: 0.2rem; font-size: 0.75rem; color: var(--pf-muted); }
 
 /* A system card: Jira, a payment, an alert */
 .pf-conv-card {
