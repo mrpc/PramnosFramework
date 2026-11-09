@@ -287,48 +287,73 @@ final class Store
      */
     private static function import(Database $db, Database $from, string $table, array $map, ?callable $progress): array
     {
+        $now = time();
+
+        return self::pour($db, $from->queryBuilder()->table($table)->get(), static function (array $source) use ($db, $map, $now): ?array {
+            $grain = ($map['grain'] ?? '') !== '' ? (string) ($source[$map['grain']] ?? '') : (string) $map['grainIs'];
+            $at    = $source[$map['period']] ?? null;
+            if (!in_array($grain, Window::GRAINS, true) || $at === null || $at === '' || (string) ($source[$map['metric']] ?? '') === '') {
+                return null;
+            }
+            $dims = [];
+            foreach ($map['dims'] ?? [] as $column) {
+                if (($source[$column] ?? '') !== '' && $source[$column] !== null) {
+                    $dims[$column] = (string) $source[$column];
+                }
+            }
+            $extra = [];
+            foreach ($map['extra'] ?? [] as $column) {
+                if (($source[$column] ?? null) !== null) {
+                    $extra[$column] = $source[$column];
+                }
+            }
+            $value  = $source[$map['value']] ?? null;
+            // A unix time, or a time or date read as UTC (an offset kept), then in the metrics' zone.
+            $window = Window::of($grain, is_numeric($at) && strlen((string) $at) > 8 ? (int) $at : self::key((string) $at));
+
+            return [$grain, self::row($db, ($map['prefix'] ?? '') . $source[$map['metric']], $window, $dims, $value === null ? null : (float) $value, self::IMPORTED, true, $now, $extra ?: null, 0, (int) ($map['version'] ?? self::VERSION))];
+        }, $progress);
+    }
+
+    /**
+     * Write the rows a query gives, each made by `$make` (`[grain, row]`, or null to leave it out),
+     * a thousand at a time, one statement per grain. The query is read once, row by row — no pages,
+     * so a table whose order is not unique loses and repeats nothing. A key given twice keeps the
+     * last row read, as one upsert after another would; `rows` counts the writes, so such a key
+     * read in two batches counts twice.
+     *
+     * @return array{rows: int, skipped: int}
+     */
+    private static function pour(Database $db, mixed $result, callable $make, ?callable $progress): array
+    {
         $rows    = 0;
         $skipped = 0;
-        $now     = time();
-        $offset  = 0;
-        do {
-            $batch = $from->queryBuilder()->table($table)->orderBy($map['period'])->limit(1000)->offset($offset)->get();
-            $offset += 1000;
-            $byGrain = [];
-            foreach ($batch as $source) {
-                $grain = ($map['grain'] ?? '') !== '' ? (string) ($source[$map['grain']] ?? '') : (string) $map['grainIs'];
-                $at    = $source[$map['period']] ?? null;
-                if (!in_array($grain, Window::GRAINS, true) || $at === null || $at === '' || (string) ($source[$map['metric']] ?? '') === '') {
-                    $skipped++;
-                    continue;
-                }
-                $dims = [];
-                foreach ($map['dims'] ?? [] as $column) {
-                    if (($source[$column] ?? '') !== '' && $source[$column] !== null) {
-                        $dims[$column] = (string) $source[$column];
-                    }
-                }
-                $extra = [];
-                foreach ($map['extra'] ?? [] as $column) {
-                    if (($source[$column] ?? null) !== null) {
-                        $extra[$column] = $source[$column];
-                    }
-                }
-                $value  = $source[$map['value']] ?? null;
-                // A unix time, or a time or date read as UTC (an offset kept), then in the metrics' zone.
-                $window = Window::of($grain, is_numeric($at) && strlen((string) $at) > 8 ? (int) $at : self::key((string) $at));
-                $byGrain[$grain][] = self::row($db, ($map['prefix'] ?? '') . $source[$map['metric']], $window, $dims, $value === null ? null : (float) $value, self::IMPORTED, true, $now, $extra ?: null, 0, (int) ($map['version'] ?? self::VERSION));
+        $batch   = [];
+        $held    = 0;
+        $flush   = static function () use ($db, &$batch, &$held, &$rows, $progress, &$skipped): void {
+            foreach ($batch as $grain => $byKey) {
+                $db->queryBuilder()->table(self::table($grain))->upsertMany(array_values($byKey), self::KEY, ['dimset', 'dims', 'value', 'extra', 'source', 'final', 'computed_at']);
+                $rows += count($byKey);
             }
-            foreach ($byGrain as $grain => $insert) {
-                foreach ($insert as $row) {
-                    $db->queryBuilder()->table(self::table($grain))->upsert($row, self::KEY, ['value', 'extra', 'source', 'final', 'computed_at']);
-                }
-                $rows += count($insert);
-            }
+            $batch = [];
+            $held  = 0;
             if ($progress !== null) {
                 $progress($rows, $skipped);
             }
-        } while (count($batch) === 1000);
+        };
+        while ($result && ($source = $result->fetch()) !== null && $source !== false) {
+            $made = $make($source);
+            if ($made === null) {
+                $skipped++;
+                continue;
+            }
+            [$grain, $row] = $made;
+            $batch[$grain][$row['metric'] . '|' . $row['tenant'] . '|' . $row['dims_hash'] . '|' . $row['version'] . '|' . $row['period_start']] = $row;
+            if (++$held >= 1000) {
+                $flush();
+            }
+        }
+        $flush();
 
         return ['rows' => $rows, 'skipped' => $skipped];
     }
@@ -350,29 +375,14 @@ final class Store
     /** Copy the single table's rows into the grains' tables; how many. */
     private static function copyLegacy(Database $db, string $legacy): int
     {
-        $copied = 0;
-        $offset = 0;
-        do {
-            $batch = $db->queryBuilder()->table($legacy)->orderBy('period_start')->limit(1000)->offset($offset)->get();
-            $offset += 1000;
-            $byGrain = [];
-            foreach ($batch as $old) {
-                if (!in_array((string) $old['grain'], Window::GRAINS, true)) {
-                    continue;
-                }
-                $window = Window::of((string) $old['grain'], substr((string) $old['period_start'], 0, 10));
-                $dims   = json_decode((string) $old['dims'], true);
-                $row    = self::row($db, (string) $old['metric'], $window, is_array($dims) ? $dims : [], $old['value'] === null ? null : (float) $old['value'], (string) $old['source'], (int) $old['final'] === 1, (int) $old['computed_at']);
-                $byGrain[(string) $old['grain']][] = $row;
+        return self::pour($db, $db->queryBuilder()->table($legacy)->get(), static function (array $old) use ($db): ?array {
+            if (!in_array((string) $old['grain'], Window::GRAINS, true)) {
+                return null;
             }
-            foreach ($byGrain as $grain => $insert) {
-                foreach ($insert as $row) {
-                    $db->queryBuilder()->table(self::table($grain))->upsert($row, self::KEY, ['value', 'source', 'final', 'computed_at']);
-                }
-                $copied += count($insert);
-            }
-        } while (count($batch) === 1000);
+            $window = Window::of((string) $old['grain'], substr((string) $old['period_start'], 0, 10));
+            $dims   = json_decode((string) $old['dims'], true);
 
-        return $copied;
+            return [(string) $old['grain'], self::row($db, (string) $old['metric'], $window, is_array($dims) ? $dims : [], $old['value'] === null ? null : (float) $old['value'], (string) $old['source'], (int) $old['final'] === 1, (int) $old['computed_at'])];
+        }, null)['rows'];
     }
 }

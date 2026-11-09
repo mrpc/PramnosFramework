@@ -2291,6 +2291,63 @@ class QueryBuilder
     }
 
     /**
+     * Insert many rows in one statement per 500, each updating the row it conflicts with:
+     * {@see upsert()} for a list. `$updateColumns` is a list of column names, each taking the
+     * value the row proposed (`EXCLUDED.col` / `VALUES(col)`). Every row needs the first row's
+     * columns. Two rows of one statement with the same key are refused by PostgreSQL ("cannot
+     * affect row a second time"): give each key once.
+     *
+     * @param list<array<string, mixed>> $rows
+     * @param list<string>               $conflictColumns
+     * @param list<string>               $updateColumns
+     * @return int Rows written
+     * @throws \InvalidArgumentException When a row's columns differ, or no column is to be updated
+     */
+    public function upsertMany(array $rows, array $conflictColumns, array $updateColumns): int
+    {
+        $rows = array_values($rows);
+        if ($rows === []) {
+            return 0;
+        }
+        if ($updateColumns === [] || !array_is_list($updateColumns)) {
+            throw new \InvalidArgumentException('upsertMany(): name the columns a conflict updates, as a list.');
+        }
+        $columns = array_keys($rows[0]);
+        $sorted  = $columns;
+        sort($sorted);
+        foreach ($rows as $i => $row) {
+            $keys = array_keys($row);
+            sort($keys);
+            if ($keys !== $sorted) {
+                throw new \InvalidArgumentException(
+                    'upsertMany(): row ' . $i . ' has columns ' . implode(', ', array_keys($row))
+                    . '; every row needs the first row\'s: ' . implode(', ', $columns)
+                );
+            }
+        }
+
+        $written = 0;
+        foreach (array_chunk($rows, 500) as $chunk) {
+            $this->type = 'INSERT';
+            $this->bindings['values'] = [];
+            $tuples = [];
+            foreach ($chunk as $row) {
+                $ordered = array_map(static fn (string $column) => $row[$column], $columns);
+                $this->addBinding(array_values(array_filter($ordered, fn ($v) => !($v instanceof Expression))), 'values');
+                $tuples[] = '(' . implode(', ', array_map(fn ($v) => $this->grammar->getPlaceholder($v), $ordered)) . ')';
+            }
+            // compileUpsert() is the first row's statement: its tuple is replaced by the list.
+            $single = $this->grammar->compileUpsert($this, array_combine($columns, array_map(static fn (string $c) => $chunk[0][$c], $columns)), $conflictColumns, $updateColumns);
+            $at     = (int) strpos($single, ' VALUES (') + strlen(' VALUES ');
+            $sql    = substr($single, 0, $at) . implode(', ', $tuples) . substr($single, $at + strlen($tuples[0]));
+            $this->db->execute(str_replace('#PREFIX#', $this->db->prefix, $sql), ...$this->getBindings());
+            $written += count($chunk);
+        }
+
+        return $written;
+    }
+
+    /**
      * Insert a record, silently ignoring duplicate-key conflicts.
      * MySQL: INSERT IGNORE — skips the row on any key violation.
      * PostgreSQL: INSERT ... ON CONFLICT DO NOTHING.

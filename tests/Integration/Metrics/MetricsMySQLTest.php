@@ -596,6 +596,57 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * More than a batch of rows in one period — the store's order is not unique there — each
+     * imported exactly once; a key the source gives twice kept once, its last row as read; and
+     * `upsertMany()` refuses rows of different columns, or nothing to update.
+     */
+    public function testALargeImportTakesEveryRowOnce(): void
+    {
+        // Arrange
+        $schema = $this->db->schema();
+        $schema->dropTableIfExists('metrics_test_big');
+        $schema->createTable('metrics_test_big', function ($table) {
+            $table->string('metric', 64);
+            $table->date('month');
+            $table->string('market', 8)->default('');
+            $table->decimal('value', 20, 4);
+        });
+        $rows = [];
+        for ($i = 0; $i < 1250; $i++) {
+            $rows[] = ['metric' => 'big' . intdiv($i, 2), 'month' => '2025-03-01', 'market' => $i % 2 === 0 ? '' : 'gr', 'value' => $i];
+        }
+        $rows[] = ['metric' => 'big0', 'month' => '2025-03-01', 'market' => '', 'value' => 999];   // the same key again
+        $this->db->queryBuilder()->table('metrics_test_big')->insertMany($rows);
+        $refused = [];
+        foreach ([[[['a' => 1], ['b' => 2]], ['a'], ['a']], [[['a' => 1]], ['a'], []]] as [$many, $key, $update]) {
+            try {
+                $this->db->queryBuilder()->table('metrics_test_big')->upsertMany($many, $key, $update);
+            } catch (\InvalidArgumentException $e) {
+                $refused[] = $e->getMessage();
+            }
+        }
+
+        try {
+            // Act
+            $done = \Pramnos\Metrics\Store::adopt($this->db, $this->db, 'metrics_test_big', ['metric' => 'metric', 'grainIs' => 'month', 'period' => 'month', 'value' => 'value', 'dims' => ['market'], 'prefix' => 'test.']);
+            $kept = $this->db->queryBuilder()->table(\Pramnos\Metrics\Store::table('month'))->where('metric', 'like', 'test.big%')->count();
+            $distinct = $this->db->query('SELECT COUNT(*) AS n FROM (SELECT DISTINCT metric, dims_hash FROM ' . $schema->quoteTable(\Pramnos\Metrics\Store::table('month')) . " WHERE metric LIKE 'test.big%') d")->fetch();
+
+            // Assert
+            // `rows` counts writes: the repeated key, read after the first thousand, is written again over itself.
+            $this->assertContains($done['rows'], [1250, 1251]);
+            $this->assertSame(0, $done['skipped']);
+            $this->assertSame(1250, $kept);
+            $this->assertSame(1250, (int) $distinct['n'], 'each metric and breakdown exactly once');
+            $this->assertSame(999.0, (float) $this->db->queryBuilder()->table(\Pramnos\Metrics\Store::table('month'))->where('metric', 'test.big0')->where('dimset', '')->first()->fetch()['value'], 'the last row of a repeated key');
+            $this->assertCount(2, $refused);
+        } finally {
+            \Pramnos\Metrics\Store::forget($this->db, 'test.%');
+            $schema->dropTableIfExists('metrics_test_big');
+        }
+    }
+
+    /**
      * The store's lock: while another connection holds it — a conversion, an import, another
      * computation — a computation does nothing and says it was busy (the command too, without
      * failing), and once it is let go the computation runs.

@@ -1005,6 +1005,20 @@ that. Every row has the first row's columns, in any order; a row with a column m
 is refused with an `InvalidArgumentException` before anything is written. An `Expression`
 value is inlined, as in `insert()`.
 
+#### `upsertMany(array $rows, array $conflictColumns, array $updateColumns): int`
+
+```php
+$db->queryBuilder()->table('stats.metric_values_month')->upsertMany($rows,
+    ['metric', 'tenant', 'dims_hash', 'version', 'period_start'],   // conflict target
+    ['value', 'computed_at']);                                       // taken from the row on conflict
+```
+
+`upsert()` for a list: one statement per 500 rows instead of one per row. A conflicting row's
+listed columns take the proposed value (`EXCLUDED.col` / `VALUES(col)`). The rows need the first
+row's columns, and the columns to update are a non-empty list; otherwise it throws
+`InvalidArgumentException` before anything is written. Give each key once per call: PostgreSQL
+refuses a statement that would update the same row twice.
+
 #### `upsert(array $values, array $conflictColumns, array $updateValues = []): Result`
 
 ```php
