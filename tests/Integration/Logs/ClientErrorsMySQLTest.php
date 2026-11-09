@@ -139,7 +139,7 @@ class ClientErrorsMySQLTest extends TestCase
 
         // Act
         $first  = $errors->record($report, 'Firefox', 5);
-        $second = $errors->record(['page' => 'https://app.test/invoices'] + $report, 'Chrome');
+        $second = $errors->record(['page' => 'https://App.test/account/reset/u/48211/v/9f3c0a?x=1'] + $report, 'Chrome');
         $rows   = $this->rows();
 
         // Assert
@@ -148,7 +148,7 @@ class ClientErrorsMySQLTest extends TestCase
         $row = $rows[$first];
         $this->assertSame(2, (int) $row['seentimes']);
         $this->assertSame('Chrome', $row['agent'], 'the latest reporter');
-        $this->assertSame('https://app.test/invoices', $row['page']);
+        $this->assertSame('https://app.test/account/reset/u/:id/v/:id', $row['page'], 'its path masked: a reset link\'s token is not kept');
         $this->assertSame('/assets/js/app.js', $row['source'], 'no query string');
         // The one line the older readers show: where, what, and the page it was first seen on
         $this->assertSame("/assets/js/app.js:40\n\nx is undefined: https://app.test/orders", $row['error']);

@@ -108,6 +108,29 @@ class ClientVitalsTest extends TestCase
     }
 
     /**
+     * A path is kept masked — a reset link's token never reaches the table — and its group is
+     * found on the masked path; `vitals.path` replaces the masking where an application wants its
+     * own.
+     */
+    #[DataProvider('databases')]
+    public function testThePathIsMasked(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connect($type, $host, $port, ['sample' => 1, 'groups' => ['reset' => '#^/el/account/rpc/u/:id#']]);
+        $vitals = new ClientVitals();
+
+        // Act
+        $vitals->record(self::report('/el/account/rpc/u/48211/v/9F3C0A', ['LCP' => 900]), false);
+        Application::getInstance()->applicationInfo['vitals']['path'] = static fn (string $path): string => '/own' . strtoupper($path);
+        $vitals->record(self::report('/a/b', ['LCP' => 900]), false);
+        $rows = $this->db->queryBuilder()->table('pramnos.client_vitals')->orderBy('id')->getAllOrFail();
+
+        // Assert
+        $this->assertSame(['/el/account/rpc/u/:id/v', 'reset'], [$rows[0]['path'], $rows[0]['page_group']]);
+        $this->assertSame('/own/A/B', $rows[1]['path'], 'the application\'s own');
+    }
+
+    /**
      * What an application reads a measurement by besides its page and device: its own dimension
      * (given the path, the report and the request), the page's look, and the element an LCP or a
      * CLS is about, cut to 100 characters. A lab or a robot is not kept; a report with no device
@@ -142,6 +165,7 @@ class ClientVitalsTest extends TestCase
         $this->assertSame(100, mb_strlen((string) $rows[0]['target']));
         $this->assertSame('div.banner', $rows[1]['target'], 'one line');
         $this->assertSame(['cy', null, null], [$rows[2]['dimension'], $rows[2]['ui'], $rows[2]['target']]);
+        $this->assertSame('/el/jobs', $rows[0]['path']);
         $this->assertStringContainsString('data-ui="new"', ClientVitals::tag(['ui' => 'new']));
         $this->assertStringNotContainsString('data-ui', ClientVitals::tag());
     }

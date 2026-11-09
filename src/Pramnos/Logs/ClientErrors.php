@@ -171,7 +171,8 @@ final class ClientErrors
         }
         $kind   = in_array($report['kind'] ?? 'error', self::KINDS, true) ? (string) ($report['kind'] ?? 'error') : 'error';
         $source = self::withoutQuery((string) ($report['source'] ?? ''));
-        $page   = self::withoutQuery((string) ($report['page'] ?? ''));
+        // Its path masked: a reset link or an invitation carries its token in it ({@see PagePath}).
+        $page   = trim((string) ($report['page'] ?? '')) === '' ? '' : self::cut(PagePath::maskUrl(self::withoutQuery((string) $report['page'])), 255);
         $line   = isset($report['line']) && is_numeric($report['line']) ? (int) $report['line'] : null;
         $column = isset($report['column']) && is_numeric($report['column']) ? (int) $report['column'] : null;
 

@@ -117,7 +117,8 @@ final class ClientVitals
      *
      * Not kept at all from a lab or a robot — Lighthouse, PageSpeed, GTmetrix, Pingdom, a
      * headless browser, a crawler ({@see isRobot()}): their numbers are not a visitor's. A report
-     * with no device takes it from the user agent. `vitals.dimension` — `fn (string $path, array
+     * with no device takes it from the user agent. The path is masked ({@see PagePath}) — or given to
+     * `vitals.path`, `fn (string $path): string` — before its group is found. `vitals.dimension` — `fn (string $path, array
      * $report, array $server): ?string` — gives the application's own value, a market say.
      *
      * @param array<string, mixed>      $report
@@ -130,7 +131,10 @@ final class ClientVitals
         if (self::isRobot($agent)) {
             return 0;
         }
-        $path   = mb_substr((string) (is_string($report['path'] ?? null) ? $report['path'] : ''), 0, 255);
+        // Masked before anything reads it: a path may carry a live token ({@see PagePath}).
+        $raw    = is_string($report['path'] ?? null) ? $report['path'] : '';
+        $own    = self::config()['path'] ?? null;
+        $path   = mb_substr(is_callable($own) ? (string) $own($raw) : PagePath::mask($raw), 0, 255);
         $device = in_array($report['device'] ?? '', ['mobile', 'desktop'], true) ? (string) $report['device']
             : ($agent === '' ? '' : (\Pramnos\Visits\Hits::device($agent) === 'desktop' ? 'desktop' : 'mobile'));
         $shared = [

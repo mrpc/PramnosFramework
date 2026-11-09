@@ -794,6 +794,18 @@ controller of the application's own needed. It applies the same checks as `Clien
 same-origin POST, small body, and 30 a minute per address, answered with 429 beyond that. The
 limit is counted apart from the errors' own.
 
+**The path is kept masked** (`Pramnos\Logs\PagePath`), because a reset link, an invitation or an
+RSVP carries its token in the path, and the table would keep live tokens for as long as it keeps
+rows:
+- lower case, and only the first six segments;
+- a segment with a digit, an `@`, or over 60 characters becomes `:id`;
+- one with any other character than `a-z 0-9 . _ -` becomes `:x`.
+
+So `/el/account/rpc/u/48211/v/9F3C` is kept as `/el/account/rpc/u/:id/v`. A page group's pattern
+matches the masked path, so it names `:id` rather than `\d+`. An application that wants a path of
+its own making sets `'vitals' => ['path' => fn (string $path): string => …]`. A browser error's
+`page` is masked the same way, its host kept.
+
 A lab or a robot is not kept: Lighthouse, PageSpeed, GTmetrix, Pingdom, WebPageTest, a headless
 or automated browser, or a crawler `BotDetector` knows. Their numbers are not a visitor's.
 
