@@ -37,7 +37,7 @@ class MoveConversationsAndAskToSchemas extends Migration
     /** Move them. */
     public function up(): void
     {
-        foreach (self::MOVES as $target => $tables) {
+        foreach (static::MOVES as $target => $tables) {
             foreach ($tables as $table) {
                 $this->move($table, $target);
             }
@@ -47,7 +47,7 @@ class MoveConversationsAndAskToSchemas extends Migration
     /** Move them back, the conversations' first. */
     public function down(): void
     {
-        foreach (array_reverse(self::MOVES, true) as $source => $tables) {
+        foreach (array_reverse(static::MOVES, true) as $source => $tables) {
             foreach ($tables as $table) {
                 $this->back($table, $source);
             }

@@ -21,6 +21,7 @@ use Pramnos\Framework\Migrations\Conversations\MoveConversationsAndAskToSchemas;
  */
 #[CoversClass(MoveConversationsAndAskToSchemas::class)]
 #[CoversClass(SchemaBuilder::class)]
+#[CoversClass(\Pramnos\Framework\Migrations\Llm\MoveAskToAssistSchema::class)]
 class MoveConversationsToSchemasMigrationTest extends TestCase
 {
     /** The throwaway database. */
@@ -94,6 +95,70 @@ class MoveConversationsToSchemasMigrationTest extends TestCase
             $this->assertSame('Ask', $db->query('SELECT title FROM ' . $t('chat_conversations'))->fields['title'], 'back where it was');
             $this->assertSame('general', $db->query('SELECT slug FROM ' . $t('conversations'))->fields['slug']);
         } finally {
+            $db->close();
+            $this->drop($type, $host, $port, $user);
+        }
+    }
+
+    /**
+     * An installation with language models but without the conversations never runs the
+     * conversations' migrations: the assistant's move lives with the language models too. Its
+     * `chat_*` tables move to `assist.*` with their rows; a table named like the conversations' is
+     * not touched; a second run does nothing; and a new installation makes them there at once.
+     */
+    #[DataProvider('databases')]
+    public function testWithoutTheConversationsTheAssistantStillMoves(string $type, string $host, int $port, string $user, string $prefix): void
+    {
+        // Arrange
+        require_once ROOT . '/database/migrations/framework/llm/2026_11_09_000012_move_ask_to_assist_schema.php';
+        require_once ROOT . '/database/migrations/framework/llm/2026_10_13_000003_create_chat_conversations_table.php';
+        $db  = $this->probe($type, $host, $port, $user, $prefix);
+        $app = new Application();
+        $app->database = $db;
+        $t = static fn (string $name): string => $type === 'mysql' ? '`' . $prefix . $name . '`' : $prefix . $name;
+        $db->query('CREATE TABLE ' . $t('chat_conversations') . ' (conversation_id INT PRIMARY KEY, title VARCHAR(50))');
+        $db->query('CREATE TABLE ' . $t('chat_messages') . ' (message_id INT PRIMARY KEY, conversation_id INT)');
+        $db->query('CREATE TABLE ' . $t('conversations') . ' (conversationid INT PRIMARY KEY)');
+        $db->query('INSERT INTO ' . $t('chat_conversations') . " VALUES (1, 'Ask')");
+        $db->query('INSERT INTO ' . $t('chat_messages') . ' VALUES (5, 1)');
+        SchemaBuilder::forgetWhatExists($db);
+        $migration = new \Pramnos\Framework\Migrations\Llm\MoveAskToAssistSchema($app);
+        $features  = new class extends Application {
+            /** The directories an installation with only these features runs. @return string[] */
+            public function dirsFor(array $dirs): array
+            {
+                return $this->filterMigrationDirsByEnabledFeatures($dirs);
+            }
+        };
+        $enabled = \Pramnos\Application\FeatureRegistry::getEnabled();
+        \Pramnos\Application\FeatureRegistry::reset();
+        \Pramnos\Application\FeatureRegistry::loadFromConfig(['llm']);
+        $base = \Pramnos\Database\MigrationLoader::resolveFrameworkMigrationsBase();
+
+        try {
+            // Act
+            $runs = array_map('basename', $features->dirsFor([$base . '/llm', $base . '/conversations']));
+            $migration->up();
+            $migration->up();
+            $read = static fn (string $table, string $column) => $db->queryBuilder()->table($table)->value($column);
+
+            // Assert
+            $this->assertSame(['llm'], $runs, 'an installation with only language models runs the move that is theirs');
+            $this->assertSame('Ask', $read('assist.chat_conversations', 'title'), 'moved, with its rows');
+            $this->assertSame(5, (int) $read('assist.chat_messages', 'message_id'));
+            $this->assertTrue($db->schema()->hasTable($prefix . 'conversations') || $db->schema()->hasTable('conversations'), 'the conversations\' table: not this move\'s');
+
+            // Act — a new installation
+            $db->query('DROP TABLE ' . ($type === 'mysql' ? '`' . $prefix . 'assist_chat_conversations`' : 'assist.chat_conversations'));
+            SchemaBuilder::forgetWhatExists($db);
+            (new \Pramnos\Framework\Migrations\Llm\CreateChatConversationsTable($app))->up();
+            SchemaBuilder::forgetWhatExists($db);
+
+            // Assert
+            $this->assertTrue($db->schema()->hasTable('assist.chat_conversations'), 'made in its schema at once');
+        } finally {
+            \Pramnos\Application\FeatureRegistry::reset();
+            \Pramnos\Application\FeatureRegistry::loadFromConfig($enabled);
             $db->close();
             $this->drop($type, $host, $port, $user);
         }
