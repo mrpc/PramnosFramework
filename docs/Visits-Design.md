@@ -1,7 +1,7 @@
 ---
 use_cases:
-  - Designing the framework's site-traffic tracker shared by every application
-  - Deciding whether a site counts visits with a cookie or without one
+  - Counting the visits to an application's own site in the framework
+  - Deciding whether an application counts its visits with a cookie or without one
   - Fixing the urls registry's collisions, duplicates and orphans
   - Moving an application's own visit tables onto the framework without downtime
   - Checking whether an application's own Web Vitals duplicate the framework's
@@ -9,18 +9,24 @@ use_cases:
 
 # Site traffic (design, FW-365)
 
-**Status:** proposal. The content platform approved it with the changes folded in below (§9). The marketplace's answer is awaited.
+**Status:** proposal, for the marketplace's approval before any code.
 
-Two applications count their sites' traffic, each its own way. The marketplace has a small
-Matomo: a visit with a cookie, its pages, its source, the person once they sign in. The content
-platform has a cookieless counter for the many sites it is connected to, written through the
-framework's `WriteSpool`, with continuous aggregates kept for ever. Both become one feature of the
-framework, `visits`, opt-in. Neither loses anything. The `urls` registry they both lean on is
-fixed on the way.
+**Scope: an application's own traffic** — the visits to its own site and screens. The
+marketplace counts its own with a small Matomo: a visit with a cookie, its pages, its source, the
+person once they sign in. That becomes a feature of the framework, `visits`, opt-in, and the
+marketplace loses nothing in the move. Any other application counts its own the same way, as a
+plain user of the feature.
+
+**Not in scope:** the content platform's statistics for its customers' sites — a counter for many
+third-party sites, its key per site, its WordPress plugin's beacon, its aggregates per article.
+That is a product feature of that application and stays its own. Its techniques are taken here:
+the cookieless daily hash, writing through `WriteSpool`, the referrer spam list, the GeoIP reader.
+
+The `urls` registry the marketplace's visits lean on is fixed on the way.
 
 ## 1. What there is
 
-| | Marketplace | Content platform | Framework today |
+| | Marketplace (its own site) | Content platform's customer counter (techniques only) | Framework today |
 |---|---|---|---|
 | Beacon | `tracker.php`, every page, even from the page cache | `sendBeacon` POST and a `<noscript>` GET, 204 | `pf-vitals.js` → `ClientVitals` (Web Vitals only) |
 | Visitor | `visitid` cookie; a visit ends after 30′ idle, or on another site or campaign | 8 bytes of `sha256(daily salt · IP · UA · site)`; no visit, nothing kept of the person | — |
@@ -55,8 +61,7 @@ hits.
   | `seq` | Its number within the visit: 1 is the landing page |
   | `kind` | `view`, `click` (a link out), `event` |
   | `urlid` | The page, through `urls` (§5) |
-  | `post` | The application's own id of what the page shows (an article), 0 for none: a renamed post keeps its history |
-  | `target` | `urlid` of the link out, for a click, its query kept (`watch?v=` is the video) |
+  | `target` | `urlid` of the link out, for a click, its query kept |
   | `referrer_host`, `referrer` | The host as text, the rest as a `urlid`; on the first hit of a visit |
   | `source`, `medium`, `campaign` | The classification (§3.3) and the utm, on the first hit |
   | `userid` | The person, from the hit on which they are known |
@@ -64,18 +69,16 @@ hits.
   | `device`, `browser`, `os`, `screen` | |
   | `flags` | Bit field: bot, no JavaScript, prerender, from the page cache |
 
-- **`pramnos.sites`**: `siteid`, `tenant`, `name`, `key` (public; an existing key is taken as it
-  is), `origins` (each host with its `www.` and subdomains), `visitor` (`cookie` or `cookieless`),
-  `idle` (30′), `keep` (the raw rows' retention: 90 days for the content platform), `count_nojs`
-  (a page without JavaScript counts as a view in the figures: the content platform's do).
+- **`pramnos.sites`**: the application's own sites — usually one; a few where it has markets
+  or areas of its own (§9). `siteid`, `name`, `hosts` (each host with its `www.` and subdomains),
+  `visitor` (`cookie` or `cookieless`), `idle` (30′), `keep` (the raw rows' retention).
 - **Continuous aggregates** (real-time, refreshed every 30′, kept for ever), in `stats.*`:
   - `traffic_hourly` and `traffic_daily` (site × source × device × flags: hits, visits, landings,
     exits);
   - `visitors_daily` (site × day, flags left out: distinct visitors — a distinct does not add up
     across groups, so it has its own; a range adds up its days, right for the daily hash);
-  - `pages_hourly` (site × post × hour) and `pages_daily` (by post, and by path for post 0);
-  - `referrers_daily` (referrer host and path → landing post or path: "from that page to this
-    one");
+  - `pages_daily` (site × path);
+  - `referrers_daily` (referrer host and path → landing path: "from that page to this one");
   - `campaigns_daily` (source, medium and campaign together);
   - `places_daily`, `tech_daily`;
   - `clicks_daily` (target host and path, the query kept).
@@ -92,8 +95,9 @@ Per site, `sites.visitor`:
 - **`cookie`** (the marketplace's): a first-party `pf_vid` cookie, a visit's id in `pf_visit`,
   30′ idle, a new visit on another site or campaign. The account joins on the first hit after
   signing in, and the hits before it are the same visit's, so the visit is theirs.
-- **`cookieless`** (the content platform's): the daily-salted hash, no cookie, no visit, never
-  a person. The salt is replaced at midnight UTC, in `pramnos.settings`.
+- **`cookieless`** (the content platform's technique, for an application that sets no cookie):
+  the daily-salted hash, no visit, never a person. The salt is replaced at midnight UTC, in
+  `pramnos.settings`.
 
 ## 3. Taking a hit
 
@@ -104,19 +108,12 @@ clicks queued before the page leaves; a `<noscript>` image for no JavaScript.
 `POST /pf/hit` (and `GET` for the image) answers 204 always. Mounted by the feature, and
 served from the page cache too: it asks nothing of the session.
 
-Beacons already embedded elsewhere keep working. A plugin's or a customer's snippet posts to an
-application's own address with its own fields, and the application's route hands them on:
-`Visits::record($payload, $ip, $ua, $origin, $map)`. `$map` names the payload's fields (`t`
-v/c, `p` post, `u`, `r`, `h`, `s`/`m`/`c` utm, for the content platform).
-
 ### 3.2 Refused before it costs anything
 
-A key that names no site, an origin not the site's, a referrer on the spam list (Matomo's), more
+An origin that is not one of the application's hosts, a referrer on the spam list (Matomo's), more
 than 60 a minute from one visitor (an atomic cache), and more than 20 events in a request are
 dropped. **A bot or a page without JavaScript is kept, flagged** (`flags`), and counted apart:
 the marketplace's reports say how many there were, and a wrong flag can be corrected later.
-The content platform drops them today; it would keep them, flagged, and its figures exclude them
-as now.
 
 ### 3.3 Where it came from
 
@@ -127,12 +124,13 @@ host lists are the framework's and an application adds its own (`visits.sources`
 ### 3.4 Written later
 
 `WriteSpool::append('pramnos.page_hits', $row)`: a line in a file, or redis. `spool:drain` writes
-them in batches of 500 every minute, as the content platform does now. The marketplace's hits go
+them in batches of 500 every minute. The marketplace's hits go
 the same way, so its pages no longer wait on an INSERT.
 
 ### 3.5 Place and device
 
-- `Pramnos\Visits\GeoIp`: the content platform's reader of a MaxMind-format database, DB-IP City
+- `Pramnos\Visits\GeoIp`: a reader of a MaxMind-format database (the content platform's, taken as
+  a technique), DB-IP City
   Lite by default, refreshed monthly by `geoip:update`. The marketplace's own GeoIP2 database
   works with it unchanged. `maxmind-db/reader` is a `suggest`; without it there is no place, and
   the hit is still counted. The attribution DB-IP asks for is shown wherever places are shown.
@@ -144,15 +142,11 @@ the same way, so its pages no longer wait on an INSERT.
 - **Metrics** (FW-360's): `visits.views`, `visits.visitors`, `visits.visits`, `visits.landings`.
   Their dimensions are site, source, country, device and page group. They read the daily
   aggregate, and bots and no-JS are left out unless a filter asks for them.
-- **The assistant's tool `visits`** joins the marketplace's `VisitsTool` and the content
-  platform's `SiteTrafficTool`. It answers sources, campaigns, countries, pages, referrers, clicks,
-  devices and a period against another. `visits.tool` renames it.
+- **The assistant's tool `visits`**, the marketplace's `VisitsTool`: sources, campaigns,
+  countries, pages, referrers, clicks, devices and a period against another. `visits.tool`
+  renames it.
 - **A dashboard card**, and "online now" from `SessionTrackingMiddleware`.
-- **The JSON API** for the content platform's stats pages, with the attribution.
-- **Raw reads within `keep`**: `Visits::hits($site, $from, $to)` (totals, distinct visitors, top
-  posts), for reports the aggregates do not answer.
-- **`Visits::erase($tenant)`**: an organisation's sites, hits and figures, for its account's
-  erasure.
+- **The JSON API**, for a SPA's or a mobile application's own statistics screen.
 
 ## 5. The `urls` registry
 
@@ -198,7 +192,7 @@ production**, so `ensure` refuses above `--max-rows` (100,000 by default) and po
 ## 7. Moving over without downtime
 
 The marketplace's own move is its own, one-off script (the rule for conversion code). The
-framework gives it the steps, and the same steps serve the content platform's `site_hits`:
+framework gives it the steps:
 
 1. **Beside.** The framework's tables are made empty, beside the old ones; nothing reads them.
 2. **Both.** The tracker writes its old row as now and also appends the framework's hit. Every
@@ -212,9 +206,6 @@ framework gives it the steps, and the same steps serve the content platform's `s
 5. **Switched.** The metric, the tool and the reports read the framework's tables. The old writes
    stop, and the old tables stay read-only for 30 days.
 6. **Dropped**, by the application's own migration.
-
-The content platform's `site_hits` maps nearly one to one. Its CAggs are rebuilt from the
-imported rows.
 
 ## 8. Web Vitals: not doubled, but twice
 
@@ -232,19 +223,13 @@ Proposal: the framework's gains `vitals.dimensions` (`fn (string $path, array $r
 for market and theme) and a `HypertableRegistry` entry. The marketplace then moves its RUM onto
 it, once its before/after comparison (P0) is done.
 
-## 9. Questions for the applications
+## 9. Questions for the marketplace
 
 1. **Marketplace:** keep the raw hits for good (`keep` null, about 1 GB a quarter compressed far
    smaller), or 13 months with the aggregates for ever?
 2. **Marketplace:** the three markets — one site with a market dimension from the path (as
    vitals does), or three sites?
-3. **Content platform — answered:** bots and no-JS are kept flagged, with `count_nojs` on so its
-   figures stay as they are.
-4. **Content platform — answered:** `post` is a column, and the pages are aggregated by it.
-5. **Content platform — answered:** distinct visitors, referrer → landing, clicks with their
-   query, and the utm triple are covered (§2.1). The raw reads and the erasure are in §4, and an
-   existing key and beacon are covered by §3.1. **Marketplace:** anything of yours still
-   missing.
+3. Anything a report of yours reads that §2.1's columns or §4's aggregates do not cover.
 
 ## 10. Order
 
@@ -254,7 +239,7 @@ it, once its before/after comparison (P0) is done.
 | 2 | `HypertableRegistry` primary key; `timescale:ensure` for an existing small table |
 | 3 | `pramnos.sites`, `page_hits`, the beacon, refusals, spool, GeoIP, source classes |
 | 4 | Aggregates (CAggs, or the rollup), the metrics, the tool, the card, the API |
-| 5 | `Visits::import()`, `visits:compare`; the content platform's move, then the marketplace's |
+| 5 | `Visits::import()`, `visits:compare`; the marketplace's move |
 | 6 | Web Vitals: `vitals.dimensions` and the hypertable entry |
 
 Step 1 helps today, whatever is decided about the rest. It can go first on the marketplace's word.
