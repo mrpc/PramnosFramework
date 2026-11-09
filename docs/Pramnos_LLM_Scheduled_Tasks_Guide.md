@@ -282,3 +282,11 @@ $tasks->handover($leaving, [$orgId => ['to' => (int) $_POST['successor'], 'perso
 // then remove the membership; what was not handed over stays the leaver's, paused by
 // TaskPolicy::stillAllowed() at its next run if the application checks membership there
 ```
+
+### Sending a task as a metrics report
+
+Where the application has metrics, a daily, weekly or monthly task can become a report with tables
+and charts: `$tasks->asReport($scope, $id)`, or `POST /chat/routines/{id}/report`. The report gets
+the cards the task's words describe and an analysis card that reads its numbers as the task asks.
+It is mailed on the same cadence to the owner and to the task's readers by mail. The task is
+paused, and the report belongs to its owner to change. See the Metrics guide, *Reports*.

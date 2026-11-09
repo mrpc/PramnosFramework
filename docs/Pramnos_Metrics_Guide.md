@@ -408,6 +408,18 @@ carries its context, ready to send (`?q=`, `ReportWidget::askAbout()`). The cont
 its period, the board's variables and organisation. A table or a chart asks about its first row.
 The assistant then reads further through the query API, under the same scope as the person.
 
+**A report from words.** The New report form takes a sentence: "orders by region against last
+year". `ReportProposal::fromWords($words, $user)` gives the assistant the catalogue the person may
+read and asks for the report as the editor's text. Rows that name any other metric, or a dimension
+the metric does not keep, are left out. The form opens filled in, with the numbers below it, and
+nothing is saved until the person saves. When nothing usable comes back, the form says so.
+
+**A scheduled task as a report.** `Routines::asReport($scope, $id)`, or
+`POST /chat/routines/{id}/report`, turns one of the assistant's daily, weekly or monthly tasks into a
+report. The report gets the cards the task's words describe and an analysis card that reads them as
+those words ask. It is mailed on the task's cadence to its owner and to whoever read the task by
+mail. The task is paused, so the report, with its charts, is what goes out.
+
 **The board's variables.** A report's bar has a picker for each dimension with listed values. A
 choice narrows every card on the board (`?v[region]=north`, and `?v[tenant]=7` for one
 organisation), and is kept in the address as the reader moves between periods or downloads the

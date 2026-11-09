@@ -233,6 +233,43 @@ class Routines
         return true;
     }
 
+    /**
+     * One of this person's tasks sent as a report from now on: the report its words describe
+     * ({@see \Pramnos\Metrics\ReportProposal}), with an analysis card that reads its numbers as
+     * the task's words ask, mailed on the task's cadence to its owner and to whoever reads it by
+     * mail — then the task is paused, so the report is what goes out (`metrics:reports-send`).
+     * The report is the owner's, private, and theirs to change like any other.
+     *
+     * @return int|string The report's id, or why it could not be made
+     */
+    public function asReport(Scope $scope, int $routineId): int|string
+    {
+        $found = $this->find($scope, $routineId);
+        if ($found === null) {
+            return 'There is no such scheduled task.';
+        }
+        $grain = ['daily' => \Pramnos\Metrics\Window::DAY, 'weekly' => \Pramnos\Metrics\Window::WEEK,
+            'monthly' => \Pramnos\Metrics\Window::MONTH, 'monthly_weekday' => \Pramnos\Metrics\Window::MONTH][$found['cadence']] ?? null;
+        if ($grain === null || $found['kind'] === self::REMINDER) {
+            return 'Only a daily, weekly or monthly question or report is sent as a report.';
+        }
+        try {
+            $owner      = new \Pramnos\User\User($scope->userId);
+            $proposal   = \Pramnos\Metrics\ReportProposal::fromWords((string) $found['prompt'], $owner);
+            $layout     = \Pramnos\Metrics\ReportBoard::layout($proposal);
+            $layout[]   = ['id' => 'report.analysis~a', 'size' => \Pramnos\Dashboard\Widget::FULL, 'settings' => ['instructions' => mb_substr((string) $found['prompt'], 0, 2000)]];
+            $recipients = array_filter(array_map(static fn (int $id): string => (string) (new \Pramnos\User\User($id))->email,
+                array_unique([$scope->userId, ...$this->emailSubscribers($routineId)])));
+            $reportId   = (new \Pramnos\Metrics\Reports())->save($owner, ['name' => mb_substr((string) $found['title'], 0, 120), 'grain' => $grain, 'layout' => $layout]
+                + array_intersect_key($proposal->definition, ['columns' => 1, 'compare' => 1]), \Pramnos\Dashboard\Presets::PRIVATE, null, $grain, implode(', ', $recipients));
+        } catch (\InvalidArgumentException $e) {
+            return $e->getMessage();
+        }
+        $this->setActive($scope, $routineId, false);
+
+        return $reportId;
+    }
+
     /** Delete one of this person's, with its readers and the record of its runs. Its conversation stays, like any other. */
     public function delete(Scope $scope, int $routineId): bool
     {

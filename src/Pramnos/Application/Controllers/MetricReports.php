@@ -177,15 +177,30 @@ class MetricReports extends Controller
 
             return null;
         }
-        $report = $entry['report'] ?? Report::fromArray(['name' => '', 'grain' => Window::MONTH, 'columns' => ['periods' => 12], 'sections' => []]);
+        $report   = $entry['report'] ?? Report::fromArray(['name' => '', 'grain' => Window::MONTH, 'columns' => ['periods' => 12], 'sections' => []]);
+        $words    = $entry === null ? trim((string) ($_GET['words'] ?? '')) : '';
+        $preview  = '';
+        $proposed = null;
+        // A new report from words: the form filled in, and its numbers below — saved only when saved.
+        if ($words !== '') {
+            try {
+                $report   = \Pramnos\Metrics\ReportProposal::fromWords($words, $this->user());
+                $proposed = (string) $report->definition['name'];
+                $preview  = Report::html($report->build(date('Y-m-d'), $this->user()));
+            } catch (\InvalidArgumentException $e) {
+                $this->addError($e->getMessage());
+            }
+        }
         \Pramnos\Framework\Factory::getDocument()->title = ($_GET['report'] ?? '') !== '' ? t('Edit a report') : t('New report');
         $view             = $this->getView('metricreports', 'tpl');
         $view->id         = ($_GET['report'] ?? '') !== '' ? (int) $entry['id'] : 0;
         $view->definition = $report->definition;
-        $view->reportName = ($_GET['copy'] ?? '') !== '' ? sprintf(t('Copy of %s'), (string) $entry['name']) : (string) ($entry['name'] ?? '');
+        $view->reportName = ($_GET['copy'] ?? '') !== '' ? sprintf(t('Copy of %s'), (string) $entry['name']) : ($proposed ?? (string) ($entry['name'] ?? ''));
         $view->columns    = $report->columnsAsText();
         // The report as text, for the advanced: only one that has no cards yet.
         $view->sectionsText = isset($report->definition['layout']) ? '' : $report->sectionsAsText();
+        $view->words      = $words;
+        $view->preview    = $preview;
         $view->copyOf     = ($_GET['copy'] ?? '') !== '' ? (string) $entry['id'] : '';
         $view->row        = ($_GET['report'] ?? '') !== '' ? $entry['row'] : null;
         $view->metrics    = Metrics::all($this->user(), false);

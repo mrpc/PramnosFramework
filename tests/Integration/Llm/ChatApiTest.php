@@ -360,6 +360,7 @@ class ChatApiTest extends LlmTestCase
             'updateRoutine'   => $api->updateRoutine(1),
             'deleteRoutine'   => $api->deleteRoutine(1),
             'runRoutine'      => $api->runRoutine(1),
+            'routineAsReport' => $api->routineAsReport(1),
             'routineRuns'     => $api->routineRuns(1),
             'readRun'         => $api->readRun(1),
             'continueRun'     => $api->continueRun(1),

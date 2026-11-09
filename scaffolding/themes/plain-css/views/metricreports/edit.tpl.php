@@ -1,4 +1,4 @@
-{{-- A report's form. Variables: id, reportName, definition, columns and sectionsText (as text; empty for a report with cards), copyOf, row, metrics, roles, csrfField, urls. The cards are arranged on the report itself, with Customise. --}}
+{{-- A report's form. Variables: id, reportName, definition, columns and sectionsText (as text; empty for a report with cards), copyOf, row, metrics, roles, csrfField, urls; words and preview — a new report built from words, and its numbers. The cards are arranged on the report itself, with Customise. --}}
 @php
 $saved = $this->row ?? [];
 $grains = ['day' => t('Day'), 'week' => t('Week'), 'month' => t('Month'), 'quarter' => t('Quarter'), 'year' => t('Year')];
@@ -8,6 +8,13 @@ $schedules = ['' => t('Never'), 'day' => t('Daily'), 'week' => t('Weekly'), 'mon
 @endphp
 <div class="pf-ui">
     <div class="pf-page-head"><h1 class="pf-page-title">{{ $this->id > 0 ? t('Edit a report') : t('New report') }}</h1></div>
+@if ($this->id === 0 && ($this->copyOf ?? '') === '')
+    <form method="get" action="{{ $this->urls['edit'] }}" class="pf-card"><div class="pf-card-body pf-stack">
+        <div class="pf-field"><label class="pf-label" for="pf-report-words">{{ t('Build it from words') }}</label>
+            <input id="pf-report-words" type="text" name="words" value="{{ $this->words ?? '' }}" maxlength="1000" class="pf-input" placeholder="{{ t('e.g. orders by region, against last year') }}"></div>
+        <div><button type="submit" class="pf-btn">{{ t('Build') }}</button></div>
+    </div></form>
+@endif
     <form method="post" action="{{ $this->urls['save'] }}" class="pf-card"><div class="pf-card-body pf-stack">{!! $this->csrfField !!}
         <input type="hidden" name="reportid" value="{{ $this->id }}"><input type="hidden" name="copyof" value="{{ $this->copyOf ?? '' }}">
         <div class="pf-field"><label class="pf-label" for="pf-report-name">{{ t('Name') }}</label>
@@ -45,4 +52,7 @@ $schedules = ['' => t('Never'), 'day' => t('Daily'), 'week' => t('Weekly'), 'mon
         </div>
         <div><button type="submit" class="pf-btn pf-btn-primary">{{ t('Save') }}</button> <a class="pf-btn pf-btn-ghost" href="{{ $this->urls['list'] }}">{{ t('Cancel') }}</a></div>
     </div></form>
+@if (($this->preview ?? '') !== '')
+    <div class="pf-card"><div class="pf-card-body"><h2 class="pf-section-title">{{ t('Its numbers today — saved only when you save') }}</h2>{!! $this->preview !!}</div></div>
+@endif
 </div>

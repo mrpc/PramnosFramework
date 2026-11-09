@@ -30,6 +30,7 @@ use Pramnos\Llm\Providers;
  * Shared reports: `GET routines/{id}/runs`, `GET runs/{id}`, `POST runs/{id}/continue` (a
  * conversation of the reader's own, seeded with the run), `GET reports`, and
  * `POST`/`DELETE routines/{id}/subscribe` — each checked by {@see \Pramnos\Llm\Chat\TaskPolicy::canSee()}.
+ * `POST routines/{id}/report` sends one of the person's own tasks as a metrics report from now on.
  *
  * Answers are `['status' => …, 'data' => …]` or `['status' => …, 'error' => …]`.
  */
@@ -540,6 +541,21 @@ class ChatController extends \Pramnos\Application\ApiCrudController
 
         // Queued: accepted, as a question is — the task says `running` until it has run.
         return $ran['ok'] ? ['status' => $ran['queued'] ? 202 : 200, 'data' => $ran] : ['status' => 409, 'error' => $ran['says'], 'data' => $ran];
+    }
+
+    /** One of this person's tasks sent as a report from now on ({@see \Pramnos\Llm\Chat\Routines::asReport()}): the report's id. */
+    public function routineAsReport($routine_id): array
+    {
+        if (($stop = $this->refusal('routines')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        $made  = $scope === null ? 'There is no such scheduled task.' : $this->routineService()->asReport($scope, (int) $routine_id);
+        if (is_string($made)) {
+            return self::error($made === 'There is no such scheduled task.' ? 404 : 422, $made);
+        }
+
+        return ['status' => 201, 'data' => ['report_id' => $made, 'url' => adminUrl('MetricReports') . '/show?report=' . $made]];
     }
 
     /** A task's runs, the newest first — one of this person's, or a shared report they may read. */

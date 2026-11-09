@@ -58,6 +58,7 @@ final class Routes
         $r->get($p['routines'], static fn () => $make()->routines());
         $r->post($p['routines'], static fn () => $make()->createRoutine());
         $r->post($p['routines'] . '/{routine_id}/run', static fn ($routine_id) => $make()->runRoutine($routine_id));
+        $r->post($p['routines'] . '/{routine_id}/report', static fn ($routine_id) => $make()->routineAsReport($routine_id));
         $r->get($p['routines'] . '/{routine_id}/runs', static fn ($routine_id) => $make()->routineRuns($routine_id));
         $r->post($p['routines'] . '/{routine_id}/subscribe', static fn ($routine_id) => $make()->subscribe($routine_id));
         $r->delete($p['routines'] . '/{routine_id}/subscribe', static fn ($routine_id) => $make()->unsubscribe($routine_id));

@@ -808,6 +808,75 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * A report built from words: the assistant is given the catalogue the person may read, and
+     * its answer — the editor's text — is kept only where it names what they may read: a secret
+     * metric, an unknown one, a breakdown or filter on a dimension the metric does not keep, all
+     * left out; columns by a dimension no row keeps fall back to one period. The editor shows the
+     * report filled in with its numbers, unsaved; an answer with nothing usable says so.
+     */
+    public function testAReportIsBuiltFromWords(): void
+    {
+        // Arrange
+        $this->signIn(98, 2);
+        $asked = [];
+        $reply = json_encode(['name' => 'Πωλήσεις ανά περιοχή', 'grain' => 'month', 'compare' => 'year', 'columns' => 'dimension=region north,south total',
+            'sections' => "# Sales [chart=bar]\nAll | test.sales\nBy region | test.sales | | by=region total\nSecret | test.secret\nGhost | test.ghost\n"
+                . "Buyers by customer | test.buyers | | by=customer\n# Only secrets\nS | test.secret"]);
+        $answer = ['ok' => true, 'reply' => "Here it is:\n" . $reply];
+        \Pramnos\Metrics\ReportProposal::useClient(static function () use (&$asked, &$answer): \Pramnos\Llm\Client {
+            return new class ($asked, $answer) extends \Pramnos\Llm\Client {
+                public function __construct(private array &$asked, private array &$answer)
+                {
+                }
+
+                public function askCheaply(string $systemPrompt, array $messages): array
+                {
+                    $this->asked[] = (string) $messages[0]['content'];
+
+                    return $this->answer;
+                }
+            };
+        });
+
+        try {
+            // Act
+            $report  = \Pramnos\Metrics\ReportProposal::fromWords('sales by region against last year', self::reader());
+            $screen  = $this->screen(MetricReports::class);
+            $this->request('GET', null, ['words' => 'sales by region']);
+            $screen->edit();
+            $form    = (array) $screen->view;
+            $answer  = ['ok' => true, 'reply' => json_encode(['name' => 'X', 'sections' => 'S | test.secret'])];
+            $refused = null;
+            try {
+                \Pramnos\Metrics\ReportProposal::fromWords('the secret', self::reader());
+            } catch (\InvalidArgumentException $e) {
+                $refused = $e->getMessage();
+            }
+            $answer = ['ok' => true, 'reply' => 'I cannot.'];
+            $screen->flash = [];
+            $this->request('GET', null, ['words' => 'anything']);
+            $screen->edit();
+
+            // Assert
+            $this->assertStringContainsString('"metric":"test.sales"', $asked[0], 'the catalogue');
+            $this->assertStringNotContainsString('test.secret', $asked[0], 'only what the person may read');
+            $this->assertStringContainsString('Request: sales by region against last year', $asked[0]);
+            $this->assertSame('Πωλήσεις ανά περιοχή', $report->definition['name']);
+            $this->assertSame('year', $report->definition['compare']);
+            $this->assertSame("# Sales [chart=bar]\nAll | test.sales\nBy region | test.sales |  | by=region total\n", $report->sectionsAsText(), 'secret, unknown and a dimension not kept: left out');
+            $this->assertSame("dimension=region north,south total\n", $report->columnsAsText());
+            $this->assertSame('Πωλήσεις ανά περιοχή', $form['reportName'], 'the form filled in');
+            $this->assertSame(0, $form['id'], 'nothing saved');
+            $this->assertStringContainsString('<th scope="row">All</th>', $form['preview'], 'with its numbers');
+            $this->assertSame('The assistant found nothing you may read for that.', $refused);
+            $this->assertSame([['error', 'The assistant could not build a report from that.']], $screen->flash);
+            $this->assertSame([], (new Reports())->visibleTo(self::reader()), 'nothing saved');
+        } finally {
+            \Pramnos\Metrics\ReportProposal::useClient(null);
+        }
+    }
+
+    /**
      * "Ask about this": a card that reads a metric — a figure, a table by its first row — asks the
      * assistant about it with its context (the metric, its period, the board's variable); a card
      * that reads none asks nothing; the card's page links to Ask with the question to send.
