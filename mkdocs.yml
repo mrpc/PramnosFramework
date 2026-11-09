@@ -78,6 +78,7 @@ nav:
     - hreflang and Sitemaps (design): Hreflang-And-Sitemap-Design.md
     - Metrics and BI (design): Metrics-BI-Design.md
     - To-dos (design): Todos-Design.md
+    - Site traffic (design): Visits-Design.md
   - Documentation:
     - Core Framework:
       - Framework Overview: Pramnos_Framework_Guide.md
