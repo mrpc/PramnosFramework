@@ -439,6 +439,10 @@ breakdown and period. A view over them all, `stats.metric_values` (`Metrics::TAB
 - **`Pramnos\Metrics\Store`** makes all of it (`Store::ensure($db)`, which the migration calls and
   which is safe to run again), names a grain's table (`Store::table('month')`), and holds the
   lock below.
+- **Made on first use.** The first computation or read in a process checks once that every grain's
+  table is there, and not the single table of an earlier version (`Store::ready()`). When
+  something is missing, it calls `ensure()`. A deploy whose migration has not run yet therefore
+  computes and reads normally, and does not fail on a missing table.
 
 ### TimescaleDB
 

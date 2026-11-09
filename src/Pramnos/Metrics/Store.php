@@ -177,9 +177,46 @@ final class Store
         return $done;
     }
 
+    /** @var array<string, true> The connections found ready, by database, in this process */
+    private static array $ready = [];
+
+    /**
+     * Make sure the store is there before it is used: every grain's table, and not the single
+     * table of an earlier version. Asked once per database and process; when something is missing
+     * {@see ensure()} makes it, under its lock. A connection that cannot be asked is let be.
+     */
+    public static function ready(Database $db): void
+    {
+        $key = $db->type . ':' . $db->server . ':' . $db->database . ':' . $db->prefix;
+        if (isset(self::$ready[$key])) {
+            return;
+        }
+        self::$ready[$key] = true;
+        try {
+            $schema  = $db->schema();
+            $missing = $schema->hasColumn(self::VIEW, 'dimset') && !$schema->hasColumn(self::VIEW, 'tenant');
+            foreach (Window::GRAINS as $grain) {
+                $missing = $missing || !$schema->hasTable(self::table($grain));
+            }
+            if ($missing) {
+                self::ensure($db);
+            }
+        } catch (\Throwable $e) {
+            // Logged once a process; the read or the write that follows says what it meets.
+            \Pramnos\Logs\Logger::log('The metrics\' store could not be made ready: ' . $e->getMessage(), 'metrics');
+        }
+    }
+
+    /** Forget which connections were found ready: a test that drops the store. */
+    public static function forgetReady(): void
+    {
+        self::$ready = [];
+    }
+
     /** Drop the view and every grain's table. */
     public static function drop(Database $db): void
     {
+        self::forgetReady();
         $schema = $db->schema();
         $schema->dropView(self::VIEW);
         foreach (Window::GRAINS as $grain) {

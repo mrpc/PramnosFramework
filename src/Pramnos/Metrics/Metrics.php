@@ -584,7 +584,12 @@ final class Metrics
     /** Where the values are kept. */
     private static function db(): Database
     {
-        return Database::getInstance();
+        $db = Database::getInstance();
+        // The store made, or converted, on its first use in a process — a deploy whose migration
+        // has not run yet computes and reads all the same, instead of failing on a missing table.
+        Store::ready($db);
+
+        return $db;
     }
 
     /**

@@ -770,6 +770,26 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * A store that is not there — a deploy whose migration has not run yet — is made on its first
+     * use in a process, and the computation and the reading go on; once found ready, it is not
+     * asked about again.
+     */
+    public function testAStoreThatIsNotThereIsMadeOnFirstUse(): void
+    {
+        // Arrange
+        \Pramnos\Metrics\Store::drop($this->db);
+        $this->order('2026-09-01 09:00:00', 'north', 1);
+
+        // Act
+        Metrics::compute(['test.orders'], ['month'], '2026-09-01', '2026-09-30', false, self::at('2026-11-06 12:00'));
+        $value = Metrics::value('test.orders', 'month', '2026-09-01');
+
+        // Assert
+        $this->assertTrue($this->db->schema()->hasTable(\Pramnos\Metrics\Store::table('month')));
+        $this->assertSame(1.0, $value);
+    }
+
+    /**
      * The store's lock: while another connection holds it — a conversion, an import, another
      * computation — a computation does nothing and says it was busy (the command too, without
      * failing), and once it is let go the computation runs.
