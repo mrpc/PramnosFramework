@@ -5,6 +5,7 @@ use_cases:
   - Recording the market or area of a page view beside it
   - Writing an existing tracker's hits into the framework's table during a move
   - Keeping the GeoIP database and the referrer spam list up to date
+  - Charting visits, visitors and sources as metrics, or asking the assistant about the traffic
 ---
 
 # Site traffic
@@ -122,6 +123,42 @@ DB-IP's licence asks for its credit wherever places are shown: `GeoIp::ATTRIBUTI
 
 `visits:update` also fetches Matomo's referrer spam list (public domain) into
 `var/visits/referrer-spam.txt`. A list it cannot fetch leaves the one kept in place.
+
+## As metrics
+
+Wherever a site is declared and the table is there, the traffic is a set of
+[metrics](Pramnos_Metrics_Guide.md) with nothing declared, so it can be charted, put in reports,
+given goals and alerts:
+
+| Metric | |
+| --- | --- |
+| `visits.views` | page views by people: robots and pages without JavaScript left out |
+| `visits.visits` | visits, counted on their landing page (the cookie model: a cookieless site has none) |
+| `visits.visitors` | distinct visitors (a distinct metric: it does not add up across days) |
+| `visits.signed_in` | visits in which the person was signed in at some page |
+| `visits.single_page` | visits of one page |
+| `visits.duration` | the mean visit, in seconds, from its first page to its last |
+| `visits.bots`, `visits.no_js` | robots' hits, and pages without JavaScript, counted apart |
+
+They break down by `visit_site`, `visit_source`, `visit_country`, `visit_device`,
+`visit_browser`, `visit_os` and `signed_in`. The application's own `dimension` goes under the name
+`visits.dimension_name` gives it, `visit_area` by default, with the label
+`visits.dimension_label`. Naming it after a dimension the application already declares, `market`
+say, lets one filter cover both, and the application's values win. A visit's breakdown is its
+landing page's. `'metrics' => ['visits' => false]` leaves them out.
+
+## For the assistant
+
+The analyst's `visits` tool (`visits.tool` renames it) reads the hits directly, for any days.
+- **The figures:** the period's figures, as the metrics count them; `compare` adds the period
+  before.
+- **A breakdown:** sources, campaigns, referrers, countries, devices, browsers, os, the
+  application's dimension, pages, clicks out, or the kinds of account signed in. Each row has its
+  views and visits.
+- **`page`:** keeps only the pages whose address holds a given part.
+
+Robots and pages without JavaScript are never in the figures. They are counted apart, and the
+tool tells the model to say so.
 
 ## The urls they refer to
 

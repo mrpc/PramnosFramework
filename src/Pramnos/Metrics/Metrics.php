@@ -952,6 +952,20 @@ final class Metrics
                 \Pramnos\Logs\Logger::log('The audience\'s metrics were left out: ' . $e->getMessage(), 'metrics');
             }
         }
+        // The site's own traffic, where it is counted, unless app.php says not.
+        if ((self::config()['visits'] ?? true) !== false) {
+            try {
+                foreach ((new \Pramnos\Visits\VisitsMetrics())->metrics() as $item) {
+                    if ($item instanceof Metric) {
+                        self::$metrics[$item->name] ??= $item;
+                    } elseif ($item instanceof Dimension) {
+                        self::$dimensions[$item->name] ??= $item;
+                    }
+                }
+            } catch (\Throwable $e) {
+                \Pramnos\Logs\Logger::log('The site traffic\'s metrics were left out: ' . $e->getMessage(), 'metrics');
+            }
+        }
         // Registered in code wins over app.php's, as with dashboard widgets.
         self::$metrics = array_replace(self::$metrics, $registered);
     }

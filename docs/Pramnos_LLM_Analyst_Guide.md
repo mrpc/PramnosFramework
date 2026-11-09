@@ -329,6 +329,7 @@ prompt names it, and each answer's window says which it used.
 | `audience_why` | why one account is or is not in a segment, or would or would not come into a rule — tagged `personal` |
 | `audience_draft` | the one tool that writes, and only drafts: a segment comes back as its count and a link that opens the builder filled in, nothing saved; a rule is saved as a draft, which does nothing until an administrator switches it on |
 | `conversation_summary` | what was said in a team conversation the person reads — by its id or `#name`, the last hours or what they have not read — summed up as the conversation's own Summary sums it up, with the same rights |
+| `visits` | the site's own traffic, where it is counted: a period's views, visits, visitors, signed-in and single-page visits and the mean visit, against the period before; broken down by source, campaign, referrer, page (by a part of its address), click out, country, device, browser or the kind of account; robots and pages without JavaScript apart. `visits.tool` renames it |
 
 ## Personal data
 

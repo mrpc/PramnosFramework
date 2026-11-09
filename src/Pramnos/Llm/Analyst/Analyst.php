@@ -243,6 +243,11 @@ final class Analyst
             $tools[] = new \Pramnos\Llm\Analyst\Tools\TodosChangeTool($adminId);
         }
 
+        // The site's own traffic, where it is counted.
+        if (\Pramnos\Visits\Visits::sites() !== []) {
+            $tools[] = new \Pramnos\Llm\Analyst\Tools\VisitsTool($adminId);
+        }
+
         // What was said in a conversation the person reads, summed up.
         if (\Pramnos\Conversations\Conversations::installed()) {
             $tools[] = new \Pramnos\Llm\Analyst\Tools\ConversationSummaryTool($adminId);

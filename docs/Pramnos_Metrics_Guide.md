@@ -458,6 +458,11 @@ stays are kept (`audience.segment_history_days`), and an event's as far as the c
 it. `'metrics' => ['audience' => false]` leaves them out, and a metric the application registers
 under the same name wins.
 
+### The site's traffic
+
+Where the site's own traffic is counted, its page views, visits, visitors and the rest are metrics
+too (`visits.*`, `Pramnos\Visits\VisitsMetrics`). See the [Site traffic guide](Pramnos_Visits_Guide.md#as-metrics).
+
 **A level that knows its past.** A level is normally kept only as each period closes, because how
 things stood in an older period is not known. A level whose source can say it, from dated stays
 or a history it keeps, declares `->knowsThePast()`, and its past periods are computed as a flow's

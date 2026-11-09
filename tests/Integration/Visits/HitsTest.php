@@ -31,6 +31,8 @@ use Pramnos\Visits\Visits;
 #[CoversClass(Visits::class)]
 #[CoversClass(\Pramnos\Application\Controllers\Hits::class)]
 #[CoversClass(\Pramnos\User\UrlRegistry::class)]
+#[CoversClass(\Pramnos\Visits\VisitsMetrics::class)]
+#[CoversClass(\Pramnos\Llm\Analyst\Tools\VisitsTool::class)]
 class HitsTest extends TestCase
 {
     use \Pramnos\Tests\Support\ReusesProbeDatabase;
@@ -68,6 +70,7 @@ class HitsTest extends TestCase
     protected function tearDown(): void
     {
         Application::getInstance()->applicationInfo = $this->info;
+        \Pramnos\Metrics\Metrics::reset();
         Hits::limitWith(null);
         GeoIp::useReader(null);
         WriteSpool::setDriver(null);
@@ -267,5 +270,66 @@ class HitsTest extends TestCase
         $rows = $this->rows();
         $this->assertSame(Hits::NO_JS, (int) end($rows)['flags'] & Hits::NO_JS);
         $this->assertSame(1, $kept, 'kept: page_hits.target refers to it');
+    }
+
+    /**
+     * The traffic as metrics, computed for a day and read back: page views by people, visits,
+     * visitors, signed-in and single-page visits, the mean visit, and the robots and pages
+     * without JavaScript counted apart; a breakdown by device and by the application's own
+     * dimension under the name it chose.
+     */
+    #[DataProvider('databases')]
+    public function testTheTrafficAsMetrics(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        Application::getInstance()->applicationInfo['visits']['dimension_name'] = 'market';
+        Application::getInstance()->applicationInfo['metrics'] = ['timezone' => 'UTC'];
+        \Pramnos\Metrics\Metrics::reset();
+        Hits::limitWith(static fn (): bool => true);
+        $day   = '2026-10-05';
+        $ten   = (int) gmmktime(10, 0, 0, 10, 5, 2026);
+        $desk  = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36';
+        $a     = Hits::take([['k' => 'view', 'u' => 'https://site.test/el/']], self::server(), [], null, $ten);
+        $a     = Hits::take([['k' => 'view', 'u' => 'https://site.test/el/jobs']], self::server(), self::cookies($a['cookies']), 42, $ten + 60);
+        Hits::take([['k' => 'view', 'u' => 'https://site.test/el/jobs/1'], ['k' => 'click', 'u' => 'https://site.test/el/jobs/1', 't' => 'https://out.test/']],
+            self::server(), self::cookies($a['cookies']), 42, $ten + 120);
+        Hits::take([['k' => 'view', 'u' => 'https://site.test/uk/', 'r' => 'https://www.google.com/']], self::server($desk), [], null, $ten + 30);
+        Hits::take([['k' => 'view', 'u' => 'https://site.test/el/']], self::server('Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)'), [], null, $ten);
+        Hits::take([['k' => 'view', 'u' => 'https://site.test/el/', 'n' => 1]], self::server($desk), [], null, $ten);
+        $names = ['visits.views', 'visits.visits', 'visits.visitors', 'visits.signed_in', 'visits.single_page', 'visits.duration', 'visits.bots', 'visits.no_js'];
+
+        // Act
+        \Pramnos\Metrics\Metrics::compute($names, ['day'], $day, $day, true, $ten + 86400 * 2);
+        $values = array_map(static fn (string $m): ?float => \Pramnos\Metrics\Metrics::value($m, 'day', $day), $names);
+        $desktop = \Pramnos\Metrics\Metrics::value('visits.views', 'day', $day, ['visit_device' => 'desktop']);
+        $uk      = \Pramnos\Metrics\Metrics::value('visits.visits', 'day', $day, ['market' => 'uk']);
+        $search  = \Pramnos\Metrics\Metrics::value('visits.visits', 'day', $day, ['visit_source' => 'search']);
+        $tool    = new \Pramnos\Llm\Analyst\Tools\VisitsTool(2);
+        $read    = $tool->execute(['from' => $day, 'to' => $day, 'compare' => true, 'breakdown' => 'sources']);
+        $jobs    = $tool->execute(['from' => $day, 'to' => $day, 'page' => 'jobs', 'breakdown' => 'pages']);
+        $clicks  = $tool->execute(['from' => $day, 'to' => $day, 'breakdown' => 'clicks', 'site' => 'main']);
+        $wrong   = [$tool->execute(['from' => 'yesterday-ish']), $tool->execute(['from' => $day, 'to' => $day, 'breakdown' => 'moods']),
+            $tool->execute(['site' => 'nowhere']), $tool->execute(['from' => '2026-10-06', 'to' => '2026-10-05'])];
+
+        // Assert
+        $this->assertSame([4.0, 2.0, 2.0, 1.0, 1.0, 60.0, 1.0, 1.0], $values,
+            'four pages by people; two visits by two visitors, one signed in, one of a page; 120 s and 0 s; a robot and a page without JavaScript apart');
+        $this->assertSame(1.0, $desktop);
+        $this->assertSame(1.0, $uk, 'the application\'s own dimension, under the name it chose');
+        $this->assertSame(1.0, $search, 'a visit\'s source is its landing page\'s');
+        $this->assertArrayHasKey('market', \Pramnos\Metrics\Metrics::dimensions());
+        $this->assertSame(['views' => 4, 'visits' => 2, 'visitors' => 2, 'signed_in' => 1, 'single_page' => 1, 'mean_visit_seconds' => 60.0, 'bots' => 1, 'no_js' => 1],
+            $read['figures'], 'the tool\'s figures are the metrics\'');
+        $this->assertSame(0, $read['before']['figures']['views'], 'the day before: nothing');
+        $this->assertSame(['direct', 'search'], array_column(array_values(array_filter($read['breakdown']['sources'], static fn (array $r): bool => $r['visits'] > 0)), 'name'));
+        $this->assertSame(2, $jobs['figures']['views'], 'only pages holding "jobs"');
+        $this->assertCount(2, $jobs['breakdown']['pages']);
+        $this->assertSame('https://out.test/', $clicks['breakdown']['clicks'][0]['name']);
+        foreach ($wrong as $answer) {
+            $this->assertIsString($answer);
+            $this->assertStringStartsWith('Error:', $answer);
+        }
+        $this->assertSame('visits', $tool->name());
     }
 }
