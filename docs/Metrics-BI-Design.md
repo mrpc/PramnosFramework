@@ -501,9 +501,28 @@ change to the application's schema. A continuous aggregate makes it two orders o
 faster again. Making a table of this size a hypertable buys nothing by itself; it is what allows
 the aggregate.
 
-**MySQL** is not in these numbers. The scripts generate the data in PostgreSQL. The plain layout
-is the one the current MySQL integration tests already run, and its timings are taken in phase 1,
-on the framework's own code rather than a script.
+#### MySQL — through the framework's own code (phase 1)
+
+MySQL 8.0, layout B as `Store::ensure()` makes it, read with `Metrics::value()` and
+`Metrics::series()` (`benchmarks/metrics-storage/mysql.php`). The data is 150 metrics × 20 series:
+a year of days (1.1 M rows) and twelve years of months (432 k rows), 454 MB with indexes.
+
+| ms (median of 15) | first | dimset in the query |
+|---|---:|---:|
+| Card (1 value) | 1.1 | 0.5 |
+| Chart, 24 months | 10.4 | 2.4 |
+| Chart, 12 months by its 19 values | 6.0 | 6.9 |
+| Report, 30 metrics × 12 months | 168 | 39 |
+| Chart, 365 days | 138 | 13 |
+| Write an open day, all 3 000 series | 264 | 275 |
+
+The first column also measured the read path itself. It fetched every breakdown of a metric
+(20 rows a period) and kept the one asked for in PHP. Phase 1 asks the database for that
+breakdown and the total, which marks the periods that were computed. That made a year of days
+10× faster, on PostgreSQL as well.
+
+What is left is PHP's own cost per series, about 1.3 ms for a report row. The query API of
+phase 2 reads a report's rows in one query.
 
 ---
 

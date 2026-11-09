@@ -1,0 +1,15 @@
+{
+    "at": "2026-11-09T08:11:31+00:00",
+    "engine": "MySQL 8.0, the framework's Metrics API",
+    "rows": {
+        "day": 1095000,
+        "month": 432000
+    },
+    "card_ms": 0.549754,
+    "chart_24_months_ms": 2.380433,
+    "chart_by_region_ms": 6.86987,
+    "report_30x12_ms": 39.077275,
+    "chart_365_days_ms": 12.994901,
+    "write_open_day_ms": 274.900914,
+    "bytes": 453869568
+}

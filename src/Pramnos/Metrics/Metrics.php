@@ -399,11 +399,12 @@ final class Metrics
         $db      = self::db();
         $instants = array_values(array_unique(array_map(static fn (Window $w): string => Store::instant($db, $w), $periods)));
         $result = $db->queryBuilder()->table(Store::table($periods[0]->grain))->select(['period_start', 'dimset', 'dims', 'value'])
-            ->where('metric', $metric->name)->where('version', Store::VERSION)->whereIn('period_start', $instants)->get();
+            ->where('metric', $metric->name)->where('version', Store::VERSION)->whereIn('dimset', array_values(array_unique([implode(',', $set), ''])))->whereIn('period_start', $instants)->get();
         $known = [];
         $sums  = [];
         while ($result && ($row = $result->fetch()) !== null) {
             $period         = Store::key((string) $row['period_start']);
+            // The total marks a period as computed; only the breakdown asked for is added up.
             $known[$period] = true;
             if ((string) $row['dimset'] !== implode(',', $set)) {
                 continue;
