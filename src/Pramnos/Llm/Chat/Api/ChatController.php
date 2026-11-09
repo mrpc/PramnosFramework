@@ -382,6 +382,126 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             : self::error(404, 'There is no such memory.');
     }
 
+    /**
+     * The person's skills — their own, and those offered to a role — and, for whoever manages
+     * them, every role's skills. Empty, with `enabled` false, where stored skills are off.
+     *
+     * @return array<string, mixed>
+     */
+    public function skillList(): array
+    {
+        if (($stop = $this->refusal('list')) !== null) {
+            return $stop;
+        }
+        $user   = $this->requestUser();
+        $store  = new \Pramnos\Llm\Chat\StoredSkills();
+        $on     = \Pramnos\Llm\Chat\StoredSkills::enabled();
+        $manage = \Pramnos\Llm\Chat\StoredSkills::canManageRoles($user);
+        $mine   = $on ? $store->mine((int) $user->userid) : [];
+
+        return ['status' => 200, 'data' => ['enabled' => $on, 'manage' => $manage,
+            'mine' => array_values(array_filter($mine, static fn (array $s): bool => $s['level'] === \Pramnos\Llm\Chat\StoredSkills::USER)),
+            'offered' => array_values(array_filter($mine, static fn (array $s): bool => $s['level'] === \Pramnos\Llm\Chat\StoredSkills::ROLE)),
+            'roles' => $on && $manage ? $store->roles() : []]];
+    }
+
+    /**
+     * Keep a skill: `name`, `description`, `tools`, `body`, and `for` (`user`, or `role:<usertype>`
+     * for one that manages them) — a new one, or with `skill_id` one being changed.
+     *
+     * @return array<string, mixed>
+     */
+    public function skillSave($skill_id = null): array
+    {
+        if (($stop = $this->refusal('share')) !== null) {
+            return $stop;
+        }
+        $body  = (array) (new \Pramnos\Http\Request())->body();
+        $input = array_intersect_key($body, array_flip(['name', 'description', 'tools', 'body']));
+        $for   = (string) ($body['for'] ?? '');
+        if (str_starts_with($for, 'role:')) {
+            $input += ['level' => \Pramnos\Llm\Chat\StoredSkills::ROLE, 'role' => substr($for, 5)];
+        } elseif ($for === 'user') {
+            $input['level'] = \Pramnos\Llm\Chat\StoredSkills::USER;
+        }
+        $id    = (int) ($skill_id ?? 0);
+        $saved = (new \Pramnos\Llm\Chat\StoredSkills())->save($this->requestUser(), $input, $id > 0 ? $id : null);
+
+        return is_string($saved) ? self::error(422, t($saved)) : ['status' => $id > 0 ? 200 : 201, 'data' => ['skill' => (new \Pramnos\Llm\Chat\StoredSkills())->find($saved)]];
+    }
+
+    /**
+     * Turn one of one's skills on or off: `on`. A draft turned on is kept.
+     *
+     * @return array<string, mixed>
+     */
+    public function skillTurn($skill_id): array
+    {
+        $on = !empty(((array) (new \Pramnos\Http\Request())->body())['on']);
+
+        return $this->skillDoes('share', fn (object $user): bool => (new \Pramnos\Llm\Chat\StoredSkills())->turn($user, (int) $skill_id, $on), ['on' => $on]);
+    }
+
+    /**
+     * Delete one of one's skills.
+     *
+     * @return array<string, mixed>
+     */
+    public function skillDelete($skill_id): array
+    {
+        return $this->skillDoes('delete', fn (object $user): bool => (new \Pramnos\Llm\Chat\StoredSkills())->delete($user, (int) $skill_id), ['deleted' => true]);
+    }
+
+    /**
+     * Offer one of one's skills to a role — `role` — for an administrator to approve.
+     *
+     * @return array<string, mixed>
+     */
+    public function skillShare($skill_id): array
+    {
+        if (($stop = $this->refusal('share')) !== null) {
+            return $stop;
+        }
+        $made = (new \Pramnos\Llm\Chat\StoredSkills())->share($this->requestUser(), (int) $skill_id, (string) (((array) (new \Pramnos\Http\Request())->body())['role'] ?? ''));
+
+        return is_string($made) ? self::error(422, t($made)) : ['status' => 201, 'data' => ['offered' => $made]];
+    }
+
+    /**
+     * Approve a skill offered to a role: for whoever manages the roles' skills.
+     *
+     * @return array<string, mixed>
+     */
+    public function skillApprove($skill_id): array
+    {
+        return $this->skillDoes('share', fn (object $user): bool => (new \Pramnos\Llm\Chat\StoredSkills())->approve($user, (int) $skill_id), ['approved' => true]);
+    }
+
+    /**
+     * Turn down a skill offered to a role: for whoever manages the roles' skills.
+     *
+     * @return array<string, mixed>
+     */
+    public function skillReject($skill_id): array
+    {
+        return $this->skillDoes('share', fn (object $user): bool => (new \Pramnos\Llm\Chat\StoredSkills())->reject($user, (int) $skill_id), ['rejected' => true]);
+    }
+
+    /**
+     * A change to one skill, as the person: 404 for a skill that is not theirs to change.
+     *
+     * @param array<string, mixed> $done
+     * @return array<string, mixed>
+     */
+    private function skillDoes(string $action, callable $do, array $done): array
+    {
+        if (($stop = $this->refusal($action)) !== null) {
+            return $stop;
+        }
+
+        return $do($this->requestUser()) ? ['status' => 200, 'data' => $done] : self::error(404, 'There is no such skill of yours.');
+    }
+
     /** The MCP servers this person connected themselves, without their secrets. */
     public function connections(): array
     {

@@ -319,4 +319,55 @@ class StoredSkillsMySQLTest extends TestCase
         $this->assertSame([], $store->forReader(0, true), 'nobody');
         $this->assertSame([], $store->forReader(987654321, true), 'an account that does not exist');
     }
+
+    /**
+     * The skills under the chat API: listed, kept, changed, turned off, offered to a role and
+     * approved by an administrator, deleted — as the skills page does, in the API's shape; a
+     * skill not one's own a 404, an invalid one a 422.
+     */
+    public function testTheSkillsUnderTheChatApi(): void
+    {
+        // Arrange
+        $as = function (string $role, string $method, array $body = [], mixed ...$args): array {
+            \Pramnos\Http\RequestIdentity::seal($this->people[$role], 'test');
+            // As a request's JSON body arrives: in $_POST, where the Request puts it.
+            $_SERVER['REQUEST_METHOD'] = 'POST';
+            $_POST = $body;
+            \Pramnos\Http\Request::setRawInput((string) json_encode($body));
+            \Pramnos\Http\Request::resetInstance();
+
+            return (new \Pramnos\Llm\Chat\Api\ChatController())->{$method}(...$args);
+        };
+
+        try {
+            // Act
+            $made     = $as('manager', 'skillSave', self::input('pricing', ['for' => 'user']));
+            $id       = (int) ($made['data']['skill']['id'] ?? 0);
+            $invalid  = $as('manager', 'skillSave', ['name' => '']);
+            $changed  = $as('manager', 'skillSave', self::input('pricing', ['description' => 'Prices, again']), $id);
+            $off      = $as('manager', 'skillTurn', ['on' => false], $id);
+            $notMine  = $as('staff', 'skillDelete', [], $id);
+            $offered  = $as('manager', 'skillShare', ['role' => '80'], $id);
+            $byPeer   = $as('manager', 'skillApprove', [], (int) ($offered['data']['offered'] ?? 0));
+            $approved = $as('admin', 'skillApprove', [], (int) ($offered['data']['offered'] ?? 0));
+            $list     = $as('manager', 'skillList');
+            $deleted  = $as('manager', 'skillDelete', [], $id);
+        } finally {
+            \Pramnos\Http\RequestIdentity::reset();
+            \Pramnos\Http\Request::setRawInput('');
+            $_POST = [];
+        }
+
+        // Assert
+        $this->assertSame([201, 'pricing'], [$made['status'], $made['data']['skill']['name']]);
+        $this->assertSame(422, $invalid['status']);
+        $this->assertSame([200, 'Prices, again'], [$changed['status'], $changed['data']['skill']['description']]);
+        $this->assertSame([200, false], [$off['status'], $off['data']['on']]);
+        $this->assertSame(404, $notMine['status'], 'not hers to delete');
+        $this->assertSame(201, $offered['status']);
+        $this->assertSame([404, 200], [$byPeer['status'], $approved['status']], 'only an administrator approves');
+        $this->assertTrue($list['data']['enabled']);
+        $this->assertContains('pricing', array_column($list['data']['offered'], 'name'), 'the role\'s, approved');
+        $this->assertSame(200, $deleted['status']);
+    }
 }

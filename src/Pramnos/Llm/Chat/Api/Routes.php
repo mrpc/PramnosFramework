@@ -16,8 +16,8 @@ use Pramnos\Routing\Router;
  * ```
  *
  * Everything sits under `/chat` by default: `/chat`, `/chat/{conversation_id}`,
- * `/chat/asks/{ask_id}`, `/chat/memory`, `/chat/connections`, `/chat/routines`, `/chat/runs`, `/chat/reports` and
- * `/chat/consent`. The fixed paths
+ * `/chat/asks/{ask_id}`, `/chat/memory`, `/chat/connections`, `/chat/routines`, `/chat/runs`, `/chat/reports`,
+ * `/chat/skills` and `/chat/consent`. The fixed paths
  * are registered before `/chat/{conversation_id}`, which would otherwise take "memory" for an id.
  */
 final class Routes
@@ -36,6 +36,7 @@ final class Routes
         'shared'   => '/chat/shared',
         'shares'   => '/chat/shares',
         'people'   => '/chat/people',
+        'skills'   => '/chat/skills',
     ];
 
     /**
@@ -49,6 +50,14 @@ final class Routes
 
         $r->get($p['asks'] . '/{ask_id}', static fn ($ask_id) => $make()->asked($ask_id))->describeFrom([$controller, 'asked']);
         $r->post($p['asks'] . '/{ask_id}/cancel', static fn ($ask_id) => $make()->cancelAsk($ask_id))->describeFrom([$controller, 'cancelAsk']);
+        $r->get($p['skills'], static fn () => $make()->skillList())->describeFrom([$controller, 'skillList']);
+        $r->post($p['skills'], static fn () => $make()->skillSave())->describeFrom([$controller, 'skillSave']);
+        $r->put($p['skills'] . '/{skill_id}', static fn ($skill_id) => $make()->skillSave($skill_id))->describeFrom([$controller, 'skillSave']);
+        $r->delete($p['skills'] . '/{skill_id}', static fn ($skill_id) => $make()->skillDelete($skill_id))->describeFrom([$controller, 'skillDelete']);
+        $r->post($p['skills'] . '/{skill_id}/turn', static fn ($skill_id) => $make()->skillTurn($skill_id))->describeFrom([$controller, 'skillTurn']);
+        $r->post($p['skills'] . '/{skill_id}/share', static fn ($skill_id) => $make()->skillShare($skill_id))->describeFrom([$controller, 'skillShare']);
+        $r->post($p['skills'] . '/{skill_id}/approve', static fn ($skill_id) => $make()->skillApprove($skill_id))->describeFrom([$controller, 'skillApprove']);
+        $r->post($p['skills'] . '/{skill_id}/reject', static fn ($skill_id) => $make()->skillReject($skill_id))->describeFrom([$controller, 'skillReject']);
         $r->get($p['memory'], static fn () => $make()->memory())->describeFrom([$controller, 'memory']);
         $r->delete($p['memory'] . '/{memory_id}', static fn ($memory_id) => $make()->forgetMemory($memory_id))->describeFrom([$controller, 'forgetMemory']);
         $r->get($p['connections'], static fn () => $make()->connections())->describeFrom([$controller, 'connections']);

@@ -46,6 +46,8 @@ One line in the application's API routes mounts every endpoint:
 | `GET /chat/asks/{id}` | a queued question: `waiting`, `answered` with its `conversation_id`, `failed` with `says`, or `cancelled` |
 | `POST /chat/asks/{id}/cancel` | stop a question still `waiting`; 404 when there is none |
 | `GET /chat/memory`, `DELETE /chat/memory/{id}` | what it remembers; forget one |
+| `GET /chat/skills`, `POST /chat/skills`, `PUT`/`DELETE /chat/skills/{id}` | one's skills, and the roles' for who manages them; keep one (`name`, `description`, `tools`, `body`, `for`), change it, delete it |
+| `POST /chat/skills/{id}/turn`, `…/share`, `…/approve`, `…/reject` | turn one on or off (`on`); offer it to a role (`role`); approve or turn down an offer |
 | `GET /chat/connections`, `POST /chat/connections`, `DELETE /chat/connections/{name}` | the MCP servers the person connected; connect one (`name`, `url`, `token`; answers `authorize` when it wants a sign-in); remove one |
 | `GET`/`POST /chat/routines`, `PUT`/`DELETE /chat/routines/{id}`, `POST /chat/routines/{id}/run` | scheduled tasks, with the templates, cadences, `kinds`, and the `owners` this person may use; `active` in a `PUT` pauses or resumes; `running` while a run waits or is under way; `run` queues one (202) |
 | `GET /chat/routines/{id}/runs?limit=` | a task's runs, newest first: its own, or a shared report the person may read |
