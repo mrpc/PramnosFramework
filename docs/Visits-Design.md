@@ -9,7 +9,7 @@ use_cases:
 
 # Site traffic (design, FW-365)
 
-**Status:** proposal, for the marketplace's and the content platform's approval before any code.
+**Status:** proposal. The content platform approved it with the changes folded in below (§9). The marketplace's answer is awaited.
 
 Two applications count their sites' traffic, each its own way. The marketplace has a small
 Matomo: a visit with a cookie, its pages, its source, the person once they sign in. The content
@@ -55,7 +55,8 @@ hits.
   | `seq` | Its number within the visit: 1 is the landing page |
   | `kind` | `view`, `click` (a link out), `event` |
   | `urlid` | The page, through `urls` (§5) |
-  | `target` | `urlid` of the link out, for a click |
+  | `post` | The application's own id of what the page shows (an article), 0 for none: a renamed post keeps its history |
+  | `target` | `urlid` of the link out, for a click, its query kept (`watch?v=` is the video) |
   | `referrer_host`, `referrer` | The host as text, the rest as a `urlid`; on the first hit of a visit |
   | `source`, `medium`, `campaign` | The classification (§3.3) and the utm, on the first hit |
   | `userid` | The person, from the hit on which they are known |
@@ -63,12 +64,23 @@ hits.
   | `device`, `browser`, `os`, `screen` | |
   | `flags` | Bit field: bot, no JavaScript, prerender, from the page cache |
 
-- **`pramnos.sites`**: `siteid`, `tenant`, `name`, `key` (public), `origins`, `visitor` (`cookie` or
-  `cookieless`), `idle` (30′), `keep` (the raw rows' retention).
+- **`pramnos.sites`**: `siteid`, `tenant`, `name`, `key` (public; an existing key is taken as it
+  is), `origins` (each host with its `www.` and subdomains), `visitor` (`cookie` or `cookieless`),
+  `idle` (30′), `keep` (the raw rows' retention: 90 days for the content platform), `count_nojs`
+  (a page without JavaScript counts as a view in the figures: the content platform's do).
 - **Continuous aggregates** (real-time, refreshed every 30′, kept for ever), in `stats.*`:
-  `traffic_hourly` and `traffic_daily` (site × source × device × flags: hits, visitors, visits,
-  landings, exits), `pages_daily`, `referrers_daily`, `campaigns_daily`, `places_daily`,
-  `tech_daily`, `clicks_daily`. A visit's facts come from here, not from a visits table: its
+  - `traffic_hourly` and `traffic_daily` (site × source × device × flags: hits, visits, landings,
+    exits);
+  - `visitors_daily` (site × day, flags left out: distinct visitors — a distinct does not add up
+    across groups, so it has its own; a range adds up its days, right for the daily hash);
+  - `pages_hourly` (site × post × hour) and `pages_daily` (by post, and by path for post 0);
+  - `referrers_daily` (referrer host and path → landing post or path: "from that page to this
+    one");
+  - `campaigns_daily` (source, medium and campaign together);
+  - `places_daily`, `tech_daily`;
+  - `clicks_daily` (target host and path, the query kept).
+
+  All of them are in UTC. A visit's facts come from here, not from a visits table: its
   length is `max(at) − min(at)`, and its pages are `count(*)`.
 - **Without TimescaleDB** — MySQL, plain PostgreSQL — the same `stats.*` tables are plain tables,
   filled by a `visits:rollup` job every 30′ from the raw rows since its last mark. The readers do
@@ -91,6 +103,11 @@ Per site, `sites.visitor`:
 clicks queued before the page leaves; a `<noscript>` image for no JavaScript.
 `POST /pf/hit` (and `GET` for the image) answers 204 always. Mounted by the feature, and
 served from the page cache too: it asks nothing of the session.
+
+Beacons already embedded elsewhere keep working. A plugin's or a customer's snippet posts to an
+application's own address with its own fields, and the application's route hands them on:
+`Visits::record($payload, $ip, $ua, $origin, $map)`. `$map` names the payload's fields (`t`
+v/c, `p` post, `u`, `r`, `h`, `s`/`m`/`c` utm, for the content platform).
 
 ### 3.2 Refused before it costs anything
 
@@ -132,6 +149,10 @@ the same way, so its pages no longer wait on an INSERT.
   devices and a period against another. `visits.tool` renames it.
 - **A dashboard card**, and "online now" from `SessionTrackingMiddleware`.
 - **The JSON API** for the content platform's stats pages, with the attribution.
+- **Raw reads within `keep`**: `Visits::hits($site, $from, $to)` (totals, distinct visitors, top
+  posts), for reports the aggregates do not answer.
+- **`Visits::erase($tenant)`**: an organisation's sites, hits and figures, for its account's
+  erasure.
 
 ## 5. The `urls` registry
 
@@ -217,12 +238,13 @@ it, once its before/after comparison (P0) is done.
    smaller), or 13 months with the aggregates for ever?
 2. **Marketplace:** the three markets — one site with a market dimension from the path (as
    vitals does), or three sites?
-3. **Content platform:** keep bots and spam-free no-JS hits flagged rather than dropped? The
-   figures do not change.
-4. **Content platform:** a post id where the site sends one, beside the URL, so a renamed post
-   keeps its history?
-5. **Both:** anything a report of yours reads that §2.1's columns or §4's aggregates do not
-   cover.
+3. **Content platform — answered:** bots and no-JS are kept flagged, with `count_nojs` on so its
+   figures stay as they are.
+4. **Content platform — answered:** `post` is a column, and the pages are aggregated by it.
+5. **Content platform — answered:** distinct visitors, referrer → landing, clicks with their
+   query, and the utm triple are covered (§2.1). The raw reads and the erasure are in §4, and an
+   existing key and beacon are covered by §3.1. **Marketplace:** anything of yours still
+   missing.
 
 ## 10. Order
 
