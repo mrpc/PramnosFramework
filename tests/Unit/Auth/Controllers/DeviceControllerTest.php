@@ -162,10 +162,12 @@ class DeviceControllerTest extends TestCase
         $dbMock->method('query')->willReturn($resMock);
         // The driver reads the account through the query builder: the same answer, from first().
         $qb = $this->createMock(\Pramnos\Database\QueryBuilder::class);
-        foreach (['table', 'select', 'where', 'orWhere'] as $chain) {
+        foreach (['table', 'select', 'where', 'orWhere', 'whereRaw', 'limit'] as $chain) {
             $qb->method($chain)->willReturnSelf();
         }
         $qb->method('first')->willReturn($resMock);
+        // The account is found by name or address whatever its case: no rows.
+        $qb->method('getAllOrFail')->willReturn([]);
         $dbMock->method('queryBuilder')->willReturn($qb);
 
         $dbSingleton = &\Pramnos\Database\Database::getInstance();

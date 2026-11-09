@@ -902,10 +902,12 @@ class DeviceTest extends TestCase
         $none = $this->createMock(\Pramnos\Database\Result::class);
         $none->numRows = 0;
         $qb = $this->createMock(\Pramnos\Database\QueryBuilder::class);
-        foreach (['table', 'select', 'where', 'orWhere'] as $chain) {
+        foreach (['table', 'select', 'where', 'orWhere', 'whereRaw', 'limit'] as $chain) {
             $qb->method($chain)->willReturnSelf();
         }
         $qb->method('first')->willReturn($none);
+        // The account is found by name or address whatever its case: no rows.
+        $qb->method('getAllOrFail')->willReturn([]);
         $dbMock->method('queryBuilder')->willReturn($qb);
 
         $dbRef = &Database::getInstance();

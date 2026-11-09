@@ -56,16 +56,13 @@ class DatabaseAuthDriver implements AuthDriverInterface
 
         [$legacyMd5, $autoUpgrade] = $this->resolveConfig();
 
-        $result = $database->queryBuilder()->table('#PREFIX#users')
-            ->select(['userid', 'username', 'password', 'email', 'active', 'validated'])
-            ->where(static fn ($q) => $q->where('username', $username)->orWhere('email', $username))
-            ->first();
+        // The name or address whatever its case (FW-364): the exact one where two differ only in case.
+        $row = \Pramnos\User\User::loginMatch(\Pramnos\User\User::whereLogin($database->queryBuilder()->table('#PREFIX#users')
+            ->select(['userid', 'username', 'password', 'email', 'active', 'validated']), $username)->limit(5)->getAllOrFail(), $username);
 
-        if (!$result || !isset($result->numRows) || $result->numRows == 0) {
+        if ($row === null) {
             return AuthResult::failure("User doesn't exist", 404);
         }
-
-        $row = $result->fields;
 
         if ($row['active'] == 0 && $row['active'] != 't') {
             return AuthResult::failure('Inactive User', 0);

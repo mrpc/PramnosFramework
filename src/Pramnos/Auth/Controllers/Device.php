@@ -327,7 +327,7 @@ class Device extends Controller
         $result = $db->queryBuilder()
             ->table(defined('DB_USERSTABLE') ? DB_USERSTABLE : '#PREFIX#users')
             ->select(['userid', 'username', 'email'])
-            ->where(static fn ($q) => $q->where('username', $username)->orWhere('email', $username))
+            ->where(static fn ($q) => \Pramnos\User\User::whereLogin($q, $username))
             ->where('password', hash('sha256', $password))
             ->where('active', 1)
             ->first();

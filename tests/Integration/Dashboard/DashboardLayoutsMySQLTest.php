@@ -181,7 +181,10 @@ class DashboardLayoutsMySQLTest extends TestCase
      */
     public function testTheControllerSavesDrawsAndResets(): void
     {
-        // Arrange
+        // Arrange — the catalogue the framework's cards make, not the audience's metrics another test's tables bring
+        $metricsConfig = \Pramnos\Application\Application::getInstance()->applicationInfo['metrics'] ?? null;
+        \Pramnos\Application\Application::getInstance()->applicationInfo['metrics'] = ['audience' => false];
+        \Pramnos\Metrics\Metrics::reset();
         $controller = new LayoutDashboardController(null);
         $refused = $controller->savelayout();
         \Pramnos\Http\RequestIdentity::seal(self::me(), 'test');
@@ -213,6 +216,8 @@ class DashboardLayoutsMySQLTest extends TestCase
         $this->assertContains('The dashboard is back to the default.', $_SESSION['_messages'] ?? [], 'reset says so');
         $this->assertStringEndsWith('LayoutDashboardController', (string) $controller->redirectedTo);
         $this->assertSame(Layouts::defaults(self::me()), (new Layouts($this->db))->for(self::me()));
+        \Pramnos\Application\Application::getInstance()->applicationInfo['metrics'] = $metricsConfig;
+        \Pramnos\Metrics\Metrics::reset();
     }
 
     /**

@@ -784,13 +784,9 @@ class LoginFlow
         // Best-effort attribution only — never let a DB hiccup here turn a
         // failed-login into a hard error.
         try {
-            $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('#PREFIX#users')
-                ->select('userid')
-                ->where('username', $identifier)
-                ->orWhere('email', $identifier)
-                ->first();
-            return ($row && $row->numRows > 0) ? (int) $row->fields['userid'] : null;
+            $row = \Pramnos\User\User::loginMatch(\Pramnos\User\User::whereLogin(\Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('#PREFIX#users')->select(['userid', 'username', 'email']), $identifier)->limit(5)->getAllOrFail(), $identifier);
+            return $row !== null ? (int) $row['userid'] : null;
         } catch (\Throwable $ex) {
             return null;
         }

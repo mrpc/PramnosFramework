@@ -72,10 +72,10 @@ class JwtBearerGrant extends AbstractGrant
         if ($sub === '') {
             return null;
         }
-        $users = fn () => \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#users')
-            ->where('active', 1)->where('userid', '>', 1);
-        $id = $users()->where('email', $sub)->value('userid') ?? $users()->where('username', $sub)->value('userid');
+        $rows = \Pramnos\User\User::whereLogin(\Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#users')
+            ->select(['userid', 'username', 'email'])->where('active', 1)->where('userid', '>', 1), $sub)->limit(5)->getAllOrFail();
+        $row  = \Pramnos\User\User::loginMatch($rows, $sub, ['email', 'username']);
 
-        return $id !== null ? (int) $id : null;
+        return $row !== null ? (int) $row['userid'] : null;
     }
 }

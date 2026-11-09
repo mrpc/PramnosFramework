@@ -298,13 +298,9 @@ class Passkey extends Controller
     /** Resolve a username/email to a user id, or null when unknown. */
     protected function resolveUserId(string $username): ?int
     {
-        $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-            ->table('#PREFIX#users')
-            ->select('userid')
-            ->where('username', $username)
-            ->orWhere('email', $username)
-            ->first();
-        return ($row && $row->numRows > 0) ? (int) $row->fields['userid'] : null;
+        $row = \Pramnos\User\User::loginMatch(\Pramnos\User\User::whereLogin(\Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+            ->table('#PREFIX#users')->select(['userid', 'username', 'email']), $username)->limit(5)->getAllOrFail(), $username);
+        return $row !== null ? (int) $row['userid'] : null;
     }
 
     /** Establish a login session for a verified user (passwordless). */

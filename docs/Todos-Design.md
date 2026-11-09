@@ -8,7 +8,7 @@ use_cases:
 # To-dos (design, FW-363)
 
 Two applications keep a to-do list of their own: the marketplace and the content platform.
-Their engines become one, `Pramnos\Todos`. Neither loses a feature. **Sources stay each
+Their engines become one engine in the framework. Neither loses a feature. **Sources stay each
 application's**: what should be on the list, and why, is the application's knowledge. The
 engine keeps the list in step with them. Each application moves its items once, by its own
 script.

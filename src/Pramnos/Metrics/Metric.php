@@ -153,7 +153,7 @@ final class Metric
      * their first payment — within each number of days. Declared on a table:
      *
      * ```php
-     * Metric::cohort('parents.paid_within', 'Paid within N days')->from('users')
+     * Metric::cohort('parents.paid_within', 'Paid within N days')->from('#PREFIX#users')
      *     ->of('regdate', unix: true)->event('firstpayment', unix: true)->within([7, 14, 30]);
      * ```
      *

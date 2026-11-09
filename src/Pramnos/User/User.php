@@ -1272,17 +1272,63 @@ class User extends \Pramnos\Framework\Base implements
         if ($by != 'username' && $by != 'email') {
             return false;
         }
-        $result = $database->queryBuilder()
+        // Whatever the case it is typed in, as a name or address is meant: the exact one first.
+        $wanted = trim((string) $username);
+        $rows   = $database->queryBuilder()
             ->table(self::usersTable())
-            ->select('userid')
-            ->where($by, $username)
-            ->limit(1)
-            ->get();
-        if ($result->numRows == 1) {
-            return $result->fields['userid'];
-        } else {
-            return false;
+            ->select(['userid', $by])
+            ->whereRaw('LOWER(' . $by . ') = ?', [mb_strtolower($wanted)])
+            ->limit(5)
+            ->getAllOrFail();
+        $row = self::loginMatch($rows, $wanted, [$by]);
+
+        return $row !== null ? $row['userid'] : false;
+    }
+
+    /**
+     * Narrow a query of the users table to the accounts a person signing in means by what they
+     * typed: their username or their address, whatever its case and with the spaces around it
+     * gone. PostgreSQL compares case as it is written, where MySQL's collation did not; a phone
+     * capitalises the first letter by itself. Pick the one meant from what it finds with
+     * {@see loginMatch()}.
+     *
+     * @param \Pramnos\Database\QueryBuilder $query
+     * @return \Pramnos\Database\QueryBuilder The same query
+     */
+    public static function whereLogin($query, string $typed)
+    {
+        $lower = mb_strtolower(trim($typed));
+        $query->whereRaw('(LOWER(username) = ? OR LOWER(email) = ?)', [$lower, $lower]);
+
+        return $query;
+    }
+
+    /**
+     * The account meant, of those found whatever the case: the only one; else the one written
+     * exactly as typed; else none — two accounts that differ only in case are not guessed between,
+     * and that is logged.
+     *
+     * @param list<array<string, mixed>> $rows
+     * @param list<string>               $columns The columns compared exactly
+     * @return array<string, mixed>|null
+     */
+    public static function loginMatch(array $rows, string $typed, array $columns = ['username', 'email']): ?array
+    {
+        $typed = trim($typed);
+        if (count($rows) <= 1) {
+            return $rows[0] ?? null;
         }
+        foreach ($rows as $row) {
+            foreach ($columns as $column) {
+                if (isset($row[$column]) && (string) $row[$column] === $typed) {
+                    return $row;
+                }
+            }
+        }
+        \Pramnos\Logs\Logger::log('Sign-in: "' . $typed . '" names ' . count($rows) . ' accounts that differ only in case ('
+            . implode(', ', array_column($rows, 'userid')) . '); none was chosen.', 'auth');
+
+        return null;
     }
 
     /**
