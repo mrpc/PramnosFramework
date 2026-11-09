@@ -178,8 +178,17 @@ final class Metrics
     {
         $source = self::sourceConnection();
         foreach (self::all() as $metric) {
-            // A live metric is read from its source when asked: nothing to keep.
-            if (!$metric->hasSource() || $metric->isLive() || ($only !== null && !in_array($metric->name, $only, true))) {
+            // A live metric is read from its source when asked: nothing to keep — at most its hourly
+            // aggregate to make, once, where TimescaleDB can keep one.
+            if ($metric->isLive()) {
+                try {
+                    Store::liveAggregate(self::db(), $metric);
+                } catch (\Throwable $e) {
+                    \Pramnos\Logs\Logger::log('Live metric ' . $metric->name . ': no aggregate made: ' . $e->getMessage(), 'metrics');
+                }
+                continue;
+            }
+            if (!$metric->hasSource() || ($only !== null && !in_array($metric->name, $only, true))) {
                 continue;
             }
             // The grains asked, of those the metric is kept at: an hour only where it asks for hours.
@@ -614,7 +623,8 @@ final class Metrics
         }
         sort($by);
         $source = self::sourceConnection();
-        if (count($periods) > 1) {
+        $view   = self::liveViewOf($metric);
+        if ($view === null && count($periods) > 1) {
             $metric->prefetch($periods, $source);
         }
         $out = [];
@@ -623,7 +633,7 @@ final class Metrics
                 if ($metric->gapOf($window) !== null || !$window->begun()) {
                     continue;
                 }
-                foreach ($metric->measure($window, $by, $source) as $row) {
+                foreach ($view !== null ? self::fromView($metric, $view, $window, $by) : $metric->measure($window, $by, $source) as $row) {
                     if ($tenants !== null && !in_array((int) ($row['tenant'] ?? 0), $tenants, true)) {
                         continue;
                     }
@@ -660,6 +670,55 @@ final class Metrics
         ksort($series);
 
         return $series;
+    }
+
+    /** The live metric's hourly aggregate, where one has been made; null otherwise. */
+    private static function liveViewOf(Metric $metric): ?string
+    {
+        $db = self::db();
+        if ($db->type !== 'postgresql' || $metric->declared() === null) {
+            return null;
+        }
+        $view = Store::liveView($metric);
+
+        return $db->schema()->hasView($view) ? $view : null;
+    }
+
+    /**
+     * A live metric's rows in a window, read from its hourly aggregate: its hours in the window,
+     * added up — or the least, or the most — per breakdown and organisation.
+     *
+     * @param list<string> $by
+     * @return list<array{dims: array<string, string>, value: float, tenant: int}>
+     */
+    private static function fromView(Metric $metric, string $view, Window $window, array $by): array
+    {
+        $db     = self::db();
+        $q      = $metric->declared();
+        $tenant = $metric->getTenant();
+        $query  = $db->queryBuilder()->table($view);
+        $group  = [...$by, ...($tenant !== null ? [$tenant] : [])];
+        $fold   = match ($q['fn']) {
+            'MIN'   => 'MIN',
+            'MAX'   => 'MAX',
+            default => 'SUM',
+        };
+        $query->select([...$group, $query->raw($fold . '(value) AS value')]);
+        [$from, $to] = $q['unix'] ? [$window->startsAt(), $window->endsAt()] : [\Pramnos\Database\Instant::utc($window->startsAt(), $db), \Pramnos\Database\Instant::utc($window->endsAt(), $db)];
+        $query->where('bucket', '>=', $from)->where('bucket', '<', $to);
+        if ($group !== []) {
+            $query->groupBy($group);
+        }
+        $rows = [];
+        foreach ($query->getAllOrFail() as $row) {
+            $dims = [];
+            foreach ($by as $name) {
+                $dims[$name] = (string) ($row[$name] ?? '');
+            }
+            $rows[] = ['dims' => $dims, 'value' => (float) ($row['value'] ?? 0), 'tenant' => $tenant !== null ? (int) ($row[$tenant] ?? 0) : 0];
+        }
+
+        return $rows;
     }
 
     /** How many a kept mean is of: its `extra.count`, or one. @param array<string, mixed> $row */

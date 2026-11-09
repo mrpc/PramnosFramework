@@ -200,6 +200,53 @@ final class Store
         self::$ready = [];
     }
 
+    /** A live metric's hourly continuous aggregate. */
+    public static function liveView(Metric $metric): string
+    {
+        return 'stats.live_' . str_replace('.', '_', $metric->name);
+    }
+
+    /**
+     * Make a live metric's hourly continuous aggregate, once, where it can be: TimescaleDB, a
+     * declared source that adds up, counts, or takes a least or a most, over a table that is a
+     * hypertable on its time column (an integer one needs its `integer_now` set). Refreshed by its
+     * own policy, and read with the hours not yet refreshed too (`materialized_only = false`).
+     */
+    public static function liveAggregate(Database $db, Metric $metric): bool
+    {
+        $q      = $metric->declared();
+        $schema = $db->schema();
+        if (!$metric->isLive() || $q === null || $db->type !== 'postgresql' || !$db->capabilities()->hasTimescaleDB()
+            || !in_array($q['fn'], ['SUM', 'COUNT', 'MIN', 'MAX'], true) || !$schema->hasHypertable($q['table'])) {
+            return false;
+        }
+        $view = self::liveView($metric);
+        if ($schema->hasView($view)) {
+            return true;
+        }
+        $columns = [];
+        foreach ($metric->getDimensions() as $name) {
+            $columns[] = ($q['columns'][$name] ?? $name) . ' AS ' . $name;
+        }
+        if ($metric->getTenant() !== null) {
+            $columns[] = $metric->getTenant() . ' AS ' . $metric->getTenant();
+        }
+        $where = [];
+        foreach ($q['where'] as [$column, $value]) {
+            // The application's own declared values, written into the aggregate's definition.
+            $list    = array_map(static fn ($v): string => is_int($v) || is_float($v) ? (string) $v : "'" . str_replace("'", "''", (string) $v) . "'", array_values((array) $value));
+            $where[] = $column . ' IN (' . implode(', ', $list) . ')';
+        }
+        $bucket = 'time_bucket(' . ($q['unix'] ? '3600' : "INTERVAL '1 hour'") . ', ' . $q['time'] . ')';
+        $sql    = 'SELECT ' . implode(', ', [$bucket . ' AS bucket', ...$columns, ($q['fn'] === 'COUNT' ? 'COUNT(*)' : $q['fn'] . '(' . $q['column'] . ')') . ' AS value'])
+            . ' FROM ' . $schema->quoteTable($q['table']) . ($where !== [] ? ' WHERE ' . implode(' AND ', $where) : '')
+            . ' GROUP BY ' . implode(', ', array_merge(['bucket'], range(2, count($columns) + 1)));
+        $schema->createContinuousAggregate($view, $sql, ['timescaledb.materialized_only' => false]);
+        $schema->addContinuousAggregatePolicy($view, '3 days', '1 hour', '1 hour');
+
+        return $schema->hasView($view);
+    }
+
     /** Drop the view and every grain's table. */
     public static function drop(Database $db): void
     {

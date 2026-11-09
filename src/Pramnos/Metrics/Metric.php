@@ -345,6 +345,17 @@ final class Metric
         return $this;
     }
 
+    /**
+     * Its declared query — table, time column, what is counted, conditions, each dimension's
+     * column — or null for a closure source.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function declared(): ?array
+    {
+        return $this->query;
+    }
+
     /** Whether it is read from its source when asked. */
     public function isLive(): bool
     {

@@ -127,4 +127,49 @@ final class MetricsTimescaleDBTest extends TestCase
         $this->assertSame(1, $this->db->queryBuilder()->table(Store::table('month'))->where('metric', 'test.count')->count(), 'replaced, not added');
         $this->assertSame([], $done, 'a second ensure has nothing to do');
     }
+
+    /**
+     * A live metric over a hypertable gets an hourly continuous aggregate when metrics are
+     * computed, and is read from it — the hours not refreshed yet too — with the same figures its
+     * source gives, by any of its dimensions; a source that is not a hypertable gets none.
+     */
+    public function testALiveMetricIsReadFromItsHourlyAggregate(): void
+    {
+        // Arrange
+        $schema = $this->db->schema();
+        $schema->createTable('flows', function ($table) {
+            $table->timestampTz('at');
+            $table->string('device', 4);
+            $table->integer('litres');
+        });
+        $schema->createHypertable('flows', 'at', ['chunk_time_interval' => '7 days']);
+        $schema->createTable('plain_flows', function ($table) {
+            $table->timestampTz('at');
+            $table->integer('litres');
+        });
+        foreach ([['2026-09-02 10:10', 'd1', 3], ['2026-09-02 10:40', 'd2', 4], ['2026-09-02 13:00', 'd1', 5]] as [$at, $device, $litres]) {
+            $this->db->queryBuilder()->table('flows')->insert(['at' => \Pramnos\Database\Instant::utc((int) strtotime($at . ' UTC'), $this->db), 'device' => $device, 'litres' => $litres]);
+        }
+        $live  = Metric::flow('test.flows', 'Water')->from('flows')->at('at')->sum('litres')->dimension('device', 'device')->live();
+        $plain = Metric::flow('test.plain_flows')->from('plain_flows')->at('at')->sum('litres')->live();
+        Metrics::register($live, $plain);
+        Application::getInstance()->applicationInfo['metrics']['timezone'] = 'UTC';
+
+        // Act
+        Metrics::compute(null, ['day'], null, null, false, (int) strtotime('2026-11-06 12:00 UTC'));
+        $byDevice = Metrics::query('test.flows')->grain('day')->at('2026-09-02')->by('device')->series()['values'];
+        $hour     = Metrics::query('test.flows')->grain('hour')->at('2026-09-02 10:00')->value();
+        // Materialised, then the source emptied: what is read now can only come from the aggregate.
+        $this->db->query("CALL refresh_continuous_aggregate('" . $schema->quoteTable(Store::liveView($live)) . "', '2026-09-01', '2026-09-03')");
+        $this->db->query('DELETE FROM flows');
+        $kept     = Metrics::query('test.flows')->grain('day')->at('2026-09-02')->value();
+
+        // Assert
+        $this->assertTrue($schema->hasView(Store::liveView($live)), 'its hourly aggregate made');
+        $this->assertFalse($schema->hasView(Store::liveView($plain)), 'not over a table that is no hypertable');
+        $this->assertSame(['d1' => [8.0], 'd2' => [4.0]], $byDevice, 'read from the aggregate, not yet refreshed');
+        $this->assertSame(7.0, $hour);
+        $this->assertSame(12.0, $kept, 'from the aggregate, the source gone');
+        $this->assertTrue(Store::liveAggregate($this->db, $live), 'made once, there after');
+    }
 }

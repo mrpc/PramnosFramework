@@ -138,8 +138,12 @@ Metric::flow('payments.amount', 'Revenue')
   - **Any breakdown.** Any combination of its dimensions can be read, filtered, for any periods.
   - **Empty periods.** A period with nothing reads as nought.
   - **Computing.** `metrics:compute` passes it by.
-  - **Speed.** On TimescaleDB, a continuous aggregate of its source makes the read fast; that
-    comes in a later step.
+  - **Speed.** On TimescaleDB, `metrics:compute` gives it an hourly continuous aggregate once,
+    `stats.live_<name>`, and reads come from it (`Store::liveAggregate()`). This needs a declared
+    source that sums, counts, or takes a least or a most, over a table that is a hypertable on its
+    time column. An integer column needs the hypertable's `integer_now`. The aggregate holds every
+    dimension and the organisation, and is refreshed by its own policy. Hours not refreshed yet are
+    read too (`materialized_only = false`). Where no aggregate can be made, the source is read.
 - **Many periods at once.** Computing many periods of a declared source (`--from`/`--to`, or the
   catch-up after a pause) reads them in one query per breakdown, grouped by each row's period in
   the metrics' zone (`Metric::prefetch()`). This holds on PostgreSQL with a unix-time column and
