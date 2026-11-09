@@ -172,7 +172,7 @@ class AnalystAssistant extends BaseAssistant
 
     public function writes(): array
     {
-        return ['remember', 'forget', 'goals_change'];
+        return ['remember', 'forget', 'goals_change', \Pramnos\Todos\Todos::toolName() . '_change'];
     }
 
     /** The analyst's clock — {@see Analyst::timezone()}: its days, and its tasks' times. */

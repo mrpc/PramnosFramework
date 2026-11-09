@@ -10,6 +10,7 @@ use_cases:
   - Building a chat's to-do list on the conversations' JSON API
   - Showing a person's urgent to-dos in the header or on the dashboard
   - Listing the to-dos about a record on its page
+  - Letting the assistant, a rule or a mobile client read and add to-dos
 ---
 
 # To-dos
@@ -170,6 +171,38 @@ to-do" and "Remind me about this" on each message, and shows the mark.
   which organisation's list a person sees, and `todos.people` (`fn (int $tenant): array`) who is
   offered as an assignee; by default the active accounts from the floor up.
 
+## The assistant, the rules and the API
+
+- **The assistant's tools** (Ask and MCP): `todos` lists them and `todos_change` adds or changes
+  one. The change tool is a write, so it waits for the person. `todos.tool` renames both, for
+  assistants that already know another name (`glideday-todo`, `glideday-todo_change`).
+  - `todos`: `who` is `me` (the default), `all`, `team` (counts per person), an id or a name;
+    `about` is a page's path or a user id; `closed` takes in the ones closed this week.
+  - `todos_change`: `id` to change one, none to add. `assigned_to` is an id, a name, `me`, or 0
+    for nobody in particular. `due` is `YYYY-MM-DD`, '' clears it. `remind_at` is
+    `YYYY-MM-DD HH:MM` on the person's clock. Also `status`, `link`, `private`.
+  - An organisation whose plan has no to-dos (`todos.allowed`) is refused, and so is somebody
+    `todos.can` does not let read, or write.
+- **The rules' action `todo`:** a to-do about the person. Its title is filled for them
+  (`{firstname}`, …) and it is linked to their page. It goes to an account or to nobody, due in
+  so many days. A rule adds it once per run and person; a test send gives it to whoever asked.
+- **The JSON API**, mounted where the application's client asks:
+
+  ```php
+  \Pramnos\Todos\TodosApi::routes($r);             // /todos
+  ```
+
+  | | |
+  |---|---|
+  | `GET {path}?who=&about=&closed=` | The items, `me` and `name` (the person), `allowed` (the plan has to-dos), `writes` |
+  | `POST {path}` | Add one: `title`, `assigned_to`, `due`, `remind_at`, `link`, `private` (201) |
+  | `PUT {path}/{id}` | Change one; what is not sent stays |
+  | `DELETE {path}/{id}` | One's own |
+
+  It answers in the API's shape, `{status, data}` or `{status, error}`: 401 for nobody, 403 for
+  somebody who may not read (or write), 404 for an item not theirs, 422 for nonsense. It reads
+  and writes through the assistant's tools, so the two cannot disagree.
+
 ## An account that goes
 
 `AccountErasure` calls `Todos::handOver($user)`: the open items assigned to the person go to
@@ -194,7 +227,8 @@ export of the application's.
     'tenant'       => fn (object $user): int => …,              // the organisation a person's list is of
     'people'       => fn (int $tenant): array => […],           // id => name, offered as assignees
     'urgent_any_overdue' => false,                              // the header counts every overdue item
+    'tool'         => 'todos',                                  // the assistant's tool's name
 ],
 ```
 
-The rest of the design (the rule action, the tool and the API) is in [To-dos (design)](Todos-Design.md), built in order.
+The design, and why it is as it is, is in [To-dos (design)](Todos-Design.md).

@@ -307,7 +307,7 @@ class AnalystTest extends LlmTestCase
         $this->assertSame('waiting', $asked['status']);
         $this->assertInstanceOf(AnalystAssistant::class, \Pramnos\Llm\Chat\Chat::assistant(Scope::ADMIN));
         $assistant = new AnalystAssistant();
-        $this->assertSame(['remember', 'forget', 'goals_change'], $assistant->writes(), 'only its memory and the goals it is asked to set');
+        $this->assertSame(['remember', 'forget', 'goals_change', 'todos_change'], $assistant->writes(), 'only its memory, and the goals and to-dos it is asked to set');
         $this->assertStringEndsWith('admin/Ai/analyst?c=4', $assistant->conversationUrl(4));
         $this->assertStringEndsWith('admin/Ai/analyst', $assistant->conversationUrl(null));
         $this->assertSame('analyst', Analyst::scope(7)->purpose());
@@ -364,7 +364,8 @@ class AnalystTest extends LlmTestCase
         $this->assertArrayHasKey('posts', $tools);
         $this->assertArrayHasKey('posts_today', $tools);
         $this->assertSame('{"published":12,"by":"e***@e***.com"}', ($tools['posts']['run'])([]));
-        $this->assertCount(15, $tools, 'the help tool is the help feature\'s');
+        // The to-do list's two, where another test left its table in this database.
+        $this->assertCount(15 + (\Pramnos\Todos\Todos::installed() ? 2 : 0), $tools, 'the help tool is the help feature\'s');
     }
 
     /**

@@ -2799,6 +2799,7 @@ class Account extends Controller
             'Mailing lists',
             'Mail sent to you',
             'Profile picture',
+            'Your to-dos',
         ];
         if (\Pramnos\Event\Event::hasListeners('account.data_export')) {
             $labels[] = 'Application-specific data';

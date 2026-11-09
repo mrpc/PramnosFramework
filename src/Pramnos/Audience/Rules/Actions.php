@@ -212,11 +212,44 @@ final class Actions
                 'then'      => ['label' => t('Then'), 'type' => 'select', 'options' => ['notify' => t('Send the answer to that administrator'), 'attribute' => t('Keep the answer in an attribute')]],
                 'attribute' => $text(t('Attribute (for keeping the answer)'), 'attribute'),
             ], 'run' => self::askAi(...)],
+        ] : []) + (\Pramnos\Todos\Todos::installed() ? [
+            'todo' => ['label' => t('Add a to-do'), 'channel' => null, 'params' => [
+                'title'       => $text(t('What is to be done — {firstname}, {userid} and the rest are filled in')),
+                'assigned_to' => $text(t('For (account id; 0 for nobody in particular)'), 'number'),
+                'days'        => $text(t('Due in days (empty for no day)'), 'number'),
+            ], 'run' => self::todo(...)],
         ] : []) + (self::hasConversations() ? [
             'conversation_post' => ['label' => t('Tell the team in a conversation'), 'channel' => null, 'params' => [
                 'to' => $text(t('Channel (#name) or account id')), 'text' => $text(t('Message'), 'textarea'),
             ], 'run' => self::conversationPost(...)],
         ] : []);
+    }
+
+    /**
+     * A to-do about the person: the title filled for them, linked to their page, for someone or
+     * nobody, due in so many days. Once per run and person — a run retried adds nothing new. A test
+     * send gives it to whoever asked for it.
+     *
+     * @param array<string, mixed> $params
+     * @return array{status: string, detail: array<string, mixed>}
+     */
+    private static function todo(int $person, array $params, Context $context): array
+    {
+        $to   = $context->isTest() ? (int) $context->to() : (int) ($params['assigned_to'] ?? 0);
+        $days = trim((string) ($params['days'] ?? ''));
+        $key  = 'rule:' . $context->origin() . ':' . $person;
+        if (\Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table(\Pramnos\Todos\Todos::TABLE)->where('tenant', 0)->where('source', $key)->count() > 0) {
+            return ['status' => 'skipped', 'detail' => ['reason' => 'added already']];
+        }
+        try {
+            $id = \Pramnos\Todos\Todos::add(['title' => self::fill((string) ($params['title'] ?? ''), $person), 'link' => \Pramnos\Html\AudienceBuilder::personUrl($person),
+                'assigned_to' => $to, 'kind' => 'rule', 'source' => $key,
+                'due' => $days === '' ? null : date('Y-m-d', time() + max(0, (int) $days) * 86400)]);
+        } catch (\InvalidArgumentException $e) {
+            return ['status' => 'error', 'detail' => ['reason' => $e->getMessage()]];
+        }
+
+        return ['status' => 'done', 'detail' => ['todo' => $id]];
     }
 
     /** Whether the application has the conversations, for their action. */

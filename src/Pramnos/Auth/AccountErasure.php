@@ -144,8 +144,13 @@ class AccountErasure
         }
 
         // Their open to-dos go to a successor (`todos.successor`), their private ones with them.
+        // A hand-over that fails is logged: the erase itself is the obligation, not the hand-over.
         if ($schema->hasTable(\Pramnos\Todos\Todos::TABLE)) {
-            \Pramnos\Todos\Todos::handOver($userId);
+            try {
+                \Pramnos\Todos\Todos::handOver($userId);
+            } catch (\Throwable $exception) {
+                \Pramnos\Logs\Logger::logError('Data erase for user ' . $userId . ': the to-dos were not handed over', $exception);
+            }
         }
 
         $this->database->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->delete();

@@ -237,6 +237,12 @@ final class Analyst
             $tools[] = new \Pramnos\Llm\Analyst\Tools\GoalsChangeTool($adminId);
         }
 
+        // The to-do list, where it is installed; adding and changing is a write.
+        if (\Pramnos\Todos\Todos::installed()) {
+            $tools[] = new \Pramnos\Llm\Analyst\Tools\TodosTool($adminId);
+            $tools[] = new \Pramnos\Llm\Analyst\Tools\TodosChangeTool($adminId);
+        }
+
         // The installation's help pages, with the `help` feature.
         if (\Pramnos\Assist\Help::enabled()) {
             $tools[] = new \Pramnos\Llm\Analyst\Tools\HelpTool($area);

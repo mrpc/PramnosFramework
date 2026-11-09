@@ -619,6 +619,12 @@ final class Todos
         return $groups;
     }
 
+    /** The assistant's tool's name: `todos.tool`, else `todos` (its writes are `<name>_change`). */
+    public static function toolName(): string
+    {
+        return (string) ((self::config()['tool'] ?? null) ?: 'todos');
+    }
+
     /** Whether an organisation has to-dos at all (`todos.allowed`). */
     public static function allowed(int $tenant): bool
     {

@@ -2483,4 +2483,9 @@ return [
     'Make it public' => 'Να γίνει δημόσια',
     'Make it private' => 'Να γίνει ιδιωτική',
     'Delete this to-do?' => 'Διαγραφή αυτής της εργασίας;',
+    'Add a to-do' => 'Προσθήκη εργασίας',
+    'What is to be done — {firstname}, {userid} and the rest are filled in' => 'Τι πρέπει να γίνει — τα {firstname}, {userid} και τα υπόλοιπα συμπληρώνονται',
+    'For (account id; 0 for nobody in particular)' => 'Για (id λογαριασμού· 0 για κανέναν συγκεκριμένα)',
+    'Due in days (empty for no day)' => 'Προθεσμία σε ημέρες (κενό για καμία)',
+    'Your to-dos' => 'Οι εργασίες σας',
 ];
