@@ -24,12 +24,13 @@ class CreateChatCalendarTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
+        $schema->ensureSchema('assist');
 
-        if ($schema->hasTable('chat_calendar')) {
+        if ($schema->hasTable('assist.chat_calendar')) {
             return;
         }
 
-        $schema->createTable('chat_calendar', function ($table) {
+        $schema->createTable('assist.chat_calendar', function ($table) {
             $table->increments('item_id');
             $table->integer('organization_id')->nullable();
             $table->integer('userid');
@@ -51,6 +52,6 @@ class CreateChatCalendarTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('chat_calendar');
+        $this->application->database->schema()->dropTableIfExists('assist.chat_calendar');
     }
 }

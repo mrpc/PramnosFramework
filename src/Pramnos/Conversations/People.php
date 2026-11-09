@@ -207,7 +207,7 @@ final class People
     /** Whether a reader sees somebody anyway: they are in a conversation the reader reads, or the reader reads them all. */
     private static function seenBy(int $person, object $reader): bool
     {
-        $query = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_members')->select(['conversationid'])
+        $query = Conversations::db()->queryBuilder()->table('chat.conversation_members')->select(['conversationid'])
             ->where('participanttype', 'user')->where('participantid', $person);
         if (!Access::readsAll($reader)) {
             $readable = Conversations::readable((int) $reader->userid);

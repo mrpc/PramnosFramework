@@ -22,12 +22,13 @@ class CreateChatSharesTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
+        $schema->ensureSchema('assist');
 
-        if ($schema->hasTable('chat_shares')) {
+        if ($schema->hasTable('assist.chat_shares')) {
             return;
         }
 
-        $schema->createTable('chat_shares', function ($table) {
+        $schema->createTable('assist.chat_shares', function ($table) {
             $table->increments('share_id');
             $table->string('kind', 16);
             $table->integer('target_id');
@@ -46,6 +47,6 @@ class CreateChatSharesTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('chat_shares');
+        $this->application->database->schema()->dropTableIfExists('assist.chat_shares');
     }
 }

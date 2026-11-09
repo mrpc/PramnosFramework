@@ -331,7 +331,7 @@ class ConversationsPageTest extends TestCase
         };
         $old = Files::store($general, $this->ids['eleni'], $keep('παλιό αρχείο'), 'old.txt');
         $new = Files::store($general, $this->ids['eleni'], $keep('νέο'), 'new.txt');
-        $this->db->queryBuilder()->table('conversation_files')->where('fileid', $old)->update(['createdat' => time() - 400 * 86400]);
+        $this->db->queryBuilder()->table('chat.conversation_files')->where('fileid', $old)->update(['createdat' => time() - 400 * 86400]);
         $screen = $this->controller(HeldFiles::class, 'root');
 
         // Act

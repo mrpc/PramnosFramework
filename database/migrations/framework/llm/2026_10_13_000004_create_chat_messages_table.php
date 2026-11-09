@@ -23,12 +23,13 @@ class CreateChatMessagesTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
+        $schema->ensureSchema('assist');
 
-        if ($schema->hasTable('chat_messages')) {
+        if ($schema->hasTable('assist.chat_messages')) {
             return;
         }
 
-        $schema->createTable('chat_messages', function ($table) {
+        $schema->createTable('assist.chat_messages', function ($table) {
             $table->increments('message_id');
             $table->integer('conversation_id');
             $table->integer('organization_id')->nullable();
@@ -45,6 +46,6 @@ class CreateChatMessagesTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('chat_messages');
+        $this->application->database->schema()->dropTableIfExists('assist.chat_messages');
     }
 }

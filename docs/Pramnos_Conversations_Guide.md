@@ -516,7 +516,7 @@ Messages::react($id, $maria, ':our-heart:');
   `admin.chat.emoji` (`Access::managesEmoji()`), which only a superuser has by default. Each change
   is written to the audit log (`conversations.emoji_*`).
 
-The table is `conversation_emoji`, created by the migration `create_conversation_emoji_table`.
+The table is `chat.conversation_emoji`, created by the migration `create_conversation_emoji_table`.
 
 ## GIFs
 
@@ -1097,12 +1097,17 @@ where the application wants the team taken.
 
 ## Storage
 
-The tables are `conversations`, `conversation_members`, `conversation_messages`,
-`conversation_reactions`, `conversation_mentions`, `conversation_pins` and `conversation_files`,
+The conversations' tables are in a schema of their own, `chat` (on MySQL a name prefix:
+`chat_conversation_messages`), and the assistant's in `assist`. Code reads them through the query
+builder as `chat.conversation_messages`; raw SQL uses `$schema->quoteTable('chat.x')`.
+`Conversations::installed()` says whether they are there.
+
+The tables are `chat.conversations`, `chat.conversation_members`, `chat.conversation_messages`,
+`chat.conversation_reactions`, `chat.conversation_mentions`, `chat.conversation_pins` and `chat.conversation_files`,
 all declared personal data. What each link shows is in `pramnos.link_previews`, one row per link —
 the framework's cache, not personal data. What a message said before an edit is not kept in a table of its own:
 an edit is a save's diff, written to the change feed (entity `conversation_message`) and kept as
 long as the changelog keeps diffs — thirty days unless app.php says otherwise. Without the
 `changelog` feature an edit is marked as one, and what it said before is not kept. Messages are kept for
-good: on TimescaleDB `conversation_messages` is a hypertable on `created_at`, its chunks compressed
+good: on TimescaleDB `chat.conversation_messages` is a hypertable on `created_at`, its chunks compressed
 after 90 days and never dropped (`HypertableRegistry`, overridable in app.php's `hypertables`).

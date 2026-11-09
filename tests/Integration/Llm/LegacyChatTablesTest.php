@@ -70,11 +70,11 @@ class LegacyChatTablesTest extends LlmTestCase
 
         // Assert
         $this->assertSame('degraded', $before->status->value);
-        $this->assertContains('chat_asks.organization_id: NOT NULL', $before->details['problems']);
+        $this->assertContains('assist.chat_asks.organization_id: NOT NULL', $before->details['problems']);
         $this->assertStringContainsString('migrate', $before->message);
         $this->assertSame('ok', $after->status->value, 'run twice, the second a no-op');
         $this->assertGreaterThan(0, $askId, 'a row outside any organisation is written');
-        $this->assertTrue($schema->columnDetails('chat_asks')['organization_id']['nullable']);
+        $this->assertTrue($schema->columnDetails('assist.chat_asks')['organization_id']['nullable']);
     }
 
     /** A missing table, a missing `space`, and the feature off, as the check reports them. */
@@ -87,7 +87,7 @@ class LegacyChatTablesTest extends LlmTestCase
         // What an application's settings give a PostgreSQL connection; the test's has none.
         $this->db->schema = $type === 'postgresql' ? 'public' : '';
         $schema = $this->db->schema();
-        $schema->alterTable('chat_memory', function ($t) {
+        $schema->alterTable('assist.chat_memory', function ($t) {
             $t->dropColumn('space');
         });
         $schema->dropTableIfExists('pramnos.ai_routines');
@@ -100,7 +100,7 @@ class LegacyChatTablesTest extends LlmTestCase
         $off   = (new LlmTablesCheck())->run();
 
         // Assert
-        $this->assertSame(['chat_memory.space: missing', 'pramnos.ai_routines: missing', 'pramnos.ai_task_runs: missing'], $found->details['problems']);
+        $this->assertSame(['assist.chat_memory.space: missing', 'pramnos.ai_routines: missing', 'pramnos.ai_task_runs: missing'], $found->details['problems']);
 
         // A routines table of the older shape: the columns the code reads since are named
         (new \ReflectionProperty(\Pramnos\Application\FeatureRegistry::class, 'enabled'))->setValue(null, ['llm' => true]);

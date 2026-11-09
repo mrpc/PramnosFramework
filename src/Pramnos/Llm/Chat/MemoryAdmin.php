@@ -31,7 +31,7 @@ final class MemoryAdmin
     public function people(): array
     {
         try {
-            $query  = $this->db()->queryBuilder()->table('#PREFIX#chat_memory');
+            $query  = $this->db()->queryBuilder()->table('assist.chat_memory');
             $result = $query->select(['userid', 'organization_id', 'space', $query->raw('COUNT(*) AS n'), $query->raw('MAX(updated_at) AS latest')])
                 ->groupBy('userid', 'organization_id', 'space')->get();
         } catch (\Throwable $e) {
@@ -63,7 +63,7 @@ final class MemoryAdmin
     public function of(object $reader, int $userId, ?int $organizationId, string $space = Scope::CHAT): array
     {
         try {
-            $query = $this->db()->queryBuilder()->table('#PREFIX#chat_memory')->where('userid', $userId)->where('space', $space);
+            $query = $this->db()->queryBuilder()->table('assist.chat_memory')->where('userid', $userId)->where('space', $space);
             $organizationId === null ? $query->whereNull('organization_id') : $query->where('organization_id', $organizationId);
             $rows = $query->orderBy('memory_id')->getAllOrFail();
         } catch (\Throwable $e) {
@@ -90,7 +90,7 @@ final class MemoryAdmin
             return false;
         }
         try {
-            $this->db()->queryBuilder()->table('#PREFIX#chat_memory')->where('memory_id', $memoryId)
+            $this->db()->queryBuilder()->table('assist.chat_memory')->where('memory_id', $memoryId)
                 ->update(['content' => mb_substr($content, 0, Memory::chars()), 'updated_at' => \Pramnos\Llm\CallLog::instant(time())]);
         } catch (\Throwable $e) {
             \Pramnos\Logs\Logger::log('Ask memory not corrected: ' . $e->getMessage(), 'llm');
@@ -111,7 +111,7 @@ final class MemoryAdmin
             return false;
         }
         try {
-            $this->db()->queryBuilder()->table('#PREFIX#chat_memory')->where('memory_id', $memoryId)->delete();
+            $this->db()->queryBuilder()->table('assist.chat_memory')->where('memory_id', $memoryId)->delete();
         } catch (\Throwable $e) {
             \Pramnos\Logs\Logger::log('Ask memory not deleted: ' . $e->getMessage(), 'llm');
 
@@ -127,7 +127,7 @@ final class MemoryAdmin
     private function row(int $memoryId): ?array
     {
         try {
-            $rows = $this->db()->queryBuilder()->table('#PREFIX#chat_memory')->where('memory_id', $memoryId)->getAllOrFail();
+            $rows = $this->db()->queryBuilder()->table('assist.chat_memory')->where('memory_id', $memoryId)->getAllOrFail();
         } catch (\Throwable) {
             return null;
         }

@@ -202,7 +202,7 @@ final class Notify
     /** @return list<int> Who wrote a thread's first message or replied in it */
     private static function threadPeople(int $root): array
     {
-        $rows = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_messages')->select(['authorid'])->distinct()
+        $rows = Conversations::db()->queryBuilder()->table('chat.conversation_messages')->select(['authorid'])->distinct()
             ->where(static fn ($q) => $q->where('messageid', $root)->orWhere('threadrootid', $root))->whereNotNull('authorid')->getAllOrFail();
 
         return array_map('intval', array_column($rows, 'authorid'));
@@ -224,7 +224,7 @@ final class Notify
     private static function settings(int $conversationId): array
     {
         $out = [];
-        foreach (Conversations::db()->queryBuilder()->table('#PREFIX#conversation_members')->select(['participantid', 'notify', 'muted'])
+        foreach (Conversations::db()->queryBuilder()->table('chat.conversation_members')->select(['participantid', 'notify', 'muted'])
             ->where('conversationid', $conversationId)->where('participanttype', 'user')->whereNull('leftat')->getAllOrFail() as $row) {
             $out[(int) $row['participantid']] = [(string) $row['notify'], (bool) $row['muted']];
         }

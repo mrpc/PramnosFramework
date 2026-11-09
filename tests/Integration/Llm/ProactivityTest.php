@@ -292,7 +292,7 @@ class ProactivityTest extends LlmTestCase
         // Assert
         $this->assertSame([1, 0, 0, 1, 0], [$first, $second, $passed, $unheld, $none]);
         $this->assertSame([[7, 'In 20 minutes: Giorgos.'], [11, 'In 25 minutes: No manners.']], $told);
-        $alerted = fn (int $id): string => (string) $this->db->queryBuilder()->table('chat_calendar')->where('item_id', $id)->first()->fields['alerted_at'];
+        $alerted = fn (int $id): string => (string) $this->db->queryBuilder()->table('assist.chat_calendar')->where('item_id', $id)->first()->fields['alerted_at'];
         $this->assertStringStartsWith('1970-01-01', $alerted($held), 'passed, at the first moment there is');
         $this->assertStringStartsWith('1970-01-01', $alerted($off));
         $this->assertStringStartsWith(gmdate('Y-m-d'), $alerted($soon));

@@ -21,11 +21,11 @@ class AddStarorderToConversationMembers extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('conversation_members') || $schema->hasColumn('conversation_members', 'starorder')) {
+        if (!$schema->hasTable('chat.conversation_members') || $schema->hasColumn('chat.conversation_members', 'starorder')) {
             return;
         }
 
-        $schema->table('conversation_members', function ($table) {
+        $schema->table('chat.conversation_members', function ($table) {
             $table->integer('starorder')->nullable()->comment('Where they placed it among their starred; null when not placed');
         });
     }
@@ -35,11 +35,11 @@ class AddStarorderToConversationMembers extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('conversation_members') || !$schema->hasColumn('conversation_members', 'starorder')) {
+        if (!$schema->hasTable('chat.conversation_members') || !$schema->hasColumn('chat.conversation_members', 'starorder')) {
             return;
         }
 
-        $schema->table('conversation_members', function ($table) {
+        $schema->table('chat.conversation_members', function ($table) {
             $table->dropColumn('starorder');
         });
     }

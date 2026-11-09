@@ -133,7 +133,7 @@ final class Primary
     public static function conversations(array $team): array
     {
         $since = time() - 86400 * max(1, (int) Config::value('conversation_days', self::CONVERSATION_DAYS));
-        $rows  = Conversations::db()->queryBuilder()->table('#PREFIX#conversations')->select(['conversationid', 'kind', 'name'])
+        $rows  = Conversations::db()->queryBuilder()->table('chat.conversations')->select(['conversationid', 'kind', 'name'])
             ->whereIn('kind', ['channel', 'private', 'system', 'group'])->whereNull('archivedat')->where('lastmessageat', '>=', $since)
             ->orderBy('conversationid')->limit(1000)->getAllOrFail();
         $out = [];
@@ -190,7 +190,7 @@ final class Primary
         } else {
             return false;
         }
-        $existing = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_messages')->select(['messageid'])
+        $existing = Conversations::db()->queryBuilder()->table('chat.conversation_messages')->select(['messageid'])
             ->where('source', 'beacon')->where('externalid', (string) $message['id'])->limit(1)->getAllOrFail();
         if ($existing !== []) {
             return false;

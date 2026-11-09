@@ -168,8 +168,8 @@ class HelpGaps extends Command
         if ($badOnly && !$rated) {
             return [];
         }
-        $query = $db->queryBuilder()->table('#PREFIX#chat_messages as m')
-            ->join('#PREFIX#chat_conversations as c', 'c.conversation_id', '=', 'm.conversation_id')
+        $query = $db->queryBuilder()->table('assist.chat_messages as m')
+            ->join('assist.chat_conversations as c', 'c.conversation_id', '=', 'm.conversation_id')
             ->select(array_merge(['m.message_id', 'm.conversation_id', 'm.tools'], $rated ? ['m.rating_note'] : []))
             ->where('c.space', \Pramnos\Llm\Chat\Scope::ADMIN)
             ->where('m.role', 'assistant')

@@ -139,13 +139,13 @@ class AccountErasureTest extends TestCase
     {
         $stamp = date('Y-m-d H:i:s');
         $qb    = fn (string $table) => $this->db->queryBuilder()->table($table);
-        $qb('chat_conversations')->insert(['userid' => $userId, 'title' => 'Mine ' . $userId, 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
-        $conversation = (int) $qb('chat_conversations')->where('userid', $userId)->first()->fields['conversation_id'];
-        $qb('chat_messages')->insert(['conversation_id' => $conversation, 'role' => 'user', 'content' => 'My wife is called Eleni', 'created_at' => $stamp, 'updated_at' => $stamp]);
-        $qb('chat_artifacts')->insert(['userid' => $userId, 'space' => 'chat', 'conversation_id' => $conversation, 'kind' => 'text', 'title' => 'About Eleni',
+        $qb('assist.chat_conversations')->insert(['userid' => $userId, 'title' => 'Mine ' . $userId, 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $conversation = (int) $qb('assist.chat_conversations')->where('userid', $userId)->first()->fields['conversation_id'];
+        $qb('assist.chat_messages')->insert(['conversation_id' => $conversation, 'role' => 'user', 'content' => 'My wife is called Eleni', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $qb('assist.chat_artifacts')->insert(['userid' => $userId, 'space' => 'chat', 'conversation_id' => $conversation, 'kind' => 'text', 'title' => 'About Eleni',
             'content' => '{"text":"Eleni"}', 'created_at' => $stamp, 'updated_at' => $stamp]);
-        $qb('chat_memory')->insert(['userid' => $userId, 'kind' => 'fact', 'content' => 'Eleni', 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
-        $qb('chat_asks')->insert(['userid' => $userId, 'status' => 'answered', 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $qb('assist.chat_memory')->insert(['userid' => $userId, 'kind' => 'fact', 'content' => 'Eleni', 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $qb('assist.chat_asks')->insert(['userid' => $userId, 'status' => 'answered', 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
         $qb('ai_consents')->insert(['userid' => $userId, 'provider' => 'deepseek', 'created_at' => $stamp]);
         $qb('usersettings')->insert(['userid' => $userId, 'setting' => 'dashboard.admin', 'value' => '[]', 'updated_at' => time()]);
         $qb('pramnos.ai_routines')->insert(['userid' => $userId, 'space' => 'chat', 'title' => 'Task ' . $userId, 'prompt' => 'p', 'cadence' => 'daily',
@@ -154,11 +154,11 @@ class AccountErasureTest extends TestCase
         $qb('pramnos.ai_task_runs')->insert(['routine_id' => $task, 'kind' => 'ask', 'status' => 'ok', 'content' => 'About Eleni']);
         $qb('pramnos.ai_task_subscriptions')->insert(['routine_id' => $task, 'userid' => $userId, 'email' => false]);
         $qb('llm_calls')->insert(['userid' => $userId, 'provider' => 'openai', 'model' => 'm', 'messages' => 'Eleni', 'reply' => 'Eleni', 'cost' => 0.5, 'created_at' => $stamp]);
-        $qb('chat_dossier')->insert(['userid' => $userId, 'area' => 'relationships', 'subject' => 'Eleni', 'content' => 'Wife', 'version' => 1, 'created_at' => $stamp, 'updated_at' => $stamp]);
-        $entry = (int) $qb('chat_dossier')->where('userid', $userId)->first()->fields['dossier_id'];
+        $qb('assist.chat_dossier')->insert(['userid' => $userId, 'area' => 'relationships', 'subject' => 'Eleni', 'content' => 'Wife', 'version' => 1, 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $entry = (int) $qb('assist.chat_dossier')->where('userid', $userId)->first()->fields['dossier_id'];
         $qb(\Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE)->insert(['entity' => 'chat_dossier', 'itemid' => (string) $entry, 'event' => 'changed',
             'logtype' => 0, 'details' => '{"to":"Wife"}', 'userid' => $userId, 'source' => 'test', 'created_at' => $stamp]);
-        $qb('chat_calendar')->insert(['userid' => $userId, 'kind' => 'event', 'title' => 'Dinner with Eleni', 'starts_at' => $stamp, 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $qb('assist.chat_calendar')->insert(['userid' => $userId, 'kind' => 'event', 'title' => 'Dinner with Eleni', 'starts_at' => $stamp, 'created_at' => $stamp, 'updated_at' => $stamp]);
 
         return $task;
     }
@@ -281,13 +281,13 @@ class AccountErasureTest extends TestCase
         (new AccountErasure($this->db))->erase($leaving);
 
         // Assert
-        foreach (['chat_conversations', 'chat_artifacts', 'chat_memory', 'chat_asks', 'ai_consents', 'usersettings', 'pramnos.ai_routines', 'pramnos.ai_task_subscriptions', 'llm_calls', 'chat_dossier', 'chat_calendar', \Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE] as $table) {
+        foreach (['assist.chat_conversations', 'assist.chat_artifacts', 'assist.chat_memory', 'assist.chat_asks', 'ai_consents', 'usersettings', 'pramnos.ai_routines', 'pramnos.ai_task_subscriptions', 'llm_calls', 'assist.chat_dossier', 'assist.chat_calendar', \Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE] as $table) {
             $this->assertSame(0, $count($table, 'userid', $leaving), $table . ' still holds the account');
             $this->assertSame(1, $count($table, 'userid', $staying), $table . ': another account\'s went too');
         }
         $this->assertSame(0, $count('pramnos.ai_task_runs', 'routine_id', $theirs), 'their task\'s runs');
         $this->assertSame(1, $count('pramnos.ai_task_runs', 'routine_id', $kept));
-        $this->assertSame(1, $this->db->queryBuilder()->table('chat_messages')->count(), 'only the other account\'s message');
+        $this->assertSame(1, $this->db->queryBuilder()->table('assist.chat_messages')->count(), 'only the other account\'s message');
         $call = $this->db->queryBuilder()->table('llm_calls')->whereNull('userid')->first()->fields;
         $this->assertSame([null, null, 0.5], [$call['messages'], $call['reply'], (float) $call['cost']], 'the cost kept, the words gone');
     }

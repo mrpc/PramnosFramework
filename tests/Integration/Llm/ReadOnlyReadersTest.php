@@ -113,7 +113,7 @@ class ReadOnlyReadersTest extends LlmTestCase
             $this->assertStringNotContainsString('<textarea', $html, $theme . ': nothing to ask');
         }
         $this->assertSame(1, $closed, 'below its audience: not there');
-        $this->assertSame([], $this->rows('chat_conversations'), 'nothing copied into an Ask they cannot open');
+        $this->assertSame([], $this->rows('assist.chat_conversations'), 'nothing copied into an Ask they cannot open');
     }
 
     /** A share sent to somebody below the floor reads as it was shared, without a copy. */
@@ -126,15 +126,15 @@ class ReadOnlyReadersTest extends LlmTestCase
         $chat  = \Pramnos\Llm\Analyst\Analyst::conversations(7);
         $id    = (int) $chat->seed('Leaks', [['role' => 'user', 'content' => 'Where?'], ['role' => 'assistant', 'content' => 'In **Patras**.']]);
         $made  = (new Artifacts($owner))->create(['kind' => 'text', 'title' => 'Memo', 'text' => 'Kept']);
-        $this->db->queryBuilder()->table('chat_artifacts')->where('artifact_id', $made['artifact_id'])
+        $this->db->queryBuilder()->table('assist.chat_artifacts')->where('artifact_id', $made['artifact_id'])
             ->update(['conversation_id' => $id, 'message_id' => (int) $chat->find($id)['messages'][1]['message_id']]);
-        $this->db->queryBuilder()->table('chat_shares')->insert(['kind' => 'conversation', 'target_id' => $id, 'organization_id' => null, 'userid' => 7,
+        $this->db->queryBuilder()->table('assist.chat_shares')->insert(['kind' => 'conversation', 'target_id' => $id, 'organization_id' => null, 'userid' => 7,
             'space' => Scope::ADMIN, 'recipient' => 9, 'title' => 'Leaks', 'up_to_message_id' => null, 'created_at' => \Pramnos\Llm\CallLog::instant(time()), 'updated_at' => \Pramnos\Llm\CallLog::instant(time())]);
         $shareId = (int) $this->db->getInsertId();
-        $this->db->queryBuilder()->table('chat_shares')->insert(['kind' => 'artifact', 'target_id' => $made['artifact_id'], 'organization_id' => null, 'userid' => 7,
+        $this->db->queryBuilder()->table('assist.chat_shares')->insert(['kind' => 'artifact', 'target_id' => $made['artifact_id'], 'organization_id' => null, 'userid' => 7,
             'space' => Scope::ADMIN, 'recipient' => 9, 'title' => 'Memo', 'created_at' => \Pramnos\Llm\CallLog::instant(time()), 'updated_at' => \Pramnos\Llm\CallLog::instant(time())]);
         $artifactShare = (int) $this->db->getInsertId();
-        $before = count($this->rows('chat_conversations'));
+        $before = count($this->rows('assist.chat_conversations'));
 
         // Act
         $html     = (string) $this->screenFor(9)->shared($shareId);
@@ -153,7 +153,7 @@ class ReadOnlyReadersTest extends LlmTestCase
         $this->assertStringContainsString('Shared with you by', $html);
         $this->assertStringContainsString('shared this with you.', $artifact);
         $this->assertSame(1, $closed, 'not theirs: not there');
-        $this->assertCount($before, $this->rows('chat_conversations'), 'no copy taken');
+        $this->assertCount($before, $this->rows('assist.chat_conversations'), 'no copy taken');
         $this->assertNull((new Shares())->snapshot(999999, 9));
     }
 }

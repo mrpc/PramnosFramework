@@ -336,7 +336,7 @@ class RoutinesAsksConsentTest extends LlmTestCase
         // Arrange — the column taken away for this test, and put back after
         $this->connectDatabase($type, $host, $port);
         $this->configure(['providers' => ['openai' => ['transport' => PeekingTransport::class]]]);
-        $this->db->schema()->alterTable('chat_asks', static function ($table): void {
+        $this->db->schema()->alterTable('assist.chat_asks', static function ($table): void {
             $table->dropColumn('partial');
         });
         $queue = new RecordingQueue();
@@ -461,8 +461,8 @@ class RoutinesAsksConsentTest extends LlmTestCase
         // Arrange — the tables as an application had them
         $this->connectDatabase($type, $host, $port);
         $this->llmSchemaChanged();
-        $this->db->schema()->alterTable('chat_conversations', fn ($t) => $t->dropColumn('tags'));
-        $this->db->schema()->alterTable('chat_messages', fn ($t) => $t->dropColumn('extra'));
+        $this->db->schema()->alterTable('assist.chat_conversations', fn ($t) => $t->dropColumn('tags'));
+        $this->db->schema()->alterTable('assist.chat_messages', fn ($t) => $t->dropColumn('extra'));
 
         // Act
         $migrations = $this->migrations();
@@ -472,8 +472,8 @@ class RoutinesAsksConsentTest extends LlmTestCase
         }
 
         // Assert
-        $this->assertTrue($this->db->schema()->hasColumn('chat_conversations', 'tags'));
-        $this->assertTrue($this->db->schema()->hasColumn('chat_messages', 'extra'));
+        $this->assertTrue($this->db->schema()->hasColumn('assist.chat_conversations', 'tags'));
+        $this->assertTrue($this->db->schema()->hasColumn('assist.chat_messages', 'extra'));
         foreach (array_reverse($migrations) as $class) {
             $this->migration($class)->down();
         }

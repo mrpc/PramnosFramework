@@ -90,7 +90,7 @@ class ArtifactsTest extends LlmTestCase
         $chat->delete((int) $answer['conversation_id']);
 
         // Assert — and its artifacts with it
-        $this->assertSame([], $this->rows('chat_artifacts'));
+        $this->assertSame([], $this->rows('assist.chat_artifacts'));
     }
 
     /**
@@ -129,7 +129,7 @@ class ArtifactsTest extends LlmTestCase
         $this->assertStringStartsWith('Error: A text needs', $byTool, 'the tool hands the reason to the model');
         $this->assertSame([[1, null], ['{"x":1}', true]], $table['content']['rows']);
         $this->assertSame(['A-17', 'B-2'], $codes['content']['ids'], 'ids that are not numbers stay strings');
-        $this->assertCount(2, $this->rows('chat_artifacts'), 'only the two that fit were kept');
+        $this->assertCount(2, $this->rows('assist.chat_artifacts'), 'only the two that fit were kept');
     }
 
     /**

@@ -31,18 +31,18 @@ class AddFormerMembersToConversationMembers extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('conversation_members')) {
+        if (!$schema->hasTable('chat.conversation_members')) {
             return;
         }
 
-        $hasName       = $schema->hasColumn('conversation_members', 'name');
-        $hasExternalId = $schema->hasColumn('conversation_members', 'externalid');
+        $hasName       = $schema->hasColumn('chat.conversation_members', 'name');
+        $hasExternalId = $schema->hasColumn('chat.conversation_members', 'externalid');
 
         if ($hasName && $hasExternalId) {
             return;
         }
 
-        $schema->table('conversation_members', function ($table) use ($hasName, $hasExternalId) {
+        $schema->table('chat.conversation_members', function ($table) use ($hasName, $hasExternalId) {
             if (!$hasName) {
                 $table->string('name', 150)->nullable()->comment('A former member\'s name; null for an account');
             }
@@ -57,18 +57,18 @@ class AddFormerMembersToConversationMembers extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('conversation_members')) {
+        if (!$schema->hasTable('chat.conversation_members')) {
             return;
         }
 
-        $hasName       = $schema->hasColumn('conversation_members', 'name');
-        $hasExternalId = $schema->hasColumn('conversation_members', 'externalid');
+        $hasName       = $schema->hasColumn('chat.conversation_members', 'name');
+        $hasExternalId = $schema->hasColumn('chat.conversation_members', 'externalid');
 
         if (!$hasName && !$hasExternalId) {
             return;
         }
 
-        $schema->table('conversation_members', function ($table) use ($hasName, $hasExternalId) {
+        $schema->table('chat.conversation_members', function ($table) use ($hasName, $hasExternalId) {
             if ($hasExternalId) {
                 $table->dropColumn('externalid');
             }

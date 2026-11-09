@@ -59,7 +59,7 @@ class CustomEmojiTest extends TestCase
         $this->boot($type, $host, $port, $user);
         require_once ROOT . '/database/migrations/framework/conversations/2026_11_09_000007_create_conversation_emoji_table.php';
         \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Conversations\CreateConversationEmojiTable::class], $this->db);
-        $this->db->queryBuilder()->table('#PREFIX#conversation_emoji')->delete();
+        $this->db->queryBuilder()->table('chat.conversation_emoji')->delete();
         CustomEmoji::forget();
         $this->files = sys_get_temp_dir() . '/pf-emoji-' . bin2hex(random_bytes(4));
         Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30, 'files_path' => $this->files];
@@ -158,7 +158,7 @@ class CustomEmojiTest extends TestCase
         $this->boot($type, $host, $port, $user);
         require_once ROOT . '/database/migrations/framework/conversations/2026_11_09_000007_create_conversation_emoji_table.php';
         \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Conversations\CreateConversationEmojiTable::class], $this->db);
-        $this->db->queryBuilder()->table('#PREFIX#conversation_emoji')->delete();
+        $this->db->queryBuilder()->table('chat.conversation_emoji')->delete();
         $this->files = sys_get_temp_dir() . '/pf-emoji-' . bin2hex(random_bytes(4));
         mkdir($this->files, 0770, true);
         $default = $this->files . '/kappa.png';

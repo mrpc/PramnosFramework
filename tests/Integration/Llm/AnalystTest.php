@@ -288,7 +288,7 @@ class AnalystTest extends LlmTestCase
         $this->boot($type, $host, $port, $user);
         $now = \Pramnos\Llm\CallLog::instant(time());
         foreach ([Scope::CHAT => 'Ask AI question', Scope::ADMIN => 'Analyst question'] as $space => $title) {
-            $this->insert('chat_conversations', ['organization_id' => null, 'userid' => 7, 'title' => $title, 'space' => $space, 'created_at' => $now, 'updated_at' => $now]);
+            $this->insert('assist.chat_conversations', ['organization_id' => null, 'userid' => 7, 'title' => $title, 'space' => $space, 'created_at' => $now, 'updated_at' => $now]);
         }
         (new \Pramnos\Llm\Chat\Memory(Analyst::scope(7)))->remember('fact', 'Org 5 is a test organisation');
         $queue = new RecordingQueue();
@@ -456,7 +456,7 @@ class AnalystTest extends LlmTestCase
 
             // Forgetting, and withdrawing
             $stamp = \Pramnos\Llm\CallLog::instant(time());
-            $this->insert('chat_conversations', ['organization_id' => null, 'userid' => 7, 'title' => 'Spend', 'space' => Scope::ADMIN, 'created_at' => $stamp, 'updated_at' => $stamp]);
+            $this->insert('assist.chat_conversations', ['organization_id' => null, 'userid' => 7, 'title' => 'Spend', 'space' => Scope::ADMIN, 'created_at' => $stamp, 'updated_at' => $stamp]);
             $deleted = new AnalystScreen();
             $deleted->delete((int) Analyst::conversations(7)->list()[0]['conversation_id']);
             $this->assertSame(['The conversation is forgotten.'], $deleted->messages);
@@ -491,24 +491,24 @@ class AnalystTest extends LlmTestCase
         $this->boot($type, $host, $port, $user);
         $this->seed();
         $stamp = static fn (int $ago): string => gmdate('Y-m-d H:i:s', time() - $ago);
-        $this->insert('chat_conversations', ['organization_id' => null, 'userid' => 8, 'title' => 'Why did NAN-6250 fail', 'space' => Scope::ADMIN, 'created_at' => $stamp(600), 'updated_at' => $stamp(500)]);
-        $this->insert('chat_conversations', ['organization_id' => null, 'userid' => 7, 'title' => 'Own spend', 'space' => Scope::ADMIN, 'created_at' => $stamp(900), 'updated_at' => $stamp(900)]);
-        $this->insert('chat_conversations', ['organization_id' => 1, 'userid' => 8, 'title' => 'A private Ask AI', 'space' => Scope::CHAT, 'created_at' => $stamp(300), 'updated_at' => $stamp(300)]);
-        $ids    = array_column($this->db->queryBuilder()->table('chat_conversations')->orderBy('conversation_id')->getAllOrFail(), 'conversation_id');
+        $this->insert('assist.chat_conversations', ['organization_id' => null, 'userid' => 8, 'title' => 'Why did NAN-6250 fail', 'space' => Scope::ADMIN, 'created_at' => $stamp(600), 'updated_at' => $stamp(500)]);
+        $this->insert('assist.chat_conversations', ['organization_id' => null, 'userid' => 7, 'title' => 'Own spend', 'space' => Scope::ADMIN, 'created_at' => $stamp(900), 'updated_at' => $stamp(900)]);
+        $this->insert('assist.chat_conversations', ['organization_id' => 1, 'userid' => 8, 'title' => 'A private Ask AI', 'space' => Scope::CHAT, 'created_at' => $stamp(300), 'updated_at' => $stamp(300)]);
+        $ids    = array_column($this->db->queryBuilder()->table('assist.chat_conversations')->orderBy('conversation_id')->getAllOrFail(), 'conversation_id');
         [$theirs, $mine] = [(int) $ids[0], (int) $ids[1]];
-        $this->insert('chat_messages', ['conversation_id' => $theirs, 'organization_id' => null, 'role' => 'user', 'content' => 'Why did it fail?', 'created_at' => $stamp(600), 'updated_at' => $stamp(600)]);
-        $this->insert('chat_messages', ['conversation_id' => $theirs, 'organization_id' => null, 'role' => 'assistant', 'content' => "The queue refused it.\n```chart\n{\"type\":\"bar\",\"title\":\"Refusals\",\"labels\":[\"Mon\"],\"series\":[{\"data\":[3]}]}\n```",
+        $this->insert('assist.chat_messages', ['conversation_id' => $theirs, 'organization_id' => null, 'role' => 'user', 'content' => 'Why did it fail?', 'created_at' => $stamp(600), 'updated_at' => $stamp(600)]);
+        $this->insert('assist.chat_messages', ['conversation_id' => $theirs, 'organization_id' => null, 'role' => 'assistant', 'content' => "The queue refused it.\n```chart\n{\"type\":\"bar\",\"title\":\"Refusals\",\"labels\":[\"Mon\"],\"series\":[{\"data\":[3]}]}\n```",
             'tools' => json_encode([['name' => 'queue_failures', 'arguments' => ['days' => 1]]]), 'cost' => 0.0125, 'created_at' => $stamp(600), 'updated_at' => $stamp(600)]);
         $this->insert('llm_calls', ['organization_id' => null, 'userid' => 8, 'purpose' => 'analyst', 'provider' => 'openai', 'model' => 'gpt-x', 'created_at' => $stamp(550)]);
         $call   = (int) $this->db->queryBuilder()->table('llm_calls')->where('purpose', 'analyst')->first()->fields['call_id'];
         // A second question, later: the first answer's calls stop where it begins.
-        $this->insert('chat_messages', ['conversation_id' => $theirs, 'organization_id' => null, 'role' => 'user', 'content' => 'And now?', 'created_at' => $stamp(100), 'updated_at' => $stamp(100)]);
-        $this->insert('chat_messages', ['conversation_id' => $theirs, 'organization_id' => null, 'role' => 'assistant', 'content' => 'Fine now.', 'created_at' => $stamp(100), 'updated_at' => $stamp(100)]);
+        $this->insert('assist.chat_messages', ['conversation_id' => $theirs, 'organization_id' => null, 'role' => 'user', 'content' => 'And now?', 'created_at' => $stamp(100), 'updated_at' => $stamp(100)]);
+        $this->insert('assist.chat_messages', ['conversation_id' => $theirs, 'organization_id' => null, 'role' => 'assistant', 'content' => 'Fine now.', 'created_at' => $stamp(100), 'updated_at' => $stamp(100)]);
         $this->insert('llm_calls', ['organization_id' => null, 'userid' => 8, 'purpose' => 'analyst', 'provider' => 'openai', 'model' => 'gpt-x', 'created_at' => $stamp(50)]);
         $later  = (int) $this->db->queryBuilder()->table('llm_calls')->where('purpose', 'analyst')->orderBy('call_id', 'desc')->first()->fields['call_id'];
-        $this->insert('chat_conversations', ['organization_id' => 1, 'userid' => 8, 'title' => 'Asked inside an organisation', 'space' => Scope::ADMIN, 'created_at' => $stamp(300), 'updated_at' => $stamp(300)]);
-        $inOrg  = (int) $this->db->queryBuilder()->table('chat_conversations')->orderBy('conversation_id', 'desc')->first()->fields['conversation_id'];
-        $before = [$this->rowsIn('chat_messages'), $this->rowsIn('chat_memory'), $this->rowsIn('chat_conversations')];
+        $this->insert('assist.chat_conversations', ['organization_id' => 1, 'userid' => 8, 'title' => 'Asked inside an organisation', 'space' => Scope::ADMIN, 'created_at' => $stamp(300), 'updated_at' => $stamp(300)]);
+        $inOrg  = (int) $this->db->queryBuilder()->table('assist.chat_conversations')->orderBy('conversation_id', 'desc')->first()->fields['conversation_id'];
+        $before = [$this->rowsIn('assist.chat_messages'), $this->rowsIn('assist.chat_memory'), $this->rowsIn('assist.chat_conversations')];
 
         // Act
         $_GET = [];
@@ -557,7 +557,7 @@ class AnalystTest extends LlmTestCase
         }
         $this->assertCount(3, $audit, 'each view of theirs, in each theme; not root\'s own');
         $this->assertSame(['7', '8', (string) $theirs], [(string) $audit[0]['actor_userid'], (string) $audit[0]['target_id'], (string) $audit[0]['object_id']]);
-        $this->assertSame($before, [$this->rowsIn('chat_messages'), $this->rowsIn('chat_memory'), $this->rowsIn('chat_conversations')], 'nothing else written');
+        $this->assertSame($before, [$this->rowsIn('assist.chat_messages'), $this->rowsIn('assist.chat_memory'), $this->rowsIn('assist.chat_conversations')], 'nothing else written');
         $this->assertNull(\Pramnos\Llm\Analyst\Review::open(999999));
         $this->assertNull(\Pramnos\Llm\Analyst\Review::open((int) $ids[2]), 'a private Ask AI conversation is not opened here');
     }
@@ -574,10 +574,10 @@ class AnalystTest extends LlmTestCase
         $this->boot($type, $host, $port, $user);
         $this->seed();
         $stamp = gmdate('Y-m-d H:i:s');
-        $this->insert('chat_memory', ['organization_id' => null, 'userid' => 8, 'kind' => 'preference', 'content' => 'Amounts <without> VAT', 'space' => Scope::CHAT, 'source' => 'learned', 'created_at' => $stamp, 'updated_at' => $stamp]);
-        $this->insert('chat_memory', ['organization_id' => null, 'userid' => 8, 'kind' => 'fact', 'content' => 'Runs sales in the UK', 'space' => Scope::CHAT, 'source' => 'model', 'created_at' => $stamp, 'updated_at' => $stamp]);
-        $this->insert('chat_memory', ['organization_id' => 1, 'userid' => 0, 'kind' => 'fact', 'content' => 'The newsroom closes at 22:00', 'space' => Scope::CHAT, 'source' => 'model', 'created_at' => $stamp, 'updated_at' => $stamp]);
-        $ids = array_map('intval', array_column($this->db->queryBuilder()->table('chat_memory')->where('userid', 8)->orderBy('memory_id')->getAllOrFail(), 'memory_id'));
+        $this->insert('assist.chat_memory', ['organization_id' => null, 'userid' => 8, 'kind' => 'preference', 'content' => 'Amounts <without> VAT', 'space' => Scope::CHAT, 'source' => 'learned', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $this->insert('assist.chat_memory', ['organization_id' => null, 'userid' => 8, 'kind' => 'fact', 'content' => 'Runs sales in the UK', 'space' => Scope::CHAT, 'source' => 'model', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $this->insert('assist.chat_memory', ['organization_id' => 1, 'userid' => 0, 'kind' => 'fact', 'content' => 'The newsroom closes at 22:00', 'space' => Scope::CHAT, 'source' => 'model', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $ids = array_map('intval', array_column($this->db->queryBuilder()->table('assist.chat_memory')->where('userid', 8)->orderBy('memory_id')->getAllOrFail(), 'memory_id'));
         $super = new AnalystScreen();
         $super->reading = (object) ['userid' => 8, 'usertype' => 98, 'active' => 1];
 
@@ -603,7 +603,7 @@ class AnalystTest extends LlmTestCase
         } catch (\Pramnos\Application\ApplicationClosedException $e) {
             $refused = $e->getStatusCode();
         }
-        $left   = $this->db->queryBuilder()->table('chat_memory')->where('userid', 8)->getAllOrFail();
+        $left   = $this->db->queryBuilder()->table('assist.chat_memory')->where('userid', 8)->getAllOrFail();
         $events = array_count_values(array_column($this->db->queryBuilder()->table('authserver.audit_log')->where('event_type', 'like', 'ai.memory_%')->getAllOrFail(), 'event_type'));
 
         // Assert
@@ -811,7 +811,7 @@ class AnalystTest extends LlmTestCase
         $this->boot($type, $host, $port, $user);
         $this->setting('llm_openai_api_key', 'sk-test');
         $stamp = \Pramnos\Llm\CallLog::instant(time());
-        $this->insert('chat_conversations', ['organization_id' => null, 'userid' => 7, 'title' => 'Spend', 'space' => Scope::ADMIN, 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $this->insert('assist.chat_conversations', ['organization_id' => null, 'userid' => 7, 'title' => 'Spend', 'space' => Scope::ADMIN, 'created_at' => $stamp, 'updated_at' => $stamp]);
         $id = (int) Analyst::conversations(7)->list()[0]['conversation_id'];
         (new \Pramnos\Llm\Chat\Memory(Analyst::scope(7)))->remember('fact', 'Org 5 is a test');
         $memoryId = (int) (new \Pramnos\Llm\Chat\Memory(Analyst::scope(7)))->all()[0]['memory_id'];

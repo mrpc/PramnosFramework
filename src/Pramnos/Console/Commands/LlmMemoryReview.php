@@ -38,7 +38,7 @@ class LlmMemoryReview extends Command
             return $this->forget($db, array_map('intval', explode(',', $forget)), $output);
         }
         try {
-            $query = $db->queryBuilder()->table('#PREFIX#chat_memory')->where('source', 'learned')->where('userid', '>', 0);
+            $query = $db->queryBuilder()->table('assist.chat_memory')->where('source', 'learned')->where('userid', '>', 0);
             if ($input->getOption('user') !== null) {
                 $query->where('userid', (int) $input->getOption('user'));
             }
@@ -81,7 +81,7 @@ class LlmMemoryReview extends Command
         $done  = 0;
         foreach (array_unique(array_filter($ids)) as $id) {
             try {
-                $learned = $db->queryBuilder()->table('#PREFIX#chat_memory')->where('memory_id', $id)->where('source', 'learned')->count() > 0;
+                $learned = $db->queryBuilder()->table('assist.chat_memory')->where('memory_id', $id)->where('source', 'learned')->count() > 0;
             } catch (\Throwable) {
                 $learned = false;
             }

@@ -92,7 +92,7 @@ class QuietProactivity implements Proactivity
             ->whereIn('routine_id', array_map('intval', $asks))->where('status', 'ok')
             ->where('started_at', '>=', $midnight)->count();
 
-        return $asked + $db->queryBuilder()->table('#PREFIX#chat_calendar')
+        return $asked + $db->queryBuilder()->table('assist.chat_calendar')
             ->where('userid', $userId)->where('alerted_at', '>=', $midnight)->count();
     }
 

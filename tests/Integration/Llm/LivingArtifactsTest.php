@@ -168,7 +168,7 @@ class LivingArtifactsTest extends LlmTestCase
         $old   = $a->create(['kind' => 'list', 'title' => 'Old buyers', 'entity' => 'user', 'ids' => [1]])['artifact_id'];
         $new   = $a->create(['kind' => 'text', 'title' => 'New notes', 'text' => 'x'])['artifact_id'];
         $a->link(55, 66, ['google']);
-        $this->db->queryBuilder()->table('#PREFIX#chat_artifacts')->where('artifact_id', $new)->update(['updated_at' => \Pramnos\Llm\CallLog::instant(time() - 3600)]);
+        $this->db->queryBuilder()->table('assist.chat_artifacts')->where('artifact_id', $new)->update(['updated_at' => \Pramnos\Llm\CallLog::instant(time() - 3600)]);
 
         // Act
         $all     = self::call($a, 'list_artifacts', []);

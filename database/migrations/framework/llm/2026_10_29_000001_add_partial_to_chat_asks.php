@@ -21,11 +21,11 @@ class AddPartialToChatAsks extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('chat_asks') || $schema->hasColumn('chat_asks', 'partial')) {
+        if (!$schema->hasTable('assist.chat_asks') || $schema->hasColumn('assist.chat_asks', 'partial')) {
             return;
         }
 
-        $schema->alterTable('chat_asks', function ($table) {
+        $schema->alterTable('assist.chat_asks', function ($table) {
             $table->text('partial')->nullable();
         });
     }
@@ -34,8 +34,8 @@ class AddPartialToChatAsks extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasColumn('chat_asks', 'partial')) {
-            $schema->alterTable('chat_asks', function ($table) {
+        if ($schema->hasColumn('assist.chat_asks', 'partial')) {
+            $schema->alterTable('assist.chat_asks', function ($table) {
                 $table->dropColumn('partial');
             });
         }

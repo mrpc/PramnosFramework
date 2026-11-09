@@ -21,11 +21,11 @@ class AddBroadcastToConversationMessages extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('conversation_messages') || $schema->hasColumn('conversation_messages', 'broadcast')) {
+        if (!$schema->hasTable('chat.conversation_messages') || $schema->hasColumn('chat.conversation_messages', 'broadcast')) {
             return;
         }
 
-        $schema->table('conversation_messages', function ($table) {
+        $schema->table('chat.conversation_messages', function ($table) {
             $table->tinyInteger('broadcast')->default(0)->comment('A reply in a thread also sent to the conversation');
         });
     }
@@ -35,11 +35,11 @@ class AddBroadcastToConversationMessages extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('conversation_messages') || !$schema->hasColumn('conversation_messages', 'broadcast')) {
+        if (!$schema->hasTable('chat.conversation_messages') || !$schema->hasColumn('chat.conversation_messages', 'broadcast')) {
             return;
         }
 
-        $schema->table('conversation_messages', function ($table) {
+        $schema->table('chat.conversation_messages', function ($table) {
             $table->dropColumn('broadcast');
         });
     }

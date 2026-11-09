@@ -86,7 +86,7 @@ final class Profile
     public static function available(): bool
     {
         try {
-            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('chat_dossier');
+            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('assist.chat_dossier');
         } catch (\Throwable) {
             return false;
         }
@@ -105,12 +105,12 @@ final class Profile
         }
         $database ??= \Pramnos\Framework\Factory::getDatabase();
         $schema = $database->schema();
-        if (!$schema->hasTable('chat_dossier')) {
+        if (!$schema->hasTable('assist.chat_dossier')) {
             return 0;
         }
 
         $entries = [];
-        $result  = $database->queryBuilder()->table('#PREFIX#chat_dossier')->select(['dossier_id'])->where($by, $id)->get();
+        $result  = $database->queryBuilder()->table('assist.chat_dossier')->select(['dossier_id'])->where($by, $id)->get();
         while ($result && ($row = $result->fetch()) !== null) {
             $entries[] = (string) $row['dossier_id'];
         }
@@ -121,7 +121,7 @@ final class Profile
             $database->queryBuilder()->table(ChangelogWriter::EVENTS_TABLE)
                 ->where('entity', self::ENTITY)->whereIn('itemid', $entries)->delete();
         }
-        $database->queryBuilder()->table('#PREFIX#chat_dossier')->whereIn('dossier_id', $entries)->delete();
+        $database->queryBuilder()->table('assist.chat_dossier')->whereIn('dossier_id', $entries)->delete();
 
         return count($entries);
     }
@@ -468,6 +468,6 @@ final class Profile
 
     private function table(): \Pramnos\Database\QueryBuilder
     {
-        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#chat_dossier');
+        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('assist.chat_dossier');
     }
 }

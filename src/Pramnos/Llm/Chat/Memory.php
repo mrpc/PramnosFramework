@@ -152,7 +152,7 @@ class Memory
     /** @return list<array{memory_id: int, kind: string, content: string, created_at: string}> */
     public function all(): array
     {
-        return $this->read($this->scope->apply($this->table('#PREFIX#chat_memory')));
+        return $this->read($this->scope->apply($this->table('assist.chat_memory')));
     }
 
     /**
@@ -186,7 +186,7 @@ class Memory
         if ($shared && !$this->mayShare()) {
             return 'Error: only an administrator changes what the whole organisation shares; remember it for this person.';
         }
-        $query = $shared ? $this->sharedQuery() : $this->scope->apply($this->table('#PREFIX#chat_memory'));
+        $query = $shared ? $this->sharedQuery() : $this->scope->apply($this->table('assist.chat_memory'));
         $stamp = CallLog::instant(time());
         $row   = [
             'kind'       => in_array($kind, self::KINDS, true) ? $kind : 'fact',
@@ -205,7 +205,7 @@ class Memory
         if ((clone $query)->count() >= ($shared ? self::sharedMax() : self::max())) {
             return 'Error: the memory is full (' . ($shared ? self::sharedMax() : self::max()) . ' entries). Forget one that no longer holds, then remember this.';
         }
-        $this->table('#PREFIX#chat_memory')->insert(($shared ? ['userid' => self::SHARED] + $this->scope->columns() : $this->scope->columns()) + $row + ['created_at' => $stamp]);
+        $this->table('assist.chat_memory')->insert(($shared ? ['userid' => self::SHARED] + $this->scope->columns() : $this->scope->columns()) + $row + ['created_at' => $stamp]);
 
         return 'Remembered as memory ' . (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId() . '.';
     }
@@ -395,7 +395,7 @@ class Memory
     /** Forget one thing. False when there was none of this person's by that id. */
     public function forget(int $memoryId): bool
     {
-        $query = $this->scope->apply($this->table('#PREFIX#chat_memory'))->where('memory_id', $memoryId);
+        $query = $this->scope->apply($this->table('assist.chat_memory'))->where('memory_id', $memoryId);
 
         if ((clone $query)->count() === 0) {
             return false;
@@ -434,7 +434,7 @@ class Memory
             $words
         );
 
-        $result = $this->table('#PREFIX#chat_messages')
+        $result = $this->table('assist.chat_messages')
             ->select(['conversation_id', 'role', 'content', 'created_at'])
             ->whereIn('conversation_id', array_keys($titles))
             ->where('created_at', '>', CallLog::instant(time() - max(1, $days) * 86400))
@@ -519,7 +519,7 @@ class Memory
     /** What the organisation shares: its rows, in this space. */
     private function sharedQuery(): \Pramnos\Database\QueryBuilder
     {
-        return $this->table('#PREFIX#chat_memory')->where('organization_id', $this->scope->organizationId)
+        return $this->table('assist.chat_memory')->where('organization_id', $this->scope->organizationId)
             ->where('space', $this->scope->space)->where('userid', self::SHARED);
     }
 
@@ -527,7 +527,7 @@ class Memory
     private function hasSource(): bool
     {
         try {
-            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('chat_memory', 'source');
+            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('assist.chat_memory', 'source');
         } catch (\Throwable) {
             return false;
         }

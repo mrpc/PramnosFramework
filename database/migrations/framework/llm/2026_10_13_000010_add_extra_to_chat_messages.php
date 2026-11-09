@@ -20,11 +20,11 @@ class AddExtraToChatMessages extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('chat_messages') || $schema->hasColumn('chat_messages', 'extra')) {
+        if (!$schema->hasTable('assist.chat_messages') || $schema->hasColumn('assist.chat_messages', 'extra')) {
             return;
         }
 
-        $schema->alterTable('chat_messages', function ($table) {
+        $schema->alterTable('assist.chat_messages', function ($table) {
             $table->text('extra')->nullable();
         });
     }
@@ -33,8 +33,8 @@ class AddExtraToChatMessages extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasColumn('chat_messages', 'extra')) {
-            $schema->alterTable('chat_messages', function ($table) {
+        if ($schema->hasColumn('assist.chat_messages', 'extra')) {
+            $schema->alterTable('assist.chat_messages', function ($table) {
                 $table->dropColumn('extra');
             });
         }

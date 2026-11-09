@@ -30,7 +30,7 @@ class ConversationsSendScheduled extends Command
     /** Send what is due, and say how many. */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        if (!\Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('conversation_scheduled')) {
+        if (!\Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('chat.conversation_scheduled')) {
             $output->writeln('There is no conversation_scheduled table.');
 
             return Command::SUCCESS;

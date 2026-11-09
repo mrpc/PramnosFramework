@@ -673,7 +673,7 @@ class ConversationsControllerTest extends TestCase
         Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
         Application::getInstance()->applicationInfo['features'] = ['conversations'];
         $ops = Conversations::create('channel', 'ops', [$this->ids['maria']], $this->ids['eleni']);
-        $this->db->schema()->table('conversation_members', static function ($table): void {
+        $this->db->schema()->table('chat.conversation_members', static function ($table): void {
             $table->dropColumn('starorder');
         });
         $this->probeChanged($this->db->type);

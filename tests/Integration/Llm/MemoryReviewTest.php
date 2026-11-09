@@ -35,7 +35,7 @@ class MemoryReviewTest extends LlmTestCase
     protected function tearDown(): void
     {
         if (isset($this->db)) {
-            $this->db->queryBuilder()->table('chat_memory')->whereIn('userid', [7, 8])->delete();
+            $this->db->queryBuilder()->table('assist.chat_memory')->whereIn('userid', [7, 8])->delete();
         }
         $this->disconnectDatabase();
         parent::tearDown();
@@ -45,10 +45,10 @@ class MemoryReviewTest extends LlmTestCase
     private function memory(int $userid, string $content, string $source): int
     {
         $stamp = gmdate('Y-m-d H:i:s');
-        $this->db->queryBuilder()->table('chat_memory')->insert(['organization_id' => null, 'userid' => $userid, 'kind' => 'fact',
+        $this->db->queryBuilder()->table('assist.chat_memory')->insert(['organization_id' => null, 'userid' => $userid, 'kind' => 'fact',
             'content' => $content, 'space' => Scope::CHAT, 'source' => $source, 'created_at' => $stamp, 'updated_at' => $stamp]);
 
-        return (int) $this->db->queryBuilder()->table('chat_memory')->where('content', $content)->first()->fields['memory_id'];
+        return (int) $this->db->queryBuilder()->table('assist.chat_memory')->where('content', $content)->first()->fields['memory_id'];
     }
 
     /**
@@ -73,7 +73,7 @@ class MemoryReviewTest extends LlmTestCase
         $sent   = (string) $this->sent[0]['body']['messages'][1]['content'];
         $forget = new CommandTester(new LlmMemoryReview());
         $exit   = $forget->execute(['--forget' => $task . ',' . $asked]);
-        $left   = array_map('intval', array_column($this->db->queryBuilder()->table('chat_memory')->whereIn('userid', [7, 8])->getAllOrFail(), 'memory_id'));
+        $left   = array_map('intval', array_column($this->db->queryBuilder()->table('assist.chat_memory')->whereIn('userid', [7, 8])->getAllOrFail(), 'memory_id'));
 
         // Assert
         $this->assertStringContainsString('2 learned memories read; 1 proposed for forgetting.', $listed, 'only learned ones, only ids it was given');
@@ -160,8 +160,13 @@ class MemoryReviewTest extends LlmTestCase
         $one->execute(['--user' => '8']);
         $nobody = new CommandTester(new LlmMemoryReview());
         $nobody->execute(['--user' => '7']);
+        // The memory unreadable: under another prefix on MySQL; on PostgreSQL, where the schema is
+        // the assistant's own and takes no prefix, its schema out of the way.
         $prefix = $this->db->prefix;
         $this->db->prefix = 'nosuchprefix_';
+        if ($this->db->type === 'postgresql') {
+            $this->db->query('ALTER SCHEMA assist RENAME TO assist_hidden');
+        }
         try {
             $broken = new CommandTester(new LlmMemoryReview());
             $exit   = $broken->execute([]);
@@ -169,6 +174,9 @@ class MemoryReviewTest extends LlmTestCase
             $unforgot = $unread->execute(['--forget' => '5']);
         } finally {
             $this->db->prefix = $prefix;
+            if ($this->db->type === 'postgresql') {
+                $this->db->query('ALTER SCHEMA assist_hidden RENAME TO assist');
+            }
         }
 
         // Assert

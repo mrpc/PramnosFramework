@@ -85,7 +85,7 @@ final class Artifacts
     public static function available(): bool
     {
         try {
-            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('chat_artifacts');
+            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('assist.chat_artifacts');
         } catch (\Throwable) {
             return false;
         }
@@ -879,6 +879,6 @@ final class Artifacts
 
     private function table(): \Pramnos\Database\QueryBuilder
     {
-        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#chat_artifacts');
+        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('assist.chat_artifacts');
     }
 }

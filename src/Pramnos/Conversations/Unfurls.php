@@ -460,7 +460,7 @@ final class Unfurls
     /** @return list<array{url: string, hidden: bool}> A message's links, as kept on it. */
     private static function kept(int $id): array
     {
-        $row = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_messages')->select(['unfurls'])->where('messageid', $id)->limit(1)->getAllOrFail()[0] ?? null;
+        $row = Conversations::db()->queryBuilder()->table('chat.conversation_messages')->select(['unfurls'])->where('messageid', $id)->limit(1)->getAllOrFail()[0] ?? null;
 
         return self::decode($row['unfurls'] ?? null);
     }
@@ -477,7 +477,7 @@ final class Unfurls
     /** @param list<array{url: string, hidden: bool}> $links */
     private static function write(int $id, array $links): void
     {
-        Conversations::db()->queryBuilder()->table('#PREFIX#conversation_messages')->where('messageid', $id)
+        Conversations::db()->queryBuilder()->table('chat.conversation_messages')->where('messageid', $id)
             ->update(['unfurls' => $links === [] ? null : (string) json_encode($links, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
     }
 

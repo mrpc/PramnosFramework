@@ -174,7 +174,7 @@ final class Proposals
         if ($result !== null) {
             $content['result'] = $result;
         }
-        $this->scope->apply(\Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#chat_artifacts'))
+        $this->scope->apply(\Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('assist.chat_artifacts'))
             ->where('artifact_id', $artifactId)
             ->update(['content' => (string) json_encode($content, JSON_UNESCAPED_UNICODE), 'updated_at' => CallLog::instant(time())]);
     }

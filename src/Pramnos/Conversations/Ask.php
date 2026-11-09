@@ -139,11 +139,11 @@ final class Ask
      */
     private static function analystConversation(int $conversationId, int $person): ?int
     {
-        $asks = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_messages')->select(['externalid'])
+        $asks = Conversations::db()->queryBuilder()->table('chat.conversation_messages')->select(['externalid'])
             ->where('conversationid', $conversationId)->where('source', 'ask')->orderBy('messageid', 'desc')->limit(10)->getAllOrFail();
         // ponytail: a question sent before the last one is answered starts a conversation of its own; a pending-ask lookup if that matters.
         foreach ($asks as $row) {
-            $id = \Pramnos\Llm\Analyst\Analyst::scope($person)->apply(Conversations::db()->queryBuilder()->table('#PREFIX#chat_asks'))
+            $id = \Pramnos\Llm\Analyst\Analyst::scope($person)->apply(Conversations::db()->queryBuilder()->table('assist.chat_asks'))
                 ->select(['conversation_id'])->where('ask_id', (int) $row['externalid'])->limit(1)->getAllOrFail()[0]['conversation_id'] ?? null;
             if ($id !== null) {
                 return (int) $id;

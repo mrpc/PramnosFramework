@@ -21,22 +21,22 @@ class LlmTablesCheck implements HealthCheck
 {
     /** The tables, and whether each carries `space`. */
     private const TABLES = [
-        'chat_conversations' => true,
-        'chat_messages'      => false,
-        'chat_memory'        => true,
-        'chat_asks'          => true,
+        'assist.chat_conversations' => true,
+        'assist.chat_messages'      => false,
+        'assist.chat_memory'        => true,
+        'assist.chat_asks'          => true,
         'ai_consents'        => false,
         'pramnos.ai_routines'        => true,
         'pramnos.ai_task_runs'       => false,
         'pramnos.ai_task_subscriptions' => false,
-        'chat_artifacts'     => true,
-        'chat_shares'        => true,
+        'assist.chat_artifacts'     => true,
+        'assist.chat_shares'        => true,
     ];
 
     /** Columns added to a table after it was first written, which the code reads. */
     private const ADDED = [
         'pramnos.ai_routines' => ['kind', 'locked_until'],
-        'chat_messages' => ['rating'],
+        'assist.chat_messages' => ['rating'],
     ];
 
     public function getName(): string

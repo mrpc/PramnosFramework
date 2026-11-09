@@ -229,6 +229,6 @@ class HandlesTest extends TestCase
     private function rows(int $message): array
     {
         return array_map(static fn (array $r): array => [$r['participantid'] === null ? null : (int) $r['participantid'], (string) $r['kind']],
-            $this->db->queryBuilder()->table('#PREFIX#conversation_mentions')->where('messageid', $message)->orderBy('participantid')->getAllOrFail());
+            $this->db->queryBuilder()->table('chat.conversation_mentions')->where('messageid', $message)->orderBy('participantid')->getAllOrFail());
     }
 }

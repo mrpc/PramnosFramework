@@ -23,11 +23,11 @@ class AddRatingToChatMessages extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('chat_messages') || $schema->hasColumn('chat_messages', 'rating')) {
+        if (!$schema->hasTable('assist.chat_messages') || $schema->hasColumn('assist.chat_messages', 'rating')) {
             return;
         }
 
-        $schema->alterTable('chat_messages', function ($table) {
+        $schema->alterTable('assist.chat_messages', function ($table) {
             $table->smallInteger('rating')->nullable();
             $table->string('rating_note', 500)->nullable();
             $table->timestamp('rated_at')->nullable();
@@ -39,8 +39,8 @@ class AddRatingToChatMessages extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasColumn('chat_messages', 'rating')) {
-            $schema->alterTable('chat_messages', function ($table) {
+        if ($schema->hasColumn('assist.chat_messages', 'rating')) {
+            $schema->alterTable('assist.chat_messages', function ($table) {
                 $table->dropColumn('rating');
                 $table->dropColumn('rating_note');
                 $table->dropColumn('rated_at');

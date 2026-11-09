@@ -38,11 +38,11 @@ class MakeConversationReactionsEmojiBinary extends Migration
     {
         $db     = $this->application->database;
         $schema = $db->schema();
-        if ($db->getDriverName() === 'pgsql' || !$schema->hasColumn('conversation_reactions', 'emoji')) {
+        if ($db->getDriverName() === 'pgsql' || !$schema->hasColumn('chat.conversation_reactions', 'emoji')) {
             return;
         }
 
-        $schema->alterTable('conversation_reactions', function ($table) use ($collation) {
+        $schema->alterTable('chat.conversation_reactions', function ($table) use ($collation) {
             $table->modifyColumn('emoji', 'string', ['length' => 64])->collation($collation)
                 ->comment('The emoji, or its :shortcode: — binary, so each emoji is its own value');
         });

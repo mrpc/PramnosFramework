@@ -43,7 +43,7 @@ final class CustomEmoji
     public const TYPES = ['image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp', 'image/jpeg' => 'jpg'];
 
     /** The table. */
-    private const TABLE = '#PREFIX#conversation_emoji';
+    private const TABLE = 'chat.conversation_emoji';
 
     /** @var array<string, array{path: string, mime: string, aliasof: ?string, createdat: int, default?: bool}>|null Read once a request */
     private static ?array $rows = null;
@@ -150,6 +150,32 @@ final class CustomEmoji
             }
         }
         ksort($out);
+
+        return $out;
+    }
+
+    /**
+     * Every emoji as kept, for a screen that manages them: name, picture, the name it is another
+     * for, who added it and when, and whether it is one of the application's defaults.
+     *
+     * @return list<array{name: string, path: string, aliasof: ?string, createdby: ?int, createdat: int, default: bool}>
+     */
+    public static function list(): array
+    {
+        $by = [];
+        try {
+            foreach (Conversations::db()->queryBuilder()->table(self::TABLE)->select(['name', 'createdby'])->getAllOrFail() as $row) {
+                $by[(string) $row['name']] = $row['createdby'] !== null ? (int) $row['createdby'] : null;
+            }
+        } catch (\Throwable) {
+            // No table yet: the defaults alone.
+        }
+        $out = [];
+        foreach (self::rows() as $name => $row) {
+            $out[] = ['name' => $name, 'path' => $row['path'], 'aliasof' => $row['aliasof'], 'createdby' => $by[$name] ?? null,
+                'createdat' => $row['createdat'], 'default' => !empty($row['default'])];
+        }
+        usort($out, static fn (array $a, array $b): int => strcmp($a['name'], $b['name']));
 
         return $out;
     }

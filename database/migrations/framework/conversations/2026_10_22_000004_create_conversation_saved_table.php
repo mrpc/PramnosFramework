@@ -19,9 +19,10 @@ class CreateConversationSavedTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
+        $schema->ensureSchema('chat');
 
-        if (!$schema->hasTable('conversation_saved')) {
-            $schema->createTable('conversation_saved', function ($table) {
+        if (!$schema->hasTable('chat.conversation_saved')) {
+            $schema->createTable('chat.conversation_saved', function ($table) {
                 $table->comment('A message somebody kept for later');
                 $table->bigInteger('participantid')->comment('users.userid of who kept it');
                 $table->bigInteger('messageid')->comment('conversation_messages.messageid');
@@ -34,6 +35,6 @@ class CreateConversationSavedTable extends Migration
     /** Drop it again. */
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('conversation_saved');
+        $this->application->database->schema()->dropTableIfExists('chat.conversation_saved');
     }
 }

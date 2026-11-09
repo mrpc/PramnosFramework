@@ -34,7 +34,7 @@ final class Ratings
     public static function available(): bool
     {
         try {
-            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('chat_messages', 'rating');
+            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('assist.chat_messages', 'rating');
         } catch (\Throwable) {
             return false;
         }
@@ -52,16 +52,16 @@ final class Ratings
         if (!in_array($rating, [-1, 0, 1], true)) {
             return 'A rating is good (1), bad (-1), or none (0).';
         }
-        $found = $this->table('#PREFIX#chat_messages')->select(['conversation_id', 'role'])->where('message_id', $messageId)->first();
+        $found = $this->table('assist.chat_messages')->select(['conversation_id', 'role'])->where('message_id', $messageId)->first();
         if (!$found || (int) $found->numRows === 0 || (string) $found->fields['role'] !== 'assistant') {
             return 'There is no such answer.';
         }
-        $mine = $scope->apply($this->table('#PREFIX#chat_conversations'))->where('conversation_id', (int) $found->fields['conversation_id'])->first();
+        $mine = $scope->apply($this->table('assist.chat_conversations'))->where('conversation_id', (int) $found->fields['conversation_id'])->first();
         if (!$mine || (int) $mine->numRows === 0) {
             return 'There is no such answer.';
         }
         $note = mb_substr(trim($note), 0, self::NOTE);
-        $this->table('#PREFIX#chat_messages')->where('message_id', $messageId)->update([
+        $this->table('assist.chat_messages')->where('message_id', $messageId)->update([
             'rating'      => $rating === 0 ? null : $rating,
             'rating_note' => $rating === 0 || $note === '' ? null : $note,
             'rated_at'    => $rating === 0 ? null : CallLog::instant(time()),
@@ -83,7 +83,7 @@ final class Ratings
         if (!self::available()) {
             return [];
         }
-        $query = $this->table('#PREFIX#chat_messages')->select(['message_id', 'conversation_id', 'content', 'rating_note', 'rated_at', 'reviewed_at'])
+        $query = $this->table('assist.chat_messages')->select(['message_id', 'conversation_id', 'content', 'rating_note', 'rated_at', 'reviewed_at'])
             ->where('rating', -1);
         if (!$includeReviewed) {
             $query->whereNull('reviewed_at');
@@ -93,7 +93,7 @@ final class Ratings
             return [];
         }
         $conversations = [];
-        foreach ($this->table('#PREFIX#chat_conversations')->select(['conversation_id', 'userid', 'title', 'space'])
+        foreach ($this->table('assist.chat_conversations')->select(['conversation_id', 'userid', 'title', 'space'])
             ->whereIn('conversation_id', array_map('intval', array_column($rows, 'conversation_id')))->getAllOrFail() as $row) {
             $conversations[(int) $row['conversation_id']] = $row;
         }
@@ -129,11 +129,11 @@ final class Ratings
         if (!self::available()) {
             return false;
         }
-        $found = $this->table('#PREFIX#chat_messages')->select(['conversation_id'])->where('message_id', $messageId)->where('rating', -1)->whereNull('reviewed_at')->first();
+        $found = $this->table('assist.chat_messages')->select(['conversation_id'])->where('message_id', $messageId)->where('rating', -1)->whereNull('reviewed_at')->first();
         if (!$found || (int) $found->numRows === 0) {
             return false;
         }
-        $this->table('#PREFIX#chat_messages')->where('message_id', $messageId)->update(['reviewed_at' => CallLog::instant(time())]);
+        $this->table('assist.chat_messages')->where('message_id', $messageId)->update(['reviewed_at' => CallLog::instant(time())]);
         \Pramnos\Auth\AuditLog::record('ai.answer_reviewed', $reviewer, null, [], 'chat_message', $messageId);
 
         return true;
@@ -151,8 +151,8 @@ final class Ratings
         }
         $since = CallLog::instant(time() - $days * 86400);
         $count = fn (int $rating, bool $waiting = false): int => (int) ($waiting
-            ? $this->table('#PREFIX#chat_messages')->where('rating', $rating)->whereNull('reviewed_at')->count()
-            : $this->table('#PREFIX#chat_messages')->where('rating', $rating)->where('rated_at', '>=', $since)->count());
+            ? $this->table('assist.chat_messages')->where('rating', $rating)->whereNull('reviewed_at')->count()
+            : $this->table('assist.chat_messages')->where('rating', $rating)->where('rated_at', '>=', $since)->count());
 
         return ['good' => $count(1), 'bad' => $count(-1), 'waiting' => $count(-1, true)];
     }
@@ -160,7 +160,7 @@ final class Ratings
     /** The person's question an answer replied to: the last of theirs before it. */
     private function questionBefore(int $conversationId, int $messageId): string
     {
-        $found = $this->table('#PREFIX#chat_messages')->select(['content'])->where('conversation_id', $conversationId)
+        $found = $this->table('assist.chat_messages')->select(['content'])->where('conversation_id', $conversationId)
             ->where('message_id', '<', $messageId)->where('role', 'user')->orderBy('message_id', 'desc')->first();
 
         return $found && (int) $found->numRows > 0 ? (string) $found->fields['content'] : '';

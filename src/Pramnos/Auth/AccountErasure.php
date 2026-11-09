@@ -188,8 +188,8 @@ class AccountErasure
             'pramnos.pushlog'                  => 'userid',
             \Pramnos\Push\TestPush::TABLE      => 'userid',
             // What they arranged and agreed to, and what the assistant remembers about them.
-            'chat_memory'                      => 'userid',
-            'chat_asks'                        => 'userid',
+            'assist.chat_memory'               => 'userid',
+            'assist.chat_asks'                 => 'userid',
             'ai_consents'                      => 'userid',
             'pramnos.ai_task_subscriptions'            => 'userid',
             // Their own settings, the dashboard's layout among them.
@@ -219,29 +219,29 @@ class AccountErasure
             return $found;
         };
 
-        if ($schema->hasTable('chat_conversations')) {
-            $conversations = $ids($qb('chat_conversations')->select(['conversation_id'])->where('userid', $userId)->get(), 'conversation_id');
-            if ($conversations !== [] && $schema->hasTable('chat_messages')) {
-                $qb('chat_messages')->whereIn('conversation_id', $conversations)->delete();
+        if ($schema->hasTable('assist.chat_conversations')) {
+            $conversations = $ids($qb('assist.chat_conversations')->select(['conversation_id'])->where('userid', $userId)->get(), 'conversation_id');
+            if ($conversations !== [] && $schema->hasTable('assist.chat_messages')) {
+                $qb('assist.chat_messages')->whereIn('conversation_id', $conversations)->delete();
             }
-            $qb('chat_conversations')->where('userid', $userId)->delete();
+            $qb('assist.chat_conversations')->where('userid', $userId)->delete();
         }
 
-        if ($schema->hasTable('chat_artifacts')) {
-            $qb('chat_artifacts')->where('userid', $userId)->delete();
+        if ($schema->hasTable('assist.chat_artifacts')) {
+            $qb('assist.chat_artifacts')->where('userid', $userId)->delete();
         }
 
         // The assistant's profile of them, with every earlier version of it in the event log,
         // and their calendar.
         \Pramnos\Llm\Chat\Profile::erase('userid', $userId, $this->database);
-        if ($schema->hasTable('chat_calendar')) {
-            $qb('chat_calendar')->where('userid', $userId)->delete();
+        if ($schema->hasTable('assist.chat_calendar')) {
+            $qb('assist.chat_calendar')->where('userid', $userId)->delete();
         }
 
         // What they shared and what was shared with them; copies others already took are theirs.
-        if ($schema->hasTable('chat_shares')) {
-            $qb('chat_shares')->where('userid', $userId)->delete();
-            $qb('chat_shares')->where('recipient', $userId)->delete();
+        if ($schema->hasTable('assist.chat_shares')) {
+            $qb('assist.chat_shares')->where('userid', $userId)->delete();
+            $qb('assist.chat_shares')->where('recipient', $userId)->delete();
         }
 
         if ($schema->hasTable('pramnos.ai_routines')) {

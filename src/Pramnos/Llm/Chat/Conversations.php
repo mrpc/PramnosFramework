@@ -196,7 +196,7 @@ class Conversations
             return [];
         }
 
-        $result = $this->scope->apply($this->table('#PREFIX#chat_conversations'))
+        $result = $this->scope->apply($this->table('assist.chat_conversations'))
             ->select(['conversation_id', 'title', 'updated_at'])
             ->orderBy('updated_at', 'desc')->orderBy('conversation_id', 'desc')
             ->limit(max(1, $limit))->get();
@@ -222,7 +222,7 @@ class Conversations
             return null;
         }
 
-        $result = $this->table('#PREFIX#chat_messages')->where('conversation_id', $conversationId)->orderBy('message_id')->get();
+        $result = $this->table('assist.chat_messages')->where('conversation_id', $conversationId)->orderBy('message_id')->get();
         $messages = [];
 
         $made = (new Artifacts($this->scope))->forConversation($conversationId);
@@ -245,10 +245,10 @@ class Conversations
             return false;
         }
 
-        $this->table('#PREFIX#chat_messages')->where('conversation_id', $conversationId)->delete();
+        $this->table('assist.chat_messages')->where('conversation_id', $conversationId)->delete();
         (new Artifacts($this->scope))->deleteConversation($conversationId);
         Shares::forget(Shares::CONVERSATION, $conversationId);
-        $this->scope->apply($this->table('#PREFIX#chat_conversations'))->where('conversation_id', $conversationId)->delete();
+        $this->scope->apply($this->table('assist.chat_conversations'))->where('conversation_id', $conversationId)->delete();
 
         return true;
     }
@@ -466,7 +466,7 @@ class Conversations
         $stamp      = CallLog::instant(time());
 
         if ($conversationId === null) {
-            $this->table('#PREFIX#chat_conversations')->insert($this->scope->columns() + [
+            $this->table('assist.chat_conversations')->insert($this->scope->columns() + [
                 'title'      => self::titleFor($asked),
                 'tags'       => $turn->tags === [] ? null : json_encode($turn->tags),
                 'created_at' => $stamp,
@@ -474,7 +474,7 @@ class Conversations
             ]);
             $conversationId = (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId();
         } else {
-            $this->scope->apply($this->table('#PREFIX#chat_conversations'))->where('conversation_id', $conversationId)
+            $this->scope->apply($this->table('assist.chat_conversations'))->where('conversation_id', $conversationId)
                 ->update(['updated_at' => $stamp, 'tags' => $turn->tags === [] ? null : json_encode($turn->tags)]);
         }
 
@@ -520,7 +520,7 @@ class Conversations
         }
 
         $stamp = CallLog::instant(time());
-        $this->table('#PREFIX#chat_conversations')->insert($this->scope->columns() + [
+        $this->table('assist.chat_conversations')->insert($this->scope->columns() + [
             'title' => self::titleFor($title), 'created_at' => $stamp, 'updated_at' => $stamp,
         ]);
         $conversationId = (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId();
@@ -680,8 +680,8 @@ class Conversations
             return 0;
         }
 
-        $result = $this->table('#PREFIX#chat_conversations c')
-            ->join('#PREFIX#chat_messages m', static fn (\Pramnos\Database\JoinClause $on) => $on
+        $result = $this->table('assist.chat_conversations c')
+            ->join('assist.chat_messages m', static fn (\Pramnos\Database\JoinClause $on) => $on
                 ->on('m.conversation_id', '=', 'c.conversation_id')->on('m.message_id', '>', 'c.learned_upto'))
             ->select(['c.conversation_id', 'c.organization_id', 'c.userid', 'c.space'])->distinct()
             ->where('m.role', 'user')
@@ -710,7 +710,7 @@ class Conversations
     private function learnFrom(int $conversationId, Memory $memory, ?Client $client, bool $now): bool
     {
         $since  = (int) ($this->conversation($conversationId)['learned_upto'] ?? 0);
-        $result = $this->table('#PREFIX#chat_messages')->select(['message_id', 'role', 'content'])
+        $result = $this->table('assist.chat_messages')->select(['message_id', 'role', 'content'])
             ->where('conversation_id', $conversationId)->where('message_id', '>', $since)->orderBy('message_id')->get();
         $said = [];
         $last = $since;
@@ -773,14 +773,14 @@ class Conversations
     /** @param array<string, mixed> $values A conversation's columns, written as they are */
     private function mark(int $conversationId, array $values): void
     {
-        $this->table('#PREFIX#chat_conversations')->where('conversation_id', $conversationId)->update($values);
+        $this->table('assist.chat_conversations')->where('conversation_id', $conversationId)->update($values);
     }
 
     /** Whether chat_conversations has its summary and watermarks yet — asked once per instance. */
     private function tracks(): bool
     {
         try {
-            return $this->tracks ??= \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('chat_conversations', 'learned_upto');
+            return $this->tracks ??= \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('assist.chat_conversations', 'learned_upto');
         } catch (\Throwable) {
             return false;
         }
@@ -884,7 +884,7 @@ class Conversations
             return null;
         }
 
-        $result = $this->scope->apply($this->table('#PREFIX#chat_conversations'))->where('conversation_id', $conversationId)->first();
+        $result = $this->scope->apply($this->table('assist.chat_conversations'))->where('conversation_id', $conversationId)->first();
 
         return $result && (int) $result->numRows > 0 ? $result->fields : null;
     }
@@ -908,7 +908,7 @@ class Conversations
             'updated_at'      => $stamp,
         ];
 
-        $this->table('#PREFIX#chat_messages')->insert($row);
+        $this->table('assist.chat_messages')->insert($row);
 
         return self::message(['message_id' => (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId()] + $row);
     }

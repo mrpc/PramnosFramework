@@ -22,11 +22,11 @@ class AddTagsToChatConversations extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('chat_conversations') || $schema->hasColumn('chat_conversations', 'tags')) {
+        if (!$schema->hasTable('assist.chat_conversations') || $schema->hasColumn('assist.chat_conversations', 'tags')) {
             return;
         }
 
-        $schema->alterTable('chat_conversations', function ($table) {
+        $schema->alterTable('assist.chat_conversations', function ($table) {
             $table->text('tags')->nullable();
         });
     }
@@ -35,8 +35,8 @@ class AddTagsToChatConversations extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasColumn('chat_conversations', 'tags')) {
-            $schema->alterTable('chat_conversations', function ($table) {
+        if ($schema->hasColumn('assist.chat_conversations', 'tags')) {
+            $schema->alterTable('assist.chat_conversations', function ($table) {
                 $table->dropColumn('tags');
             });
         }

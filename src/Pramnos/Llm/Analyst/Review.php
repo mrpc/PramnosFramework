@@ -39,7 +39,7 @@ final class Review
      */
     public static function list(array $filters = [], int $limit = 200): array
     {
-        $query = self::table('#PREFIX#chat_conversations')->select(['conversation_id', 'userid', 'title', 'updated_at'])->where('space', Scope::ADMIN);
+        $query = self::table('assist.chat_conversations')->select(['conversation_id', 'userid', 'title', 'updated_at'])->where('space', Scope::ADMIN);
         if ((int) ($filters['person'] ?? 0) > 0) {
             $query->where('userid', (int) $filters['person']);
         }
@@ -56,7 +56,7 @@ final class Review
         }
         $ids    = array_map('intval', array_column($rows, 'conversation_id'));
         $totals = [];
-        foreach (self::table('#PREFIX#chat_messages')->select(['conversation_id', new Expression('COUNT(*) AS n'), new Expression('SUM(cost) AS cost')])
+        foreach (self::table('assist.chat_messages')->select(['conversation_id', new Expression('COUNT(*) AS n'), new Expression('SUM(cost) AS cost')])
             ->whereIn('conversation_id', $ids)->groupBy('conversation_id')->getAllOrFail() as $row) {
             $totals[(int) $row['conversation_id']] = [(int) $row['n'], (float) ($row['cost'] ?? 0)];
         }
@@ -76,7 +76,7 @@ final class Review
      */
     public static function owners(int $except = 0): array
     {
-        $query = self::table('#PREFIX#chat_conversations')->select(['userid'])->where('space', Scope::ADMIN);
+        $query = self::table('assist.chat_conversations')->select(['userid'])->where('space', Scope::ADMIN);
         if ($except > 0) {
             $query->where('userid', '!=', $except);
         }
@@ -95,7 +95,7 @@ final class Review
      */
     public static function open(int $conversationId): ?array
     {
-        $row = self::table('#PREFIX#chat_conversations')->select(['userid'])->where('conversation_id', $conversationId)->where('space', Scope::ADMIN)
+        $row = self::table('assist.chat_conversations')->select(['userid'])->where('conversation_id', $conversationId)->where('space', Scope::ADMIN)
             ->limit(1)->getAllOrFail()[0] ?? null;
         if ($row === null) {
             return null;

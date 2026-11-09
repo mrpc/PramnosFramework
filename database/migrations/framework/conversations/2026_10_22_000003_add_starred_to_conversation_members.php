@@ -20,11 +20,11 @@ class AddStarredToConversationMembers extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('conversation_members') || $schema->hasColumn('conversation_members', 'starred')) {
+        if (!$schema->hasTable('chat.conversation_members') || $schema->hasColumn('chat.conversation_members', 'starred')) {
             return;
         }
 
-        $schema->table('conversation_members', function ($table) {
+        $schema->table('chat.conversation_members', function ($table) {
             $table->tinyInteger('starred')->default(0)->comment('Whether they starred it');
         });
     }
@@ -34,11 +34,11 @@ class AddStarredToConversationMembers extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('conversation_members') || !$schema->hasColumn('conversation_members', 'starred')) {
+        if (!$schema->hasTable('chat.conversation_members') || !$schema->hasColumn('chat.conversation_members', 'starred')) {
             return;
         }
 
-        $schema->table('conversation_members', function ($table) {
+        $schema->table('chat.conversation_members', function ($table) {
             $table->dropColumn('starred');
         });
     }

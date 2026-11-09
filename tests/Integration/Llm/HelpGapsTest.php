@@ -63,7 +63,7 @@ class HelpGapsTest extends LlmTestCase
         $chat = (new Conversations(new RecordingAssistant()))->as($scope);
         $id   = (int) $chat->seed('Help', [['role' => 'user', 'content' => 'How?'], ['role' => 'assistant', 'content' => 'Like this.']]);
         $answer = (int) $chat->find($id)['messages'][1]['message_id'];
-        $this->db->queryBuilder()->table('#PREFIX#chat_messages')->where('message_id', $answer)->update([
+        $this->db->queryBuilder()->table('assist.chat_messages')->where('message_id', $answer)->update([
             'tools'      => json_encode($tools),
             'created_at' => \Pramnos\Llm\CallLog::instant(time() - $age * 86400),
         ]);

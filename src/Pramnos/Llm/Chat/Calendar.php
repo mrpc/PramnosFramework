@@ -135,7 +135,7 @@ final class Calendar
     public static function available(): bool
     {
         try {
-            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('chat_calendar');
+            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('assist.chat_calendar');
         } catch (\Throwable) {
             return false;
         }
@@ -334,7 +334,7 @@ final class Calendar
         if (!self::available()) {
             return [];
         }
-        $rows = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#chat_calendar')
+        $rows = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('assist.chat_calendar')
             ->where('kind', 'event')->where('all_day', 0)->whereNull('alerted_at')
             ->where('starts_at', '>', Instant::utc($now))->where('starts_at', '<=', Instant::utc($now + $minutes * 60))
             ->orderBy('starts_at')->limit(500)->get();
@@ -353,7 +353,7 @@ final class Calendar
      */
     public static function alerted(int $id, bool $sent = true): void
     {
-        \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#chat_calendar')
+        \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('assist.chat_calendar')
             ->where('item_id', $id)->update(['alerted_at' => Instant::utc($sent ? time() : 1)]);
     }
 
@@ -614,6 +614,6 @@ final class Calendar
 
     private function table(): \Pramnos\Database\QueryBuilder
     {
-        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#chat_calendar');
+        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('assist.chat_calendar');
     }
 }

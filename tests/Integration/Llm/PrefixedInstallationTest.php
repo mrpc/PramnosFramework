@@ -113,7 +113,9 @@ class PrefixedInstallationTest extends LlmTestCase
         (new \Pramnos\Llm\CallLog())->record(['purpose' => 'chat', 'provider' => 'openai', 'model' => 'm', 'http_status' => 200, 'usage' => ['total_tokens' => 5]]);
 
         // Assert — the tables are the prefixed ones, and each is read back
-        $this->assertTrue($this->db->schema()->hasTable('pf_chat_conversations'), 'the migration prefixed it');
+        // The assistant's own schema: on MySQL a name under the prefix, on PostgreSQL the schema itself.
+        $this->assertTrue($this->db->schema()->hasTable('assist.chat_conversations'), 'where the migration put it');
+        $this->assertSame($type === 'mysql' ? 'pf_assist_chat_conversations' : 'assist.chat_conversations', $this->db->schema()->resolveTableName('assist.chat_conversations'));
         $this->assertSame([], $chat->list());
         $this->assertSame(['Likes tables'], array_column((new \Pramnos\Llm\Chat\Memory($scope))->all(), 'content'));
         $this->assertSame('waiting', (new \Pramnos\Llm\Chat\Asks($chat))->find($scope, $askId)['status']);

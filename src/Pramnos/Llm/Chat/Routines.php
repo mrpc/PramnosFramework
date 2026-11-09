@@ -1374,7 +1374,7 @@ class Routines
             return null;
         }
 
-        $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#chat_messages')
+        $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('assist.chat_messages')
             ->select(['content', 'created_at'])->where('conversation_id', $conversationId)
             ->where('role', 'assistant')->orderBy('message_id', 'desc')->first();
 

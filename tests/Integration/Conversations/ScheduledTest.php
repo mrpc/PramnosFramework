@@ -170,7 +170,7 @@ class ScheduledTest extends TestCase
         Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
         $ops = Conversations::create('channel', 'ops', [$maria], $eleni);
         $id  = Scheduled::create($ops, $eleni, 'Τώρα', time() + 60);
-        $this->db->queryBuilder()->table('#PREFIX#conversation_scheduled')->where('scheduledid', $id)->update(['sendat' => time() - 1]);
+        $this->db->queryBuilder()->table('chat.conversation_scheduled')->where('scheduledid', $id)->update(['sendat' => time() - 1]);
         $tester = new CommandTester(new ConversationsSendScheduled());
 
         // Act
@@ -180,7 +180,7 @@ class ScheduledTest extends TestCase
         $this->assertSame('1 scheduled message(s) sent.', trim($tester->getDisplay()));
         $this->assertSame(['Τώρα'], $this->bodies($ops));
         $this->assertContains('conversations:send-scheduled', \Pramnos\Scheduling\FrameworkSchedule::commands(), 'run by the framework');
-        $this->db->schema()->dropTableIfExists('conversation_scheduled');
+        $this->db->schema()->dropTableIfExists('chat.conversation_scheduled');
         $this->probeChanged($this->db->type);
         $tester->execute([]);
         $this->assertSame('There is no conversation_scheduled table.', trim($tester->getDisplay()), 'an installation that has not migrated');

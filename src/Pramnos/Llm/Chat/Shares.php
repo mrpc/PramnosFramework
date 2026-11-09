@@ -42,7 +42,7 @@ final class Shares
     public static function available(): bool
     {
         try {
-            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('chat_shares');
+            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('assist.chat_shares');
         } catch (\Throwable) {
             return false;
         }
@@ -138,7 +138,7 @@ final class Shares
     public static function forget(string $kind, int $targetId): void
     {
         if (self::available()) {
-            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#chat_shares')
+            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('assist.chat_shares')
                 ->where('kind', $kind)->where('target_id', $targetId)->delete();
         }
     }
@@ -220,7 +220,7 @@ final class Shares
         $db    = \Pramnos\Framework\Factory::getDatabase();
         $from  = self::nameOf((int) $share['userid']);
         if ((string) $share['kind'] === self::ARTIFACT) {
-            $artifact = Artifacts::available() ? $db->queryBuilder()->table('#PREFIX#chat_artifacts')->where('artifact_id', (int) $share['target_id'])->first() : null;
+            $artifact = Artifacts::available() ? $db->queryBuilder()->table('assist.chat_artifacts')->where('artifact_id', (int) $share['target_id'])->first() : null;
             if (!$artifact || (int) $artifact->numRows === 0) {
                 return null;
             }
@@ -230,13 +230,13 @@ final class Shares
                 'artifacts' => [Artifacts::shape($artifact->fields)],
             ]]];
         }
-        $query = $db->queryBuilder()->table('#PREFIX#chat_messages')->where('conversation_id', (int) $share['target_id']);
+        $query = $db->queryBuilder()->table('assist.chat_messages')->where('conversation_id', (int) $share['target_id']);
         if ($share['up_to_message_id'] !== null) {
             $query->where('message_id', '<=', (int) $share['up_to_message_id']);
         }
         $made = [];
         if (Artifacts::available()) {
-            $rows = $db->queryBuilder()->table('#PREFIX#chat_artifacts')->where('conversation_id', (int) $share['target_id'])->orderBy('artifact_id')->get();
+            $rows = $db->queryBuilder()->table('assist.chat_artifacts')->where('conversation_id', (int) $share['target_id'])->orderBy('artifact_id')->get();
             while (($row = $rows->fetch()) !== null) {
                 $made[(int) $row['message_id']][] = Artifacts::shape($row);
             }
@@ -259,11 +259,11 @@ final class Shares
     private function copyConversation(array $share, Conversations $viewer): ?int
     {
         $db     = \Pramnos\Framework\Factory::getDatabase();
-        $source = $db->queryBuilder()->table('#PREFIX#chat_conversations')->where('conversation_id', (int) $share['target_id'])->first();
+        $source = $db->queryBuilder()->table('assist.chat_conversations')->where('conversation_id', (int) $share['target_id'])->first();
         if (!$source || (int) $source->numRows === 0) {
             return null;
         }
-        $query = $db->queryBuilder()->table('#PREFIX#chat_messages')->where('conversation_id', (int) $share['target_id']);
+        $query = $db->queryBuilder()->table('assist.chat_messages')->where('conversation_id', (int) $share['target_id']);
         if ($share['up_to_message_id'] !== null) {
             $query->where('message_id', '<=', (int) $share['up_to_message_id']);
         }
@@ -282,7 +282,7 @@ final class Shares
         // Each answer's artifacts follow it into the copy.
         $copied = $this->messageIds($copy);
         if (Artifacts::available() && $ids !== []) {
-            $made = $db->queryBuilder()->table('#PREFIX#chat_artifacts')->where('conversation_id', (int) $share['target_id'])
+            $made = $db->queryBuilder()->table('assist.chat_artifacts')->where('conversation_id', (int) $share['target_id'])
                 ->whereIn('message_id', $ids)->orderBy('artifact_id')->get();
             while (($row = $made->fetch()) !== null) {
                 $at = array_search((int) $row['message_id'], $ids, true);
@@ -303,7 +303,7 @@ final class Shares
         if (!Artifacts::available()) {
             return null;
         }
-        $found = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#chat_artifacts')->where('artifact_id', (int) $share['target_id'])->first();
+        $found = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('assist.chat_artifacts')->where('artifact_id', (int) $share['target_id'])->first();
         if (!$found || (int) $found->numRows === 0) {
             return null;
         }
@@ -328,7 +328,7 @@ final class Shares
     {
         $copy = $viewer->seed($title, $messages === [] ? [['role' => 'assistant', 'content' => '']] : $messages);
         if ($copy !== null && $tags !== '' && $tags !== 'null') {
-            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#chat_conversations')
+            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('assist.chat_conversations')
                 ->where('conversation_id', $copy)->update(['tags' => $tags]);
         }
 
@@ -343,7 +343,7 @@ final class Shares
     private function copyArtifactRow(array $row, Scope $scope, int $conversationId, ?int $messageId): void
     {
         $stamp = CallLog::instant(time());
-        \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#chat_artifacts')->insert($scope->columns() + [
+        \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('assist.chat_artifacts')->insert($scope->columns() + [
             'conversation_id' => $conversationId,
             'message_id'      => $messageId,
             'kind'            => (string) $row['kind'],
@@ -359,7 +359,7 @@ final class Shares
     /** @return list<int> A conversation's message ids, in order */
     private function messageIds(int $conversationId): array
     {
-        $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#chat_messages')
+        $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('assist.chat_messages')
             ->select(['message_id'])->where('conversation_id', $conversationId)->orderBy('message_id')->get();
         $ids = [];
         while (($row = $result->fetch()) !== null) {
@@ -386,11 +386,11 @@ final class Shares
             return null;
         }
         $db    = \Pramnos\Framework\Factory::getDatabase();
-        $found = $by->apply($db->queryBuilder()->table('#PREFIX#chat_conversations'))->where('conversation_id', $targetId)->first();
+        $found = $by->apply($db->queryBuilder()->table('assist.chat_conversations'))->where('conversation_id', $targetId)->first();
         if (!$found || (int) $found->numRows === 0) {
             return null;
         }
-        $last = $db->queryBuilder()->table('#PREFIX#chat_messages')->where('conversation_id', $targetId)->max('message_id');
+        $last = $db->queryBuilder()->table('assist.chat_messages')->where('conversation_id', $targetId)->max('message_id');
 
         return ['title' => (string) $found->fields['title'], 'up_to' => $last === null ? null : (int) $last];
     }
@@ -435,6 +435,6 @@ final class Shares
 
     private function table(): \Pramnos\Database\QueryBuilder
     {
-        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#chat_shares');
+        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('assist.chat_shares');
     }
 }

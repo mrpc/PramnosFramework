@@ -21,12 +21,13 @@ class CreateChatMemoryTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
+        $schema->ensureSchema('assist');
 
-        if ($schema->hasTable('chat_memory')) {
+        if ($schema->hasTable('assist.chat_memory')) {
             return;
         }
 
-        $schema->createTable('chat_memory', function ($table) {
+        $schema->createTable('assist.chat_memory', function ($table) {
             $table->increments('memory_id');
             $table->integer('organization_id')->nullable();
             $table->integer('userid');
@@ -39,6 +40,6 @@ class CreateChatMemoryTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('chat_memory');
+        $this->application->database->schema()->dropTableIfExists('assist.chat_memory');
     }
 }

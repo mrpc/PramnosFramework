@@ -93,7 +93,7 @@ class Asks
                 [$streamed, $last] = [true, microtime(true)];
             }
         };
-        $chat  = \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('chat_asks', 'partial')
+        $chat  = \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('assist.chat_asks', 'partial')
             ? $this->chat->as($scope)->streaming($partial) : $this->chat->as($scope);
         // Named by the ask: answered again, it does not make the changes it already made.
         $chat  = $chat->stoppable($stopped)->answering('ask:' . $askId);
@@ -210,6 +210,6 @@ class Asks
 
     private function table(): \Pramnos\Database\QueryBuilder
     {
-        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#chat_asks');
+        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('assist.chat_asks');
     }
 }

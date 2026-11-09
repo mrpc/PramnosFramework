@@ -88,7 +88,7 @@ final class Files
         }
         $db  = Conversations::db();
         $now = time();
-        $db->queryBuilder()->table('#PREFIX#conversation_files')->insert(['conversationid' => $conversationId, 'uploadedby' => $by, 'name' => $name,
+        $db->queryBuilder()->table('chat.conversation_files')->insert(['conversationid' => $conversationId, 'uploadedby' => $by, 'name' => $name,
             'path' => '', 'mime' => $mime, 'size' => $size, 'createdat' => $now]);
         $id       = (int) $db->getInsertId();
         $relative = date('Y/m', $now) . '/' . $id . '-' . $name;
@@ -97,11 +97,11 @@ final class Files
         if (!(is_dir($dir) || @mkdir($dir, 0770, true) || is_dir($dir))
             || !(is_uploaded_file($tmp) ? @move_uploaded_file($tmp, $absolute) : @rename($tmp, $absolute))) {
             // No row without its file: a message would point at nothing.
-            $db->queryBuilder()->table('#PREFIX#conversation_files')->where('fileid', $id)->delete();
+            $db->queryBuilder()->table('chat.conversation_files')->where('fileid', $id)->delete();
             throw new \RuntimeException('The file could not be kept under the conversations\' files directory: ' . $absolute);
         }
         $thumb = str_starts_with($mime, 'image/') ? self::thumbnail($absolute, $relative) : null;
-        $db->queryBuilder()->table('#PREFIX#conversation_files')->where('fileid', $id)->update(['path' => $relative, 'thumbpath' => $thumb]);
+        $db->queryBuilder()->table('chat.conversation_files')->where('fileid', $id)->update(['path' => $relative, 'thumbpath' => $thumb]);
 
         return $id;
     }
@@ -117,7 +117,7 @@ final class Files
         if ($files === []) {
             return;
         }
-        Conversations::db()->queryBuilder()->table('#PREFIX#conversation_files')->whereIn('fileid', array_map('intval', $files))
+        Conversations::db()->queryBuilder()->table('chat.conversation_files')->whereIn('fileid', array_map('intval', $files))
             ->where('conversationid', $conversationId)->where('uploadedby', $by)->whereNull('messageid')->update(['messageid' => $messageId]);
     }
 
@@ -128,7 +128,7 @@ final class Files
      */
     public static function get(int $id): ?array
     {
-        $row = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_files')->where('fileid', $id)->limit(1)->getAllOrFail()[0] ?? null;
+        $row = Conversations::db()->queryBuilder()->table('chat.conversation_files')->where('fileid', $id)->limit(1)->getAllOrFail()[0] ?? null;
 
         return $row === null ? null : self::row($row);
     }
@@ -189,7 +189,7 @@ final class Files
         return array_map(static fn (array $r): array => ['id' => (int) $r['fileid'], 'messageId' => (int) $r['messageid'],
             'conversationId' => (int) $r['conversationid'], 'name' => (string) $r['name'], 'mime' => (string) $r['mime'], 'size' => (int) $r['size'],
             'thumbnail' => $r['thumbpath'] !== null, 'removedAt' => $r['removedat'] === null ? null : (int) $r['removedat']],
-            Conversations::db()->queryBuilder()->table('#PREFIX#conversation_files')->whereIn('messageid', $messageIds)->orderBy('fileid')->getAllOrFail());
+            Conversations::db()->queryBuilder()->table('chat.conversation_files')->whereIn('messageid', $messageIds)->orderBy('fileid')->getAllOrFail());
     }
 
     /**
@@ -199,7 +199,7 @@ final class Files
      */
     public static function inConversation(int $conversationId, int $limit = 100): array
     {
-        return array_map(self::row(...), Conversations::db()->queryBuilder()->table('#PREFIX#conversation_files')->where('conversationid', $conversationId)
+        return array_map(self::row(...), Conversations::db()->queryBuilder()->table('chat.conversation_files')->where('conversationid', $conversationId)
             ->whereNotNull('messageid')->whereNull('removedat')->orderBy('fileid', 'desc')->limit(max(1, min(500, $limit)))->getAllOrFail());
     }
 
@@ -213,7 +213,7 @@ final class Files
         if (!Access::canUse($reader)) {
             return [];
         }
-        $query = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_files')->where('uploadedby', $person)
+        $query = Conversations::db()->queryBuilder()->table('chat.conversation_files')->where('uploadedby', $person)
             ->whereNotNull('messageid')->whereNull('removedat');
         if (!Access::readsAll($reader)) {
             $readable = Conversations::readable((int) $reader->userid);
@@ -242,7 +242,7 @@ final class Files
                 @unlink($path);
             }
         }
-        Conversations::db()->queryBuilder()->table('#PREFIX#conversation_files')->where('fileid', $id)->update(['removedat' => time()]);
+        Conversations::db()->queryBuilder()->table('chat.conversation_files')->where('fileid', $id)->update(['removedat' => time()]);
 
         return $file['size'];
     }
@@ -254,7 +254,7 @@ final class Files
      */
     public static function prune(int $days, ?int $conversationId = null): array
     {
-        $query = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_files')->select(['fileid'])
+        $query = Conversations::db()->queryBuilder()->table('chat.conversation_files')->select(['fileid'])
             ->whereNull('removedat')->where('createdat', '<=', time() - max(0, $days) * 86400);
         if ($conversationId !== null) {
             $query->where('conversationid', $conversationId);
@@ -277,7 +277,7 @@ final class Files
     public static function usage(int $top = 20): array
     {
         $db   = Conversations::db();
-        $kept = static fn () => $db->queryBuilder()->table('#PREFIX#conversation_files')->whereNull('removedat');
+        $kept = static fn () => $db->queryBuilder()->table('chat.conversation_files')->whereNull('removedat');
         $rows = $kept()->select(['conversationid', 'createdat', 'size'])->getAllOrFail();
         $by   = [];
         foreach ($rows as $row) {
@@ -375,13 +375,13 @@ final class Files
     {
         $done = ['images' => 0, 'thumbnails' => 0];
         $db   = Conversations::db();
-        foreach ($db->queryBuilder()->table('#PREFIX#conversation_files')->select(['fileid', 'path', 'thumbpath'])
+        foreach ($db->queryBuilder()->table('chat.conversation_files')->select(['fileid', 'path', 'thumbpath'])
             ->where('mime', 'like', 'image/%')->whereNull('removedat')->getAllOrFail() as $row) {
             if ($row['thumbpath'] !== null && is_file(self::root() . '/' . $row['thumbpath'])) {
                 @unlink(self::root() . '/' . $row['thumbpath']);
             }
             $thumb = is_file(self::root() . '/' . $row['path']) ? self::thumbnail(self::root() . '/' . $row['path'], (string) $row['path']) : null;
-            $db->queryBuilder()->table('#PREFIX#conversation_files')->where('fileid', (int) $row['fileid'])->update(['thumbpath' => $thumb]);
+            $db->queryBuilder()->table('chat.conversation_files')->where('fileid', (int) $row['fileid'])->update(['thumbpath' => $thumb]);
             $done['images']++;
             $done['thumbnails'] += $thumb === null ? 0 : 1;
         }

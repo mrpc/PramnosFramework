@@ -40,7 +40,7 @@ with skills on they cost nothing until the model needs them.
 
 ### A profile that changes only on the person's word
 
-`Chat\Profile`, in `chat_dossier`, holds what should not change on the model's word alone:
+`Chat\Profile`, in `assist.chat_dossier`, holds what should not change on the model's word alone:
 
 | Area | Changes | |
 |---|---|---|
@@ -104,7 +104,7 @@ Account erasure already calls it for the person.
 
 ### Appointments and tasks
 
-`Chat\Calendar`, in `chat_calendar`, keeps the person's own appointments and tasks. Times go in
+`Chat\Calendar`, in `assist.chat_calendar`, keeps the person's own appointments and tasks. Times go in
 and come out on their clock (`Y-m-d H:i`, in the assistant's `timezone()`) and are stored as
 moments.
 

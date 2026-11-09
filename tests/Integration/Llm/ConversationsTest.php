@@ -82,7 +82,7 @@ class ConversationsTest extends LlmTestCase
         $this->assertSame(['user', 'assistant'], array_column($stored['messages'], 'role'));
         $this->assertSame(['google'], $stored['tags'], 'the tags the answer carried');
         $this->assertSame('presented', $stored['messages'][1]['by_app']);
-        $row = $this->rows('chat_conversations')[0];
+        $row = $this->rows('assist.chat_conversations')[0];
         $this->assertSame([7, 3], [(int) $row['userid'], (int) $row['organization_id']]);
 
         // The hooks saw the turn
@@ -126,7 +126,7 @@ class ConversationsTest extends LlmTestCase
         $this->assertStringNotContainsString('You remember', $system);
         $names = array_column(array_column($this->sent[0]['body']['tools'], 'function'), 'name');
         $this->assertSame(['lookup'], $names, 'the assistant\'s tools only: no memory, no schedule');
-        $this->assertSame(7, (int) $this->rows('chat_conversations')[0]['userid'], 'the asker\'s conversation, and cost');
+        $this->assertSame(7, (int) $this->rows('assist.chat_conversations')[0]['userid'], 'the asker\'s conversation, and cost');
         $alone = new Turn($scope, null, false, [], [], [], $this->chat($scope));
         $this->assertSame([7, false], [$alone->rightsOf(), $alone->shared()], 'by default, the asker\'s own');
     }
@@ -245,7 +245,7 @@ class ConversationsTest extends LlmTestCase
         $this->assertSame('missing', $this->chat(new Scope(7, 3))->ask($other, 'hijack')['why']);
         $this->assertTrue($this->chat(new Scope(7, 3))->delete($inOrg));
         $this->assertSame([], $this->chat(new Scope(7, 3))->list());
-        $this->assertCount(4, $this->rows('chat_messages'), 'the deleted conversation\'s messages went with it');
+        $this->assertCount(4, $this->rows('assist.chat_messages'), 'the deleted conversation\'s messages went with it');
         $this->assertSame([], (new Conversations(new RecordingAssistant()))->list(), 'no scope, nothing');
     }
 
@@ -262,7 +262,7 @@ class ConversationsTest extends LlmTestCase
         Llm::use('rules', [new AcceptsEverything()]);
         $scope = new Scope(7, 3);
         $id    = $this->chat($scope)->ask(null, 'q', null, [])['conversation_id'];
-        $this->db->queryBuilder()->table('chat_conversations')->where('conversation_id', $id)->update(['tags' => '["google"]']);
+        $this->db->queryBuilder()->table('assist.chat_conversations')->where('conversation_id', $id)->update(['tags' => '["google"]']);
 
         // Act — a rule that accepts nothing and offers nowhere
         Llm::use('rules', [new AcceptsNothing()]);
@@ -307,7 +307,7 @@ class ConversationsTest extends LlmTestCase
             }
         });
         $this->assertSame('limit', $this->chat($scope)->ask(null, 'x')['why']);
-        $this->assertSame([], $this->rows('chat_conversations'), 'nothing is stored for a refusal');
+        $this->assertSame([], $this->rows('assist.chat_conversations'), 'nothing is stored for a refusal');
     }
 
     /**
@@ -398,7 +398,7 @@ class ConversationsTest extends LlmTestCase
         $this->assertStringEndsWith('…', $hit);
         $this->assertStringContainsString('the needle sits here', $hit);
         $this->llmSchemaChanged();
-        $this->db->schema()->dropTableIfExists('chat_memory');
+        $this->db->schema()->dropTableIfExists('assist.chat_memory');
         $this->assertSame([], (new Memory($scope))->all());
     }
 

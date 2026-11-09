@@ -21,11 +21,11 @@ class AddUnfurlsToConversationMessages extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('conversation_messages') || $schema->hasColumn('conversation_messages', 'unfurls')) {
+        if (!$schema->hasTable('chat.conversation_messages') || $schema->hasColumn('chat.conversation_messages', 'unfurls')) {
             return;
         }
 
-        $schema->table('conversation_messages', function ($table) {
+        $schema->table('chat.conversation_messages', function ($table) {
             $table->text('unfurls')->nullable()->comment('The links that get a preview, in order, and which its writer hid: JSON');
         });
     }
@@ -35,11 +35,11 @@ class AddUnfurlsToConversationMessages extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('conversation_messages') || !$schema->hasColumn('conversation_messages', 'unfurls')) {
+        if (!$schema->hasTable('chat.conversation_messages') || !$schema->hasColumn('chat.conversation_messages', 'unfurls')) {
             return;
         }
 
-        $schema->table('conversation_messages', function ($table) {
+        $schema->table('chat.conversation_messages', function ($table) {
             $table->dropColumn('unfurls');
         });
     }

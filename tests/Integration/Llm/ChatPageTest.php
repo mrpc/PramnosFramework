@@ -106,10 +106,10 @@ class ChatPageTest extends LlmTestCase
         $this->configure(['chat' => ['waiting_lines' => ['Counting the clicks…'], 'suggestions' => ['What did we spend this week?']]]);
         $stamp = \Pramnos\Llm\CallLog::instant(time());
         $qb    = fn (string $t) => $this->db->queryBuilder()->table($t);
-        $qb('chat_conversations')->insert(['organization_id' => null, 'userid' => 7, 'title' => 'Spend', 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
-        $id = (int) $qb('chat_conversations')->first()->fields['conversation_id'];
-        $qb('chat_messages')->insert(['conversation_id' => $id, 'role' => 'user', 'content' => "Read this\n\n---\n📎 brief.md\n\nThe brief", 'created_at' => $stamp, 'updated_at' => $stamp]);
-        $qb('chat_messages')->insert(['conversation_id' => $id, 'role' => 'assistant', 'content' => 'Done.', 'tools' => json_encode([['name' => 'best-posts', 'arguments' => ['days' => 30]]]), 'context_tokens' => 64000, 'extra' => json_encode(['steps' => ['Let me **check** the posts.']]), 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $qb('assist.chat_conversations')->insert(['organization_id' => null, 'userid' => 7, 'title' => 'Spend', 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $id = (int) $qb('assist.chat_conversations')->first()->fields['conversation_id'];
+        $qb('assist.chat_messages')->insert(['conversation_id' => $id, 'role' => 'user', 'content' => "Read this\n\n---\n📎 brief.md\n\nThe brief", 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $qb('assist.chat_messages')->insert(['conversation_id' => $id, 'role' => 'assistant', 'content' => 'Done.', 'tools' => json_encode([['name' => 'best-posts', 'arguments' => ['days' => 30]]]), 'context_tokens' => 64000, 'extra' => json_encode(['steps' => ['Let me **check** the posts.']]), 'created_at' => $stamp, 'updated_at' => $stamp]);
         $_GET = ['c' => (string) $id];
         \Pramnos\Http\Request::resetInstance();
 
@@ -166,9 +166,9 @@ class ChatPageTest extends LlmTestCase
         $this->connectDatabase($type, $host, $port);
         $stamp = \Pramnos\Llm\CallLog::instant(time());
         $qb    = fn (string $t) => $this->db->queryBuilder()->table($t);
-        $qb('chat_conversations')->insert(['organization_id' => null, 'userid' => 7, 'title' => 'Spend', 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
-        $id = (int) $qb('chat_conversations')->first()->fields['conversation_id'];
-        $qb('chat_messages')->insert(['conversation_id' => $id, 'role' => 'assistant', 'content' => 'Done.', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $qb('assist.chat_conversations')->insert(['organization_id' => null, 'userid' => 7, 'title' => 'Spend', 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $id = (int) $qb('assist.chat_conversations')->first()->fields['conversation_id'];
+        $qb('assist.chat_messages')->insert(['conversation_id' => $id, 'role' => 'assistant', 'content' => 'Done.', 'created_at' => $stamp, 'updated_at' => $stamp]);
         $_GET = ['c' => (string) $id];
         \Pramnos\Http\Request::resetInstance();
 
@@ -217,8 +217,8 @@ class ChatPageTest extends LlmTestCase
             'commands'    => [['name' => 'week', 'says' => 'This week', 'text' => 'How did this week go?']],
         ]]);
         $stamp = \Pramnos\Llm\CallLog::instant(time());
-        $this->db->queryBuilder()->table('chat_conversations')->insert(['organization_id' => null, 'userid' => 7, 'title' => 'Spend', 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
-        $id = (int) $this->db->queryBuilder()->table('chat_conversations')->first()->fields['conversation_id'];
+        $this->db->queryBuilder()->table('assist.chat_conversations')->insert(['organization_id' => null, 'userid' => 7, 'title' => 'Spend', 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $id = (int) $this->db->queryBuilder()->table('assist.chat_conversations')->first()->fields['conversation_id'];
 
         foreach (self::THEMES as $theme) {
             // Act
@@ -297,7 +297,7 @@ class ChatPageTest extends LlmTestCase
         $id    = (int) $chat->seed('Spend', [['role' => 'user', 'content' => 'How much?'], ['role' => 'assistant', 'content' => 'This much.']]);
         $made  = (new \Pramnos\Llm\Chat\Artifacts($owner))->create(['kind' => 'text', 'title' => 'Memo', 'text' => 'x']);
         $answer = (int) $chat->find($id)['messages'][1]['message_id'];
-        $this->db->queryBuilder()->table('chat_artifacts')->where('artifact_id', $made['artifact_id'])->update(['conversation_id' => $id, 'message_id' => $answer]);
+        $this->db->queryBuilder()->table('assist.chat_artifacts')->where('artifact_id', $made['artifact_id'])->update(['conversation_id' => $id, 'message_id' => $answer]);
 
         try {
             // Act — shared from the page
@@ -379,7 +379,7 @@ class ChatPageTest extends LlmTestCase
         $chat  = $this->page($owner)->exposed();
         $id    = (int) $chat->seed('People', [['role' => 'user', 'content' => 'Who?'], ['role' => 'assistant', 'content' => 'These.']]);
         $made  = (new \Pramnos\Llm\Chat\Artifacts($owner))->create(['kind' => 'list', 'title' => 'Three', 'entity' => 'user', 'ids' => [4, 5, 6]]);
-        $this->db->queryBuilder()->table('chat_artifacts')->where('artifact_id', $made['artifact_id'])
+        $this->db->queryBuilder()->table('assist.chat_artifacts')->where('artifact_id', $made['artifact_id'])
             ->update(['conversation_id' => $id, 'message_id' => (int) $chat->find($id)['messages'][1]['message_id']]);
 
         try {

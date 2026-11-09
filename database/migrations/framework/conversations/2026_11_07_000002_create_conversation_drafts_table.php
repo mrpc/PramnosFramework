@@ -20,9 +20,10 @@ class CreateConversationDraftsTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
+        $schema->ensureSchema('chat');
 
-        if (!$schema->hasTable('conversation_drafts')) {
-            $schema->createTable('conversation_drafts', function ($table) {
+        if (!$schema->hasTable('chat.conversation_drafts')) {
+            $schema->createTable('chat.conversation_drafts', function ($table) {
                 $table->comment('What somebody has begun writing in a conversation');
                 $table->bigInteger('userid')->comment('users.userid of who is writing');
                 $table->bigInteger('conversationid')->comment('conversations.conversationid');
@@ -38,6 +39,6 @@ class CreateConversationDraftsTable extends Migration
     /** Drop it again. */
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('conversation_drafts');
+        $this->application->database->schema()->dropTableIfExists('chat.conversation_drafts');
     }
 }

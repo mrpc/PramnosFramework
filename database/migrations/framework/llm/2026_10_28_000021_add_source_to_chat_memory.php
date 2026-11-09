@@ -22,11 +22,11 @@ class AddSourceToChatMemory extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('chat_memory') || $schema->hasColumn('chat_memory', 'source')) {
+        if (!$schema->hasTable('assist.chat_memory') || $schema->hasColumn('assist.chat_memory', 'source')) {
             return;
         }
 
-        $schema->alterTable('chat_memory', function ($table) {
+        $schema->alterTable('assist.chat_memory', function ($table) {
             $table->string('source', 16)->nullable();
         });
     }
@@ -35,8 +35,8 @@ class AddSourceToChatMemory extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasColumn('chat_memory', 'source')) {
-            $schema->alterTable('chat_memory', function ($table) {
+        if ($schema->hasColumn('assist.chat_memory', 'source')) {
+            $schema->alterTable('assist.chat_memory', function ($table) {
                 $table->dropColumn('source');
             });
         }

@@ -2894,6 +2894,53 @@ class SchemaBuilder
         }
     }
 
+    /**
+     * The schemas the conversations and the assistant moved into, from the application's own:
+     * `chat` and `assist` (`move_conversations_and_ask_to_schemas`).
+     */
+    private const MOVED_SCHEMAS = ['chat' => 'conversations', 'assist' => 'chat_conversations'];
+
+    /**
+     * Whether the framework's tables have moved into one of these schemas here, on PostgreSQL —
+     * told by its first table being there, not by the schema, which an application may have made
+     * for tables of its own: until the move runs, `chat.x` and `assist.x` are read where they
+     * were, in the application's schema.
+     *
+     * ponytail: transitional, for the seconds between a deploy and its `migrate`; remove once the
+     * installations have moved. A move found is remembered; one not found is asked again.
+     */
+    private function movedHere(string $schema, string $old): bool
+    {
+        $marker = self::MOVED_SCHEMAS[$schema] ?? null;
+        if ($marker === null) {
+            return true;
+        }
+        $key = 'moved|' . $schema;
+        if ($this->remembered($key)) {
+            return true;
+        }
+        $exists = function (string $in, string $table): bool {
+            try {
+                // Names of the framework's own tables: nothing a visitor sends reaches the SQL.
+                $result = $this->db->query("SELECT 1 FROM information_schema.tables WHERE table_schema = '"
+                    . preg_replace('/[^A-Za-z0-9_]/', '', $in) . "' AND table_name = '" . preg_replace('/[^A-Za-z0-9_]/', '', $table) . "'");
+            } catch (\Throwable) {
+                return false;
+            }
+
+            return $result && $result->numRows > 0;
+        };
+        if ($exists($schema, $marker)) {
+            $this->rememberFound($key);
+
+            return true;
+        }
+        // Not moved: the old table, where it is still there; a new installation makes the new one.
+        $application = $this->db->schema !== '' ? $this->db->schema : 'public';
+
+        return !$exists($application, $old);
+    }
+
     protected function resolveTable(string $table): string
     {
         $prefix = $this->db->prefix ?? '';
@@ -2913,6 +2960,11 @@ class SchemaBuilder
             if ($this->capabilities->isMySQL()) {
                 [$schema, $name] = explode('.', $table, 2);
                 return $this->withPrefix($prefix, $schema . '_' . $name);
+            }
+            [$schema, $name] = explode('.', $table, 2);
+            if (!$this->movedHere($schema, $this->withPrefix($prefix, $name))) {
+                // Not moved yet: the old place, in the seconds between an update and its migrate.
+                return $this->withPrefix($prefix, $name);
             }
             return $table;
         }

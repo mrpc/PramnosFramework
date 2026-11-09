@@ -28,20 +28,20 @@ class AddSummaryAndWatermarksToChatConversations extends Migration
         $database = $this->application->database;
         $schema   = $database->schema();
 
-        if (!$schema->hasTable('chat_conversations') || $schema->hasColumn('chat_conversations', 'learned_upto')) {
+        if (!$schema->hasTable('assist.chat_conversations') || $schema->hasColumn('assist.chat_conversations', 'learned_upto')) {
             return;
         }
 
-        $schema->alterTable('chat_conversations', function ($table) {
+        $schema->alterTable('assist.chat_conversations', function ($table) {
             $table->text('summary')->nullable();
             $table->bigInteger('summary_upto')->default(0);
             $table->bigInteger('learned_upto')->default(0);
         });
 
-        $query  = $database->queryBuilder()->table('chat_messages');
+        $query  = $database->queryBuilder()->table('assist.chat_messages');
         $result = $query->select(['conversation_id', $query->raw('MAX(message_id) AS last_id')])->groupBy('conversation_id')->get();
         while ($result && ($row = $result->fetch()) !== null) {
-            $database->queryBuilder()->table('chat_conversations')->where('conversation_id', (int) $row['conversation_id'])
+            $database->queryBuilder()->table('assist.chat_conversations')->where('conversation_id', (int) $row['conversation_id'])
                 ->update(['learned_upto' => (int) $row['last_id']]);
         }
     }
@@ -50,8 +50,8 @@ class AddSummaryAndWatermarksToChatConversations extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if ($schema->hasColumn('chat_conversations', 'learned_upto')) {
-            $schema->alterTable('chat_conversations', function ($table) {
+        if ($schema->hasColumn('assist.chat_conversations', 'learned_upto')) {
+            $schema->alterTable('assist.chat_conversations', function ($table) {
                 $table->dropColumn('summary');
                 $table->dropColumn('summary_upto');
                 $table->dropColumn('learned_upto');

@@ -65,10 +65,10 @@ class ConversationSummaryTest extends LlmTestCase
         $id = (int) $chat->ask(null, 'Q1')['conversation_id'];
         $chat->ask($id, 'Q2');
         $third    = $chat->ask($id, 'Q3');
-        $folded   = $this->rows('chat_conversations')[0];
+        $folded   = $this->rows('assist.chat_conversations')[0];
         $fourth   = $chat->ask($id, 'Q4');
         $fifth    = $chat->ask($id, 'Q5');
-        $answerA2 = (int) $this->rows('chat_messages')[3]['message_id'];
+        $answerA2 = (int) $this->rows('assist.chat_messages')[3]['message_id'];
 
         // Assert
         $this->assertTrue($third['ok'] && $fourth['ok'] && $fifth['ok']);
@@ -84,7 +84,7 @@ class ConversationSummaryTest extends LlmTestCase
         $this->assertSame(['gpt-6-luna', 'gpt-4o-mini'], [$this->sent[5]['body']['model'], $this->sent[6]['body']['model']], 'a failure there is asked again on the own model');
         $this->assertSame(['Q5'], self::said($this->sent[7]), 'a failed summary: the last turns() only, never starting on an answer');
         $this->assertStringContainsString('They asked Q1 and Q2.', self::system($this->sent[7]), 'the old summary still goes');
-        $this->assertSame($answerA2, (int) $this->rows('chat_conversations')[0]['summary_upto'], 'nothing more marked folded');
+        $this->assertSame($answerA2, (int) $this->rows('assist.chat_conversations')[0]['summary_upto'], 'nothing more marked folded');
     }
 
     /**
@@ -107,7 +107,7 @@ class ConversationSummaryTest extends LlmTestCase
         $chat = (new Conversations(new RecordingAssistant()))->as(new Scope(7, null));
         $id   = (int) $chat->ask(null, 'Q1')['conversation_id'];
         $chat->ask($id, 'Q2');
-        $this->db->queryBuilder()->table('chat_messages')->where('conversation_id', $id)->where('content', 'A2')
+        $this->db->queryBuilder()->table('assist.chat_messages')->where('conversation_id', $id)->where('content', 'A2')
             ->update(['context_tokens' => 100_000]);
 
         // Act
@@ -118,7 +118,7 @@ class ConversationSummaryTest extends LlmTestCase
         $this->assertStringContainsString("user: Q1\n\nassistant: A1", (string) $this->sent[2]['body']['messages'][1]['content']);
         $this->assertStringNotContainsString('Q2', (string) $this->sent[2]['body']['messages'][1]['content'], 'the last exchange is not folded');
         $this->assertSame(['Q2', 'A2', 'Q3'], self::said($this->sent[3]));
-        $this->assertSame('They asked Q1.', $this->rows('chat_conversations')[0]['summary']);
+        $this->assertSame('They asked Q1.', $this->rows('assist.chat_conversations')[0]['summary']);
     }
 
     /**
@@ -136,14 +136,14 @@ class ConversationSummaryTest extends LlmTestCase
         $migration->down();
         $this->answer([[200, self::says('A1')]]);
         $id   = (int) (new Conversations(new TwoTurnAssistant()))->as(new Scope(7, null))->ask(null, 'Q1')['conversation_id'];
-        $last = max(array_map('intval', array_column($this->rows('chat_messages'), 'message_id')));
+        $last = max(array_map('intval', array_column($this->rows('assist.chat_messages'), 'message_id')));
 
         // Act
         $migration->up();
         $migration->up();
 
         // Assert
-        $row = $this->rows('chat_conversations')[0];
+        $row = $this->rows('assist.chat_conversations')[0];
         $this->assertSame($id, (int) $row['conversation_id']);
         $this->assertSame($last, (int) $row['learned_upto'], 'learned up to its last message');
         $this->assertSame(0, (int) $row['summary_upto'], 'nothing folded');

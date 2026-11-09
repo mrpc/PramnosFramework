@@ -25,12 +25,13 @@ class CreateChatDossierTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
+        $schema->ensureSchema('assist');
 
-        if ($schema->hasTable('chat_dossier')) {
+        if ($schema->hasTable('assist.chat_dossier')) {
             return;
         }
 
-        $schema->createTable('chat_dossier', function ($table) {
+        $schema->createTable('assist.chat_dossier', function ($table) {
             $table->increments('dossier_id');
             $table->integer('organization_id')->nullable();
             $table->integer('userid');
@@ -47,6 +48,6 @@ class CreateChatDossierTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('chat_dossier');
+        $this->application->database->schema()->dropTableIfExists('assist.chat_dossier');
     }
 }

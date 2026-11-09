@@ -104,6 +104,6 @@ final class Drafts
     /** The table. */
     private static function table(): \Pramnos\Database\QueryBuilder
     {
-        return Conversations::db()->queryBuilder()->table('#PREFIX#conversation_drafts');
+        return Conversations::db()->queryBuilder()->table('chat.conversation_drafts');
     }
 }

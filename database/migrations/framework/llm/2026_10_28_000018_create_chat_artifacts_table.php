@@ -27,12 +27,13 @@ class CreateChatArtifactsTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
+        $schema->ensureSchema('assist');
 
-        if ($schema->hasTable('chat_artifacts')) {
+        if ($schema->hasTable('assist.chat_artifacts')) {
             return;
         }
 
-        $schema->createTable('chat_artifacts', function ($table) {
+        $schema->createTable('assist.chat_artifacts', function ($table) {
             $table->increments('artifact_id');
             $table->integer('organization_id')->nullable();
             $table->integer('userid');
@@ -52,6 +53,6 @@ class CreateChatArtifactsTable extends Migration
 
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('chat_artifacts');
+        $this->application->database->schema()->dropTableIfExists('assist.chat_artifacts');
     }
 }

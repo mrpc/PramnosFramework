@@ -35,9 +35,10 @@ class CreateConversationsTables extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
+        $schema->ensureSchema('chat');
 
-        if (!$schema->hasTable('conversations')) {
-            $schema->createTable('conversations', function ($table) {
+        if (!$schema->hasTable('chat.conversations')) {
+            $schema->createTable('chat.conversations', function ($table) {
                 $table->comment('A channel, a direct or group conversation, or one the system writes to');
                 $table->bigIncrements('conversationid')->comment('Auto-increment identifier');
                 $table->string('kind', 16)->comment('channel | private | dm | group | system');
@@ -55,8 +56,8 @@ class CreateConversationsTables extends Migration
             });
         }
 
-        if (!$schema->hasTable('conversation_members')) {
-            $schema->createTable('conversation_members', function ($table) {
+        if (!$schema->hasTable('chat.conversation_members')) {
+            $schema->createTable('chat.conversation_members', function ($table) {
                 $table->comment('A participant in a conversation, with what they have read and are told');
                 $table->bigIncrements('id')->comment('Auto-increment identifier');
                 $table->bigInteger('conversationid')->comment('conversations.conversationid');
@@ -73,8 +74,8 @@ class CreateConversationsTables extends Migration
             });
         }
 
-        if (!$schema->hasTable('conversation_messages')) {
-            $schema->createTable('conversation_messages', function ($table) {
+        if (!$schema->hasTable('chat.conversation_messages')) {
+            $schema->createTable('chat.conversation_messages', function ($table) {
                 $table->comment('What was written in a conversation; kept for good');
                 $table->bigIncrements('messageid')->comment('Auto-increment identifier (with created_at, the key)');
                 $table->bigInteger('conversationid')->comment('conversations.conversationid');
@@ -98,12 +99,12 @@ class CreateConversationsTables extends Migration
             });
             $this->searchIndex();
             if ($schema->getCapabilities()->supports(DatabaseCapabilities::TIMESCALEDB)) {
-                \Pramnos\Database\HypertableRegistry::apply($schema, 'conversation_messages');
+                \Pramnos\Database\HypertableRegistry::apply($schema, 'chat.conversation_messages');
             }
         }
 
-        if (!$schema->hasTable('conversation_reactions')) {
-            $schema->createTable('conversation_reactions', function ($table) {
+        if (!$schema->hasTable('chat.conversation_reactions')) {
+            $schema->createTable('chat.conversation_reactions', function ($table) {
                 $table->comment('An emoji a participant put on a message');
                 $table->bigIncrements('id')->comment('Auto-increment identifier');
                 $table->bigInteger('messageid')->comment('conversation_messages.messageid');
@@ -115,8 +116,8 @@ class CreateConversationsTables extends Migration
             });
         }
 
-        if (!$schema->hasTable('conversation_mentions')) {
-            $schema->createTable('conversation_mentions', function ($table) {
+        if (!$schema->hasTable('chat.conversation_mentions')) {
+            $schema->createTable('chat.conversation_mentions', function ($table) {
                 $table->comment('Who a message mentions: a person, everybody, or whoever is online');
                 $table->bigIncrements('id')->comment('Auto-increment identifier');
                 $table->bigInteger('messageid')->comment('conversation_messages.messageid');
@@ -128,8 +129,8 @@ class CreateConversationsTables extends Migration
             });
         }
 
-        if (!$schema->hasTable('conversation_pins')) {
-            $schema->createTable('conversation_pins', function ($table) {
+        if (!$schema->hasTable('chat.conversation_pins')) {
+            $schema->createTable('chat.conversation_pins', function ($table) {
                 $table->comment('A message pinned to its conversation');
                 $table->bigInteger('conversationid')->comment('conversations.conversationid');
                 $table->bigInteger('messageid')->comment('conversation_messages.messageid');
@@ -139,8 +140,8 @@ class CreateConversationsTables extends Migration
             });
         }
 
-        if (!$schema->hasTable('conversation_files')) {
-            $schema->createTable('conversation_files', function ($table) {
+        if (!$schema->hasTable('chat.conversation_files')) {
+            $schema->createTable('chat.conversation_files', function ($table) {
                 $table->comment('A file sent in a conversation: a file on disk, its relative path here');
                 $table->bigIncrements('fileid')->comment('Auto-increment identifier');
                 $table->bigInteger('conversationid')->comment('conversations.conversationid');
@@ -165,7 +166,7 @@ class CreateConversationsTables extends Migration
         $schema = $this->application->database->schema();
         foreach (['conversation_files', 'conversation_pins', 'conversation_mentions', 'conversation_reactions',
             'conversation_messages', 'conversation_members', 'conversations'] as $table) {
-            $schema->dropTableIfExists($table);
+            $schema->dropTableIfExists('chat.' . $table);
         }
     }
 
@@ -177,12 +178,12 @@ class CreateConversationsTables extends Migration
     private function searchIndex(): void
     {
         $db    = $this->application->database;
-        $table = $db->prefix . 'conversation_messages';
+        $table = $db->schema()->quoteTable('chat.conversation_messages');
         if ($db->schema()->getCapabilities()->isPostgreSQL()) {
             $db->query('CREATE INDEX IF NOT EXISTS idx_conversation_messages_search ON ' . $table . " USING GIN (to_tsvector('simple', body))");
 
             return;
         }
-        $db->query('ALTER TABLE `' . $table . '` ADD FULLTEXT INDEX idx_conversation_messages_search (body)');
+        $db->query('ALTER TABLE ' . $table . ' ADD FULLTEXT INDEX idx_conversation_messages_search (body)');
     }
 }

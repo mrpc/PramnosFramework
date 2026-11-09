@@ -484,7 +484,7 @@ class HypertableRegistry
         return [
             // Conversations are kept for good: compressed after a quarter, never dropped. One
             // conversation's messages are read together, so they are the segment.
-            'conversation_messages' => [
+            'chat.conversation_messages' => [
                 'time_column'    => 'created_at',
                 'chunk_interval' => '30 days',
                 'compress_after' => '90 days',

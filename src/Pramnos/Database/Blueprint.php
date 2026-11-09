@@ -547,6 +547,15 @@ class Blueprint
     protected function generateIndexName(string $type, array $columns): string
     {
         $table = str_replace(['#PREFIX#', '.'], ['', '_'], $this->table);
-        return $table . '_' . implode('_', $columns) . '_' . $type;
+        return self::fitName($table . '_' . implode('_', $columns) . '_' . $type);
+    }
+
+    /**
+     * A generated name within the 63 characters PostgreSQL keeps and the 64 MySQL allows: one
+     * longer is cut and given eight characters of its hash, so two long names stay two.
+     */
+    public static function fitName(string $name): string
+    {
+        return strlen($name) > 63 ? substr($name, 0, 54) . '_' . substr(md5($name), 0, 8) : $name;
     }
 }

@@ -43,7 +43,7 @@ $chat->find($id);       // one, with its messages, as the assistant presents the
 $chat->delete($id);
 ```
 
-The tables are `chat_conversations`, `chat_messages`, `chat_memory`, `chat_asks` and `ai_consents`,
+The tables are `assist.chat_conversations`, `assist.chat_messages`, `assist.chat_memory`, `assist.chat_asks` and `ai_consents`,
 with the installation's table prefix (`#PREFIX#chat_conversations` in a query of your own).
 Scheduled tasks live in `pramnos.ai_routines` instead — the engine's schema, not the
 application's; see the Scheduled Tasks guide. A table that already exists under its name is left as it is, except
@@ -247,7 +247,7 @@ the data itself, not Markdown to be read back out of its answer:
 | `chart` | `chart_type` (bar, line, pie, doughnut), `labels`, `series` (`label`, `data`) | up to 100 labels and 10 series, one number per label; drawn with `Html\Chart` and a table of the numbers |
 
 What does not fit is refused with the reason, so the model can correct itself. An artifact is
-kept in `chat_artifacts`, linked to the conversation and the answer it came with, carrying the
+kept in `assist.chat_artifacts`, linked to the conversation and the answer it came with, carrying the
 data tags the conversation held; the answer comes back with it as `artifacts`, on `ask()` and on
 `find()`. It goes with its conversation, and with its owner's account on erasure. A scheduled
 run is offered no such tool: it has no conversation to keep one in.

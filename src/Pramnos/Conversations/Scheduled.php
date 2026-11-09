@@ -42,7 +42,7 @@ final class Scheduled
             }
         }
         $db     = Conversations::db();
-        $insert = $db->queryBuilder()->table('#PREFIX#conversation_scheduled');
+        $insert = $db->queryBuilder()->table('chat.conversation_scheduled');
         if ($db->type === 'postgresql') {
             $insert->returning('scheduledid');
         }
@@ -152,6 +152,6 @@ final class Scheduled
     /** The table. */
     private static function table(): \Pramnos\Database\QueryBuilder
     {
-        return Conversations::db()->queryBuilder()->table('#PREFIX#conversation_scheduled');
+        return Conversations::db()->queryBuilder()->table('chat.conversation_scheduled');
     }
 }

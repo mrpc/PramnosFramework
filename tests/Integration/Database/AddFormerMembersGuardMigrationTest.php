@@ -44,15 +44,15 @@ class AddFormerMembersGuardMigrationTest extends TestCase
         $this->app = new Application();
         $this->app->database = $this->db;
 
-        $this->db->query('DROP TABLE IF EXISTS ' . $this->quote('conversation_members'));
-        $this->db->query('DROP TABLE IF EXISTS ' . $this->quote('conversations'));
+        $this->db->query('DROP TABLE IF EXISTS ' . $this->quote('chat.conversation_members'));
+        $this->db->query('DROP TABLE IF EXISTS ' . $this->quote('chat.conversations'));
         (new CreateConversationsTables($this->app))->up();
     }
 
     protected function tearDown(): void
     {
-        $this->db->query('DROP TABLE IF EXISTS ' . $this->quote('conversation_members'));
-        $this->db->query('DROP TABLE IF EXISTS ' . $this->quote('conversations'));
+        $this->db->query('DROP TABLE IF EXISTS ' . $this->quote('chat.conversation_members'));
+        $this->db->query('DROP TABLE IF EXISTS ' . $this->quote('chat.conversations'));
         $this->db->close();
     }
 
@@ -67,16 +67,16 @@ class AddFormerMembersGuardMigrationTest extends TestCase
     {
         // Arrange — a `name` column this migration did not add
         $schema = $this->app->database->schema();
-        $schema->table('conversation_members', function ($table) {
+        $schema->table('chat.conversation_members', function ($table) {
             $table->string('name', 150)->nullable()->comment('Added by something other than this migration');
         });
-        $this->assertFalse($schema->hasColumn('conversation_members', 'externalid'), 'sanity: not there yet');
+        $this->assertFalse($schema->hasColumn('chat.conversation_members', 'externalid'), 'sanity: not there yet');
 
         // Act
         (new AddFormerMembersToConversationMembers($this->app))->up();
 
         // Assert
-        $this->assertTrue($schema->hasColumn('conversation_members', 'externalid'));
+        $this->assertTrue($schema->hasColumn('chat.conversation_members', 'externalid'));
     }
 
     /**
@@ -86,15 +86,15 @@ class AddFormerMembersGuardMigrationTest extends TestCase
     {
         // Arrange
         $schema = $this->app->database->schema();
-        $this->assertFalse($schema->hasColumn('conversation_members', 'name'));
-        $this->assertFalse($schema->hasColumn('conversation_members', 'externalid'));
+        $this->assertFalse($schema->hasColumn('chat.conversation_members', 'name'));
+        $this->assertFalse($schema->hasColumn('chat.conversation_members', 'externalid'));
 
         // Act
         (new AddFormerMembersToConversationMembers($this->app))->up();
 
         // Assert
-        $this->assertTrue($schema->hasColumn('conversation_members', 'name'));
-        $this->assertTrue($schema->hasColumn('conversation_members', 'externalid'));
+        $this->assertTrue($schema->hasColumn('chat.conversation_members', 'name'));
+        $this->assertTrue($schema->hasColumn('chat.conversation_members', 'externalid'));
     }
 
     /**
@@ -111,8 +111,8 @@ class AddFormerMembersGuardMigrationTest extends TestCase
 
         // Assert — the second run did not throw, and both columns are there once
         $schema = $this->app->database->schema();
-        $this->assertTrue($schema->hasColumn('conversation_members', 'name'));
-        $this->assertTrue($schema->hasColumn('conversation_members', 'externalid'));
+        $this->assertTrue($schema->hasColumn('chat.conversation_members', 'name'));
+        $this->assertTrue($schema->hasColumn('chat.conversation_members', 'externalid'));
     }
 
     /**
@@ -124,7 +124,7 @@ class AddFormerMembersGuardMigrationTest extends TestCase
         // Arrange — only `externalid` present, as `up()` would leave it when `name`
         // already existed from elsewhere
         $schema = $this->app->database->schema();
-        $schema->table('conversation_members', function ($table) {
+        $schema->table('chat.conversation_members', function ($table) {
             $table->string('externalid', 100)->nullable();
         });
 
@@ -132,12 +132,13 @@ class AddFormerMembersGuardMigrationTest extends TestCase
         (new AddFormerMembersToConversationMembers($this->app))->down();
 
         // Assert — gone, and dropping the absent `name` did not throw
-        $this->assertFalse($schema->hasColumn('conversation_members', 'externalid'));
+        $this->assertFalse($schema->hasColumn('chat.conversation_members', 'externalid'));
     }
 
     private function quote(string $table): string
     {
-        return $this->db->type === 'postgresql' ? '"' . $table . '"' : '`' . $table . '`';
+        // A schema-qualified name, quoted per driver: `chat.x` is two identifiers on PostgreSQL, one name on MySQL.
+        return $this->db->schema()->quoteTable($table);
     }
 
     /** Connect the way the other database integration tests do. */

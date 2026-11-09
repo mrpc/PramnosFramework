@@ -101,7 +101,7 @@ final class Conversations
             'group' => $name === null || trim($name) === '' ? null : mb_substr(trim($name), 0, 80),
             default => $name === null ? null : mb_substr(trim($name), 0, 150),
         };
-        $db->queryBuilder()->table('#PREFIX#conversations')->insert([
+        $db->queryBuilder()->table('chat.conversations')->insert([
             'kind' => $kind, 'slug' => $slug, 'name' => $name,
             'topic' => $topic === '' ? null : $topic, 'createdby' => $by, 'createdat' => $now,
         ]);
@@ -141,7 +141,7 @@ final class Conversations
         if ($name === $conversation['name']) {
             return;
         }
-        self::db()->queryBuilder()->table('#PREFIX#conversations')->where('conversationid', $id)->update(['name' => $name]);
+        self::db()->queryBuilder()->table('chat.conversations')->where('conversationid', $id)->update(['name' => $name]);
         $who = People::names([$by])[$by] ?? '';
         Messages::post($id, null, $name === null
             ? sprintf(t('%s took the group\'s name away.'), $who)
@@ -157,7 +157,7 @@ final class Conversations
      */
     public static function get(int $id): ?array
     {
-        $row = self::db()->queryBuilder()->table('#PREFIX#conversations')->where('conversationid', $id)->limit(1)->getAllOrFail()[0] ?? null;
+        $row = self::db()->queryBuilder()->table('chat.conversations')->where('conversationid', $id)->limit(1)->getAllOrFail()[0] ?? null;
 
         return $row === null ? null : self::row($row);
     }
@@ -165,7 +165,7 @@ final class Conversations
     /** A channel by its name for `#`, or null. @return array<string, mixed>|null */
     public static function bySlug(string $slug): ?array
     {
-        $row = self::db()->queryBuilder()->table('#PREFIX#conversations')->where('slug', self::slug($slug))->limit(1)->getAllOrFail()[0] ?? null;
+        $row = self::db()->queryBuilder()->table('chat.conversations')->where('slug', self::slug($slug))->limit(1)->getAllOrFail()[0] ?? null;
 
         return $row === null ? null : self::row($row);
     }
@@ -236,7 +236,7 @@ final class Conversations
     {
         $in   = array_column(self::members_()->select(['conversationid'])->where('participanttype', 'user')->where('participantid', $person)
             ->whereNull('leftat')->getAllOrFail(), 'conversationid');
-        $open = array_column(self::db()->queryBuilder()->table('#PREFIX#conversations')->select(['conversationid'])->whereIn('kind', self::OPEN)
+        $open = array_column(self::db()->queryBuilder()->table('chat.conversations')->select(['conversationid'])->whereIn('kind', self::OPEN)
             ->getAllOrFail(), 'conversationid');
 
         return array_values(array_unique(array_map('intval', array_merge($in, $open))));
@@ -254,7 +254,7 @@ final class Conversations
             return [];
         }
         $names = [];
-        foreach (self::db()->queryBuilder()->table('#PREFIX#conversations')->whereIn('conversationid', $ids)->getAllOrFail() as $row) {
+        foreach (self::db()->queryBuilder()->table('chat.conversations')->whereIn('conversationid', $ids)->getAllOrFail() as $row) {
             $id = (int) $row['conversationid'];
             if ($row['kind'] === 'bot') {
                 $names[$id] = Ask::displayName((string) $row['name']);
@@ -316,7 +316,7 @@ final class Conversations
     {
         self::members_()->where('conversationid', $id)->where('participanttype', 'user')->where('participantid', $person)
             // Its place let go — where the migration has run: starring still works before it.
-            ->update(['starred' => $starred ? 1 : 0] + ($starred || !self::db()->schema()->hasColumn('conversation_members', 'starorder') ? [] : ['starorder' => null]));
+            ->update(['starred' => $starred ? 1 : 0] + ($starred || !self::db()->schema()->hasColumn('chat.conversation_members', 'starorder') ? [] : ['starorder' => null]));
         if ($starred && $before !== null) {
             $order = array_values(array_diff(array_keys(self::starOrders($person)), [$id]));
             $at    = array_search($before, $order, true);
@@ -386,7 +386,7 @@ final class Conversations
             throw new \InvalidArgumentException(t('That message no longer exists.'));
         }
         $from     = $message['threadRootId'] ?? $message['id'];
-        $previous = Messages::inOrder(Messages::beyond(self::db()->queryBuilder()->table('#PREFIX#conversation_messages')->select(['messageid'])
+        $previous = Messages::inOrder(Messages::beyond(self::db()->queryBuilder()->table('chat.conversation_messages')->select(['messageid'])
             ->where('conversationid', $id)->whereNull('threadrootid'), (int) $from, false), 'desc')->limit(1)->getAllOrFail()[0]['messageid'] ?? 0;
         self::members_()->where('conversationid', $id)->where('participanttype', 'user')->where('participantid', $person)
             ->update(['lastreadid' => (int) $previous]);
@@ -402,13 +402,13 @@ final class Conversations
     public static function counts(int $id, int $person, int $after): array
     {
         $db = self::db();
-        $unread = (int) (Messages::inStream($db->queryBuilder()->table('#PREFIX#conversation_messages'))->select([new Expression('COUNT(*) AS n')])
+        $unread = (int) (Messages::inStream($db->queryBuilder()->table('chat.conversation_messages'))->select([new Expression('COUNT(*) AS n')])
             ->where('conversationid', $id)->where(static fn ($q) => Messages::beyond($q, $after))->whereNull('deletedat')
             ->where(static function ($q) use ($person): void {
                 $q->whereNull('authorid')->orWhere('authorid', '!=', $person);
             })->getAllOrFail()[0]['n'] ?? 0);
-        $mentions = (int) ($db->queryBuilder()->table('#PREFIX#conversation_mentions AS mn')
-            ->join('#PREFIX#conversation_messages AS m', 'm.messageid', '=', 'mn.messageid')->select([new Expression('COUNT(*) AS n')])
+        $mentions = (int) ($db->queryBuilder()->table('chat.conversation_mentions AS mn')
+            ->join('chat.conversation_messages AS m', 'm.messageid', '=', 'mn.messageid')->select([new Expression('COUNT(*) AS n')])
             ->where('mn.conversationid', $id)->where(static fn ($q) => Messages::beyond($q, $after, true, 'm.'))
             ->where(static function ($q) use ($person): void {
                 $q->where('mn.participantid', $person)->whereIn('mn.kind', ['all', 'online'], 'or');
@@ -420,7 +420,7 @@ final class Conversations
     /** Archive a conversation: read, no longer written to. */
     public static function archive(int $id, bool $archived = true): void
     {
-        self::db()->queryBuilder()->table('#PREFIX#conversations')->where('conversationid', $id)->update(['archivedat' => $archived ? time() : null]);
+        self::db()->queryBuilder()->table('chat.conversations')->where('conversationid', $id)->update(['archivedat' => $archived ? time() : null]);
     }
 
     /**
@@ -432,10 +432,10 @@ final class Conversations
     public static function forPerson(int $person): array
     {
         $db   = self::db();
-        $rows = $db->queryBuilder()->table('#PREFIX#conversation_members AS m')
-            ->join('#PREFIX#conversations AS c', 'c.conversationid', '=', 'm.conversationid')
+        $rows = $db->queryBuilder()->table('chat.conversation_members AS m')
+            ->join('chat.conversations AS c', 'c.conversationid', '=', 'm.conversationid')
             // starorder where the migration has run: the list still opens before it.
-            ->select(['c.*', 'm.lastreadid', 'm.muted', 'm.notify', 'm.starred', ...($db->schema()->hasColumn('conversation_members', 'starorder') ? ['m.starorder'] : [])])
+            ->select(['c.*', 'm.lastreadid', 'm.muted', 'm.notify', 'm.starred', ...($db->schema()->hasColumn('chat.conversation_members', 'starorder') ? ['m.starorder'] : [])])
             ->where('m.participanttype', 'user')->where('m.participantid', $person)->whereNull('m.leftat')
             ->orderBy('c.lastmessageat', 'desc')->getAllOrFail();
         $out = [];
@@ -457,9 +457,9 @@ final class Conversations
      */
     public static function shared(int $a, int $b): array
     {
-        $ids = array_map('intval', array_column(self::db()->queryBuilder()->table('#PREFIX#conversation_members AS m')
-            ->join('#PREFIX#conversation_members AS o', 'o.conversationid', '=', 'm.conversationid')
-            ->join('#PREFIX#conversations AS c', 'c.conversationid', '=', 'm.conversationid')
+        $ids = array_map('intval', array_column(self::db()->queryBuilder()->table('chat.conversation_members AS m')
+            ->join('chat.conversation_members AS o', 'o.conversationid', '=', 'm.conversationid')
+            ->join('chat.conversations AS c', 'c.conversationid', '=', 'm.conversationid')
             ->select(['m.conversationid'])->whereIn('c.kind', ['channel', 'private', 'group'])->whereNull('c.archivedat')
             ->where('m.participanttype', 'user')->where('m.participantid', $a)->whereNull('m.leftat')
             ->where('o.participanttype', 'user')->where('o.participantid', $b)->whereNull('o.leftat')->getAllOrFail(), 'conversationid'));
@@ -477,7 +477,7 @@ final class Conversations
      */
     public static function browse(int $person): array
     {
-        $rows = self::db()->queryBuilder()->table('#PREFIX#conversations')->whereIn('kind', self::OPEN)->whereNull('archivedat')
+        $rows = self::db()->queryBuilder()->table('chat.conversations')->whereIn('kind', self::OPEN)->whereNull('archivedat')
             ->orderBy('slug')->getAllOrFail();
 
         return array_map(static fn (array $row): array => self::row($row) + ['joined' => self::member((int) $row['conversationid'], $person) !== null,
@@ -508,8 +508,8 @@ final class Conversations
     /** The conversation a person has with a bot of this name, or null. */
     public static function botFor(int $person, string $name): ?int
     {
-        $rows = self::db()->queryBuilder()->table('#PREFIX#conversation_members AS m')
-            ->join('#PREFIX#conversations AS c', 'c.conversationid', '=', 'm.conversationid')
+        $rows = self::db()->queryBuilder()->table('chat.conversation_members AS m')
+            ->join('chat.conversations AS c', 'c.conversationid', '=', 'm.conversationid')
             ->select(['m.conversationid'])->where('c.kind', 'bot')->where('c.name', mb_substr(trim($name), 0, 150))
             ->where('m.participanttype', 'user')->where('m.participantid', $person)->limit(1)->getAllOrFail();
 
@@ -522,8 +522,8 @@ final class Conversations
         if ($a === $b) {
             return self::ownDm($a);
         }
-        $rows = self::db()->queryBuilder()->table('#PREFIX#conversation_members AS m')
-            ->join('#PREFIX#conversations AS c', 'c.conversationid', '=', 'm.conversationid')
+        $rows = self::db()->queryBuilder()->table('chat.conversation_members AS m')
+            ->join('chat.conversations AS c', 'c.conversationid', '=', 'm.conversationid')
             ->select(['m.conversationid'])->where('c.kind', 'dm')->where('m.participanttype', 'user')->whereIn('m.participantid', [$a, $b])
             ->groupBy(['m.conversationid'])->havingRaw('COUNT(*) = 2')->limit(1)->getAllOrFail();
 
@@ -533,9 +533,9 @@ final class Conversations
     /** A person's own dm — them alone, their notes — other than one, or null. */
     private static function ownDm(int $person, int $except = 0): ?int
     {
-        $rows = self::db()->queryBuilder()->table('#PREFIX#conversation_members AS m')
-            ->join('#PREFIX#conversation_members AS a', 'a.conversationid', '=', 'm.conversationid')
-            ->join('#PREFIX#conversations AS c', 'c.conversationid', '=', 'm.conversationid')
+        $rows = self::db()->queryBuilder()->table('chat.conversation_members AS m')
+            ->join('chat.conversation_members AS a', 'a.conversationid', '=', 'm.conversationid')
+            ->join('chat.conversations AS c', 'c.conversationid', '=', 'm.conversationid')
             ->select(['m.conversationid'])->where('c.kind', 'dm')->where('m.conversationid', '<>', $except)
             ->where('m.participanttype', 'user')->where('m.participantid', $person)
             ->groupBy(['m.conversationid'])->havingRaw('COUNT(*) = 1')->limit(1)->getAllOrFail();
@@ -549,9 +549,9 @@ final class Conversations
      */
     public static function dmWithFormer(int $person, string $former): ?int
     {
-        $rows = self::db()->queryBuilder()->table('#PREFIX#conversation_members AS m')
-            ->join('#PREFIX#conversation_members AS f', 'f.conversationid', '=', 'm.conversationid')
-            ->join('#PREFIX#conversations AS c', 'c.conversationid', '=', 'm.conversationid')
+        $rows = self::db()->queryBuilder()->table('chat.conversation_members AS m')
+            ->join('chat.conversation_members AS f', 'f.conversationid', '=', 'm.conversationid')
+            ->join('chat.conversations AS c', 'c.conversationid', '=', 'm.conversationid')
             ->select(['m.conversationid'])->where('c.kind', 'dm')->where('m.participanttype', 'user')->where('m.participantid', $person)
             ->where('f.participanttype', 'former')
             ->where(static fn ($q) => $q->where('f.externalid', $former)->orWhere(static fn ($n) => $n->whereNull('f.externalid')->where('f.name', $former)))
@@ -581,11 +581,11 @@ final class Conversations
             $id   = (int) $former['conversationid'];
             $name = (string) $former['name'];
             // What they wrote: written with their name and no account.
-            foreach ($db->queryBuilder()->table('#PREFIX#conversation_messages')->select(['messageid', 'card'])->where('conversationid', $id)
+            foreach ($db->queryBuilder()->table('chat.conversation_messages')->select(['messageid', 'card'])->where('conversationid', $id)
                 ->whereNull('authorid')->whereNotNull('card')->getAllOrFail() as $message) {
                 $card = json_decode((string) $message['card'], true);
                 if (is_array($card) && !empty($card['former']) && ($card['from'] ?? null) === $name) {
-                    $db->queryBuilder()->table('#PREFIX#conversation_messages')->where('messageid', (int) $message['messageid'])
+                    $db->queryBuilder()->table('chat.conversation_messages')->where('messageid', (int) $message['messageid'])
                         ->update(['authortype' => 'user', 'authorid' => $person, 'card' => null]);
                     $done['messages']++;
                 }
@@ -604,9 +604,9 @@ final class Conversations
             $other = array_values(array_diff(self::members($id), [$person]))[0] ?? null;
             if ($conversation !== null && $conversation['kind'] === 'dm') {
                 // Somebody claiming who they were in a dm with themselves: that dm is now their own.
-                $twin = $other === null ? self::ownDm($person, $id) : self::db()->queryBuilder()->table('#PREFIX#conversation_members AS m')
-                    ->join('#PREFIX#conversation_members AS o', 'o.conversationid', '=', 'm.conversationid')
-                    ->join('#PREFIX#conversations AS c', 'c.conversationid', '=', 'm.conversationid')
+                $twin = $other === null ? self::ownDm($person, $id) : self::db()->queryBuilder()->table('chat.conversation_members AS m')
+                    ->join('chat.conversation_members AS o', 'o.conversationid', '=', 'm.conversationid')
+                    ->join('chat.conversations AS c', 'c.conversationid', '=', 'm.conversationid')
                     ->select(['m.conversationid'])->where('c.kind', 'dm')->where('m.conversationid', '<>', $id)
                     ->where('m.participanttype', 'user')->where('m.participantid', $person)
                     ->where('o.participanttype', 'user')->where('o.participantid', $other)->limit(1)->getAllOrFail()[0]['conversationid'] ?? null;
@@ -634,7 +634,7 @@ final class Conversations
     {
         $db = self::db();
         foreach (['conversation_messages', 'conversation_mentions', 'conversation_pins', 'conversation_files'] as $table) {
-            $db->queryBuilder()->table('#PREFIX#' . $table)->where('conversationid', $newer)->update(['conversationid' => $older]);
+            $db->queryBuilder()->table('chat.' . $table)->where('conversationid', $newer)->update(['conversationid' => $older]);
         }
         foreach (self::members_()->where('conversationid', $newer)->where('participanttype', 'user')->getAllOrFail() as $member) {
             self::markRead($older, (int) $member['participantid'], (int) $member['lastreadid']);
@@ -642,11 +642,11 @@ final class Conversations
         $a = self::get($older);
         $b = self::get($newer);
         if ($b['lastMessageId'] !== null && ($a['lastMessageId'] === null || Messages::isAfter($b['lastMessageId'], $a['lastMessageId']))) {
-            $db->queryBuilder()->table('#PREFIX#conversations')->where('conversationid', $older)
+            $db->queryBuilder()->table('chat.conversations')->where('conversationid', $older)
                 ->update(['lastmessageid' => $b['lastMessageId'], 'lastmessageat' => $b['lastMessageAt']]);
         }
         self::members_()->where('conversationid', $newer)->delete();
-        $db->queryBuilder()->table('#PREFIX#conversations')->where('conversationid', $newer)->delete();
+        $db->queryBuilder()->table('chat.conversations')->where('conversationid', $newer)->delete();
 
         return $older;
     }
@@ -703,7 +703,20 @@ final class Conversations
     /** The members table. */
     private static function members_(): \Pramnos\Database\QueryBuilder
     {
-        return self::db()->queryBuilder()->table('#PREFIX#conversation_members');
+        return self::db()->queryBuilder()->table('chat.conversation_members');
+    }
+
+    /**
+     * Whether the conversations are installed here — their tables made — for code of the
+     * application's that asks before it reads them.
+     */
+    public static function installed(): bool
+    {
+        try {
+            return self::db()->schema()->hasTable('chat.conversations');
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /** The application whose `conversations` block {@see settings()} reads where the one running has none. */

@@ -322,7 +322,7 @@ class QueryBuilder
         // else is left exactly as it was.
         if (is_string($table)
             && strpos($table, '.') !== false
-            && $this->db->type !== 'postgresql'
+            && ($this->db->type !== 'postgresql' || self::movedSchema($table))
         ) {
             $parts = preg_split('/\s+/', trim($table)) ?: [];
             $plain = isset($parts[0]) && preg_match('/^[A-Za-z0-9_.#]+$/', $parts[0]) === 1;
@@ -967,11 +967,23 @@ class QueryBuilder
      * @return mixed The resolved name, or the input unchanged when there is
      *               nothing to resolve.
      */
+    /**
+     * A table in a schema the framework moved its tables into (`chat.`, `assist.`): resolved on
+     * PostgreSQL too, so that until the move has run it is read where it was
+     * ({@see SchemaBuilder::resolveTableName()}).
+     *
+     * ponytail: transitional, with SchemaBuilder::movedHere(); remove both once installations have moved.
+     */
+    private static function movedSchema(string $table): bool
+    {
+        return str_starts_with($table, 'chat.') || str_starts_with($table, 'assist.');
+    }
+
     protected function resolveJoinTable($table)
     {
         if (!is_string($table)
             || strpos($table, '.') === false
-            || $this->db->type === 'postgresql'
+            || ($this->db->type === 'postgresql' && !self::movedSchema($table))
         ) {
             return $table;
         }

@@ -20,9 +20,10 @@ class CreateConversationScheduledTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
+        $schema->ensureSchema('chat');
 
-        if (!$schema->hasTable('conversation_scheduled')) {
-            $schema->createTable('conversation_scheduled', function ($table) {
+        if (!$schema->hasTable('chat.conversation_scheduled')) {
+            $schema->createTable('chat.conversation_scheduled', function ($table) {
                 $table->comment('A message written to be sent later');
                 $table->bigIncrements('scheduledid')->comment('Auto-increment identifier');
                 $table->bigInteger('conversationid')->comment('conversations.conversationid');
@@ -43,6 +44,6 @@ class CreateConversationScheduledTable extends Migration
     /** Drop it again. */
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('conversation_scheduled');
+        $this->application->database->schema()->dropTableIfExists('chat.conversation_scheduled');
     }
 }

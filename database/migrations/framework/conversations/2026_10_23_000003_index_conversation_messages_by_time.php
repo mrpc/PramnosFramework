@@ -20,11 +20,11 @@ class IndexConversationMessagesByTime extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('conversation_messages') || $schema->hasIndex('conversation_messages', 'idx_conversation_messages_time')) {
+        if (!$schema->hasTable('chat.conversation_messages') || $schema->hasIndex('chat.conversation_messages', 'idx_conversation_messages_time')) {
             return;
         }
 
-        $schema->table('conversation_messages', function ($table) {
+        $schema->table('chat.conversation_messages', function ($table) {
             $table->index(['conversationid', 'created_at', 'messageid'], 'idx_conversation_messages_time');
         });
     }
@@ -34,11 +34,11 @@ class IndexConversationMessagesByTime extends Migration
     {
         $schema = $this->application->database->schema();
 
-        if (!$schema->hasTable('conversation_messages') || !$schema->hasIndex('conversation_messages', 'idx_conversation_messages_time')) {
+        if (!$schema->hasTable('chat.conversation_messages') || !$schema->hasIndex('chat.conversation_messages', 'idx_conversation_messages_time')) {
             return;
         }
 
-        $schema->table('conversation_messages', function ($table) {
+        $schema->table('chat.conversation_messages', function ($table) {
             $table->dropIndex('idx_conversation_messages_time');
         });
     }

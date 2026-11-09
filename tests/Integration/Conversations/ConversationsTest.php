@@ -251,7 +251,7 @@ class ConversationsTest extends TestCase
         $gone   = Messages::post($general, null, 'έφυγε πια', ['quiet' => true, 'source' => 'legacy', 'externalid' => 'C1:200', 'authorName' => 'Κώστας Λ.']);
         Messages::react($first, $maria, ':tada:', true, 1700000300, true);
         Messages::react($first, $maria, ':tada:', true, 1700000400, true);
-        $reaction = $this->db->queryBuilder()->table('conversation_reactions')->where('messageid', $first)->getAllOrFail();
+        $reaction = $this->db->queryBuilder()->table('chat.conversation_reactions')->where('messageid', $first)->getAllOrFail();
 
         // Assert
         $this->assertNull($before);
@@ -470,7 +470,7 @@ class ConversationsTest extends TestCase
         $board = Conversations::create('private', 'secret', [$maria], $nikos);
         foreach ([[$general, 'report.txt'], [$board, 'hidden.txt']] as [$where, $name]) {
             // A file's row as it is once sent; the disk is FilesTest's.
-            $this->db->queryBuilder()->table('conversation_files')->insert(['conversationid' => $where, 'messageid' => $said, 'uploadedby' => $maria,
+            $this->db->queryBuilder()->table('chat.conversation_files')->insert(['conversationid' => $where, 'messageid' => $said, 'uploadedby' => $maria,
                 'name' => $name, 'path' => 'x/' . $name, 'mime' => 'text/plain', 'size' => 5, 'createdat' => 1700000000]);
         }
 
@@ -604,7 +604,7 @@ class ConversationsTest extends TestCase
         $application = (new \ReflectionClass(Application::class))->newInstanceWithoutConstructor();
         $application->database = $this->db;
         $migration   = new \Pramnos\Framework\Migrations\Conversations\MakeConversationReactionsEmojiBinary($application);
-        $count       = fn (): int => count($this->db->queryBuilder()->table('conversation_reactions')->where('messageid', $first)->getAll());
+        $count       = fn (): int => count($this->db->queryBuilder()->table('chat.conversation_reactions')->where('messageid', $first)->getAll());
 
         // Act
         $migration->down();
@@ -614,7 +614,7 @@ class ConversationsTest extends TestCase
         $migration->up();
         Messages::react($first, $maria, '💝');
         Messages::react($first, $maria, '😍');
-        $emoji = array_column($this->db->queryBuilder()->table('conversation_reactions')->where('messageid', $first)->orderBy('id')->getAll(), 'emoji');
+        $emoji = array_column($this->db->queryBuilder()->table('chat.conversation_reactions')->where('messageid', $first)->orderBy('id')->getAll(), 'emoji');
 
         // Assert
         // The old collation on MySQL: 💝 taken for the 😍 already there.

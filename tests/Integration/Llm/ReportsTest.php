@@ -149,7 +149,7 @@ class ReportsTest extends LlmTestCase
         $this->assertSame(['read_figures'], $offered, 'no write, memory or scheduling tool');
         $this->assertStringNotContainsString('Eleni', $this->sent[0]['raw'], 'the maker\'s memory stays theirs');
         $this->assertStringStartsWith('Scheduled report "Weekly" about Villa 42', self::spoken($this->sent[0])[0]['content']);
-        $this->assertSame([], $this->rows('chat_conversations'), 'nothing is kept as a conversation');
+        $this->assertSame([], $this->rows('assist.chat_conversations'), 'nothing is kept as a conversation');
         $this->assertSame(['ok', '12 bookings, 3 more than last week.', [7, 8]], [$run['status'], $run['content'], $run['extra']['notified']]);
         $this->assertSame([7, 8], array_column($tasks->delivered, 0), 'the maker, and the reader who may still read it');
         $this->assertSame('Weekly — Villa 42', $tasks->delivered[0][1]->title);

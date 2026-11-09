@@ -264,9 +264,9 @@ class AskTest extends TestCase
         $again = Ask::conversationFor($this->user('eleni'));
         $first = Ask::start(Messages::post($dm, $eleni, 'πόσες εγγραφές χθες;'), $this->user('eleni'));
         // The analyst answered it in its conversation 55: the ask's row says so.
-        $this->db->queryBuilder()->table('chat_asks')->insert(['organization_id' => null, 'userid' => $eleni, 'space' => 'admin',
+        $this->db->queryBuilder()->table('assist.chat_asks')->insert(['organization_id' => null, 'userid' => $eleni, 'space' => 'admin',
             'conversation_id' => 55, 'status' => 'answered', 'created_at' => '2026-10-22 10:00:00', 'updated_at' => '2026-10-22 10:00:00']);
-        $askId = (int) $this->db->queryBuilder()->table('chat_asks')->orderBy('ask_id', 'desc')->first()->fields['ask_id'];
+        $askId = (int) $this->db->queryBuilder()->table('assist.chat_asks')->orderBy('ask_id', 'desc')->first()->fields['ask_id'];
         Ask::answered(['ask_id' => $askId, 'extra' => $asked[0][2]], ['ok' => true, 'conversation_id' => 55, 'message' => ['content' => '42']]);
         $root   = Messages::post($dm, $eleni, 'και σήμερα;');
         $second = Ask::start($root, $this->user('eleni'));

@@ -40,7 +40,7 @@ final class Messages
     /** The name of a conversation's member with no account, by their id where they came from or their name. */
     private static function formerName(int $conversationId, string $former): ?string
     {
-        $rows = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_members')->select(['name'])
+        $rows = Conversations::db()->queryBuilder()->table('chat.conversation_members')->select(['name'])
             ->where('conversationid', $conversationId)->where('participanttype', 'former')
             ->where(static fn ($q) => $q->where('externalid', $former)->orWhere('name', $former))->limit(1)->getAllOrFail();
 
@@ -59,7 +59,7 @@ final class Messages
         if ($id <= 0) {
             return null;
         }
-        $row = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_messages')->select(['created_at'])
+        $row = Conversations::db()->queryBuilder()->table('chat.conversation_messages')->select(['created_at'])
             ->where('messageid', $id)->limit(1)->getAllOrFail()[0] ?? null;
 
         return $row === null ? null : ['at' => (string) $row['created_at'], 'id' => $id];
@@ -163,7 +163,7 @@ final class Messages
         }
         $at   = (int) ($options['at'] ?? time());
         $refs = self::refs($body);
-        $insert = $db->queryBuilder()->table('#PREFIX#conversation_messages');
+        $insert = $db->queryBuilder()->table('chat.conversation_messages');
         /*
          * RETURNING, not getInsertId()'s currval(): `conversation_messages` is a
          * TimescaleDB hypertable, and a row that opens a new chunk can leave this
@@ -192,13 +192,13 @@ final class Messages
             $q->whereNull($column)->orWhere($column, '<=', $at);
         };
         if ($thread !== null) {
-            $db->queryBuilder()->table('#PREFIX#conversation_messages')->where('messageid', $thread)
+            $db->queryBuilder()->table('chat.conversation_messages')->where('messageid', $thread)
                 ->update(['replycount' => new Expression('replycount + 1')]);
-            $db->queryBuilder()->table('#PREFIX#conversation_messages')->where('messageid', $thread)->where($notBefore('lastreplyat'))
+            $db->queryBuilder()->table('chat.conversation_messages')->where('messageid', $thread)->where($notBefore('lastreplyat'))
                 ->update(['lastreplyat' => $at]);
         }
         if ($thread === null || $broadcast) {
-            $db->queryBuilder()->table('#PREFIX#conversations')->where('conversationid', $conversationId)->where($notBefore('lastmessageat'))
+            $db->queryBuilder()->table('chat.conversations')->where('conversationid', $conversationId)->where($notBefore('lastmessageat'))
                 ->update(['lastmessageid' => $id, 'lastmessageat' => $at]);
         }
         if ($author !== null) {
@@ -235,7 +235,7 @@ final class Messages
     /** The message brought in from `source` as `externalId`, or null — history written once. */
     public static function find(string $source, string $externalId): ?int
     {
-        $id = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_messages')->select(['messageid'])->where('source', $source)
+        $id = Conversations::db()->queryBuilder()->table('chat.conversation_messages')->select(['messageid'])->where('source', $source)
             ->where('externalid', $externalId)->limit(1)->getAllOrFail()[0]['messageid'] ?? null;
 
         return $id === null ? null : (int) $id;
@@ -258,10 +258,10 @@ final class Messages
         $body = self::moderated(Conversations::get($message['conversationId']) ?? [], $by, $body, false);
         $db = Conversations::db();
         $refs = self::refs($body);
-        $db->queryBuilder()->table('#PREFIX#conversation_messages')->where('messageid', $id)->update([
+        $db->queryBuilder()->table('chat.conversation_messages')->where('messageid', $id)->update([
             'body' => $body, 'editedat' => time(), 'refs' => $refs === [] ? null : (string) json_encode($refs, JSON_UNESCAPED_UNICODE),
         ]);
-        $db->queryBuilder()->table('#PREFIX#conversation_mentions')->where('messageid', $id)->delete();
+        $db->queryBuilder()->table('chat.conversation_mentions')->where('messageid', $id)->delete();
         self::mention($id, $message['conversationId'], $by, $body, time());
         Unfurls::remember($id, $body);
         Realtime::changed($id, 'message.edited');
@@ -319,8 +319,8 @@ final class Messages
             throw new \InvalidArgumentException(t('Only its writer deletes a message.'));
         }
         $db = Conversations::db();
-        $db->queryBuilder()->table('#PREFIX#conversation_messages')->where('messageid', $id)->update(['body' => '', 'card' => null, 'refs' => null, 'deletedat' => time()]);
-        $db->queryBuilder()->table('#PREFIX#conversation_mentions')->where('messageid', $id)->delete();
+        $db->queryBuilder()->table('chat.conversation_messages')->where('messageid', $id)->update(['body' => '', 'card' => null, 'refs' => null, 'deletedat' => time()]);
+        $db->queryBuilder()->table('chat.conversation_mentions')->where('messageid', $id)->delete();
         Realtime::changed($id, 'message.deleted');
     }
 
@@ -336,7 +336,7 @@ final class Messages
         if ($emoji === '' || mb_strlen($emoji) > 64 || ($custom ? !isset(Markdown::EMOJI[$m[1]]) && !CustomEmoji::exists($m[1]) : preg_match('/[\sA-Za-z<>&"\'`]/', $emoji) === 1)) {
             throw new \InvalidArgumentException(t('That is not an emoji.'));
         }
-        $table = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_reactions');
+        $table = Conversations::db()->queryBuilder()->table('chat.conversation_reactions');
         if ($on) {
             $table->insertOrIgnore(['messageid' => $id, 'participanttype' => 'user', 'participantid' => $person, 'emoji' => $emoji, 'createdat' => $at ?? time()]);
         } else {
@@ -351,7 +351,7 @@ final class Messages
     public static function pin(int $id, int $by, bool $on = true): void
     {
         $message = self::get($id) ?? throw new \InvalidArgumentException(t('That message no longer exists.'));
-        $table   = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_pins');
+        $table   = Conversations::db()->queryBuilder()->table('chat.conversation_pins');
         if ($on) {
             $table->insertOrIgnore(['conversationid' => $message['conversationId'], 'messageid' => $id, 'pinnedby' => $by, 'pinnedat' => time()]);
         } else {
@@ -368,7 +368,7 @@ final class Messages
     public static function get(int $id): ?array
     {
         $db  = Conversations::db();
-        $row = $db->queryBuilder()->table('#PREFIX#conversation_messages')->select(['*', Instant::unix($db, 'created_at', 'at_unix')])
+        $row = $db->queryBuilder()->table('chat.conversation_messages')->select(['*', Instant::unix($db, 'created_at', 'at_unix')])
             ->where('messageid', $id)->limit(1)->getAllOrFail()[0] ?? null;
 
         return $row === null ? null : self::row($row);
@@ -385,7 +385,7 @@ final class Messages
     {
         $db    = Conversations::db();
         $limit = max(1, min(self::MAX_LIST, (int) ($options['limit'] ?? 50)));
-        $query = $db->queryBuilder()->table('#PREFIX#conversation_messages')->select(['*', Instant::unix($db, 'created_at', 'at_unix')])
+        $query = $db->queryBuilder()->table('chat.conversation_messages')->select(['*', Instant::unix($db, 'created_at', 'at_unix')])
             ->where('conversationid', $conversationId);
         if (isset($options['thread'])) {
             $query->where(static function ($q) use ($options): void {
@@ -428,7 +428,7 @@ final class Messages
             return [];
         }
         $db    = Conversations::db();
-        $query = $db->queryBuilder()->table('#PREFIX#conversation_messages')->select(['*', Instant::unix($db, 'created_at', 'at_unix')])
+        $query = $db->queryBuilder()->table('chat.conversation_messages')->select(['*', Instant::unix($db, 'created_at', 'at_unix')])
             ->whereNull('deletedat');
         if ($conversationId !== null) {
             if (!Conversations::canRead($conversationId, $user)) {
@@ -447,7 +447,7 @@ final class Messages
         }
         if ($mentioning !== null) {
             // ponytail: the 500 newest mentions of them; a join if anybody needs further back.
-            $mentions = array_map('intval', array_column(Conversations::db()->queryBuilder()->table('#PREFIX#conversation_mentions')->select(['messageid'])
+            $mentions = array_map('intval', array_column(Conversations::db()->queryBuilder()->table('chat.conversation_mentions')->select(['messageid'])
                 ->where('participantid', $mentioning)->orderBy('messageid', 'desc')->limit(500)->getAllOrFail(), 'messageid'));
             if ($mentions === []) {
                 return [];
@@ -485,10 +485,10 @@ final class Messages
         $db        = Conversations::db();
         $ids       = array_column($messages, 'id');
         $reactions = [];
-        foreach ($db->queryBuilder()->table('#PREFIX#conversation_reactions')->whereIn('messageid', $ids)->orderBy('id')->getAllOrFail() as $r) {
+        foreach ($db->queryBuilder()->table('chat.conversation_reactions')->whereIn('messageid', $ids)->orderBy('id')->getAllOrFail() as $r) {
             $reactions[(int) $r['messageid']][(string) $r['emoji']][] = (int) $r['participantid'];
         }
-        $pinned = array_flip(array_map('intval', array_column($db->queryBuilder()->table('#PREFIX#conversation_pins')->select(['messageid'])
+        $pinned = array_flip(array_map('intval', array_column($db->queryBuilder()->table('chat.conversation_pins')->select(['messageid'])
             ->whereIn('messageid', $ids)->getAllOrFail(), 'messageid')));
         $files = [];
         foreach (Files::forMessages($ids) as $file) {
@@ -498,7 +498,7 @@ final class Messages
         $roots = [];
         $rootIds = array_values(array_unique(array_column(array_filter($messages, static fn (array $m): bool => $m['broadcast'] && $m['threadRootId'] !== null), 'threadRootId')));
         if ($rootIds !== []) {
-            foreach ($db->queryBuilder()->table('#PREFIX#conversation_messages')->select(['messageid', 'authorid', 'body', 'deletedat'])
+            foreach ($db->queryBuilder()->table('chat.conversation_messages')->select(['messageid', 'authorid', 'body', 'deletedat'])
                 ->whereIn('messageid', $rootIds)->getAllOrFail() as $r) {
                 $roots[(int) $r['messageid']] = $r;
             }
@@ -535,7 +535,7 @@ final class Messages
         }
         $db   = Conversations::db();
         $rows = [];
-        foreach ($db->queryBuilder()->table('#PREFIX#conversation_messages')->select(['*', Instant::unix($db, 'created_at', 'at_unix')])
+        foreach ($db->queryBuilder()->table('chat.conversation_messages')->select(['*', Instant::unix($db, 'created_at', 'at_unix')])
             ->whereIn('messageid', array_values(array_unique($ids)))->getAllOrFail() as $row) {
             $rows[(int) $row['messageid']] = self::row($row);
         }
@@ -548,7 +548,7 @@ final class Messages
     /** The pinned messages of a conversation, newest pin first. @return list<array<string, mixed>> */
     public static function pinned(int $conversationId): array
     {
-        $ids = array_map('intval', array_column(Conversations::db()->queryBuilder()->table('#PREFIX#conversation_pins')->select(['messageid'])
+        $ids = array_map('intval', array_column(Conversations::db()->queryBuilder()->table('chat.conversation_pins')->select(['messageid'])
             ->where('conversationid', $conversationId)->orderBy('pinnedat', 'desc')->getAllOrFail(), 'messageid'));
 
         return self::present(array_values(array_filter(array_map(self::get(...), $ids))));
@@ -609,7 +609,7 @@ final class Messages
             }
         }
         $people += Handles::audience($conversationId, $author, $body);
-        $table   = static fn () => Conversations::db()->queryBuilder()->table('#PREFIX#conversation_mentions');
+        $table   = static fn () => Conversations::db()->queryBuilder()->table('chat.conversation_mentions');
         $used    = Handles::permitted($conversationId, $author, $body);
         if (in_array('channel', $used, true) || (in_array(Handles::EVERYONE, $used, true) && !Handles::isGeneral($conversationId))) {
             $table()->insert(['messageid' => $id, 'conversationid' => $conversationId, 'kind' => 'all', 'participantid' => null, 'createdat' => $at]);

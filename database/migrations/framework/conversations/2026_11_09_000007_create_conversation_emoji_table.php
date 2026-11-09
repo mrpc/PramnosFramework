@@ -20,9 +20,10 @@ class CreateConversationEmojiTable extends Migration
     public function up(): void
     {
         $schema = $this->application->database->schema();
+        $schema->ensureSchema('chat');
 
-        if (!$schema->hasTable('conversation_emoji')) {
-            $schema->createTable('conversation_emoji', function ($table) {
+        if (!$schema->hasTable('chat.conversation_emoji')) {
+            $schema->createTable('chat.conversation_emoji', function ($table) {
                 $table->comment('The team\'s own emoji, written :name:');
                 $table->string('name', 32)->primary()->comment('What it is written as, between colons');
                 $table->string('path', 255)->default('')->comment('The picture, under the conversations\' files directory; empty for an alias');
@@ -38,6 +39,6 @@ class CreateConversationEmojiTable extends Migration
     /** Drop it again. */
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('conversation_emoji');
+        $this->application->database->schema()->dropTableIfExists('chat.conversation_emoji');
     }
 }

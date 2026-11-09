@@ -655,13 +655,13 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
     protected function generateFkName(string $table, string $column): string
     {
         $table = str_replace(['#PREFIX#', '.'], ['', '_'], $table);
-        return "fk_{$table}_{$column}";
+        return \Pramnos\Database\Blueprint::fitName("fk_{$table}_{$column}");
     }
 
     protected function generateIndexName(string $type, array $columns, string $table = ''): string
     {
         $t = str_replace(['#PREFIX#', '.'], ['', '_'], $table);
         $base = $t !== '' ? $t . '_' . implode('_', $columns) : implode('_', $columns);
-        return $base . '_' . $type;
+        return \Pramnos\Database\Blueprint::fitName($base . '_' . $type);
     }
 }

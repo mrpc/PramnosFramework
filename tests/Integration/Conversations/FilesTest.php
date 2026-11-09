@@ -99,7 +99,7 @@ class FilesTest extends TestCase
         // A square thumbnail as one was made before, for the small one.
         $old = dirname(Files::get($small)['path']) . '/' . $small . '-μικρή.thumb.jpg';
         file_put_contents($this->tree . '/' . $old, self::image(41, 41));
-        $this->db->queryBuilder()->table('conversation_files')->where('fileid', $small)->update(['thumbpath' => $old]);
+        $this->db->queryBuilder()->table('chat.conversation_files')->where('fileid', $small)->update(['thumbpath' => $old]);
         $console = new \Pramnos\Console\Application();
         $tester  = new \Symfony\Component\Console\Tester\CommandTester($console->find('conversations:thumbnails'));
         $status  = $tester->execute([]);
@@ -236,7 +236,7 @@ class FilesTest extends TestCase
 
         // Assert
         $this->assertStringStartsWith('The file could not be kept under the conversations\' files directory', (string) $error);
-        $this->assertSame([], $this->db->queryBuilder()->table('conversation_files')->getAll(), 'no row without its file');
+        $this->assertSame([], $this->db->queryBuilder()->table('chat.conversation_files')->getAll(), 'no row without its file');
     }
 
     /**
@@ -256,7 +256,7 @@ class FilesTest extends TestCase
         $old    = Files::store($secret, $eleni, $this->upload('παλιό'), 'old.txt');
         $new    = Files::store($secret, $maria, $this->upload('καινούριο αρχείο'), 'new.txt');
         Messages::post($secret, $eleni, 'δες', ['files' => [$old]]);
-        $this->db->queryBuilder()->table('conversation_files')->where('fileid', $old)->update(['createdat' => time() - 400 * 86400]);
+        $this->db->queryBuilder()->table('chat.conversation_files')->where('fileid', $old)->update(['createdat' => time() - 400 * 86400]);
 
         // Act
         $forMaria = Files::pathFor($old, $this->user('maria'));

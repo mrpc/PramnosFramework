@@ -66,14 +66,14 @@ final class Inbox
         }
         $db    = Conversations::db();
         $items = [];
-        foreach ($db->queryBuilder()->table('#PREFIX#conversation_mentions')->select(['messageid', 'createdat'])->whereIn('conversationid', $mine)
+        foreach ($db->queryBuilder()->table('chat.conversation_mentions')->select(['messageid', 'createdat'])->whereIn('conversationid', $mine)
             ->where(static function ($q) use ($person): void {
                 $q->where('participantid', $person)->whereIn('kind', ['all', 'online'], 'or');
             })->orderBy('id', 'desc')->limit($limit)->getAllOrFail() as $row) {
             $items['m' . $row['messageid']] = ['kind' => 'mention', 'at' => (int) $row['createdat'], 'id' => (int) $row['messageid'], 'by' => null, 'emoji' => null];
         }
-        foreach ($db->queryBuilder()->table('#PREFIX#conversation_reactions AS r')
-            ->join('#PREFIX#conversation_messages AS m', 'm.messageid', '=', 'r.messageid')
+        foreach ($db->queryBuilder()->table('chat.conversation_reactions AS r')
+            ->join('chat.conversation_messages AS m', 'm.messageid', '=', 'r.messageid')
             ->select(['r.messageid', 'r.participantid', 'r.emoji', 'r.createdat'])
             ->where('m.authorid', $person)->where('r.participantid', '!=', $person)->whereIn('m.conversationid', $mine)
             ->orderBy('r.createdat', 'desc')->limit($limit)->getAllOrFail() as $row) {
@@ -146,7 +146,7 @@ final class Inbox
     /** Keep a message for later, or let it go. */
     public static function save(int $messageId, int $person, bool $on = true): void
     {
-        $table = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_saved');
+        $table = Conversations::db()->queryBuilder()->table('chat.conversation_saved');
         if ($on) {
             $table->insertOrIgnore(['participantid' => $person, 'messageid' => $messageId, 'savedat' => time()]);
 
@@ -179,7 +179,7 @@ final class Inbox
         if ($among === []) {
             return [];
         }
-        $query = Conversations::db()->queryBuilder()->table('#PREFIX#conversation_saved')->select(['messageid'])->where('participantid', $person);
+        $query = Conversations::db()->queryBuilder()->table('chat.conversation_saved')->select(['messageid'])->where('participantid', $person);
         if ($among !== null) {
             $query->whereIn('messageid', $among);
         }
@@ -205,7 +205,7 @@ final class Inbox
     /** The conversations somebody is in. @return list<int> */
     private static function mine(int $person): array
     {
-        return array_map('intval', array_column(Conversations::db()->queryBuilder()->table('#PREFIX#conversation_members')->select(['conversationid'])
+        return array_map('intval', array_column(Conversations::db()->queryBuilder()->table('chat.conversation_members')->select(['conversationid'])
             ->where('participanttype', 'user')->where('participantid', $person)->whereNull('leftat')->getAllOrFail(), 'conversationid'));
     }
 
@@ -220,6 +220,6 @@ final class Inbox
     /** The messages table. */
     private static function messages(): \Pramnos\Database\QueryBuilder
     {
-        return Conversations::db()->queryBuilder()->table('#PREFIX#conversation_messages');
+        return Conversations::db()->queryBuilder()->table('chat.conversation_messages');
     }
 }
