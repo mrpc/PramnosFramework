@@ -120,6 +120,14 @@ Metric::flow('payments.amount', 'Revenue')
   reading lower than the one before is a reset, counted from nought. The entities are then added
   together. The increase counts from each entity's first reading in the period, not from the
   previous period's last.
+- **Live.** `->live()` reads the metric from its source when it is asked for and never computes
+  it into the store. It is meant for a metric over tens of thousands of entities by the hour,
+  such as a device's consumption, whose source already holds the data.
+  - **Any breakdown.** Any combination of its dimensions can be read, filtered, for any periods.
+  - **Empty periods.** A period with nothing reads as nought.
+  - **Computing.** `metrics:compute` passes it by.
+  - **Speed.** On TimescaleDB, a continuous aggregate of its source makes the read fast; that
+    comes in a later step.
 - **Many periods at once.** Computing many periods of a declared source (`--from`/`--to`, or the
   catch-up after a pause) reads them in one query per breakdown, grouped by each row's period in
   the metrics' zone (`Metric::prefetch()`). This holds on PostgreSQL with a unix-time column and

@@ -87,6 +87,9 @@ final class Metric
     /** @var list<string>|null The grains it is kept at; null: the application's ({@see Metrics::grains()}) */
     private ?array $grains = null;
 
+    /** Read from its source when asked, never stored. */
+    private bool $live = false;
+
     /** The definition's version: computed and read; another is kept beside it. */
     private int $version = 1;
 
@@ -275,6 +278,24 @@ final class Metric
         $this->aggregate = self::MAX;
 
         return $this->counting('MAX', $column);
+    }
+
+    /**
+     * Read from its source when asked, never computed into the store: for a metric over tens of
+     * thousands of entities — a device's consumption by the hour — whose source already holds it.
+     * Any breakdown of its dimensions can be read; a distinct is counted per period as asked.
+     */
+    public function live(bool $live = true): self
+    {
+        $this->live = $live;
+
+        return $this;
+    }
+
+    /** Whether it is read from its source when asked. */
+    public function isLive(): bool
+    {
+        return $this->live;
     }
 
     /**

@@ -1101,6 +1101,46 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * A live metric is read from its source when asked and never kept: any breakdown of its
+     * dimensions, filtered, by the periods asked — a period with nothing is nought — and a
+     * computation writes nothing for it.
+     */
+    public function testALiveMetricIsReadFromItsSource(): void
+    {
+        // Arrange
+        $schema = $this->db->schema();
+        $schema->dropTableIfExists('metrics_test_flow');
+        $schema->createTable('metrics_test_flow', function ($table) {
+            $table->integer('at');
+            $table->string('device', 4);
+            $table->string('zone', 4);
+            $table->integer('litres');
+        });
+        foreach ([['d1', 'z1', '09-02 10:00', 3], ['d1', 'z1', '09-02 11:30', 4], ['d2', 'z2', '09-02 10:15', 5], ['d2', 'z2', '09-04 09:00', 1]] as [$device, $zone, $when, $litres]) {
+            $this->db->queryBuilder()->table('metrics_test_flow')->insert(['at' => self::at('2026-' . $when), 'device' => $device, 'zone' => $zone, 'litres' => $litres]);
+        }
+        Metrics::register(Metric::flow('test.flow', 'Water')->from('metrics_test_flow')->at('at', unix: true)->sum('litres')
+            ->dimension('device', 'device')->dimension('zone', 'zone')->live());
+
+        try {
+            // Act
+            Metrics::compute(['test.flow'], ['day'], '2026-09-01', '2026-09-05', false, self::at('2026-11-06 12:00'));
+            $kept   = $this->db->queryBuilder()->table(\Pramnos\Metrics\Store::table('day'))->where('metric', 'test.flow')->count();
+            $days   = Metrics::series('test.flow', 'day', '2026-09-02', '2026-09-04')['values'];
+            $hours  = Metrics::query('test.flow')->grain('hour')->between('2026-09-02 10:00', '2026-09-02 11:00')->by('device')->series()['values'];
+            $oneDev = Metrics::value('test.flow', 'day', '2026-09-02', ['device' => 'd1', 'zone' => 'z1']);
+
+            // Assert
+            $this->assertSame(0, $kept, 'never kept');
+            $this->assertSame(['' => [12.0, 0.0, 1.0]], $days, 'a day with nothing is nought');
+            $this->assertSame(['d1' => [3.0, 4.0], 'd2' => [5.0, 0.0]], $hours, 'by the hour, by device');
+            $this->assertSame(7.0, $oneDev, 'any combination of its dimensions');
+        } finally {
+            $schema->dropTableIfExists('metrics_test_flow');
+        }
+    }
+
+    /**
      * The store's lock: while another connection holds it — a conversion, an import, another
      * computation — a computation does nothing and says it was busy (the command too, without
      * failing), and once it is let go the computation runs.

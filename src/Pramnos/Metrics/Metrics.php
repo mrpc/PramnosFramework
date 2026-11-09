@@ -178,7 +178,8 @@ final class Metrics
     {
         $source = self::sourceConnection();
         foreach (self::all() as $metric) {
-            if (!$metric->hasSource() || ($only !== null && !in_array($metric->name, $only, true))) {
+            // A live metric is read from its source when asked: nothing to keep.
+            if (!$metric->hasSource() || $metric->isLive() || ($only !== null && !in_array($metric->name, $only, true))) {
                 continue;
             }
             // The grains asked, of those the metric is kept at: an hour only where it asks for hours.
@@ -505,6 +506,9 @@ final class Metrics
         if ($metric->kind === Metric::DERIVED) {
             return self::derive($metric, $periods, $filters, $breakdown, $seen, $tenants);
         }
+        if ($metric->isLive()) {
+            return self::live($metric, $periods, $filters, $breakdown, $tenants);
+        }
         $set  = self::setFor($metric, $filters, $breakdown);
         $keys = array_map(static fn (Window $w): string => $w->key(), $periods);
         if ($keys === []) {
@@ -590,6 +594,72 @@ final class Metrics
         ksort($out);
 
         return $out;
+    }
+
+    /**
+     * A live metric's values: its source asked for each period, grouped by the dimensions the read
+     * needs, the rows that match the filters added up per breakdown value and organisation read.
+     *
+     * @param list<Window>                        $periods
+     * @param array<string, string|list<string>> $filters
+     * @param list<int>|null                      $tenants
+     * @return array<string, list<float|null>>
+     */
+    private static function live(Metric $metric, array $periods, array $filters, ?string $breakdown, ?array $tenants): array
+    {
+        $by = array_values(array_unique(array_merge(array_keys($filters), $breakdown !== null ? [$breakdown] : [])));
+        $unknown = array_diff($by, $metric->getDimensions());
+        if ($unknown !== []) {
+            throw new \InvalidArgumentException('Metric ' . $metric->name . ' is not broken down by ' . implode(', ', $unknown) . '.');
+        }
+        sort($by);
+        $source = self::sourceConnection();
+        if (count($periods) > 1) {
+            $metric->prefetch($periods, $source);
+        }
+        $out = [];
+        try {
+            foreach ($periods as $i => $window) {
+                if ($metric->gapOf($window) !== null || !$window->begun()) {
+                    continue;
+                }
+                foreach ($metric->measure($window, $by, $source) as $row) {
+                    if ($tenants !== null && !in_array((int) ($row['tenant'] ?? 0), $tenants, true)) {
+                        continue;
+                    }
+                    foreach ($filters as $name => $wanted) {
+                        if (!in_array((string) ($row['dims'][$name] ?? ''), array_map('strval', (array) $wanted), true)) {
+                            continue 2;
+                        }
+                    }
+                    $key = $breakdown === null ? '' : (string) ($row['dims'][$breakdown] ?? '');
+                    $out[$key][$i] = ($out[$key][$i] ?? 0.0) + (float) $row['value'];
+                }
+                // Asked and answered: a period with nothing is nought, not unknown.
+                foreach ($out as $key => $values) {
+                    $out[$key][$i] ??= 0.0;
+                }
+                $out[''] ??= [];
+                if ($breakdown === null) {
+                    $out[''][$i] ??= 0.0;
+                }
+            }
+        } finally {
+            $metric->forgetAhead();
+        }
+        if ($breakdown !== null) {
+            unset($out['']);
+        }
+        $series = [];
+        foreach ($out as $key => $values) {
+            $series[(string) $key] = array_map(static fn (int $i): ?float => $values[$i] ?? null, array_keys($periods));
+        }
+        if ($series === [] && $breakdown === null) {
+            $series[''] = array_fill(0, count($periods), null);
+        }
+        ksort($series);
+
+        return $series;
     }
 
     /** How many a kept mean is of: its `extra.count`, or one. @param array<string, mixed> $row */
