@@ -890,6 +890,56 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * A mean, a least and a most, declared: each kept per organisation; a mean read over two
+     * organisations is weighted by how many each is of (20, not the 25 of two means), the least
+     * and the most are the least and the most of theirs; a direction and a format are kept, and
+     * ones that are none refused.
+     */
+    public function testAMeanALeastAndAMost(): void
+    {
+        // Arrange
+        $schema = $this->db->schema();
+        $schema->dropTableIfExists('metrics_test_deliveries');
+        $schema->createTable('metrics_test_deliveries', function ($table) {
+            $table->integer('at');
+            $table->integer('org');
+            $table->integer('minutes');
+        });
+        foreach ([[1, 10], [1, 10], [2, 40]] as [$org, $minutes]) {
+            $this->db->queryBuilder()->table('metrics_test_deliveries')->insert(['at' => self::at('2026-09-05 12:00'), 'org' => $org, 'minutes' => $minutes]);
+        }
+        $declare = static fn (string $name): Metric => Metric::flow($name)->from('metrics_test_deliveries')->at('at', unix: true)->tenant('org');
+        Metrics::register(
+            $declare('test.mean')->avg('minutes')->direction(Metric::LOWER_IS_BETTER)->format('duration'),
+            $declare('test.least')->min('minutes'),
+            $declare('test.most')->max('minutes'),
+        );
+        $refused = 0;
+        foreach ([static fn () => Metric::flow('test.x')->direction('up'), static fn () => Metric::flow('test.x')->format('emoji'), static fn () => Metric::flow('test.x')->aggregate('median')] as $attempt) {
+            try {
+                $attempt();
+            } catch (\InvalidArgumentException) {
+                $refused++;
+            }
+        }
+
+        try {
+            // Act
+            Metrics::compute(['test.mean', 'test.least', 'test.most'], ['month'], '2026-09-01', '2026-09-30', false, self::at('2026-11-06 12:00'));
+            $read = static fn (string $metric, ?int $org = null): ?float => ($org === null ? Metrics::query($metric) : Metrics::query($metric)->tenant($org))->grain('month')->at('2026-09-01')->value();
+
+            // Assert
+            $this->assertSame([10.0, 40.0, 20.0], [$read('test.mean', 1), $read('test.mean', 2), $read('test.mean')], 'weighted by how many each is of');
+            $this->assertSame([10.0, 40.0], [$read('test.least'), $read('test.most')]);
+            $this->assertSame([Metric::LOWER_IS_BETTER, 'duration'], [Metrics::get('test.mean')->getDirection(), Metrics::get('test.mean')->getFormat()]);
+            $this->assertSame('number', Metrics::get('test.least')->getFormat());
+            $this->assertSame(3, $refused);
+        } finally {
+            $schema->dropTableIfExists('metrics_test_deliveries');
+        }
+    }
+
+    /**
      * The store's lock: while another connection holds it — a conversion, an import, another
      * computation — a computation does nothing and says it was busy (the command too, without
      * failing), and once it is let go the computation runs.

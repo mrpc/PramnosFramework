@@ -54,6 +54,24 @@ final class Metric
     /** Counted on its own at every grain and every breakdown it keeps. */
     public const DISTINCT = 'distinct';
 
+    /** A mean, kept with how many it is of, so that means combine weighted: a delivery time. */
+    public const AVG = 'avg';
+
+    /** The least of the period: a lowest temperature. */
+    public const MIN = 'min';
+
+    /** The most of the period: a highest load. */
+    public const MAX = 'max';
+
+    /** A rise is good news, coloured so and ranked first. */
+    public const HIGHER_IS_BETTER = 'higher';
+
+    /** A fall is good news: a cost, a waiting time. */
+    public const LOWER_IS_BETTER = 'lower';
+
+    /** How a value reads. */
+    public const FORMATS = ['number', 'currency', 'percent', 'duration'];
+
     private string $unit        = '';
     private string $aggregate   = self::SUM;
     private string $description = '';
@@ -68,6 +86,12 @@ final class Metric
 
     /** @var list<string>|null The grains it is kept at; null: the application's ({@see Metrics::grains()}) */
     private ?array $grains = null;
+
+    /** Which way is good news; null: neither. */
+    private ?string $direction = null;
+
+    /** How its value reads. */
+    private string $format = 'number';
 
     /** The first day the source can answer; null: every day. */
     private ?string $since = null;
@@ -126,8 +150,8 @@ final class Metric
     /** {@see SUM} or {@see DISTINCT}. */
     public function aggregate(string $aggregate): self
     {
-        if (!in_array($aggregate, [self::SUM, self::DISTINCT], true)) {
-            throw new \InvalidArgumentException('A metric aggregates by ' . self::SUM . ' or ' . self::DISTINCT . ', not "' . $aggregate . '".');
+        if (!in_array($aggregate, [self::SUM, self::DISTINCT, self::AVG, self::MIN, self::MAX], true)) {
+            throw new \InvalidArgumentException('A metric aggregates by ' . implode(', ', [self::SUM, self::DISTINCT, self::AVG, self::MIN, self::MAX]) . ', not "' . $aggregate . '".');
         }
         $this->aggregate = $aggregate;
 
@@ -202,6 +226,64 @@ final class Metric
     public function count(): self
     {
         return $this->counting('COUNT', '*');
+    }
+
+    /** The mean of a column, kept with how many it is of: an average metric. */
+    public function avg(string $column): self
+    {
+        $this->aggregate = self::AVG;
+
+        return $this->counting('AVG', $column);
+    }
+
+    /** The least of a column in the period: a minimum metric. */
+    public function min(string $column): self
+    {
+        $this->aggregate = self::MIN;
+
+        return $this->counting('MIN', $column);
+    }
+
+    /** The most of a column in the period: a maximum metric. */
+    public function max(string $column): self
+    {
+        $this->aggregate = self::MAX;
+
+        return $this->counting('MAX', $column);
+    }
+
+    /** Which way is good news: {@see HIGHER_IS_BETTER} or {@see LOWER_IS_BETTER}, for colouring and ranking. */
+    public function direction(string $direction): self
+    {
+        if (!in_array($direction, [self::HIGHER_IS_BETTER, self::LOWER_IS_BETTER], true)) {
+            throw new \InvalidArgumentException('A direction is Metric::HIGHER_IS_BETTER or Metric::LOWER_IS_BETTER.');
+        }
+        $this->direction = $direction;
+
+        return $this;
+    }
+
+    /** Which way is good news, or null where neither is. */
+    public function getDirection(): ?string
+    {
+        return $this->direction;
+    }
+
+    /** How its value reads: one of {@see FORMATS}. */
+    public function format(string $format): self
+    {
+        if (!in_array($format, self::FORMATS, true)) {
+            throw new \InvalidArgumentException('A format is one of: ' . implode(', ', self::FORMATS) . '.');
+        }
+        $this->format = $format;
+
+        return $this;
+    }
+
+    /** How its value reads. */
+    public function getFormat(): string
+    {
+        return $this->format;
     }
 
     /** Count the distinct values of a column — people, say: a distinct metric, which does not add up. */
@@ -291,6 +373,10 @@ final class Metric
                 default          => $q['fn'] . '(' . $q['column'] . ')',
             };
             $select[] = $query->raw($counted . ' AS value');
+            if ($q['fn'] === 'AVG') {
+                // How many the mean is of, so that means combine weighted.
+                $select[] = $query->raw('COUNT(' . $q['column'] . ') AS count');
+            }
             $query->select($select);
             [$from, $to] = $q['unix'] ? [$w->startsAt(), $w->endsAt()] : [\Pramnos\Database\Instant::utc($w->startsAt(), $db), \Pramnos\Database\Instant::utc($w->endsAt(), $db)];
             $query->where($q['time'], '>=', $from)->where($q['time'], '<', $to);
@@ -515,6 +601,12 @@ final class Metric
             }
             $tenant = $this->tenantColumn !== null ? (int) ($row[$this->tenantColumn] ?? 0) : 0;
             $key    = $tenant . json_encode($dims);
+            if (in_array($this->aggregate, [self::AVG, self::MIN, self::MAX], true)) {
+                // One row per breakdown: a mean, a least or a most is not added to another.
+                $out[$key] = ['dims' => $dims, 'value' => (float) ($row['value'] ?? 0), 'tenant' => $tenant]
+                    + ($this->aggregate === self::AVG ? ['count' => (int) ($row['count'] ?? 1)] : []);
+                continue;
+            }
             $out[$key] ??= ['dims' => $dims, 'value' => 0.0, 'tenant' => $tenant];
             $out[$key]['value'] += (float) ($row['value'] ?? 0);
         }

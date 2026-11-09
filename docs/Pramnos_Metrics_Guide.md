@@ -159,6 +159,16 @@ Write a percentage out in the expression: `'100 * orders.count / visits.unique'`
   `->keeps([['region', 'plan']])`. Reading a breakdown the metric does not keep is refused, and
   so is a filter with several values of one dimension, because adding those together would
   count a customer twice.
+- **`Metric::AVG`**, **`Metric::MIN`**, **`Metric::MAX`**: a mean, the least and the most of the
+  period. Like a distinct metric, each breakdown is kept on its own. A mean is kept with how many
+  it is of (`extra.count`), so the means of several organisations combine weighted. Two of 10 and
+  one of 40 make 20, not the 25 of two means. The least and the most combine as the least and the
+  most. A declared source says so with `->avg($column)`, `->min($column)` and `->max($column)`. A
+  closure answers each row's `value`, and for a mean its `count`.
+
+**Presentation.** `->direction(Metric::HIGHER_IS_BETTER | Metric::LOWER_IS_BETTER)` says which way
+is good news, for colouring a change and ranking. `->format('number' | 'currency' | 'percent' |
+'duration')` says how the value reads.
 
 ## Computing and closing periods
 

@@ -372,7 +372,7 @@ final class Metrics
             $delete->delete();
             $insert = [];
             foreach ($rows as $row) {
-                $insert[] = Store::row($db, $metric, $window, $row['dims'], (float) $row['value'], $source, $final, $now, null, (int) ($row['tenant'] ?? 0));
+                $insert[] = Store::row($db, $metric, $window, $row['dims'], (float) $row['value'], $source, $final, $now, isset($row['count']) ? ['count' => (int) $row['count']] : null, (int) ($row['tenant'] ?? 0));
             }
             foreach (array_chunk($insert, 500) as $chunk) {
                 $db->queryBuilder()->table($table)->insertMany($chunk);
@@ -519,7 +519,7 @@ final class Metrics
             }
         }
         $instants = array_values(array_unique($instants));
-        $query = $db->queryBuilder()->table(Store::table($periods[0]->grain))->select(['period_start', 'tenant', 'dimset', 'dims', 'value'])
+        $query = $db->queryBuilder()->table(Store::table($periods[0]->grain))->select(['period_start', 'tenant', 'dimset', 'dims', 'value', 'extra'])
             ->where('metric', $metric->name)->where('version', Store::VERSION)->whereIn('dimset', array_values(array_unique([implode(',', $set), ''])))->whereIn('period_start', $instants);
         if ($tenants !== null) {
             // The reader's organisations: none at all reads nothing.
@@ -528,8 +528,10 @@ final class Metrics
             }
             $query->whereIn('tenant', array_values(array_unique(array_map('intval', $tenants))));
         }
-        $result = $query->get();
-        $from   = [];
+        $result    = $query->get();
+        $from      = [];
+        $weights   = [];
+        $aggregate = $metric->getAggregate();
         $known = [];
         $sums  = [];
         while ($result && ($row = $result->fetch()) !== null) {
@@ -546,8 +548,23 @@ final class Metrics
                     continue 2;
                 }
             }
-            $key                  = $breakdown === null ? '' : (string) ($dims[$breakdown] ?? '');
-            $sums[$key][$period]  = ($sums[$key][$period] ?? 0.0) + (float) $row['value'];
+            $key   = $breakdown === null ? '' : (string) ($dims[$breakdown] ?? '');
+            $value = (float) $row['value'];
+            if (!isset($sums[$key][$period])) {
+                $sums[$key][$period]    = $value;
+                $weights[$key][$period] = $weight = self::weight($row);
+                continue;
+            }
+            // Another organisation's value for the same period: added, or combined as its kind says.
+            $sums[$key][$period] = match ($aggregate) {
+                Metric::MIN => min($sums[$key][$period], $value),
+                Metric::MAX => max($sums[$key][$period], $value),
+                Metric::AVG => ($sums[$key][$period] * $weights[$key][$period] + $value * ($weight = self::weight($row))) / max(1, $weights[$key][$period] + $weight),
+                default     => $sums[$key][$period] + $value,
+            };
+            if ($aggregate === Metric::AVG) {
+                $weights[$key][$period] += $weight;
+            }
         }
         if (count($from) > 1 && $metric->getAggregate() === Metric::DISTINCT) {
             // Somebody counted in two organisations is one person: their counts do not add up.
@@ -563,6 +580,14 @@ final class Metrics
         ksort($out);
 
         return $out;
+    }
+
+    /** How many a kept mean is of: its `extra.count`, or one. @param array<string, mixed> $row */
+    private static function weight(array $row): int
+    {
+        $extra = is_string($row['extra'] ?? null) ? json_decode($row['extra'], true) : null;
+
+        return max(1, (int) (is_array($extra) ? ($extra['count'] ?? 1) : 1));
     }
 
     /**

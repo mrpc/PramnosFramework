@@ -148,7 +148,7 @@ class MetricTest extends TestCase
         $refused = 0;
         foreach ([
             static fn () => Metric::flow('Orders Count'),
-            static fn () => Metric::flow('orders.count')->aggregate('avg'),
+            static fn () => Metric::flow('orders.count')->aggregate('median'),
             static fn () => Dimension::of('Region'),
         ] as $declare) {
             try {
