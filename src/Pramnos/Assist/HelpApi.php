@@ -36,9 +36,9 @@ class HelpApi
     {
         $path = '/' . trim($path, '/');
 
-        $r->get($path . '/page', static fn () => (new static())->page());
-        $r->get($path . '/screen', static fn () => (new static())->screen());
-        $r->get($path, static fn () => (new static())->list());
+        $r->get($path . '/page', static fn () => (new static())->page())->describeFrom([static::class, 'page']);
+        $r->get($path . '/screen', static fn () => (new static())->screen())->describeFrom([static::class, 'screen']);
+        $r->get($path, static fn () => (new static())->list())->describeFrom([static::class, 'list']);
     }
 
     /** Every page of the level, by section and title — or those that answer `?q=`. */

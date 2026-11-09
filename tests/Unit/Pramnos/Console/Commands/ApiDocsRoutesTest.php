@@ -152,6 +152,50 @@ PHP_ROUTES);
     }
 
     /**
+     * What a route says of itself (`describe()`) is the operation's summary, description and the
+     * rest: a query parameter beside the path's, a body; the permissions line stays first.
+     */
+    public function testWhatARouteSaysOfItselfIsDocumented(): void
+    {
+        // Arrange
+        file_put_contents($this->tmp . '/src/Api/routes.php', <<<'PHP_ROUTES'
+<?php
+declare(strict_types=1);
+
+$router     = new \Pramnos\Routing\Router($this);
+$newRequest = new \Pramnos\Http\Request();
+
+$router->group(['prefix' => '/1.0'], function (\Pramnos\Routing\Router $r): void {
+    $r->get('/todos/{id}', fn ($id) => 'one')->describe('A to-do', 'As the list shows it.', [
+        'parameters' => [['name' => 'closed', 'in' => 'query', 'schema' => ['type' => 'boolean']]],
+    ]);
+    $r->post('/me/password', fn () => 'ok', ['account:write'])->describe('Change your password', 'Signs out every other session.', [
+        'requestBody' => ['content' => ['application/json' => ['schema' => ['type' => 'object']]]],
+    ]);
+});
+
+return $router->dispatch($newRequest);
+PHP_ROUTES);
+
+        // Act
+        $tester = $this->tester();
+        $exit   = $tester->execute(['--controllers' => $this->fixturesDir(), '--namespace' => 'Pramnos\\Tests\\Fixtures\\OpenApi',
+            '--routes' => 'src/Api/routes.php', '--output' => 'openapi.json', '--no-html' => true]);
+        $doc    = json_decode((string) file_get_contents($this->tmp . '/openapi.json'), true);
+        $one    = $doc['paths']['/1.0/todos/{id}']['get'] ?? [];
+        $change = $doc['paths']['/1.0/me/password']['post'] ?? [];
+
+        // Assert
+        $this->assertSame(Command::SUCCESS, $exit, $tester->getDisplay());
+        $this->assertSame(['A to-do', 'As the list shows it.'], [$one['summary'] ?? null, $one['description'] ?? null]);
+        $this->assertSame(['id', 'closed'], array_column($one['parameters'] ?? [], 'name'), 'the path\'s parameter kept, the query\'s beside it');
+        $this->assertSame('Change your password', $change['summary'] ?? null);
+        $this->assertStringStartsWith('Requires: account:write', $change['description'] ?? '', 'the permissions first');
+        $this->assertStringContainsString('Signs out every other session.', $change['description'] ?? '');
+        $this->assertArrayHasKey('requestBody', $change);
+    }
+
+    /**
      * The dispatch at the end of the route file does not run.
      *
      * The reason this could not be done before. Reading the routes must not serve a

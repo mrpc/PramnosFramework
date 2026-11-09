@@ -63,6 +63,35 @@ final class LocalizedRoute
     }
 
     /**
+     * What the API's document says of every route in this locale group ({@see Route::describe()}).
+     *
+     * @param array<string, mixed> $openapi
+     */
+    public function describe(string $summary, string $description = '', array $openapi = []): static
+    {
+        foreach ($this->routes as $route) {
+            $route->describe($summary, $description, $openapi);
+        }
+
+        return $this;
+    }
+
+    /**
+     * Describe every route in this locale group by a method's docblock ({@see Route::describeFrom()}).
+     *
+     * @param array{0: class-string, 1: string} $method
+     * @param array<string, mixed> $openapi
+     */
+    public function describeFrom(array $method, array $openapi = []): static
+    {
+        foreach ($this->routes as $route) {
+            $route->describeFrom($method, $openapi);
+        }
+
+        return $this;
+    }
+
+    /**
      * Require permissions on every route in this locale group.
      *
      * @param  array|string $permissions

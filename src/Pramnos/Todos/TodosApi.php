@@ -32,10 +32,10 @@ class TodosApi
     public static function routes(Router $r, string $path = '/todos'): void
     {
         $path = '/' . trim($path, '/');
-        $r->get($path, static fn () => (new static())->list());
-        $r->post($path, static fn () => (new static())->add());
-        $r->put($path . '/{id}', static fn ($id) => (new static())->change((int) $id));
-        $r->delete($path . '/{id}', static fn ($id) => (new static())->remove((int) $id));
+        $r->get($path, static fn () => (new static())->list())->describeFrom([static::class, 'list']);
+        $r->post($path, static fn () => (new static())->add())->describeFrom([static::class, 'add']);
+        $r->put($path . '/{id}', static fn ($id) => (new static())->change((int) $id))->describeFrom([static::class, 'change']);
+        $r->delete($path . '/{id}', static fn ($id) => (new static())->remove((int) $id))->describeFrom([static::class, 'remove']);
     }
 
     /** The items, the person's name, and whether the plan has to-dos. @return array<string, mixed> */

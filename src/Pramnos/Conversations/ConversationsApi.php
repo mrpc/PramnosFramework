@@ -29,14 +29,47 @@ use Pramnos\Routing\Router;
  */
 class ConversationsApi
 {
-    /** Mount the routes, under `$path`. */
+    /**
+     * Mount the routes, under `$path`: one for each action, a read by GET and a write by POST, each
+     * described for the API's document (`api:docs`) by the action's own docblock.
+     */
     public static function routes(Router $r, string $path = '/conversations'): void
     {
         $path = '/' . trim($path, '/');
-        $r->get($path . '/{action}/{id}', static fn ($action, $id) => (new static())->call('GET', (string) $action, (int) $id));
-        $r->get($path . '/{action}', static fn ($action) => (new static())->call('GET', (string) $action, 0));
-        $r->post($path . '/{action}/{id}', static fn ($action, $id) => (new static())->call('POST', (string) $action, (int) $id));
-        $r->post($path . '/{action}', static fn ($action) => (new static())->call('POST', (string) $action, 0));
+        foreach (static::actions() as $action => [$method, $summary]) {
+            $uri   = $path . '/' . $action . '/{id?}';
+            $call  = static fn ($id = null) => (new static())->call($method, $action, (int) $id);
+            $route = $method === 'POST' ? $r->post($uri, $call) : $r->get($uri, $call);
+            $route->describe($summary !== '' ? $summary : ucfirst($action),
+                'The conversations\' `' . $action . '` action, as `/admin/Conversations/' . $action . '` answers it. `id` is the conversation, message,'
+                . ' canvas or person it acts on, and is left out where it takes none. Values go in the query (GET) or a JSON body (POST).',
+                ['tags' => ['conversations']]);
+        }
+    }
+
+    /**
+     * The actions offered, each with its method and the first line of its docblock.
+     *
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function actions(): array
+    {
+        static $actions = null;
+        if ($actions !== null) {
+            return $actions;
+        }
+        $screen = (new static())->screen((object) ['userid' => 0], 0);
+        $writes = $screen->writes();
+        $actions = [];
+        foreach (array_unique(array_map('strtolower', $screen->actions_auth)) as $action) {
+            if ($action === 'display' || !method_exists(\Pramnos\Application\Controllers\Conversations::class, $action)) {
+                continue;
+            }
+            $summary = \Pramnos\Routing\Route::fromDocblock((string) (new \ReflectionMethod(\Pramnos\Application\Controllers\Conversations::class, $action))->getDocComment())[0];
+            $actions[$action] = [in_array($action, $writes, true) ? 'POST' : 'GET', $summary];
+        }
+
+        return $actions;
     }
 
     /**

@@ -238,6 +238,21 @@ class OpenApiGenerator
                     }
                 }
 
+                // What the route says of itself (Route::describe()): its summary, description and
+                // the rest, over what the path alone could say. A permissions line stays first.
+                $doc = is_array($entry['doc'] ?? null) ? $entry['doc'] : [];
+                if ($doc !== []) {
+                    if (isset($operation['description'], $doc['description'])) {
+                        $doc['description'] = $operation['description'] . "\n\n" . $doc['description'];
+                    }
+                    if (isset($doc['parameters'], $operation['parameters'])) {
+                        $named = array_column($doc['parameters'], 'name');
+                        $doc['parameters'] = array_merge(array_values(array_filter($operation['parameters'],
+                            static fn (array $p): bool => !in_array($p['name'], $named, true))), $doc['parameters']);
+                    }
+                    $operation = array_replace($operation, $doc);
+                }
+
                 $paths[$path][$verb] = $operation;
             }
         }

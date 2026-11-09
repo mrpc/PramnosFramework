@@ -297,6 +297,83 @@ class Route
         return $this;
     }
 
+    /** @var array<string, mixed> What the API's document says of this route ({@see describe()}) */
+    protected array $doc = [];
+
+    /**
+     * What the API's document (`api:docs`) says of this route — without it an operation is only
+     * its method and path.
+     *
+     * ```php
+     * $r->post('/me/password', fn () => …)->describe('Change your password', 'Signs out every other session.', [
+     *     'requestBody' => ['content' => ['application/json' => ['schema' => ['type' => 'object',
+     *         'properties' => ['current' => ['type' => 'string'], 'password' => ['type' => 'string']]]]]],
+     * ]);
+     * ```
+     *
+     * @param array<string, mixed> $openapi More of the operation, merged into it: `parameters`, `requestBody`, `responses`, `tags`
+     */
+    public function describe(string $summary, string $description = '', array $openapi = []): static
+    {
+        $this->doc = array_filter(['summary' => $summary, 'description' => $description], static fn ($v): bool => $v !== '') + $openapi;
+
+        return $this;
+    }
+
+    /**
+     * Describe this route by the docblock of the method that answers it: its first paragraph the
+     * summary, the rest the description — so the document cannot drift from the code.
+     *
+     * ```php
+     * $r->get('/todos', fn () => (new TodosApi())->list())->describeFrom([TodosApi::class, 'list']);
+     * ```
+     *
+     * @param array{0: class-string, 1: string} $method
+     * @param array<string, mixed> $openapi More of the operation, as {@see describe()} takes it
+     */
+    public function describeFrom(array $method, array $openapi = []): static
+    {
+        [$summary, $description] = self::fromDocblock((string) (new \ReflectionMethod($method[0], $method[1]))->getDocComment());
+
+        return $this->describe($summary, $description, $openapi);
+    }
+
+    /**
+     * A docblock's first paragraph and the rest, each on its lines without the comment's
+     * markers and without its `@` tags.
+     *
+     * @return array{0: string, 1: string}
+     */
+    public static function fromDocblock(string $doc): array
+    {
+        $paragraphs = [[]];
+        foreach (preg_split('/\R/', $doc) ?: [] as $line) {
+            $line = (string) preg_replace('~^\s*(/\*\*|\*/|\* ?)~', '', $line);
+            $line = rtrim((string) preg_replace('~\*/\s*$~', '', $line));
+            if (str_starts_with(ltrim($line), '@')) {
+                break;
+            }
+            if (trim($line) === '') {
+                if (end($paragraphs) !== []) {
+                    $paragraphs[] = [];
+                }
+                continue;
+            }
+            $paragraphs[array_key_last($paragraphs)][] = $line;
+        }
+        $paragraphs = array_values(array_filter($paragraphs, static fn (array $p): bool => $p !== []));
+        $summary    = trim((string) preg_replace('/\s+/', ' ', implode(' ', $paragraphs[0] ?? [])));
+        $rest       = array_map(static fn (array $p): string => implode("\n", $p), array_slice($paragraphs, 1));
+
+        return [$summary, trim(implode("\n\n", $rest))];
+    }
+
+    /** @return array<string, mixed> What {@see describe()} said; empty for nothing */
+    public function getDoc(): array
+    {
+        return $this->doc;
+    }
+
     /**
      * Return the logical name of this route, or null if unnamed.
      */

@@ -27,7 +27,7 @@ class HistoryApi
     /** Mount the route, under `$path`. */
     public static function routes(Router $r, string $path = '/history'): void
     {
-        $r->get('/' . trim($path, '/'), static fn () => (new static())->list());
+        $r->get('/' . trim($path, '/'), static fn () => (new static())->list())->describeFrom([static::class, 'list']);
     }
 
     /** One page of history. */

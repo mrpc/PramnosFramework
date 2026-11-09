@@ -31,10 +31,10 @@ class FeedApi
     {
         $path = '/' . trim($path, '/');
 
-        $r->get($path . '/count', static fn () => (new static())->count());
-        $r->post($path . '/read', static fn () => (new static())->read());
-        $r->post($path . '/readall', static fn () => (new static())->readAll());
-        $r->get($path, static fn () => (new static())->list());
+        $r->get($path . '/count', static fn () => (new static())->count())->describeFrom([static::class, 'count']);
+        $r->post($path . '/read', static fn () => (new static())->read())->describeFrom([static::class, 'read']);
+        $r->post($path . '/readall', static fn () => (new static())->readAll())->describeFrom([static::class, 'readAll']);
+        $r->get($path, static fn () => (new static())->list())->describeFrom([static::class, 'list']);
     }
 
     /** One page of the feed, newest first. */

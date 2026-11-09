@@ -30,10 +30,10 @@ class MetricsApi
     {
         $path = '/' . trim($path, '/');
 
-        $r->get($path . '/series', static fn () => (new static())->series());
-        $r->get($path . '/value', static fn () => (new static())->value());
-        $r->get($path . '/goal', static fn () => (new static())->goal());
-        $r->get($path, static fn () => (new static())->catalogue());
+        $r->get($path . '/series', static fn () => (new static())->series())->describeFrom([static::class, 'series']);
+        $r->get($path . '/value', static fn () => (new static())->value())->describeFrom([static::class, 'value']);
+        $r->get($path . '/goal', static fn () => (new static())->goal())->describeFrom([static::class, 'goal']);
+        $r->get($path, static fn () => (new static())->catalogue())->describeFrom([static::class, 'catalogue']);
         static::goalRoutes($r, $path . '/goals');
     }
 
@@ -50,11 +50,11 @@ class MetricsApi
     public static function goalRoutes(Router $r, string $path = '/goals'): void
     {
         $path = '/' . trim($path, '/');
-        $r->get($path . '/achievements', static fn () => (new static())->achievements());
-        $r->get($path, static fn () => (new static())->goals());
-        $r->post($path, static fn () => (new static())->addGoal());
-        $r->put($path . '/{id}', static fn ($id) => (new static())->changeGoal((int) $id));
-        $r->delete($path . '/{id}', static fn ($id) => (new static())->deleteGoal((int) $id));
+        $r->get($path . '/achievements', static fn () => (new static())->achievements())->describeFrom([static::class, 'achievements']);
+        $r->get($path, static fn () => (new static())->goals())->describeFrom([static::class, 'goals']);
+        $r->post($path, static fn () => (new static())->addGoal())->describeFrom([static::class, 'addGoal']);
+        $r->put($path . '/{id}', static fn ($id) => (new static())->changeGoal((int) $id))->describeFrom([static::class, 'changeGoal']);
+        $r->delete($path . '/{id}', static fn ($id) => (new static())->deleteGoal((int) $id))->describeFrom([static::class, 'deleteGoal']);
     }
 
     /** The goals the person may read, each judged, and what a form needs to add one. @return array<string, mixed> */

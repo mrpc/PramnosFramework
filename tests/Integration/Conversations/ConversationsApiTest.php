@@ -101,6 +101,15 @@ class ConversationsApiTest extends TestCase
             $this->assertNotSame('', $refused['error']);
             $this->assertSame([405, 405, 404, 404, 401], [$byGet['status'], $byPost['status'], $unknown['status'], $page['status'], $nobody['status']]);
             $this->assertNotEmpty(array_filter($mounted, static fn ($u): bool => str_contains((string) $u, '/chat/')), 'mounted under the path chosen');
+            $actions = ConversationsApi::actions();
+            $this->assertSame('POST', $actions['describe'][0]);
+            $this->assertSame('GET', $actions['tabs'][0]);
+            $this->assertSame('A channel\'s topic and description: `topic`, `description`, each one sent.', $actions['describe'][1], 'its docblock, for the API\'s document');
+            $this->assertArrayNotHasKey('display', $actions);
+            $this->assertEmpty(array_filter($actions, static fn (array $a): bool => $a[1] === ''), 'every action says what it does');
+            $this->assertContains('/chat/describe/{id?}', $mounted);
+            $doc = $router->getRoutesWithPermissions()['GET']['/chat/tabs/{id?}']['route']->getDoc();
+            $this->assertSame(['conversations'], $doc['tags']);
         } finally {
             \Pramnos\Broadcasting\Testing\FakeDriver::restore();
         }

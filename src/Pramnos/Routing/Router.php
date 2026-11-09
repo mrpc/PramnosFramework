@@ -201,6 +201,7 @@ class Router extends Base implements RouterInterface
                     $routes[$method][$uri] = [
                         'permissions'    => $entry['permissions'],
                         'hasPermissions' => $entry['hasPermissions'],
+                        'doc'            => method_exists($entry['route'], 'getDoc') ? $entry['route']->getDoc() : [],
                     ];
                 }
             }

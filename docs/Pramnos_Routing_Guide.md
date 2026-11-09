@@ -596,6 +596,22 @@ registers its API on the router gets a document of it rather than one describing
 php pramnos api:docs --routes=src/Api/routes.php
 ```
 
+**What a route says of itself.** A route registered on the router is, without more, only its
+method and path in the document. `describe()` gives it a summary, a description and anything
+else of the operation. `describeFrom()` takes them from the docblock of the method that answers
+it, so the document cannot drift from the code:
+
+```php
+$r->get('/todos', fn () => (new TodosApi())->list())->describeFrom([TodosApi::class, 'list']);
+$r->post('/me/password', fn () => …)->describe('Change your password', 'Signs out every other session.', [
+    'requestBody' => ['content' => ['application/json' => ['schema' => ['type' => 'object']]]],
+]);
+```
+
+Every route the framework's own API providers mount (`FeedApi`, `HelpApi`, `HistoryApi`,
+`MetricsApi`, `TodosApi`, `Llm\Chat\Api\Routes`, `ConversationsApi`, …) is described this way.
+A test fails when one is not.
+
 **A route file dispatches at the end** — `return $router->dispatch($newRequest);`, because
 its return value is the response — so including it to read the routes would run a
 controller. `Router::beginCollecting()` is what makes it possible: while collecting, every
