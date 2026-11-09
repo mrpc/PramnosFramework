@@ -161,17 +161,17 @@ class TodosChatTest extends TestCase
         $private = Conversations::create('dm', null, [$this->ids['nikos']], $eleni);   // not hers to read
 
         // Act
-        $fromMessage = $this->ask('maria', 'todo', 0, ['message' => $said, 'preset' => '20m']);
-        $written     = $this->ask('maria', 'todo', 0, ['text' => 'Water the plants']);
-        $refused     = $this->ask('maria', 'todo', 0, ['message' => Messages::post($private, $eleni, 'Secret')]);
-        $badPreset   = $this->ask('maria', 'todo', 0, ['text' => 'x', 'preset' => 'someday']);
-        $listed      = $this->ask('maria', 'todos', 0, ['filter' => 'messages']);
+        $fromMessage = $this->ask('maria', 'addtodo', 0, ['message' => $said, 'preset' => '20m']);
+        $written     = $this->ask('maria', 'addtodo', 0, ['text' => 'Water the plants']);
+        $refused     = $this->ask('maria', 'addtodo', 0, ['message' => Messages::post($private, $eleni, 'Secret')]);
+        $badPreset   = $this->ask('maria', 'addtodo', 0, ['text' => 'x', 'preset' => 'someday']);
+        $listed      = $this->ask('maria', 'todolist', 0, ['filter' => 'messages']);
         $id          = (int) $written['body']['todo']['id'];
-        $updated     = $this->ask('maria', 'todoupdate', $id, ['status' => Todos::IN_PROGRESS, 'preset' => '3h', 'title' => 'Water the plants twice']);
+        $updated     = $this->ask('maria', 'changetodo', $id, ['status' => Todos::IN_PROGRESS, 'preset' => '3h', 'title' => 'Water the plants twice']);
         $item        = Todos::get($id);
         $marks       = $this->ask('maria', 'messages', $general, []);
-        $saved       = $this->ask('maria', 'todosave', (int) $fromMessage['body']['todo']['id'], []);
-        $deleted     = $this->ask('maria', 'tododelete', $id, []);
+        $saved       = $this->ask('maria', 'savetodo', (int) $fromMessage['body']['todo']['id'], []);
+        $deleted     = $this->ask('maria', 'deletetodo', $id, []);
 
         // Assert
         $this->assertSame([200, 200, 422], [$fromMessage['status'], $written['status'], $badPreset['status']]);
@@ -196,7 +196,7 @@ class TodosChatTest extends TestCase
      */
     private function ask(string $name, string $action, int $id, array $values): array
     {
-        $_GET  = ['_option' => (string) $id] + ($action === 'todos' ? array_map('strval', $values) : []);
+        $_GET  = ['_option' => (string) $id] + ($action === 'todolist' ? array_map('strval', $values) : []);
         $_POST = [];
         \Pramnos\Http\Request::setRawInput((string) json_encode($values));
         $chat = new class (Application::getInstance()) extends \Pramnos\Application\Controllers\Conversations {

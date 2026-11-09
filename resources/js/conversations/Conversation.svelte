@@ -240,7 +240,7 @@
     /** A to-do of a message: "Add to-do", or with a preset "Remind me about this". */
     async function todo(message, preset) {
         try {
-            await api.post('todo', preset ? { message: message.id, preset } : { message: message.id });
+            await api.post('addtodo', preset ? { message: message.id, preset } : { message: message.id });
             todos = [...new Set([...todos, message.id])];
         } catch (err) {
             onerror(err.message);

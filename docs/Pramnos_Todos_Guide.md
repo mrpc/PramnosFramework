@@ -131,11 +131,11 @@ Through the conversations' screen (JSON, behind sign-in, writes with the session
 
 | Action | What |
 |---|---|
-| `GET Conversations/todos?filter=&order=` | The list and the presets; settles the reader's to-do notices |
-| `POST Conversations/todo` | `message` and/or `preset`/`remind_at`; or `text` |
-| `POST Conversations/todoupdate/{id}` | `status`, `title`, `due`, `preset` or `remind_at` |
-| `POST Conversations/tododelete/{id}` | One's own item |
-| `POST Conversations/todosave/{id}` | Move to saved |
+| `GET Conversations/todolist?filter=&order=` | The list and the presets; settles the reader's to-do notices |
+| `POST Conversations/addtodo` | `message` and/or `preset`/`remind_at`; or `text` |
+| `POST Conversations/changetodo/{id}` | `status`, `title`, `due`, `preset` or `remind_at` |
+| `POST Conversations/deletetodo/{id}` | One's own item |
+| `POST Conversations/savetodo/{id}` | Move to saved |
 
 The `messages` answer carries `todos`, the marks of the messages it gives. The dock offers "Add
 to-do" and "Remind me about this" on each message, and shows the mark.
