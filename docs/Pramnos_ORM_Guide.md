@@ -542,7 +542,9 @@ update. A number without a default, and every other `NOT NULL` column, still coe
 `''`, which existing models rely on: a text column takes `''` as it is.
 
 Set the column and it is written as given — the omission applies only when there is nothing to
-say about it.
+say about it. A column omitted on an insert and set later on the same object is
+written by the next save: its stored value is unknown to the object, so any value set counts as a
+change (`getChanges()` lists it with `old` null).
 
 ## Model Events
 

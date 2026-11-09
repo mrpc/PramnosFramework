@@ -415,6 +415,9 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 $this->_fixDb();
             }
             $itemdata = array();
+            // Columns left out of the write for the database's default to fill: kept in the
+            // initial data as unknown, so a later value set on this object is still a change.
+            $omitted = array();
 
             /*
              * What the UPDATE writes: the columns that changed, when there is something to say
@@ -443,6 +446,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                                 // Two loops, so the fix has to be in both: with a warm column
                                 // cache the write took the other path and threw again.
                                 if ($this->isTemporalType($fields['Type']) || $this->numericWithDefault($fields)) {
+                                    $omitted[] = $field;
                                     continue;
                                 }
                                 $this->$field = "";
@@ -524,6 +528,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                                  * model with no opinion about a column should do.
                                  */
                                 if ($this->isTemporalType($result->fields['Type']) || $this->numericWithDefault($result->fields)) {
+                                    $omitted[] = $field;
                                     continue;
                                 }
                                 $this->$field = "";
@@ -717,6 +722,11 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
             foreach ($itemdata as $item) {
                 $field = $item['fieldName'];
                 $this->_initialData[$field] = $this->$field;
+            }
+            // Omitted for its default: its stored value is not known here, so null — any value
+            // set later differs from it, and getChanges() and the next save see it.
+            foreach ($omitted as $field) {
+                $this->_initialData[$field] = null;
             }
             // Also make sure primary key is in initial data
             if (isset($this->$primarykey)) {

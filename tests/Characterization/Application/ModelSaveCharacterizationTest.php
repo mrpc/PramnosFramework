@@ -340,6 +340,35 @@ class ModelSaveCharacterizationTest extends TestCase
         $this->assertSame([0.0, 3], [(float) $inserted['credit'], (int) $inserted['qty']], 'the insert took the defaults');
     }
 
+    /**
+     * A NOT NULL number with a default, left null on the insert, is set later on the same object:
+     * the change is written. The insert left it out for the default to fill, so its value was not
+     * known; were it missing from the initial data, the next save would find nothing changed and
+     * write nothing — the value lost without a word.
+     */
+    #[DataProvider('engines')]
+    public function testANumberLeftToItsDefaultAndSetLaterIsWritten(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->engine($type, $host, $port, $user);
+        $this->db->schema()->table(self::TABLE, function ($table) {
+            $table->integer('qty')->default(0);
+        });
+        Model::$columnCache = [];
+        $probe       = new ModelSaveProbe();
+        $probe->code = 'x';
+        $probe->save();
+
+        // Act — the same object, the column now set
+        $probe->qty = 1;
+        $changes    = $probe->getChanges();
+        $probe->save();
+
+        // Assert
+        $this->assertSame(['old' => null, 'new' => 1], $changes['qty'] ?? null, 'seen as a change against an unknown value');
+        $this->assertSame(1, (int) $this->row((int) $probe->id)['qty'], 'and written');
+    }
+
     #[DataProvider('engines')]
     public function testASecondSaveComparesAgainstTheFirst(string $type, string $host, int $port, string $user): void
     {
