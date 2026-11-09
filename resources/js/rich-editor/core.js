@@ -133,7 +133,9 @@ function builtinButtons(l, ui) {
  * @returns {{ editor: Editor, element: HTMLElement, getHTML: Function, setHTML: Function, setReadonly: Function, destroy: Function }}
  */
 export function createRichEditor(host, options = {}) {
-    const l = Object.assign({}, LABELS, options.labels || {});
+    // The page's own words where it printed them (`MessageEditor::scripts()`), then the field's.
+    const defaults = (typeof window !== 'undefined' && window.pfRichEditorDefaults) || {};
+    const l = Object.assign({}, LABELS, defaults.labels || {}, options.labels || {});
     const plugins = (options.plugins || []).filter(Boolean);
     const teardowns = [];
 

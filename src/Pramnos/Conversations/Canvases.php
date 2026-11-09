@@ -164,7 +164,7 @@ final class Canvases
     /**
      * Its versions, newest first: the number, who and when.
      *
-     * @return list<array{version: int, by: ?int, at: string, title: string}>
+     * @return list<array{version: int, by: ?int, at: int, title: string}>
      */
     public static function versions(int $id): array
     {
@@ -176,7 +176,7 @@ final class Canvases
             }
             $details = is_array($event['details'] ?? null) ? $event['details'] : (array) json_decode((string) ($event['details'] ?? ''), true);
             $out[]   = ['version' => (int) ($details['version'] ?? 0), 'by' => isset($event['userid']) ? (int) $event['userid'] : null,
-                'at' => (string) ($event['created_at'] ?? ''), 'title' => (string) ($details['title'] ?? '')];
+                'at' => (int) strtotime((string) ($event['created_at'] ?? '')), 'title' => (string) ($details['title'] ?? '')];
         }
         // By its number: two saves in one second keep no order of their own.
         usort($out, static fn (array $a, array $b): int => $b['version'] <=> $a['version']);

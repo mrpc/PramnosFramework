@@ -605,8 +605,11 @@ Canvases::delete($id, $by);
   `Canvases::HEARTBEAT` (20) seconds. A lock whose heartbeat stopped for `Canvases::LOCK` (45)
   seconds is free. While one person edits, the others read and are told who is editing. Writing
   at the same time is not offered.
-- **Versions.** Each save is a version: its title, body, who and when. Versions are kept as
-  `canvas.saved` events in the changelog, which is what restoring one reads.
+- **Versions.** Each save is a version: its title, body, who and when (`at`, a Unix time).
+  Versions are kept as `canvas.saved` events in the changelog, which is what restoring one reads.
+  The changelog is written through the `WriteSpool`, so a version is listed once `spool:drain` has
+  run. Workers drain it within seconds; an installation with no worker running lists none until
+  then.
 - **The body** is the rich editor's HTML, cleaned on the server (`SafeHtml::clean()` with a
   canvas's extra markup). A mention is `<span data-type="mention" data-id="5">`. Somebody
   mentioned for the first time is told, in the bell and by push (`CanvasMention`); a later save
@@ -618,8 +621,10 @@ Canvases::delete($id, $by);
   for created, saved, locked, unlocked and deleted.
 - **The editor component**, `CanvasEditor.svelte`, is in `resources/js/conversations`, so the dock
   or an application's own chat can use it. On a page, use
-  `PfConversations.canvas(element, {base, canvasId, conversationId, me, strings})` with
-  `pf-rich-editor.js` loaded. Its checklist and mentions are a plugin of the rich editor
+  `PfConversations.canvas(element, {base, canvasId, conversationId, me, strings})`. Print
+  `MessageEditor::scripts(MessageEditor::RICH)` on the page for the editor's styles, its words in
+  the reader's language, and its script: an editor made by `pfRichEditor.create()` takes the words
+  that prints. Its checklist and mentions are a plugin of the rich editor
   (`pfRichEditor.tiptap.TaskList`, `TaskItem`).
 
 The table is made by the migration `create_conversation_canvases_table`.

@@ -209,6 +209,8 @@ class TabsAndCanvasesTest extends TestCase
             $this->assertSame('<p>Everything about it</p>', $read['body']['version']['body']);
             $this->assertSame($maria, $read['body']['canvas']['lockedBy'], 'who is editing it');
             $this->assertSame([2, 1], array_column($versions['body']['versions'], 'version'));
+            $this->assertIsInt($versions['body']['versions'][0]['at'], 'a moment, for the reader\'s own format');
+            $this->assertGreaterThan(time() - 3600, $versions['body']['versions'][0]['at']);
             $this->assertSame(3, $restored['body']['version']);
             $this->assertTrue($tabs['body']['manages']);
             $this->assertContains('canvas:' . $id, array_column($tabs['body']['tabs'], 'id'));

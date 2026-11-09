@@ -5,7 +5,8 @@
      * somebody else sees "X is editing" and reads. "Save" writes a version, "Done" saves and lets the
      * lock go. The versions are listed; one is shown and can be restored.
      *
-     * The text is edited with the framework's rich editor (`pf-rich-editor.js`, which the page loads)
+     * The text is edited with the framework's rich editor — the page prints
+     * `MessageEditor::scripts(MessageEditor::RICH)`, its styles, words and script —
      * and a plugin of its own: a checklist, and mentions of people (`@`, or the button) as
      * `<span data-type="mention" data-id>`. Pictures dropped or chosen are the conversation's files.
      *
@@ -199,7 +200,7 @@
                 {#each versions as v (v.version)}
                     <li>
                         <button type="button" class="pf-conv-link" onclick={() => show(v.version)}>{t('Version %s', v.version)}</button>
-                        <span class="pf-conv-muted">{v.at}</span>
+                        <span class="pf-conv-muted">{new Date(v.at * 1000).toLocaleString(document.documentElement.lang || undefined, { dateStyle: 'medium', timeStyle: 'short' })}</span>
                         {#if v.version !== canvas.version}<button type="button" class="pf-conv-btn" onclick={() => restore(v.version)}>{t('Restore')}</button>{/if}
                     </li>
                 {/each}
