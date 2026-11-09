@@ -95,16 +95,16 @@ final class Realtime
     }
 
     /**
-     * Who is in a conversation changed under its members — somebody with no account turned out to
-     * have one — told to each, for a sidebar to read again; `mergedFrom` the conversation that was
-     * put into it, gone now.
+     * A conversation changed under its members — somebody with no account turned out to have one,
+     * or a group was renamed — told to each, for a sidebar to read again; `mergedFrom` the
+     * conversation that was put into it, gone now; `name` a group's new name (null: its members).
      *
      * @param list<int> $people
      */
-    public static function conversationChanged(int $conversationId, array $people, ?int $mergedFrom = null): void
+    public static function conversationChanged(int $conversationId, array $people, ?int $mergedFrom = null, ?string $name = null): void
     {
         foreach ($people as $person) {
-            self::tell(self::userChannel($person), 'conversation.changed', ['conversationId' => $conversationId, 'mergedFrom' => $mergedFrom]);
+            self::tell(self::userChannel($person), 'conversation.changed', ['conversationId' => $conversationId, 'mergedFrom' => $mergedFrom, 'name' => $name]);
         }
     }
 

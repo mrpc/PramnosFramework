@@ -62,6 +62,7 @@ use Pramnos\Http\Response;
  * | `star/{id}` | POST | `on`, `before` | `{ok}` — `before`, a starred conversation it is placed before, in the reader's own order |
  * | `starorder` | POST | `ids[]` | `{ok}`: the reader's own order of their starred conversations, all at once; ids not theirs are let be |
  * | `active` | POST | `client`, `idle`, `front`, `locked` | `{ok}`: this client is where the person is, so a message is notified here alone |
+ * | `rename/{id}` | POST | `name` | `{ok}`: a group named, or its name taken away (empty); any member may |
  * | `away` | POST | `minutes` (0, 5, 10, 30) | `{minutes, choices}`: away this long, every client is notified; read without `minutes` |
  * | `save/{id}` | POST | `on` | `{ok}`: a message kept for later, or let go |
  * | `upload/{id}` | POST | `file` (multipart) | `{id, name, size, mime}` |
@@ -70,7 +71,7 @@ use Pramnos\Http\Response;
 class Conversations extends Controller
 {
     /** The writes: each a POST with the session's token. */
-    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away'];
+    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away', 'rename'];
 
     /** The JSON body, decoded once. @var array<string, mixed>|null */
     private ?array $json = null;
@@ -129,10 +130,13 @@ class Conversations extends Controller
                 $conversation['formers'] = $gone[$conversation['id']] ?? [];
                 $others = array_merge(array_map(static fn (int $id): string => $people[$id] ?? '#' . $id,
                     array_values(array_diff($conversation['members'] ?? [], [(int) $me->userid]))), array_column($conversation['formers'], 'name'));
+                // The members, for a group with a name too: a search finds it by either.
+                $conversation['membersTitle'] = implode(', ', $others);
                 $conversation['title'] = $conversation['kind'] === 'bot' ? \Pramnos\Conversations\Ask::displayName((string) $conversation['name'])
+                    : ($conversation['kind'] === 'group' && (string) ($conversation['name'] ?? '') !== '' ? (string) $conversation['name']
                     : ($conversation['members'] === null ? '#' . $conversation['slug']
                     // Nobody else: one's own dm, one's notes.
-                    : ($others === [] ? ($people[(int) $me->userid] ?? '#' . $me->userid) . ' ' . t('(you)') : implode(', ', $others)));
+                    : ($others === [] ? ($people[(int) $me->userid] ?? '#' . $me->userid) . ' ' . t('(you)') : implode(', ', $others))));
                 if (\Pramnos\Conversations\Ask::isOwn($conversation)) {
                     $conversation['avatar'] = \Pramnos\Llm\Analyst\Analyst::avatar();
                 }
@@ -608,6 +612,22 @@ class Conversations extends Controller
 
             return ['minutes' => \Pramnos\Conversations\Clients::awayAfter((int) $me->userid, $minutes === null || $minutes === '' ? null : (int) $minutes),
                 'choices' => \Pramnos\Conversations\Clients::CHOICES];
+        });
+    }
+
+    /** Name a group one is in, or take its name away (`name` empty). */
+    public function rename(): mixed
+    {
+        $me = $this->me();
+        // Somebody not in it may not rename it: refused as such, not as a group that is not there.
+        if ($me !== null && Store::get($this->id()) !== null && Store::member($this->id(), (int) $me->userid) === null) {
+            return Response::json(['error' => t('Only its members rename a group.')], 403);
+        }
+
+        return $this->answer(function (object $me): array {
+            Store::rename($this->id(), $this->in('name') === null ? null : (string) $this->in('name'), (int) $me->userid);
+
+            return ['ok' => true];
         });
     }
 

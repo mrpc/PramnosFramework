@@ -113,7 +113,10 @@ final class Messages
      * name as somebody who has left — or `former`, the id (or name) of the conversation's member with
      * no account ({@see Conversations::create()}'s `formers`), whose name it then carries. Files go in through {@see Files::store()} and `files`.
      *
-     * @param array{thread?: int, card?: array<string, mixed>, source?: string, externalid?: string, at?: int, editedAt?: int, authorName?: string, former?: string, files?: list<int>, quiet?: bool} $options
+     * `notice` writes a line the members see at once but are not notified of, nor mentioned in — a
+     * rename, say.
+     *
+     * @param array{thread?: int, card?: array<string, mixed>, source?: string, externalid?: string, at?: int, editedAt?: int, authorName?: string, former?: string, files?: list<int>, quiet?: bool, notice?: bool} $options
      * @return int The message
      */
     public static function post(int $conversationId, ?int $author, string $body, array $options = []): int
@@ -208,6 +211,12 @@ final class Messages
         // a reader who later opens it still deserves a card, not a bare URL.
         Unfurls::remember($id, $body);
         if (!empty($options['quiet'])) {
+            return $id;
+        }
+        if (!empty($options['notice'])) {
+            // Shown in the conversation as it happens; no member's activity, so nobody is notified.
+            Realtime::changed($id, 'message.posted');
+
             return $id;
         }
         $mentioned = self::mention($id, $conversationId, $author, $body, $at);

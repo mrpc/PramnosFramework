@@ -95,8 +95,14 @@ final class Conversations
         }
         $now = time();
         $db  = self::db();
+        // A group's name is its own (up to 80), a direct conversation has none: its title is the other person.
+        $name = match ($kind) {
+            'dm'    => null,
+            'group' => $name === null || trim($name) === '' ? null : mb_substr(trim($name), 0, 80),
+            default => $name === null ? null : mb_substr(trim($name), 0, 150),
+        };
         $db->queryBuilder()->table('#PREFIX#conversations')->insert([
-            'kind' => $kind, 'slug' => $slug, 'name' => $name === null ? null : mb_substr(trim($name), 0, 150),
+            'kind' => $kind, 'slug' => $slug, 'name' => $name,
             'topic' => $topic === '' ? null : $topic, 'createdby' => $by, 'createdat' => $now,
         ]);
         $id = (int) $db->getInsertId();
@@ -111,6 +117,37 @@ final class Conversations
         \Pramnos\Event\Event::dispatch(new ConversationCreated($id, $kind, $by));
 
         return $id;
+    }
+
+    /**
+     * Name a group conversation, or take its name away (`null` or empty: its title is its members
+     * again). Any member may. A line in the conversation says who did it and to what, its members
+     * see the new title at once (`conversation.changed`), and the change is in the changelog
+     * (`conversation.renamed`). A direct, bot or channel conversation is refused: a direct one has
+     * no name, and a channel's is its `#name`.
+     *
+     * @throws \DomainException When the conversation cannot be named, or `$by` is not in it
+     */
+    public static function rename(int $id, ?string $name, int $by): void
+    {
+        $conversation = self::get($id);
+        if ($conversation === null || $conversation['kind'] !== 'group') {
+            throw new \DomainException(t('Only a group conversation is named.'));
+        }
+        if (self::member($id, $by) === null) {
+            throw new \DomainException(t('Only its members rename a group.'));
+        }
+        $name = $name === null || trim($name) === '' ? null : mb_substr(trim($name), 0, 80);
+        if ($name === $conversation['name']) {
+            return;
+        }
+        self::db()->queryBuilder()->table('#PREFIX#conversations')->where('conversationid', $id)->update(['name' => $name]);
+        $who = People::names([$by])[$by] ?? '';
+        Messages::post($id, null, $name === null
+            ? sprintf(t('%s took the group\'s name away.'), $who)
+            : sprintf(t('%s renamed the group to “%s”.'), $who, $name), ['notice' => true]);
+        \Pramnos\Changelog\ChangelogWriter::event('conversation', $id, 'conversation.renamed', ['from' => $conversation['name'], 'to' => $name], by: $by);
+        Realtime::conversationChanged($id, self::members($id), null, $name);
     }
 
     /**

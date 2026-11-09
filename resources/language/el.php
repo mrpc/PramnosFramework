@@ -2268,4 +2268,13 @@ return [
     'Columns of its tables, unless a table sets its own' => 'Στήλες των πινάκων της, εκτός αν ένας πίνακας ορίζει δικές του',
     'For the advanced' => 'Για προχωρημένους',
     'The report as text, in place of its cards' => 'Η αναφορά ως κείμενο, στη θέση των καρτών της',
+    'Only a group conversation is named.' => 'Όνομα παίρνει μόνο μια ομαδική συνομιλία.',
+    'Only its members rename a group.' => 'Μόνο τα μέλη μιας ομάδας τη μετονομάζουν.',
+    '%s took the group\'s name away.' => 'Ο/Η %s αφαίρεσε το όνομα της ομάδας.',
+    '%s renamed the group to “%s”.' => 'Ο/Η %s μετονόμασε την ομάδα σε «%s».',
+    'Choose one of: %s minutes.' => 'Διαλέξτε ένα από: %s λεπτά.',
+    '%s is counted once per organisation: read one organisation at a time.' => 'Ο δείκτης %s μετριέται μία φορά ανά οργανισμό: διαβάστε έναν οργανισμό τη φορά.',
+    'There is no metric "%s" you may read.' => 'Δεν υπάρχει δείκτης «%s» που μπορείτε να δείτε.',
+    'That organisation\'s figures are not yours to read.' => 'Τα στοιχεία αυτού του οργανισμού δεν είναι δικά σας για ανάγνωση.',
+    'Choose a dimension to rank by.' => 'Διαλέξτε μια ανάλυση για την κατάταξη.',
 ];

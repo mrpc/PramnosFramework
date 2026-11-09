@@ -60,6 +60,20 @@ joined by dashes, in any script (`#γενικά-θέματα`). Its maker is its
 how many messages they have not read and how many of those mention them;
 `Conversations::browse($id)` lists the open ones to join.
 
+**A group's name.** A group conversation may have a name of its own, up to 80 characters,
+neither unique nor a `#` name: `create('group', 'Sales shift', …)`. Its title is then that name;
+without one, its title is its members, as before. The sidebar gives every direct and group
+conversation `membersTitle` too, so a search can find a named group by its people as well. Any
+member renames it with `Conversations::rename($id, $name, $by)` (`rename/{id}`, POST `name`), and
+an empty name takes the name away. Somebody not in it is refused (403).
+- **What a rename leaves.** A line in the conversation says who renamed it and to what. It is
+  shown at once and notifies nobody (`Messages::post(…, ['notice' => true])`).
+- **Who is told.** Each member's sidebar is told the new title (`conversation.changed`, with
+  `name`).
+- **History.** The changelog keeps `conversation.renamed`, with `from` and `to`.
+- **A direct conversation** has no name: one given at its making is dropped, and a rename is
+  refused.
+
 **Starred, in one's own order.** `Conversations::star($id, $me)` stars a conversation for its
 reader; `star($id, $me, true, $before)` places it before another of their starred ones, and
 `Conversations::starOrder($me, [$c, $a, $b])` writes their whole order at once — a conversation not
