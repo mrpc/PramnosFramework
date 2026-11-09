@@ -6,9 +6,10 @@
     import { t } from './t.js';
     import { gifProvider } from './extras.js';
 
-    let { api, onpick, onclose, onerror = () => {} } = $props();
+    let { api, onpick, onclose, onerror = () => {}, initial = '' } = $props();
 
-    let query = $state('');
+    // svelte-ignore state_referenced_locally
+    let query = $state(initial);   // `/gif words` opens it searching for them
     let found = $state([]);
     let busy = $state(true);
     let box = $state(null);

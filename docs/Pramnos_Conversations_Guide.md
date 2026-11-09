@@ -488,6 +488,13 @@ Messages::react($id, $maria, ':our-heart:');
   page restores, or that open when a message arrives, do not take it. No conversation takes the
   focus after loading while the person is in a field of the page outside the chat, such as an
   input, a text area, a choice or an editable region (`mayTakeFocus()` in `logic.js`).
+- **The emoji picker** (`EmojiPicker.svelte`) has a search at the top. It finds a shortcode or
+  any emoji by its English name (fire, 🔥), and Enter takes the first. Its tabs are the person's
+  frequent emoji (kept in the browser, or a default thirty), eight categories, and the team's own.
+  The arrow keys move between emoji. Props: `custom` (`false` leaves the team's own out, for a
+  status), `shortcodes`, `anchor`. Its data, `searchEmoji()`, `frequentEmoji()` and
+  `rememberEmoji()` are in `emoji-data.js`, an ES module that a chat page of the application's
+  own imports from `vendor/` too.
 - **The pickers.** A message's reaction picker floats over the page beside its button, opening
   upward where there is no room below, so the message list neither clips it nor scrolls. Scrolling
   closes it, and a click outside closes any picker.
@@ -509,6 +516,11 @@ given (`g` unless said otherwise). The search is this server's (`gifs`, `Gifs::s
 key never reaches a browser; each GIF comes back as `{id, title, preview: {url, width, height},
 url}`, Klipy's renditions chosen by weight — a light one for the picker, one that loads quickly
 for the message. The picker names the provider, as both require.
+
+`/gif words`, as Slack's `/giphy`, opens the picker already searching for the words, and `/gif`
+alone opens it on the trending ones. The command is in the `/` list only where GIFs are set up,
+and it is answered by the page, not the server. A page of the application's own reads it with
+`gifCommand()` from `logic.js`.
 
 A picked GIF is sent as a file of its message (`gif/{id}` with `url` and `title`, then `post` with
 the file; `Gifs::keep()`). Kept, not linked: it stays with the message when the provider removes

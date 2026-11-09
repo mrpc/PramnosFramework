@@ -9,7 +9,7 @@
     import GifPicker from './GifPicker.svelte';
     import Avatar from './Avatar.svelte';
     import { t } from './t.js';
-    import { mentionsToTokens, wordAt, suggestPeople, fold, size, commandIn, draftOf, keepDraft, suggestEmoji } from './logic.js';
+    import { mentionsToTokens, wordAt, suggestPeople, fold, size, commandIn, draftOf, keepDraft, suggestEmoji, gifCommand } from './logic.js';
     import { commands, canAsk, assistant, gifProvider } from './extras.js';
 
     let {
@@ -27,6 +27,7 @@
     let current = null;               // the word being completed
     let picking = $state(false);
     let gifPicking = $state(false);
+    let gifQuery = $state('');                 // what `/gif words` searches for
     let sending = $state(false);
     let dragging = $state(false);
     let picker = $state(null);
@@ -176,6 +177,16 @@
         if (!ready || disabled) {
             return;
         }
+        const gif = gifCommand(text, Boolean(gifProvider()));
+        if (gif) {
+            // `/gif words`: the GIF picker, searching for them; `/gif` alone: the trending ones.
+            gifQuery = gif.query;
+            gifPicking = true;
+            text = '';
+            queueMicrotask(fit);
+
+            return;
+        }
         sending = true;
         const body = mentionsToTokens(text.trim(), picked);
         // One of the application's commands: run, its answer for the writer alone.
@@ -274,15 +285,15 @@
             <input bind:this={picker} type="file" multiple hidden onchange={(e) => { add(e.currentTarget.files); e.currentTarget.value = ''; }} />
             <button type="button" class="pf-conv-icon-btn" title={t('Attach a file')} aria-label={t('Attach a file')} onclick={() => picker.click()} {disabled}>📎</button>
             <button type="button" class="pf-conv-icon-btn" title={t('Insert an emoji')} aria-label={t('Insert an emoji')} data-pf-emoji-toggle onclick={() => (picking = !picking)} {disabled}>☺</button>
-            {#if gifProvider()}<button type="button" class="pf-conv-icon-btn pf-conv-gif-btn" title={t('Send a GIF')} aria-label={t('Send a GIF')} onclick={() => (gifPicking = !gifPicking)} disabled={disabled || sending}>GIF</button>{/if}
+            {#if gifProvider()}<button type="button" class="pf-conv-icon-btn pf-conv-gif-btn" title={t('Send a GIF')} aria-label={t('Send a GIF')} onclick={() => { gifQuery = ''; gifPicking = !gifPicking; }} disabled={disabled || sending}>GIF</button>{/if}
             <button type="button" class="pf-conv-send" aria-label={t('Send')} title={t('Send')} disabled={!ready || disabled} onclick={send}>➤</button>
         </div>
     </div>
     {#if picking}
-        <div class="pf-conv-pop-anchor pf-conv-pop-up"><EmojiPicker onpick={insertEmoji} onclose={() => (picking = false)} custom={customEmoji} /></div>
+        <div class="pf-conv-pop-anchor pf-conv-pop-up"><EmojiPicker onpick={insertEmoji} onclose={() => (picking = false)} custom={customEmoji} shortcodes={emoji} /></div>
     {/if}
     {#if gifPicking}
-        <div class="pf-conv-pop-anchor pf-conv-pop-up"><GifPicker {api} onpick={sendGif} onclose={() => (gifPicking = false)} {onerror} /></div>
+        <div class="pf-conv-pop-anchor pf-conv-pop-up"><GifPicker {api} onpick={sendGif} onclose={() => (gifPicking = false)} {onerror} initial={gifQuery} /></div>
     {/if}
     <p class="pf-conv-hint">{t('Enter to send · Shift+Enter for a new line · @ to mention')}</p>
 </div>

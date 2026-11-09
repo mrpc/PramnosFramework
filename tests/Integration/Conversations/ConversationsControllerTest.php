@@ -389,7 +389,8 @@ class ConversationsControllerTest extends TestCase
             $props  = \Pramnos\Conversations\Client::props($this->user('maria'));
             Application::getInstance()->applicationInfo['conversations']['gifs'] = [];
             $none   = $this->ask('maria', 'gifs');
-            $off    = \Pramnos\Conversations\Client::props($this->user('maria'))['gifs'];
+            $offProps = \Pramnos\Conversations\Client::props($this->user('maria'));
+            $off    = $offProps['gifs'];
         } finally {
             \Pramnos\Conversations\Gifs::fetchWith(null);
         }
@@ -401,6 +402,9 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame(['provider' => 'giphy'], $props['gifs']);
         $this->assertStringNotContainsString('secret-key', (string) json_encode($props), 'the key stays on the server');
         $this->assertSame([404, null], [$none['status'], $off]);
+        // `/gif` in the `/` list, answered by the page itself, only where GIFs are set up.
+        $this->assertContains('gif', array_column($props['commands'], 'name'));
+        $this->assertNotContains('gif', array_column($offProps['commands'], 'name'));
     }
 
     /**

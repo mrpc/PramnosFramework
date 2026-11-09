@@ -264,6 +264,6 @@
         </div>
     {/if}
     {#if picking}
-        <EmojiPicker onpick={toggle} onclose={() => (picking = false)} custom={customEmoji} anchor={pickAt} />
+        <EmojiPicker onpick={toggle} onclose={() => (picking = false)} custom={customEmoji} shortcodes={emoji} anchor={pickAt} />
     {/if}
 </article>

@@ -1633,6 +1633,12 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-conv-pop-up { top: auto; bottom: calc(100% + 0.35rem); right: 0; }
 .pf-conv-emoji { width: 22rem; max-width: calc(100vw - 2rem); }
 .pf-conv-emoji-row { display: grid; grid-template-columns: repeat(10, 1fr); gap: 0.1rem; }
+.pf-conv-emoji-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 0.1rem; max-height: 14rem; overflow-y: auto; }
+.pf-conv-emoji-grid .pf-muted { grid-column: 1 / -1; margin: 0.5rem; }
+.pf-conv-emoji-search { width: 100%; margin-bottom: 0.35rem; padding: 0.3rem 0.5rem; border: 1px solid var(--pf-line); border-radius: var(--pf-radius); background: var(--pf-surface); color: inherit; }
+.pf-conv-emoji-tabs { display: flex; gap: 0.1rem; margin-bottom: 0.35rem; border-bottom: 1px solid var(--pf-line); }
+.pf-conv-emoji-tabs button { flex: 1; padding: 0.2rem 0; font-size: 1.05rem; background: none; border: 0; border-bottom: 2px solid transparent; }
+.pf-conv-emoji-tabs button[aria-selected="true"] { border-bottom-color: var(--pf-accent, currentColor); }
 .pf-conv-emoji-btn { height: 2.1rem; padding: 0; font-size: 1.2rem; background: none; border: 0; border-radius: var(--pf-radius); }
 .pf-conv-emoji-btn:hover, .pf-conv-emoji-btn:focus { background: var(--pf-subtle); outline: none; }
 .pf-conv-suggest { bottom: calc(100% + 0.35rem); left: 0; width: min(20rem, 100%); margin: 0; list-style: none; padding: 0.3rem; }

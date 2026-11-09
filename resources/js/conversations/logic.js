@@ -447,3 +447,17 @@ export function minimiseWindow(windows, id) {
 export function keptWindows(windows) {
     return (Array.isArray(windows) ? windows : []).filter((w) => Number.isInteger(w?.id)).slice(0, 3).map((w) => ({ id: w.id, min: Boolean(w.min) }));
 }
+
+/**
+ * `/gif` as Slack's `/giphy`: what to search for (`''` for the trending ones), or null for text that
+ * is not the command, or where GIFs are not set up — it is then sent as written.
+ *
+ * @param {string} text
+ * @param {boolean} enabled Whether the application has a GIF provider
+ * @returns {{query: string}|null}
+ */
+export function gifCommand(text, enabled) {
+    const m = /^\/gif(?:\s+([\s\S]*))?$/i.exec(String(text).trim());
+
+    return enabled && m ? { query: (m[1] || '').trim() } : null;
+}

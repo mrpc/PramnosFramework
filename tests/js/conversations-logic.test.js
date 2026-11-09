@@ -480,3 +480,77 @@ test('only a window the person opens takes the focus', async () => {
     assert.deepEqual(minimised, [{ id: 6, min: true, focus: false }]);
     assert.deepEqual(restored, [{ id: 4, min: false }], 'the next page restores, it does not focus');
 });
+
+/** The emoji data: eight categories, each emoji named; what a search finds and what is kept. */
+const loadEmoji = () => import(pathToFileURL(path.join(__dirname, '..', '..', 'resources', 'js', 'conversations', 'emoji-data.js')).href);
+
+/**
+ * A search finds the team's own first (as `:name:`, with its picture), then shortcodes, then any
+ * emoji by its English name — a name starting with the words before one merely holding them, each
+ * once; a leading colon is ignored, and nothing is found for nothing.
+ */
+test('emoji are found by name: the team\'s own, shortcodes, then English names', async () => {
+    // Arrange
+    const { searchEmoji, CATEGORIES } = await loadEmoji();
+    const shortcodes = { fire: '🔥', kappa: '😏' };
+    const custom = { kappa: '/e?name=kappa', firefly: '/e?name=firefly' };
+
+    // Act
+    const fire = searchEmoji('fire', shortcodes, custom);
+    const kappa = searchEmoji(':kap', shortcodes, custom);
+    const heart = searchEmoji('heart', {}, {});
+
+    // Assert
+    assert.equal(CATEGORIES.length, 8);
+    assert.ok(CATEGORIES.every((c) => c.emoji.every(([e, name]) => e && name)), 'every emoji has a name');
+    assert.deepEqual(fire.slice(0, 2), [{ emoji: ':firefly:', name: 'firefly', src: '/e?name=firefly' }, { emoji: '🔥', name: 'fire' }]);
+    assert.equal(new Set(fire.map((f) => f.emoji)).size, fire.length, 'each once');
+    assert.deepEqual(kappa, [{ emoji: ':kappa:', name: 'kappa', src: '/e?name=kappa' }], 'the picture, not the smirk');
+    assert.ok(heart.some((h) => h.emoji === '❤️' || h.name.includes('heart')));
+    assert.deepEqual(searchEmoji('  ', shortcodes, custom), []);
+});
+
+/**
+ * Frequent: the defaults until one is picked; a pick goes first, once, at most thirty; a browser
+ * that keeps nothing gets the defaults and loses no pick.
+ */
+test('the frequent emoji are the latest picked, else the defaults', async () => {
+    // Arrange
+    const { frequentEmoji, rememberEmoji, DEFAULT_FREQUENT, FREQUENT_MAX } = await loadEmoji();
+    const store = {};
+    const storage = { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = v; } };
+    const broken = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } };
+
+    // Act
+    const before = frequentEmoji(storage);
+    rememberEmoji('🔥', storage);
+    rememberEmoji('👍', storage);
+    const after = rememberEmoji('🔥', storage);
+    for (let i = 0; i < 40; i++) { rememberEmoji(String(i), storage); }
+
+    // Assert
+    assert.deepEqual(before, DEFAULT_FREQUENT);
+    assert.equal(DEFAULT_FREQUENT.length, 30);
+    assert.deepEqual(after, ['🔥', '👍']);
+    assert.equal(frequentEmoji(storage).length, FREQUENT_MAX);
+    assert.deepEqual(frequentEmoji(broken), DEFAULT_FREQUENT);
+    assert.deepEqual(rememberEmoji('🎉', broken), ['🎉'], 'not kept, not lost');
+});
+
+/** `/gif words` searches, `/gif` alone is trending; anything else, or no GIF provider, is text. */
+test('/gif opens the GIF picker where GIFs are set up', async () => {
+    // Arrange
+    const { gifCommand } = await load();
+
+    // Act
+    const words = gifCommand('/gif happy dance ', true);
+    const alone = gifCommand('/GIF', true);
+    const off = gifCommand('/gif cats', false);
+    const other = gifCommand('/giffy', true);
+
+    // Assert
+    assert.deepEqual(words, { query: 'happy dance' });
+    assert.deepEqual(alone, { query: '' }, 'trending');
+    assert.equal(off, null, 'no provider: sent as written');
+    assert.equal(other, null);
+});
