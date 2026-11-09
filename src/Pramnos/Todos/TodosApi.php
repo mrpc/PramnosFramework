@@ -23,6 +23,8 @@ use Pramnos\Routing\Router;
  *   - `POST   {path}`                      add one: title, assigned_to (0 nobody), due, remind_at, link, private
  *   - `PUT    {path}/{id}`                 change one: what is not sent stays; `due` '' clears it
  *   - `DELETE {path}/{id}`                 one's own item
+ *   - `GET    {path}/calendar?start=&end=` the items with a day in the range, as a calendar shows them
+ *   - `POST   {path}/{id}/move`            an item dragged to another day: `start`
  *
  * Answers in the API's shape: `['status' => 200, 'data' => …]` or `['status' => …, 'error' => …]`.
  */
@@ -32,6 +34,8 @@ class TodosApi
     public static function routes(Router $r, string $path = '/todos'): void
     {
         $path = '/' . trim($path, '/');
+        $r->get($path . '/calendar', static fn () => (new static())->calendar())->describeFrom([static::class, 'calendar']);
+        $r->post($path . '/{id}/move', static fn ($id) => (new static())->moveDay((int) $id))->describeFrom([static::class, 'moveDay']);
         $r->get($path, static fn () => (new static())->list())->describeFrom([static::class, 'list']);
         $r->post($path, static fn () => (new static())->add())->describeFrom([static::class, 'add']);
         $r->put($path . '/{id}', static fn ($id) => (new static())->change((int) $id))->describeFrom([static::class, 'change']);
@@ -53,6 +57,35 @@ class TodosApi
             return $read + ['me' => (int) $user->userid, 'name' => $name, 'allowed' => $allowed,
                 'writes' => Todos::can($user, 'write')];
         });
+    }
+
+    /**
+     * The items with a day between `start` and `end` (Y-m-d), as a calendar shows them:
+     * `[{id, title, start, allDay, url, classNames}]`.
+     *
+     * @return array<string, mixed>
+     */
+    public function calendar(): array
+    {
+        return $this->answer(fn (object $user): array => ['events' => Todos::feed(Todos::tenantOf($user), (int) $user->userid,
+            (string) ($_GET['start'] ?? ''), (string) ($_GET['end'] ?? ''))]);
+    }
+
+    /**
+     * An item dragged to another day: `start`, its new day (Y-m-d).
+     *
+     * @return array<string, mixed>
+     */
+    public function moveDay(int $id): array
+    {
+        return $this->answer(function (object $user) use ($id): array {
+            $item = Todos::get($id);
+            if ($item === null || $item['tenant'] !== Todos::tenantOf($user)) {
+                throw new \DomainException('There is no such to-do.');
+            }
+
+            return Todos::move(['id' => $id, 'start' => (string) ((new \Pramnos\Http\Request())->body()['start'] ?? '')], (int) $user->userid);
+        }, 200, true);
     }
 
     /** Add one. @return array<string, mixed> */

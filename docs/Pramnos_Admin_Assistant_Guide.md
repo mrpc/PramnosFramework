@@ -571,6 +571,8 @@ in the API routes. `init` writes it with the `help` feature:
 | `GET /help` | every page: `slug`, `title`, `section`, `questions`; with `?q=`, those that answer it |
 | `GET /help/page?p=faq` | one page, with `updated` and `html` |
 | `GET /help/screen?screen=posts&action=edit` | the page for a screen, found as the side panel finds it |
+| `GET /help/whatsnew` | what is new for the signed-in person and not closed (`unseen`), and the recent (`recent`) |
+| `POST /help/whatsnew/seen` | all of it closed for them |
 
 The answers are the site's pages, to anybody. `?level=admin` reads the administration's, and
 only for somebody who may open its Help screen (`admin.help`, above the area's `min_usertype`);

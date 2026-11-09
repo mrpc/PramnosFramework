@@ -263,6 +263,47 @@ class OrganizationAdminTest extends BaseTestCase
         $this->assertSame(422, $bad->getStatusCode());
     }
 
+    /**
+     * The same under the application's API (`OrganizationApi`): the routes mounted and described,
+     * answering as the API's person, in JSON whatever the request asked for, an outsider refused.
+     */
+    public function testTheOrganisationsUnderTheApi(): void
+    {
+        // Arrange
+        $this->allow('user', self::ACTOR, 'organization', (string) self::ORG, 'manage');
+        $router = new \Pramnos\Routing\Router(\Pramnos\Application\Application::getInstance());
+        \Pramnos\Application\Api\OrganizationApi::routes($router);
+        $routes = $router->getRoutesWithPermissions();
+        $as     = static function (int $userId): void {
+            \Pramnos\Http\RequestIdentity::seal((object) ['userid' => $userId, 'usertype' => 0], 'test');
+        };
+        unset($_SERVER['HTTP_ACCEPT']);
+
+        try {
+            // Act
+            $as(self::ACTOR);
+            $list    = $routes['GET']['/organizations']['route']->execute(null);
+            $view    = $routes['GET']['/organizations/{id}']['route'];
+            $screen  = (new \ReflectionMethod(\Pramnos\Application\Api\OrganizationApi::class, 'screen'))->invoke(null, self::ORG);
+            $members = $screen->view();
+            $_POST   = ['email' => 'nonsense'];
+            $bad     = $screen->add();
+            $_POST   = [];
+            $as(self::OUTSIDER);
+            $refused = (new \ReflectionMethod(\Pramnos\Application\Api\OrganizationApi::class, 'screen'))->invoke(null, self::ORG)->view();
+        } finally {
+            \Pramnos\Http\RequestIdentity::reset();
+        }
+
+        // Assert
+        $this->assertSame([['organization_id' => self::ORG, 'name' => 'Acme']], json_decode($list->getBody(), true)['organizations'], 'JSON without asking for it');
+        $this->assertSame([self::MEMBER], array_column(json_decode($members->getBody(), true)['members'], 'userid'));
+        $this->assertSame(422, $bad->getStatusCode());
+        $this->assertSame(403, $refused->getStatusCode());
+        $this->assertNotSame('', (string) ($view->getDoc()['summary'] ?? ''), 'described for the API\'s document');
+        $this->assertArrayHasKey('/organizations/{id}/giverole', $routes['POST']);
+    }
+
     /** The screen as a person uses it: HTML, messages and redirects captured. */
     private function htmlScreen(int $userId): object
     {

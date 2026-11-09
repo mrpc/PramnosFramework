@@ -45,11 +45,13 @@ class MetricsApi
      *   - `POST   {path}`               add one ({@see Goals::create()}'s keys)
      *   - `PUT    {path}/{id}`          change one: what is not sent stays
      *   - `DELETE {path}/{id}`          take one away (its achievements stay)
-     *   - `GET    {path}/achievements`  what was reached, newest first (`?limit=`)
+     *   - `POST   {path}/preview`       a goal judged without keeping it: its sentence, and a target to try
+ *   - `GET    {path}/achievements`  what was reached, newest first (`?limit=`)
      */
     public static function goalRoutes(Router $r, string $path = '/goals'): void
     {
         $path = '/' . trim($path, '/');
+        $r->post($path . '/preview', static fn () => (new static())->previewGoal())->describeFrom([static::class, 'previewGoal']);
         $r->get($path . '/achievements', static fn () => (new static())->achievements())->describeFrom([static::class, 'achievements']);
         $r->get($path, static fn () => (new static())->goals())->describeFrom([static::class, 'goals']);
         $r->post($path, static fn () => (new static())->addGoal())->describeFrom([static::class, 'addGoal']);
@@ -80,6 +82,31 @@ class MetricsApi
             return ['goals' => $tool->execute(['achievements' => false])['goals'], 'kinds' => array_values(array_unique([...GoalJudge::KINDS_TOTAL, ...GoalJudge::KINDS_LEVEL])),
                 'repeats' => GoalJudge::RECURRING, 'metrics' => $metrics,
                 'overall' => (object) array_column(array_filter($metrics, static fn (array $m): bool => $m['overall']), 'now', 'metric')];
+        });
+    }
+
+    /**
+     * A goal judged without keeping it — the form's live sentence: its state and sentence, the
+     * last whole period's figure, and a target to try. The same values as adding one.
+     *
+     * @return array<string, mixed>
+     */
+    public function previewGoal(): array
+    {
+        return $this->answer(function (object $user): array {
+            $body = (new \Pramnos\Http\Request())->body();
+            if (!isset(Metrics::all($user, false)[(string) ($body['metric'] ?? '')])) {
+                throw new \DomainException('There is no metric "' . ($body['metric'] ?? '') . '" you may set a goal on.');
+            }
+            $tenants = Metrics::tenantsOf($user);
+            $tenant  = (int) ($body['tenant'] ?? ($tenants !== null && count($tenants) === 1 ? $tenants[0] : 0));
+            $goal    = array_intersect_key($body, array_flip(['metric', 'kind', 'target', 'growth', 'reference', 'repeats', 'starts', 'due', 'filters']));
+            if (!isset($goal['target']) || $goal['target'] === '') {
+                // No target yet: only the last period's figure, and what to try.
+                return ['says' => ''] + Goals::preview(['target' => 1] + $goal + ['tenant' => $tenant]);
+            }
+
+            return Goals::preview($goal + ['tenant' => $tenant]);
         });
     }
 

@@ -18,6 +18,8 @@ use Pramnos\Routing\Router;
  *   - `GET /help`              every page (`?q=` for those that answer a question)
  *   - `GET /help/page?p=faq`   one page, drawn
  *   - `GET /help/screen?screen=posts&action=edit`   the page for a screen, as the side panel finds it
+ *   - `GET /help/whatsnew`          what is new for the signed-in person and not yet closed, and the recent
+ *   - `POST /help/whatsnew/seen`    all of it closed
  *
  * The site's pages by default, to anybody. `?level=admin` reads the administration's, and only for
  * somebody who may open the administration's Help screen. A page comes drawn as HTML: links to
@@ -38,6 +40,8 @@ class HelpApi
 
         $r->get($path . '/page', static fn () => (new static())->page())->describeFrom([static::class, 'page']);
         $r->get($path . '/screen', static fn () => (new static())->screen())->describeFrom([static::class, 'screen']);
+        $r->get($path . '/whatsnew', static fn () => (new static())->whatsNew())->describeFrom([static::class, 'whatsNew']);
+        $r->post($path . '/whatsnew/seen', static fn () => (new static())->whatsNewSeen())->describeFrom([static::class, 'whatsNewSeen']);
         $r->get($path, static fn () => (new static())->list())->describeFrom([static::class, 'list']);
     }
 
@@ -83,6 +87,46 @@ class HelpApi
         $page = $book->forScreen((string) ($_GET['screen'] ?? ''), (string) ($_GET['action'] ?? ''), (string) ($_GET['option'] ?? ''));
 
         return $page === null ? self::error(404, 'This screen has no help page.') : ['status' => 200, 'data' => $this->drawn($book, $page)];
+    }
+
+    /**
+     * What is new in the help for the signed-in person: the announced pages they have not closed
+     * (`unseen`) and those of the last days (`recent`), newest first — the administration's, as
+     * the "What's new" button shows them.
+     *
+     * @return array<string, mixed>
+     */
+    public function whatsNew(): array
+    {
+        if (!Help::enabled()) {
+            return self::error(404, 'There is no help here.');
+        }
+        $user = \Pramnos\User\User::getCurrentUser();
+        $user = $user instanceof \Pramnos\User\User ? $user : (is_object($user) && (int) ($user->userid ?? 0) > 1 ? new \Pramnos\User\User((int) $user->userid) : null);
+
+        return ['status' => 200, 'data' => [
+            'unseen' => array_map(static fn (array $p): array => self::summary($p), WhatsNew::unseen($user)),
+            'recent' => array_map(static fn (array $p): array => self::summary($p), WhatsNew::recent()),
+        ]];
+    }
+
+    /**
+     * Close what is new for the signed-in person: everything announced now is seen.
+     *
+     * @return array<string, mixed>
+     */
+    public function whatsNewSeen(): array
+    {
+        if (!Help::enabled()) {
+            return self::error(404, 'There is no help here.');
+        }
+        $user = \Pramnos\User\User::getCurrentUser();
+        if (!is_object($user) || (int) ($user->userid ?? 0) < 2) {
+            return self::error(401, 'Sign in first.');
+        }
+        WhatsNew::dismiss($user instanceof \Pramnos\User\User ? $user : new \Pramnos\User\User((int) $user->userid));
+
+        return ['status' => 200, 'data' => ['seen' => true]];
     }
 
     /**

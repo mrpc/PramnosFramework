@@ -810,6 +810,7 @@ nightly at 03:40.
 |---|---|
 | `GET {path}` | the goals the person may read, each judged, with the `kinds`, `repeats` and `metrics` a form needs |
 | `POST {path}` | add one, with `Goals::create()`'s keys; 201 |
+| `POST {path}/preview` | the same values judged without keeping them: the sentence, the last period's figure, a target to try |
 | `PUT {path}/{id}` | change one: what is not sent stays; the metric, organisation and dimension values cannot change |
 | `DELETE {path}/{id}` | take one away; what it reached stays |
 | `GET {path}/achievements?limit=` | what was reached, newest first |

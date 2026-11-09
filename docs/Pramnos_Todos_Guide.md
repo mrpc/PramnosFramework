@@ -198,6 +198,8 @@ to-do" and "Remind me about this" on each message, and shows the mark.
   |---|---|
   | `GET {path}?who=&about=&closed=` | The items, `me` and `name` (the person), `allowed` (the plan has to-dos), `writes` |
   | `POST {path}` | Add one: `title`, `assigned_to`, `due`, `remind_at`, `link`, `private` (201) |
+  | `GET {path}/calendar?start=&end=` | The items with a day in the range, as a calendar shows them |
+  | `POST {path}/{id}/move` | An item dragged to another day: `start` |
   | `PUT {path}/{id}` | Change one; what is not sent stays |
   | `DELETE {path}/{id}` | One's own |
 

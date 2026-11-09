@@ -589,6 +589,16 @@ are `POST` with the session's token — the form field or `X-CSRF-Token` — so 
 signed-in browser, including a single-page application on the same site. `OrganizationAdmin` is
 the service underneath, for an application's own API.
 
+**Under the application's API**, with the API's credentials, for an app:
+
+```php
+\Pramnos\Application\Api\OrganizationApi::routes($r);   // init mounts it with `authserver`
+```
+
+`GET /organizations` and `GET /organizations/{id}` read; `POST /organizations/{id}/add`, `remove`,
+`giverole`, `takerole` and `withdraw` write, with the same values. The screen's actions answer, in
+JSON whatever the request asked for, with the same rights and refusals.
+
 ## Multi-tenancy: scoping to an organisation
 
 The schema has `organizations`, `user_organizations`, and an organisation column on

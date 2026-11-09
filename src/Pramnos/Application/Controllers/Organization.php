@@ -194,7 +194,7 @@ class Organization extends Controller
         return null;
     }
 
-    private function organizationId(): int
+    protected function organizationId(): int
     {
         return (int) \Pramnos\Http\Request::staticGetOption();
     }

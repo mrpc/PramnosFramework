@@ -161,6 +161,16 @@ class TodosToolsTest extends TestCase
         $changed = $api->change((int) $added['data']['id']);
         \Pramnos\Http\Request::$putData = [];
         $missing = $api->change(999999);
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST   = ['start' => '2026-11-25'];
+        $moved   = $api->moveDay((int) $added['data']['id']);
+        $_POST   = [];
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_GET    = ['start' => '2026-11-01', 'end' => '2026-11-30'];
+        $calendar = $api->calendar();
+        $_GET    = [];
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $movedMissing = $api->moveDay(999999);
         $_SERVER['REQUEST_METHOD'] = 'DELETE';
         $deleted = $api->remove((int) $added['data']['id']);
         $again   = $api->remove((int) $added['data']['id']);
@@ -179,6 +189,9 @@ class TodosToolsTest extends TestCase
         $this->assertSame(['Water the plants'], array_column($listed['data']['items'], 'title'));
         $this->assertSame([200, 'done', null], [$changed['status'], $changed['data']['status'], $changed['data']['due']]);
         $this->assertSame(404, $missing['status']);
+        $this->assertContains((int) $added['data']['id'], array_column($calendar['data']['events'], 'id'), 'moved there, on its day in the calendar');
+        $this->assertSame([200, '2026-11-25'], [$moved['status'], $moved['data']['due']]);
+        $this->assertSame(404, $movedMissing['status']);
         $this->assertSame([200, 404], [$deleted['status'], $again['status']]);
         $this->assertSame(403, $readOnly['status'], 'may only read: no delete');
         $this->assertSame(401, $signedOut['status']);

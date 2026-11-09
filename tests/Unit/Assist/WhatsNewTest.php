@@ -170,6 +170,31 @@ final class WhatsNewTest extends TestCase
     }
 
     /**
+     * The same under the API (`HelpApi`): what is new and not closed for the signed-in person,
+     * the recent beside it; closing it closes all; nobody signed in may not close it.
+     */
+    public function testWhatIsNewUnderTheApi(): void
+    {
+        // Arrange
+        $me = new WhatsNewReader();
+        \Pramnos\Http\RequestIdentity::seal($me, 'test');
+
+        // Act
+        $before = (new \Pramnos\Assist\HelpApi())->whatsNew();
+        $seen   = (new \Pramnos\Assist\HelpApi())->whatsNewSeen();
+        $after  = (new \Pramnos\Assist\HelpApi())->whatsNew();
+        \Pramnos\Http\RequestIdentity::reset();
+        $nobody = (new \Pramnos\Assist\HelpApi())->whatsNewSeen();
+
+        // Assert
+        $this->assertSame(['today'], array_column($before['data']['unseen'], 'slug'));
+        $this->assertSame(['today', 'week'], array_column($before['data']['recent'], 'slug'));
+        $this->assertSame([200, true], [$seen['status'], $seen['data']['seen']]);
+        $this->assertSame([], $after['data']['unseen'], 'closed');
+        $this->assertSame(401, $nobody['status']);
+    }
+
+    /**
      * Recent is what was announced in the last fourteen days, today included — or as many as
      * app.php says; and the window shows three in full unless it says otherwise.
      */

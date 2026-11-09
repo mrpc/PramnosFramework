@@ -3635,6 +3635,31 @@ PHP;
             $lines[] = "";
         }
 
+        // The assistant's conversations, for the SPA's chat screens (scaffolded with `llm`).
+        if (in_array('llm', $features, true)) {
+            $lines[] = "        // Assistant: /chat, /chat/{id}, /chat/routines, /chat/skills, …";
+            $lines[] = "        \\Pramnos\\Llm\\Chat\\Api\\Routes::register(\$r);";
+            $lines[] = "";
+        }
+
+        // The organisations a person manages, for an app or a SPA.
+        if (in_array('authserver', $features, true)) {
+            $lines[] = "        // Organisations: /organizations, /organizations/{id}, POST …/{id}/add|remove|giverole|takerole|withdraw";
+            $lines[] = "        \\Pramnos\\Application\\Api\\OrganizationApi::routes(\$r);";
+            $lines[] = "";
+        }
+
+        // The metrics and the to-do list are not features: an application turns them on when it
+        // declares metrics or installs the to-dos, and their API with them. Offered beside the
+        // framework's other routes, not in an API that has none yet (it shows its example).
+        if ($lines !== []) {
+            $lines[] = "        // Metrics and goals, once the application declares metrics: /metrics, /metrics/goals";
+            $lines[] = "        // \\Pramnos\\Metrics\\MetricsApi::routes(\$r);";
+            $lines[] = "        // The to-do list, once its migration has run: /todos";
+            $lines[] = "        // \\Pramnos\\Todos\\TodosApi::routes(\$r);";
+            $lines[] = "";
+        }
+
         // A record's history as JSON, for the SPA's HistoryPanel.
         if (in_array('changelog', $features, true)) {
             $lines[] = "        // History: GET /history?entity=&itemid=";

@@ -1785,6 +1785,12 @@ class MetricsMySQLTest extends TestCase
         $added     = $api($boss)->addGoal();
         $_POST     = ['metric' => 'test.nothing', 'target' => 1, 'repeats' => 'month'];
         $refused   = $api($boss)->addGoal();
+        $_POST     = ['metric' => 'test.orders', 'repeats' => 'month'];
+        $bare      = $api($boss)->previewGoal();
+        $_POST     = ['metric' => 'test.orders', 'target' => 10, 'repeats' => 'month'];
+        $previewed = $api($boss)->previewGoal();
+        $_POST     = ['metric' => 'test.nothing', 'target' => 1];
+        $noMetric  = $api($boss)->previewGoal();
         $_POST     = [];
         $_SERVER['REQUEST_METHOD'] = 'GET';
         $listed    = $api($boss)->goals();
@@ -1817,6 +1823,10 @@ class MetricsMySQLTest extends TestCase
         $this->assertSame([401, 404, 422, 404], [$nobody['status'], $unknown['status'], $badGrain['status'], $noGoal['status']]);
         $this->assertSame(['/api/metrics/series', '/api/metrics/value', '/api/metrics/goal', '/api/metrics', '/api/metrics/goals/achievements', '/api/metrics/goals'], $router->mounted, 'mounted under the path given');
         $this->assertSame([201, 'count'], [$added['status'], $added['data']['kind']]);
+        $this->assertSame([200, ''], [$bare['status'], $bare['data']['says']], 'no target yet: no sentence');
+        $this->assertArrayHasKey('last', $bare['data'], 'but the last period\'s figure');
+        $this->assertNotSame('', $previewed['data']['says'], 'a target typed: its sentence, nothing kept');
+        $this->assertSame(404, $noMetric['status']);
         $this->assertContains($added['data']['id'], array_column($listed['data']['goals'], 'id'));
         $this->assertSame(['count', 'growth', 'reach', 'sustain', 'pace'], $listed['data']['kinds']);
         $this->assertSame(12.0, $changed['data']['target'], 'changed: the target, the rest kept');
