@@ -84,6 +84,8 @@ class MetricReports extends Controller
             ReportBoard::leave();
         }
         $view->mine      = !$entry['app'] && (int) $entry['row']['ownerid'] === (int) $this->user()->userid;
+        // A report of one's own with no cards yet — a new one — opens to be arranged.
+        $view->customise = $view->mine && ReportBoard::layout($entry['report']) === [];
         $view->urls      = $this->urls();
 
         return $view->display('report');

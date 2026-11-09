@@ -218,6 +218,11 @@ chooses **Customise** in the report's bar, then adds, moves, resizes, groups int
 change is drawn at once with the real numbers. There is one editor for dashboards and reports,
 so a card type or a setting added to one is in the other.
 
+**New report** asks for a name, a period, a comparison, who sees it and whether it is mailed,
+then opens the empty report already in Customise. Any report of one's own with no cards
+opens the same way. The values of a table, and their headings, are aligned right inline, so
+every theme lines them up the same.
+
 | Card | id | What it shows |
 |---|---|---|
 | Section | `report.section` | A thin heading across the width, a line rather than a card. On the page it folds away the cards under it, up to the next section. |
@@ -308,8 +313,9 @@ A section's `total` adds up its rows but leaves breakdown totals out.
 ### On the screen
 
 The report's settings form holds its name, grain, comparison, sharing and schedule, and the
-default columns of its tables. A field for the advanced takes the whole report as text, in place
-of its cards:
+default columns of its tables, folded under **For the advanced** with the list of metrics.
+There, the whole report can also be written as text, in place of its cards. The fold is open when
+the report already is text:
 
 ```text
 # Columns

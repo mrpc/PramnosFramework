@@ -8,7 +8,6 @@ $schedules = ['' => t('Never'), 'day' => t('Daily'), 'week' => t('Weekly'), 'mon
 @endphp
 <div class="pf-ui">
     <div class="pf-page-head"><h1 class="pf-page-title">{{ $this->id > 0 ? t('Edit a report') : t('New report') }}</h1></div>
-    <div class="pf-grid-2">
     <form method="post" action="{{ $this->urls['save'] }}" class="pf-card"><div class="pf-card-body pf-stack">{!! $this->csrfField !!}
         <input type="hidden" name="reportid" value="{{ $this->id }}"><input type="hidden" name="copyof" value="{{ $this->copyOf ?? '' }}">
         <div class="pf-field"><label class="pf-label" for="pf-report-name">{{ t('Name') }}</label>
@@ -19,12 +18,21 @@ $schedules = ['' => t('Never'), 'day' => t('Daily'), 'week' => t('Weekly'), 'mon
             <div class="pf-field"><label class="pf-label" for="pf-report-compare">{{ t('Compare with') }}</label>
                 <select id="pf-report-compare" name="compare" class="pf-select">@foreach ($compares as $value => $label)<option value="{{ $value }}"{{ (string) $this->definition['compare'] === $value ? ' selected' : '' }}>{{ $label }}</option>@endforeach</select></div>
         </div>
-        <div class="pf-field"><label class="pf-label" for="pf-report-columns">{{ t('Columns of its tables, unless a table sets its own') }}</label>
-            <textarea id="pf-report-columns" name="columns" rows="4" class="pf-textarea" style="font-family:monospace">{{ $this->columns }}</textarea>
-            <p class="pf-hint">{{ t('periods=12 — or dimension=name value,value total — or one column a line: Label | name=value, … | metric | offset') }}</p></div>
-        <div class="pf-field"><label class="pf-label" for="pf-report-sections">{{ t('For the advanced: the report as text, in place of its cards') }}</label>
-            <textarea id="pf-report-sections" name="sections" rows="14" class="pf-textarea" style="font-family:monospace">{{ $this->sectionsText }}</textarea>
-            <p class="pf-hint">{{ t('# Title [chart=line] [total] starts a section; each row: Label | metric | name=value, … | by=dimension total') }}</p></div>
+        {{-- Cards are added on the report itself, with Customise; the text is for the advanced. --}}
+        <details class="pf-field"{!! trim((string) $this->sectionsText) !== '' ? ' open' : '' !!}><summary class="pf-label">{{ t('For the advanced') }}</summary>
+            <div class="pf-field"><label class="pf-label" for="pf-report-columns">{{ t('Columns of its tables, unless a table sets its own') }}</label>
+                <textarea id="pf-report-columns" name="columns" rows="4" class="pf-textarea" style="font-family:monospace">{{ $this->columns }}</textarea>
+                <p class="pf-hint">{{ t('periods=12 — or dimension=name value,value total — or one column a line: Label | name=value, … | metric | offset') }}</p></div>
+                <div class="pf-field"><label class="pf-label" for="pf-report-sections">{{ t('The report as text, in place of its cards') }}</label>
+                <textarea id="pf-report-sections" name="sections" rows="14" class="pf-textarea" style="font-family:monospace">{{ $this->sectionsText }}</textarea>
+                <p class="pf-hint">{{ t('# Title [chart=line] [total] starts a section; each row: Label | metric | name=value, … | by=dimension total') }}</p></div>
+            <p class="pf-label">{{ t('Metrics') }}</p>
+            <ul class="pf-stack" style="list-style:none;padding:0;margin:0">
+        @foreach ($this->metrics as $metric)
+            <li><code>{{ $metric->name }}</code> · {{ t($metric->label()) }}@if ($metric->getDimensions() !== []) <span class="pf-muted">({{ implode(', ', $metric->getDimensions()) }})</span>@endif</li>
+        @endforeach
+        </ul>
+        </details>
         <div class="pf-grid-2">
             <div class="pf-field"><label class="pf-label" for="pf-report-visibility">{{ t('Who sees it') }}</label>
                 <select id="pf-report-visibility" name="visibility" class="pf-select">@foreach ($shown as $value => $label)<option value="{{ $value }}"{{ ($saved['visibility'] ?? 'private') === $value ? ' selected' : '' }}>{{ $label }}</option>@endforeach</select></div>
@@ -37,13 +45,4 @@ $schedules = ['' => t('Never'), 'day' => t('Daily'), 'week' => t('Weekly'), 'mon
         </div>
         <div><button type="submit" class="pf-btn pf-btn-primary">{{ t('Save') }}</button> <a class="pf-btn pf-btn-ghost" href="{{ $this->urls['list'] }}">{{ t('Cancel') }}</a></div>
     </div></form>
-    <div class="pf-card"><div class="pf-card-body">
-        <h2 class="pf-label">{{ t('Metrics') }}</h2>
-        <ul class="pf-stack" style="list-style:none;padding:0;margin:0">
-        @foreach ($this->metrics as $metric)
-            <li><code>{{ $metric->name }}</code> · {{ t($metric->label()) }}@if ($metric->getDimensions() !== []) <span class="pf-muted">({{ implode(', ', $metric->getDimensions()) }})</span>@endif</li>
-        @endforeach
-        </ul>
-    </div></div>
-    </div>
 </div>

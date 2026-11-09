@@ -1057,6 +1057,7 @@ test('a list setting is edited as items and sent as a structure', async () => {
     // Act — open, fill the first, add a second, move it up, add a filter
     p.click(toggle);
     const drawn = items().length;
+    const grid = items()[0].getAttribute('style');
     change(sub(items()[0], 'breakdown'), 'region');
     p.click(form.querySelector('[data-pf-list-add]'));
     change(sub(items()[1], 'metric'), 'buyers');
@@ -1076,8 +1077,23 @@ test('a list setting is edited as items and sent as a structure', async () => {
 
     // Assert
     assert.equal(drawn, 1, 'the saved item drawn');
+    // A fixed grid, a column a field (filters wider, the checkbox its own width), so items line up.
+    assert.ok(grid.includes('display:grid;grid-template-columns:auto minmax(6rem,1fr) minmax(6rem,1fr) minmax(12rem,2fr) auto auto auto auto'), grid);
     assert.deepEqual(kept, [{ metric: 'buyers' }, { metric: 'sales', breakdown: 'region', filters: { region: 'north' }, total: true }]);
     assert.deepEqual(p.saves[0].body.layout[0].settings.rows, [{ metric: 'sales', breakdown: 'region', filters: { region: 'north' }, total: true }], 'sent as a structure');
+});
+
+/** A board whose Customise button says so — a new, empty report — opens in Customise at once. */
+test('a board asked to open for arranging starts in Customise', () => {
+    // Arrange
+    const p = page(true, '', (el, document) => document.querySelector('[data-pf-dashboard-edit]').setAttribute('data-pf-dashboard-open', ''));
+
+    // Act — nothing: the page is loaded
+
+    // Assert
+    assert.equal(p.edit.getAttribute('aria-pressed'), 'true');
+    assert.equal(p.bar.hidden, false, 'the bar to add a card is shown');
+    assert.equal(p.tool('a', 'data-pf-widget-hide').closest('[data-pf-widget-tools]').hidden, false, 'the cards\' tools are out');
 });
 
 /** A report's section heading folds the cards under it away, up to the next section, and back. */

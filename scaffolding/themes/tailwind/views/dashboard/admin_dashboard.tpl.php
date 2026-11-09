@@ -50,7 +50,7 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
         @foreach ($this->widgets as $widget)
         @include(!empty($widget['group']) ? 'tabs' : 'card', ['widget' => $widget])
         @endforeach
-        <p class="opacity-70 pf-dashboard-full" data-pf-dashboard-empty{!! $this->widgets ? ' hidden' : '' !!}>{{ !empty($this->isReport) ? $t('This report has no cards yet: choose Customise, then add one.') : $t('Your dashboard is empty: choose Customise, then add a card.') }}</p>
+        <p class="opacity-70 pf-dashboard-full" data-pf-dashboard-empty{!! $this->widgets ? ' hidden' : '' !!}>{{ !empty($this->isReport) ? $t('This report has no cards yet: add the first with Add a card.') : $t('Your dashboard is empty: choose Customise, then add a card.') }}</p>
     </div>
     @if (!empty($this->catalogue))
     <dialog class="modal" data-pf-dashboard-catalogue-dialog aria-labelledby="pf-dashboard-catalogue-title">

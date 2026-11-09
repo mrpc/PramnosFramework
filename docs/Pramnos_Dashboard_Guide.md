@@ -433,6 +433,15 @@ A `filters` input can also be a field of a list item. The form carries each stru
 hidden input as JSON (`data-pf-json`), and `pf-utils.js` (`window.pfStructured`) draws the editor
 when the form is opened. Its controls have no `name`, so only the structure is sent.
 
+A list's items are drawn as a fixed grid, one column per field, so every item lines up however
+its values wrap. The words of a list's own fields (`label`, `blank`) go through the
+application's translation before they reach the browser, like the field's own label.
+
+The catalogue names each widget by its title with no settings, so a repeatable card is offered
+under its kind's name, not under the heading of the last card drawn. A board whose Customise
+button carries `data-pf-dashboard-open` starts in Customise. A report with no cards uses it, so
+that its owner can start adding them at once.
+
 ## Many cards of one widget
 
 A layout holds each widget once, unless the widget is **repeatable**: then each card of it

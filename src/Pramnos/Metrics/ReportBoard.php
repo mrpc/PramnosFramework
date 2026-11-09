@@ -143,8 +143,8 @@ final class ReportBoard
                 $cards[] = ['id' => 'report.section~s' . $i, 'size' => Widget::FULL, 'settings' => ['title' => $section['title']]];
             }
             if ($section['chart'] !== null && $section['rows'] !== []) {
+                // Untitled: the section's heading is drawn once, by the section above it.
                 $cards[] = ['id' => 'report.chart~c' . $i, 'size' => Widget::FULL, 'settings' => [
-                    'title'  => $section['title'],
                     'series' => array_map(static fn (array $row): array => ['label' => $row['label'], 'metric' => $row['metric'], 'filters' => $row['filters'], 'breakdown' => (string) $row['breakdown']], $section['rows']),
                     'chart'  => $section['chart'],
                 ]];

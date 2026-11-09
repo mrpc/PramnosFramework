@@ -2338,6 +2338,7 @@ a.pf-person:hover { background: var(--pf-subtle); }
 /* Metric reports: a wide table scrolls on its own, totals stand out, print leaves the controls out. */
 .pf-report-scroll { overflow-x: auto; margin-bottom: 1.5rem; }
 .pf-report td { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pf-report thead th:not(:first-child) { text-align: right; }
 .pf-report-total th, .pf-report-total td { font-weight: 600; border-top: 2px solid currentColor; }
 .pf-report-section { margin: 1.5rem 0 .5rem; font-weight: 600; }
 @media print {

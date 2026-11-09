@@ -479,12 +479,16 @@ final class Report
         $e    = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
         $t    = static fn (string $w): string => function_exists('t') ? (string) t($w) : $w;
         $span = count($table['columns']) + ($table['compare'] !== null ? 2 : 0);
+        // Values and their headings both right, inline: a theme that aligns only one of them makes
+        // every heading read as the next column's.
+        $col  = '<th scope="col" style="text-align:right">';
+        $td   = '<td style="text-align:right">';
         $head = '<th scope="col"></th>';
         foreach ($table['columns'] as $label) {
-            $head .= '<th scope="col">' . $e($label) . '</th>';
+            $head .= $col . $e($label) . '</th>';
         }
         if ($table['compare'] !== null) {
-            $head .= '<th scope="col">' . $e($table['compare']['against']) . '</th><th scope="col">' . $e($t('Change')) . '</th>';
+            $head .= $col . $e($table['compare']['against']) . '</th>' . $col . $e($t('Change')) . '</th>';
         }
         $html = '';
         foreach ($table['sections'] as $section) {
@@ -509,7 +513,7 @@ final class Report
                 }
                 foreach ($row['cells'] as $cell) {
                     if (($cell['error'] ?? null) !== null) {
-                        $body .= '<td class="pf-muted" title="' . $e($cell['error']) . '">—</td>';
+                        $body .= '<td class="pf-muted" style="text-align:right" title="' . $e($cell['error']) . '">—</td>';
                         continue;
                     }
                     $text = $e(self::number($cell['value'], $row['unit']));
@@ -517,17 +521,17 @@ final class Report
                         $query = http_build_query(['metric' => $cell['link']['metric'], 'grain' => $cell['link']['grain'], 'period' => $cell['link']['period'], 'f' => $cell['link']['filters']]);
                         $text  = '<a href="' . $e($rowsUrl . (str_contains($rowsUrl, '?') ? '&' : '?') . $query) . '">' . $text . '</a>';
                     }
-                    $body .= '<td>' . $text . '</td>';
+                    $body .= $td . $text . '</td>';
                 }
                 if ($table['compare'] !== null) {
-                    $body .= '<td>' . $e(self::number($row['other'], $row['unit'])) . '</td><td>' . $e($row['change'] === null ? '—' : sprintf('%+.1f%%', $row['change'] * 100)) . '</td>';
+                    $body .= $td . $e(self::number($row['other'], $row['unit'])) . '</td>' . $td . $e($row['change'] === null ? '—' : sprintf('%+.1f%%', $row['change'] * 100)) . '</td>';
                 }
                 $body .= '</tr>';
             }
             if ($section['total'] !== null) {
                 $body .= '<tr class="pf-report-total"><th scope="row">' . $e($t('Total')) . '</th>';
                 foreach ($section['total'] as $cell) {
-                    $body .= '<td>' . $e(self::number($cell, '')) . '</td>';
+                    $body .= $td . $e(self::number($cell, '')) . '</td>';
                 }
                 $body .= ($table['compare'] !== null ? '<td></td><td></td>' : '') . '</tr>';
             }

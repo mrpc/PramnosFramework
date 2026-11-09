@@ -20,7 +20,7 @@ $query = fn (string $at): string => '?report=' . rawurlencode($this->entry['id']
             <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['csv'] . $query($this->at) }}">CSV</a>
             <button type="button" class="pf-btn pf-btn-ghost pf-btn-sm" data-pf-print>{{ t('Print or save as PDF') }}</button>
             @if ($this->mine)
-            <button type="button" class="pf-btn pf-btn-ghost pf-btn-sm" data-pf-dashboard-edit aria-pressed="false">{{ t('Customise') }}</button>
+            <button type="button" class="pf-btn pf-btn-ghost pf-btn-sm" data-pf-dashboard-edit{!! $this->customise ? " data-pf-dashboard-open" : "" !!} aria-pressed="false">{{ t('Customise') }}</button>
             <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['edit'] . '?report=' . rawurlencode($this->entry['id']) }}">{{ t('Settings') }}</a>
             @else
             <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['edit'] . '?copy=' . rawurlencode($this->entry['id']) }}">{{ t('Copy') }}</a>

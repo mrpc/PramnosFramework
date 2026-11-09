@@ -100,13 +100,13 @@ class ChartWidget extends TableWidget
         $e    = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
         $html = '<div class="pf-report-scroll"><table class="pf-report table table-sm"><thead><tr><th scope="col"></th>';
         foreach ($labels as $label) {
-            $html .= '<th scope="col">' . $e($label) . '</th>';
+            $html .= '<th scope="col" style="text-align:right">' . $e($label) . '</th>';
         }
         $html .= '</tr></thead><tbody>';
         foreach ($sets as $set) {
             $html .= '<tr><th scope="row">' . $e($set['label']) . '</th>';
             foreach ($set['data'] as $value) {
-                $html .= '<td>' . ($value === null ? '—' : $e(rtrim(rtrim(number_format((float) $value, 2, ',', '.'), '0'), ','))) . '</td>';
+                $html .= '<td style="text-align:right">' . ($value === null ? '—' : $e(rtrim(rtrim(number_format((float) $value, 2, ',', '.'), '0'), ','))) . '</td>';
             }
             $html .= '</tr>';
         }

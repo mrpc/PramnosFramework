@@ -179,7 +179,7 @@ class ReportsMySQLTest extends TestCase
         $this->assertStringContainsString('+500.0%', $html);
         $this->assertStringContainsString('1 rows are not shown', $html);
         $this->assertStringContainsString('class="pf-report-total"', $html);
-        $this->assertMatchesRegularExpression('/<td class="pf-muted" title="Metric test.buyers is not broken down by customer.">—<\/td>/', $html);
+        $this->assertMatchesRegularExpression('/<td class="pf-muted" style="text-align:right" title="Metric test.buyers is not broken down by customer.">—<\/td>/', $html);
         $this->assertStringStartsWith("section,row,All,\"North new\",\"North returning\",Buyers,August,2026-08,change\n", $csv);
         $this->assertStringContainsString("Sales,Sales,6,3,2,4,1,1,5\n", $csv);
         $this->assertStringContainsString('Sales,"By plan","Metric test.buyers is not broken down by plan."', $csv);
@@ -396,12 +396,20 @@ class ReportsMySQLTest extends TestCase
         $pages['rows'] = (array) $screen->view;
         $this->request('GET', null, ['metric' => 'test.buyers']);
         $screen->rows();
+        $blankId = (new Reports())->save(self::reader(98, 2), ['name' => 'Test blank', 'sections' => []]);
+        $this->request('GET', null, ['report' => (string) $blankId]);
+        $screen->show();
+        $pages['blank'] = (array) $screen->view;
+        (new Reports())->delete($blankId, self::reader(98, 2));
 
         // Assert
         $this->assertSame(['Test screen', 'Test theirs'], array_column($pages['metricreports']['reports'], 'name'));
         $this->assertSame('2026-09', $pages['report']['period']);
         $this->assertSame(['2026-08-01', '2026-10-01'], [$pages['report']['previous'], $pages['report']['next']]);
         $this->assertTrue($pages['report']['mine']);
+        $this->assertFalse($pages['report']['customise'], 'a report with cards opens to be read');
+        $this->assertTrue($pages['blank']['customise'], 'a new report of one\'s own, with no cards, opens in Customise');
+        unset($pages['blank']);
         $this->assertStringContainsString('MetricReports/rows?metric=test.sales', $pages['report']['body']);
         // The report's cards: a section is a line, not a card; a card is headed by nothing rather
         // than by its kind's name.
@@ -409,6 +417,8 @@ class ReportsMySQLTest extends TestCase
         $this->assertStringContainsString('data-pf-report-section', $pages['report']['body']);
         $this->assertStringNotContainsString('<h3 class="h6 mb-0">Table of metrics', $pages['report']['body']);
         $this->assertStringNotContainsString('data-pf-dashboard-edit', $pages['report']['body'], 'Customise is in the report\'s own bar');
+        // The catalogue names the kind of card — not the heading of the last section drawn.
+        $this->assertMatchesRegularExpression('~data-pf-dashboard-option="report\\.section".{0,400}?>Section<~s', $pages['report']['body']);
         $this->assertSame("\xEF\xBB\xBFsection,row,2026-08,2026-09\nS,Sales,1,6\n", (string) $csv->getBody());
         $this->assertStringContainsString('Test-screen-2026-09.csv', $csv->getHeaderLine('Content-Disposition'));
         $this->assertSame([['order' => 1, 'region' => 'north']], $pages['rows']['rows']);
@@ -475,6 +485,13 @@ class ReportsMySQLTest extends TestCase
             $this->assertMatchesRegularExpression('~name="sections"[^>]*>\# S\ntest\.sales\n</textarea>~', $form, $theme . ': own sections');
             $this->assertStringContainsString('name="name" value=""', $blank, $theme . ': a new report has no name');
             $this->assertStringNotContainsString('Array', $blank, $theme . ': no array printed');
+            // The text is for the advanced: folded away on a new report, open on one written as text.
+            $this->assertStringContainsString('<details class="pf-field">', $blank, $theme . ': the syntax folded on a new report');
+            $this->assertStringContainsString('<details class="pf-field" open>', $form, $theme . ': open where the report is text');
+            // A report with no cards opens in Customise; one with cards does not.
+            $empty = $this->renderTemplate($theme, 'metricreports/report.tpl.php', ['customise' => true] + $pages['report']);
+            $this->assertStringContainsString('data-pf-dashboard-open', $empty, $theme . ': an empty report opens to be arranged');
+            $this->assertStringNotContainsString('data-pf-dashboard-open', $this->renderTemplate($theme, 'metricreports/report.tpl.php', $pages['report']), $theme);
         }
 
         // Act — below the floor, every action stops; a delete of nothing says so
@@ -544,7 +561,7 @@ class ReportsMySQLTest extends TestCase
 
         // Assert — the cards in order, each for September
         $this->assertStringContainsString('<h2 style="margin:24px 0 8px">Selling</h2>', $mail);
-        $this->assertStringContainsString('<th scope="col">2026-08</th><th scope="col">2026-09</th>', $mail, 'two months');
+        $this->assertStringContainsString('<th scope="col" style="text-align:right">2026-08</th><th scope="col" style="text-align:right">2026-09</th>', $mail, 'two months');
         $this->assertStringContainsString('src="cid:chart-1.png"', $mail, 'the chart as an image');
         $this->assertSame(['chart-1.png'], array_keys($images));
         $this->assertStringStartsWith("\x89PNG", $images['chart-1.png']);
@@ -606,9 +623,9 @@ class ReportsMySQLTest extends TestCase
         $png = \Pramnos\Metrics\ChartImage::png('line', ['a'], [['label' => 'A', 'data' => [1.0]]]);
 
         // Assert
-        $this->assertStringContainsString('<th scope="col">North</th><th scope="col">Total</th>', $html, 'a dimension\'s value, and the total');
-        $this->assertStringContainsString('<th scope="col">South</th><th scope="col">Before</th>', $html, 'columns of its own');
-        $this->assertMatchesRegularExpression('~region%5D=south">1</a></td><td><a href="[^"]*period=2026-08-01">1</a>~', $html, 'September\'s south (1), August\'s total (1)');
+        $this->assertStringContainsString('<th scope="col" style="text-align:right">North</th><th scope="col" style="text-align:right">Total</th>', $html, 'a dimension\'s value, and the total');
+        $this->assertStringContainsString('<th scope="col" style="text-align:right">South</th><th scope="col" style="text-align:right">Before</th>', $html, 'columns of its own');
+        $this->assertMatchesRegularExpression('~region%5D=south">1</a></td><td style="text-align:right"><a href="[^"]*period=2026-08-01">1</a>~', $html, 'September\'s south (1), August\'s total (1)');
         $this->assertStringContainsString('Add a row: choose a metric', $html);
         $this->assertStringContainsString('Add a series: choose a metric', $html);
         $this->assertStringContainsString('Plain', $html);
@@ -654,6 +671,7 @@ class ReportsMySQLTest extends TestCase
 
         // Assert
         $this->assertSame(['report.section~s0', 'report.chart~c0', 'report.table~t0'], array_column($read, 'id'));
+        $this->assertArrayNotHasKey('title', $read[1]['settings'], 'the chart is not headed again by its section\'s heading');
         $this->assertSame(['report.kpi~a1', 'report.text~b2'], array_column($kept, 'id'));
         $this->assertSame(['report.kpi~a1', 'report.text~b2'], array_column($seen, 'id'), 'the same for everybody');
         $this->assertSame([], (new Reports())->find((string) $id, self::reader())['report']->definition['sections'], 'the cards replace the sections');

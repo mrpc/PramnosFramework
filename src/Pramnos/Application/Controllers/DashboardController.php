@@ -140,13 +140,16 @@ class DashboardController extends Controller
         }
         $view->widgets    = $drawn;
         $placed           = array_column(\Pramnos\Dashboard\Layouts::cards($layout), 'id');
-        $view->addable    = array_map(static fn ($w) => $w->title(), array_diff_key($widgets, array_flip($placed)));
+        // A catalogue names a kind of card: the widget unconfigured, since drawing the board left the
+        // last card's settings on a repeatable one — a report's section would be offered as its heading.
+        $kind             = static fn (\Pramnos\Dashboard\Widget $w): string => (clone $w)->configure([])->title();
+        $view->addable    = array_map($kind, array_diff_key($widgets, array_flip($placed)));
         // Every card this person may have, with what it shows and whether it is on the board: a
         // catalogue to search, which shows a card again once it is hidden.
         $catalogue = [];
         foreach ($widgets as $id => $widget) {
             // A widget a board has many cards of stays on offer once placed.
-            $catalogue[$id] = ['title' => $widget->title(), 'description' => $widget->description(), 'placed' => !$widget->repeatable() && in_array($id, $placed, true), 'repeatable' => $widget->repeatable()];
+            $catalogue[$id] = ['title' => $kind($widget), 'description' => $widget->description(), 'placed' => !$widget->repeatable() && in_array($id, $placed, true), 'repeatable' => $widget->repeatable()];
         }
         $view->catalogue  = $catalogue;
         $view->board      = $board;
@@ -787,8 +790,17 @@ class DashboardController extends Controller
         foreach ($widget->options() as $name => $allowed) {
             $field          = \Pramnos\Dashboard\Widget::field($allowed);
             $options[$name] = $field['clean'] !== null ? null : $field['values'];
+            $extra          = $field['extra'];
+            // A list's own fields are drawn by the browser from this: their words go translated.
+            foreach ((array) ($extra['fields'] ?? []) as $key => $sub) {
+                foreach (['label', 'blank'] as $word) {
+                    if (is_string($sub[$word] ?? null)) {
+                        $extra['fields'][$key][$word] = \Pramnos\Dashboard\Widgets\Figures::words($sub[$word]);
+                    }
+                }
+            }
             $fields[$name]  = ['input' => $field['input'], 'label' => $field['label'] ?? ucfirst(str_replace('_', ' ', (string) $name)),
-                'values' => $field['values'], 'when' => $field['when']] + $field['extra'];
+                'values' => $field['values'], 'when' => $field['when']] + $extra;
         }
 
         return [

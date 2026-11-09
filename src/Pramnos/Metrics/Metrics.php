@@ -290,7 +290,7 @@ final class Metrics
     {
         $dims = array_map('strval', $dims);
         ksort($dims);
-        $json = (string) json_encode((object) $dims, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $json = (string) json_encode((object) $dims, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
 
         return [
             'metric'       => $metric,

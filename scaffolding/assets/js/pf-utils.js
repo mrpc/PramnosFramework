@@ -2320,18 +2320,26 @@
         function list(box, spec, value, ui, changed) {
             var items = Array.isArray(value) ? value.map(function (v) { return v && typeof v === 'object' ? v : {}; }) : [];
             var fields = spec.fields || {};
+            var columns = ['auto'].concat(Object.keys(fields).map(function (key) {
+                var kind = fields[key].input;
+                return kind === 'checkbox' ? 'auto' : (kind === 'filters' ? 'minmax(12rem,2fr)' : 'minmax(6rem,1fr)');
+            }), ['auto', 'auto', 'auto']).join(' ');
             var dragged = null;
+            box.style.overflowX = 'auto';
             function write() { changed(items); }
             function draw() {
                 box.textContent = '';
                 items.forEach(function (item, i) {
-                    var row = make('div', { 'data-pf-list-item': String(i), draggable: 'true', style: 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:4px 0;border-bottom:1px solid rgba(127,127,127,.2)' });
+                    // A fixed grid, one column a field, so every item lines up and none wraps differently.
+                    var row = make('div', { 'data-pf-list-item': String(i), draggable: 'true', style: 'display:grid;grid-template-columns:' + columns + ';gap:4px 8px;align-items:end;padding:4px 0;border-bottom:1px solid rgba(127,127,127,.2);min-width:' + (Object.keys(fields).length * 7 + 6) + 'rem' });
                     row.appendChild(make('span', { 'aria-hidden': 'true', title: ui.say.move, style: 'cursor:grab' }, '⠿'));
                     Object.keys(fields).forEach(function (key) {
                         var sub = fields[key];
                         var label = make('label', { style: 'display:flex;flex-direction:column;font-size:.85em' }, sub.label || key);
                         if (sub.input === 'filters') { label = make('div', { style: 'display:flex;flex-direction:column;font-size:.85em' }, sub.label || key); }
-                        label.appendChild(control(sub, item, key, ui, draw, write));
+                        var input = control(sub, item, key, ui, draw, write);
+                        if (sub.input !== 'checkbox' && input.style) { input.style.width = '100%'; input.style.minWidth = '0'; }
+                        label.appendChild(input);
                         row.appendChild(label);
                     });
                     [['↑', -1], ['↓', 1]].forEach(function (m) {
@@ -2557,6 +2565,8 @@
         }
 
         if (editButton) { editButton.addEventListener('click', function () { setEditing(!editing); }); }
+        // A board opened to be arranged — a new report, still empty — starts in Customise.
+        if (editButton && editButton.hasAttribute('data-pf-dashboard-open')) { setEditing(true); }
         var done = document.querySelector('[data-pf-dashboard-done]');
         if (done) { done.addEventListener('click', function () { setEditing(false); if (editButton && editButton.focus) { editButton.focus(); } }); }
 
