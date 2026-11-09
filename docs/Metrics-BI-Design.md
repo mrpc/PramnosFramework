@@ -395,7 +395,10 @@ Where the extension is present, and with no declaration from the application:
 - **The Toolkit**, where it is installed (§1.1):
   - `hyperloglog` sketches let a DISTINCT metric roll up from days to months without the raw
     events, within a stated error. A metric that must be exact declares `->exact()` and keeps
-    being counted from its source at every grain;
+    being counted from its source at every grain. **A figure read as an accounting number is
+    exact**: paying customers, new customers, anything set beside invoices or another ledger.
+    Sketches are for counts over large event tables (visits, readings, actions), where ±3 % is
+    the answer;
   - `uddsketch` / `percentile_agg` give percentiles that roll up;
   - `counter_agg` is the increase of a cumulative meter with resets (`counter()`, `delta()`);
   - `time_weight` gives time-weighted averages of a gauge;
@@ -476,7 +479,8 @@ monthly one rolled up from it.
 
 **4096 buckets is the default.** 32 768 buckets cuts the error below 1.5 % but its rollup is
 erratic: 1.4 ms for a month at 2 M people, 1.1–1.4 s at 400 k, reproduced twice — the sketch's
-sparse form merges slowly. A metric that needs better than ±3 % declares `->exact()`.
+sparse form merges slowly. A metric that needs better than ±3 %, and every figure compared with a
+ledger (§5.3), declares `->exact()`.
 
 #### Real data — a marketplace's paid invoices and registrations
 
