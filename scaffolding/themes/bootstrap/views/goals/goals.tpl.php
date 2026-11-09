@@ -16,7 +16,7 @@ $goal = $this->editing;
         @foreach ($this->goals as $row)
         @php $state = $states[$row['judged']['state'] ?? 'unknown'] ?? $states['unknown']; @endphp
         <tr data-pf-goal="{{ $row['goal']['id'] }}">
-            <td>{{ t($row['label']) }}@if ($row['goal']['note'] !== '')<br><span class="pf-muted">{{ $row['goal']['note'] }}</span>@endif</td>
+            <td>{{ t($row['label']) }}@if (($row['on'] ?? '') !== '') <span class="pf-muted">· {{ $row['on'] }}</span>@endif @if ($row['goal']['note'] !== '')<br><span class="pf-muted">{{ $row['goal']['note'] }}</span>@endif</td>
             <td><span class="pf-badge {{ $state[0] }}">{{ $state[1] }}</span></td>
             <td>{{ $row['judged']['says'] ?? '' }}</td>
             <td>
@@ -56,6 +56,18 @@ $goal = $this->editing;
             <div class="pf-field"><label class="pf-label" for="pf-goal-due">{{ t('By') }}</label>
                 <input id="pf-goal-due" type="date" name="due" value="{{ isset($goal['due_at']) ? date('Y-m-d', $goal['due_at']) : '' }}" class="pf-input"></div>
         </div>
+        {{-- A select per dimension of each metric, the chosen metric's shown: the goal for those values only. --}}
+        @php $chosen = $goal !== null ? $goal['metric'] : ($this->metrics[0]['name'] ?? ''); @endphp
+        @foreach ($this->metrics as $m)
+        @if (!empty($m['dims']))
+        <div class="pf-grid-2" data-pf-goal-dims="{{ $m['name'] }}"{!! $m['name'] === $chosen ? '' : ' hidden' !!}>
+            @foreach ($m['dims'] as $dim => $d)
+            <div class="pf-field"><label class="pf-label">{{ t($d['label']) }}</label>
+                <select name="filters[{{ $m['name'] }}][{{ $dim }}]" class="pf-select"{{ $goal !== null ? ' disabled' : '' }}><option value="">{{ t('All') }}</option>@foreach ($d['values'] as $value => $label)<option value="{{ $value }}"{{ (string) ($goal['filters'][$dim] ?? '') === (string) $value ? ' selected' : '' }}>{{ t($label) }}</option>@endforeach</select></div>
+            @endforeach
+        </div>
+        @endif
+        @endforeach
         <div class="pf-field"><label class="pf-label" for="pf-goal-note">{{ t('Note') }}</label>
             <input id="pf-goal-note" type="text" name="note" maxlength="255" value="{{ $goal['note'] ?? '' }}" class="pf-input"></div>
         <p class="pf-hint" data-pf-goal-preview aria-live="polite"></p>
@@ -102,6 +114,10 @@ $goal = $this->editing;
             line.textContent = '';
         }
     };
+    // Only the chosen metric's dimensions are shown.
+    const metric = form.querySelector('select[name="metric"]');
+    const dims = () => form.querySelectorAll('[data-pf-goal-dims]').forEach((block) => { block.hidden = block.dataset.pfGoalDims !== metric.value; });
+    metric.addEventListener('change', dims);
     form.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(ask, 300); });
     ask();
 })();

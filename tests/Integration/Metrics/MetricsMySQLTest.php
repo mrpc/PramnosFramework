@@ -1822,7 +1822,9 @@ class MetricsMySQLTest extends TestCase
         $this->clearRequest();
         $this->signIn(98, 2);
         $screen = $this->screen(\Pramnos\Application\Controllers\Goals::class);
-        $form   = ['metric' => 'test.orders', 'kind' => '', 'target' => '10', 'repeats' => 'month', 'starts' => '', 'due' => '', 'note' => 'Ten a month'];
+        Metrics::dimension(\Pramnos\Metrics\Dimension::of('region', 'Region')->values(['north' => 'North', 'south' => 'South']));
+        $form   = ['metric' => 'test.orders', 'kind' => '', 'target' => '10', 'repeats' => 'month', 'starts' => '', 'due' => '', 'note' => 'Ten a month',
+            'filters' => ['test.orders' => ['region' => 'north'], 'test.customers' => ['region' => 'south']]];
 
         try {
             // Act — add, refuse, list, open to change, change
@@ -1830,6 +1832,8 @@ class MetricsMySQLTest extends TestCase
             $screen->save();
             $this->request('POST', null, [], ['metric' => 'test.nothing'] + $form);
             $screen->save();
+            $this->request('POST', null, [], ['target' => '5', 'filters' => ['test.orders' => ['region' => 'east']]] + $form);
+            $bogus = json_decode((string) $screen->preview()->getBody(), true);
             $this->request('GET');
             $screen->display();
             $list = (array) $screen->view;
@@ -1855,6 +1859,9 @@ class MetricsMySQLTest extends TestCase
             $this->assertSame([['message', 'Saved.'], ['error', 'There is no such metric.'], ['message', 'Saved.'], ['message', 'Deleted.'], ['error', 'There is no such goal.']], $screen->flash);
             $this->assertCount(1, $list['goals'], 'the refused one was not kept');
             $this->assertSame('Orders', $list['goals'][0]['label']);
+            $this->assertSame(['region' => 'north'], $list['goals'][0]['goal']['filters'], 'the chosen metric\'s dimension value; another metric\'s ignored');
+            $this->assertSame('North', $list['goals'][0]['on'], 'named in the list');
+            $this->assertSame(['North', 'South'], array_values(array_column($list['metrics'], 'dims', 'name')['test.orders']['region']['values']), 'a select per dimension');
             $this->assertArrayHasKey('history', $list['goals'][0]['judged'], 'a recurring goal, judged with its past periods');
             $this->assertNull($list['editing']);
             $this->assertSame($id, $open['editing']['id'], 'opened to change');
@@ -1863,6 +1870,7 @@ class MetricsMySQLTest extends TestCase
             $this->assertArrayHasKey('last', $bare, 'but the last period\'s figure');
             $this->assertNotSame('', $typed['says'], 'a target typed: its sentence');
             $this->assertSame(422, $wrong->getStatusCode(), 'a target below nought refused');
+            $this->assertArrayNotHasKey('error', $bogus, 'a value the dimension does not have: left out, the goal for every region');
             $this->assertStringContainsString('Orders', $card);
             $this->assertStringContainsString('Choose a metric', $missing, 'a goal not theirs is not kept in the card\'s settings');
             foreach (['bootstrap', 'plain-css', 'tailwind'] as $theme) {
@@ -1873,6 +1881,7 @@ class MetricsMySQLTest extends TestCase
                     $this->assertStringNotContainsString('{{', $html, $theme . '/' . $which . ': compiled');
                 }
                 $this->assertStringContainsString('name="goalid" value="' . $id . '"', $this->render($theme, 'goals/goals.tpl.php', $open), $theme . ': the form changes that goal');
+                $this->assertStringContainsString('name="filters[test.orders][region]"', $this->render($theme, 'goals/goals.tpl.php', $list), $theme . ': a select per dimension');
             }
         } finally {
             $this->clearRequest();

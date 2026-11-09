@@ -55,14 +55,15 @@ class Goals extends Controller
             } catch (\Throwable $e) {
                 $judged = ['state' => 'unknown', 'says' => $e->getMessage()];
             }
-            $goals[] = ['goal' => $goal, 'label' => Metrics::get($goal['metric'])->label(), 'judged' => $judged];
+            $on = array_map(static fn ($d, $v): string => Metrics::dimensionOf((string) $d)->labelOf((string) $v), array_keys($goal['filters']), $goal['filters']);
+            $goals[] = ['goal' => $goal, 'label' => Metrics::get($goal['metric'])->label(), 'on' => implode(', ', $on), 'judged' => $judged];
         }
         $editing = (int) ($_GET['goal'] ?? 0);
         $view               = $this->getView('goals', 'tpl');
         $view->goals        = $goals;
         $view->editing      = array_values(array_filter($goals, static fn (array $g): bool => $g['goal']['id'] === $editing))[0]['goal'] ?? null;
-        $view->metrics      = array_map(static fn ($m): array => ['name' => $m->name, 'label' => $m->label(), 'level' => $m->kind === \Pramnos\Metrics\Metric::LEVEL],
-            array_values(Metrics::all($user, false)));
+        $view->metrics      = array_map(static fn ($m): array => ['name' => $m->name, 'label' => $m->label(), 'level' => $m->kind === \Pramnos\Metrics\Metric::LEVEL,
+            'dims' => self::dimensions($m, $user)], array_values(Metrics::all($user, false)));
         $view->kinds        = ['total' => GoalJudge::KINDS_TOTAL, 'level' => GoalJudge::KINDS_LEVEL];
         $tenants            = Metrics::tenantsOf($user);
         $view->achievements = $tenants === null || count($tenants) === 1 ? Achievements::list($tenants[0] ?? null, 20) : [];
@@ -103,9 +104,12 @@ class Goals extends Controller
             $goal = $this->posted();
             if ($id > 0) {
                 $this->readable($id);
-                unset($goal['metric']);   // its metric, organisation and dimension values stay
+                unset($goal['metric'], $goal['filters']);   // its metric, organisation and dimension values stay
                 Store::update($id, $goal);
             } else {
+                if (!Metrics::withinScope((string) ($goal['metric'] ?? ''), $goal['filters'] ?? [], $user)) {
+                    throw new \DomainException(t('Those figures are not yours to set a goal on.'));
+                }
                 Store::create($goal + ['tenant' => $this->tenant($user), 'owner' => (int) $user->userid, 'by' => (int) $user->userid]);
             }
         } catch (\InvalidArgumentException|\DomainException $e) {
@@ -187,12 +191,43 @@ class Goals extends Controller
         if (isset($goal['metric']) && !isset(Metrics::all($this->user(), false)[$goal['metric']])) {
             throw new \DomainException(t('There is no such metric.'));
         }
+        // Dimension values chosen: only the chosen metric's, only values its dimension has.
+        $metric = isset($goal['metric']) ? Metrics::get($goal['metric']) : null;
+        $filters = [];
+        foreach ((array) ($_POST['filters'][$goal['metric'] ?? ''] ?? []) as $dimension => $value) {
+            $known = $metric !== null ? (self::dimensions($metric, $this->user())[(string) $dimension]['values'] ?? []) : [];
+            if (is_string($value) && $value !== '' && isset($known[$value])) {
+                $filters[(string) $dimension] = $value;
+            }
+        }
+        if ($filters !== []) {
+            $goal['filters'] = $filters;
+        }
         // A recurring goal has no due date, a one-off one no period: the form shows both.
         if (($goal['repeats'] ?? '') !== '') {
             unset($goal['due'], $goal['starts']);
         }
 
         return $goal;
+    }
+
+    /**
+     * The dimensions of a metric a goal can be narrowed by: those the person may read, with listed values.
+     *
+     * @return array<string, array{label: string, values: array<string, string>}>
+     */
+    private static function dimensions(\Pramnos\Metrics\Metric $metric, object $user): array
+    {
+        $out = [];
+        foreach ($metric->getDimensions() as $name) {
+            $dimension = Metrics::dimensionOf($name);
+            $values    = $dimension->allows($user) ? $dimension->all() : [];
+            if ($values !== []) {
+                $out[$name] = ['label' => $dimension->label, 'values' => $values];
+            }
+        }
+
+        return $out;
     }
 
     /** @throws \DomainException For a goal that is not there, or not the person's to read */
