@@ -82,6 +82,31 @@ class ReportTest extends TestCase
         $this->assertStringContainsString("# Sales [chart=bar] [total]\nNorth | orders.count | region=north, plan=basic;pro", $again);
     }
 
+    /**
+     * Greek text survives being split into lines. `\R` without `/u` also matches the byte 0x85,
+     * which is the second byte of «υ» (cf 85) and of other Greek letters, so every «υ» was cut in
+     * half: the report's definition then held invalid UTF-8, `json_encode` failed, and a copied
+     * report was saved with an empty definition.
+     */
+    public function testGreekTextKeepsItsLetters(): void
+    {
+        // Arrange — «υ» and «ύ» both carry 0x85 in their UTF-8 bytes
+        $sections = "# Πληρωμές ανά πακέτο\nΑιτήματα που στάλθηκαν | requests.sent | χώρα=Κύπρος\n";
+        $columns  = "Όλοι\nΠέρυσι | | orders.count | -12\n";
+
+        // Act
+        $read    = Report::sectionsFromText($sections);
+        $columns = Report::columnsFromText($columns);
+
+        // Assert
+        $this->assertSame('Πληρωμές ανά πακέτο', $read[0]['title']);
+        $this->assertSame('Αιτήματα που στάλθηκαν', $read[0]['rows'][0]['label']);
+        $this->assertSame(['χώρα' => 'Κύπρος'], $read[0]['rows'][0]['filters']);
+        $this->assertSame(['Όλοι', 'Πέρυσι'], array_column($columns, 'label'));
+        // The whole definition encodes: what the store writes is never silently empty.
+        $this->assertJson(json_encode(Report::fromArray(['sections' => $read, 'columns' => $columns])->definition, JSON_THROW_ON_ERROR));
+    }
+
     /** Columns as text: empty, the two shorthands, specs — each written back the same. */
     public function testColumnsAsText(): void
     {

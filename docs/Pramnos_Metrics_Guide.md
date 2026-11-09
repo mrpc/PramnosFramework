@@ -242,6 +242,8 @@ many cards of each kind as it wants (`Widget::repeatable()`, see the Dashboard g
 - **Where the cards are kept:** in the report's definition, as `layout`, in the shape the
   dashboard keeps a layout. A report's board is `report:<id>` (`Pramnos\Metrics\ReportBoard`), served by
   the dashboard controller like any other board.
+  `Reports::save()` and `saveLayout()` throw a `JsonException` when a definition does not encode
+  (invalid UTF-8 in a name or a label), rather than storing an empty one.
 - **The period:** every card reads the report's grain, period, comparison and columns
   (`ReportBoard::context()`), so moving to the previous month redraws them all for it.
 - **Cards of an application's own:** a widget whose `boards()` names `report` is offered on

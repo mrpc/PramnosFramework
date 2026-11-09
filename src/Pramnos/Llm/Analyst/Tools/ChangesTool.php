@@ -87,7 +87,7 @@ final class ChangesTool extends AdminTool
         $changes = [];
         foreach (array_filter(explode("\x1e", $out), static fn (string $c): bool => trim($c) !== '') as $chunk) {
             [$date, $subject, $rest] = array_pad(explode("\x1f", $chunk, 3), 3, '');
-            $lines = preg_split('/\R/', (string) $rest) ?: [];
+            $lines = preg_split('/\r\n|\r|\n/', (string) $rest) ?: [];
             // %b's body comes first, then the file names --name-only adds after a blank line.
             $files = array_values(array_filter(array_map('trim', $lines), static fn (string $l): bool => $l !== '' && preg_match('/^[\w.\-\/]+$/', $l) === 1));
             $body  = trim(implode("\n", array_diff(array_map('trim', $lines), $files)));

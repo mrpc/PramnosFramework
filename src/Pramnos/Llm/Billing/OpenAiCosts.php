@@ -54,7 +54,7 @@ final class OpenAiCosts
     {
         $out = [];
 
-        foreach (preg_split('/\R/', $text ?? (string) Settings::getSetting(self::TOPUPS, '')) ?: [] as $line) {
+        foreach (preg_split('/\r\n|\r|\n/', $text ?? (string) Settings::getSetting(self::TOPUPS, '')) ?: [] as $line) {
             if (preg_match('/^\s*(\d{4}-\d{2}-\d{2})\s+\$?\s*(\d+(?:\.\d+)?)\s*$/', $line, $m) === 1 && strtotime($m[1] . ' UTC') !== false) {
                 $out[] = ['date' => $m[1], 'usd' => (float) $m[2]];
             }

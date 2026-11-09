@@ -440,8 +440,8 @@ class PramnosCheckTool implements McpToolInterface
         // Suppressions are read from the **original** lines, because a suppression *is* a
         // comment. Blanking first and then looking for it — which is what the first version of
         // this method did — silences nothing and fails its own tests.
-        $raw  = preg_split('/\R/', $contents) ?: [];
-        $code = preg_split('/\R/', $this->blankComments($path, $contents)) ?: [];
+        $raw  = preg_split('/\r\n|\r|\n/', $contents) ?: [];
+        $code = preg_split('/\r\n|\r|\n/', $this->blankComments($path, $contents)) ?: [];
 
         foreach ($code as $index => $line) {
             $number      = $index + 1;

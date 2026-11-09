@@ -253,7 +253,7 @@ final class SchemaDiff
         $rows   = self::rows($db, 'SHOW CREATE TABLE `' . str_replace('`', '``', $table) . '`');
         $create = (string) (array_values($rows[0] ?? [])[1] ?? '');
         $quoted = '`' . str_replace('`', '``', $table) . '`';
-        foreach (preg_split('/\R/', $create) ?: [] as $line) {
+        foreach (preg_split('/\r\n|\r|\n/', $create) ?: [] as $line) {
             $line = rtrim(trim($line), ',');
             if (preg_match('/^`((?:[^`]|``)+)`\s/', $line, $m) === 1 && isset($shape['columns'][str_replace('``', '`', $m[1])])) {
                 $shape['columns'][str_replace('``', '`', $m[1])]['definition'] = 'ALTER TABLE ' . $quoted . ' ADD COLUMN ' . $line;

@@ -111,7 +111,7 @@ final class Reports
         }
         $values = [
             'name'       => $name,
-            'definition' => (string) json_encode($report->definition, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'definition' => json_encode($report->definition, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
             'visibility' => $visibility,
             'audience'   => Presets::audience($visibility, $audience),
             'schedule'   => $schedule,
@@ -149,7 +149,7 @@ final class Reports
         $definition['layout']   = $layout;
         $definition['sections'] = [];
         $this->db()->queryBuilder()->table(self::TABLE)->where('reportid', $id)->update([
-            'definition' => (string) json_encode(Report::fromArray($definition)->definition, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'definition' => json_encode(Report::fromArray($definition)->definition, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
             'updated_at' => time(),
         ]);
     }

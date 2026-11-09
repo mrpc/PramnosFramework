@@ -159,7 +159,7 @@ final class Report
     public static function sectionsFromText(string $text): array
     {
         $sections = [];
-        foreach (preg_split('/\R/', $text) ?: [] as $line) {
+        foreach (preg_split('/\r\n|\r|\n/', $text) ?: [] as $line) {
             $line = trim($line);
             if ($line === '') {
                 continue;
@@ -199,7 +199,7 @@ final class Report
      */
     public static function columnsFromText(string $text): array
     {
-        $lines = array_values(array_filter(array_map('trim', preg_split('/\R/', $text) ?: []), static fn (string $l): bool => $l !== ''));
+        $lines = array_values(array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', $text) ?: []), static fn (string $l): bool => $l !== ''));
         if ($lines === []) {
             return ['periods' => 1];
         }

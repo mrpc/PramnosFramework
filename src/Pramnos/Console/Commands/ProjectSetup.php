@@ -180,7 +180,7 @@ class ProjectSetup extends Command
             return false;
         }
 
-        $lines = preg_split('/\R/', (string) file_get_contents($examplePath)) ?: [];
+        $lines = preg_split('/\r\n|\r|\n/', (string) file_get_contents($examplePath)) ?: [];
         $ids   = Init::hostUserIds();
 
         // Asked once, up front, rather than per blank key: a prompt in the middle of a

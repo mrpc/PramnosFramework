@@ -1068,7 +1068,7 @@ class AiController extends Controller
         }
 
         $topups = trim((string) ($input['topups'] ?? ''));
-        $lines  = array_filter(preg_split('/\R/', $topups) ?: [], static fn (string $l): bool => trim($l) !== '');
+        $lines  = array_filter(preg_split('/\r\n|\r|\n/', $topups) ?: [], static fn (string $l): bool => trim($l) !== '');
 
         if (count(OpenAiCosts::topups($topups)) !== count($lines)) {
             return 'Each top-up is a date and an amount on its own line: 2026-10-01 50';

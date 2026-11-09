@@ -355,15 +355,15 @@ class FrameworkDocsTool implements McpToolInterface
      */
     private function useCases(string $raw): array
     {
-        if (!preg_match('/^---\R(.*?)\R---/s', $raw, $frontmatter)) {
+        if (!preg_match('/^---(?:\r\n|\r|\n)(.*?)(?:\r\n|\r|\n)---/s', $raw, $frontmatter)) {
             return [];
         }
-        if (!preg_match('/^use_cases:\s*\R((?:\s*-\s*.+\R?)+)/m', $frontmatter[1], $block)) {
+        if (!preg_match('/^use_cases:\s*(?:\r\n|\r|\n)((?:\s*-\s*.+(?:\r\n|\r|\n)?)+)/m', $frontmatter[1], $block)) {
             return [];
         }
 
         $cases = [];
-        foreach (preg_split('/\R/', $block[1]) ?: [] as $line) {
+        foreach (preg_split('/\r\n|\r|\n/', $block[1]) ?: [] as $line) {
             if (preg_match('/^\s*-\s*(.+?)\s*$/', $line, $entry)) {
                 $cases[] = trim($entry[1], "\"' ");
             }
@@ -528,7 +528,7 @@ class FrameworkDocsTool implements McpToolInterface
         }
 
         $excerpts = [];
-        foreach (preg_split('/\R/', $raw) ?: [] as $number => $line) {
+        foreach (preg_split('/\r\n|\r|\n/', $raw) ?: [] as $number => $line) {
             $trimmed = trim($line);
             if ($trimmed === '') {
                 continue;

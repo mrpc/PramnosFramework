@@ -269,6 +269,36 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * A report with Greek names is stored whole, and one the store cannot encode is refused with
+     * an error instead of being saved with an empty definition — which is what a copied report
+     * with every «υ» split in half used to become.
+     */
+    public function testAGreekReportIsStoredWholeAndABrokenOneIsRefused(): void
+    {
+        // Arrange
+        $store = new Reports();
+        $owner = self::reader(90, 2);
+        $text  = "# Πληρωμές ανά πακέτο\nΑιτήματα που στάλθηκαν | test.sales\n";
+
+        // Act
+        $id = $store->save($owner, ['name' => 'Test αντίγραφο', 'sections' => Report::sectionsFromText($text)]);
+        try {
+            $store->save($owner, ['name' => "Test \xcf", 'sections' => []]);
+            $this->fail('a definition that does not encode was saved');
+        } catch (\JsonException $e) {
+            $refused = $e->getMessage();
+        }
+
+        // Assert
+        $found = $store->find((string) $id, $owner)['report']->definition;
+        $this->assertSame('Test αντίγραφο', $found['name']);
+        $this->assertSame('Πληρωμές ανά πακέτο', $found['sections'][0]['title']);
+        $this->assertSame('Αιτήματα που στάλθηκαν', $found['sections'][0]['rows'][0]['label']);
+        $this->assertNotSame('', $refused);
+        $this->assertCount(1, array_filter(array_column($store->visibleTo($owner), 'name'), static fn ($n): bool => str_starts_with((string) $n, 'Test ')), 'the broken one is not stored');
+    }
+
+    /**
      * `metrics:reports-send`: a due report is mailed to each address, as its owner sees it, and
      * marked; the next run sends nothing; a mail the outbox refuses leaves it due and exits 1.
      */
