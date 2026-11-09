@@ -402,3 +402,48 @@ export function suggestEmoji(word, emoji = {}, custom = {}, max = 8) {
 
     return [...ours, ...standard].slice(0, max);
 }
+
+/**
+ * Whether the chat may take the focus now, after waiting for an answer: not while the person is
+ * in a field of the page outside it — an input, a text area, a choice, an editable region — which
+ * they clicked into while the chat was loading.
+ *
+ * @param {Document} doc
+ * @param {Element|null} within The chat's own element: a field inside it is no reason to wait
+ * @returns {boolean}
+ */
+export function mayTakeFocus(doc, within = null) {
+    const active = doc.activeElement;
+    if (!active || active === doc.body || (within && within.contains(active))) {
+        return true;
+    }
+    const tag = (active.tagName || '').toLowerCase();
+
+    return !(tag === 'input' || tag === 'textarea' || tag === 'select' || active.isContentEditable || active.getAttribute?.('contenteditable') === 'true');
+}
+
+/**
+ * The dock's windows after the person, or a message, opens one: opened by the person, its box
+ * takes the focus (`focus: true`), and a minimised one opens; opened by a message arriving, it
+ * is added without the focus, and one already there is left as it is.
+ *
+ * @param {Array<{id: number, min: boolean, focus?: boolean}>} windows
+ * @returns {Array<{id: number, min: boolean, focus?: boolean}>}
+ */
+export function openWindow(windows, id, byPerson = true) {
+    if (windows.some((w) => w.id === id)) {
+        return windows.map((w) => (w.id === id && byPerson ? { ...w, min: false, focus: true } : w));
+    }
+
+    return [...windows, { id, min: false, focus: byPerson }];
+}
+
+/** A window minimised, or opened again — which, being the person's doing, takes the focus. */
+export function minimiseWindow(windows, id) {
+    return windows.map((w) => (w.id === id ? { ...w, min: !w.min, focus: w.min } : w));
+}
+
+/** The windows as the next page restores them: where they were, none asking for the focus. */
+export function keptWindows(windows) {
+    return (Array.isArray(windows) ? windows : []).filter((w) => Number.isInteger(w?.id)).slice(0, 3).map((w) => ({ id: w.id, min: Boolean(w.min) }));
+}

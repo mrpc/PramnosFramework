@@ -483,6 +483,11 @@ Messages::react($id, $maria, ':our-heart:');
   them that inserts `:name:`, for a message or a reaction. Reactions are drawn with the picture.
   `logic.js` exports `reactionGlyph()`, `suggestEmoji()` and `customEmojiHtml()` for a page of the
   application's own.
+- **The focus.** The dock gives the focus to a window's box only when the person opens that
+  window: a click on a conversation or its head, or opening a minimised one. Windows that a new
+  page restores, or that open when a message arrives, do not take it. No conversation takes the
+  focus after loading while the person is in a field of the page outside the chat, such as an
+  input, a text area, a choice or an editable region (`mayTakeFocus()` in `logic.js`).
 - **The pickers.** A message's reaction picker floats over the page beside its button, opening
   upward where there is no room below, so the message list neither clips it nor scrolls. Scrolling
   closes it, and a click outside closes any picker.

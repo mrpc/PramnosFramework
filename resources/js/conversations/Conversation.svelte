@@ -10,11 +10,12 @@
     import Card from './Card.svelte';
     import Composer from './Composer.svelte';
     import { t, tn, dayLabel, longDate } from './t.js';
-    import { upsert, replace, timeline, typingNow, TYPING_MS, lastSignIn } from './logic.js';
+    import { upsert, replace, timeline, typingNow, TYPING_MS, lastSignIn, mayTakeFocus } from './logic.js';
     import { assistant, analystState } from './extras.js';
 
     // `openThread`: a thread to open with it — from the sidebar's Threads or Activity.
-    let { api, id, me, emoji = {}, customEmoji = {}, maxFileMb = 25, maxVideoMb = 100, online = {}, resync = 0, onread = () => {}, onerror = () => {}, compact = false,
+    let section = $state(null);
+    let { api, id, me, emoji = {}, customEmoji = {}, maxFileMb = 25, maxVideoMb = 100, online = {}, resync = 0, onread = () => {}, onerror = () => {}, compact = false, autofocus = true,
         openThread: threadToOpen = null } = $props();
 
     let conversation = $state(null);
@@ -92,7 +93,8 @@
             read();
             if (threadToOpen) {
                 openThread({ id: threadToOpen });
-            } else {
+            } else if (autofocus && mayTakeFocus(document, section)) {
+                // Not while the person is typing into a field of the page that they reached first.
                 composer?.focus();
             }
         } catch (err) {
@@ -350,7 +352,7 @@
     });
 </script>
 
-<section class="pf-conv-main" class:pf-conv-compact={compact} aria-label={title}>
+<section class="pf-conv-main" class:pf-conv-compact={compact} aria-label={title} bind:this={section}>
 
     <div class="pf-conv-body">
         <div class="pf-conv-scroll" bind:this={list} onscroll={onScroll}>

@@ -12,7 +12,7 @@
     import DockList from './DockList.svelte';
     import DockWindow from './DockWindow.svelte';
     import { t } from './t.js';
-    import { dockLayout, sidebarPrefs, keepSidebarPrefs, withFormer } from './logic.js';
+    import { dockLayout, sidebarPrefs, keepSidebarPrefs, withFormer, openWindow, minimiseWindow, keptWindows } from './logic.js';
 
     let { api, props } = $props();
 
@@ -48,7 +48,8 @@
         try {
             const kept = JSON.parse(window.localStorage.getItem('pf-conv-dock:' + props.me.id) || '[]');
 
-            return Array.isArray(kept) ? kept.filter((w) => Number.isInteger(w.id)).slice(0, 3) : [];
+            // Restored as they were, none of them asking for the focus: the page is the person's.
+            return keptWindows(kept);
         } catch {
             return [];
         }
@@ -76,7 +77,7 @@
 
     /** Keep the windows as they are, for the next page. */
     $effect(() => {
-        const keep = JSON.stringify(windows);
+        const keep = JSON.stringify(keptWindows(windows));
         try {
             window.localStorage.setItem(KEY, keep);
         } catch {
@@ -106,13 +107,8 @@
     /** Open a conversation's window — or bring it up; `focus` also expands it. */
     function open(id, focus = true) {
         listOpen = false;
-        const there = windows.find((w) => w.id === id);
-        if (there) {
-            windows = windows.map((w) => (w.id === id && focus ? { ...w, min: false } : w));
-
-            return;
-        }
-        windows = [...windows, { id, min: false }];
+        // Opened by the person: its box takes the focus. Opened by a message arriving: it does not.
+        windows = openWindow(windows, id, focus);
     }
 
     function close(id) {
@@ -120,7 +116,7 @@
     }
 
     function minimise(id) {
-        windows = windows.map((w) => (w.id === id ? { ...w, min: !w.min } : w));
+        windows = minimiseWindow(windows, id);
     }
 
     function read(id) {
@@ -188,7 +184,7 @@
 <div class="pf-conv-dock-windows">
     {#each layout.windows as w (w.id)}
         {#if byId[w.id]}
-            <DockWindow {api} conversation={byId[w.id]} {me} {props} {customEmoji} {online} {avatars} minimised={w.min}
+            <DockWindow {api} conversation={byId[w.id]} {me} {props} {customEmoji} {online} {avatars} minimised={w.min} focused={Boolean(w.focus)}
                 onminimise={() => minimise(w.id)} onclose={() => close(w.id)} onread={read} onerror={fail} />
         {/if}
     {/each}

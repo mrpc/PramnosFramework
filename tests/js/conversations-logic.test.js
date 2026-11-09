@@ -420,3 +420,63 @@ test('the team\'s emoji are suggested first, in place of a shortcode of the same
     assert.deepEqual(ki, [{ emoji: '😘', label: '😘 :kiss:' }]);
     assert.deepEqual(short, []);
 });
+
+/**
+ * The dock never takes the focus from a field of the page the person reached first: a window that
+ * finishes loading after they clicked into an input, a text area, a choice or an editable region
+ * leaves it there. A field inside the chat, or nothing focused, is no reason to wait.
+ */
+test('the chat waits while the person is in a field of the page', async () => {
+    // Arrange
+    const { mayTakeFocus } = await load();
+    const { createDom } = require('../../resources/js/pramnos-testing');
+    const { document } = createDom({ url: 'https://app.test/admin/Users/edit' });
+    const field = document.createElement('input');
+    const editor = document.createElement('div');
+    editor.setAttribute('contenteditable', 'true');
+    const chat = document.createElement('section');
+    const box = document.createElement('textarea');
+    chat.appendChild(box);
+    document.body.append(field, editor, chat);
+
+    // Act
+    const idle = mayTakeFocus(document, chat);
+    field.focus();
+    const inField = mayTakeFocus(document, chat);
+    editor.focus();
+    const inEditor = mayTakeFocus(document, chat);
+    box.focus();
+    const inChat = mayTakeFocus(document, chat);
+
+    // Assert
+    assert.equal(idle, true, 'nothing focused');
+    assert.equal(inField, false, 'the person is typing in the page');
+    assert.equal(inEditor, false);
+    assert.equal(inChat, true, 'a field of the chat itself');
+});
+
+/**
+ * A window the person opens — a click on a conversation or its head, or opening a minimised one —
+ * asks for the focus; one opened by a message arriving, or restored on the next page, does not,
+ * and what the next page restores carries no such ask.
+ */
+test('only a window the person opens takes the focus', async () => {
+    // Arrange
+    const { openWindow, minimiseWindow, keptWindows } = await load();
+
+    // Act
+    const clicked = openWindow([], 4);
+    const arrived = openWindow([], 5, false);
+    const already = openWindow([{ id: 5, min: true }], 5, false);
+    const reopened = minimiseWindow([{ id: 6, min: true }], 6);
+    const minimised = minimiseWindow([{ id: 6, min: false, focus: true }], 6);
+    const restored = keptWindows([{ id: 4, min: false, focus: true }, { id: 'x' }]);
+
+    // Assert
+    assert.deepEqual(clicked, [{ id: 4, min: false, focus: true }]);
+    assert.deepEqual(arrived, [{ id: 5, min: false, focus: false }]);
+    assert.deepEqual(already, [{ id: 5, min: true }], 'a message does not open a minimised window');
+    assert.deepEqual(reopened, [{ id: 6, min: false, focus: true }]);
+    assert.deepEqual(minimised, [{ id: 6, min: true, focus: false }]);
+    assert.deepEqual(restored, [{ id: 4, min: false }], 'the next page restores, it does not focus');
+});
