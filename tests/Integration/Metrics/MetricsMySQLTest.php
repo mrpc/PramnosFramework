@@ -1371,6 +1371,78 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * The JSON API: the catalogue of what the person may read, a series with its labels and gaps,
+     * a value against a year earlier, a goal's progress — as the person asking — and refusals in
+     * the API's shape: nobody signed in (401), a metric or a goal that is not theirs (404), a grain
+     * that is none (422). Its four routes are mounted under the path given.
+     */
+    public function testTheMetricsAsJson(): void
+    {
+        // Arrange
+        $this->order('2026-09-05 10:00:00', 'north', 1);
+        $this->order('2025-09-05 10:00:00', 'north', 2);
+        $this->order('2025-09-06 10:00:00', 'north', 3);
+        Metrics::compute(['test.orders'], ['month'], '2025-09-01', '2026-09-30', false, self::at('2026-11-06 12:00'));
+        $goal = \Pramnos\Metrics\Goals::set('test.orders', 'month', 4.0, '2026-09-01');
+        $api  = static function (?object $as): \Pramnos\Metrics\MetricsApi {
+            return new class ($as) extends \Pramnos\Metrics\MetricsApi {
+                public function __construct(private ?object $as)
+                {
+                }
+
+                protected function user(): ?object
+                {
+                    return $this->as;
+                }
+            };
+        };
+        $boss   = (object) ['userid' => 5, 'usertype' => 99];
+        $router = new class (null) extends \Pramnos\Routing\Router {
+            /** @var list<string> The paths mounted */
+            public array $mounted = [];
+
+            public function get($uri, $action, $permissions = null): \Pramnos\Routing\Route|\Pramnos\Routing\LocalizedRoute
+            {
+                $this->mounted[] = $uri;
+
+                return parent::get($uri, $action, $permissions);
+            }
+        };
+
+        // Act
+        $catalogue = $api($boss)->catalogue();
+        $_GET      = ['metric' => 'test.orders', 'grain' => 'month', 'from' => '2026-08-01', 'to' => '2026-09-01', 'f' => ['region' => 'north']];
+        $series    = $api($boss)->series();
+        $_GET      = ['metric' => 'test.orders', 'grain' => 'month', 'at' => '2026-09-01', 'compare' => Metrics::YEAR_EARLIER];
+        $compared  = $api($boss)->value();
+        $_GET      = ['metric' => 'test.orders', 'grain' => 'month', 'at' => '2026-09-01'];
+        $value     = $api($boss)->value();
+        $_GET      = ['id' => (string) $goal];
+        $progress  = $api($boss)->goal();
+        $nobody    = $api(null)->catalogue();
+        $_GET      = ['metric' => 'test.nothing'];
+        $unknown   = $api($boss)->series();
+        $_GET      = ['metric' => 'test.orders', 'grain' => 'fortnight'];
+        $badGrain  = $api($boss)->series();
+        $_GET      = ['id' => '999999'];
+        $noGoal    = $api($boss)->goal();
+        \Pramnos\Metrics\MetricsApi::routes($router, '/api/metrics');
+        $_GET      = [];
+
+        // Assert
+        $this->assertSame(200, $catalogue['status']);
+        $this->assertContains('test.orders', array_column($catalogue['data'], 'name'));
+        $this->assertSame(['2026-08-01', '2026-09-01'], $series['data']['periods']);
+        $this->assertSame(['2026-08', '2026-09'], $series['data']['labels']);
+        $this->assertSame([0.0, 1.0], ((array) $series['data']['values'])['']);
+        $this->assertSame([1.0, 2.0, '2025-09'], [$compared['data']['value'], $compared['data']['other'], $compared['data']['against']]);
+        $this->assertSame(['value' => 1.0], $value['data']);
+        $this->assertSame($goal, $progress['data']['goal']['id']);
+        $this->assertSame([401, 404, 422, 404], [$nobody['status'], $unknown['status'], $badGrain['status'], $noGoal['status']]);
+        $this->assertSame(['/api/metrics/series', '/api/metrics/value', '/api/metrics/goal', '/api/metrics'], $router->mounted, 'mounted under the path given');
+    }
+
+    /**
      * The store's lock: while another connection holds it — a conversion, an import, another
      * computation — a computation does nothing and says it was busy (the command too, without
      * failing), and once it is let go the computation runs.

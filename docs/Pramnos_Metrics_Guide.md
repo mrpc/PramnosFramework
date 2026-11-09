@@ -531,6 +531,30 @@ the report's tables one under another, each line its table's heading (or its sec
 A closed period's values are final (see above), so a report of a closed period shows the same
 numbers every time it is opened. Nothing has to be frozen separately.
 
+## As JSON, outside the administration
+
+`MetricsApi` gives the metrics to a SPA, a mobile application or an organisation's own
+dashboard. It uses the API's credentials and the one query every reader uses, as the person
+asking: only the metrics they may read, of the organisations they may. Mount it with one line in
+the application's API routes:
+
+```php
+\Pramnos\Metrics\MetricsApi::routes($r);   // under /metrics; a second argument names another path
+```
+
+| Route | Answers |
+|---|---|
+| `GET /metrics` | the catalogue: name, label, unit, kind, aggregate, dimensions, format, direction, grains, live |
+| `GET /metrics/series?metric=&grain=&from=&to=&by=&f[dim]=&tenant=` | `periods` (keys), `labels`, `values` by breakdown value, `gaps` (why a period has no figure) |
+| `GET /metrics/value?metric=&grain=&at=&f[dim]=&compare=&tenant=` | `{value}`, or with `compare` the period against the one before or a year earlier |
+| `GET /metrics/goal?id=` | the goal and its `progress` |
+
+Answers are in the API's shape, `['status' => 200, 'data' => …]` or `['status' => …, 'error' => …]`:
+
+- 401 when nobody is signed in;
+- 404 for a metric or a goal that is not theirs;
+- 422 for something that makes no sense, such as an unknown grain.
+
 ## Goals
 
 A target on a metric, for a day or a month, and how near it is now:
