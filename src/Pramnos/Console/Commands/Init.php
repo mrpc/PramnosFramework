@@ -3616,6 +3616,14 @@ PHP;
             $lines[] = "";
         }
 
+        // The conversations, for a client that is not the administration's page — a desktop or
+        // mobile application, a SPA: the screen's actions with the API's credentials.
+        if (in_array('conversations', $features, true)) {
+            $lines[] = "        // Conversations: GET /conversations/{action}/{id}, POST for a write";
+            $lines[] = "        \\Pramnos\\Conversations\\ConversationsApi::routes(\$r);";
+            $lines[] = "";
+        }
+
         // A record's history as JSON, for the SPA's HistoryPanel.
         if (in_array('changelog', $features, true)) {
             $lines[] = "        // History: GET /history?entity=&itemid=";

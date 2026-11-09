@@ -1088,6 +1088,20 @@ whatever its headers say it accepts, never redirected; a body is a form or JSON.
 `{"error": "…"}` with 403, a mistake — an empty message, a taken name — 422 with its reason, a
 conversation or message the person does not read 404.
 
+**The same actions under the application's API.** A client that is not this page — a desktop
+or mobile application, a SPA — reaches every action below with the API's credentials (a bearer
+token, or the session), mounted in the application's API routes:
+
+```php
+\Pramnos\Conversations\ConversationsApi::routes($r);          // /api/<version>/conversations/…
+```
+
+`GET conversations/{action}/{id}` is a read and `POST conversations/{action}/{id}` a write, with
+the same values, rights and answers as here; there is one implementation behind both. The answer
+is in the API's shape, `{status, data}` or `{status, error}`. The wrong method is a 405, an action
+there is not a 404, and the page itself (`display`) is not offered. `init` mounts it for an
+application with the `conversations` feature; an application made before adds the line.
+
 | action | method | in | out |
 |---|---|---|---|
 | `conversations` | GET | — | `{me, conversations, browse, people, avatars}`: one's own with unread, mentions and a `title`, the open ones to join, the names of the people in direct and group ones |
