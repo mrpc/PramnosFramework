@@ -89,6 +89,12 @@ pfRichEditor.plain(textarea, true)        // the bare textarea, for a text-only 
 pfRichEditor.create(element, options)     // an editor that is not a field
 ```
 
+An editor made with `create()` takes the application's words and settings as a field does: from
+`window.pfRichEditorDefaults`, which `MessageEditor::scripts(MessageEditor::RICH)` prints. A page
+or a client that loads `pf-rich-editor.js` later, on demand or with no PHP page of its own, sets
+that first from `MessageEditor::richDefaults()`. Its `css` holds the editor's styles, and the
+script puts them on the page itself when the page has none.
+
 ## Adding a site's own
 
 Everything a site adds is a **plugin**, registered before the page has loaded — a plain script

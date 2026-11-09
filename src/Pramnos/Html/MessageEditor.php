@@ -115,6 +115,32 @@ final class MessageEditor
     }
 
     /** The `<script>` tags one mode needs, for the fields marked with it. */
+    /**
+     * What the rich editor takes from the application, as data — for a page that loads
+     * `pf-rich-editor.js` later, or a client with no PHP page of its own, to set as
+     * `window.pfRichEditorDefaults` before it does: the controls' words in the reader's language
+     * (`labels`), `upload` and `links` where `app.php` sets them, `blockToolbar`, `panels`, and the
+     * editor's styles (`css`), which the script puts on the page itself when it has none.
+     *
+     * @return array{labels: array<string, string>, blockToolbar: bool, upload?: string, links?: string, panels?: string, css: string}
+     */
+    public static function richDefaults(): array
+    {
+        $rich     = (array) (self::config()['rich'] ?? []);
+        $defaults = ['labels' => self::richLabels()];
+        foreach (['upload', 'links'] as $key) {
+            if (is_string($rich[$key] ?? null) && $rich[$key] !== '') {
+                $defaults[$key] = $rich[$key];
+            }
+        }
+        $defaults['blockToolbar'] = (bool) ($rich['block_toolbar'] ?? false);
+        if (($rich['panels'] ?? null) === 'floating') {
+            $defaults['panels'] = 'floating';
+        }
+
+        return $defaults + ['css' => self::RICH_CSS];
+    }
+
     public static function scripts(string $mode): string
     {
         $attr = static fn (string $v): string => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
@@ -125,19 +151,10 @@ final class MessageEditor
         }
 
         if ($mode === self::RICH) {
-            $rich     = (array) (self::config()['rich'] ?? []);
-            $defaults = ['labels' => self::richLabels()];
-            foreach (['upload', 'links'] as $key) {
-                if (is_string($rich[$key] ?? null) && $rich[$key] !== '') {
-                    $defaults[$key] = $rich[$key];
-                }
-            }
-            $defaults['blockToolbar'] = (bool) ($rich['block_toolbar'] ?? false);
-            if (($rich['panels'] ?? null) === 'floating') {
-                $defaults['panels'] = 'floating';
-            }
+            $defaults = self::richDefaults();
+            unset($defaults['css']);   // printed as a style of its own, below
 
-            return '<style>' . self::RICH_CSS . '</style>'
+            return '<style id="pf-rich-css">' . self::RICH_CSS . '</style>'
                 . '<script>window.pfRichEditorDefaults = ' . json_encode($defaults, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) . ';</script>'
                 . '<script src="' . $attr(assetUrl('assets/js/pf-rich-editor.js')) . '"></script>';
         }

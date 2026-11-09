@@ -125,6 +125,29 @@ class MessageEditorTest extends TestCase
     }
 
     /**
+     * The same defaults as data, for a page or a client that loads the editor later: what the
+     * scripts print, and the styles beside them — which the scripts print as a style of their own,
+     * not inside the defaults.
+     */
+    public function testTheRichDefaultsAreDataToo(): void
+    {
+        // Arrange
+        $this->withConfig(['editor' => 'rich', 'rich' => ['upload' => '/admin/Media/upload', 'panels' => 'floating']]);
+
+        // Act
+        $data    = MessageEditor::richDefaults();
+        $scripts = MessageEditor::scripts(MessageEditor::RICH);
+        preg_match('/window\.pfRichEditorDefaults = (\{.*?\});<\/script>/', $scripts, $m);
+        $printed = json_decode($m[1] ?? 'null', true);
+
+        // Assert
+        $this->assertSame(MessageEditor::RICH_CSS, $data['css'], 'the styles, for the script to put on the page');
+        $this->assertSame(array_diff_key($data, ['css' => 0]), $printed, 'the rest exactly what the scripts print');
+        $this->assertSame(['/admin/Media/upload', 'floating', 'Bold'], [$data['upload'], $data['panels'], $data['labels']['bold']]);
+        $this->assertStringContainsString('<style id="pf-rich-css">', $scripts, 'printed with the id the script looks for, so never twice');
+    }
+
+    /**
      * The forms mark their field and print the scripts, and the one-account form is always builtin.
      */
     public function testTheFormsUseIt(): void

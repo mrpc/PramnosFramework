@@ -624,7 +624,9 @@ Canvases::delete($id, $by);
   `PfConversations.canvas(element, {base, canvasId, conversationId, me, strings})`. Print
   `MessageEditor::scripts(MessageEditor::RICH)` on the page for the editor's styles, its words in
   the reader's language, and its script: an editor made by `pfRichEditor.create()` takes the words
-  that prints. Its checklist and mentions are a plugin of the rich editor
+  that prints. A client that loads the editor later — on demand, or with no PHP page of its own —
+  sets `window.pfRichEditorDefaults` to `MessageEditor::richDefaults()` first: the same words, and
+  the styles, which the script then puts on the page itself. Its checklist and mentions are a plugin of the rich editor
   (`pfRichEditor.tiptap.TaskList`, `TaskItem`).
 
 The table is made by the migration `create_conversation_canvases_table`.
