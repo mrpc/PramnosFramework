@@ -685,7 +685,33 @@ final class Metric
 
     public function hasRows(): bool
     {
-        return $this->rows !== null;
+        return $this->rows !== null || $this->drill !== null;
+    }
+
+    /** Where a number's records are listed by the application itself, or null. */
+    private ?\Closure $drill = null;
+
+    /**
+     * Send a number to the application's own list of what is behind it, filtered, instead of the
+     * framework's: `fn (Window $w, array $filters): string => adminUrl('Users?…')`.
+     */
+    public function drill(\Closure $url): self
+    {
+        $this->drill = $url;
+
+        return $this;
+    }
+
+    /**
+     * The application's own list behind a number, or null where it has none.
+     *
+     * @param array<string, string|list<string>> $filters
+     */
+    public function drillUrl(Window $window, array $filters): ?string
+    {
+        $url = $this->drill !== null ? ($this->drill)($window, $filters) : null;
+
+        return is_string($url) && $url !== '' ? $url : null;
     }
 
     /**

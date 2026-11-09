@@ -166,7 +166,7 @@ class ReportsMySQLTest extends TestCase
         $this->assertStringContainsString('not broken down by customer', (string) $rows['North']['cells'][1]['error'], 'that cell says why; the row stands');
         $this->assertStringContainsString('not broken down by plan', (string) $rows['By plan']['error']);
         $this->assertSame(6.0 + 3.0 + 2.0, $table['sections'][0]['total'][0], 'the section total leaves the subtotal out');
-        $this->assertSame(['metric' => 'test.sales', 'grain' => 'month', 'period' => '2026-09-01', 'filters' => ['region' => 'north', 'customer' => 'new']], $rows['Sales']['cells'][1]['link']);
+        $this->assertSame(['metric' => 'test.sales', 'grain' => 'month', 'period' => '2026-09-01', 'filters' => ['region' => 'north', 'customer' => 'new'], 'url' => null], $rows['Sales']['cells'][1]['link']);
         $this->assertNull($rows['North']['cells'][0]['link'], 'buyers list no records');
 
         // Act — drawn and exported

@@ -135,7 +135,9 @@ Metric::flow('visits.count')->since('2026-10-16')                               
 - **`expect()`** says how often new data should arrive, for a card's staleness and the "data
   stopped" alert.
 
-`rows()` is optional: it lists the records behind a number, for a drill-down.
+`rows()` is optional: it lists the records behind a number, for a drill-down. `drill(fn (Window $w,
+array $filters): string)` sends the number to the application's own list instead, with the period
+and the filters: a report's cell links there.
 
 `allowed(fn (?object $user): bool)` decides who may see the metric. By default that is the
 dashboard's role, `manager`.

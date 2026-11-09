@@ -1042,6 +1042,29 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * A number sent to the application's own list: a report's cell links there, with the period
+     * and the filters, instead of to the framework's records.
+     */
+    public function testANumberIsSentToTheApplicationsOwnList(): void
+    {
+        // Arrange
+        Metrics::register(Metric::flow('test.drilled', 'Orders')->dimensions(['region'])
+            ->drill(static fn (Window $w, array $filters): string => '/admin/Orders?from=' . $w->key() . '&region=' . ($filters['region'] ?? ''))
+            ->source(static fn (Window $w, array $by): array => $by === [] ? [['value' => 2]] : [['region' => 'north', 'value' => 2]]));
+        Metrics::compute(['test.drilled'], ['month'], '2026-09-01', '2026-09-30', false, self::at('2026-11-06 12:00'));
+        $report = \Pramnos\Metrics\Report::fromArray(['name' => 'Drill', 'grain' => 'month', 'sections' => [['rows' => [['metric' => 'test.drilled', 'filters' => ['region' => 'north']]]]]]);
+
+        // Act
+        $built = $report->build('2026-09-10', (object) ['userid' => 1, 'usertype' => 99]);
+        $html  = \Pramnos\Metrics\Report::html($built, '/admin/MetricReports/rows');
+
+        // Assert
+        $this->assertSame('/admin/Orders?from=2026-09-01&region=north', $built['sections'][0]['rows'][0]['cells'][0]['link']['url']);
+        $this->assertStringContainsString('href="/admin/Orders?from=2026-09-01&amp;region=north"', $html, 'the application\'s list, not the framework\'s');
+        $this->assertNull(Metric::flow('test.none')->drillUrl(Window::of('day', '2026-09-01'), []));
+    }
+
+    /**
      * The store's lock: while another connection holds it — a conversion, an import, another
      * computation — a computation does nothing and says it was busy (the command too, without
      * failing), and once it is let go the computation runs.

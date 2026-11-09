@@ -463,7 +463,8 @@ final class Report
             try {
                 $built['cells'][] = [
                     'value' => $this->read($name)->grain($grain)->at($column['window']->key())->where($filters)->value(),
-                    'link'  => $visible[$name]->hasRows() ? ['metric' => $name, 'grain' => $grain, 'period' => $column['window']->key(), 'filters' => $filters] : null,
+                    'link'  => $visible[$name]->hasRows() ? ['metric' => $name, 'grain' => $grain, 'period' => $column['window']->key(), 'filters' => $filters,
+                        'url' => $visible[$name]->drillUrl($column['window'], $filters)] : null,
                     'error' => null,
                 ];
             } catch (\InvalidArgumentException|\LogicException $e) {
@@ -536,8 +537,10 @@ final class Report
                     }
                     $text = $e(self::number($cell['value'], $row['unit']));
                     if ($rowsUrl !== null && $cell['link'] !== null && $cell['value'] !== null) {
+                        // The application's own list where the metric has one, else the framework's records.
                         $query = http_build_query(['metric' => $cell['link']['metric'], 'grain' => $cell['link']['grain'], 'period' => $cell['link']['period'], 'f' => $cell['link']['filters']]);
-                        $text  = '<a href="' . $e($rowsUrl . (str_contains($rowsUrl, '?') ? '&' : '?') . $query) . '">' . $text . '</a>';
+                        $href  = ($cell['link']['url'] ?? null) ?? $rowsUrl . (str_contains($rowsUrl, '?') ? '&' : '?') . $query;
+                        $text  = '<a href="' . $e($href) . '">' . $text . '</a>';
                     }
                     $body .= $td . $text . '</td>';
                 }
