@@ -36,7 +36,10 @@ namespace Pramnos\Metrics;
  * echo Report::html($table, '/admin/Metricreports/rows');   // a cell whose metric lists its records links to them
  * ```
  *
- * The screen edits columns and sections as text ({@see columnsFromText()}, {@see sectionsFromText()}).
+ * A report may instead have cards — `'layout' => [...]`, as the dashboard keeps one — tables,
+ * charts, figures, text, records and section headings, arranged with the dashboard's editor; see
+ * {@see ReportBoard}. Sections are then read as cards. Columns and sections can still be written
+ * as text ({@see columnsFromText()}, {@see sectionsFromText()}).
  *
  * A row reads only a metric the person may see; the others are left out and counted. A cell the
  * metric cannot answer — a breakdown a distinct metric does not keep — says why. A breakdown row's
@@ -93,13 +96,20 @@ final class Report
             ];
         }
 
-        return new self([
+        $clean = [
             'name'     => trim((string) ($definition['name'] ?? '')),
             'grain'    => $grain,
             'columns'  => self::columns($definition['columns'] ?? ['periods' => 1]),
             'compare'  => $compare === '' ? null : $compare,
             'sections' => $sections,
-        ]);
+        ];
+        // Its cards, as the dashboard keeps a layout ({@see ReportBoard}); without them, the
+        // sections are read as cards.
+        if (is_array($definition['layout'] ?? null)) {
+            $clean['layout'] = array_values(array_filter($definition['layout'], 'is_array'));
+        }
+
+        return new self($clean);
     }
 
     /**

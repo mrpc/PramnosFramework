@@ -71,6 +71,9 @@ namespace Pramnos\Dashboard;
  */
 abstract class Widget
 {
+    /** The inputs a field with `clean` may be drawn as; `text` otherwise. */
+    public const INPUTS = ['date', 'number', 'textarea', 'list', 'filters'];
+
     /** One column of four. */
     public const SMALL = 's';
 
@@ -207,9 +210,21 @@ abstract class Widget
      * - a list of the values allowed — `[value => label]` or a plain list, its first the default;
      * - a function that answers the value as kept, or null to refuse it (a text field);
      * - a field: `['label' => 'From', 'input' => 'date', 'clean' => fn, 'when' => ['period' => 'custom']]`
-     *   — `input` text, date or number, with `clean` as above; or `values` in place of `clean`, a
-     *   list as above; `label` the field's words, translated; `when` the other settings it is
-     *   shown for.
+     *   — `input` text, date, number or textarea, with `clean` as above; or `values` in place of
+     *   `clean`, a list as above; `label` the field's words, translated; `when` the other settings
+     *   it is shown for.
+     *
+     * Two inputs keep a structure rather than a word, and are drawn by the page's script: `clean`
+     * receives the array (or its JSON) and answers it as kept.
+     *
+     * - `list`: items one under another, added, removed and dragged into order; each item is the
+     *   `fields` given, by name, each `['label' => …, 'input' => select|text|number|checkbox|filters]`
+     *   with `values` for a select. A select may take its choices from another field of the same
+     *   item: `'by' => 'metric', 'valuesBy' => [metric => [value => label]]`.
+     * - `filters`: `[dimension => value]`, chosen from `dimensions` (`[name => ['label' => …,
+     *   'values' => [value => label]]]`, empty values for free text); with `'by' => 'metric',
+     *   'dimsBy' => [metric => [dimension, …]]` only the chosen metric's dimensions are offered.
+     *   Also a sub-field of a list.
      *
      * Nothing by default.
      *
@@ -269,11 +284,13 @@ abstract class Widget
     }
 
     /**
-     * One option as a field: its `input` (select, text, date, number), `label` or null, `values`
-     * (`[value => label]`) for a select, `clean` for the others, and `when`.
+     * One option as a field: its `input` (select, text, date, number, textarea, list, filters),
+     * `label` or null, `values` (`[value => label]`) for a select, `clean` for the others, `when`,
+     * and `extra` — what a list or filters field is drawn from (`fields`, `by`, `valuesBy`,
+     * `dimensions`, `dimsBy`).
      *
      * @param array<int|string, mixed>|callable $option As {@see options()} declares it
-     * @return array{input: string, label: string|null, values: array<string, string>, clean: callable|null, when: array<string, string>}
+     * @return array{input: string, label: string|null, values: array<string, string>, clean: callable|null, when: array<string, string>, extra: array<string, mixed>}
      */
     public static function field(mixed $option): array
     {
@@ -288,11 +305,12 @@ abstract class Widget
         }
 
         return [
-            'input'  => $clean === null ? 'select' : (in_array($spec['input'] ?? '', ['date', 'number'], true) ? (string) $spec['input'] : 'text'),
+            'input'  => $clean === null ? 'select' : (in_array($spec['input'] ?? '', self::INPUTS, true) ? (string) $spec['input'] : 'text'),
             'label'  => isset($spec['label']) ? (string) $spec['label'] : null,
             'values' => $values,
             'clean'  => is_callable($clean) ? $clean : null,
             'when'   => array_map('strval', is_array($spec['when'] ?? null) ? $spec['when'] : []),
+            'extra'  => $spec !== null ? array_intersect_key($spec, array_flip(['fields', 'by', 'valuesBy', 'dimensions', 'dimsBy'])) : [],
         ];
     }
 

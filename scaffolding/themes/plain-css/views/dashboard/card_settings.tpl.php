@@ -17,15 +17,21 @@ $shown = static fn (array $field): bool => array_reduce(array_keys((array) ($fie
 @if ($fields)
 <form class="pf-dashboard-settings pf-ui-row" data-pf-widget-settings hidden>
     @foreach ($fields as $name => $field)
-    <label class="small"{!! $field['when'] ? ' data-pf-when="' . $e(json_encode((object) $field['when'])) . '"' . ($shown($field) ? '' : ' hidden') : '' !!}>{{ $t((string) ($field['label'] ?? ucfirst(str_replace('_', ' ', (string) $name)))) }}
+    @php $box = in_array($field['input'], ['list', 'filters'], true); @endphp
+    <{{ $box ? 'div' : 'label' }} class="small"{!! $box ? ' style="flex-basis:100%"' : '' !!}{!! $field['when'] ? ' data-pf-when="' . $e(json_encode((object) $field['when'])) . '"' . ($shown($field) ? '' : ' hidden') : '' !!}>{{ $t((string) ($field['label'] ?? ucfirst(str_replace('_', ' ', (string) $name)))) }}
         @if ($field['input'] === 'select')
         <select class="form-control pf-ui-input-sm" name="{{ $name }}">
             @foreach ($field['values'] as $value => $label)<option value="{{ $value }}"{!! (string) ($settings[$name] ?? '') === (string) $value ? ' selected' : '' !!}>{{ $t((string) $label) }}</option>@endforeach
         </select>
+        @elseif ($field['input'] === 'textarea')
+        <textarea class="form-control pf-ui-input-sm" name="{{ $name }}" rows="4" style="min-width:16rem">{{ is_scalar($settings[$name] ?? null) ? $settings[$name] : '' }}</textarea>
+        @elseif ($box)
+        <input type="hidden" name="{{ $name }}" data-pf-json value="{{ json_encode($settings[$name] ?? null, JSON_UNESCAPED_UNICODE) }}">
+        <div data-pf-structured="{{ $field['input'] }}" data-spec="{{ json_encode(array_diff_key($field, ['label' => true, 'when' => true]), JSON_UNESCAPED_UNICODE) }}" data-classes='{"select":"form-control pf-ui-input-sm","input":"form-control pf-ui-input-sm","button":"btn btn-sm"}' data-say="{{ json_encode(['add' => $t('Add'), 'remove' => $t('Remove'), 'move' => $t('Drag to move'), 'any' => $t('Choose…')], JSON_UNESCAPED_UNICODE) }}"></div>
         @else
         <input class="form-control pf-ui-input-sm" type="{{ $field['input'] }}" name="{{ $name }}" value="{{ is_scalar($settings[$name] ?? null) ? $settings[$name] : '' }}">
         @endif
-    </label>
+    </{{ $box ? 'div' : 'label' }}>
     @endforeach
     <button type="submit" class="btn btn-primary btn-sm">{{ $t('Apply') }}</button>
 </form>

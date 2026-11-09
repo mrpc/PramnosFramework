@@ -1,4 +1,4 @@
-{{-- One report for a period. Variables: entry, at, period, previous, next, body (Report::html()), mine, urls. --}}
+{{-- One report for a period. Variables: entry, at, period, previous, next, body (the report's cards, Board::render()), mine, urls. --}}
 @php
 $query = fn (string $at): string => '?report=' . rawurlencode($this->entry['id']) . '&at=' . $at;
 @endphp
@@ -19,7 +19,9 @@ $query = fn (string $at): string => '?report=' . rawurlencode($this->entry['id']
             <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['csv'] . $query($this->at) }}">CSV</a>
             <button type="button" class="pf-btn pf-btn-ghost pf-btn-sm" data-pf-print>{{ t('Print or save as PDF') }}</button>
             @if ($this->mine)
-            <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['edit'] . '?report=' . rawurlencode($this->entry['id']) }}">{{ t('Edit') }}</a>
+            <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['edit'] . '?report=' . rawurlencode($this->entry['id']) }}">{{ t('Settings') }}</a>
+            @else
+            <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['edit'] . '?copy=' . rawurlencode($this->entry['id']) }}">{{ t('Copy') }}</a>
             @endif
             <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['list'] }}">{{ t('All reports') }}</a>
         </div>

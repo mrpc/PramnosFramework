@@ -46,6 +46,16 @@ final class WidgetRegistry
         Widgets\SessionsOnline::class,
     ];
 
+    /** The cards of a report ({@see \Pramnos\Metrics\ReportBoard}), in the order its catalogue lists them. */
+    public const REPORT = [
+        \Pramnos\Metrics\Widgets\SectionWidget::class,
+        \Pramnos\Metrics\Widgets\TableWidget::class,
+        \Pramnos\Metrics\Widgets\ChartWidget::class,
+        \Pramnos\Metrics\Widgets\KpiWidget::class,
+        \Pramnos\Metrics\Widgets\TextWidget::class,
+        \Pramnos\Metrics\Widgets\RecordsWidget::class,
+    ];
+
     /** @var array<string, Widget> Registered in code */
     private static array $registered = [];
 
@@ -70,6 +80,9 @@ final class WidgetRegistry
     public static function all(?string $board = null): array
     {
         $board  = self::catalogueOf($board);
+        if ($board === \Pramnos\Metrics\ReportBoard::CATALOGUE) {
+            return self::forReports();
+        }
         $config = self::config($board);
 
         $widgets = self::framework($config['framework'] ?? true);
@@ -127,11 +140,37 @@ final class WidgetRegistry
 
     /**
      * The board whose catalogue a board offers: a person's own board ({@see UserBoards}) offers the
-     * administration dashboard's; any other, its own.
+     * administration dashboard's, a report's board ({@see \Pramnos\Metrics\ReportBoard}) the
+     * reports' cards; any other, its own.
      */
     private static function catalogueOf(?string $board): ?string
     {
+        if (\Pramnos\Metrics\ReportBoard::isReportBoard($board)) {
+            return \Pramnos\Metrics\ReportBoard::CATALOGUE;
+        }
+
         return UserBoards::isUserBoard($board) ? UserBoards::CATALOGUE : $board;
+    }
+
+    /**
+     * A report's cards: the framework's ({@see REPORT}), and an application's — listed in app.php
+     * or registered in code — whose `boards()` names `report`.
+     *
+     * @return array<string, Widget>
+     */
+    private static function forReports(): array
+    {
+        $widgets = [];
+        $app     = \Pramnos\Application\Application::currentInstance();
+        $listed  = is_object($app) ? (array) ($app->applicationInfo['dashboard']['widgets'] ?? []) : [];
+        foreach (array_merge(self::REPORT, $listed) as $class) {
+            if (is_string($class) && is_subclass_of($class, Widget::class)) {
+                $widget = new $class();
+                $widgets[$widget->id()] = $widget;
+            }
+        }
+
+        return array_filter(array_replace($widgets, self::$registered), static fn (Widget $widget): bool => in_array(\Pramnos\Metrics\ReportBoard::CATALOGUE, $widget->boards() ?? [], true));
     }
 
     /**

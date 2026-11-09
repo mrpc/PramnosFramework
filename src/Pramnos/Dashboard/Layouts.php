@@ -23,6 +23,8 @@ use Pramnos\Database\Database;
  *
  * Kept as a user setting, `dashboard.{area}` in `usersettings` (`DB_USERSETTINGSTABLE`), the layout
  * as its JSON value: an area — the administration, a partner portal — has a dashboard of its own.
+ * A report's board (`report:<id>`, {@see \Pramnos\Metrics\ReportBoard}) is the exception: one
+ * layout, kept in the report, changed by its owner alone.
  */
 final class Layouts
 {
@@ -40,6 +42,12 @@ final class Layouts
      */
     public function for(object $user, string $area = 'admin'): array
     {
+        // A report's board: the report's own cards, the same for everybody who may open it.
+        if (\Pramnos\Metrics\ReportBoard::isReportBoard($area)) {
+            $entry = (new \Pramnos\Metrics\Reports($this->db))->find(\Pramnos\Metrics\ReportBoard::reportId($area), $user);
+
+            return $entry === null ? [] : self::clean(\Pramnos\Metrics\ReportBoard::layout($entry['report']), $user, $area);
+        }
         $saved = $this->savedFor((int) ($user->userid ?? 0), $area);
         if ($saved !== null) {
             return self::clean($saved, $user, $area);
@@ -84,6 +92,14 @@ final class Layouts
      */
     public function save(object $user, mixed $layout, string $area = 'admin'): array
     {
+        // A report's board: kept in the report, by its owner alone; there is no default to go back to.
+        if (\Pramnos\Metrics\ReportBoard::isReportBoard($area)) {
+            if ($layout !== null) {
+                (new \Pramnos\Metrics\Reports($this->db))->saveLayout($user, (int) \Pramnos\Metrics\ReportBoard::reportId($area), self::clean($layout, $user, $area));
+            }
+
+            return $this->for($user, $area);
+        }
         $userId = (int) ($user->userid ?? 0);
         $this->table()->where('userid', $userId)->where('setting', self::SETTING . $area)->delete();
         if ($layout === null) {

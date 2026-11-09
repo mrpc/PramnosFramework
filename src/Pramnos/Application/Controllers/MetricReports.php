@@ -8,6 +8,7 @@ use Pramnos\Application\Controller;
 use Pramnos\Dashboard\Presets;
 use Pramnos\Metrics\Metrics;
 use Pramnos\Metrics\Report;
+use Pramnos\Metrics\ReportBoard;
 use Pramnos\Metrics\Reports;
 use Pramnos\Metrics\Window;
 
@@ -17,7 +18,8 @@ use Pramnos\Metrics\Window;
  *
  * Actions:
  *   - display() — the reports this person may open
- *   - show()    — one report, `?report=<id>&at=YYYY-MM-DD`: the table, with links to CSV and print
+ *   - show()    — one report, `?report=<id>&at=YYYY-MM-DD`: its cards ({@see ReportBoard}) — which
+ *                 its owner arranges there with Customise — with links to CSV and print
  *   - csv()     — the same as a CSV download
  *   - rows()    — the records behind a cell, where its metric lists them
  *   - edit()    — a new report, one of the person's own (`?report=<id>`), or a copy (`?copy=<id>`)
@@ -67,14 +69,20 @@ class MetricReports extends Controller
         }
         $at = self::day((string) ($_GET['at'] ?? ''));
         \Pramnos\Framework\Factory::getDocument()->title = $entry['name'];
-        $table           = $entry['report']->build($at, $this->user());
+        $window          = Window::of($entry['report']->definition['grain'], $at);
         $view            = $this->getView('metricreports', 'tpl');
         $view->entry     = $entry;
         $view->at        = $at;
-        $view->period    = $table['period'];
-        $view->previous  = Window::of($entry['report']->definition['grain'], $at)->previous()->key();
-        $view->next      = Window::of($entry['report']->definition['grain'], $at)->next()->key();
-        $view->body      = Report::html($table, $this->urls()['rows']);
+        $view->period    = $window->label();
+        $view->previous  = $window->previous()->key();
+        $view->next      = $window->next()->key();
+        // The report's cards, as a board: its owner arranges them with Customise.
+        $_GET['at']      = $at;
+        try {
+            $view->body = \Pramnos\Dashboard\Board::render(ReportBoard::board((string) $entry['id']));
+        } finally {
+            ReportBoard::leave();
+        }
         $view->mine      = !$entry['app'] && (int) $entry['row']['ownerid'] === (int) $this->user()->userid;
         $view->urls      = $this->urls();
 
@@ -87,10 +95,11 @@ class MetricReports extends Controller
         if ($this->refused() || ($entry = $this->entry((string) ($_GET['report'] ?? ''))) === null) {
             return null;
         }
-        $table = $entry['report']->build(self::day((string) ($_GET['at'] ?? '')), $this->user());
-        $name  = preg_replace('/[^A-Za-z0-9_-]+/', '-', $entry['name'] . '-' . $table['period']);
+        $at     = self::day((string) ($_GET['at'] ?? ''));
+        $period = Window::of($entry['report']->definition['grain'], $at)->label();
+        $name   = preg_replace('/[^A-Za-z0-9_-]+/', '-', $entry['name'] . '-' . $period);
 
-        return \Pramnos\Http\Response::make("\xEF\xBB\xBF" . Report::csv($table), 200)
+        return \Pramnos\Http\Response::make("\xEF\xBB\xBF" . ReportBoard::csv($entry, $at, $this->user()), 200)
             ->withHeader('Content-Type', 'text/csv; charset=utf-8')
             ->withHeader('Content-Disposition', 'attachment; filename="' . trim((string) $name, '-') . '.csv"');
     }
@@ -150,7 +159,9 @@ class MetricReports extends Controller
         $view->definition = $report->definition;
         $view->reportName = ($_GET['copy'] ?? '') !== '' ? sprintf(t('Copy of %s'), (string) $entry['name']) : (string) ($entry['name'] ?? '');
         $view->columns    = $report->columnsAsText();
-        $view->sectionsText = $report->sectionsAsText();
+        // The report as text, for the advanced: only one that has no cards yet.
+        $view->sectionsText = isset($report->definition['layout']) ? '' : $report->sectionsAsText();
+        $view->copyOf     = ($_GET['copy'] ?? '') !== '' ? (string) $entry['id'] : '';
         $view->row        = ($_GET['report'] ?? '') !== '' ? $entry['row'] : null;
         $view->metrics    = Metrics::all($this->user(), false);
         $view->roles      = \Pramnos\User\UserTypes::labels();
@@ -175,6 +186,12 @@ class MetricReports extends Controller
                 'columns'  => Report::columnsFromText((string) ($_POST['columns'] ?? '')),
                 'sections' => Report::sectionsFromText((string) ($_POST['sections'] ?? '')),
             ];
+            // The cards stay — the report's own, or the copied report's — unless the report was
+            // written as text.
+            $from = $id > 0 ? (string) $id : (string) ($_POST['copyof'] ?? '');
+            if ($definition['sections'] === [] && $from !== '' && ($source = $this->store()->find($from, $this->user())) !== null) {
+                $definition['layout'] = ReportBoard::layout($source['report']);
+            }
             $id = $this->store()->save(
                 $this->user(),
                 $definition,

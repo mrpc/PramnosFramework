@@ -162,6 +162,9 @@ $email->send();   // or ->queue()
   `var/mail-attachments/` (`Email::attachmentSpool()`), because the outbox row holds 64 KB on
   MySQL. The row keeps the path, and the worker deletes the file once the message is sent or given
   up.
+- **Images inside the message:** `addInlineImageData($bytes, $name, $mime = 'image/png')` carries
+  an image that the HTML shows as `<img src="cid:{$name}">`, such as a chart. Mail clients show it,
+  which they do not do for a `data:` image or an SVG.
 - **Missing files:** a file that is not there is logged and the message goes without it.
 - **`attachments()`** lists what was added.
 - **The older way:** `$email->attach = '/path/to/document.pdf'` still attaches its one file, beside

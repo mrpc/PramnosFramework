@@ -192,6 +192,10 @@ function createElement(document, tag, attributes = {}) {
             const at = siblings.indexOf(this);
             return at > 0 ? siblings[at - 1] : null;
         },
+        /** The same as {@link nextSibling}: this DOM holds elements only. */
+        get nextElementSibling() { return this.nextSibling; },
+        /** The same as {@link previousSibling}. */
+        get previousElementSibling() { return this.previousSibling; },
         insertBefore(child, before) {
             if (child.parentNode) {
                 child.parentNode.removeChild(child);

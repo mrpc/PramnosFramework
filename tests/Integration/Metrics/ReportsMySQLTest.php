@@ -469,6 +469,167 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * A report of cards, drawn for a mail: a section heading, a table (regions and their total, two
+     * months), a chart with the year before (an image carried inline, or its numbers without a
+     * converter), a figure with its change, words, the records behind a metric, and a figure of a
+     * metric the reader may not see — which says so instead of a number. The report's CSV is its
+     * table, under its section's heading.
+     */
+    public function testAReportOfCardsIsDrawnForItsPeriod(): void
+    {
+        // Arrange
+        $layout = [
+            ['id' => 'report.section~s1', 'settings' => ['title' => 'Selling']],
+            ['id' => 'report.table~t1', 'settings' => ['rows' => [['metric' => 'test.sales', 'breakdown' => 'region', 'total' => true]], 'columns' => 'periods', 'periods' => 2]],
+            ['id' => 'report.chart~c1', 'settings' => ['title' => 'Sales chart', 'series' => [['metric' => 'test.sales', 'label' => 'Sales']], 'periods' => 2, 'year' => '1']],
+            ['id' => 'report.kpi~k1', 'size' => 's', 'settings' => ['metric' => 'test.sales', 'compare' => 'previous']],
+            ['id' => 'report.text~x1', 'settings' => ['text' => "**Note** <script>x</script>"]],
+            ['id' => 'report.rows~r1', 'settings' => ['metric' => 'test.sales', 'filters' => ['region' => 'north']]],
+            ['id' => 'report.kpi~k2', 'settings' => ['metric' => 'test.secret']],
+        ];
+        $id    = (new Reports())->save(self::reader(), ['name' => 'Test cards', 'layout' => $layout]);
+        $entry = (new Reports())->find((string) $id, self::reader());
+        \Pramnos\Metrics\ChartImage::convertWith(static fn (string $svg): string => "\x89PNG" . strlen($svg));
+
+        // Act
+        try {
+            $mail   = \Pramnos\Metrics\ReportBoard::html($entry, '2026-09-10', self::reader());
+            $images = \Pramnos\Metrics\ReportBoard::images();
+            \Pramnos\Metrics\ReportBoard::leave();
+            \Pramnos\Metrics\ChartImage::convertWith(static fn (): ?string => null);
+            $plain = \Pramnos\Metrics\ReportBoard::html($entry, '2026-09-10', self::reader());
+            \Pramnos\Metrics\ReportBoard::leave();
+            $live = \Pramnos\Metrics\ReportBoard::html($entry, '2026-09-10', self::reader(), '/rows', false);
+            \Pramnos\Metrics\ReportBoard::leave();
+        } finally {
+            \Pramnos\Metrics\ChartImage::convertWith(null);
+        }
+        $csv = \Pramnos\Metrics\ReportBoard::csv($entry, '2026-09-10', self::reader());
+
+        // Assert — the cards in order, each for September
+        $this->assertStringContainsString('<h2 style="margin:24px 0 8px">Selling</h2>', $mail);
+        $this->assertStringContainsString('<th scope="col">2026-08</th><th scope="col">2026-09</th>', $mail, 'two months');
+        $this->assertStringContainsString('src="cid:chart-1.png"', $mail, 'the chart as an image');
+        $this->assertSame(['chart-1.png'], array_keys($images));
+        $this->assertStringStartsWith("\x89PNG", $images['chart-1.png']);
+        $this->assertStringContainsString('+500.0%', $mail, 'the figure: September (6) against August (1)');
+        $this->assertStringContainsString('<strong>Note</strong>', $mail);
+        $this->assertStringNotContainsString('<script>x', $mail, 'words are escaped');
+        $this->assertStringContainsString('<td>north</td>', $mail, 'the records, filtered');
+        $this->assertStringNotContainsString('>9<', $mail, 'a metric the reader may not see is not even offered');
+        $this->assertSame(1, substr_count($mail, 'Choose a metric'), '…so that figure has none');
+        // Without a converter: the chart's numbers, and no image
+        $this->assertStringNotContainsString('cid:', $plain);
+        $this->assertStringContainsString('Sales (2025-09)', $plain, 'the year before beside it');
+        // On the page: a chart Chart.js draws, a section that folds, cells linked to their records
+        $this->assertStringContainsString('data-pf-chart-config', $live);
+        $this->assertStringContainsString('data-pf-report-section', $live);
+        $this->assertStringContainsString('/rows?metric=test.sales', $live);
+        $this->assertStringContainsString("Selling,North,1,5\n", $csv, 'the table under its section');
+    }
+
+    /**
+     * The edges of a report's cards: a table's columns by a dimension's values (with its total) and
+     * of its own; a figure compared with nothing; records of a metric that lists none, of one with
+     * no records in the period, and of one whose list fails; a card of the application's own that
+     * throws is left empty, not a broken report; and without a converter of its own the server
+     * either makes a PNG or answers none.
+     */
+    public function testTheEdgesOfAReportsCards(): void
+    {
+        // Arrange
+        Metrics::register(Metric::flow('test.broken', 'Broken')->source(static fn (): int => 0)
+            ->rows(static fn (): array => throw new \RuntimeException('no list')));
+        \Pramnos\Dashboard\WidgetRegistry::register(new class extends \Pramnos\Metrics\Widgets\ReportWidget {
+            public function id(): string { return 'test.throws'; }
+            protected function name(): string { return 'Throws'; }
+            public function render(): string { throw new \RuntimeException('a card that fails'); }
+        });
+        $layout = [
+            ['id' => 'report.table~d1', 'settings' => ['rows' => [['metric' => 'test.sales']], 'columns' => 'dimension', 'dimension' => 'region', 'values' => 'north', 'column_total' => '1']],
+            ['id' => 'report.table~u1', 'settings' => ['title' => 'Own', 'rows' => [['metric' => 'test.sales']], 'columns' => 'custom', 'custom' => [['label' => 'South', 'filters' => ['region' => 'south']], ['label' => 'Before', 'offset' => 1]]]],
+            ['id' => 'report.table~e1', 'settings' => []],
+            ['id' => 'report.chart~e2', 'settings' => []],
+            ['id' => 'report.kpi~n1', 'settings' => ['metric' => 'test.sales', 'compare' => 'none', 'title' => 'Plain']],
+            ['id' => 'report.rows~n2', 'settings' => ['metric' => 'test.buyers']],
+            ['id' => 'report.rows~n3', 'settings' => ['metric' => 'test.sales', 'filters' => ['region' => 'nowhere']]],
+            ['id' => 'report.rows~n4', 'settings' => ['metric' => 'test.broken']],
+            ['id' => 'report.text~n5', 'settings' => []],
+            ['id' => 'test.throws~z1', 'settings' => []],
+        ];
+        $id    = (new Reports())->save(self::reader(), ['name' => 'Test edges', 'layout' => $layout]);
+        $entry = (new Reports())->find((string) $id, self::reader());
+
+        // Act
+        try {
+            $html = \Pramnos\Metrics\ReportBoard::html($entry, '2026-09-10', self::reader(), '/rows', false);
+        } finally {
+            \Pramnos\Metrics\ReportBoard::leave();
+            \Pramnos\Dashboard\WidgetRegistry::reset();
+        }
+        $png = \Pramnos\Metrics\ChartImage::png('line', ['a'], [['label' => 'A', 'data' => [1.0]]]);
+
+        // Assert
+        $this->assertStringContainsString('<th scope="col">North</th><th scope="col">Total</th>', $html, 'a dimension\'s value, and the total');
+        $this->assertStringContainsString('<th scope="col">South</th><th scope="col">Before</th>', $html, 'columns of its own');
+        $this->assertMatchesRegularExpression('~region%5D=south">1</a></td><td><a href="[^"]*period=2026-08-01">1</a>~', $html, 'September\'s south (1), August\'s total (1)');
+        $this->assertStringContainsString('Add a row: choose a metric', $html);
+        $this->assertStringContainsString('Add a series: choose a metric', $html);
+        $this->assertStringContainsString('Plain', $html);
+        $this->assertStringNotContainsString('against', $html, 'compared with nothing');
+        $this->assertSame(1, substr_count($html, 'Choose a metric in the card'), 'a metric without records is not offered for them');
+        $this->assertStringContainsString('<td>nowhere</td>', $html, 'the records filtered');
+        $this->assertStringContainsString('The records could not be read', $html);
+        $this->assertStringContainsString('Write the text in the card', $html);
+        $this->assertStringNotContainsString('a card that fails', $html);
+        $this->assertTrue($png === null || str_starts_with($png, "\x89PNG"), 'a PNG, or none without a converter');
+    }
+
+    /**
+     * A report written as sections is read as cards: its heading, its chart, its table. Its board's
+     * layout is kept in the report by its owner alone — another reader sees it and cannot change
+     * it — and the dashboard serves a report's board: a card drawn for the period asked, a save by
+     * somebody else refused.
+     */
+    public function testAReportsBoardIsItsOwners(): void
+    {
+        // Arrange
+        $id    = (new Reports())->save(self::reader(98, 2), ['name' => 'Test board', 'sections' => [['title' => 'S', 'chart' => 'bar', 'rows' => [['metric' => 'test.sales']]]]], Presets::EVERYONE);
+        $board = \Pramnos\Metrics\ReportBoard::board((string) $id);
+        $read  = \Pramnos\Metrics\ReportBoard::layout((new Reports())->find((string) $id, self::reader())['report']);
+        $mine  = [['id' => 'report.kpi~a1', 'size' => 's', 'settings' => ['metric' => 'test.sales']], ['id' => 'report.text~b2', 'settings' => ['text' => 'hi']]];
+
+        // Act
+        $kept = (new \Pramnos\Dashboard\Layouts())->save(self::reader(98, 2), $mine, $board);
+        $seen = (new \Pramnos\Dashboard\Layouts())->for(self::reader(90, 7), $board);
+        $refused = null;
+        try {
+            (new \Pramnos\Dashboard\Layouts())->save(self::reader(98, 7), [], $board);
+        } catch (\InvalidArgumentException $e) {
+            $refused = $e->getMessage();
+        }
+        $this->signIn(98, 7);
+        $this->request('POST', null, ['board' => $board], ['layout' => '[]']);
+        $theirs = (new \Pramnos\Application\Controllers\DashboardController(Application::getInstance()))->savelayout();
+        $this->signIn(98, 2);
+        $this->request('GET', null, ['board' => $board, 'id' => 'report.kpi~a1', 'part' => 'body', 'at' => '2026-09-10']);
+        $card = (new \Pramnos\Application\Controllers\DashboardController(Application::getInstance()))->card();
+        \Pramnos\Metrics\ReportBoard::leave();
+
+        // Assert
+        $this->assertSame(['report.section~s0', 'report.chart~c0', 'report.table~t0'], array_column($read, 'id'));
+        $this->assertSame(['report.kpi~a1', 'report.text~b2'], array_column($kept, 'id'));
+        $this->assertSame(['report.kpi~a1', 'report.text~b2'], array_column($seen, 'id'), 'the same for everybody');
+        $this->assertSame([], (new Reports())->find((string) $id, self::reader())['report']->definition['sections'], 'the cards replace the sections');
+        $this->assertSame('There is no such report of yours.', $refused);
+        $this->assertSame(403, $theirs->getStatusCode());
+        $this->assertSame(200, $card->getStatusCode());
+        $this->assertStringContainsString('2026-09', (string) $card->getBody(), 'drawn for the period asked');
+        $this->assertTrue((new Reports())->owns((string) $id, self::reader(98, 2)));
+        $this->assertFalse((new Reports())->owns('app:x', self::reader(98, 2)));
+    }
+
+    /**
      * A `.tpl.php` template drawn as the view engine draws it: compiled, then run inside a real
      * view with the variables a controller set on it — so a variable named like one of the view's
      * own properties reads the property here too, as it does on a live page.

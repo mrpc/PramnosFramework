@@ -1,4 +1,4 @@
-{{-- A report's form. Variables: id, reportName, definition, columns and sectionsText (as text), row, metrics, roles, csrfField, urls. --}}
+{{-- A report's form. Variables: id, reportName, definition, columns and sectionsText (as text; empty for a report with cards), copyOf, row, metrics, roles, csrfField, urls. The cards are arranged on the report itself, with Customise. --}}
 @php
 $saved = $this->row ?? [];
 $grains = ['day' => t('Day'), 'week' => t('Week'), 'month' => t('Month'), 'quarter' => t('Quarter'), 'year' => t('Year')];
@@ -10,7 +10,7 @@ $schedules = ['' => t('Never'), 'day' => t('Daily'), 'week' => t('Weekly'), 'mon
     <div class="pf-page-head"><h1 class="pf-page-title">{{ $this->id > 0 ? t('Edit a report') : t('New report') }}</h1></div>
     <div class="pf-grid-2">
     <form method="post" action="{{ $this->urls['save'] }}" class="pf-card"><div class="pf-card-body pf-stack">{!! $this->csrfField !!}
-        <input type="hidden" name="reportid" value="{{ $this->id }}">
+        <input type="hidden" name="reportid" value="{{ $this->id }}"><input type="hidden" name="copyof" value="{{ $this->copyOf ?? '' }}">
         <div class="pf-field"><label class="pf-label" for="pf-report-name">{{ t('Name') }}</label>
             <input id="pf-report-name" type="text" name="name" value="{{ $this->reportName }}" maxlength="120" required class="pf-input"></div>
         <div class="pf-grid-2">
@@ -19,10 +19,10 @@ $schedules = ['' => t('Never'), 'day' => t('Daily'), 'week' => t('Weekly'), 'mon
             <div class="pf-field"><label class="pf-label" for="pf-report-compare">{{ t('Compare with') }}</label>
                 <select id="pf-report-compare" name="compare" class="pf-select">@foreach ($compares as $value => $label)<option value="{{ $value }}"{{ (string) $this->definition['compare'] === $value ? ' selected' : '' }}>{{ $label }}</option>@endforeach</select></div>
         </div>
-        <div class="pf-field"><label class="pf-label" for="pf-report-columns">{{ t('Columns') }}</label>
+        <div class="pf-field"><label class="pf-label" for="pf-report-columns">{{ t('Columns of its tables, unless a table sets its own') }}</label>
             <textarea id="pf-report-columns" name="columns" rows="4" class="pf-textarea" style="font-family:monospace">{{ $this->columns }}</textarea>
             <p class="pf-hint">{{ t('periods=12 — or dimension=name value,value total — or one column a line: Label | name=value, … | metric | offset') }}</p></div>
-        <div class="pf-field"><label class="pf-label" for="pf-report-sections">{{ t('Sections and rows') }}</label>
+        <div class="pf-field"><label class="pf-label" for="pf-report-sections">{{ t('For the advanced: the report as text, in place of its cards') }}</label>
             <textarea id="pf-report-sections" name="sections" rows="14" class="pf-textarea" style="font-family:monospace">{{ $this->sectionsText }}</textarea>
             <p class="pf-hint">{{ t('# Title [chart=line] [total] starts a section; each row: Label | metric | name=value, … | by=dimension total') }}</p></div>
         <div class="pf-grid-2">

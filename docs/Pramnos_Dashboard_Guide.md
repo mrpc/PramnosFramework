@@ -403,6 +403,36 @@ raise the bar with `'boards' => ['wcm' => ['min_role' => 'manager']]`: below it,
 nothing and its saves answer 403. Drawn this way, the view gets `$this->embedded = true` and
 `$this->boardTitle`, and draws no page heading or frame.
 
+### Settings that keep a structure
+
+Besides select, text, date and number, a field can be a `textarea`, or one of two inputs whose
+editor the page's script draws and whose value is a structure, not a word. Their `clean`
+receives the array (or its JSON) and answers it as kept.
+
+```php
+public function options(): array
+{
+    return [
+        'note' => ['label' => 'Note', 'input' => 'textarea', 'clean' => fn ($v) => is_string($v) ? $v : null],
+        // Items added, removed and dragged into order, each these fields
+        'rows' => ['label' => 'Rows', 'input' => 'list', 'clean' => fn ($v) => is_array($v) ? $v : null, 'fields' => [
+            'metric'    => ['label' => 'Metric', 'input' => 'select', 'values' => ['orders' => 'Orders', 'buyers' => 'Buyers']],
+            // a select whose choices follow another field of the item
+            'breakdown' => ['label' => 'By', 'input' => 'select', 'by' => 'metric', 'valuesBy' => ['orders' => ['region' => 'Region'], 'buyers' => []]],
+            'total'     => ['label' => 'Total', 'input' => 'checkbox'],
+        ]],
+        // [dimension => value], chosen from these; with `by`, only the chosen metric's dimensions
+        'filters' => ['label' => 'Filters', 'input' => 'filters', 'clean' => fn ($v) => is_array($v) ? $v : null,
+            'dimensions' => ['region' => ['label' => 'Region', 'values' => ['north' => 'North']]],
+            'by' => 'metric', 'dimsBy' => ['orders' => ['region']]],
+    ];
+}
+```
+
+A `filters` input can also be a field of a list item. The form carries each structure in a
+hidden input as JSON (`data-pf-json`), and `pf-utils.js` (`window.pfStructured`) draws the editor
+when the form is opened. Its controls have no `name`, so only the structure is sent.
+
 ## Many cards of one widget
 
 A layout holds each widget once, unless the widget is **repeatable**: then each card of it
@@ -425,6 +455,14 @@ new card with a random key of letters and digits (up to 16). `WidgetRegistry::fo
 $cardId)` finds the widget a card draws, and `Widget::baseId($cardId)` gives its id without the
 key. A key on a widget that is not repeatable, or a key in another shape, is dropped when the
 layout is cleaned, like an unknown widget.
+
+### A report's board
+
+A report's cards are a board too: `report:<id>`, with the report widgets as its catalogue
+(`WidgetRegistry::REPORT`, plus any widget whose `boards()` names `report`). Its layout is kept in
+the report, not per person, and only the report's owner arranges it: the dashboard controller
+answers 403 to anybody else's save (`mayArrange()`) and draws no Customise for them. See the
+Metrics guide, *Reports*.
 
 ## Tabs: several cards in one frame
 

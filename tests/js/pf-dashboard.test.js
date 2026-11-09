@@ -1025,3 +1025,74 @@ test('the person picker finds a person by name and fills the form', async () => 
     assert.equal(submit.disabled, false);
     assert.equal(form.querySelector('[data-pf-person-results]').hidden, true);
 });
+
+/**
+ * A structured setting: opening the form draws the list editor from its spec; adding, filling,
+ * moving and removing items writes the hidden input's JSON; a breakdown offers the chosen
+ * metric's dimensions; filters are dimension and value; and the form sends the structure, not
+ * text.
+ */
+test('a list setting is edited as items and sent as a structure', async () => {
+    // Arrange
+    const p = page(true, '/admin/Dashboard/card?x=1');
+    const tools = p.cards.a.querySelector('[data-pf-widget-tools]');
+    const toggle = p.el('button', { 'data-pf-widget-settings-toggle': '', 'aria-expanded': 'false' }, tools);
+    const form = p.el('form', { 'data-pf-widget-settings': '' }, p.cards.a);
+    form.hidden = true;
+    const hidden = p.el('input', { type: 'hidden', name: 'rows', 'data-pf-json': '', value: '[{"metric":"sales"}]' }, form);
+    p.el('div', {
+        'data-pf-structured': 'list',
+        'data-spec': JSON.stringify({ input: 'list', fields: {
+            metric: { label: 'Metric', input: 'select', values: { sales: 'Sales', buyers: 'Buyers' } },
+            breakdown: { label: 'By', input: 'select', by: 'metric', valuesBy: { sales: { region: 'Region' }, buyers: {} } },
+            filters: { label: 'Filters', input: 'filters', dimensions: { region: { label: 'Region', values: { north: 'North' } }, plan: { label: 'Plan', values: {} } }, by: 'metric', dimsBy: { sales: ['region', 'plan'] } },
+            total: { label: 'Total', input: 'checkbox' },
+        } }),
+        'data-classes': '{"select":"s","input":"i","button":"b"}',
+    }, form);
+    const items = () => form.querySelectorAll('[data-pf-list-item]');
+    const sub = (item, key) => item.querySelector('[data-pf-subfield="' + key + '"]');
+    const change = (node, value) => { node.value = value; node.dispatchEvent(new Event(node.tagName.toLowerCase() === 'select' ? 'change' : 'input', { bubbles: true })); };
+
+    // Act — open, fill the first, add a second, move it up, add a filter
+    p.click(toggle);
+    const drawn = items().length;
+    change(sub(items()[0], 'breakdown'), 'region');
+    p.click(form.querySelector('[data-pf-list-add]'));
+    change(sub(items()[1], 'metric'), 'buyers');
+    p.click(items()[1].querySelector('[data-pf-list-move="-1"]'));
+    p.click(items()[1].querySelector('[data-pf-filter-add]'));
+    const filterRow = items()[1].querySelector('[data-pf-filter]');
+    change(filterRow.querySelector('select'), 'region');
+    // Its value: the dimension's own values, the row drawn again for it.
+    change(items()[1].querySelector('[data-pf-filter]').querySelectorAll('select')[1], 'north');
+    const total = sub(items()[1], 'total');
+    total.checked = true;
+    total.dispatchEvent(new Event('change', { bubbles: true }));
+    const kept = JSON.parse(hidden.value);
+    p.click(items()[0].querySelector('[data-pf-list-remove]'));
+    form.dispatchEvent(new Event('submit', { bubbles: true }));
+    await settle();
+
+    // Assert
+    assert.equal(drawn, 1, 'the saved item drawn');
+    assert.deepEqual(kept, [{ metric: 'buyers' }, { metric: 'sales', breakdown: 'region', filters: { region: 'north' }, total: true }]);
+    assert.deepEqual(p.saves[0].body.layout[0].settings.rows, [{ metric: 'sales', breakdown: 'region', filters: { region: 'north' }, total: true }], 'sent as a structure');
+});
+
+/** A report's section heading folds the cards under it away, up to the next section, and back. */
+test('a section heading folds the cards under it', () => {
+    // Arrange
+    const p = page();
+    const toggle = p.el('button', { 'data-pf-report-section': '', 'aria-expanded': 'true' }, p.cards.a);
+    p.el('button', { 'data-pf-report-section': '' }, p.cards.c);
+
+    // Act
+    p.click(toggle);
+    const folded = [p.cards.b.hidden, p.cards.c.hidden, toggle.getAttribute('aria-expanded')];
+    p.click(toggle);
+
+    // Assert
+    assert.deepEqual(folded, [true, false, 'false'], 'up to the next section');
+    assert.equal(p.cards.b.hidden, false, 'shown again');
+});

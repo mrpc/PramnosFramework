@@ -205,11 +205,49 @@ breakdown, `series()` keeps the values under the key `''`.
 
 ## Reports
 
-A report is sections of rows across columns, built from metrics. The application can ship ready
-reports in app.php, and people build their own at **`/admin/MetricReports`** (the *Reports* menu
-item, shown wherever metrics are declared). They can share a report the way dashboard presets
-are shared, export it to CSV, print it or save it as PDF from the browser, and have it mailed
-every day, week or month.
+A report is a board of cards built from metrics, drawn for one period. The application can ship
+ready reports in app.php, and people build their own at **`/admin/MetricReports`** (the *Reports*
+menu item, shown wherever metrics are declared). They can share a report the way dashboard
+presets are shared, export it to CSV, print it or save it as PDF from the browser, and have it
+mailed every day, week or month.
+
+### Cards
+
+A report's cards are arranged with the dashboard's own editor, on the report's page: its owner
+chooses **Customise**, then adds, moves, resizes, groups into tabs and sets each card, and every
+change is drawn at once with the real numbers. There is one editor for dashboards and reports,
+so a card type or a setting added to one is in the other.
+
+| Card | id | What it shows |
+|---|---|---|
+| Section | `report.section` | A heading across the width. On the page it folds away the cards under it, up to the next section. |
+| Table of metrics | `report.table` | Rows across columns, as below. Its columns are the report's, or its own: the last N periods, a dimension's values, or columns of its own. |
+| Chart | `report.chart` | Series of metrics over the last N periods, as lines or bars, with the same periods a year earlier beside them on request. |
+| Figure | `report.kpi` | One metric's value in the period, with its change against the period before, a year earlier, or as the report compares. |
+| Text | `report.text` | Words in markdown, escaped and then formatted as the assistant's answers are. |
+| Records | `report.rows` | The records behind a metric that declares `rows()`, the first ones as a table, with a link to all of them. |
+
+A card's form offers choices, not syntax. A metric is picked from the catalogue, and a breakdown
+from the chosen metric's dimensions. Filters are a dimension and one of its values. Rows, series
+and columns are lists whose items are added, removed and dragged into order. A report has as
+many cards of each kind as it wants (`Widget::repeatable()`, see the Dashboard guide).
+
+- **Who arranges it:** the owner of a saved report. Everybody else who may open it sees the same
+  cards, without Customise, and copies it to make one of their own. A report from app.php is
+  copied the same way.
+- **Where the cards are kept:** in the report's definition, as `layout`, in the shape the
+  dashboard keeps a layout. A report's board is `report:<id>` (`Pramnos\Metrics\ReportBoard`), served by
+  the dashboard controller like any other board.
+- **The period:** every card reads the report's grain, period, comparison and columns
+  (`ReportBoard::context()`), so moving to the previous month redraws them all for it.
+- **Cards of an application's own:** a widget whose `boards()` names `report` is offered on
+  reports too, and can read `ReportBoard::context()`.
+
+### Sections as text
+
+A definition can still give `sections` instead of cards, as below. It is read as cards: each
+section a heading, its chart where it asks for one, and its table. Once its owner arranges the
+cards, the cards are kept and the sections go.
 
 ```php
 // app/app.php
@@ -263,7 +301,9 @@ A section's `total` adds up its rows but leaves breakdown totals out.
 
 ### On the screen
 
-The screen edits a report as text:
+The report's settings form holds its name, grain, comparison, sharing and schedule, and the
+default columns of its tables. A field for the advanced takes the whole report as text, in place
+of its cards:
 
 ```text
 # Columns
@@ -295,11 +335,18 @@ A saved report with a schedule (`day`, `week` or `month`) and recipients is mail
 period that closes:
 
 - **What is sent:** the report of that period, read as its owner would see it, in the body of
-  the mail.
+  the mail: each card in turn, under its heading (`ReportBoard::html()`).
+- **Charts:** as PNG images carried inside the mail, because no mail client runs a script or
+  shows an SVG. The server draws the chart as SVG (`ChartImage::svg()`) and converts it with the
+  `imagick` extension (ImageMagick with its SVG delegate, `apt install php-imagick librsvg2-2`) or
+  the `rsvg-convert` program (`apt install librsvg2-bin`). Neither keeps anything running. Without
+  either, or when one fails, the chart is sent as a table of its numbers and the mail still goes.
+  `ChartImage::convertWith()` sets a converter of the application's own.
 - **How:** `metrics:reports-send` sends it through the outbox. The framework's schedule runs it
   daily at 07:30.
 
-The mail carries no CSV attachment; the CSV is one click away on the report's page.
+The mail carries no CSV attachment; the CSV is one click away on the report's page. The CSV holds
+the report's tables one under another, each line its table's heading (or its section's) and row.
 
 ### Closed periods
 

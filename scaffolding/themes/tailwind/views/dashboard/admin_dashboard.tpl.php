@@ -14,6 +14,8 @@
  *   $this->saveUrl  — string  where a layout is saved (POST, JSON)
  *   $this->resetUrl — string  where it goes back to the default (POST)
  *   $this->presets, presetUrls, managesPresets, roles, csrfField — the board's presets, for presets_dialog.html.php
+ *   $this->editable — bool    whether Customise is offered (not on somebody else's report)
+ *   $this->isReport — bool    a report's board: no presets, words of a report
  *   $this->embedded — bool    drawn inside another screen (Board::render()): no page heading or frame
  *   $this->boardTitle — string the board's heading (a person's own board's name, or Board::render()'s title); '' for the default
  *   $this->userBoard, boardUrls — a person's own board (or null), and its new/settings/delete actions, for presets_dialog.html.php
@@ -24,7 +26,7 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
 <div class="{!! !empty($this->embedded) ? 'pf-dashboard-embed' : 'px-4 py-6' !!}">
     <div class="flex items-center gap-2 mb-4">
         @if (empty($this->embedded))<h2 class="text-2xl font-semibold">{{ ($this->boardTitle ?? '') !== '' ? $this->boardTitle : $t('Dashboard') }}</h2>@elseif (($this->boardTitle ?? '') !== '')<h3 class="text-xl font-semibold">{{ $this->boardTitle }}</h3>@endif
-        <button type="button" class="btn btn-sm btn-ghost ms-auto" data-pf-dashboard-edit aria-pressed="false">{{ $t('Customise') }}</button>
+        @if ($this->editable ?? true)<button type="button" class="btn btn-sm btn-ghost ms-auto" data-pf-dashboard-edit aria-pressed="false">{{ $t('Customise') }}</button>@endif
     </div>
 
     <div class="card bg-base-100 border border-dashed border-primary mb-4 pf-dashboard-bar" data-pf-dashboard-bar hidden>
@@ -33,10 +35,10 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
             @if (!empty($this->catalogue))
             <button type="button" class="btn btn-sm btn-primary" data-pf-dashboard-catalogue>{{ $t('Add a card') }}</button>
             @endif
-            @if (isset($this->presetUrls))
+            @if (isset($this->presetUrls) && empty($this->isReport))
             <button type="button" class="btn btn-sm btn-ghost" data-pf-dashboard-presets>{{ $t('Presets and dashboards') }}</button>
             @endif
-            <span class="ms-auto">{!! \Pramnos\Html\Icon::postControl($this->resetUrl, $e($t('Back to the default')), ['class' => 'btn btn-sm btn-ghost', 'data-confirm' => $t('Go back to the default dashboard?')]) !!}</span>
+            @if (empty($this->isReport))<span class="ms-auto">{!! \Pramnos\Html\Icon::postControl($this->resetUrl, $e($t('Back to the default')), ['class' => 'btn btn-sm btn-ghost', 'data-confirm' => $t('Go back to the default dashboard?')]) !!}</span>@endif
             <button type="button" class="btn btn-sm btn-primary" data-pf-dashboard-done>{{ $t('Done') }}</button>
         </div>
     </div>
@@ -46,7 +48,7 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
         @foreach ($this->widgets as $widget)
         @include(!empty($widget['group']) ? 'tabs' : 'card', ['widget' => $widget])
         @endforeach
-        <p class="opacity-70 pf-dashboard-full" data-pf-dashboard-empty{!! $this->widgets ? ' hidden' : '' !!}>{{ $t('Your dashboard is empty: choose Customise, then add a card.') }}</p>
+        <p class="opacity-70 pf-dashboard-full" data-pf-dashboard-empty{!! $this->widgets ? ' hidden' : '' !!}>{{ !empty($this->isReport) ? $t('This report has no cards yet: choose Customise, then add one.') : $t('Your dashboard is empty: choose Customise, then add a card.') }}</p>
     </div>
     @if (!empty($this->catalogue))
     <dialog class="modal" data-pf-dashboard-catalogue-dialog aria-labelledby="pf-dashboard-catalogue-title">
@@ -69,7 +71,7 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
         </div>
     </dialog>
     @endif
-@if (isset($this->presetUrls))
+@if (isset($this->presetUrls) && empty($this->isReport))
     @include('presets_dialog')
     @endif
 </div>

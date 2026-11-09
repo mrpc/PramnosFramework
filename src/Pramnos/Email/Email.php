@@ -156,7 +156,7 @@ class Email extends \Pramnos\Framework\Base
      * {@see addAttachment()} and {@see addAttachmentData()}. Beside {@see $attach}, which stays
      * the one file it always was.
      *
-     * @var list<array{path: ?string, data: ?string, name: ?string, mime: ?string, spooled: bool}>
+     * @var list<array{path: ?string, data: ?string, name: ?string, mime: ?string, spooled: bool, inline?: bool}>
      */
     protected array $attachments = [];
     
@@ -1366,9 +1366,21 @@ class Email extends \Pramnos\Framework\Base
     }
 
     /**
+     * Put an image made in memory — a chart — inside the message, where its HTML refers to it as
+     * `<img src="cid:{$name}">`: mail clients show it, which they do not for a `data:` image or an
+     * SVG. Queued, it waits in the outbox's spool as an attachment made of bytes does.
+     */
+    public function addInlineImageData(string $bytes, string $name, string $mime = 'image/png'): static
+    {
+        $this->attachments[] = ['path' => null, 'data' => $bytes, 'name' => $name, 'mime' => $mime, 'spooled' => false, 'inline' => true];
+
+        return $this;
+    }
+
+    /**
      * The attachments added with {@see addAttachment()} and {@see addAttachmentData()}.
      *
-     * @return list<array{path: ?string, data: ?string, name: ?string, mime: ?string, spooled: bool}>
+     * @return list<array{path: ?string, data: ?string, name: ?string, mime: ?string, spooled: bool, inline?: bool}>
      */
     public function attachments(): array
     {
@@ -1509,7 +1521,7 @@ class Email extends \Pramnos\Framework\Base
                             'name'    => is_string($kept['name'] ?? null) ? $kept['name'] : null,
                             'mime'    => is_string($kept['mime'] ?? null) ? $kept['mime'] : null,
                             'spooled' => !empty($kept['spooled']),
-                        ];
+                        ] + (!empty($kept['inline']) ? ['inline' => true] : []);
                     }
                 }
                 continue;
@@ -1868,10 +1880,14 @@ class Email extends \Pramnos\Framework\Base
                 }
             }
             foreach ($this->attachments as $attachment) {
+                // An image the HTML shows (cid:name), or a file beside the message.
+                $inline = !empty($attachment['inline']);
                 if ($attachment['data'] !== null) {
-                    $email->attach($attachment['data'], $attachment['name'], $attachment['mime']);
+                    $inline ? $email->embed($attachment['data'], $attachment['name'], $attachment['mime'])
+                        : $email->attach($attachment['data'], $attachment['name'], $attachment['mime']);
                 } elseif ($attachment['path'] !== null && is_file($attachment['path'])) {
-                    $email->attachFromPath($attachment['path'], $attachment['name'], $attachment['mime']);
+                    $inline ? $email->embedFromPath($attachment['path'], $attachment['name'], $attachment['mime'])
+                        : $email->attachFromPath($attachment['path'], $attachment['name'], $attachment['mime']);
                 } else {
                     \Pramnos\Logs\Logger::log('Email attachment not found: ' . (string) $attachment['path']);
                 }

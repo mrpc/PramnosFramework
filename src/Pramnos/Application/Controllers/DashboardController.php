@@ -129,6 +129,7 @@ class DashboardController extends Controller
 
         // This person's widgets, in their order and widths, each drawn — and the ones they may add.
         $user    = \Pramnos\User\User::current();
+        $this->enterReport($board, is_object($user) ? $user : null);
         $layout  = is_object($user) ? $this->layouts()->for($user, $board) : [];
         $widgets = \Pramnos\Dashboard\WidgetRegistry::available(is_object($user) ? $user : null, $board);
         // Built here and assigned once: a View's properties are magic, and appending to one
@@ -152,7 +153,10 @@ class DashboardController extends Controller
         $view->embedded   = false;
         $view->boardTitle = '';
         $view->saveUrl    = $this->boardUrl('savelayout', $board);
-        $view->cardUrl    = $this->boardUrl('card', $board);
+        $view->cardUrl    = $this->boardUrl('card', $board) . (\Pramnos\Metrics\ReportBoard::isReportBoard($board) ? '&at=' . rawurlencode((string) \Pramnos\Metrics\ReportBoard::context()['at']) : '');
+        // Whether this person may arrange it: Customise is not offered on a report of somebody else's.
+        $view->editable   = is_object($user) && $this->mayArrange($board, $user);
+        $view->isReport   = \Pramnos\Metrics\ReportBoard::isReportBoard($board);
         $view->resetUrl   = $this->boardUrl('resetlayout', $board);
 
         // The presets this person may apply, and what they may do with them.
@@ -204,6 +208,10 @@ class DashboardController extends Controller
             return true;
         }
         $user = \Pramnos\User\User::current();
+        // A report's board: a report this person may open.
+        if (\Pramnos\Metrics\ReportBoard::isReportBoard($board)) {
+            return is_object($user) && (new \Pramnos\Metrics\Reports())->find(\Pramnos\Metrics\ReportBoard::reportId($board), $user) !== null;
+        }
 
         return \Pramnos\Dashboard\UserBoards::isUserBoard($board) && is_object($user) && $this->userBoards()->find($board, $user) !== null;
     }
@@ -227,6 +235,38 @@ class DashboardController extends Controller
         return is_string($role) && $role !== '' && !\Pramnos\User\Roles::atLeast($user, $role);
     }
 
+    /**
+     * Whether this person may arrange a board — move, add, set its cards. Every board they may use,
+     * except a report's ({@see \Pramnos\Metrics\ReportBoard}): that one is its owner's alone, and
+     * the others copy it.
+     */
+    protected function mayArrange(string $board, object $user): bool
+    {
+        if (!\Pramnos\Metrics\ReportBoard::isReportBoard($board)) {
+            return true;
+        }
+
+        return (new \Pramnos\Metrics\Reports())->owns(\Pramnos\Metrics\ReportBoard::reportId($board), $user);
+    }
+
+    /**
+     * Before a report's cards are drawn: the report entered for its period (`?at=YYYY-MM-DD`, today
+     * by default), so each card reads its grain, comparison and columns. Nothing for another board.
+     */
+    protected function enterReport(string $board, ?object $user): void
+    {
+        if (!\Pramnos\Metrics\ReportBoard::isReportBoard($board) || $user === null) {
+            return;
+        }
+        $entry = (new \Pramnos\Metrics\Reports())->find(\Pramnos\Metrics\ReportBoard::reportId($board), $user);
+        if ($entry === null) {
+            return;
+        }
+        $at  = (string) ($_GET['at'] ?? '');
+        $day = \DateTime::createFromFormat('!Y-m-d', $at);
+        \Pramnos\Metrics\ReportBoard::enter($entry, $day !== false && $day->format('Y-m-d') === $at ? $at : date('Y-m-d'), $user, adminUrl('MetricReports/rows'));
+    }
+
     /** One of this controller's actions for a board — with `?board=` unless it is its own. */
     protected function boardUrl(string $action, string $board): string
     {
@@ -248,7 +288,7 @@ class DashboardController extends Controller
             return \Pramnos\Http\Response::json(['error' => 'Sign in first.'], 401);
         }
         $board = $this->board();
-        if ($this->boardRefused($board, $user)) {
+        if ($this->boardRefused($board, $user) || !$this->mayArrange($board, $user)) {
             return \Pramnos\Http\Response::json(['error' => 'This board is not yours to change.'], 403);
         }
         $body   = json_decode((string) file_get_contents('php://input'), true);
@@ -708,6 +748,7 @@ class DashboardController extends Controller
         if (!is_object($user) || $this->boardRefused($board, $user) || $widget === null) {
             return \Pramnos\Http\Response::make('', 404);
         }
+        $this->enterReport($board, $user);
 
         $saved = array_column(\Pramnos\Dashboard\Layouts::cards($this->layouts()->for($user, $board)), null, 'id')[$id]
             ?? \Pramnos\Dashboard\Layouts::clean([['id' => $id]], $user, $board)[0];
@@ -747,7 +788,7 @@ class DashboardController extends Controller
             $field          = \Pramnos\Dashboard\Widget::field($allowed);
             $options[$name] = $field['clean'] !== null ? null : $field['values'];
             $fields[$name]  = ['input' => $field['input'], 'label' => $field['label'] ?? ucfirst(str_replace('_', ' ', (string) $name)),
-                'values' => $field['values'], 'when' => $field['when']];
+                'values' => $field['values'], 'when' => $field['when']] + $field['extra'];
         }
 
         return [

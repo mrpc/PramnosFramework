@@ -252,6 +252,33 @@ class MailOutboxMySQLTest extends TestCase
     }
 
     /**
+     * An image put inside the message — a report's chart — goes as an inline part the HTML refers
+     * to by `cid:`, not as a file beside the message; queued, it is read back as inline.
+     */
+    public function testAnInlineImageIsShownInsideTheMessage(): void
+    {
+        // Arrange
+        $transport = new OutboxCapturingTransport();
+        $email     = new FlushThroughTransportMailer($transport);
+        $email->to      = 'reader@example.com';
+        $email->from    = 'site@example.com';
+        $email->subject = 'A chart';
+        $email->body    = '<p><img src="cid:chart-1.png"></p>';
+        $email->addInlineImageData("\x89PNG fake", 'chart-1.png');
+
+        // Act
+        $sent     = $email->sendRendered();
+        $restored = (new Email())->restoreOutboxState(['attachments' => $email->attachments()])->attachments();
+
+        // Assert
+        $this->assertTrue($sent);
+        $this->assertStringContainsString('Content-Disposition: inline', $transport->sent[0]);
+        $this->assertMatchesRegularExpression('/Content-ID: <[^>]+>/', $transport->sent[0], 'a part the HTML refers to');
+        $this->assertStringNotContainsString('src="cid:chart-1.png"', $transport->sent[0], 'the reference rewritten to the part\'s id');
+        $this->assertTrue($restored[0]['inline'] ?? false, 'still inline when read back from the outbox');
+    }
+
+    /**
      * A row from another version that holds something else under `attachments` sets nothing it
      * should not: only entries with a path or bytes are read back, in this version's shape.
      */

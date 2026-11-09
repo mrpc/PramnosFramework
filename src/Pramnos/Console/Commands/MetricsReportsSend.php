@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Pramnos\Console\Commands;
 
-use Pramnos\Metrics\Report;
+use Pramnos\Metrics\ReportBoard;
 use Pramnos\Metrics\Reports;
 use Pramnos\Metrics\Window;
 use Symfony\Component\Console\Command\Command;
@@ -36,14 +36,22 @@ class MetricsReportsSend extends Command
             $row = $entry['row'];
             try {
                 $owner = new \Pramnos\User\User((int) $row['ownerid']);
-                $table = $entry['report']->build($entry['period'], $owner);
                 $title = $entry['name'] . ' — ' . Window::of($entry['report']->definition['grain'], $entry['period'])->label();
-                $body  = '<h2>' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '</h2>' . Report::html($table);
+                // Its cards drawn for a mail: charts as images carried inline, or their numbers.
+                try {
+                    $body   = '<h2>' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '</h2>' . ReportBoard::html($entry, $entry['period'], $owner);
+                    $images = ReportBoard::images();
+                } finally {
+                    ReportBoard::leave();
+                }
                 foreach (Reports::addresses((string) $row['recipients']) as $address) {
                     $mail = $this->mail();
                     $mail->setTo($address);
                     $mail->setSubject($title);
                     $mail->setBody($body);
+                    foreach ($images as $name => $png) {
+                        $mail->addInlineImageData($png, $name);
+                    }
                     if (!$mail->queue()) {
                         throw new \RuntimeException('the outbox refused the mail to ' . $address);
                     }

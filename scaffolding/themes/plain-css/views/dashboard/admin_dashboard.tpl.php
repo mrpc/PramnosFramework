@@ -14,6 +14,8 @@
  *   $this->saveUrl  — string  where a layout is saved (POST, JSON)
  *   $this->resetUrl — string  where it goes back to the default (POST)
  *   $this->presets, presetUrls, managesPresets, roles, csrfField — the board's presets, for presets_dialog.html.php
+ *   $this->editable — bool    whether Customise is offered (not on somebody else's report)
+ *   $this->isReport — bool    a report's board: no presets, words of a report
  *   $this->embedded — bool    drawn inside another screen (Board::render()): no page heading or frame
  *   $this->boardTitle — string the board's heading (a person's own board's name, or Board::render()'s title); '' for the default
  *   $this->userBoard, boardUrls — a person's own board (or null), and its new/settings/delete actions, for presets_dialog.html.php
@@ -24,7 +26,7 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
 <div class="{!! !empty($this->embedded) ? 'pf-dashboard-embed' : 'container' !!}">
     <div class="pf-dashboard-head">
         @if (empty($this->embedded))<h2>{{ ($this->boardTitle ?? '') !== '' ? $this->boardTitle : $t('Dashboard') }}</h2>@elseif (($this->boardTitle ?? '') !== '')<h3>{{ $this->boardTitle }}</h3>@endif
-        <button type="button" class="btn btn-outline-secondary btn-sm" data-pf-dashboard-edit aria-pressed="false">{{ $t('Customise') }}</button>
+        @if ($this->editable ?? true)<button type="button" class="btn btn-outline-secondary btn-sm" data-pf-dashboard-edit aria-pressed="false">{{ $t('Customise') }}</button>@endif
     </div>
 
     <div class="card pf-dashboard-bar" data-pf-dashboard-bar hidden>
@@ -33,10 +35,10 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
             @if (!empty($this->catalogue))
             <button type="button" class="btn btn-primary btn-sm" data-pf-dashboard-catalogue>{{ $t('Add a card') }}</button>
             @endif
-            @if (isset($this->presetUrls))
+            @if (isset($this->presetUrls) && empty($this->isReport))
             <button type="button" class="btn btn-outline-secondary btn-sm" data-pf-dashboard-presets>{{ $t('Presets and dashboards') }}</button>
             @endif
-            {!! \Pramnos\Html\Icon::postControl($this->resetUrl, $e($t('Back to the default')), ['class' => 'btn btn-link btn-sm', 'data-confirm' => $t('Go back to the default dashboard?')]) !!}
+            @if (empty($this->isReport)){!! \Pramnos\Html\Icon::postControl($this->resetUrl, $e($t('Back to the default')), ['class' => 'btn btn-link btn-sm', 'data-confirm' => $t('Go back to the default dashboard?')]) !!}@endif
             <button type="button" class="btn btn-primary btn-sm" data-pf-dashboard-done>{{ $t('Done') }}</button>
         </div>
     </div>
@@ -46,7 +48,7 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
         @foreach ($this->widgets as $widget)
         @include(!empty($widget['group']) ? 'tabs' : 'card', ['widget' => $widget])
         @endforeach
-        <p class="pf-muted pf-dashboard-full" data-pf-dashboard-empty{!! $this->widgets ? ' hidden' : '' !!}>{{ $t('Your dashboard is empty: choose Customise, then add a card.') }}</p>
+        <p class="pf-muted pf-dashboard-full" data-pf-dashboard-empty{!! $this->widgets ? ' hidden' : '' !!}>{{ !empty($this->isReport) ? $t('This report has no cards yet: choose Customise, then add one.') : $t('Your dashboard is empty: choose Customise, then add a card.') }}</p>
     </div>
     @if (!empty($this->catalogue))
     <dialog class="card" data-pf-dashboard-catalogue-dialog aria-labelledby="pf-dashboard-catalogue-title">
@@ -69,7 +71,7 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
         </div>
     </dialog>
     @endif
-@if (isset($this->presetUrls))
+@if (isset($this->presetUrls) && empty($this->isReport))
     @include('presets_dialog')
     @endif
 </div>

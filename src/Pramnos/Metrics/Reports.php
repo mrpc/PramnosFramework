@@ -132,6 +132,39 @@ final class Reports
         return (int) $this->db()->getInsertId();
     }
 
+    /**
+     * Keep a report's cards — its layout, as the dashboard sends it, already cleaned — in its
+     * definition; its sections, now read as those cards, go.
+     *
+     * @param list<array<string, mixed>> $layout
+     * @throws \InvalidArgumentException For a report that is not this person's own
+     */
+    public function saveLayout(object $user, int $id, array $layout): void
+    {
+        $row = $this->rows(['reportid' => $id])[0] ?? null;
+        if ($row === null || (int) $row['ownerid'] !== (int) ($user->userid ?? 0)) {
+            throw new \InvalidArgumentException('There is no such report of yours.');
+        }
+        $definition             = (array) json_decode((string) $row['definition'], true);
+        $definition['layout']   = $layout;
+        $definition['sections'] = [];
+        $this->db()->queryBuilder()->table(self::TABLE)->where('reportid', $id)->update([
+            'definition' => (string) json_encode(Report::fromArray($definition)->definition, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'updated_at' => time(),
+        ]);
+    }
+
+    /** Whether a report is one this person may change: a saved one of their own. */
+    public function owns(string $id, object $user): bool
+    {
+        if (!ctype_digit($id)) {
+            return false;
+        }
+        $row = $this->rows(['reportid' => (int) $id])[0] ?? null;
+
+        return $row !== null && (int) $row['ownerid'] === (int) ($user->userid ?? 0);
+    }
+
     /** Delete a saved report: its owner's, or anybody's for an administrator. Whether one went. */
     public function delete(int $id, object $user, bool $asAdministrator = false): bool
     {

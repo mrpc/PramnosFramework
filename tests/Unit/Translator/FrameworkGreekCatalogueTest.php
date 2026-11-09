@@ -80,7 +80,8 @@ final class FrameworkGreekCatalogueTest extends TestCase
     }
 
     /**
-     * Every framework dashboard card's title and description has a Greek line.
+     * Every framework dashboard card's title and description has a Greek line — a report's cards
+     * among them.
      *
      * They are returned as plain strings and translated where the dashboard draws them, so the
      * `t()` sweep above never sees them: a new card showed its name in English on a Greek site.
@@ -92,7 +93,10 @@ final class FrameworkGreekCatalogueTest extends TestCase
 
         // Act
         $missing = [];
-        foreach (\Pramnos\Dashboard\WidgetRegistry::FRAMEWORK as $class) {
+        // The dashboard's cards, and a report's.
+        $classes = array_merge(\Pramnos\Dashboard\WidgetRegistry::FRAMEWORK, \Pramnos\Dashboard\WidgetRegistry::REPORT);
+        $this->assertNotEmpty($classes, 'the sweep found nothing to check');
+        foreach ($classes as $class) {
             $card = new $class();
             foreach ([$card->title(), $card->description()] as $phrase) {
                 if ($phrase !== '' && !isset($greek[$phrase])) {

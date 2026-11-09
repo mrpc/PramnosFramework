@@ -2205,6 +2205,216 @@
     window.pfDashboard = dashboardMath;
 
     // ══════════════════════════════════════════════════════════════════════════
+    // data-pf-structured — a card setting that keeps a structure, not a word (Widget::options()
+    // `input` list or filters). The form carries it in a hidden input[data-pf-json] beside the
+    // element; this draws the editor from the field's data-spec and writes the value back as JSON
+    // on every change. Its own controls have no name, so the form sends the hidden input alone.
+    //
+    //   list    — items one under another: each the spec's `fields` (select, text, number,
+    //             checkbox, filters), added, removed and moved up, down or by dragging.
+    //   filters — {dimension: value}: a dimension from `dimensions`, its value from that
+    //             dimension's values or typed; with `by`, only the dimensions `dimsBy` gives the
+    //             chosen metric.
+    //
+    // A select whose spec has `by` and `valuesBy` offers the choices of the other field's value
+    // (a breakdown by the chosen metric's dimensions).
+    // ══════════════════════════════════════════════════════════════════════════
+    var structured = (function () {
+        function parse(text, fallback) {
+            try { var v = JSON.parse(text); return v === null || v === undefined ? fallback : v; } catch (err) { return fallback; }
+        }
+        function make(tag, attrs, text) {
+            var node = document.createElement(tag);
+            Object.keys(attrs || {}).forEach(function (k) { if (attrs[k] !== null && attrs[k] !== undefined) { node.setAttribute(k, attrs[k]); } });
+            if (text !== undefined) { node.textContent = text; }
+            return node;
+        }
+        function choices(values) {
+            if (Array.isArray(values)) { var o = {}; values.forEach(function (v) { o[String(v)] = String(v); }); return o; }
+            return values && typeof values === 'object' ? values : {};
+        }
+        function select(cls, values, current, blank) {
+            var el = make('select', { class: cls });
+            if (blank !== null) { el.appendChild(make('option', { value: '' }, blank)); }
+            var found = false;
+            Object.keys(values).forEach(function (v) {
+                var opt = make('option', { value: v }, String(values[v]));
+                if (String(current) === v) { opt.setAttribute('selected', ''); opt.selected = true; found = true; }
+                el.appendChild(opt);
+            });
+            el.value = found ? String(current) : (blank !== null ? '' : (Object.keys(values)[0] || ''));
+            return el;
+        }
+
+        /** The filters editor: rows of dimension and value, into `target` (an object), `changed` after each edit. */
+        function filters(box, spec, value, metric, ui, changed) {
+            var dims = choices({});
+            var all = spec.dimensions || {};
+            var names = spec.by && spec.dimsBy ? (spec.dimsBy[metric] || []) : Object.keys(all);
+            names.forEach(function (n) { if (all[n]) { dims[n] = all[n].label || n; } });
+            var pairs = Object.keys(value || {}).filter(function (k) { return dims[k] !== undefined; }).map(function (k) { return [k, String(value[k])]; });
+            function write() {
+                var out = {};
+                pairs.forEach(function (p) { if (p[0] && p[1] !== '') { out[p[0]] = p[1]; } });
+                changed(out);
+            }
+            function draw() {
+                box.textContent = '';
+                pairs.forEach(function (pair, i) {
+                    var row = make('div', { 'data-pf-filter': '', style: 'display:flex;gap:4px;align-items:center;margin:2px 0' });
+                    var dim = select(ui.classes.select, dims, pair[0], ui.say.any);
+                    dim.addEventListener('change', function () { pair[0] = dim.value; pair[1] = ''; draw(); write(); });
+                    row.appendChild(dim);
+                    var known = pair[0] && all[pair[0]] ? choices(all[pair[0]].values) : {};
+                    var val = Object.keys(known).length ? select(ui.classes.select, known, pair[1], ui.say.any) : make('input', { class: ui.classes.input, type: 'text', value: pair[1] });
+                    if (val.tagName === 'INPUT' || val.tagName === 'input') { val.value = pair[1]; }
+                    val.addEventListener(val.tagName.toLowerCase() === 'select' ? 'change' : 'input', function () { pair[1] = val.value; write(); });
+                    row.appendChild(val);
+                    var drop = make('button', { type: 'button', class: ui.classes.button, 'aria-label': ui.say.remove, 'data-pf-filter-remove': '' }, '×');
+                    drop.addEventListener('click', function () { pairs.splice(i, 1); draw(); write(); });
+                    row.appendChild(drop);
+                    box.appendChild(row);
+                });
+                if (Object.keys(dims).length) {
+                    var add = make('button', { type: 'button', class: ui.classes.button, 'data-pf-filter-add': '' }, '+ ' + ui.say.add);
+                    add.addEventListener('click', function () { pairs.push(['', '']); draw(); });
+                    box.appendChild(add);
+                }
+            }
+            draw();
+        }
+
+        /** One control of a list item, by its sub-field's spec. */
+        function control(sub, item, key, ui, redraw, write) {
+            var kind = sub.input || 'text';
+            if (kind === 'filters') {
+                var box = make('div', { 'data-pf-subfield': key });
+                filters(box, sub, item[key] || {}, item[sub.by] || '', ui, function (v) { item[key] = v; write(); });
+                return box;
+            }
+            if (kind === 'checkbox') {
+                var check = make('input', { type: 'checkbox', 'data-pf-subfield': key });
+                check.checked = !!item[key];
+                check.addEventListener('change', function () { item[key] = check.checked; write(); });
+                return check;
+            }
+            if (kind === 'select') {
+                var values = sub.by && sub.valuesBy ? choices(sub.valuesBy[item[sub.by]] || {}) : choices(sub.values);
+                var el = select(ui.classes.select, values, item[key] === undefined ? '' : item[key], sub.blank === false ? null : (sub.blank || ui.say.any));
+                el.setAttribute('data-pf-subfield', key);
+                el.addEventListener('change', function () {
+                    item[key] = el.value;
+                    write();
+                    // Another field's choices may follow this one's.
+                    redraw();
+                });
+                return el;
+            }
+            var input = make('input', { class: ui.classes.input, type: kind === 'number' ? 'number' : 'text', 'data-pf-subfield': key });
+            input.value = item[key] === undefined || item[key] === null ? '' : String(item[key]);
+            input.addEventListener('input', function () { item[key] = kind === 'number' && input.value !== '' ? Number(input.value) : input.value; write(); });
+            return input;
+        }
+
+        /** The list editor: items, each its fields, moved and removed. */
+        function list(box, spec, value, ui, changed) {
+            var items = Array.isArray(value) ? value.map(function (v) { return v && typeof v === 'object' ? v : {}; }) : [];
+            var fields = spec.fields || {};
+            var dragged = null;
+            function write() { changed(items); }
+            function draw() {
+                box.textContent = '';
+                items.forEach(function (item, i) {
+                    var row = make('div', { 'data-pf-list-item': String(i), draggable: 'true', style: 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:4px 0;border-bottom:1px solid rgba(127,127,127,.2)' });
+                    row.appendChild(make('span', { 'aria-hidden': 'true', title: ui.say.move, style: 'cursor:grab' }, '⠿'));
+                    Object.keys(fields).forEach(function (key) {
+                        var sub = fields[key];
+                        var label = make('label', { style: 'display:flex;flex-direction:column;font-size:.85em' }, sub.label || key);
+                        if (sub.input === 'filters') { label = make('div', { style: 'display:flex;flex-direction:column;font-size:.85em' }, sub.label || key); }
+                        label.appendChild(control(sub, item, key, ui, draw, write));
+                        row.appendChild(label);
+                    });
+                    [['↑', -1], ['↓', 1]].forEach(function (m) {
+                        var b = make('button', { type: 'button', class: ui.classes.button, 'data-pf-list-move': String(m[1]) }, m[0]);
+                        b.addEventListener('click', function () {
+                            var to = i + m[1];
+                            if (to < 0 || to >= items.length) { return; }
+                            items.splice(to, 0, items.splice(i, 1)[0]);
+                            draw(); write();
+                        });
+                        row.appendChild(b);
+                    });
+                    var drop = make('button', { type: 'button', class: ui.classes.button, 'aria-label': ui.say.remove, 'data-pf-list-remove': '' }, '×');
+                    drop.addEventListener('click', function () { items.splice(i, 1); draw(); write(); });
+                    row.appendChild(drop);
+                    row.addEventListener('dragstart', function () { dragged = i; });
+                    row.addEventListener('dragover', function (e) { if (e.preventDefault) { e.preventDefault(); } });
+                    row.addEventListener('drop', function (e) {
+                        if (e.preventDefault) { e.preventDefault(); }
+                        if (dragged === null || dragged === i) { return; }
+                        items.splice(i, 0, items.splice(dragged, 1)[0]);
+                        dragged = null;
+                        draw(); write();
+                    });
+                    box.appendChild(row);
+                });
+                var add = make('button', { type: 'button', class: ui.classes.button, 'data-pf-list-add': '' }, '+ ' + ui.say.add);
+                add.addEventListener('click', function () { items.push({}); draw(); write(); });
+                box.appendChild(add);
+            }
+            draw();
+        }
+
+        /** Draw every structured field under `root` not drawn yet. */
+        function mount(root) {
+            Array.prototype.forEach.call((root || document).querySelectorAll('[data-pf-structured]'), function (box) {
+                if (box.hasAttribute('data-pf-mounted')) { return; }
+                box.setAttribute('data-pf-mounted', '');
+                var hidden = box.previousElementSibling;
+                while (hidden && !(hidden.hasAttribute && hidden.hasAttribute('data-pf-json'))) { hidden = hidden.previousElementSibling; }
+                if (!hidden) { return; }
+                var spec = parse(box.getAttribute('data-spec'), {});
+                var ui = {
+                    classes: Object.assign({ select: '', input: '', button: '' }, parse(box.getAttribute('data-classes'), {})),
+                    say: Object.assign({ add: 'Add', remove: 'Remove', move: 'Drag to move', any: 'Choose…' }, parse(box.getAttribute('data-say'), {})),
+                };
+                var write = function (v) { hidden.value = JSON.stringify(v); };
+                if (box.getAttribute('data-pf-structured') === 'filters') {
+                    var form = box.closest ? box.closest('form') : null;
+                    var draw = function () {
+                        var by = spec.by && form ? form.querySelector('[name="' + spec.by + '"]') : null;
+                        filters(box, spec, parse(hidden.value, {}), by ? by.value : '', ui, write);
+                    };
+                    draw();
+                    // The metric chosen above decides the dimensions offered.
+                    if (spec.by && form) {
+                        form.addEventListener('change', function (e) { if (e.target && e.target.getAttribute && e.target.getAttribute('name') === spec.by) { draw(); } });
+                    }
+                    return;
+                }
+                list(box, spec, parse(hidden.value, []), ui, write);
+            });
+        }
+
+        return { mount: mount };
+    }());
+    window.pfStructured = structured;
+
+    // A report's section heading (data-pf-report-section, SectionWidget) folds away the cards
+    // under it, up to the next section, and shows them again.
+    document.addEventListener('click', function (e) {
+        var toggle = e.target && e.target.closest ? e.target.closest('[data-pf-report-section]') : null;
+        if (!toggle) { return; }
+        var card = toggle.closest('[data-pf-widget]');
+        var open = toggle.getAttribute('aria-expanded') !== 'false';
+        toggle.setAttribute('aria-expanded', open ? 'false' : 'true');
+        for (var next = card ? card.nextElementSibling : null; next; next = next.nextElementSibling) {
+            if (!next.hasAttribute('data-pf-widget') || next.querySelector('[data-pf-report-section]')) { break; }
+            next.hidden = open;
+        }
+    });
+
+    // ══════════════════════════════════════════════════════════════════════════
     // data-pf-dashboard — a dashboard each person arranges (DashboardController)
     //
     // "Customise" shows each card's tools: move up and down, its width (s, m, l, full in turn), its
@@ -2409,6 +2619,7 @@
                 // The active tab's own settings form, in its panel.
                 var open = panels(card).filter(function (p) { return !p.hidden; })[0];
                 var tabForm = open ? open.querySelector('[data-pf-widget-settings]') : null;
+                if (open) { structured.mount(open); }
                 if (tabForm) {
                     tabForm.hidden = !tabForm.hidden;
                     button.setAttribute('aria-expanded', tabForm.hidden ? 'false' : 'true');
@@ -2460,6 +2671,7 @@
             var title = card.getAttribute('aria-label') || '';
             if (button.hasAttribute('data-pf-widget-settings-toggle')) {
                 var form = card.querySelector('[data-pf-widget-settings]');
+                structured.mount(card);
                 if (form) {
                     form.hidden = !form.hidden;
                     button.setAttribute('aria-expanded', form.hidden ? 'false' : 'true');
@@ -2518,7 +2730,12 @@
             var settings = {};
             Array.prototype.forEach.call(form.querySelectorAll('[name]'), function (field) {
                 var label = field.closest ? field.closest('[data-pf-when]') : null;
-                if (!label || !label.hidden) { settings[field.getAttribute('name')] = field.value; }
+                if (!label || !label.hidden) {
+                    var value = field.value;
+                    // A structured field's hidden input carries JSON.
+                    if (field.hasAttribute('data-pf-json')) { try { value = JSON.parse(value || 'null'); } catch (err) { value = null; } }
+                    settings[field.getAttribute('name')] = value;
+                }
             });
             card.setAttribute('data-settings', JSON.stringify(settings));
             say((card.getAttribute('aria-label') || '') + ': ' + SAY.saved);
