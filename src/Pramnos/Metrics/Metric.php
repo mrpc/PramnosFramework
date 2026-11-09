@@ -242,6 +242,25 @@ final class Metric
         return $this->counting('AVG', $column);
     }
 
+    /** The latest reading of a column in the period: where a series stands at its end. */
+    public function last(string $column): self
+    {
+        return $this->counting('LAST', $column);
+    }
+
+    /**
+     * The increase of a cumulative reading — a meter — over the period, worked out per entity
+     * (`per: 'deviceid'`) and added up: each reading's rise over the one before it, and a reading
+     * lower than the one before it a reset, counted from nought. Breakdowns add up.
+     */
+    public function counter(string $column, string $per): self
+    {
+        $this->counting('COUNTER', $column);
+        $this->query['per'] = self::identifier($per);
+
+        return $this;
+    }
+
     /** The least of a column in the period: a minimum metric. */
     public function min(string $column): self
     {
@@ -345,6 +364,46 @@ final class Metric
         return $this;
     }
 
+    /**
+     * A counter's increase in a window, per breakdown: each entity's readings in time, each one's
+     * rise over the one before, a fall a reset counted from nought, added up.
+     *
+     * @param array<string, mixed> $q
+     * @param list<string>         $by
+     * @return list<array<string, mixed>>
+     */
+    private static function counterRows(array $q, Window $w, array $by, \Pramnos\Database\Database $db): array
+    {
+        // Raw: a window function (LAG … OVER) the query builder does not express.
+        // ponytail: counts from each entity's first reading in the window — the rise from the previous
+        // period's last reading to this one's first is not counted; read the reading before the window too if that matters.
+        $inner = [];
+        $outer = [];
+        foreach ($by as $name) {
+            $inner[] = ($q['columns'][$name] ?? $name) . ' AS ' . self::identifier($name);
+            $outer[] = self::identifier($name);
+        }
+        $conditions = [$q['time'] . ' >= ' . ($q['unix'] ? '%i' : '%s'), $q['time'] . ' < ' . ($q['unix'] ? '%i' : '%s')];
+        $arguments  = $q['unix'] ? [$w->startsAt(), $w->endsAt()] : [\Pramnos\Database\Instant::utc($w->startsAt(), $db), \Pramnos\Database\Instant::utc($w->endsAt(), $db)];
+        foreach ($q['where'] as [$column, $value]) {
+            $values       = array_values((array) $value);
+            $conditions[] = $column . ' IN (' . implode(', ', array_fill(0, count($values), '%s')) . ')';
+            array_push($arguments, ...array_map('strval', $values));
+        }
+        $sql = 'SELECT ' . implode(', ', [...$outer, 'SUM(CASE WHEN pf_rise < 0 THEN pf_reading ELSE pf_rise END) AS value'])
+            . ' FROM (SELECT ' . implode(', ', [...$inner, $q['column'] . ' AS pf_reading',
+                $q['column'] . ' - LAG(' . $q['column'] . ') OVER (PARTITION BY ' . $q['per'] . ' ORDER BY ' . $q['time'] . ') AS pf_rise'])
+            . ' FROM ' . $db->schema()->quoteTable($q['table']) . ' WHERE ' . implode(' AND ', $conditions) . ') pf_readings'
+            . ' WHERE pf_rise IS NOT NULL' . ($outer !== [] ? ' GROUP BY ' . implode(', ', $outer) : '');
+        $result = $db->execute($sql, ...$arguments);
+        $rows   = [];
+        while ($result && $result->fetch()) {
+            $rows[] = (array) $result->fields;
+        }
+
+        return $rows;
+    }
+
     /** What is counted, for the declared query. */
     private function counting(string $fn, string $column): self
     {
@@ -384,6 +443,10 @@ final class Metric
             throw new \LogicException('Metric ' . $this->name . ': a declared query needs at() and what it counts (sum(), count(), countDistinct()).');
         }
 
+        if ($q['fn'] === 'COUNTER') {
+            return static fn (Window $w, array $by, \Pramnos\Database\Database $db): array => self::counterRows($q, $w, $by, $db);
+        }
+
         return static function (Window $w, array $by, \Pramnos\Database\Database $db) use ($q): array {
             $query  = $db->queryBuilder()->table($q['table']);
             $select = [];
@@ -397,6 +460,10 @@ final class Metric
             $counted  = match ($q['fn']) {
                 'COUNT'          => 'COUNT(*)',
                 'COUNT DISTINCT' => 'COUNT(DISTINCT ' . $q['column'] . ')',
+                // The latest reading of the group: each database's own way to take it.
+                'LAST'           => $db->type === 'postgresql'
+                    ? '(array_agg(' . $q['column'] . ' ORDER BY ' . $q['time'] . ' DESC))[1]'
+                    : 'CAST(SUBSTRING_INDEX(GROUP_CONCAT(' . $q['column'] . ' ORDER BY ' . $q['time'] . ' DESC SEPARATOR \',\'), \',\', 1) AS DECIMAL(30,6))',
                 default          => $q['fn'] . '(' . $q['column'] . ')',
             };
             $select[] = $query->raw($counted . ' AS value');
@@ -434,7 +501,7 @@ final class Metric
     {
         $this->ahead = [];
         $q = $this->query;
-        if ($q === null || $windows === [] || $db->type !== 'postgresql' || !$q['unix'] || $q['time'] === '' || $q['fn'] === '') {
+        if ($q === null || $windows === [] || $db->type !== 'postgresql' || !$q['unix'] || $q['time'] === '' || $q['fn'] === '' || in_array($q['fn'], ['LAST', 'COUNTER'], true)) {
             return false;
         }
         $grain = $windows[0]->grain;

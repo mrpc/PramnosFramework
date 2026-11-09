@@ -1065,6 +1065,42 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * A meter and a latest reading: a counter's increase is each device's rises added up, a fall
+     * a reset counted from nought, and the devices added together; the latest reading is the last
+     * one in the period, whatever its size.
+     */
+    public function testAMeterAndALatestReading(): void
+    {
+        // Arrange
+        $schema = $this->db->schema();
+        $schema->dropTableIfExists('metrics_test_meter');
+        $schema->createTable('metrics_test_meter', function ($table) {
+            $table->integer('at');
+            $table->string('device', 4);
+            $table->integer('reading');
+        });
+        foreach ([['a', '09-02 10:00', 100], ['a', '09-03 10:00', 150], ['a', '09-04 10:00', 30], ['a', '09-05 10:00', 60], ['b', '09-02 11:00', 10], ['b', '09-06 11:00', 20]] as [$device, $when, $reading]) {
+            $this->db->queryBuilder()->table('metrics_test_meter')->insert(['at' => self::at('2026-' . $when), 'device' => $device, 'reading' => $reading]);
+        }
+        Metrics::register(
+            Metric::flow('test.used', 'Used')->from('metrics_test_meter')->at('at', unix: true)->counter('reading', per: 'device')->dimension('device', 'device'),
+            Metric::flow('test.latest', 'Latest reading')->from('metrics_test_meter')->at('at', unix: true)->last('reading')->where('device', 'a'),
+        );
+
+        try {
+            // Act
+            Metrics::compute(['test.used', 'test.latest'], ['month'], '2026-09-01', '2026-09-30', false, self::at('2026-11-06 12:00'));
+
+            // Assert
+            $this->assertSame(120.0, Metrics::value('test.used', 'month', '2026-09-01'), 'a: 50, a reset to 30, 30 — and b: 10');
+            $this->assertSame(110.0, Metrics::value('test.used', 'month', '2026-09-01', ['device' => 'a']));
+            $this->assertSame(60.0, Metrics::value('test.latest', 'month', '2026-09-01'), 'the last reading, not the largest');
+        } finally {
+            $schema->dropTableIfExists('metrics_test_meter');
+        }
+    }
+
+    /**
      * The store's lock: while another connection holds it — a conversion, an import, another
      * computation — a computation does nothing and says it was busy (the command too, without
      * failing), and once it is let go the computation runs.

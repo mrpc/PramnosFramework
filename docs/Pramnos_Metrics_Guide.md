@@ -98,7 +98,8 @@ writes it:
 Metric::flow('payments.amount', 'Revenue')
     ->from('invoices')
     ->at('date', unix: true)              // the time column; unix: true for unix seconds, read as they are
-    ->sum('total')                        // or ->count(), ->countDistinct('userid') (a distinct metric)
+    ->sum('total')                        // or ->count(), ->countDistinct('userid') (a distinct metric),
+                                          // ->avg(), ->min(), ->max(), ->last('level'), ->counter('reading', per: 'deviceid')
     ->where('status', 1)                  // a value, or a list of values
     ->dimension('market', 'countryid')    // a dimension and its column, or an SQL expression
     ->tenant('organizationid');
@@ -113,6 +114,12 @@ Metric::flow('payments.amount', 'Revenue')
 - **What is checked.** Column names are checked, and a dimension's expression is the
   application's own SQL. A declaration with no time column, or with nothing to count, fails when
   it is computed.
+- **A meter and a latest reading.** `last($column)` is the latest reading in the period.
+  `counter($column, per: $entity)` is the increase of a cumulative reading such as a meter. Each
+  entity's readings are taken in time and each one's rise over the one before is added up. A
+  reading lower than the one before is a reset, counted from nought. The entities are then added
+  together. The increase counts from each entity's first reading in the period, not from the
+  previous period's last.
 - **Many periods at once.** Computing many periods of a declared source (`--from`/`--to`, or the
   catch-up after a pause) reads them in one query per breakdown, grouped by each row's period in
   the metrics' zone (`Metric::prefetch()`). This holds on PostgreSQL with a unix-time column and
