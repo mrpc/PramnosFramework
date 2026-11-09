@@ -23,6 +23,7 @@
  */
 import { Editor, Extension, Mark, Node, mergeAttributes } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
+import { TaskItem, TaskList } from '@tiptap/extension-list';
 import { NodeSelection, Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
 import { Fragment, Slice } from '@tiptap/pm/model';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
@@ -32,6 +33,8 @@ import { Embeds, KeptSelection, LinkTitles, MoveBlocks, Picture, embedFor, embed
 export const tiptap = {
     Editor, Extension, Mark, Node, mergeAttributes, Plugin, PluginKey, NodeSelection, TextSelection,
     Fragment, Slice, Decoration, DecorationSet,
+    // A checklist, for a plugin that wants one (a canvas does): not in the editor by default.
+    TaskList, TaskItem,
 };
 
 export { embedFor, embedProviders, moveBlock };

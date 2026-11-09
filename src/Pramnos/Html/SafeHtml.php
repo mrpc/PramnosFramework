@@ -32,11 +32,28 @@ final class SafeHtml
         'img' => ['src', 'alt'],
     ];
 
+    /** @var array<string, list<string>> The elements kept in this call */
+    private static array $allowed = self::ALLOWED;
+
+    /** @var bool Whether a path of this site is a link or a picture in this call */
+    private static bool $local = false;
+
     /** Removed together with everything inside them. */
     private const DROPPED = ['script', 'style', 'iframe', 'object', 'embed', 'template', 'noscript', 'svg', 'math', 'form', 'textarea', 'select', 'head', 'title'];
 
-    public static function clean(string $html): string
+    /**
+     * @param array<string, list<string>> $also  More elements, and the attributes each keeps, for a
+     *        richer document (a canvas: a checklist, a mention, a code block); a `data-*` attribute
+     *        keeps a short plain value only
+     * @param bool $local Whether a link and a picture may also be a path of this site (`/…`)
+     */
+    public static function clean(string $html, array $also = [], bool $local = false): string
     {
+        self::$allowed = self::ALLOWED;
+        foreach ($also as $element => $attributes) {
+            self::$allowed[strtolower($element)] = array_values(array_unique(array_merge(self::$allowed[strtolower($element)] ?? [], array_map('strtolower', $attributes))));
+        }
+        self::$local = $local;
         if (trim($html) === '') {
             return '';
         }
@@ -84,7 +101,7 @@ final class SafeHtml
 
             self::walk($child);
 
-            if (!array_key_exists($name, self::ALLOWED)) {
+            if (!array_key_exists($name, self::$allowed)) {
                 // The tag goes and its content stays, where it was.
                 while ($child->firstChild !== null) {
                     $node->insertBefore($child->firstChild, $child);
@@ -94,7 +111,7 @@ final class SafeHtml
             }
 
             foreach (iterator_to_array($child->attributes) as $attribute) {
-                $keep = in_array(strtolower($attribute->nodeName), self::ALLOWED[$name], true)
+                $keep = in_array(strtolower($attribute->nodeName), self::$allowed[$name], true)
                     && self::safeValue($name, strtolower($attribute->nodeName), $attribute->nodeValue ?? '');
                 if (!$keep) {
                     $child->removeAttribute($attribute->nodeName);
@@ -111,9 +128,12 @@ final class SafeHtml
     {
         $value = trim($value);
 
-        return match ($attribute) {
-            'href'  => preg_match('~^(https?:|mailto:)~i', $value) === 1,
-            'src'   => preg_match('~^https://~i', $value) === 1,
+        $path = self::$local && preg_match('~^/(?!/)~', $value) === 1;
+
+        return match (true) {
+            $attribute === 'href' => $path || preg_match('~^(https?:|mailto:)~i', $value) === 1,
+            $attribute === 'src'  => $path || preg_match('~^https://~i', $value) === 1,
+            str_starts_with($attribute, 'data-') => preg_match('~^[\p{L}\p{N} ._:-]{0,80}$~u', $value) === 1,
             default => true,
         };
     }

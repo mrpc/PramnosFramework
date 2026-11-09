@@ -10,6 +10,7 @@ use_cases:
   - Keeping the team talking when the server is down, with a second server as a beacon
   - Renaming, describing, archiving or deleting a channel, and managing its members and their roles
   - Listing the links and files said in a channel, a page at a time
+  - Adding tabs to a channel, or a canvas — a shared document edited one person at a time
 ---
 
 # Conversations Guide
@@ -570,6 +571,59 @@ Details::destroy($id, $superuser);
 
 The columns are added by the migration `add_details_to_conversations`.
 
+## Tabs and canvases
+
+**Tabs** are what every member sees across the top of a conversation: the built-in `messages`,
+`files` and `pins`, and those added — a canvas (`canvas:<id>`) or a link (`link:<key>`, a title and
+a web address or a path) — in an order, some hidden.
+
+```php
+Tabs::of($id);                                            // [{id, kind, title, url, canvas, hidden}]
+Tabs::add($id, 'link', $by, title: 'Roadmap', url: 'https://…');
+Tabs::order($id, ['canvas:4', 'messages'], $by);           // those named first, the rest after
+Tabs::hide($id, 'pins', true, $by);
+Tabs::remove($id, 'link:9f2c1a7b', $by);                   // a built-in one is hidden instead
+```
+
+Who manages them is the channel's `tabsBy`: `everyone` (any member) or `admins` (its owner, its
+admins, the moderators). `messages` is never hidden.
+
+**Canvases** are documents beside the messages, as Slack's. Each has a title and a body of rich
+text: headings, lists, a checklist, links, pictures from the conversation's files, and mentions.
+
+```php
+$id = Canvases::create($conversation, 'Launch plan', $by);  // and a tab for it
+Canvases::lock($id, $by);                                    // "Maria is editing"; again every 20 s
+Canvases::save($id, $title, $html, $by);                     // a version
+Canvases::versions($id); Canvases::version($id, 3);
+Canvases::restore($id, 3, $by);                              // version 3 saved as the newest
+Canvases::search($reader, 'launch brief');
+Canvases::delete($id, $by);
+```
+
+- **One editor at a time.** Editing takes a lock, kept by a heartbeat every
+  `Canvases::HEARTBEAT` (20) seconds. A lock whose heartbeat stopped for `Canvases::LOCK` (45)
+  seconds is free. While one person edits, the others read and are told who is editing. Writing
+  at the same time is not offered.
+- **Versions.** Each save is a version: its title, body, who and when. Versions are kept as
+  `canvas.saved` events in the changelog, which is what restoring one reads.
+- **The body** is the rich editor's HTML, cleaned on the server (`SafeHtml::clean()` with a
+  canvas's extra markup). A mention is `<span data-type="mention" data-id="5">`. Somebody
+  mentioned for the first time is told, in the bell and by push (`CanvasMention`); a later save
+  does not tell them again.
+- **Who:** those who read the conversation read its canvases; its members edit them; the
+  canvas's author, the conversation's owner, its admins and moderators delete one. `search`
+  finds canvases beside the messages.
+- **Live:** `canvas.changed` `{conversationId, canvasId, what, by}` on the conversation's channel,
+  for created, saved, locked, unlocked and deleted.
+- **The editor component**, `CanvasEditor.svelte`, is in `resources/js/conversations`, so the dock
+  or an application's own chat can use it. On a page, use
+  `PfConversations.canvas(element, {base, canvasId, conversationId, me, strings})` with
+  `pf-rich-editor.js` loaded. Its checklist and mentions are a plugin of the rich editor
+  (`pfRichEditor.tiptap.TaskList`, `TaskItem`).
+
+The table is made by the migration `create_conversation_canvases_table`.
+
 ## A channel's or a group's picture
 
 A channel, a private or system channel, or a group can have a picture of its own, as in Slack.
@@ -844,6 +898,7 @@ A message is written first and told second, through Broadcasting:
 | channel | events |
 |---|---|
 | `private-conversation.{id}` | `message.posted`, `message.edited`, `message.deleted`, `message.reacted`, `message.pinned`, `message.unfurled` (its link previews read, or one taken off) — each with the message as a reader sees it (name, HTML, reactions, files, link previews) |
+| `private-conversation.{id}` | `canvas.changed` `{conversationId, canvasId, what, by}`: one of its canvases was created, saved, locked, unlocked or deleted ([Tabs and canvases](#tabs-and-canvases)) |
 | `private-conversation.{id}` | `assistant.thinking` `{thread, name, until}` when the analyst begins on a question there — `thread` null for the conversation itself — and `assistant.done` `{thread}` when it has finished, answered or not: the server says it, since a worker cannot whisper |
 | each member's own (`private-users.{id}`, or `broadcasting.notifications_channel`) | `conversation.activity`: a message in one of their conversations — its ids, its writer, whether it mentions them — for a sidebar's unread and a window that opens; `conversation.read`: what they have read there moved — read on another page, or marked unread — `{conversationId, lastReadId, unread, mentions}`; `conversation.changed` `{conversationId, mergedFrom}`: who is in it changed under them (`claimFormer()`); `conversation.draft` `{conversationId, thread, body, updatedAt}`: their draft there changed, on another device; `todo.changed` `{id, deleted}`: one of their to-dos was added, changed or deleted ([To-dos](Pramnos_Todos_Guide.md#in-the-conversations)) |
 | `presence-chat` | who of the team is connected, with their name |
@@ -1045,6 +1100,19 @@ conversation or message the person does not read 404.
 | `removemember/{id}`, `setrole/{id}` | POST | `person`, `role` | `{members}` |
 | `settings/{id}` | POST | `suggestMembers`, `tabsBy` | `{conversation}` |
 | `destroy/{id}` | POST | — | `{deleted: {messages, files}}`: a superuser's alone |
+| `tabs/{id}` | GET | — | `{tabs, manages}` |
+| `addtab/{id}` | POST | `kind` (`link`, `canvas`), `title`, `url`, `canvas` | `{tabs}` |
+| `removetab/{id}`, `hidetab/{id}` | POST | `tab`, `on` | `{tabs}` |
+| `ordertabs/{id}` | POST | `order` (tab ids) | `{tabs}` |
+| `canvases/{id}` | GET | — | `{canvases}`: a conversation's, without their bodies |
+| `canvas/{canvasId}` | GET | `version` | `{canvas, heartbeat}` with `lockedBy`, `editorName`; with `version`, `{version: {title, body}}` too |
+| `canvasversions/{canvasId}` | GET | — | `{versions}`: `{version, by, at, title}`, newest first |
+| `newcanvas/{id}` | POST | `title` | `{canvas}` |
+| `lockcanvas/{canvasId}` | POST | — | `{locked, lockedBy, editorName}` — the heartbeat too |
+| `unlockcanvas/{canvasId}` | POST | — | `{ok}` |
+| `savecanvas/{canvasId}` | POST | `title`, `body` | `{version, canvas}` |
+| `restorecanvas/{canvasId}` | POST | `version` | `{version}` |
+| `deletecanvas/{canvasId}` | POST | — | `{ok}` |
 | `people` | GET | `q` | `{people}`: who may use the conversations, by a part of the name |
 | `person/{id}` | GET | `show` (`messages`, `mentions`, `files`), `q` | `{person}`: as `People::profile()` answers; with `show`, also what they wrote holding the words of `q`, what mentions them, or the files they sent — 404 for somebody the reader does not see |
 | `refs` | GET | `keys` (`user:5,jira:NAN-1`) | `{cards}`: each as the application draws it for the reader, or null |

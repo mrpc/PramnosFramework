@@ -325,7 +325,8 @@ final class Details
 
     /**
      * Delete a conversation for good: its messages, their reactions, mentions, pins and saves, its
-     * files and their files on disk, what was scheduled and drafted in it, its members, its picture.
+     * files and their files on disk, what was scheduled and drafted in it, its canvases, its members,
+     * its picture.
      * A superuser's alone; never a system channel, which the application finds by its name.
      *
      * @return array{messages: int, files: int}
@@ -356,7 +357,7 @@ final class Details
             $q('chat.conversation_saved')->whereIn('messageid', $chunk)->delete();
         }
         foreach (['chat.conversation_mentions', 'chat.conversation_pins', 'chat.conversation_files', 'chat.conversation_scheduled',
-            'chat.conversation_drafts', 'chat.conversation_messages', 'chat.conversation_members'] as $table) {
+            'chat.conversation_drafts', 'chat.conversation_canvases', 'chat.conversation_messages', 'chat.conversation_members'] as $table) {
             if ($db->schema()->hasTable($table)) {
                 $q($table)->where('conversationid', $id)->delete();
             }

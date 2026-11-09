@@ -2425,3 +2425,17 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-todo-urgent-panel { position: absolute; right: 0; z-index: 50; width: 20rem; max-width: 90vw; margin: 0; padding: 0.4rem; list-style: none; background: var(--pf-surface); color: var(--pf-fg); border: 1px solid var(--pf-line); border-radius: var(--pf-radius); box-shadow: var(--pf-shadow); }
 .pf-todo-urgent-panel li { padding: 0.35rem 0.4rem; border-radius: var(--pf-radius); overflow-wrap: anywhere; }
 .pf-todo-urgent-panel .pf-todo-overdue { color: var(--pf-bad); }
+
+/* A conversation's canvas */
+.pf-canvas { display: flex; flex-direction: column; gap: 0.6rem; }
+.pf-canvas-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.pf-canvas-title { flex: 1; min-width: 10rem; margin: 0; font-size: 1.25rem; }
+.pf-canvas-editing { color: var(--pf-muted); font-size: 0.85rem; }
+.pf-canvas-body { line-height: 1.55; overflow-wrap: anywhere; }
+.pf-canvas-body ul[data-type="taskList"] { list-style: none; padding-left: 0.2rem; }
+.pf-canvas-body li[data-type="taskItem"]::before { content: "☐ "; }
+.pf-canvas-body li[data-type="taskItem"][data-checked="true"]::before { content: "☑ "; }
+.pf-canvas-body img { max-width: 100%; height: auto; }
+.pf-canvas-body span[data-type="mention"], .pf-canvas-mention { color: var(--pf-info); font-weight: 500; }
+.pf-canvas-versions { margin: 0; padding-left: 1.2rem; font-size: 0.9rem; }
+.pf-canvas-versions li { display: flex; gap: 0.5rem; align-items: center; padding: 0.15rem 0; }

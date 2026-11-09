@@ -5,6 +5,7 @@
  */
 import { mount } from 'svelte';
 import DockApp from './DockApp.svelte';
+import CanvasEditor from './CanvasEditor.svelte';
 import { createApi } from './api.js';
 import { setStrings } from './t.js';
 import { configure } from './extras.js';
@@ -31,7 +32,18 @@ function all() {
     document.querySelectorAll('[data-pf-conversations-dock]').forEach(dock);
 }
 
-window.PfConversations = { dock };
+/**
+ * A canvas drawn into an element: `{base, canvasId, conversationId, me, strings}` — for an
+ * application's own chat page, beside the dock. The page loads `pf-rich-editor.js` for editing.
+ */
+function canvas(element, props) {
+    setStrings(props.strings);
+    element.textContent = '';
+
+    return mount(CanvasEditor, { target: element, props: { api: createApi(props.base), canvasId: props.canvasId, conversationId: props.conversationId, me: props.me, onclose: props.onclose || null } });
+}
+
+window.PfConversations = { dock, canvas };
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', all);
 } else {

@@ -73,7 +73,8 @@ class Conversations extends Controller
 {
     /** The writes: each a POST with the session's token. */
     private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away', 'rename', 'setimage', 'clearimage', 'addtodo', 'changetodo', 'deletetodo', 'savetodo',
-        'describe', 'setprivate', 'archive', 'unarchive', 'removemember', 'setrole', 'destroy', 'settings'];
+        'describe', 'setprivate', 'archive', 'unarchive', 'removemember', 'setrole', 'destroy', 'settings',
+        'addtab', 'removetab', 'hidetab', 'ordertabs', 'newcanvas', 'savecanvas', 'lockcanvas', 'unlockcanvas', 'restorecanvas', 'deletecanvas'];
 
     /** The JSON body, decoded once. @var array<string, mixed>|null */
     private ?array $json = null;
@@ -81,7 +82,7 @@ class Conversations extends Controller
     /** Registers the actions: all behind sign-in, the writes POSTs with the session's token. */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'emoji', 'preview', 'gifs', 'refs', 'emergencykey', 'reach', 'scheduled', 'drafts', 'todolist', 'members', 'links', 'archived'], self::WRITES));
+        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'emoji', 'preview', 'gifs', 'refs', 'emergencykey', 'reach', 'scheduled', 'drafts', 'todolist', 'members', 'links', 'archived', 'tabs', 'canvases', 'canvas', 'canvasversions'], self::WRITES));
         $this->addWriteAction(self::WRITES);
         // A conversation's picture: an <img> may ask without a session where `images_public` is on;
         // image() itself asks whether the reader may see it.
@@ -519,7 +520,170 @@ class Conversations extends Controller
     public function search(): mixed
     {
         return $this->answer(fn (object $me): array => ['messages' => Messages::search($me, (string) $this->in('q'),
-            $this->in('conversation') !== null && $this->in('conversation') !== '' ? (int) $this->in('conversation') : null)]);
+            $this->in('conversation') !== null && $this->in('conversation') !== '' ? (int) $this->in('conversation') : null),
+            // The canvases holding the words too, where there are any.
+            'canvases' => \Pramnos\Conversations\Canvases::search($me, (string) $this->in('q'))]);
+    }
+
+    /** A conversation's tabs, in order, and whether the reader manages them. */
+    public function tabs(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $this->reads($me);
+
+            return ['tabs' => \Pramnos\Conversations\Tabs::of($this->id()), 'manages' => \Pramnos\Conversations\Tabs::manages($this->id(), (int) $me->userid)];
+        });
+    }
+
+    /** Add a tab: `kind` link (`title`, `url`) or canvas (`canvas`). */
+    public function addtab(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $canvas = (int) ($this->in('canvas') ?? 0);
+            if ($canvas > 0 && (\Pramnos\Conversations\Canvases::get($canvas)['conversationId'] ?? null) !== $this->id()) {
+                throw new \DomainException(t('That canvas no longer exists.'));
+            }
+            \Pramnos\Conversations\Tabs::add($this->id(), (string) $this->in('kind'), (int) $me->userid,
+                $this->in('title') !== null ? (string) $this->in('title') : null, $this->in('url') !== null ? (string) $this->in('url') : null, $canvas ?: null);
+
+            return ['tabs' => \Pramnos\Conversations\Tabs::of($this->id())];
+        });
+    }
+
+    /** Remove a tab (`tab`); a built-in one is hidden. */
+    public function removetab(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Tabs::remove($this->id(), (string) $this->in('tab'), (int) $me->userid);
+
+            return ['tabs' => \Pramnos\Conversations\Tabs::of($this->id())];
+        });
+    }
+
+    /** Hide a tab (`tab`, `on`) from everyone, or show it again. */
+    public function hidetab(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Tabs::hide($this->id(), (string) $this->in('tab'), $this->flag('on'), (int) $me->userid);
+
+            return ['tabs' => \Pramnos\Conversations\Tabs::of($this->id())];
+        });
+    }
+
+    /** Put the tabs in an order (`order`: their ids). */
+    public function ordertabs(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Tabs::order($this->id(), array_map('strval', (array) ($this->in('order') ?? [])), (int) $me->userid);
+
+            return ['tabs' => \Pramnos\Conversations\Tabs::of($this->id())];
+        });
+    }
+
+    /** A conversation's canvases, without their bodies. */
+    public function canvases(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $this->reads($me);
+
+            return ['canvases' => \Pramnos\Conversations\Canvases::of($this->id())];
+        });
+    }
+
+    /** A canvas (its id), with who is editing it; with `version`, that version's title and body. */
+    public function canvas(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $canvas = \Pramnos\Conversations\Canvases::readable($this->id(), $me);
+            $editor = $canvas['lockedBy'] !== null && (int) $canvas['lockedAt'] >= time() - \Pramnos\Conversations\Canvases::LOCK ? $canvas['lockedBy'] : null;
+
+            return ['canvas' => ['lockedBy' => $editor, 'editorName' => $editor !== null ? (\Pramnos\Conversations\People::names([$editor])[$editor] ?? null) : null] + $canvas,
+                'heartbeat' => \Pramnos\Conversations\Canvases::HEARTBEAT]
+                + ($this->in('version') !== null ? ['version' => \Pramnos\Conversations\Canvases::version($this->id(), (int) $this->in('version'))] : []);
+        });
+    }
+
+    /** A canvas's versions, newest first. */
+    public function canvasversions(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Canvases::readable($this->id(), $me);
+
+            return ['versions' => \Pramnos\Conversations\Canvases::versions($this->id())];
+        });
+    }
+
+    /** A new canvas in a conversation (its id), with a `title`. */
+    public function newcanvas(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $id = \Pramnos\Conversations\Canvases::create($this->id(), (string) ($this->in('title') ?? ''), (int) $me->userid);
+
+            return ['canvas' => \Pramnos\Conversations\Canvases::get($id)];
+        });
+    }
+
+    /** Take or keep the lock to edit a canvas (its id): `{locked}`, and who has it when not the reader. */
+    public function lockcanvas(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Canvases::readable($this->id(), $me);
+            $mine   = \Pramnos\Conversations\Canvases::lock($this->id(), (int) $me->userid);
+            $holder = \Pramnos\Conversations\Canvases::get($this->id())['lockedBy'] ?? null;
+
+            return ['locked' => $mine, 'lockedBy' => $holder, 'editorName' => $holder !== null ? (\Pramnos\Conversations\People::names([$holder])[$holder] ?? null) : null];
+        });
+    }
+
+    /** Let the lock on a canvas go. */
+    public function unlockcanvas(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Canvases::readable($this->id(), $me);
+            \Pramnos\Conversations\Canvases::unlock($this->id(), (int) $me->userid);
+
+            return ['ok' => true];
+        });
+    }
+
+    /** Save a canvas: `title`, `body`. A version. */
+    public function savecanvas(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Canvases::readable($this->id(), $me);
+            $version = \Pramnos\Conversations\Canvases::save($this->id(), (string) ($this->in('title') ?? ''), (string) ($this->in('body') ?? ''), (int) $me->userid);
+
+            return ['version' => $version, 'canvas' => \Pramnos\Conversations\Canvases::get($this->id())];
+        });
+    }
+
+    /** Make an old `version` of a canvas the newest. */
+    public function restorecanvas(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Canvases::readable($this->id(), $me);
+
+            return ['version' => \Pramnos\Conversations\Canvases::restore($this->id(), (int) $this->in('version'), (int) $me->userid)];
+        });
+    }
+
+    /** Delete a canvas. */
+    public function deletecanvas(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Canvases::readable($this->id(), $me);
+            \Pramnos\Conversations\Canvases::delete($this->id(), (int) $me->userid);
+
+            return ['ok' => true];
+        });
+    }
+
+    /** @throws \DomainException For a conversation the reader does not read */
+    private function reads(object $me): void
+    {
+        if (!Store::canRead($this->id(), $me)) {
+            throw new \DomainException(t('That conversation no longer exists.'));
+        }
     }
 
     /** A new conversation. */

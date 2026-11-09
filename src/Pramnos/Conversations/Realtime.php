@@ -120,6 +120,17 @@ final class Realtime
     }
 
     /**
+     * A canvas changed — created, saved, locked, unlocked, deleted — told as `canvas.changed` on
+     * its conversation's channel: an open canvas reloads, or shows who is editing it.
+     *
+     * @param array{canvasId: int, what: string, by: int} $payload
+     */
+    public static function canvas(int $conversationId, array $payload): void
+    {
+        self::tell(self::channel($conversationId), 'canvas.changed', $payload + ['conversationId' => $conversationId]);
+    }
+
+    /**
      * A to-do added, changed or deleted — told as `todo.changed` on the people's own channels, so
      * their lists and a message's mark are drawn again on every device and tab.
      *
