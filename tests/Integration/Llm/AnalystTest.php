@@ -122,6 +122,8 @@ class AnalystTest extends LlmTestCase
         $this->previous = Factory::getDatabase();
         $singleton      = &Factory::getDatabase();
         $singleton      = $this->db;
+        // The audit table was just made: a test before this one may have left "no table" cached.
+        \Pramnos\Auth\AuditLog::resetTableCache();
     }
 
     protected function tearDown(): void
