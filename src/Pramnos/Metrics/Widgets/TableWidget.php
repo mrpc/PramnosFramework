@@ -138,10 +138,13 @@ class TableWidget extends ReportWidget
             'compare'  => $chart === null ? $report['compare'] : null,
             'columns'  => $columns,
             'sections' => [['title' => '', 'chart' => $chart, 'total' => (string) $this->setting('total') === '1', 'rows' => array_map(
-                static fn (array $row): array => $row + ['breakdown' => ($row['breakdown'] ?? '') !== '' ? $row['breakdown'] : null],
+                fn (array $row): array => ['filters' => $this->narrowed((array) ($row['filters'] ?? []))] + $row + ['breakdown' => ($row['breakdown'] ?? '') !== '' ? $row['breakdown'] : null],
                 $rows,
             )]],
         ]);
+        if (($report['tenant'] ?? null) !== null) {
+            $built->forTenant((int) $report['tenant']);
+        }
 
         return $built->build($at ?? $report['at'], $report['user']);
     }

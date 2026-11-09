@@ -57,8 +57,8 @@ class TopWidget extends ReportWidget
             return self::note(Figures::words($metric === null && $name !== '' ? 'This metric is not available to you.' : 'Choose a metric and what to rank by in the card\'s settings.'));
         }
         try {
-            $top = Metrics::query($name)->grain($report['window']->grain)->at($report['window']->key())
-                ->where((array) ($this->setting('filters') ?? []))->by($dimension)->for($report['user'])->top((int) ($this->setting('count') ?? 10));
+            $top = $this->read($name)->grain($report['window']->grain)->at($report['window']->key())
+                ->where($this->narrowed((array) ($this->setting('filters') ?? [])))->by($dimension)->top((int) ($this->setting('count') ?? 10));
         } catch (\InvalidArgumentException|\LogicException $e) {
             return self::note($e->getMessage());
         }

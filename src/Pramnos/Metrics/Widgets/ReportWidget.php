@@ -72,6 +72,27 @@ abstract class ReportWidget extends Widget
         return ReportBoard::context();
     }
 
+    /**
+     * A card's own filters with the board's variables (`?v[region]=north`): the card's own win
+     * where both name a dimension.
+     *
+     * @param array<string, mixed> $own
+     * @return array<string, mixed>
+     */
+    protected function narrowed(array $own): array
+    {
+        return $own + (array) ($this->report()['filters'] ?? []);
+    }
+
+    /** A metric read as the report's viewer, within the board's organisation where one is chosen. */
+    protected function read(string $metric): \Pramnos\Metrics\Query
+    {
+        $report = $this->report();
+        $query  = Metrics::query($metric)->for($report['user']);
+
+        return ($report['tenant'] ?? null) !== null ? $query->tenant((int) $report['tenant']) : $query;
+    }
+
     /** A heading, up to 120 characters. */
     protected static function titleOption(): array
     {

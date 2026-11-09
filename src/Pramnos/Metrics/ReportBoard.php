@@ -76,7 +76,27 @@ final class ReportBoard
             'rowsUrl' => $rowsUrl,
             'static'  => $static,
             'images'  => [],
-        ];
+        ] + self::variables();
+    }
+
+    /**
+     * The board's variables, from the address — `?v[region]=north&v[tenant]=7` — that narrow
+     * every card: a declared dimension's value each, and an organisation. What is not a declared
+     * dimension is ignored.
+     *
+     * @return array{filters: array<string, string>, tenant: ?int}
+     */
+    public static function variables(): array
+    {
+        $given   = is_array($_GET['v'] ?? null) ? $_GET['v'] : [];
+        $filters = [];
+        foreach (Metrics::dimensions() as $name => $dimension) {
+            if (isset($given[$name]) && is_scalar($given[$name]) && (string) $given[$name] !== '') {
+                $filters[(string) $name] = mb_substr((string) $given[$name], 0, 100);
+            }
+        }
+
+        return ['filters' => $filters, 'tenant' => isset($given['tenant']) && is_numeric($given['tenant']) && (int) $given['tenant'] > 0 ? (int) $given['tenant'] : null];
     }
 
     /**
@@ -93,7 +113,7 @@ final class ReportBoard
         $at = date('Y-m-d');
 
         return ['entry' => null, 'grain' => Window::MONTH, 'at' => $at, 'window' => Window::of(Window::MONTH, $at), 'compare' => null,
-            'columns' => ['periods' => 1], 'user' => \Pramnos\User\User::current(), 'rowsUrl' => null, 'static' => false, 'images' => []];
+            'columns' => ['periods' => 1], 'user' => \Pramnos\User\User::current(), 'rowsUrl' => null, 'static' => false, 'images' => [], 'filters' => [], 'tenant' => null];
     }
 
     /** Stop drawing the report entered. */

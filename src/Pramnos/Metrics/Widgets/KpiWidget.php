@@ -59,20 +59,20 @@ class KpiWidget extends ReportWidget
         if ($metric === null) {
             return self::note(Figures::words($name === '' ? 'Choose a metric in the card\'s settings.' : 'This metric is not available to you.'));
         }
-        $filters = (array) ($this->setting('filters') ?? []);
+        $filters = $this->narrowed((array) ($this->setting('filters') ?? []));
         $compare = (string) ($this->setting('compare') ?? 'report');
         $against = $compare === 'report' ? (string) $report['compare'] : ($compare === 'none' ? '' : $compare);
         $window  = $report['window'];
         $note    = $window->label();
         try {
             if ($against !== '') {
-                $result = Metrics::query($name)->grain($window->grain)->at($window->key())->where($filters)->compare($against)->for($report['user'])->compared();
+                $result = $this->read($name)->grain($window->grain)->at($window->key())->where($filters)->compare($against)->compared();
                 $value  = $result['value'];
                 if ($result['change'] !== null) {
                     $note .= ' · ' . sprintf(Figures::words('%s against %s'), ($result['change'] >= 0 ? '+' : '') . number_format($result['change'] * 100, 1) . '%', $result['against']);
                 }
             } else {
-                $value = Metrics::query($name)->grain($window->grain)->at($window->key())->where($filters)->for($report['user'])->value();
+                $value = $this->read($name)->grain($window->grain)->at($window->key())->where($filters)->value();
             }
         } catch (\InvalidArgumentException|\LogicException $e) {
             return self::note($e->getMessage());

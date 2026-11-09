@@ -54,7 +54,7 @@ class CohortWidget extends ReportWidget
             $first = $first->previous();
         }
         try {
-            $query  = Metrics::query($name)->grain($last->grain)->between($first->key(), $last->key())->for($report['user']);
+            $query  = $this->read($name)->grain($last->grain)->between($first->key(), $last->key())->where($this->narrowed([]));
             $sizes  = $query->series();
             $within = (clone $query)->by('within')->series()['values'];
         } catch (\InvalidArgumentException|\LogicException $e) {

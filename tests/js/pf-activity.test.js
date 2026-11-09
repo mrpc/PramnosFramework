@@ -74,3 +74,30 @@ test('the tab reports where the person is, at most once a minute', () => {
     assert.equal(afterKey, 1, 'a key within the minute: nothing more');
     assert.equal(p.sent.length, 2, 'coming to front: at once');
 });
+
+/** A control marked data-pf-autosubmit sends its form when it changes, with no inline handler. */
+test('a choice that applies itself sends its form', () => {
+    // Arrange
+    const { window, document } = createDom({ url: 'https://app.test/' });
+    window.sessionStorage = { getItem: () => null, setItem: () => {} };
+    window.fetch = () => Promise.resolve({ ok: true });
+    loadScript(SOURCE, window);
+    const form = document.createElement('form');
+    let sent = 0;
+    form.requestSubmit = () => { sent++; };
+    const pick = document.createElement('select');
+    pick.setAttribute('data-pf-autosubmit', '');
+    form.appendChild(pick);
+    pick.form = form;
+    const plain = document.createElement('select');
+    plain.form = form;
+    form.appendChild(plain);
+    document.body.appendChild(form);
+
+    // Act
+    pick.dispatchEvent(new Event('change', { bubbles: true }));
+    plain.dispatchEvent(new Event('change', { bubbles: true }));
+
+    // Assert
+    assert.equal(sent, 1, 'only the marked one');
+});

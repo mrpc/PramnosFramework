@@ -64,8 +64,8 @@ class MapWidget extends ReportWidget
             return self::note(Figures::words('Choose a metric and a dimension with places in the card\'s settings.'));
         }
         try {
-            $values = Metrics::query($name)->grain($report['window']->grain)->at($report['window']->key())
-                ->where((array) ($this->setting('filters') ?? []))->by($dimension->name)->for($report['user'])->series()['values'];
+            $values = $this->read($name)->grain($report['window']->grain)->at($report['window']->key())
+                ->where($this->narrowed((array) ($this->setting('filters') ?? [])))->by($dimension->name)->series()['values'];
         } catch (\InvalidArgumentException|\LogicException $e) {
             return self::note($e->getMessage());
         }

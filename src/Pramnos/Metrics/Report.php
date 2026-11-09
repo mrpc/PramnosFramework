@@ -299,8 +299,20 @@ final class Report
     private function read(string $metric): Query
     {
         $query = Metrics::query($metric);
+        $query = $this->viewer !== null ? $query->for($this->viewer) : $query;
 
-        return $this->viewer !== null ? $query->for($this->viewer) : $query;
+        return $this->tenant !== null ? $query->tenant($this->tenant) : $query;
+    }
+
+    /** The one organisation the report is built for, or null for every one the viewer reads. */
+    private ?int $tenant = null;
+
+    /** Build the report for one organisation only: a board's chosen one. */
+    public function forTenant(?int $tenant): self
+    {
+        $this->tenant = $tenant;
+
+        return $this;
     }
 
     /** Who {@see build()} builds for. */

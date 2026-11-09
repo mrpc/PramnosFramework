@@ -409,6 +409,7 @@ class ReportsMySQLTest extends TestCase
         $this->assertSame(['2026-08-01', '2026-10-01'], [$pages['report']['previous'], $pages['report']['next']]);
         $this->assertTrue($pages['report']['mine']);
         $this->assertFalse($pages['report']['customise'], 'a report with cards opens to be read');
+        $this->assertSame(['North', 'South'], array_values($pages['report']['pickers']['region']['values']), 'a picker for each dimension with listed values');
         $this->assertTrue($pages['blank']['customise'], 'a new report of one\'s own, with no cards, opens in Customise');
         unset($pages['blank']);
         $this->assertStringContainsString('MetricReports/rows?metric=test.sales', $pages['report']['body']);
@@ -495,6 +496,7 @@ class ReportsMySQLTest extends TestCase
             $empty = $this->renderTemplate($theme, 'metricreports/report.tpl.php', ['customise' => true] + $pages['report']);
             $this->assertStringContainsString('data-pf-dashboard-open', $empty, $theme . ': an empty report opens to be arranged');
             $this->assertStringNotContainsString('data-pf-dashboard-open', $this->renderTemplate($theme, 'metricreports/report.tpl.php', $pages['report']), $theme);
+            $this->assertStringContainsString('name="v[region]"', $this->renderTemplate($theme, 'metricreports/report.tpl.php', ['variables' => ['region' => 'north']] + $pages['report']), $theme . ': the board\'s pickers');
         }
 
         // Act — below the floor, every action stops; a delete of nothing says so
@@ -704,6 +706,39 @@ class ReportsMySQLTest extends TestCase
         $this->assertStringContainsString('Choose a metric and a dimension with places', $html);
         $this->assertSame('country', Metrics::dimensionOf('region')->getParent());
         $this->assertNull(Metrics::dimensionOf('customer')->geoOf('new'));
+    }
+
+    /**
+     * The board's variables, from the address: a region chosen narrows every card — a figure, a
+     * table, the top values — while a card's own filter on the same dimension keeps its own; what
+     * is not a declared dimension is ignored.
+     */
+    public function testTheBoardsVariablesNarrowEveryCard(): void
+    {
+        // Arrange
+        $layout = [
+            ['id' => 'report.kpi~a', 'size' => 's', 'settings' => ['metric' => 'test.sales', 'compare' => 'none']],
+            ['id' => 'report.table~b', 'settings' => ['rows' => [['metric' => 'test.sales', 'label' => 'All sales']]]],
+            ['id' => 'report.kpi~c', 'size' => 's', 'settings' => ['metric' => 'test.sales', 'compare' => 'none', 'filters' => ['region' => 'south'], 'title' => 'South']],
+        ];
+        $id    = (new Reports())->save(self::reader(), ['name' => 'Test variables', 'layout' => $layout]);
+        $entry = (new Reports())->find((string) $id, self::reader());
+        $_GET['v'] = ['region' => 'north', 'nothing' => 'x'];
+
+        try {
+            // Act
+            $variables = \Pramnos\Metrics\ReportBoard::variables();
+            $html      = \Pramnos\Metrics\ReportBoard::html($entry, '2026-09-10', self::reader(), null, false);
+            \Pramnos\Metrics\ReportBoard::leave();
+        } finally {
+            unset($_GET['v']);
+        }
+
+        // Assert
+        $this->assertSame(['filters' => ['region' => 'north'], 'tenant' => null], $variables, 'a declared dimension only');
+        $this->assertMatchesRegularExpression('~Sales</[^>]+>\s*<[^>]+>5<~', $html, 'the figure: north only (5 of 6)');
+        $this->assertStringContainsString('<th scope="row">All sales</th><td style="text-align:right">5</td>', $html, 'the table too');
+        $this->assertMatchesRegularExpression('~South</[^>]+>\s*<[^>]+>1<~', $html, 'a card\'s own filter keeps its own');
     }
 
     /**

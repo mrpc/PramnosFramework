@@ -144,6 +144,15 @@
 
     window.pfApiHeaders = pfApiHeaders;
 
+    // A choice that applies itself: a control marked data-pf-autosubmit sends its form when it changes
+    // (a report's board variables), with no inline handler for a Content-Security-Policy to refuse.
+    document.addEventListener('change', function (e) {
+        var control = e.target;
+        if (control && control.hasAttribute && control.hasAttribute('data-pf-autosubmit') && control.form) {
+            if (typeof control.form.requestSubmit === 'function') { control.form.requestSubmit(); } else { control.form.submit(); }
+        }
+    });
+
     // ══════════════════════════════════════════════════════════════════════════
     // Where the person is: a random id this tab keeps for itself while it lives (a reload keeps
     // it, sessionStorage), and "I did something" sent to the server — on a key, a click or the

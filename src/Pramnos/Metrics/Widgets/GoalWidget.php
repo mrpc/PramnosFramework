@@ -63,8 +63,8 @@ class GoalWidget extends ReportWidget
         if (!in_array($window->grain, [Window::DAY, Window::MONTH], true)) {
             return self::note(Figures::words('A goal is for a day or a month.'));
         }
-        $progress = Goals::progress(['id' => 0, 'metric' => $name, 'grain' => $window->grain, 'period' => $window->key(), 'tenant' => 0,
-            'filters' => (array) ($this->setting('filters') ?? []), 'target' => $target, 'reference' => (string) ($this->setting('reference') ?? Goals::LAST_YEAR)]);
+        $progress = Goals::progress(['id' => 0, 'metric' => $name, 'grain' => $window->grain, 'period' => $window->key(), 'tenant' => (int) ($report['tenant'] ?? 0),
+            'filters' => $this->narrowed((array) ($this->setting('filters') ?? [])), 'target' => $target, 'reference' => (string) ($this->setting('reference') ?? Goals::LAST_YEAR)]);
         if ($progress === null) {
             return self::note(Figures::words('No curve to judge by: the reference period is not all there.'));
         }

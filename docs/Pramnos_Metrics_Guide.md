@@ -402,6 +402,14 @@ every theme lines them up the same.
 | Text | `report.text` | Words in markdown, escaped and then formatted as the assistant's answers are. |
 | Records | `report.rows` | The records behind a metric that declares `rows()`, the first ones as a table, with a link to all of them. |
 
+**The board's variables.** A report's bar has a picker for each dimension with listed values. A
+choice narrows every card on the board (`?v[region]=north`, and `?v[tenant]=7` for one
+organisation), and is kept in the address as the reader moves between periods or downloads the
+CSV or XLSX. A card's own filter on the same dimension keeps its own. What is not a declared
+dimension is ignored (`ReportBoard::variables()`). The pickers send their form themselves through
+`data-pf-autosubmit`, which pf-utils handles, so there is no inline script for a
+Content-Security-Policy to refuse.
+
 A card is headed by the heading set in its form, or by nothing: the name of its kind is shown only
 in the catalogue. The report's page is denser than a dashboard: less room inside a card, and
 tighter table rows, for reading numbers.

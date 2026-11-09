@@ -84,6 +84,14 @@ class MetricReports extends Controller
             ReportBoard::leave();
         }
         $view->mine      = !$entry['app'] && (int) $entry['row']['ownerid'] === (int) $this->user()->userid;
+        // The board's variables: a picker for each dimension with listed values, set from the address.
+        $view->variables = ReportBoard::variables()['filters'];
+        $view->pickers   = [];
+        foreach (Metrics::dimensions() as $name => $dimension) {
+            if ($dimension->all() !== []) {
+                $view->pickers[(string) $name] = ['label' => t($dimension->label), 'values' => $dimension->all()];
+            }
+        }
         // A report of one's own with no cards yet — a new one — opens to be arranged.
         $view->customise = $view->mine && ReportBoard::layout($entry['report']) === [];
         $view->urls      = $this->urls();
