@@ -790,6 +790,65 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * A declared source: the framework makes the query from the table, its time column — unix
+     * seconds here, read as they are — what is counted, its conditions and each dimension's
+     * column or expression; a sum, a count and a distinct count, by breakdown and in total; a
+     * declaration with no time column or nothing to count, and a column that is no column, refused.
+     */
+    public function testADeclaredSourceIsQueriedByTheFramework(): void
+    {
+        // Arrange
+        $schema = $this->db->schema();
+        $schema->dropTableIfExists('metrics_test_invoices');
+        $schema->createTable('metrics_test_invoices', function ($table) {
+            $table->integer('date');
+            $table->decimal('total', 10, 2);
+            $table->smallInteger('status');
+            $table->string('country', 4);
+            $table->integer('userid');
+            $table->timestampTz('created')->nullable();
+        });
+        foreach ([['gr', 10, 1, 1], ['gr', 20, 1, 1], ['uk', 5, 1, 2], ['gr', 99, 0, 3]] as [$country, $total, $status, $user]) {
+            $this->db->queryBuilder()->table('metrics_test_invoices')->insert(['date' => self::at('2026-09-03 10:00'), 'total' => $total, 'status' => $status, 'country' => $country, 'userid' => $user,
+                'created' => \Pramnos\Database\Instant::utc(self::at('2026-09-03 10:00'), $this->db)]);
+        }
+        Metrics::register(
+            Metric::flow('test.revenue', 'Revenue')->from('metrics_test_invoices')->at('date', unix: true)->sum('total')->where('status', 1)->dimension('market', 'country'),
+            Metric::flow('test.paid', 'Paid invoices')->from('metrics_test_invoices')->at('date', unix: true)->count()->where('status', [1]),
+            Metric::flow('test.by_time', 'Revenue by a time column')->from('metrics_test_invoices')->at('created')->sum('total')->where('status', 1),
+            Metric::flow('test.payers', 'Paying people')->from('metrics_test_invoices')->at('date', unix: true)->countDistinct('userid')->where('status', 1)->dimension('upper', 'UPPER(country)'),
+        );
+        $refused = [];
+        foreach ([
+            static fn () => Metric::flow('test.x')->at('date'),
+            static fn () => Metric::flow('test.x')->from('t')->sum('total; DROP TABLE t'),
+            static fn () => Metric::flow('test.x')->from('t')->sum('total')->measure(Window::of('day', '2026-09-03'), [], Factory::getDatabase()),
+        ] as $attempt) {
+            try {
+                $attempt();
+            } catch (\LogicException|\InvalidArgumentException $e) {
+                $refused[] = $e::class;
+            }
+        }
+
+        try {
+            // Act
+            Metrics::compute(['test.revenue', 'test.paid', 'test.payers', 'test.by_time'], ['month'], '2026-09-01', '2026-09-30', false, self::at('2026-11-06 12:00'));
+
+            // Assert
+            $this->assertSame(35.0, Metrics::value('test.revenue', 'month', '2026-09-01'), 'the paid ones added up');
+            $this->assertSame(30.0, Metrics::value('test.revenue', 'month', '2026-09-01', ['market' => 'gr']));
+            $this->assertSame(3.0, Metrics::value('test.paid', 'month', '2026-09-01'));
+            $this->assertSame(35.0, Metrics::value('test.by_time', 'month', '2026-09-01'), 'a time column read as UTC');
+            $this->assertSame(2.0, Metrics::value('test.payers', 'month', '2026-09-01'), 'people, once each');
+            $this->assertSame(1.0, Metrics::value('test.payers', 'month', '2026-09-01', ['upper' => 'GR']), 'a dimension by an expression');
+            $this->assertSame([\LogicException::class, \InvalidArgumentException::class, \LogicException::class], $refused);
+        } finally {
+            $schema->dropTableIfExists('metrics_test_invoices');
+        }
+    }
+
+    /**
      * The store's lock: while another connection holds it — a conversion, an import, another
      * computation — a computation does nothing and says it was busy (the command too, without
      * failing), and once it is let go the computation runs.

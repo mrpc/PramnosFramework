@@ -146,6 +146,156 @@ final class Metric
         return $this;
     }
 
+    /**
+     * A declared query instead of a closure (`from()` … `sum()`): the table, its time column and
+     * whether it holds unix time, what is added up, the conditions, and each dimension's column.
+     *
+     * @var array{table: string, time: string, unix: bool, fn: string, column: string, where: list<array{0: string, 1: mixed}>, columns: array<string, string>}|null
+     */
+    private ?array $query = null;
+
+    /**
+     * Read its numbers from a table, declared rather than written: the framework makes the query.
+     *
+     * ```php
+     * Metric::flow('payments.amount', 'Revenue')->from('invoices')->at('date', unix: true)
+     *     ->sum('total')->where('status', 1)->dimension('market', 'countryid')->tenant('organizationid');
+     * ```
+     */
+    public function from(string $table): self
+    {
+        $this->query = ($this->query ?? ['time' => '', 'unix' => false, 'fn' => '', 'column' => '', 'where' => [], 'columns' => []]) + ['table' => $table];
+        $this->query['table'] = $table;
+
+        return $this;
+    }
+
+    /**
+     * The table's time column; `unix: true` for one that holds unix seconds, read as they are. A
+     * date or time column is compared with UTC instants, as the framework writes them.
+     */
+    public function at(string $column, bool $unix = false): self
+    {
+        $this->needsTable('at');
+        $this->query['time'] = self::identifier($column);
+        $this->query['unix'] = $unix;
+
+        return $this;
+    }
+
+    /** Add up a column. */
+    public function sum(string $column): self
+    {
+        return $this->counting('SUM', $column);
+    }
+
+    /** Count the rows. */
+    public function count(): self
+    {
+        return $this->counting('COUNT', '*');
+    }
+
+    /** Count the distinct values of a column — people, say: a distinct metric, which does not add up. */
+    public function countDistinct(string $column): self
+    {
+        $this->aggregate = self::DISTINCT;
+
+        return $this->counting('COUNT DISTINCT', $column);
+    }
+
+    /** A condition of the declared query: a column equal to a value, or one of a list. */
+    public function where(string $column, mixed $value): self
+    {
+        $this->needsTable('where');
+        $this->query['where'][] = [self::identifier($column), $value];
+
+        return $this;
+    }
+
+    /**
+     * A dimension of the declared query, and the column — or SQL expression — that gives it:
+     * `dimension('market', 'countryid')`, `dimension('year', 'EXTRACT(YEAR FROM created)')`.
+     */
+    public function dimension(string $name, string $column): self
+    {
+        $this->needsTable('dimension');
+        $this->query['columns'][$name] = $column;
+        if (!in_array($name, $this->dimensions, true)) {
+            $this->dimensions[] = $name;
+        }
+
+        return $this;
+    }
+
+    /** What is counted, for the declared query. */
+    private function counting(string $fn, string $column): self
+    {
+        $this->needsTable('a count');
+        $this->query['fn']     = $fn;
+        $this->query['column'] = $column === '*' ? '*' : self::identifier($column);
+
+        return $this;
+    }
+
+    /** A declared query's part, refused before `from()`. */
+    private function needsTable(string $what): void
+    {
+        if ($this->query === null) {
+            throw new \LogicException('Metric ' . $this->name . ': declare the table with from() before ' . $what . '.');
+        }
+    }
+
+    /** A column's name as a declared query takes it: letters, digits, `_` and a `table.` before it. */
+    private static function identifier(string $column): string
+    {
+        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$/', $column) !== 1) {
+            throw new \InvalidArgumentException('"' . $column . '" is not a column\'s name.');
+        }
+
+        return $column;
+    }
+
+    /**
+     * The declared query as a source: the window's rows of the table, counted, grouped by the
+     * dimensions asked — each its column or expression — and the organisation's column.
+     */
+    private function declaredSource(): \Closure
+    {
+        $q = $this->query;
+        if ($q['time'] === '' || $q['fn'] === '') {
+            throw new \LogicException('Metric ' . $this->name . ': a declared query needs at() and what it counts (sum(), count(), countDistinct()).');
+        }
+
+        return static function (Window $w, array $by, \Pramnos\Database\Database $db) use ($q): array {
+            $query  = $db->queryBuilder()->table($q['table']);
+            $select = [];
+            $group  = [];
+            foreach ($by as $name) {
+                $expression = $q['columns'][$name] ?? $name;
+                // Raw: a dimension may be an expression the application declared, aliased to its name.
+                $select[] = $query->raw($expression . ' AS ' . self::identifier($name));
+                $group[]  = $query->raw($expression);
+            }
+            $counted  = match ($q['fn']) {
+                'COUNT'          => 'COUNT(*)',
+                'COUNT DISTINCT' => 'COUNT(DISTINCT ' . $q['column'] . ')',
+                default          => $q['fn'] . '(' . $q['column'] . ')',
+            };
+            $select[] = $query->raw($counted . ' AS value');
+            $query->select($select);
+            [$from, $to] = $q['unix'] ? [$w->startsAt(), $w->endsAt()] : [\Pramnos\Database\Instant::utc($w->startsAt(), $db), \Pramnos\Database\Instant::utc($w->endsAt(), $db)];
+            $query->where($q['time'], '>=', $from)->where($q['time'], '<', $to);
+            foreach ($q['where'] as [$column, $value]) {
+                is_array($value) ? $query->whereIn($column, array_values($value)) : $query->where($column, $value);
+            }
+            if ($group !== []) {
+                $query->groupBy($group);
+            }
+
+            return $query->getAllOrFail();
+        };
+    }
+
     /** @param \Closure(Window, list<string>, \Pramnos\Database\Database): (iterable<array<string, mixed>>|int|float|null) $source */
     public function source(\Closure $source): self
     {
@@ -265,7 +415,7 @@ final class Metric
 
     public function hasSource(): bool
     {
-        return $this->source !== null;
+        return $this->source !== null || $this->query !== null;
     }
 
     public function hasRows(): bool
@@ -281,6 +431,7 @@ final class Metric
      */
     public function measure(Window $window, array $by, \Pramnos\Database\Database $db): array
     {
+        $this->source ??= $this->query !== null ? $this->declaredSource() : null;
         if ($this->source === null) {
             throw new \LogicException('Metric ' . $this->name . ' has no source.');
         }

@@ -91,6 +91,29 @@ The framework calls `source($window, $by, $db)` once for each period and each br
 The source answers rows that carry the `$by` dimensions and a `value`. When `$by` is empty it may
 answer a single number instead.
 
+**A declared source.** Instead of a closure, a metric can declare its query, and the framework
+writes it:
+
+```php
+Metric::flow('payments.amount', 'Revenue')
+    ->from('invoices')
+    ->at('date', unix: true)              // the time column; unix: true for unix seconds, read as they are
+    ->sum('total')                        // or ->count(), ->countDistinct('userid') (a distinct metric)
+    ->where('status', 1)                  // a value, or a list of values
+    ->dimension('market', 'countryid')    // a dimension and its column, or an SQL expression
+    ->tenant('organizationid');
+```
+
+- **The window.** For each period, the framework selects the window's rows with the half-open
+  bounds above.
+- **Grouping and counting.** It groups by the dimensions asked, each aliased to its name, and
+  counts with the declared function.
+- **Time columns.** A date or time column is compared with UTC instants, as the framework writes
+  them. A unix column is compared with unix seconds, so the application's schema stays as it is.
+- **What is checked.** Column names are checked, and a dimension's expression is the
+  application's own SQL. A declaration with no time column, or with nothing to count, fails when
+  it is computed.
+
 `rows()` is optional: it lists the records behind a number, for a drill-down.
 
 `allowed(fn (?object $user): bool)` decides who may see the metric. By default that is the
