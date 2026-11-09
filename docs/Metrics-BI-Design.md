@@ -866,11 +866,28 @@ A goal reads a **declared metric** through the one query (§7), with its filters
 as the person asking. The applications' own sources become metrics:
 - the marketplace's daily figures, invoices and verifications, with `who`, `renewal`, `product`,
   `pillar` and `market` as dimensions;
-- the content platform's channel readings, as a level metric with `channel` as a dimension and the
-  organisation as the tenant.
+- the content platform's channel readings: its gauges (followers, posts, subscribers) as level
+  metrics and its counters (views, sessions, reach, clicks) as flow metrics, each with `channel` as
+  a dimension and the organisation as the tenant.
 
 A flow is a **total** over the goal's period and a level is a **reading**. `Metric::direction()`
-says which way is good, for a figure where lower is better.
+says which way is good, for a figure where lower is better. **On a flow only `count` and `growth`
+of the total are goals.** A reach, sustain or pace on a counter's daily values is not offered,
+and the content platform's screen drops it (none exists in production).
+
+**Across a dimension.** "All channels" is not the dimension left unfiltered. Three things are
+needed, each declared on the metric or the dimension:
+- **`Metric::acrossBy('channel', carry: true)`.** The metric adds up across that dimension's
+  values, and each value's last reading of a day stands for the days it was not read. One channel
+  not measured on a day does not drop the total. A metric not declared so takes no goal across
+  the dimension, which is the content platform's `summable` and its refusal.
+- **`Dimension::base(fn () => [...values])`.** The values a total across the dimension counts,
+  for instance active channels that are not a competitor's. Those are rows of the same table and
+  would otherwise be added in. Achievements and the across total read only these, which also
+  stops the content platform's records being written for competitors' channels.
+- **A metric made of others:** `Metric::coalesce('audience', ['followers', 'subscribers', …])`,
+  the first of them each dimension value has, then added up. It is the platform's one goal in
+  production, and `growthMonths()` reads it.
 
 ### 16.2 Kinds
 
@@ -884,10 +901,14 @@ says which way is good, for a figure where lower is better.
 | `growth` | level | the change since the start, in %, reaches the target | target × elapsed | both |
 
 The states are `met`, `on_track`, `behind`, `stalled` (a reach moving the wrong way) and
-`unknown`. Each answer carries a `says` sentence written on the server, `projected_at` where there
-is one, and the worst reading for `sustain`. A `sustain` is `met` after its due date, as in the
-marketplace. A per-goal choice is not needed, because the content platform never asks after the
-due date.
+`unknown`. Each answer carries a `says` sentence written on the server, `projected_at` (`Y-m-d`)
+where there is one, and the worst reading for `sustain`.
+
+**After the due date** a goal is still listed, checked and told about:
+- a `reach` not met turns `behind`, and that turn is told. It is the "we missed it" notice;
+- `pace` and `growth` reach elapsed 1 and are `met` or `behind`;
+- a `sustain` that held is `met`. Both applications count it so: the marketplace explicitly, the
+  content platform by counting `on_track` in a closed recurring period as met.
 
 ### 16.3 References
 
@@ -904,19 +925,29 @@ curve (§9.2), and the goal card draws it.
 
 ### 16.4 When
 
-- **Once:** `starts_at` (it may be in the past: "measure from an earlier day") and `due_at`.
+- **Once:** `starts_at` (it may be in the past: "measure from an earlier day"; now when not given)
+  and `due_at`.
+- **A recurring goal has no due date.** `due_at` is ignored when `repeats` is set, and is made
+  null when a goal is moved. The content platform's API writes the period's end there, and its
+  goal in production would otherwise read as overdue.
 - **Every** `day`, `week`, `month` or `quarter`. A recurring goal is judged on the current period
   in the zone of the goal's organisation. The marketplace uses local time and the content platform
   UTC; the zone settles it.
 - **History and streak:** each of the last 12 weeks, 12 months or 8 quarters (and 30 days) is
-  judged as it stood at its end. A period with too little data is `null`, which ends a streak. The
-  streak counts consecutive met periods back from the newest past one.
+  judged as it stood at its end. A period whose slice has fewer than two readings is `null`, which
+  ends a streak; the slice includes the last reading before the period. The streak counts
+  consecutive met periods back from the newest past one. A recurring `says` starts with the
+  period: "This week: …".
 
 ### 16.5 Too early to say
 
-A `reach` is `unknown` until it has 12 readings and 7 days of them, and it says which is missing:
-"N more readings needed" or "ask again in N days". Totals need no minimum. `pace` and `growth` need
-two readings.
+A one-off `reach` is `unknown` until it has 12 readings and 7 days of them, and it says which is
+missing: "N more readings needed" or "ask again in N days". Goals read **daily values**: the last
+reading of each day, for every goal, so one rule holds everywhere. A recurring goal's minimum is in
+proportion to its period: half its days, at least two. With 12 a weekly reach would never be
+judged, which is a bug of the content platform that is not carried over. Totals need no minimum.
+`pace` and `growth` need two readings. A level growth says "From X to Y now; the goal is Z by …,
+and about W by today".
 
 ### 16.6 Who, and telling
 
@@ -931,7 +962,11 @@ A goal has:
 `Goals::check()` keeps `last_state` and `last_told_at`. It tells once, on a turn from good (`met`,
 `on_track`) to bad (`behind`, `stalled`). A first state, a move to or from `unknown`, and an
 improvement tell nobody. A changed goal starts again with no state. It tells through:
-- the bell and push, with a push tag per goal so one replaces the last, and no mail;
+- the bell and push, with a push tag per goal so one replaces the last, and no mail. The text names
+  the dimension value through the dimension's label (`Dimension::values()`), or "all your
+  channels" across it, and links where the application says (`goals.link`, such as the content
+  platform's `app/dashboard`). "The organisation's members" are whom the application says, through
+  a hook (`goals.members`, the content platform's `Connections::memberIdsOf`);
 - a line in the conversation where one is named;
 - the event `goal.turned`, which a to-do source (FW-363) or a rule can listen to.
 
@@ -955,8 +990,16 @@ them:
 - they are unique per organisation, kind, metric and value, an index no log has;
 - they are listed as a trophy case, not read back as a history of a record.
 
-The migration says so. The content platform's badges stay its own: a catalogue of its game, fed by
-`Goals::growthMonths()` and the achievements.
+The migration says so.
+- A `milestone` is only on a level whose higher values are better.
+- A `best` is only on a flow: weekly sums, weeks from Monday, the current week excluded. A new
+  record is a new row.
+- A `goal` achievement is also given for a goal across a dimension, which is a superset of today's.
+- `goal_id` stays when its goal is deleted: no cascade.
+- A screen names the dimension value through the dimension's label resolver.
+
+The content platform's badges stay its own: a catalogue of its game, fed by `Goals::growthMonths()`
+and the achievements, which it will read from `stats.achievements` and `stats.goals` once moved.
 
 ### 16.8 Surfaces
 
@@ -967,12 +1010,25 @@ The migration says so. The content platform's badges stay its own: a catalogue o
   - a live sentence preview.
 - **Dashboard card:** `metric.goal` grows to show any stored goal.
 - **Ask and MCP tool `goals`:**
+  - its name per application (`goals.tool`): the content platform's assistants know it as
+    `glideday-goals`;
   - `list`, `metrics`, `add` and `update`; the last two only when asked, and an update keeps what
     it does not name;
   - the owner by "me", an id or a name;
-  - achievements.
+  - achievements (`achievements: false` to leave them out, `limit` 20), the readings and the
+    streak, and `projected_at` as `Y-m-d`;
+  - its notes kept: `unknown` is a real "not yet", `stalled` is not `behind`, and an achievement's
+    date is when it happened, not when it was seen.
 - **JSON API** (`MetricsApi`): `GET/POST/PUT/DELETE /metrics/goals` and `GET
   /metrics/achievements`, as the person asking: their organisations, their scope (§15.1.1).
+  - The list carries `kinds`, `repeats`, `metrics` (`label`, `higher_is_better`, `overall`) and
+    `overall`: each metric's current total across the dimension.
+  - `starts_at` is now when not given, and may be in the past.
+  - A goal's dimension value does not change after it is made, and must be one the organisation
+    may read.
+  - Update is added.
+
+  Mounted under a path the application chooses, so the content platform's SPA keeps `/goals`.
 
 ### 16.9 Order
 
