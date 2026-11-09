@@ -237,12 +237,56 @@ final class Metrics
      */
     private static function computeOne(Metric $metric, Window $window, Database $source, bool $recompute, int $now): string
     {
+        $zones = $metric->getTenant() !== null ? self::zones() : null;
+        if ($zones === null) {
+            return self::computeIn($metric, $window, $source, $recompute, $now, null);
+        }
+        // Each organisation's own day: one source call per zone, kept for that zone's organisations.
+        $done = 'skipped';
+        foreach ($zones as $zone => $tenants) {
+            $local  = Window::of($window->grain, $window->key(), new \DateTimeZone($zone));
+            $result = self::computeIn($metric, $local, $source, $recompute, $now, $tenants);
+            $done   = $result !== 'skipped' ? $result : $done;
+        }
+
+        return $done;
+    }
+
+    /**
+     * The organisations of each zone, `[zone => [tenant, …]]`, where `metrics.timezone` is a
+     * function of the organisation and `metrics.tenants` lists them; null otherwise.
+     *
+     * @return array<string, list<int>>|null
+     */
+    public static function zones(): ?array
+    {
+        $config = self::config();
+        if (!is_callable($config['timezone'] ?? null) || !is_callable($config['tenants'] ?? null)) {
+            return null;
+        }
+        $out = [];
+        foreach (($config['tenants'])() as $tenant) {
+            $out[Window::zoneOf((int) $tenant)->getName()][] = (int) $tenant;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Compute one period, `$tenants` the organisations it is computed for (null: all of them).
+     */
+    private static function computeIn(Metric $metric, Window $window, Database $source, bool $recompute, int $now, ?array $tenants): string
+    {
         if (!$window->begun($now)) {
             return 'skipped';
         }
         $ended = $window->ended($now);
-        $final = self::db()->queryBuilder()->table(Store::table($window->grain))->where('metric', $metric->name)
-            ->where('period_start', Store::instant(self::db(), $window))->where('version', Store::VERSION)->where('final', 1)->count() > 0;
+        $closed = self::db()->queryBuilder()->table(Store::table($window->grain))->where('metric', $metric->name)
+            ->where('period_start', Store::instant(self::db(), $window))->where('version', Store::VERSION)->where('final', 1);
+        if ($tenants !== null) {
+            $closed->whereIn('tenant', $tenants);
+        }
+        $final = $closed->count() > 0;
         // A closed period is kept; a level that has ended was either kept when it closed or never can be.
         if (($final && !$recompute) || ($metric->kind === Metric::LEVEL && $ended && ($final || !self::closesNow($window, $now)))) {
             return 'skipped';
@@ -254,7 +298,9 @@ final class Metrics
                 continue;   // a sum's total is its full breakdown added up, below
             }
             foreach ($metric->measure($window, $set, $source) as $row) {
-                $rows[] = $row;
+                if ($tenants === null || in_array((int) ($row['tenant'] ?? 0), $tenants, true)) {
+                    $rows[] = $row;
+                }
             }
         }
         if ($metric->getAggregate() === Metric::SUM && $metric->getDimensions() !== []) {
@@ -263,13 +309,28 @@ final class Metrics
             foreach ($rows as $row) {
                 $totals[$row['tenant'] ?? 0] = ($totals[$row['tenant'] ?? 0] ?? 0.0) + $row['value'];
             }
-            foreach ($totals ?: [0 => 0.0] as $tenant => $total) {
+            // An organisation with nothing in the period has a total all the same: nought.
+            $none = $tenants === null ? [0 => 0.0] : array_fill_keys($tenants, 0.0);
+            foreach ($totals + ($totals === [] || $tenants !== null ? $none : []) as $tenant => $total) {
                 $rows[] = ['dims' => [], 'value' => $total, 'tenant' => $tenant];
             }
         }
 
+        if ($tenants !== null) {
+            // Each organisation of the zone has a total for the period, nought where it had nothing,
+            // so its period reads as computed.
+            $have = [];
+            foreach ($rows as $row) {
+                if ($row['dims'] === []) {
+                    $have[(int) ($row['tenant'] ?? 0)] = true;
+                }
+            }
+            foreach (array_diff($tenants, array_keys($have)) as $tenant) {
+                $rows[] = ['dims' => [], 'value' => 0.0, 'tenant' => $tenant];
+            }
+        }
         $kind = $metric->kind === Metric::LEVEL ? Store::SNAPSHOT : Store::COMPUTED;
-        self::write($metric->name, $window, $rows, $kind, $ended, $now, $recompute);
+        self::write($metric->name, $window, $rows, $kind, $ended, $now, $recompute, $tenants);
 
         return $ended ? 'closed' : 'computed';
     }
@@ -288,7 +349,7 @@ final class Metrics
      *
      * @param list<array{dims: array<string, string>, value: float}> $rows
      */
-    private static function write(string $metric, Window $window, array $rows, string $source, bool $final, int $now, bool $replaceFinal): void
+    private static function write(string $metric, Window $window, array $rows, string $source, bool $final, int $now, bool $replaceFinal, ?array $tenants = null): void
     {
         $db    = self::db();
         $table = Store::table($window->grain);
@@ -302,6 +363,10 @@ final class Metrics
             $delete = $db->queryBuilder()->table($table)->where('metric', $metric)->where('version', Store::VERSION)->where('period_start', Store::instant($db, $window));
             if (!$replaceFinal) {
                 $delete->where('final', 0);
+            }
+            if ($tenants !== null) {
+                // Another zone's organisations keep theirs: their period starts elsewhere.
+                $delete->whereIn('tenant', $tenants);
             }
             $delete->delete();
             $insert = [];
@@ -435,7 +500,24 @@ final class Metrics
             return [];
         }
         $db      = self::db();
-        $instants = array_values(array_unique(array_map(static fn (Window $w): string => Store::instant($db, $w), $periods)));
+        // Each organisation's periods start at its own midnight: the starts of every zone read.
+        $zones   = $metric->getTenant() !== null ? self::zones() : null;
+        $starts  = [Window::zone()->getName() => true];
+        if ($zones !== null) {
+            $starts = [];
+            foreach ($zones as $zone => $members) {
+                if ($tenants === null || array_intersect($members, $tenants) !== []) {
+                    $starts[$zone] = true;
+                }
+            }
+        }
+        $instants = [];
+        foreach (array_keys($starts) as $zone) {
+            foreach ($periods as $w) {
+                $instants[] = Store::instant($db, $zones === null ? $w : Window::of($w->grain, $w->key(), new \DateTimeZone($zone)));
+            }
+        }
+        $instants = array_values(array_unique($instants));
         $query = $db->queryBuilder()->table(Store::table($periods[0]->grain))->select(['period_start', 'tenant', 'dimset', 'dims', 'value'])
             ->where('metric', $metric->name)->where('version', Store::VERSION)->whereIn('dimset', array_values(array_unique([implode(',', $set), ''])))->whereIn('period_start', $instants);
         if ($tenants !== null) {
@@ -450,7 +532,7 @@ final class Metrics
         $known = [];
         $sums  = [];
         while ($result && ($row = $result->fetch()) !== null) {
-            $period         = Store::key((string) $row['period_start'], $periods[0]->grain);
+            $period         = Store::key((string) $row['period_start'], $periods[0]->grain, $zones === null ? null : Window::zoneOf((int) $row['tenant']));
             // The total marks a period as computed; only the breakdown asked for is added up.
             $known[$period] = true;
             $from[(int) $row['tenant']] = true;

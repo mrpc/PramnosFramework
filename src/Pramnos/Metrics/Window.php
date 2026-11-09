@@ -74,9 +74,29 @@ final class Window
     /** The zone periods are counted in: `'metrics' => ['timezone' => …]` in app.php, or PHP's. */
     public static function zone(): \DateTimeZone
     {
-        $zone = Metrics::config()['timezone'] ?? date_default_timezone_get();
+        $config = Metrics::config();
+        $zone   = $config['timezone'] ?? date_default_timezone_get();
+        // A zone per organisation: this is the installation's own, for everything else.
+        if (!is_string($zone)) {
+            $zone = $config['default_timezone'] ?? date_default_timezone_get();
+        }
 
         return new \DateTimeZone(is_string($zone) && in_array($zone, \DateTimeZone::listIdentifiers(), true) ? $zone : 'UTC');
+    }
+
+    /**
+     * An organisation's zone, where `metrics.timezone` is a function of it
+     * (`fn (int $tenant): string`); the installation's otherwise, and for a zone it does not know.
+     */
+    public static function zoneOf(int $tenant): \DateTimeZone
+    {
+        $zone = Metrics::config()['timezone'] ?? null;
+        if (!is_callable($zone)) {
+            return self::zone();
+        }
+        $name = $zone($tenant);
+
+        return is_string($name) && in_array($name, \DateTimeZone::listIdentifiers(), true) ? new \DateTimeZone($name) : self::zone();
     }
 
     /** The period after this one. */

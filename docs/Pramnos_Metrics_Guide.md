@@ -236,6 +236,28 @@ viewer's organisations. A distinct does not: somebody counted in two organisatio
 Reading a distinct metric over more than one organisation therefore throws a `LogicException`, and
 the reader picks one with `tenant()`.
 
+**Each organisation's own day.** When organisations are in different time zones, `metrics.timezone`
+can be a function of the organisation. `metrics.tenants` then lists the organisations:
+
+```php
+'metrics' => [
+    'timezone'         => fn (int $tenant): string => Organizations::timezone($tenant),
+    'tenants'          => fn (): array => Organizations::ids(),
+    'default_timezone' => 'Europe/Athens',   // the installation's, for everything else
+],
+```
+
+- **Its own periods.** A metric with `tenant()` is computed per zone: the source is asked once for
+  each zone's window, and its rows are kept for that zone's organisations alone. An organisation's
+  "9 November" is then its own local day, and two organisations' 9 November start at different
+  instants.
+- **A total for every organisation.** Each organisation of a zone has a total for every computed
+  period, nought where it had nothing.
+- **Reading.** Reads find each organisation's period by its own zone (`Window::zoneOf()`), and
+  reading several organisations adds up each one's own day.
+- **An unknown zone.** A zone the function names that does not exist falls back to the
+  installation's.
+
 ## On the dashboard and for the assistant
 
 - **Dashboard:** each metric is a card, `metric.<name>`, in the dashboard's catalogue. It is

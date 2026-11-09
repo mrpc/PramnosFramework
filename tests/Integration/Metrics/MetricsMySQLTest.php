@@ -738,6 +738,58 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * A zone per organisation: each organisation's day is its own local day. One moment — half
+     * past midnight in Athens, half past ten the evening before in London — falls on the 2nd for
+     * the Athens organisation and on the 1st for the London one; each is read in its own day, and
+     * every organisation together adds each one's own day up.
+     */
+    public function testEachOrganisationsDayIsItsOwn(): void
+    {
+        // Arrange
+        $schema = $this->db->schema();
+        $schema->dropTableIfExists('metrics_test_zoned');
+        $schema->createTable('metrics_test_zoned', function ($table) {
+            $table->integer('placed_at');
+            $table->integer('org');
+        });
+        $moment = (new \DateTimeImmutable('2026-09-02 00:30', new \DateTimeZone('Europe/Athens')))->getTimestamp();
+        foreach ([1, 2] as $org) {
+            $this->db->queryBuilder()->table('metrics_test_zoned')->insert(['placed_at' => $moment, 'org' => $org]);
+        }
+        Metrics::register(Metric::flow('test.zoned', 'Orders, in each organisation\'s day')->tenant('org')->source(function (Window $w, array $by, Database $db): array {
+            $query = $db->queryBuilder()->table('metrics_test_zoned');
+
+            return $query->select([...$by, $query->raw('COUNT(*) AS value')])
+                ->where('placed_at', '>=', $w->startsAt())->where('placed_at', '<', $w->endsAt())->groupBy($by)->getAllOrFail();
+        }));
+        Application::getInstance()->applicationInfo['metrics'] = [
+            'timezone'         => static fn (int $tenant): string => match ($tenant) { 2 => 'Europe/London', 3 => 'Nowhere/Here', default => 'Europe/Athens' },
+            'tenants'          => static fn (): array => [1, 2],
+            'default_timezone' => 'Europe/Athens',
+        ];
+
+        try {
+            // Act
+            Metrics::compute(['test.zoned'], ['day'], '2026-09-01', '2026-09-02', false, self::at('2026-11-06 12:00'));
+            $read = static fn (?int $tenant, string $day): ?float => ($tenant === null ? Metrics::query('test.zoned') : Metrics::query('test.zoned')->tenant($tenant))->grain('day')->at($day)->value();
+            $athens = [$read(1, '2026-09-01'), $read(1, '2026-09-02')];
+            $london = [$read(2, '2026-09-01'), $read(2, '2026-09-02')];
+            $both   = [$read(null, '2026-09-01'), $read(null, '2026-09-02')];
+            $zones  = Metrics::zones();
+
+            // Assert
+            $this->assertSame([0.0, 1.0], $athens, 'Athens: the 2nd');
+            $this->assertSame([1.0, 0.0], $london, 'London: still the 1st');
+            $this->assertSame([1.0, 1.0], $both, 'each organisation\'s own day, added up');
+            $this->assertSame(['Europe/Athens' => [1], 'Europe/London' => [2]], $zones);
+            $this->assertSame('Europe/Athens', Window::zone()->getName(), 'the installation\'s zone, for everything else');
+            $this->assertSame('Europe/Athens', Window::zoneOf(3)->getName(), 'a zone that is none: the installation\'s');
+        } finally {
+            $schema->dropTableIfExists('metrics_test_zoned');
+        }
+    }
+
+    /**
      * The store's lock: while another connection holds it — a conversion, an import, another
      * computation — a computation does nothing and says it was busy (the command too, without
      * failing), and once it is let go the computation runs.

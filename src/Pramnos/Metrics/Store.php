@@ -259,10 +259,10 @@ final class Store
      * The period a kept `period_start` is the start of, as its key in the metrics' zone:
      * YYYY-MM-DD, or YYYY-MM-DD HH:00 for an hour.
      */
-    public static function key(string $stored, string $grain = Window::DAY): string
+    public static function key(string $stored, string $grain = Window::DAY, ?\DateTimeZone $zone = null): string
     {
         // PostgreSQL answers with an offset, MySQL with the bare UTC it was given.
-        return (new \DateTimeImmutable($stored, new \DateTimeZone('UTC')))->setTimezone(Window::zone())->format($grain === Window::HOUR ? 'Y-m-d H:00' : 'Y-m-d');
+        return (new \DateTimeImmutable($stored, new \DateTimeZone('UTC')))->setTimezone($zone ?? Window::zone())->format($grain === Window::HOUR ? 'Y-m-d H:00' : 'Y-m-d');
     }
 
     /**
