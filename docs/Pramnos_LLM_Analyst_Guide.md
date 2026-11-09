@@ -357,7 +357,8 @@ For a question no tool answers, the analyst can write SQL — when the applicati
 ```
 
 `schema` lists the tables, or one table's columns with their keys, and the application's notes,
-keyed without the table prefix. `sql` answers rows. `export_csv` writes them to a file. A list of
+keyed without the table prefix. `sql` answers rows. `export_csv` writes them to a file. It
+answers with its `link`, and with `xlsx`, the same file as a spreadsheet (`?as=xlsx`). A list of
 up to `export_inline` rows (100 by default) also comes back whole, and the model is told to show
 it as a table beside the link. A longer one gives the model only the link, the count and five
 rows. An optional `title` names the file, in Latin letters when it was written in Greek:

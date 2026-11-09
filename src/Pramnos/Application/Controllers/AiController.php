@@ -622,9 +622,20 @@ class AiController extends Controller
         }
 
         \Pramnos\Framework\Factory::getDocument('raw');
+        $filename = \Pramnos\Llm\Analyst\Exports::filename(basename($file, '.csv'), (int) filemtime($file));
+        // `?as=xlsx`: the same rows as a spreadsheet.
+        if (($_GET['as'] ?? '') === 'xlsx') {
+            if (!headers_sent()) {
+                header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+                header('Content-Disposition: attachment; filename="' . preg_replace('/\.csv$/', '', $filename) . '.xlsx"');
+                header('Cache-Control: private, no-store');
+            }
+
+            return \Pramnos\Export\Xlsx::fromCsv((string) file_get_contents($file));
+        }
         if (!headers_sent()) {
             header('Content-Type: text/csv; charset=utf-8');
-            header('Content-Disposition: attachment; filename="' . \Pramnos\Llm\Analyst\Exports::filename(basename($file, '.csv'), (int) filemtime($file)) . '"');
+            header('Content-Disposition: attachment; filename="' . $filename . '"');
             header('Cache-Control: private, no-store');
         }
 

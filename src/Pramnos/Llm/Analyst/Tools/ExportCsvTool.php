@@ -97,6 +97,8 @@ final class ExportCsvTool implements McpToolInterface
 
         $answer = [
             'link'      => Exports::url($name, $this->area),
+            // The same rows as a spreadsheet, for whoever asks for Excel.
+            'xlsx'      => Exports::url($name, $this->area) . '?as=xlsx',
             'rows'      => $count,
             'truncated' => $count >= self::MAX_ROWS,
             'expires'   => gmdate('Y-m-d', time() + Exports::DAYS * 86400),

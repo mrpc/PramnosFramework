@@ -18,6 +18,7 @@ $query = fn (string $at): string => '?report=' . rawurlencode($this->entry['id']
             </form>
             <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['show'] . $query($this->next) }}" aria-label="{{ t('Next period') }}">›</a>
             <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['csv'] . $query($this->at) }}">CSV</a>
+            @if (isset($this->urls['xlsx']))<a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['xlsx'] . $query($this->at) }}">XLSX</a>@endif
             <button type="button" class="pf-btn pf-btn-ghost pf-btn-sm" data-pf-print>{{ t('Print or save as PDF') }}</button>
             @if ($this->mine)
             <button type="button" class="pf-btn pf-btn-ghost pf-btn-sm" data-pf-dashboard-edit{!! $this->customise ? " data-pf-dashboard-open" : "" !!} aria-pressed="false">{{ t('Customise') }}</button>

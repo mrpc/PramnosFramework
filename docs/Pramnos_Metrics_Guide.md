@@ -525,6 +525,22 @@ period that closes:
 
 The mail carries no CSV attachment; the CSV is one click away on the report's page. The CSV holds
 the report's tables one under another, each line its table's heading (or its section's) and row.
+**XLSX**, next to it, is the same rows as a spreadsheet (`MetricReports/xlsx`). Numbers are
+written as numbers, so they add up.
+
+### A spreadsheet of anything
+
+`Pramnos\Export\Xlsx` writes a workbook with `ext-zip` and a little XML, without a spreadsheet
+library:
+
+```php
+$bytes = Xlsx::write(['Sales' => [['Region', 'Orders'], ['North', 12]], 'Notes' => [['…']]]);
+$bytes = Xlsx::fromCsv($csv, 'Report');   // what a CSV export already writes
+```
+
+- **Cells.** A number, or a string in the plain form `-12.5`, is written as a number, and
+  everything else as text. The first row is bold.
+- **Sheet names.** A sheet's name is cut to what Excel allows.
 
 ### Closed periods
 

@@ -391,6 +391,7 @@ class ReportsMySQLTest extends TestCase
         $screen->show();
         $pages['report'] = (array) $screen->view;
         $csv = $screen->csv();
+        $xlsx = $screen->xlsx();
         $this->request('GET', null, ['metric' => 'test.sales', 'grain' => 'month', 'period' => '2026-09-01', 'f' => ['region' => 'north']]);
         $screen->rows();
         $pages['rows'] = (array) $screen->view;
@@ -421,6 +422,8 @@ class ReportsMySQLTest extends TestCase
         $this->assertMatchesRegularExpression('~data-pf-dashboard-option="report\\.section".{0,400}?>Section<~s', $pages['report']['body']);
         $this->assertSame("\xEF\xBB\xBFsection,row,2026-08,2026-09\nS,Sales,1,6\n", (string) $csv->getBody());
         $this->assertStringContainsString('Test-screen-2026-09.csv', $csv->getHeaderLine('Content-Disposition'));
+        $this->assertStringStartsWith('PK', (string) $xlsx->getBody(), 'a spreadsheet: a zip');
+        $this->assertStringContainsString('Test-screen-2026-09.xlsx', $xlsx->getHeaderLine('Content-Disposition'));
         $this->assertSame([['order' => 1, 'region' => 'north']], $pages['rows']['rows']);
         $this->assertContains(['error', 'There is no such list.'], $screen->flash, 'buyers list no records');
 
@@ -501,7 +504,7 @@ class ReportsMySQLTest extends TestCase
         $screen->delete();
         $this->signIn(1, 5);
         $low = $this->screen(MetricReports::class);
-        foreach (['display', 'show', 'csv', 'rows', 'edit', 'save', 'delete'] as $action) {
+        foreach (['display', 'show', 'csv', 'xlsx', 'rows', 'edit', 'save', 'delete'] as $action) {
             $this->assertNull($low->{$action}(), $action . ' stops below the floor');
         }
 

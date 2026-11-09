@@ -271,6 +271,8 @@ class AnalystSqlTest extends LlmTestCase
         $this->assertStringContainsString('Markdown table', $made['show']);
         $this->assertArrayNotHasKey('sample', $made);
         $this->assertMatchesRegularExpression('#^/Ai/export/7-[a-f0-9]{16}$#', $made['link'], 'no .csv, short enough to survive redaction, and from the root with no site root to build on');
+        $this->assertSame($made['link'] . '?as=xlsx', $made['xlsx'], 'the same rows as a spreadsheet');
+        $this->assertStringStartsWith('PK', \Pramnos\Export\Xlsx::fromCsv((string) file_get_contents((string) $file)), 'which reads the file it names');
         $this->assertSame($made['link'], \Pramnos\Llm\Analyst\Redactor::clean($made['link']));
         $this->assertMatchesRegularExpression('#^https://example\.com/admin/Ai/export/7-[a-f0-9]{16}$#', $where['link'], 'under the area the asking request saw');
         $this->assertNotNull($file);

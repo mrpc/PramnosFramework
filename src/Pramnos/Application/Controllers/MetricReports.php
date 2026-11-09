@@ -40,7 +40,7 @@ class MetricReports extends Controller
     /** Registers the actions: all behind sign-in, the writes POSTs with the session's token. */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'show', 'csv', 'rows', 'edit', 'save', 'delete']);
+        $this->addAuthAction(['display', 'show', 'csv', 'xlsx', 'rows', 'edit', 'save', 'delete']);
         $this->addWriteAction(['save', 'delete']);
         parent::__construct($application);
     }
@@ -104,6 +104,21 @@ class MetricReports extends Controller
         return \Pramnos\Http\Response::make("\xEF\xBB\xBF" . ReportBoard::csv($entry, $at, $this->user()), 200)
             ->withHeader('Content-Type', 'text/csv; charset=utf-8')
             ->withHeader('Content-Disposition', 'attachment; filename="' . trim((string) $name, '-') . '.csv"');
+    }
+
+    /** The report as a spreadsheet: what its CSV holds, one sheet. */
+    public function xlsx(): mixed
+    {
+        if ($this->refused() || ($entry = $this->entry((string) ($_GET['report'] ?? ''))) === null) {
+            return null;
+        }
+        $at     = self::day((string) ($_GET['at'] ?? ''));
+        $period = Window::of($entry['report']->definition['grain'], $at)->label();
+        $name   = trim((string) preg_replace('/[^A-Za-z0-9_-]+/', '-', $entry['name'] . '-' . $period), '-');
+
+        return \Pramnos\Http\Response::make(\Pramnos\Export\Xlsx::fromCsv(ReportBoard::csv($entry, $at, $this->user()), $period), 200)
+            ->withHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            ->withHeader('Content-Disposition', 'attachment; filename="' . $name . '.xlsx"');
     }
 
     /** The records behind a cell: `?metric=&grain=&period=&f[name]=value`. */
@@ -273,7 +288,7 @@ class MetricReports extends Controller
     {
         $base = adminUrl('MetricReports');
 
-        return ['list' => $base, 'show' => $base . '/show', 'csv' => $base . '/csv', 'rows' => $base . '/rows', 'edit' => $base . '/edit', 'save' => $base . '/save', 'delete' => $base . '/delete'];
+        return ['list' => $base, 'show' => $base . '/show', 'csv' => $base . '/csv', 'xlsx' => $base . '/xlsx', 'rows' => $base . '/rows', 'edit' => $base . '/edit', 'save' => $base . '/save', 'delete' => $base . '/delete'];
     }
 
     /** A day as given, or today. */
