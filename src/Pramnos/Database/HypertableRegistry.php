@@ -78,6 +78,10 @@ class HypertableRegistry
      *     @type list<string>|null $conflict_update Columns to rewrite on a
      *                                       conflict; all non-key columns when
      *                                       omitted
+     *     @type list<string>|null $primary_key The key it becomes a hypertable with — its id and
+     *                                       the time column — for a table created with a key of
+     *                                       its id alone: `timescale:ensure` rewrites it in place
+     *                                       for a small table, and refuses a large one
      *     @type string      $feature        Feature key that owns the table
      * }
      */
@@ -168,6 +172,14 @@ class HypertableRegistry
         $done = [];
 
         static::assertDeclarationMatchesColumn($schema, $table, $spec);
+
+        // The time column in the key, before a conversion that requires it there.
+        if (!$schema->hasHypertable($table) && is_array($spec['primary_key']) && $spec['primary_key'] !== []
+            && $schema->primaryKeyColumns($table) !== array_values($spec['primary_key'])) {
+            $schema->replacePrimaryKey($table, array_values($spec['primary_key']));
+            static::confirm($schema->primaryKeyColumns($table) === array_values($spec['primary_key']), $table, 'set the primary key');
+            $done[] = 'primary key set to (' . implode(', ', $spec['primary_key']) . ')';
+        }
 
         if (!$schema->hasHypertable($table)) {
             $schema->createHypertable($table, (string) $spec['time_column'], [
@@ -467,6 +479,9 @@ class HypertableRegistry
             'conflict'        => null,
             'conflict_update' => null,
             'feature'         => '',
+            // The key a table becomes a hypertable with: its id and the time column. Set for a
+            // table created with a key of its id alone; null where the key is right already.
+            'primary_key'     => null,
             // Set by an app.php override of `retention => null`: {@see loadOverridesFromConfig()}.
             'keep_for_ever'   => false,
         ];

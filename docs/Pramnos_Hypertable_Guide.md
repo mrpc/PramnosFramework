@@ -676,10 +676,38 @@ Retention there is handled by the software policy engine
    in every unique constraint. The framework creates these keys unconditionally,
    so this should always hold — which is why it is verified rather than assumed.
    A table whose key omits the time column is reported as blocked, with its
-   actual key, instead of failing with a driver error.
+   actual key, instead of failing with a driver error — unless it is declared
+   with the key it should have (below).
 3. **Convert**, then **enable compression**, then **add the two policies**. The
    order is not cosmetic: a compression policy on a non-hypertable raises, and
    so does compression where the setting was never enabled.
+
+### A table made with its id alone as its key
+
+A table created before it was meant to be a hypertable often has `PRIMARY KEY (id)`. Declare the
+key it should have, the id and the time column, and `timescale:ensure` rewrites it before
+converting:
+
+```php
+HypertableRegistry::register('visitactions', [
+    'time_column'    => 'servertime',
+    'chunk_interval' => '7 days',
+    'primary_key'    => ['idlink_va', 'servertime'],
+]);
+```
+
+```bash
+php pramnos timescale:ensure --table=visitactions                  # up to 100,000 rows
+php pramnos timescale:ensure --table=visitactions --max-rows=500000
+```
+
+Rewriting the key rebuilds its index under a lock, and converting rewrites the table, so this is
+done in place only for a table up to `--max-rows` (100,000 by default). A larger one is refused,
+with its row count, and left as it is. Move it instead:
+- make the hypertable beside it;
+- write to both;
+- copy the past across in chunks;
+- switch the reads, and drop the old table.
 
 ## Declaring your own
 

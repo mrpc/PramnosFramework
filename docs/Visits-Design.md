@@ -9,7 +9,7 @@ use_cases:
 
 # Site traffic (design, FW-365)
 
-**Status:** approved by the marketplace (raw hits kept for good; one site, the market a dimension). Step 1 is built.
+**Status:** approved by the marketplace (raw hits kept for good; one site, the market a dimension). Steps 1 and 2 are built.
 
 **Scope: an application's own traffic** — the visits to its own site and screens. The
 marketplace counts its own with a small Matomo: a visit with a cookie, its pages, its source, the
@@ -235,7 +235,7 @@ it, once its before/after comparison (P0) is done.
 | Step | What |
 |---|---|
 | 1 | **Built:** `urls` — `sha`, unique index, `urls:rehash`, `urls:prune`, references declared ([guide](Pramnos_Logging_Guide.md#the-urls-registry)) |
-| 2 | `HypertableRegistry` primary key; `timescale:ensure` for an existing small table |
+| 2 | **Built:** `HypertableRegistry` `primary_key`; `timescale:ensure` rewrites a small table's key, refuses above `--max-rows` ([guide](Pramnos_Hypertable_Guide.md#a-table-made-with-its-id-alone-as-its-key)) |
 | 3 | `pramnos.sites`, `page_hits`, the beacon, refusals, spool, GeoIP, source classes |
 | 4 | Aggregates (CAggs, or the rollup), the metrics, the tool, the card, the API |
 | 5 | `Visits::import()`, `visits:compare`; the marketplace's move |

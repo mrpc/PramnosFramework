@@ -292,4 +292,52 @@ class TimescaleEnsureCommandTest extends BaseTestCase
             'two dry runs in a row disagreed, so the report depends on something it should not'
         );
     }
+
+    /**
+     * A table made with a key of its id alone, declared with `primary_key` [id, time]: small, its
+     * key is rewritten in place and it becomes a hypertable; above `--max-rows`, it is refused
+     * with the way round it, and nothing is changed.
+     */
+    public function testATimeIsPutInTheKeyOfASmallTableOnly(): void
+    {
+        // Arrange
+        if (!$this->hasTimescale) {
+            $this->markTestSkipped('The time in the key is for a hypertable: TimescaleDB only.');
+        }
+        $schema = $this->db->schema();
+        foreach (['pf_key_small', 'pf_key_large'] as $name) {
+            $schema->dropTableIfExists($name);
+            $schema->createTable($name, static function ($t): void {
+                $t->increments('hitid');
+                $t->timestampTz('at')->useCurrent();
+            });
+            for ($i = 0; $i < 3; $i++) {
+                $this->db->queryBuilder()->table($name)->insert(['at' => date('Y-m-d H:i:sP', time() - $i * 3600)]);
+            }
+            HypertableRegistry::register($name, ['time_column' => 'at', 'chunk_interval' => '1 day', 'primary_key' => ['hitid', 'at']]);
+        }
+
+        try {
+            // Act
+            $tester = $this->tester();
+            $small  = $tester->execute(['--table' => 'pf_key_small']);
+            $smallText = $tester->getDisplay();
+            $tester = $this->tester();
+            $large  = $tester->execute(['--table' => 'pf_key_large', '--max-rows' => '2']);
+            $largeText = $tester->getDisplay();
+
+            // Assert
+            $this->assertSame(0, $small, $smallText);
+            $this->assertStringContainsString('primary key set to (hitid, at)', $smallText);
+            $this->assertSame(['hitid', 'at'], $schema->primaryKeyColumns('pf_key_small'));
+            $this->assertTrue($schema->hasHypertable('pf_key_small'), 'and then a hypertable');
+            $this->assertSame(3, $this->db->queryBuilder()->table('pf_key_small')->count(), 'its rows kept');
+            $this->assertStringContainsString('too many to rewrite the primary key in place', $largeText);
+            $this->assertSame(['hitid'], $schema->primaryKeyColumns('pf_key_large'), 'left as it was');
+            $this->assertFalse($schema->hasHypertable('pf_key_large'));
+        } finally {
+            $schema->dropTableIfExists('pf_key_small');
+            $schema->dropTableIfExists('pf_key_large');
+        }
+    }
 }

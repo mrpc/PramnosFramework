@@ -1775,6 +1775,43 @@ class SchemaBuilder
     }
 
     /**
+     * Replace a table's primary key with one of these columns — the time column added to an id's
+     * key, so the table can become a hypertable ({@see HypertableRegistry}). One statement: the old
+     * key is never missing while the new one is built.
+     *
+     * DDL, so written here rather than through the query builder; the constraint's real name is
+     * read on PostgreSQL rather than guessed, since a table in a schema of its own does not have
+     * the `<schema>.<table>_pkey` a guess would make.
+     *
+     * Rewrites the key's index: holds a lock for as long as the table takes. Meant for a small
+     * table; `timescale:ensure` refuses a large one.
+     *
+     * @param list<string> $columns
+     */
+    public function replacePrimaryKey(string $table, array $columns): void
+    {
+        $quoted = $this->quoteTable($table);
+        $cols   = implode(', ', array_map(fn (string $c): string => $this->getGrammar()->quoteColumn($c), $columns));
+        if ($this->capabilities->isMySQL()) {
+            $this->db->query('ALTER TABLE ' . $quoted . ' DROP PRIMARY KEY, ADD PRIMARY KEY (' . $cols . ')');
+
+            return;
+        }
+        [$schema, $name] = $this->splitTable($table);
+        $result = $this->db->query($this->db->prepareQuery(
+            "SELECT con.conname AS name FROM pg_constraint con
+             JOIN pg_class c ON c.oid = con.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE con.contype = 'p' AND n.nspname = %s AND c.relname = %s",
+            $schema,
+            $name
+        ));
+        $current = $result && $result->numRows > 0 ? (string) $result->fields['name'] : null;
+        $this->db->query('ALTER TABLE ' . $quoted
+            . ($current !== null ? ' DROP CONSTRAINT "' . str_replace('"', '""', $current) . '",' : '')
+            . ' ADD PRIMARY KEY (' . $cols . ')');
+    }
+
+    /**
      * Split a logical table name into the schema and name TimescaleDB reports.
      *
      * `isHypertable()` and the `timescaledb_information` views address a table

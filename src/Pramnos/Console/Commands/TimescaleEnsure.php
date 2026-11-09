@@ -64,6 +64,13 @@ class TimescaleEnsure extends Command
                 'Report what would change, with row counts, without touching anything'
             )
             ->addOption(
+                'max-rows',
+                null,
+                InputOption::VALUE_REQUIRED,
+                'The most rows a table may have for its primary key to be rewritten in place',
+                '100000'
+            )
+            ->addOption(
                 'table',
                 't',
                 InputOption::VALUE_REQUIRED,
@@ -73,6 +80,7 @@ class TimescaleEnsure extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        $this->maxRows = max(0, (int) ($input->getOption('max-rows') ?? 100000));
         $app = Application::getInstance();
         if (!$app instanceof Application
             || !$app->database instanceof \Pramnos\Database\Database) {
@@ -198,6 +206,9 @@ class TimescaleEnsure extends Command
     // Inspection
     // -------------------------------------------------------------------------
 
+    /** The most rows a table may have for its primary key to be rewritten in place. */
+    protected int $maxRows = 100000;
+
     /**
      * Work out the state of one declared table without changing it.
      *
@@ -243,9 +254,20 @@ class TimescaleEnsure extends Command
             // which is exactly why it is worth checking rather than assuming.
             $key = $schema->primaryKeyColumns($table);
             if ($key !== [] && !in_array((string) $spec['time_column'], $key, true)) {
-                $state['blocker'] = 'primary key (' . implode(', ', $key)
-                    . ') does not include the partitioning column "'
-                    . $spec['time_column'] . '"';
+                $declared = is_array($spec['primary_key'] ?? null) ? array_values($spec['primary_key']) : [];
+                if ($declared !== [] && in_array((string) $spec['time_column'], $declared, true)
+                    && $state['rows'] !== null && $state['rows'] <= $this->maxRows) {
+                    // Declared with the time in its key, and small enough to rewrite in place.
+                    $state['missing'][] = 'primary key';
+                } elseif ($declared !== []) {
+                    $state['blocker'] = number_format((int) $state['rows']) . ' rows: too many to rewrite the primary key in place'
+                        . ' (--max-rows ' . number_format($this->maxRows) . '). Make the hypertable beside it and move the rows'
+                        . ' over in chunks, writing to both meanwhile.';
+                } else {
+                    $state['blocker'] = 'primary key (' . implode(', ', $key)
+                        . ') does not include the partitioning column "'
+                        . $spec['time_column'] . '"';
+                }
             }
         }
 
