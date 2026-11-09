@@ -700,6 +700,10 @@ class MetricsMySQLTest extends TestCase
             $rows     = $q('test.org_orders')->for($boss)->by('region')->table();
             $top      = $q('test.org_orders')->for($boss)->by('region')->top(1);
             $compared = $q('test.org_orders')->for($mine)->compare(Metrics::YEAR_EARLIER)->compared();
+            // A reader on the query: a report built for her shows her organisation alone.
+            $report   = \Pramnos\Metrics\Report::fromArray(['name' => 'Orgs', 'grain' => 'month', 'sections' => [['rows' => [['metric' => 'test.org_orders']]]]]);
+            $cellHers = $report->build('2026-09-10', $mine)['sections'][0]['rows'][0]['cells'][0]['value'];
+            $cellAll  = $report->build('2026-09-10', $boss)['sections'][0]['rows'][0]['cells'][0]['value'];
             $refused  = [];
             foreach ([
                 static fn () => $q('test.org_orders')->for($mine)->tenant(2),
@@ -723,6 +727,7 @@ class MetricsMySQLTest extends TestCase
             $this->assertSame(2.0, $people, 'distinct, in one organisation');
             $this->assertSame([['period' => '2026-09-01', 'key' => 'north', 'value' => 3.0], ['period' => '2026-09-01', 'key' => 'south', 'value' => 2.0]], $rows);
             $this->assertSame(['north' => 3.0], $top);
+            $this->assertSame([3.0, 5.0], [$cellHers, $cellAll], 'a report reads as its viewer');
             $this->assertSame(['2026-09', 3.0, '2025-09', null], [$compared['period'], $compared['value'], $compared['against'], $compared['other']]);
             $this->assertSame([\DomainException::class, \DomainException::class, \LogicException::class, \LogicException::class], $refused,
                 'another organisation; a metric not theirs; a distinct over two organisations; a ranking with no dimension');

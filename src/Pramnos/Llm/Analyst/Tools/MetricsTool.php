@@ -73,7 +73,7 @@ final class MetricsTool implements McpToolInterface
         try {
             return match ($action) {
                 'compare' => ['metric' => $name, 'unit' => $metric->getUnit()]
-                    + Metrics::compare($name, $grain, (string) ($input['period'] ?? date('Y-m-d')), $filters, (string) ($input['against'] ?? Metrics::PREVIOUS)),
+                    + Metrics::query($name)->grain($grain)->at((string) ($input['period'] ?? date('Y-m-d')))->where($filters)->compare((string) ($input['against'] ?? Metrics::PREVIOUS))->for($this->user())->compared(),
                 'rows'    => $this->rows($metric, $grain, (string) ($input['period'] ?? date('Y-m-d')), $filters),
                 default   => $this->series($metric, $grain, $input, $filters),
             };
@@ -122,7 +122,7 @@ final class MetricsTool implements McpToolInterface
             throw new \InvalidArgumentException('at most ' . self::PERIODS . ' periods at once: a coarser grain, or a shorter span.');
         }
         $breakdown = isset($input['breakdown']) && $input['breakdown'] !== '' ? (string) $input['breakdown'] : null;
-        $series    = Metrics::series($metric->name, $grain, $from, $to, $filters, $breakdown);
+        $series    = Metrics::query($metric->name)->grain($grain)->between($from, $to)->where($filters)->by($breakdown)->for($this->user())->series();
         $labels    = array_map(static fn (Window $w): string => $w->label(), $series['periods']);
         $values    = [];
         foreach ($series['values'] as $key => $list) {

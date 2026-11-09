@@ -66,15 +66,15 @@ class KpiWidget extends ReportWidget
         $note    = $window->label();
         try {
             if ($against !== '') {
-                $result = Metrics::compare($name, $window->grain, $window->key(), $filters, $against);
+                $result = Metrics::query($name)->grain($window->grain)->at($window->key())->where($filters)->compare($against)->for($report['user'])->compared();
                 $value  = $result['value'];
                 if ($result['change'] !== null) {
                     $note .= ' · ' . sprintf(Figures::words('%s against %s'), ($result['change'] >= 0 ? '+' : '') . number_format($result['change'] * 100, 1) . '%', $result['against']);
                 }
             } else {
-                $value = Metrics::value($name, $window->grain, $window->key(), $filters);
+                $value = Metrics::query($name)->grain($window->grain)->at($window->key())->where($filters)->for($report['user'])->value();
             }
-        } catch (\InvalidArgumentException $e) {
+        } catch (\InvalidArgumentException|\LogicException $e) {
             return self::note($e->getMessage());
         }
 

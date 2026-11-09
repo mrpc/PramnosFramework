@@ -48,7 +48,21 @@ final class MetricCard extends Widget
 
     public function allowed(?object $user): bool
     {
+        // The viewer the board was offered to: the figures are read as theirs.
+        $this->viewer = $user;
+
         return $this->metric->allows($user);
+    }
+
+    /** Who the card is drawn for, as {@see allowed()} was asked; null: every organisation. */
+    private ?object $viewer = null;
+
+    /** The metric read as the card's viewer. */
+    private function read(): \Pramnos\Metrics\Query
+    {
+        $query = Metrics::query($this->metric->name);
+
+        return $this->viewer !== null ? $query->for($this->viewer) : $query;
     }
 
     public function byDefault(): bool
@@ -99,8 +113,8 @@ final class MetricCard extends Widget
             for ($i = 1; $i < $periods; $i++) {
                 $first = $first->previous();
             }
-            $series = Metrics::series($this->metric->name, $grain, $first->key(), $now->key(), $filters, $breakdown !== '' ? $breakdown : null);
-        } catch (\InvalidArgumentException $e) {
+            $series = $this->read()->grain($grain)->between($first->key(), $now->key())->where($filters)->by($breakdown !== '' ? $breakdown : null)->series();
+        } catch (\InvalidArgumentException|\LogicException $e) {
             return '<p class="pf-muted">' . htmlspecialchars($e->getMessage(), ENT_QUOTES) . '</p>';
         }
         $sets = [];
@@ -123,13 +137,13 @@ final class MetricCard extends Widget
         $against = (string) $this->setting('compare');
         $note    = $now->label();
         if ($against !== '') {
-            $compare = Metrics::compare($this->metric->name, $now->grain, $now->key(), $filters, $against);
+            $compare = $this->read()->grain($now->grain)->at($now->key())->where($filters)->compare($against)->compared();
             $value   = $compare['value'];
             if ($compare['change'] !== null) {
                 $note .= ' · ' . sprintf(Figures::words('%s against %s'), ($compare['change'] >= 0 ? '+' : '') . number_format($compare['change'] * 100, 1) . '%', $compare['against']);
             }
         } else {
-            $value = Metrics::value($this->metric->name, $now->grain, $now->key(), $filters);
+            $value = $this->read()->grain($now->grain)->at($now->key())->where($filters)->value();
         }
 
         return \Pramnos\Html\StatTile::render(Figures::words($this->metric->label()), $value === null ? '—' : self::format($value, $this->metric->getUnit()), $note);

@@ -210,6 +210,11 @@ Metrics::query('orders.count')
   the viewer's.
 - **`top($n)`** gives the breakdown's largest values in the last period, largest first.
 
+The framework's own readers all read this way, as their viewer: a report's cells and KPI cards as
+the person the report is built for, a metric card as the person the board is drawn for, and the
+assistant's metrics tool as the administrator asking. A report mailed by the scheduler is built
+for its owner.
+
 ### Organisations
 
 In an application whose figures belong to organisations, a metric names the source's column that

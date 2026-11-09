@@ -295,8 +295,20 @@ final class Report
      *
      * @return array<string, mixed>
      */
+    /** A metric read as the report's viewer: every organisation for a report built for nobody. */
+    private function read(string $metric): Query
+    {
+        $query = Metrics::query($metric);
+
+        return $this->viewer !== null ? $query->for($this->viewer) : $query;
+    }
+
+    /** Who {@see build()} builds for. */
+    private ?object $viewer = null;
+
     public function build(string $at, ?object $user): array
     {
+        $this->viewer = $user;
         $grain   = $this->definition['grain'];
         $anchor  = Window::of($grain, $at);
         $compare = $this->definition['compare'];
@@ -401,9 +413,9 @@ final class Report
         $windows   = array_column($columns, 'window');
         usort($windows, static fn (Window $a, Window $b): int => $a->start <=> $b->start);
         try {
-            $found  = Metrics::series($row['metric'], $anchor->grain, $windows[0]->key(), $anchor->key(), $row['filters'], $row['breakdown'])['values'];
+            $found  = $this->read($row['metric'])->grain($anchor->grain)->between($windows[0]->key(), $anchor->key())->where($row['filters'])->by($row['breakdown'])->series()['values'];
             $values = array_values(array_unique(array_merge($values, array_map('strval', array_keys($found)))));
-        } catch (\InvalidArgumentException $e) {
+        } catch (\InvalidArgumentException|\LogicException $e) {
             return [['label' => $label, 'metric' => $row['metric'], 'filters' => $row['filters'], 'subtotal' => false, 'error' => $e->getMessage()]];
         }
         $out = [];
@@ -444,7 +456,7 @@ final class Report
             $filters = $column['filters'] + $row['filters'];
             try {
                 $built['cells'][] = [
-                    'value' => Metrics::value($name, $grain, $column['window']->key(), $filters),
+                    'value' => $this->read($name)->grain($grain)->at($column['window']->key())->where($filters)->value(),
                     'link'  => $visible[$name]->hasRows() ? ['metric' => $name, 'grain' => $grain, 'period' => $column['window']->key(), 'filters' => $filters] : null,
                     'error' => null,
                 ];
@@ -455,7 +467,7 @@ final class Report
         }
         try {
             if ($compare !== null) {
-                $pair            = Metrics::compare($row['metric'], $grain, $anchor->key(), $row['filters'], $compare);
+                $pair            = $this->read($row['metric'])->grain($grain)->at($anchor->key())->where($row['filters'])->compare($compare)->compared();
                 $built['other']  = $pair['other'];
                 $built['change'] = $pair['change'];
             }
