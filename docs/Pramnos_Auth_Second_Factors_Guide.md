@@ -177,6 +177,24 @@ through the factor list whatever `twofactor_methods` says.
 | `POST push/respond?token=&decision=` | the notification's buttons | No always; Yes only on an ask that needs no number |
 | `POST push/subscribe` | the page | now also links the subscription to its trusted device |
 
+### An application as the trusted device
+
+A phone's app, signed in with a token, has no browser cookie to be trusted by. With
+`auth_push_approval_apps` on (System Settings → Security, off by default), it becomes a trusted
+device of its own, beside the browsers:
+
+- **Asked for, never given.** After signing in, with its second step done, the app asks
+  `POST /me/devices` (`AccountApi`). The device is bound to the app's token for as long as a
+  browser's trust lasts, and is listed among the account's devices, where it is forgotten like
+  any other. Its token signed out or revoked, it is trusted no more.
+- **It asks for what waits.** An app has no notification a sign-in opens, so it lists the
+  sign-ins waiting on its answer (`GET /me/approvals`) when it is opened or told, and answers
+  one by its id (`POST /me/approvals/{id}`: `decision`, and `number` where one is needed).
+  The rules are the browser's: the first answer stands, and a wrong number is a refusal.
+- **An account whose only trusted device is an app** is still asked.
+
+Nothing changes for an application that leaves it off.
+
 ## Telling an account it was used from somewhere new
 
 `NewSignInAlert` compares the current sign-in's device fingerprint against

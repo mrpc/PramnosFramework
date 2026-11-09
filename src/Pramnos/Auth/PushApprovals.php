@@ -136,7 +136,61 @@ class PushApprovals
     /** Could this account be asked right now? */
     public function availableFor(int $userId): bool
     {
-        return $this->enabled() && $this->recipients($userId) !== [];
+        return $this->enabled() && ($this->recipients($userId) !== [] || $this->hasAppApprover($userId));
+    }
+
+    /** Whether one of the account's trusted devices is an application, where those may be ({@see TrustedDevices::APPS_SETTING}). */
+    public function hasAppApprover(int $userId): bool
+    {
+        if (!$this->devices()->appsTrusted()) {
+            return false;
+        }
+        foreach ($this->devices()->forUser($userId) as $device) {
+            if ((string) ($device['trusted_via'] ?? '') === TrustedDevices::VIA_APP) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The sign-ins waiting on this account's answer, for a trusted device to show — an
+     * application asks for them, having no browser a notification opens: each its id, the
+     * browser and country it came from, when, and the numbers to pick from where it needs one.
+     * Nothing for a device that is not trusted.
+     *
+     * @return list<array{approval_id: int, browser: string, country: string, created_at: int, expires_at: int, choices: list<int>}>
+     */
+    public function openFor(int $userId): array
+    {
+        if ($userId < 1 || $this->devices()->current($userId) === null) {
+            return [];
+        }
+        try {
+            $rows = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table(self::TABLE)->where('userid', $userId)
+                ->whereNull('decision')->where('expires_at', '>', $this->now())->orderBy('created_at', 'desc')->getAllOrFail();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        return array_map(static fn (array $row): array => [
+            'approval_id' => (int) $row['approval_id'],
+            'browser'     => SignInFingerprint::describe(SignInFingerprint::fromUserAgent((string) $row['user_agent'])),
+            'country'     => (string) $row['country'],
+            'created_at'  => (int) $row['created_at'],
+            'expires_at'  => (int) $row['expires_at'],
+            'choices'     => (string) $row['choices'] === '' ? [] : array_map('intval', explode(',', (string) $row['choices'])),
+        ], $rows);
+    }
+
+    /**
+     * Answer a sign-in by its id, as {@see decide()} does by its token: from a trusted device of
+     * the account — an application's, asking for what waits.
+     */
+    public function decideById(int $approvalId, int $userId, string $decision, ?int $picked = null): string
+    {
+        return $this->decideRow($this->byId($approvalId), $userId, $decision, $picked);
     }
 
     /**
@@ -150,7 +204,8 @@ class PushApprovals
     {
         $recipients = $this->enabled() ? $this->recipients($userId) : [];
 
-        if ($recipients === [] || $this->recentAsks($userId) >= self::MAX_PER_WINDOW) {
+        // An application trusted as a device has no browser to push to: it asks for what waits.
+        if (($recipients === [] && !($this->enabled() && $this->hasAppApprover($userId))) || $this->recentAsks($userId) >= self::MAX_PER_WINDOW) {
             return false;
         }
 
@@ -296,7 +351,16 @@ class PushApprovals
      */
     public function decide(string $token, int $userId, string $decision, ?int $picked = null): string
     {
-        $row    = $this->byToken($token);
+        return $this->decideRow($this->byToken($token), $userId, $decision, $picked);
+    }
+
+    /**
+     * The answer to one sign-in, found by its token or its id.
+     *
+     * @param array<string, mixed>|null $row
+     */
+    private function decideRow(?array $row, int $userId, string $decision, ?int $picked): string
+    {
         $device = $userId > 0 ? $this->devices()->current($userId) : null;
 
         if ($row === null || $device === null || (int) $row['userid'] !== $userId
@@ -333,7 +397,7 @@ class PushApprovals
 
         if (!$recorded) {
             // Somebody answered first, or the write failed: report what is stored.
-            $stored = $this->byToken($token);
+            $stored = $row !== null ? $this->byId((int) $row['approval_id']) : null;
 
             return $stored !== null && $stored['decision'] !== null ? (string) $stored['decision'] : 'invalid';
         }
@@ -405,6 +469,21 @@ class PushApprovals
     }
 
     /** @return array<string, mixed>|null */
+    /** A sign-in's approval by its id, or null. @return array<string, mixed>|null */
+    protected function byId(int $approvalId): ?array
+    {
+        if ($approvalId < 1) {
+            return null;
+        }
+        try {
+            $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table(self::TABLE)->where('approval_id', $approvalId)->first();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $row && ($row->numRows ?? 0) > 0 ? (array) $row->fields : null;
+    }
+
     protected function byToken(string $token): ?array
     {
         if (!preg_match('/^[a-f0-9]{64}$/', $token)) {

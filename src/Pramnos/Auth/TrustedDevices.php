@@ -45,6 +45,16 @@ class TrustedDevices
 
     public const EXCLUDE_ADMINS_SETTING = 'auth_trusted_devices_exclude_admins';
 
+    /**
+     * Whether an application signed in with a token (a phone's app) may become a trusted device of
+     * its own — and so answer "Is it you trying to sign in?" — beside the browsers that become one
+     * with a cookie. Off unless set to `1`.
+     */
+    public const APPS_SETTING = 'auth_push_approval_apps';
+
+    /** How a device trusted as an application says so. */
+    public const VIA_APP = 'app';
+
     /** The usertype from which an account counts as an administrator for the exclusion. */
     public const ADMIN_USERTYPE = 90;
 
@@ -166,6 +176,80 @@ class TrustedDevices
         return (int) $row->fields['device_id'];
     }
 
+    /** Whether an application signed in with a token may become a trusted device ({@see APPS_SETTING}). */
+    public function appsTrusted(): bool
+    {
+        return (string) Settings::getSetting(self::APPS_SETTING, '0') === '1';
+    }
+
+    /**
+     * Trust the application making this request — signed in with a token — for this account: a
+     * device of its own, bound to that token, for as long as a browser's trust lasts. Its token
+     * signed out or revoked, it is a trusted device no more. Asked for by the application, never
+     * given by itself; null when applications may not be trusted here, or for this account.
+     *
+     * @return int|null The device's id
+     */
+    public function trustApp(int $userId): ?int
+    {
+        $token = (string) \Pramnos\Http\Request::accessToken();
+        if (!$this->appsTrusted() || $token === '' || !$this->allowedFor($userId)) {
+            return null;
+        }
+        $existing = $this->currentApp($userId);
+        if ($existing !== null) {
+            return (int) $existing['device_id'];
+        }
+        $now = $this->now();
+        try {
+            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table(self::TABLE)->insert([
+                'userid'       => $userId,
+                'token_lookup' => Token::lookup($token),
+                'user_agent'   => substr($this->userAgent(), 0, 255),
+                'fingerprint'  => substr(SignInFingerprint::fromUserAgent($this->userAgent()), 0, 64),
+                'ip'           => substr($this->ip(), 0, 45),
+                'country'      => substr(SignInRisk::country(), 0, 2),
+                'created_at'   => $now,
+                'last_used_at' => $now,
+                'expires_at'   => $now + $this->days() * 86400,
+                'trusted_via'  => self::VIA_APP,
+            ]);
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log('Could not trust an application: ' . $exception->getMessage(), 'auth');
+
+            return null;
+        }
+        $row = $this->currentApp($userId);
+        if ($row !== null) {
+            ActivityLog::record($userId, 'device_trusted', ['days' => $this->days(), 'app' => true]);
+        }
+
+        return $row === null ? null : (int) $row['device_id'];
+    }
+
+    /**
+     * The trusted device an application signed in with this request's token is for this account,
+     * when applications may be trusted here and it was.
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function currentApp(int $userId): ?array
+    {
+        $token = (string) \Pramnos\Http\Request::accessToken();
+        if ($userId < 1 || $token === '' || !$this->appsTrusted() || !$this->allowedFor($userId)) {
+            return null;
+        }
+        try {
+            $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table(self::TABLE)
+                ->where('token_lookup', Token::lookup($token))->where('userid', $userId)->where('trusted_via', self::VIA_APP)
+                ->whereNull('revoked_at')->where('expires_at', '>', $this->now())->first();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $row && ($row->numRows ?? 0) > 0 ? (array) $row->fields : null;
+    }
+
     /**
      * The trusted device this browser is for this account, when it is one.
      *
@@ -179,7 +263,12 @@ class TrustedDevices
     {
         $token = $this->readCookie();
 
-        if ($userId < 1 || $token === '' || !$this->allowedFor($userId)) {
+        if ($token === '') {
+            // No browser's cookie: an application signed in with a token, where it may be one.
+            return $this->currentApp($userId);
+        }
+
+        if ($userId < 1 || !$this->allowedFor($userId)) {
             return null;
         }
 

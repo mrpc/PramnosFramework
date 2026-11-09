@@ -76,7 +76,7 @@ class PushApprovalsTest extends BaseTestCase
             \Pramnos\Framework\Migrations\Notifications\AddTrustedDeviceToPushSubscriptions::class,
         ], $this->db);
 
-        foreach ([TrustedDevices::ENABLED_SETTING, PushApprovals::ENABLED_SETTING] as $name) {
+        foreach ([TrustedDevices::ENABLED_SETTING, PushApprovals::ENABLED_SETTING, TrustedDevices::APPS_SETTING] as $name) {
             $this->savedSettings[$name] = Settings::getSetting($name, null);
         }
         Settings::setSetting(TrustedDevices::ENABLED_SETTING, '1', false);
@@ -437,6 +437,57 @@ class PushApprovalsTest extends BaseTestCase
         $this->assertTrue($factor->verify(self::OWNER, ''));
         $this->assertFalse($factor->verify(self::OWNER, ''), 'spent');
         $this->assertArrayNotHasKey(PushApprovals::SESSION_KEY, $_SESSION);
+    }
+
+    /**
+     * An application signed in with a token answers too, where `auth_push_approval_apps` allows it
+     * — and only then, and only once it asked to be trusted: it lists what waits and answers by
+     * its id, the same rules applying (a wrong number refuses); its token gone, it is trusted no
+     * more. An account whose only trusted device is the application is still asked.
+     */
+    public function testAnApplicationTrustedByItsTokenAnswers(): void
+    {
+        // Arrange — the application's request: a token, no cookie
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer app-token-' . bin2hex(random_bytes(8));
+        $devices = $this->devices();
+
+        try {
+            // Act — off: not trusted, nothing to list
+            $whenOff = $devices->trustApp(self::OWNER);
+            Settings::setSetting(TrustedDevices::APPS_SETTING, '1', false);
+            $other    = $this->approvals();
+            $notYet   = $other->openFor(self::OWNER);
+            $deviceId = $devices->trustApp(self::OWNER);
+            $again    = $devices->trustApp(self::OWNER);
+            $approvals = $this->approvals();
+            $approvals->start(self::OWNER);
+            $open     = $approvals->openFor(self::OWNER);
+            $id       = (int) ($open[0]['approval_id'] ?? 0);
+            $answer   = $approvals->decideById($id, self::OWNER, PushApprovals::APPROVED, $open[0]['choices'] === [] ? null : -1);
+            $listed   = array_column($devices->forUser(self::OWNER), 'trusted_via');
+            $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer other-app-' . bin2hex(random_bytes(8));   // the other account's own app
+            $devices->trustApp(self::OTHER);
+            $onlyApp  = $this->approvals('other-browser')->start(self::OTHER);
+            $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer another-token';
+            $signedOut = $devices->current(self::OWNER);
+        } finally {
+            unset($_SERVER['HTTP_AUTHORIZATION']);
+        }
+
+        // Assert
+        $this->assertNull($whenOff, 'off: an application is not trusted');
+        $this->assertSame([], $notYet, 'not trusted yet: nothing to answer');
+        $this->assertIsInt($deviceId);
+        $this->assertSame($deviceId, $again, 'once per token');
+        $this->assertCount(1, $open);
+        $this->assertSame(['approval_id', 'browser', 'country', 'created_at', 'expires_at', 'choices'], array_keys($open[0]));
+        $this->assertContains($answer, [PushApprovals::APPROVED, PushApprovals::DENIED], 'answered by its id');
+        if ($open[0]['choices'] !== []) {
+            $this->assertSame(PushApprovals::DENIED, $answer, 'a wrong number refuses');
+        }
+        $this->assertContains(TrustedDevices::VIA_APP, $listed, 'listed among the devices, to be forgotten');
+        $this->assertNull($signedOut, 'another token: not that device');
+        $this->assertTrue($onlyApp, 'its only trusted device the application: still asked');
     }
 
     /**

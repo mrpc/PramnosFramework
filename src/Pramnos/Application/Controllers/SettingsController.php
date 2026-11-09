@@ -109,6 +109,7 @@ class SettingsController extends Controller
             \Pramnos\Auth\TrustedDevices::EXCLUDE_ADMINS_SETTING,
             \Pramnos\Auth\PushApprovals::ENABLED_SETTING,
             \Pramnos\Auth\PushApprovals::NUMBER_SETTING,
+            \Pramnos\Auth\TrustedDevices::APPS_SETTING,
             \Pramnos\Auth\Factors\PushApprovalSecondFactor::ENROLMENT_SETTING,
             // The cookie banner.
             \Pramnos\Security\CookieConsent::ENABLED_SETTING,
@@ -347,6 +348,7 @@ class SettingsController extends Controller
         // "Don't ask again on this device", and the phone prompt.
         $this->saveChoice($request, \Pramnos\Auth\TrustedDevices::ENABLED_SETTING, ['0', '1'], '0');
         $this->saveChoice($request, \Pramnos\Auth\TrustedDevices::EXCLUDE_ADMINS_SETTING, ['0', '1'], '0');
+        $this->saveChoice($request, \Pramnos\Auth\TrustedDevices::APPS_SETTING, ['0', '1'], '0');
         $days = (string) $request->get(\Pramnos\Auth\TrustedDevices::DAYS_SETTING, '__KEEP__', 'post');
         if ($days !== '__KEEP__') {
             Settings::setSetting(\Pramnos\Auth\TrustedDevices::DAYS_SETTING, (string) $this->normalizeIntRange(

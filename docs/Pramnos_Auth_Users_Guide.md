@@ -557,6 +557,8 @@ application's API, with the API's credentials:
 | `POST /me/delete` | `password`, `confirmation` = `DELETE`, and `tasks` to hand over: the account erased |
 | `GET /me/applications`, `DELETE /me/applications/{client_id}` | the applications given access; take one's away |
 | `GET /me/devices`, `DELETE /me/devices/{device_id}`, `DELETE /me/devices` | the trusted devices; forget one, or all |
+| `POST /me/devices` | make this app a trusted device, where `auth_push_approval_apps` allows it |
+| `GET /me/approvals`, `POST /me/approvals/{id}` | the sign-ins waiting on its answer; answer one (`decision`, `number`) — see [An application as the trusted device](Pramnos_Auth_Second_Factors_Guide.md#an-application-as-the-trusted-device) |
 
 The same code as the pages runs behind each: the password's policy and history, the notices of a
 changed address, the export's sections, the erasure's order. App stores require deleting the

@@ -329,6 +329,7 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
                 $trustDays  = (int) ($s[\Pramnos\Auth\TrustedDevices::DAYS_SETTING] ?? 0) ?: \Pramnos\Auth\TrustedDevices::DEFAULT_DAYS;
                 $trustAdmin = (string) ($s[\Pramnos\Auth\TrustedDevices::EXCLUDE_ADMINS_SETTING] ?? '') === '1' ? '1' : '0';
                 $pushOn     = (string) ($s[\Pramnos\Auth\PushApprovals::ENABLED_SETTING] ?? '') === '1' ? '1' : '0';
+                $pushApps   = (string) ($s[\Pramnos\Auth\TrustedDevices::APPS_SETTING] ?? '') === '1' ? '1' : '0';
                 $pushNumber = \Pramnos\Auth\PushApprovals::numberPolicy();
                 $pushEnrol  = \Pramnos\Auth\Factors\PushApprovalSecondFactor::enrolmentPolicy(); @endphp
                 <h3 class="font-semibold mt-6 mb-2">Registration</h3>
@@ -377,6 +378,11 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
                             <strong>Push is not set up here yet</strong> — run <code>push:setup</code> — so nobody will be asked until it is.
                             @endif
                         </p>
+                    </div>
+                    <div>
+                        <label class="{!! $label !!}" for="{!! \Pramnos\Auth\TrustedDevices::APPS_SETTING !!}">An application signed in with a token may approve</label>
+                        {!! $yesNo(\Pramnos\Auth\TrustedDevices::APPS_SETTING, $pushApps) !!}
+                        <p class="text-xs text-base-content/60 mt-1">An app asks to become a trusted device of the account after signing in, and then answers "Is it you?" itself. Off: only browsers.</p>
                     </div>
                     <div>
                         <label class="{!! $label !!}" for="{!! \Pramnos\Auth\PushApprovals::NUMBER_SETTING !!}">When the phone must pick a number</label>

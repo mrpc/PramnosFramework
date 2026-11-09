@@ -40,6 +40,10 @@ class AccountApi extends Account
         $r->get($path . '/devices', static fn () => (new static())->deviceList())->describeFrom([static::class, 'deviceList']);
         $r->delete($path . '/devices/{device_id}', static fn ($device_id) => (new static())->forgetDevice((int) $device_id))->describeFrom([static::class, 'forgetDevice']);
         $r->delete($path . '/devices', static fn () => (new static())->forgetDevice(0))->describeFrom([static::class, 'forgetDevice']);
+        $r->post($path . '/devices', static fn () => (new static())->trustThisApp())->describeFrom([static::class, 'trustThisApp']);
+        $r->get($path . '/approvals', static fn () => (new static())->approvalList())->describeFrom([static::class, 'approvalList']);
+        $r->post($path . '/approvals/{approval_id}', static fn ($approval_id) => (new static())->answerApproval($approval_id))
+            ->describeFrom([static::class, 'answerApproval']);
     }
 
     /**
@@ -246,6 +250,59 @@ class AccountApi extends Account
             }
 
             return ['forgotten' => $deviceId > 0 ? $deviceId : 'all'];
+        });
+    }
+
+    /**
+     * Make this application — signed in with its token — a trusted device of the account, so it
+     * answers "Is it you trying to sign in?". Only where the application allows it
+     * (`auth_push_approval_apps`, off by default); bound to the token, so signing it out ends it.
+     *
+     * @return array<string, mixed>
+     */
+    public function trustThisApp(): array
+    {
+        return $this->asMe(function (object $me): array {
+            $id = $this->trustedDevices()->trustApp((int) $me->userid);
+            if ($id === null) {
+                throw new \DomainException('An application cannot be a trusted device here.');
+            }
+
+            return ['device_id' => $id];
+        });
+    }
+
+    /**
+     * The sign-ins waiting on one's answer, for a trusted application to show: each its id, the
+     * browser and country it came from, when, and the numbers to pick from where it needs one.
+     *
+     * @return array<string, mixed>
+     */
+    public function approvalList(): array
+    {
+        return $this->asMe(fn (object $me): array => ['approvals' => $this->pushApprovals()->openFor((int) $me->userid)]);
+    }
+
+    /**
+     * Answer a sign-in from a trusted application: `decision` (`approved` or `denied`), and
+     * `number` where it asks for one — a wrong number is a refusal, the first answer stands.
+     *
+     * @return array<string, mixed>
+     */
+    public function answerApproval(mixed $approvalId): array
+    {
+        $approvalId = is_scalar($approvalId) ? (int) $approvalId : 0;
+
+        return $this->asMe(function (object $me) use ($approvalId): array {
+            $body   = $this->body();
+            $number = $body['number'] ?? null;
+            $result = $this->pushApprovals()->decideById($approvalId, (int) $me->userid, (string) ($body['decision'] ?? ''),
+                $number === null || $number === '' ? null : (int) $number);
+            if (!in_array($result, [\Pramnos\Auth\PushApprovals::APPROVED, \Pramnos\Auth\PushApprovals::DENIED], true)) {
+                throw new \DomainException('That sign-in cannot be answered from here (' . $result . ').');
+            }
+
+            return ['decision' => $result];
         });
     }
 
