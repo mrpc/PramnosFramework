@@ -34,6 +34,8 @@ use Pramnos\Metrics\Window;
 #[CoversClass(\Pramnos\Llm\Analyst\Tools\MetricsTool::class)]
 class MetricsMySQLTest extends TestCase
 {
+    use \Pramnos\Tests\Integration\Audience\AdminScreen;
+
     /** The orders a source counts. */
     protected const ORDERS = 'metrics_test_orders';
 
@@ -1805,6 +1807,76 @@ class MetricsMySQLTest extends TestCase
         $this->assertSame(12.0, $changed['data']['target'], 'changed: the target, the rest kept');
         $this->assertSame([200, 404, 200, 404], [$changed['status'], $refused['status'], $gone['status'], $notThere['status']]);
         $this->assertSame(200, $reached['status']);
+    }
+
+    /**
+     * `/admin/Goals`: a goal added, refused for a metric that is not there, listed judged, opened to
+     * change, changed, previewed as typed (the last period's figure without a target, the sentence
+     * with one), shown by the dashboard card, and deleted — once; every theme's template drawn.
+     */
+    public function testTheGoalsScreen(): void
+    {
+        // Arrange
+        $this->order('2026-09-05 10:00:00', 'north', 1);
+        Metrics::compute(['test.orders'], ['day', 'month'], '2026-08-01', '2026-11-30', false, time());
+        $this->clearRequest();
+        $this->signIn(98, 2);
+        $screen = $this->screen(\Pramnos\Application\Controllers\Goals::class);
+        $form   = ['metric' => 'test.orders', 'kind' => '', 'target' => '10', 'repeats' => 'month', 'starts' => '', 'due' => '', 'note' => 'Ten a month'];
+
+        try {
+            // Act — add, refuse, list, open to change, change
+            $this->request('POST', null, [], $form);
+            $screen->save();
+            $this->request('POST', null, [], ['metric' => 'test.nothing'] + $form);
+            $screen->save();
+            $this->request('GET');
+            $screen->display();
+            $list = (array) $screen->view;
+            $id   = (int) $list['goals'][0]['goal']['id'];
+            $this->request('GET', null, ['goal' => (string) $id]);
+            $screen->display();
+            $open = (array) $screen->view;
+            $this->request('POST', null, [], ['goalid' => (string) $id, 'target' => '12'] + $form);
+            $screen->save();
+            $this->request('POST', null, [], ['target' => ''] + $form);
+            $bare = json_decode((string) $screen->preview()->getBody(), true);
+            $this->request('POST', null, [], $form);
+            $typed = json_decode((string) $screen->preview()->getBody(), true);
+            $this->request('POST', null, [], ['target' => '-1'] + $form);
+            $wrong = $screen->preview();
+            $card    = (new \Pramnos\Metrics\Widgets\DashboardGoalWidget())->configure(['goal' => (string) $id])->render();
+            $missing = (new \Pramnos\Metrics\Widgets\DashboardGoalWidget())->configure(['goal' => '999999'])->render();
+            $this->request('POST', null, [], ['goalid' => (string) $id]);
+            $screen->delete();
+            $screen->delete();
+
+            // Assert
+            $this->assertSame([['message', 'Saved.'], ['error', 'There is no such metric.'], ['message', 'Saved.'], ['message', 'Deleted.'], ['error', 'There is no such goal.']], $screen->flash);
+            $this->assertCount(1, $list['goals'], 'the refused one was not kept');
+            $this->assertSame('Orders', $list['goals'][0]['label']);
+            $this->assertArrayHasKey('history', $list['goals'][0]['judged'], 'a recurring goal, judged with its past periods');
+            $this->assertNull($list['editing']);
+            $this->assertSame($id, $open['editing']['id'], 'opened to change');
+            $this->assertNull(\Pramnos\Metrics\Goals::get($id), 'deleted');
+            $this->assertSame('', $bare['says'], 'no target typed: no sentence');
+            $this->assertArrayHasKey('last', $bare, 'but the last period\'s figure');
+            $this->assertNotSame('', $typed['says'], 'a target typed: its sentence');
+            $this->assertSame(422, $wrong->getStatusCode(), 'a target below nought refused');
+            $this->assertStringContainsString('Orders', $card);
+            $this->assertStringContainsString('Choose a metric', $missing, 'a goal not theirs is not kept in the card\'s settings');
+            foreach (['bootstrap', 'plain-css', 'tailwind'] as $theme) {
+                foreach (['list' => $list, 'open' => $open] as $which => $vars) {
+                    $html = $this->render($theme, 'goals/goals.tpl.php', $vars);
+                    $this->assertStringContainsString('pf-ui', $html, $theme . '/' . $which);
+                    $this->assertStringContainsString('data-pf-goal="' . $id . '"', $html, $theme . '/' . $which . ': the goal listed');
+                    $this->assertStringNotContainsString('{{', $html, $theme . '/' . $which . ': compiled');
+                }
+                $this->assertStringContainsString('name="goalid" value="' . $id . '"', $this->render($theme, 'goals/goals.tpl.php', $open), $theme . ': the form changes that goal');
+            }
+        } finally {
+            $this->clearRequest();
+        }
     }
 
     /**

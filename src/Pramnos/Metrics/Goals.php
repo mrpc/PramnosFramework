@@ -169,6 +169,30 @@ final class Goals
     }
 
     /**
+     * How a goal not yet kept would stand — for a form's live sentence — and what to try: the last
+     * whole period's figure, and for a count 10% above it.
+     *
+     * @param array<string, mixed> $goal {@see create()}'s keys
+     * @return array<string, mixed> As {@see judge()}, with `last` and `try`
+     * @throws \InvalidArgumentException For a goal {@see create()} would refuse
+     */
+    public static function preview(array $goal, ?int $now = null): array
+    {
+        $judged = GoalJudge::judge(self::shape(self::checked($goal) + ['goalid' => 0]), $now);
+        $last   = null;
+        foreach (array_reverse($judged['history'] ?? []) as $period) {
+            if ($period['value'] !== null) {
+                $last = (float) $period['value'];
+                break;
+            }
+        }
+        // A one-off goal has no periods: its reading now.
+        $last ??= !isset($judged['history']) && isset($judged['current']) ? (float) $judged['current'] : null;
+
+        return $judged + ['last' => $last, 'try' => $last !== null && $judged['kind'] === 'count' ? (float) ceil($last * 1.1) : null];
+    }
+
+    /**
      * Judge every goal and keep each one's state; tell of those that turned from good (met, on
      * track) to bad (behind, stalled) — once, at the turn. A first state, a move to or from
      * unknown, and an improvement tell nobody. Run after the metrics are computed

@@ -818,6 +818,17 @@ The analyst has two tools when the application has metrics:
 - `goals_change` adds or changes one. Its owner is `me`, a user id or a name. It is a write, so
   the assistant asks before it.
 
+**The screen.** `/admin/Goals`, under Reports in the administration menu, lists the goals the
+person may read. Each one shows its state, its sentence, a dot for each past period (met, missed,
+not known) and its streak. Its form adds a goal or changes one (`?goal=<id>`). As the form is
+filled in, it shows the sentence the goal would have and the last whole period's figure. For a
+count, it also offers 10% above that figure as a target to try. `Goals::preview($goal)` gives the
+same without keeping anything. Below the form is the latest of what was reached.
+
+**On the dashboard.** The `metric.goal` card's `goal` setting picks any goal kept, of any kind.
+The card then shows its state, its sentence, its past periods and its streak. Without the
+setting, it shows a metric and a target as before.
+
 **A target relative to last year.** Instead of a fixed number, a goal can grow over its
 reference: the reference period's total times 1 + growth, worked out each period. One goal set
 once then serves every day, with no daily script:

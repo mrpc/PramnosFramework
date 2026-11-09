@@ -1594,6 +1594,12 @@ class Application extends Base
             icon: 'chart',
             when: static fn (): bool => \Pramnos\Metrics\Metrics::all() !== [],
         ));
+        NavRegistry::register(new NavItem(
+            'admin.goals', 'Goals', $admin('Goals'),
+            NavSection::Admin, 3, requireAuth: true, minUserType: $floor,
+            icon: 'chart', parent: 'admin.reports',
+            when: static fn (): bool => \Pramnos\Metrics\Metrics::all() !== [],
+        ));
 
         // The help pages, with the `help` feature and where the project has the screen —
         // `src/Admin/Controllers/Help.php`.
