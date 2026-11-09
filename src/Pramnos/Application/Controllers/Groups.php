@@ -313,6 +313,7 @@ class Groups extends Controller
 
     // ── Writes ───────────────────────────────────────────────────────────────
 
+    /** Create a group, or change its name and description. */
     public function save(): void
     {
         if ($this->refused()) {
@@ -427,6 +428,7 @@ class Groups extends Controller
         $this->redirect(adminUrl('Groups/view/') . $id);
     }
 
+    /** Take a person out of the group. */
     public function removemember(mixed $id = null): void
     {
         if ($this->refused()) {

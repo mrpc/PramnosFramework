@@ -540,6 +540,7 @@ class AiController extends Controller
         return $this->analystJson($stopped ? ['status' => 200, 'data' => ['cancelled' => true]] : ['status' => 404, 'error' => 'There is no such question being answered.']);
     }
 
+    /** Forget one of the analyst's conversations. */
     public function delete(mixed $id = null): mixed
     {
         if ($this->requireMinUserType($this->adminFloor())) {

@@ -434,7 +434,35 @@ class Controller extends \Pramnos\Framework\Base
      */
     public function redirect($url = null, $quit = true, $code='302')
     {
+        if ($this->answeringApi) {
+            throw new \Pramnos\Application\Api\ScreenAnswer(\Pramnos\Application\Api\ScreenAnswer::REDIRECT, (string) $url);
+        }
         $this->application->redirect($url, $quit, $code);
+    }
+
+    /**
+     * Whether this screen is answering the application's API rather than drawing a page.
+     */
+    protected bool $answeringApi = false;
+
+    /**
+     * Answer the API, not the browser: from here on a redirect, a refusal and the view's
+     * `display()` end the action with a {@see \Pramnos\Application\Api\ScreenAnswer} that
+     * {@see \Pramnos\Application\Api\ScreenApi} turns into the API's answer. The person is the
+     * API's — a bearer token or the page's session with its CSRF header, both checked before the
+     * route ran — and the screen's floor, `auth()` and write checks still apply.
+     */
+    public function answerTheApi(): static
+    {
+        $this->answeringApi = true;
+
+        return $this;
+    }
+
+    /** Whether {@see answerTheApi()} was called. */
+    public function isAnsweringApi(): bool
+    {
+        return $this->answeringApi;
     }
 
     /**
@@ -557,7 +585,7 @@ class Controller extends \Pramnos\Framework\Base
         // extends a screen to serve a public page outside it — a status page built on the
         // Health screen — is not an administration screen there. An action that calls
         // requireMinUserType() itself is still checked wherever it is reached.
-        $inArea = \Pramnos\Http\AdminArea::prefix() === '' || \Pramnos\Http\AdminArea::isActive();
+        $inArea = $this->answeringApi || \Pramnos\Http\AdminArea::prefix() === '' || \Pramnos\Http\AdminArea::isActive();
         if ($this->adminAbility !== ''
             && $inArea
             && !in_array(strtolower((string) $action), array_map('strtolower', $this->adminPublicActions), true)
@@ -651,6 +679,9 @@ class Controller extends \Pramnos\Framework\Base
     private function _throwAuthFailure(): never
     {
         $session = \Pramnos\Http\Session::getInstance();
+        if ($this->answeringApi) {
+            throw new \Pramnos\Application\Api\ScreenAnswer(\Pramnos\Application\Api\ScreenAnswer::REFUSED, 'You do not have the rights to do that.', 403);
+        }
         if (!$session->isLogged() && defined('sURL')) {
             throw new \Pramnos\Http\RedirectException(self::signInAndBack());
         }
@@ -682,7 +713,9 @@ class Controller extends \Pramnos\Framework\Base
     {
         $session = \Pramnos\Http\Session::getInstance();
         if (array_search($action, $this->actions_auth) !== false) {
-            if ($session->isLogged() != true) {
+            // Answering the API, the person is the one the API's credentials sealed.
+            $apiPerson = $this->answeringApi && (int) (\Pramnos\Http\RequestIdentity::user()->userid ?? 0) > 1;
+            if ($session->isLogged() != true && !$apiPerson) {
                 return false;
             }
         }
@@ -1126,6 +1159,30 @@ class Controller extends \Pramnos\Framework\Base
     }
 
     /**
+     * The usertype floor {@see exec()} checks an administration screen against.
+     *
+     * A screen with no `$requiredUserType` of its own gets the framework's default rather
+     * than 0, which under `admin_access = usertype` would open it to every account.
+     */
+    protected function adminFloor(): int
+    {
+        // 0 is "the administration floor", never "anybody": a screen that leaves it unset, or
+        // an application that set it to 0, is not opened to every account.
+        return property_exists($this, 'requiredUserType') && (int) $this->requiredUserType > 0
+            ? (int) $this->requiredUserType
+            : \Pramnos\Auth\AdminAccess::defaultUsertype();
+    }
+
+    /** Answering the API, a refusal is the API's: 401 for nobody, 403 for somebody below the floor. */
+    private function refuseTheApi(?object $user): void
+    {
+        if ($this->answeringApi) {
+            throw new \Pramnos\Application\Api\ScreenAnswer(\Pramnos\Application\Api\ScreenAnswer::REFUSED,
+                $user === null ? 'Sign in first.' : 'You do not have access to that screen.', $user === null ? 401 : 403);
+        }
+    }
+
+    /**
      * Refuse this request unless the signed-in user is at least `$minType`.
      *
      * The guard every administration screen opens with, and it lived as an **identical
@@ -1150,21 +1207,6 @@ class Controller extends \Pramnos\Framework\Base
      * @param  int  $minType The usertype floor for this screen
      * @return bool Whether the request was refused
      */
-    /**
-     * The usertype floor {@see exec()} checks an administration screen against.
-     *
-     * A screen with no `$requiredUserType` of its own gets the framework's default rather
-     * than 0, which under `admin_access = usertype` would open it to every account.
-     */
-    protected function adminFloor(): int
-    {
-        // 0 is "the administration floor", never "anybody": a screen that leaves it unset, or
-        // an application that set it to 0, is not opened to every account.
-        return property_exists($this, 'requiredUserType') && (int) $this->requiredUserType > 0
-            ? (int) $this->requiredUserType
-            : \Pramnos\Auth\AdminAccess::defaultUsertype();
-    }
-
     protected function requireMinUserType(int $minType): bool
     {
         $user = \Pramnos\User\User::getCurrentUser();
@@ -1186,6 +1228,7 @@ class Controller extends \Pramnos\Framework\Base
                     $this->addError('You do not have access to that screen.');
                 }
             }
+            $this->refuseTheApi($user);
             $this->redirect($landing ?? ($user === null && defined('sURL') ? self::signInAndBack() : (defined('sURL') ? \sURL : '/')));
 
             return true;
@@ -1194,6 +1237,7 @@ class Controller extends \Pramnos\Framework\Base
         if ($user === null || (int) $user->usertype < $minType) {
             // A guest — somebody who opened a report's link from an email, say — signs in and
             // comes back; somebody signed in without the standing goes to the site.
+            $this->refuseTheApi($user);
             $this->redirect($user === null && defined('sURL') ? self::signInAndBack() : (defined('sURL') ? \sURL : '/'));
 
             return true;
@@ -1243,6 +1287,10 @@ class Controller extends \Pramnos\Framework\Base
     {
         if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'POST') {
             return false;
+        }
+        // The API's own check came first: a bearer token, or the session with its CSRF header.
+        if ($this->answeringApi && \Pramnos\Http\RequestIdentity::user() !== null) {
+            return true;
         }
 
         $session = \Pramnos\Http\Session::getInstance();

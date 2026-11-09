@@ -36,6 +36,7 @@ class InvitationsController extends Controller
         parent::__construct($application);
     }
 
+    /** The invitations sent, open and used, with the link of one just made. */
     public function display(): mixed
     {
         if ($this->requireMinUserType($this->adminFloor())) {

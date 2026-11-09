@@ -609,7 +609,8 @@ $r->post('/me/password', fn () => …)->describe('Change your password', 'Signs 
 ```
 
 Every route the framework's own API providers mount (`FeedApi`, `HelpApi`, `HistoryApi`,
-`MetricsApi`, `TodosApi`, `Llm\Chat\Api\Routes`, `ConversationsApi`, …) is described this way.
+`MetricsApi`, `TodosApi`, `Llm\Chat\Api\Routes`, `ConversationsApi`, the administration's screens
+under `AdminApi`, …) is described this way.
 A test fails when one is not.
 
 **A route file dispatches at the end** — `return $router->dispatch($newRequest);`, because

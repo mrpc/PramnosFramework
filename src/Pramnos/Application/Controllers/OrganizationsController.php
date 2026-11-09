@@ -218,6 +218,7 @@ class OrganizationsController extends Controller
         return $view->display('view');
     }
 
+    /** The form for a new organization, or for changing one. */
     public function edit(mixed $id = null): mixed
     {
         if ($this->requireMinUserType($this->adminFloor())) {

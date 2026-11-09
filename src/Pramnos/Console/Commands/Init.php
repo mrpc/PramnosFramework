@@ -3657,6 +3657,9 @@ PHP;
             $lines[] = "        // \\Pramnos\\Metrics\\MetricsApi::routes(\$r);";
             $lines[] = "        // The to-do list, once its migration has run: /todos";
             $lines[] = "        // \\Pramnos\\Todos\\TodosApi::routes(\$r);";
+            $lines[] = "        // The administration's screens, for a SPA of a part of it — opt in: an administrator's";
+            $lines[] = "        // token then reaches them too. /admin/rules, /admin/segments, … (or only some: ['rules'])";
+            $lines[] = "        // \\Pramnos\\Application\\Api\\AdminApi::routes(\$r);";
             $lines[] = "";
         }
 

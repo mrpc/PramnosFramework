@@ -37,14 +37,19 @@ class ApiRoutesDescribedTest extends TestCase
         \Pramnos\Auth\Controllers\AccountApi::routes($router);
         \Pramnos\Broadcasting\BroadcastingApi::routes($router);
         \Pramnos\Application\Api\OrganizationApi::routes($router);
+        \Pramnos\Application\Api\AdminApi::routes($router);
 
         // Act
         $bare  = [];
         $count = 0;
+        // An administration action without a docblock gets ScreenApi's stand-in ("Rules: view"),
+        // which says nothing either.
+        $standIn = '/^[A-Za-z]+: [a-z]+$/';
         foreach ($router->getRoutesWithPermissions() as $method => $byUri) {
             foreach ($byUri as $uri => $entry) {
                 $count++;
-                if (trim((string) ($entry['route']->getDoc()['summary'] ?? '')) === '') {
+                $summary = trim((string) ($entry['route']->getDoc()['summary'] ?? ''));
+                if ($summary === '' || preg_match($standIn, $summary) === 1) {
                     $bare[] = $method . ' ' . $uri;
                 }
             }

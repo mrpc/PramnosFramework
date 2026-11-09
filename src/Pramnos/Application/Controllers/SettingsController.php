@@ -231,6 +231,7 @@ class SettingsController extends Controller
         Settings::setSetting($key, in_array($value, $allowed, true) ? $value : $default);
     }
 
+    /** Save the system settings: the site's name, address, mail, language and time zone, and the rest of the form. */
     public function saveSystem(): void
     {
         if ($this->requireMinUserType($this->adminFloor())) {

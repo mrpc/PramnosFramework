@@ -4,6 +4,7 @@ use_cases:
   - Scaffolding a REST API controller
   - Handling API authentication, CORS, pagination or versioning
   - Adding middleware to an API route
+  - Building a SPA for a part of the administration on the screens' own actions
 ---
 
 # Pramnos REST API Guide
@@ -545,6 +546,52 @@ Two edges worth knowing, both asserted:
   nothing and reads as a bug in the caller's data rather than in the query.
 - `IN` with an empty array is **dropped**: `IN ()` is not valid SQL, and inventing `IN (NULL)`
   would silently change the meaning to "nothing matches".
+
+## The administration's screens under the API
+
+A part of the administration can become a SPA — the audience's rules editor, say — on the
+actions its screen already has. `ScreenApi::mount()` puts one screen's actions under the API;
+`AdminApi::routes()` puts the framework's screens there, every one or some:
+
+```php
+// src/Api/routes.php, inside the version group
+\Pramnos\Application\Api\AdminApi::routes($r);                         // /admin/rules, /admin/segments, /admin/users, …
+\Pramnos\Application\Api\AdminApi::routes($r, '/admin', ['rules', 'segments']);   // only these
+\Pramnos\Application\Api\ScreenApi::mount($r, '/admin/invoices', \App\Controllers\Invoices::class);   // a screen of your own
+```
+
+| Route | |
+| --- | --- |
+| `GET {path}` | the screen's list (`display`) |
+| `GET {path}/{action}/{id?}` | a read: `view/12`, `edit/12` |
+| `POST {path}/{action}/{id?}` | a write — one of the screen's `addWriteAction()` actions: `save`, `status/12` |
+
+`id` is what the page's address carries after the action. Values go in the query (GET) or a
+JSON body (POST), under the names the page's form uses.
+
+The action runs through the screen's own `exec()`, with the API's person: a bearer token, or the
+page's session with its `X-CSRF-Token` header. So the screen's floor and ability hold, and so do
+its `auth()` and its own checks. Only the ending changes:
+
+| The screen would… | The API answers |
+| --- | --- |
+| draw its view | `200 {data: {…the view's variables}}`: values and arrays as the page has them; an object only if it is `JsonSerializable` or a plain `stdClass` (a model carries more than the page shows) |
+| redirect, with messages | `200 {data: {messages, redirect}}` |
+| redirect, with errors | `422 {error, errors, messages, redirect}` — the screen's own words |
+| refuse | `401` for nobody, `403` below the floor or without the ability |
+| answer JSON already | that JSON, as `data` |
+| return HTML it drew itself | `406`: there is nothing to answer with |
+
+The messages are answered here, so they are not shown again on the person's next page.
+
+What makes this work is `Controller::answerTheApi()`. In that mode `redirect()`, a refusal and
+the view's `display()` end the action with a `ScreenAnswer`, and `ScreenApi` catches it. A
+screen of your own needs nothing more, as long as it draws through `getView()` and redirects
+through `$this->redirect()`.
+
+Every route is described in the API's document from the action's docblock, under the `admin`
+tag. `AdminApi` is opt-in, and `init` writes it commented out: once it is mounted, an
+administrator's token reaches the administration too.
 
 ## Versioning
 

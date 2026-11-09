@@ -239,6 +239,9 @@ class View extends \Pramnos\Framework\Base
      */
     public function display($tpl='', $render=false)
     {
+        if ($this->controller instanceof Controller && $this->controller->isAnsweringApi()) {
+            throw new \Pramnos\Application\Api\ScreenAnswer(\Pramnos\Application\Api\ScreenAnswer::DATA, self::plain($this->_data));
+        }
         $this->model =& $this->getModel();
         if ($render == true){
             return $this->getTpl($tpl, '', $render);
@@ -267,6 +270,27 @@ class View extends \Pramnos\Framework\Base
         $this->output = '';
         $this->getTpl($tpl, '', $render);
         return $this->output;
+    }
+
+    /**
+     * The view's variables as the API answers them: values and arrays as they are, an object
+     * that says how it is written as JSON as it says, any other object left out — a model or an
+     * account carries more than the page shows.
+     *
+     * @param  array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private static function plain(array $data): array
+    {
+        foreach ($data as $key => $value) {
+            if (is_array($value)) {
+                $data[$key] = self::plain($value);
+            } elseif (is_object($value) && !$value instanceof \JsonSerializable && !$value instanceof \stdClass) {
+                unset($data[$key]);
+            }
+        }
+
+        return $data;
     }
 
     /**
