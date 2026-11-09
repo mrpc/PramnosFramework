@@ -82,6 +82,9 @@ class Conversations extends Controller
     {
         $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'emoji', 'preview', 'gifs', 'refs', 'emergencykey', 'reach', 'scheduled', 'drafts'], self::WRITES));
         $this->addWriteAction(self::WRITES);
+        // A conversation's picture: an <img> may ask without a session where `images_public` is on;
+        // image() itself asks whether the reader may see it.
+        $this->addaction('image');
         // Every read action here — including `conversations`, polled often from an open tab —
         // only reads $_SESSION (through User::current()/Session::staticIsLogged()), never writes
         // it, so the session lock has nothing to protect and releasing it early stops these

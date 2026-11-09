@@ -68,6 +68,7 @@ class ConversationImagesTest extends TestCase
         // Act
         $before = [Conversations::get($general)['image'], Conversations::get($random)['image']];
         Images::set($random, $this->picture(600, 300), $eleni);
+        $own    = [Conversations::get($general)['imageOwn'], Conversations::get($random)['imageOwn']];
         $first     = glob($this->files . '/images/conversation-' . $random . '-*.png');
         $kept      = array_slice((array) getimagesize($first[0] ?? ''), 0, 2);
         $address   = Conversations::get($random)['image'];
@@ -89,6 +90,7 @@ class ConversationImagesTest extends TestCase
         // Assert
         $this->assertStringContainsString('Conversations/image?id=' . $general . '&v=', (string) $before[0], 'the application\'s default by its name');
         $this->assertNull($before[1], 'no picture, no default: none');
+        $this->assertSame([false, true], $own, 'the default is not its own; an uploaded one is');
         $this->assertSame([256, 256], $kept, 'kept square, 256 a side');
         $this->assertStringContainsString('Conversations/image?id=' . $random . '&v=', (string) $address);
         $this->assertCount(1, $second, 'the first file gone when replaced');
@@ -146,6 +148,9 @@ class ConversationImagesTest extends TestCase
             $this->assertSame(422, $nothing['status'], 'nothing sent');
             $this->assertSame([true, false, true, false], [$sent, $hidden, $public, $gone], 'sent to a reader; to nobody without a session unless public; none once cleared');
             $this->assertSame([200, null], [$cleared['status'], $cleared['body']['image']]);
+            $screen = new \Pramnos\Application\Controllers\Conversations();
+            $this->assertContains('image', $screen->actions, 'a public action: an <img> with no session reaches image(), not the sign-in');
+            $this->assertNotContains('image', $screen->actions_auth);
         } finally {
             $_FILES = [];
             $_GET   = [];

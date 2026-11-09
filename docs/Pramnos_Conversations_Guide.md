@@ -537,14 +537,17 @@ Images::clear($conversationId, $by);
   keeps its animation where the server has Imagick. An SVG is refused, since it can carry a
   script. A new picture replaces the old one's file.
 - **Where it is shown.** Each conversation (`Conversations::get()`, the list) carries `image`, a
-  versioned address (`/admin/Conversations/image?id=…&v=…`), or null. A change is told to its
+  versioned address (`/admin/Conversations/image?id=…&v=…`), or null, and `imageOwn`: true for a
+  picture set on it, false for the default by its name or none, so a screen offers "Remove
+  picture" only when there is one to remove. A change is told to its
   members as `conversation.changed`, and kept in the change log.
 - **Through the screen.** `POST Conversations/setimage/{id}` takes the upload `image`, and
   `POST Conversations/clearimage/{id}` takes the picture away. The browser may crop the upload
   first with `\Pramnos\Html\ImageUpload` (aspect 1).
 - **The address** is read by whoever may use the conversations. With
   `'conversations' => ['images_public' => true]` it is read without a session too, for a desktop
-  application that has no cookie.
+  application that has no cookie. `image` is a public action that asks itself: a reader who may
+  not see the picture gets a 404, never the sign-in page.
 - **Defaults.** `'conversations' => ['images' => ['general' => '/path/to/general.png']]` gives a
   channel a picture by its name. A picture set on the channel wins over the default, and clearing
   it shows the default again.
