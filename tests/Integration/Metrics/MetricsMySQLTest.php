@@ -48,7 +48,9 @@ class MetricsMySQLTest extends TestCase
     {
         Settings::loadSettings(ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php');
         $this->db = $this->connect();
-        \Pramnos\Framework\Testing\Schema::ensure([CreateMetricValuesTable::class], $this->db);
+        require_once ROOT . '/database/migrations/framework/stats/2026_11_09_000004_create_goals_table.php';
+        \Pramnos\Framework\Testing\Schema::ensure([CreateMetricValuesTable::class, \Pramnos\Framework\Migrations\Stats\CreateGoalsTable::class], $this->db);
+        $this->db->queryBuilder()->table(\Pramnos\Metrics\Goals::TABLE)->where('metric', 'like', 'test.%')->delete();
         $schema = $this->db->schema();
         $schema->dropTableIfExists(self::ORDERS);
         $schema->createTable(self::ORDERS, function ($table) {
@@ -1183,6 +1185,86 @@ class MetricsMySQLTest extends TestCase
         } finally {
             $schema->dropTableIfExists('metrics_test_people');
         }
+    }
+
+    /**
+     * A goal's progress within a day: the hours completed, against the share of the same weekday a
+     * year earlier done by the same hour — its curve, not a straight line — scaled to the target,
+     * with the forecast carried along it; against the mean of the last four same weekdays too; and
+     * nothing at all where an hour of the reference was never computed.
+     */
+    public function testAGoalsProgressFollowsTheCurveOfItsReference(): void
+    {
+        // Arrange — last year's Monday: 10 at 09:00 and 30 at 14:00, nothing else, all hours computed
+        Metrics::register(Metric::flow('test.sales_hourly', 'Sales')->grains(['hour', 'day'])->source(function (Window $w, array $by, Database $db): int {
+            return (int) $db->queryBuilder()->table(self::ORDERS)->where('placed_at', '>=', $w->startsAt())->where('placed_at', '<', $w->endsAt())->sum('customer');
+        }));
+        $this->order('2025-11-10 09:30:00', 'north', 10);
+        $this->order('2025-11-10 14:30:00', 'north', 30);
+        foreach ([1, 2, 3, 4] as $weeks) {
+            $this->order(date('Y-m-d', strtotime('2026-11-09 -' . (7 * $weeks) . ' days')) . ' 09:30:00', 'north', 20);
+        }
+        $this->order('2026-11-09 09:15:00', 'north', 15);
+        Metrics::compute(['test.sales_hourly'], ['hour'], '2025-11-10', '2025-11-10', false, self::at('2026-11-09 12:30'));
+        Metrics::compute(['test.sales_hourly'], ['hour'], '2026-10-12', '2026-11-09', false, self::at('2026-11-09 12:30'));
+        $goal     = \Pramnos\Metrics\Goals::set('test.sales_hourly', 'day', 400.0, '2026-11-09');
+        $weekdays = \Pramnos\Metrics\Goals::set('test.sales_hourly', 'day', 400.0, '2026-11-09', reference: \Pramnos\Metrics\Goals::WEEKDAYS);
+
+        // Act — at 12:30: hours to 11:00 completed
+        $progress = \Pramnos\Metrics\Goals::progress($goal, self::at('2026-11-09 12:30'));
+        $byWeeks  = \Pramnos\Metrics\Goals::progress($weekdays, self::at('2026-11-09 12:30'));
+        $this->db->queryBuilder()->table(\Pramnos\Metrics\Store::table('hour'))->where('metric', 'test.sales_hourly')
+            ->where('period_start', \Pramnos\Metrics\Store::instant($this->db, Window::of('hour', '2025-11-10 03:00')))->delete();
+        $holed    = \Pramnos\Metrics\Goals::progress($goal, self::at('2026-11-09 12:30'));
+
+        // Assert
+        $this->assertSame(15.0, $progress['actual'], 'the hours completed today');
+        $this->assertSame(0.25, $progress['share'], 'last year\'s Monday had done 10 of its 40 by noon');
+        $this->assertSame(100.0, $progress['expected'], 'a quarter of the target');
+        $this->assertSame(60.0, $progress['forecast'], 'carried along last year\'s curve');
+        $this->assertSame('2026-11-09 11:00', $progress['through']);
+        $this->assertSame(1.0, $byWeeks['share'], 'the last four Mondays had all theirs by 10:00');
+        $this->assertNull($holed, 'an hour of the reference missing: nothing to judge by');
+        $this->assertSame($goal, \Pramnos\Metrics\Goals::for('test.sales_hourly', 'day', '2026-11-09')['id']);
+    }
+
+    /**
+     * A month's goal follows the days of the same month a year earlier; a goal for every period
+     * gives way to one set for the period; a grain or a reference it does not know is refused; a
+     * goal taken away is gone, and a goal that is not there has no progress.
+     */
+    public function testAMonthsGoalAndTheEdges(): void
+    {
+        // Arrange — last October: 30 on the 1st, 10 on the 2nd, every day computed
+        $this->order('2025-10-01 10:00:00', 'north', 1);
+        $this->order('2025-10-02 10:00:00', 'north', 2);
+        $this->order('2026-10-01 10:00:00', 'north', 3);
+        Metrics::compute(['test.orders'], ['day'], '2025-10-01', '2025-10-31', false, self::at('2026-10-02 12:00'));
+        Metrics::compute(['test.orders'], ['day'], '2026-10-01', '2026-10-02', false, self::at('2026-10-02 12:00'));
+        $every = \Pramnos\Metrics\Goals::set('test.orders', 'month', 10.0);
+        $mine  = \Pramnos\Metrics\Goals::set('test.orders', 'month', 4.0, '2026-10-15');
+        $refused = 0;
+        foreach ([static fn () => \Pramnos\Metrics\Goals::set('test.orders', 'week', 1.0), static fn () => \Pramnos\Metrics\Goals::set('test.orders', 'day', 1.0, reference: 'luck')] as $attempt) {
+            try {
+                $attempt();
+            } catch (\InvalidArgumentException) {
+                $refused++;
+            }
+        }
+
+        // Act — on the 2nd at noon: the 1st completed
+        $progress = \Pramnos\Metrics\Goals::progress($mine, self::at('2026-10-02 12:00'));
+        $found    = \Pramnos\Metrics\Goals::for('test.orders', 'month', '2026-10-20');
+        $other    = \Pramnos\Metrics\Goals::for('test.orders', 'month', '2026-12-05');
+        \Pramnos\Metrics\Goals::delete($mine);
+
+        // Assert
+        $this->assertSame([1.0, 0.5, 2.0], [$progress['actual'], $progress['share'], $progress['expected']], 'last October had done one of its two by the 2nd');
+        $this->assertSame($mine, $found['id'], 'the period\'s own goal first');
+        $this->assertSame($every, $other['id'], 'else the one for every month');
+        $this->assertNull(\Pramnos\Metrics\Goals::get($mine));
+        $this->assertNull(\Pramnos\Metrics\Goals::progress($mine));
+        $this->assertSame(2, $refused);
     }
 
     /**

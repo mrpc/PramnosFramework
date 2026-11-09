@@ -531,6 +531,35 @@ the report's tables one under another, each line its table's heading (or its sec
 A closed period's values are final (see above), so a report of a closed period shows the same
 numbers every time it is opened. Nothing has to be frozen separately.
 
+## Goals
+
+A target on a metric, for a day or a month, and how near it is now:
+
+```php
+$id = Goals::set('payments.revenue', 'day', 2000.0);                       // every day
+Goals::set('registrations', 'month', 900.0, '2026-11-01');                  // one month
+Goals::set('payments.revenue', 'day', 2000.0, reference: Goals::WEEKDAYS);  // the last four same weekdays
+Goals::progress($id);
+// ['target' => 2000.0, 'actual' => 620.0, 'expected' => 580.0, 'forecast' => 2140.0,
+//  'share' => 0.29, 'through' => '2026-11-09 11:00', 'period' => '2026-11-09', 'reference' => 'lastyear']
+```
+
+- **Its curve.** The expected curve is not a straight line. The share of the target due by now is
+  the share of a reference period done by the same point, scaled to the target.
+  - **The reference:** the same weekday a year earlier (52 weeks back) by default, or the mean of
+    the same weekday over the last four weeks. A month's goal follows the days of the same month a
+    year earlier.
+  - **The forecast** carries the actual along the same curve.
+- **What it reads.** A day's goal reads the metric by the hour, the hours completed and computed
+  so far, so the metric must be kept by the hour (`->grains(['hour', 'day'])`). A month's goal
+  reads it by the day.
+- **No curve, no answer.** Where a single hour, or day, of the reference was never computed, the
+  progress is null. A curve with a hole in it would say something false.
+- **The goal that applies.** `Goals::for($metric, $grain, $at)` finds the goal set for that period
+  first, and otherwise the goal for every period.
+- **Where they are kept.** Goals are kept in `stats.goals`. They are state; a missed goal is an
+  alert.
+
 ## Where the values are kept
 
 Each grain has a table of its own: `stats.metric_values_day`, `_week`, `_month`, `_quarter` and

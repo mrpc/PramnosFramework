@@ -2278,4 +2278,6 @@ return [
     'That organisation\'s figures are not yours to read.' => 'Τα στοιχεία αυτού του οργανισμού δεν είναι δικά σας για ανάγνωση.',
     'Choose a dimension to rank by.' => 'Διαλέξτε μια ανάλυση για την κατάταξη.',
     'No data before %s.' => 'Δεν υπάρχουν στοιχεία πριν από %s.',
+    'A goal is for a day or a month.' => 'Ένας στόχος είναι για μια μέρα ή έναν μήνα.',
+    'A goal follows last year or the same weekdays.' => 'Ένας στόχος ακολουθεί την περσινή πορεία ή τις ίδιες μέρες της εβδομάδας.',
 ];

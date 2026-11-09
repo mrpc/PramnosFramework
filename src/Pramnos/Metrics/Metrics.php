@@ -829,6 +829,12 @@ final class Metrics
     }
 
     /** Where the values are kept. */
+    /** The connection the metrics' values, goals and alerts are kept in, the store made ready. */
+    public static function connection(): Database
+    {
+        return self::db();
+    }
+
     private static function db(): Database
     {
         $db = Database::getInstance();
