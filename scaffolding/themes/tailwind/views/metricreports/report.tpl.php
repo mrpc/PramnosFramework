@@ -2,6 +2,7 @@
 @php
 $query = fn (string $at): string => '?report=' . rawurlencode($this->entry['id']) . '&at=' . $at;
 @endphp
+<style data-pf-report>.pf-report-page .pf-dashboard{gap:.5rem}.pf-report-page [data-pf-widget]>.card-body{padding:.5rem .75rem!important;gap:.35rem!important}.pf-report-page .pf-dashboard-head{margin-bottom:.25rem!important}.pf-report-page .pf-report th,.pf-report-page .pf-report td{padding:.15rem .5rem!important;line-height:1.35}.pf-report-page .pf-report{margin-bottom:0}[data-pf-widget-tools][hidden],[data-pf-widget-size-handle][hidden]{display:none!important}.pf-report-section-card{padding:.75rem 0 .15rem;border-bottom:1px solid rgba(127,127,127,.35)}.pf-report-section-card .pf-dashboard-head{margin:0!important}.pf-report-section-toggle{display:flex;align-items:center;gap:.4rem;width:100%;padding:0;border:0;background:none;color:inherit;font:inherit;font-size:1.05rem;font-weight:600;text-align:left;cursor:pointer}.pf-report-section-toggle::before{content:"\25BE";display:inline-block;transition:transform .15s}.pf-report-section-toggle[aria-expanded=false]::before{transform:rotate(-90deg)}@media print{.pf-report-page .pf-no-print,[data-pf-widget-tools]{display:none!important}}</style>
 <div class="pf-ui pf-report-page">
     <div class="pf-page-head">
         <div>
@@ -19,6 +20,7 @@ $query = fn (string $at): string => '?report=' . rawurlencode($this->entry['id']
             <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['csv'] . $query($this->at) }}">CSV</a>
             <button type="button" class="pf-btn pf-btn-ghost pf-btn-sm" data-pf-print>{{ t('Print or save as PDF') }}</button>
             @if ($this->mine)
+            <button type="button" class="pf-btn pf-btn-ghost pf-btn-sm" data-pf-dashboard-edit aria-pressed="false">{{ t('Customise') }}</button>
             <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['edit'] . '?report=' . rawurlencode($this->entry['id']) }}">{{ t('Settings') }}</a>
             @else
             <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['edit'] . '?copy=' . rawurlencode($this->entry['id']) }}">{{ t('Copy') }}</a>

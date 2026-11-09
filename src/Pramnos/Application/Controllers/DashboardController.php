@@ -794,7 +794,11 @@ class DashboardController extends Controller
         return [
             'id'       => $item['id'],
             'size'     => $item['size'],
-            'title'    => $widget->title(),
+            // A report's card is headed by the heading it was given, or by nothing — its kind's name
+            // is for the catalogue; a section draws its heading itself, as a line, not a card.
+            'title'    => $widget instanceof \Pramnos\Metrics\Widgets\ReportWidget ? ($widget instanceof \Pramnos\Metrics\Widgets\SectionWidget ? '' : $widget->heading()) : $widget->title(),
+            'label'    => $widget->title(),
+            'plain'    => $widget instanceof \Pramnos\Metrics\Widgets\SectionWidget,
             'link'     => $widget->link(),
             'settings' => $settings,
             // name => [value => label], or null for a free value — what views of the first shape read

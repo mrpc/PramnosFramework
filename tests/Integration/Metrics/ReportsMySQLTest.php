@@ -373,6 +373,12 @@ class ReportsMySQLTest extends TestCase
         $this->assertSame(['2026-08-01', '2026-10-01'], [$pages['report']['previous'], $pages['report']['next']]);
         $this->assertTrue($pages['report']['mine']);
         $this->assertStringContainsString('MetricReports/rows?metric=test.sales', $pages['report']['body']);
+        // The report's cards: a section is a line, not a card; a card is headed by nothing rather
+        // than by its kind's name.
+        $this->assertStringContainsString('pf-report-section-card', $pages['report']['body']);
+        $this->assertStringContainsString('data-pf-report-section', $pages['report']['body']);
+        $this->assertStringNotContainsString('<h3 class="h6 mb-0">Table of metrics', $pages['report']['body']);
+        $this->assertStringNotContainsString('data-pf-dashboard-edit', $pages['report']['body'], 'Customise is in the report\'s own bar');
         $this->assertSame("\xEF\xBB\xBFsection,row,2026-08,2026-09\nS,Sales,1,6\n", (string) $csv->getBody());
         $this->assertStringContainsString('Test-screen-2026-09.csv', $csv->getHeaderLine('Content-Disposition'));
         $this->assertSame([['order' => 1, 'region' => 'north']], $pages['rows']['rows']);

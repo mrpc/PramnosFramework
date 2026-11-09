@@ -24,10 +24,12 @@
 $e = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $t = static fn (string $words): string => function_exists('t') ? (string) t($words) : $words; @endphp
 <div class="{!! !empty($this->embedded) ? 'pf-dashboard-embed' : 'container' !!}">
+    @if (empty($this->isReport))
     <div class="pf-dashboard-head">
         @if (empty($this->embedded))<h2>{{ ($this->boardTitle ?? '') !== '' ? $this->boardTitle : $t('Dashboard') }}</h2>@elseif (($this->boardTitle ?? '') !== '')<h3>{{ $this->boardTitle }}</h3>@endif
         @if ($this->editable ?? true)<button type="button" class="btn btn-outline-secondary btn-sm" data-pf-dashboard-edit aria-pressed="false">{{ $t('Customise') }}</button>@endif
     </div>
+    @endif
 
     <div class="card pf-dashboard-bar" data-pf-dashboard-bar hidden>
         <div class="card-body pf-ui-row">

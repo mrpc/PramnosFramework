@@ -24,10 +24,12 @@
 $e = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $t = static fn (string $words): string => function_exists('t') ? (string) t($words) : $words; @endphp
 <div class="{!! !empty($this->embedded) ? 'pf-dashboard-embed' : 'container-fluid py-4' !!}">
+    @if (empty($this->isReport))
     <div class="d-flex align-items-center gap-2 mb-3">
         @if (empty($this->embedded))<h2 class="mb-0">{{ ($this->boardTitle ?? '') !== '' ? $this->boardTitle : $t('Dashboard') }}</h2>@elseif (($this->boardTitle ?? '') !== '')<h3 class="mb-0">{{ $this->boardTitle }}</h3>@endif
         @if ($this->editable ?? true)<button type="button" class="btn btn-sm btn-outline-secondary ms-auto" data-pf-dashboard-edit aria-pressed="false">{{ $t('Customise') }}</button>@endif
     </div>
+    @endif
 
     <div class="card border-primary border-dashed mb-3 pf-dashboard-bar" data-pf-dashboard-bar hidden>
         <div class="card-body py-2 d-flex flex-wrap align-items-center gap-3">

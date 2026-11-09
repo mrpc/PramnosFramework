@@ -214,18 +214,22 @@ mailed every day, week or month.
 ### Cards
 
 A report's cards are arranged with the dashboard's own editor, on the report's page: its owner
-chooses **Customise**, then adds, moves, resizes, groups into tabs and sets each card, and every
+chooses **Customise** in the report's bar, then adds, moves, resizes, groups into tabs and sets each card, and every
 change is drawn at once with the real numbers. There is one editor for dashboards and reports,
 so a card type or a setting added to one is in the other.
 
 | Card | id | What it shows |
 |---|---|---|
-| Section | `report.section` | A heading across the width. On the page it folds away the cards under it, up to the next section. |
+| Section | `report.section` | A thin heading across the width, a line rather than a card. On the page it folds away the cards under it, up to the next section. |
 | Table of metrics | `report.table` | Rows across columns, as below. Its columns are the report's, or its own: the last N periods, a dimension's values, or columns of its own. |
 | Chart | `report.chart` | Series of metrics over the last N periods, as lines or bars, with the same periods a year earlier beside them on request. |
 | Figure | `report.kpi` | One metric's value in the period, with its change against the period before, a year earlier, or as the report compares. |
 | Text | `report.text` | Words in markdown, escaped and then formatted as the assistant's answers are. |
 | Records | `report.rows` | The records behind a metric that declares `rows()`, the first ones as a table, with a link to all of them. |
+
+A card is headed by the heading set in its form, or by nothing: the name of its kind is shown only
+in the catalogue. The report's page is denser than a dashboard: less room inside a card, and
+tighter table rows, for reading numbers.
 
 A card's form offers choices, not syntax. A metric is picked from the catalogue, and a breakdown
 from the chosen metric's dimensions. Filters are a dimension and one of its values. Rows, series
