@@ -793,6 +793,22 @@ happened.
 - [Queue Guide](Pramnos_Queue_Guide.md) — sending a large batch off the request
 - [Email Guide](Pramnos_Email_Guide.md) — the other channel that reaches somebody who is not here
 
+## Quiet, and not while the site is in front
+
+Two flags of a notification's `toPush()` change how the worker shows it. The worker is
+`pf-push-worker.js` or the scaffolded `sw.js`.
+
+- **`silent`** shows it without the system's sound. Use it for a page or an application that
+  plays its own sound.
+- **`unlessFocused`** shows nothing while a window of the site is visible and focused, because
+  that page tells of the message itself. With the site in a hidden tab, or in a window that is not
+  focused, the notification is shown. Browsers do not require a notification for a push while the
+  site's origin is focused.
+
+A conversation's message sends both. A notification that sends neither, such as a sign-in
+approval, is shown with the system's sound whatever is in front. An application that copied
+`sw.js` before these flags existed picks them up with `project:resync --js`.
+
 ## A push to one client
 
 A notification can name the client its person is in by a method, `pushClient($notifiable)`, that

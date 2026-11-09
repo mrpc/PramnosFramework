@@ -69,7 +69,10 @@ class ConversationNotification implements NotificationInterface
     {
         $told = $this->told();
 
+        // Silent: the page or the application plays the conversations' own sound. Not shown while a
+        // page of the site is in front: it tells of the message itself.
         return ['title' => mb_substr($told['title'], 0, 90), 'body' => $told['text'], 'url' => $told['url'], 'tag' => 'conversation-' . $told['conversationId'],
+            'silent' => true, 'unlessFocused' => true,
             'data' => ['conversationId' => $told['conversationId'], 'messageId' => $this->messageId]];
     }
 

@@ -3,7 +3,8 @@
  * has no `push` handler: `importScripts('/assets/js/pf-push-worker.js')` at its top.
  *
  * `push` shows what the server sent (`title`, `body`, `tag`, `url`, `data`), a notification of one
- * tag replacing the last; `notificationclick` goes to its `url` — the page already open at that
+ * tag replacing the last; `silent` shows it without the system's sound, and `unlessFocused` not at
+ * all while a window of the site is visible and focused — that page tells of it itself; `notificationclick` goes to its `url` — the page already open at that
  * address is focused and moved there, any other is left alone, and with none a window is opened,
  * which on a phone is the installed app when the address is in its scope.
  *
@@ -19,15 +20,25 @@ self.addEventListener('push', (event) => {
     } catch (e) {
         payload = {};
     }
-    // Something is always shown: a push that shows nothing gets the browser's own notice instead.
-    event.waitUntil(self.registration.showNotification(payload.title || self.registration.scope.replace(/^https?:\/\//, ''), {
-        body: payload.body || '',
-        icon: payload.icon || undefined,
-        badge: payload.badge || undefined,
-        tag: payload.tag || undefined,
-        renotify: Boolean(payload.tag),
-        data: { url: payload.url || self.registration.scope, ...(payload.data || {}) },
-    }).catch(() => undefined));
+    event.waitUntil((async () => {
+        if (payload.unlessFocused) {
+            // A page of the site in front tells of it itself; the browser asks for no notice then.
+            const open = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+            if (open.some((client) => client.visibilityState === 'visible' && client.focused)) {
+                return;
+            }
+        }
+        // Otherwise something is always shown: a push that shows nothing gets the browser's own notice instead.
+        await self.registration.showNotification(payload.title || self.registration.scope.replace(/^https?:\/\//, ''), {
+            body: payload.body || '',
+            icon: payload.icon || undefined,
+            badge: payload.badge || undefined,
+            tag: payload.tag || undefined,
+            renotify: Boolean(payload.tag),
+            silent: Boolean(payload.silent),
+            data: { url: payload.url || self.registration.scope, ...(payload.data || {}) },
+        }).catch(() => undefined);
+    })());
 });
 
 self.addEventListener('notificationclick', (event) => {

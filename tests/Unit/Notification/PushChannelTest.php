@@ -529,6 +529,25 @@ class PushChannelTest extends TestCase
         $this->assertCount(3, $anywhere->sent, 'away: every subscription');
     }
 
+    /**
+     * `silent` and `unlessFocused` reach the worker only when asked for: a notification that does
+     * not ask sends neither, so the worker keeps the system's sound and always shows it.
+     */
+    public function testQuietAndUnlessFocusedAreSentOnlyWhenAsked(): void
+    {
+        // Arrange
+        $probe = new PushChannelProbe();
+
+        // Act
+        $asked = json_decode($probe->probePayload(['title' => 'Μαρία', 'silent' => true, 'unlessFocused' => 1]), true);
+        $plain = json_decode($probe->probePayload(['title' => 'Νέα σύνδεση', 'silent' => false]), true);
+
+        // Assert
+        $this->assertSame([true, true], [$asked['silent'], $asked['unlessFocused']]);
+        $this->assertArrayNotHasKey('silent', $plain);
+        $this->assertArrayNotHasKey('unlessFocused', $plain);
+    }
+
     /** @return array<string, mixed> */
     private function subscription(string $endpoint = 'https://a.example/1'): array
     {

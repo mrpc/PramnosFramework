@@ -104,3 +104,31 @@ test('a click with no such page open opens one', async () => {
     // Assert
     assert.deepEqual(w.opened, ['https://app.test/chat#/c/7/m/90']);
 });
+
+/**
+ * A conversation's push: `silent` shows it without the system's sound (the page or the app plays
+ * its own), and `unlessFocused` shows nothing while a window of the site is visible and focused —
+ * that page tells of the message itself — but shows it when the site is only in a hidden tab or
+ * an unfocused window. Without `unlessFocused`, a focused page changes nothing.
+ */
+test('a silent push is quiet, and one unless focused waits for the site to be out of front', async () => {
+    // Arrange
+    const front  = Object.assign(page('https://app.test/chat'), { visibilityState: 'visible', focused: true });
+    const behind = Object.assign(page('https://app.test/chat'), { visibilityState: 'hidden', focused: false });
+    const message = { title: 'Μαρία', body: 'γεια', silent: true, unlessFocused: true };
+
+    // Act
+    const inFront = worker([front]);
+    await inFront.fire('push', { data: { json: () => message } });
+    const away = worker([behind]);
+    await away.fire('push', { data: { json: () => message } });
+    const approval = worker([front]);
+    await approval.fire('push', { data: { json: () => ({ title: 'Νέα σύνδεση' }) } });
+
+    // Assert
+    assert.equal(inFront.shown.length, 0, 'the page in front tells of it itself');
+    assert.equal(away.shown.length, 1);
+    assert.equal(away.shown[0].options.silent, true, 'without the system\'s sound');
+    assert.equal(approval.shown.length, 1, 'a push that does not ask is shown whatever is in front');
+    assert.equal(approval.shown[0].options.silent, false);
+});

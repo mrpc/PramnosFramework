@@ -360,6 +360,13 @@ class PushChannel implements ChannelInterface
             // A notification with no title renders as the site's name and nothing else.
             return '';
         }
+        // Without the system's sound, where the page or the application plays its own; and not
+        // shown at all while a page of the site is in front, which tells of it itself.
+        foreach (['silent', 'unlessFocused'] as $flag) {
+            if (!empty($data[$flag])) {
+                $payload[$flag] = true;
+            }
+        }
 
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 

@@ -548,7 +548,12 @@ self.addEventListener('push', (event) => {
         ? fetch(payload.data.ack, { method: 'POST', credentials: 'include' }).catch(() => undefined)
         : Promise.resolve();
 
-    event.waitUntil(Promise.all([receipt, self.registration.showNotification(title, {
+    // `unlessFocused` (a conversation's message): nothing while a page of the site is in front, which tells of it itself.
+    const show = payload.unlessFocused
+        ? clients.matchAll({ type: 'window', includeUncontrolled: true }).then((open) => !open.some((c) => c.visibilityState === 'visible' && c.focused))
+        : Promise.resolve(true);
+
+    event.waitUntil(Promise.all([receipt, show.then((shown) => !shown ? undefined : self.registration.showNotification(title, {
         body: payload.body || '',
         icon: payload.icon || sitePath('assets/img/icon-192.png'),
         badge: payload.badge || sitePath('assets/img/badge-72.png'),
@@ -556,6 +561,7 @@ self.addEventListener('push', (event) => {
         // difference between one "new sign-in to your account" and fourteen.
         tag: payload.tag || undefined,
         renotify: Boolean(payload.tag),
+        silent: Boolean(payload.silent),
         actions: (payload.actions || []).slice(0, 2),
         data: { url: payload.url || '/', ...(payload.data || {}) }
     }).catch((error) => {
@@ -589,7 +595,7 @@ self.addEventListener('push', (event) => {
         }
 
         return undefined;
-    })]));
+    }))]));
 });
 
 /** A path of this site, relative to where the worker is installed — the site may live in a folder. */
