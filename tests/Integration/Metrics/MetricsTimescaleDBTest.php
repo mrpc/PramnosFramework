@@ -121,7 +121,7 @@ final class MetricsTimescaleDBTest extends TestCase
             $this->assertTrue($schema->hasHypertable(Store::table($grain)), $grain . ' is a hypertable');
         }
         $settings = $this->db->query("SELECT count(*) AS n FROM timescaledb_information.hypertables WHERE hypertable_schema = 'stats' AND compression_enabled")->fetch()['n'];
-        $this->assertSame(4, (int) $settings, 'every grain but the year compresses');
+        $this->assertSame(5, (int) $settings, 'every grain but the year compresses');
         $this->assertGreaterThan(0, $compressed, 'the month was compressed before it was rewritten');
         $this->assertSame(7.0, Metrics::value('test.count', 'month', '2025-10-01'), 'rewritten in the compressed chunk');
         $this->assertSame(1, $this->db->queryBuilder()->table(Store::table('month'))->where('metric', 'test.count')->count(), 'replaced, not added');

@@ -313,7 +313,7 @@ class MetricsMySQLTest extends TestCase
         };
 
         // Act
-        $badGrain  = $run(['--grain' => ['hour']]);
+        $badGrain  = $run(['--grain' => ['fortnight']]);
         $badDay    = $run(['--from' => '1/9/2026']);
         $badMetric = $run(['--metric' => ['test.nothing']]);
         $ok        = $run(['--metric' => ['test.orders'], '--grain' => ['month'], '--from' => '2026-09-01', '--to' => '2026-09-30']);
@@ -507,7 +507,7 @@ class MetricsMySQLTest extends TestCase
         $old('month', '2026-08-01', '{}', 5, 1);
         $old('month', '2026-08-01', '{"region":"north"}', 3, 1);
         $old('day', '2026-08-02', '{}', 2, 0);
-        $old('hour', '2026-08-02', '{}', 9, 0);
+        $old('era', '2026-08-02', '{}', 9, 0);
 
         try {
             // Act
@@ -735,6 +735,38 @@ class MetricsMySQLTest extends TestCase
             unset(Application::getInstance()->applicationInfo['metrics']['tenant']);
             $schema->dropTableIfExists('metrics_test_orgs');
         }
+    }
+
+    /**
+     * A metric that asks for hours is kept by the hour, beside its days; one that does not is not.
+     * The hours are read like any grain, and `metrics.retention` drops those older than it keeps.
+     */
+    public function testAMetricKeptByTheHour(): void
+    {
+        // Arrange
+        Metrics::register(Metric::flow('test.hourly', 'Orders by the hour')->grains(['hour', 'day'])->source(function (Window $w, array $by, Database $db): int {
+            return (int) $db->queryBuilder()->table(self::ORDERS)->where('placed_at', '>=', $w->startsAt())->where('placed_at', '<', $w->endsAt())->count();
+        }));
+        $this->order('2026-09-01 09:10:00', 'north', 1);
+        $this->order('2026-09-01 09:50:00', 'north', 2);
+        $this->order('2026-09-01 11:05:00', 'south', 3);
+
+        // Act
+        Metrics::compute(['test.hourly', 'test.orders'], null, '2026-09-01', '2026-09-01', false, self::at('2026-11-06 12:00'));
+        $hours = Metrics::query('test.hourly')->grain('hour')->between('2026-09-01 08:00', '2026-09-01 11:00')->series()['values'][''];
+        $day   = Metrics::value('test.hourly', 'day', '2026-09-01');
+        $orderHours = $this->db->queryBuilder()->table(\Pramnos\Metrics\Store::table('hour'))->where('metric', 'test.orders')->count();
+        Application::getInstance()->applicationInfo['metrics']['retention'] = ['hour' => '30 days', 'week' => 'never'];
+        $pruned = \Pramnos\Metrics\Store::prune($this->db, self::at('2026-11-06 12:00'));
+        $left   = $this->db->queryBuilder()->table(\Pramnos\Metrics\Store::table('hour'))->where('metric', 'test.hourly')->count();
+        unset(Application::getInstance()->applicationInfo['metrics']['retention']);
+
+        // Assert
+        $this->assertSame([0.0, 2.0, 0.0, 1.0], $hours, '08:00, 09:00, 10:00, 11:00');
+        $this->assertSame(3.0, $day, 'and its days');
+        $this->assertSame(0, $orderHours, 'a metric that did not ask has no hours');
+        $this->assertSame(['hour' => '30 days'], $pruned, 'a retention that is no length is let be');
+        $this->assertSame(0, $left, 'September\'s hours are older than thirty days');
     }
 
     /**

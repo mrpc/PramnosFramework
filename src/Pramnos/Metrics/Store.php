@@ -52,10 +52,10 @@ final class Store
     public const LOCK = 'pramnos_metrics_store';
 
     /** Chunk interval per grain: a few hundred thousand rows a chunk at the sizes measured. */
-    private const CHUNK = ['day' => '90 days', 'week' => '1 year', 'month' => '2 years', 'quarter' => '5 years', 'year' => '10 years'];
+    private const CHUNK = ['hour' => '7 days', 'day' => '90 days', 'week' => '1 year', 'month' => '2 years', 'quarter' => '5 years', 'year' => '10 years'];
 
     /** Compressed once a period is this old; a year's rows are too few to bother. */
-    private const COMPRESS_AFTER = ['day' => '90 days', 'week' => '1 year', 'month' => '2 years', 'quarter' => '5 years'];
+    private const COMPRESS_AFTER = ['hour' => '7 days', 'day' => '90 days', 'week' => '1 year', 'month' => '2 years', 'quarter' => '5 years'];
 
     /** A grain's table. */
     public static function table(string $grain): string
@@ -231,11 +231,42 @@ final class Store
         return Instant::utc($window->start->getTimestamp(), $db);
     }
 
-    /** The period a kept `period_start` is the start of, as its key (YYYY-MM-DD in the metrics' zone). */
-    public static function key(string $stored): string
+    /**
+     * The period a kept `period_start` is the start of, as its key in the metrics' zone:
+     * YYYY-MM-DD, or YYYY-MM-DD HH:00 for an hour.
+     */
+    public static function key(string $stored, string $grain = Window::DAY): string
     {
         // PostgreSQL answers with an offset, MySQL with the bare UTC it was given.
-        return (new \DateTimeImmutable($stored, new \DateTimeZone('UTC')))->setTimezone(Window::zone())->format('Y-m-d');
+        return (new \DateTimeImmutable($stored, new \DateTimeZone('UTC')))->setTimezone(Window::zone())->format($grain === Window::HOUR ? 'Y-m-d H:00' : 'Y-m-d');
+    }
+
+    /**
+     * Drop what is older than each grain's retention, `metrics.retention` in app.php
+     * (`['hour' => '90 days']`): whole chunks on TimescaleDB, rows elsewhere. A grain with none is
+     * kept for ever, as day and coarser are unless the application says otherwise.
+     *
+     * @return array<string, string> The grains pruned, with how long they keep
+     */
+    public static function prune(Database $db, ?int $now = null): array
+    {
+        $retention = (array) (Metrics::config()['retention'] ?? []);
+        $done      = [];
+        foreach ($retention as $grain => $keep) {
+            if (!in_array($grain, Window::GRAINS, true) || !is_string($keep) || ($seconds = strtotime('+' . $keep, 0)) === false || $seconds <= 0) {
+                continue;
+            }
+            $cut = Instant::utc(($now ?? time()) - $seconds, $db);
+            if ($db->type === 'postgresql' && $db->capabilities()->hasTimescaleDB()) {
+                // Raw: TimescaleDB's own function, dropping whole chunks rather than rows.
+                $db->query("SELECT drop_chunks('" . $db->schema()->quoteTable(self::table($grain)) . "', older_than => TIMESTAMPTZ '" . $cut . "')");
+            } else {
+                $db->queryBuilder()->table(self::table($grain))->where('period_start', '<', $cut)->delete();
+            }
+            $done[$grain] = $keep;
+        }
+
+        return $done;
     }
 
     /** md5 of the dimensions' JSON, written as a uuid: 16 bytes in PostgreSQL. */
@@ -309,7 +340,7 @@ final class Store
             }
             $value  = $source[$map['value']] ?? null;
             // A unix time, or a time or date read as UTC (an offset kept), then in the metrics' zone.
-            $window = Window::of($grain, is_numeric($at) && strlen((string) $at) > 8 ? (int) $at : self::key((string) $at));
+            $window = Window::of($grain, is_numeric($at) && strlen((string) $at) > 8 ? (int) $at : self::key((string) $at, $grain));
 
             return [$grain, self::row($db, ($map['prefix'] ?? '') . $source[$map['metric']], $window, $dims, $value === null ? null : (float) $value, self::IMPORTED, true, $now, $extra ?: null, 0, (int) ($map['version'] ?? self::VERSION))];
         }, $progress);

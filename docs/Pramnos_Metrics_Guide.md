@@ -24,7 +24,8 @@ Metrics are declared in a **catalogue**, a class that `app/app.php` lists:
 'metrics' => [
     'catalogue' => [\App\Metrics\Sales::class],
     'timezone'  => 'Europe/Athens',        // periods are counted in it; PHP's zone otherwise
-    'grains'    => ['day', 'month', 'year'],   // what metrics:compute keeps; all five by default
+    'grains'    => ['day', 'month', 'year'],   // what metrics:compute keeps; day to year by default
+    'retention' => ['hour' => '90 days'],      // how long a grain is kept; for ever when not said
     'replica'   => true,                   // sources read the replica: the database settings' `replica` (or `read`) block
     // 'replica' => ['hostname' => getenv('DB_REPLICA_HOST'), 'port' => 5432, 'timeout' => 3],   // or one of the metrics' own
 ],
@@ -511,12 +512,26 @@ tables, and their metrics read them as they are.
 ## Periods: `Window`
 
 ```php
-$w = Window::of(Window::MONTH, '2026-09-14');   // day, week (Monday first), month, quarter, year
+$w = Window::of(Window::MONTH, '2026-09-14');   // hour, day, week (Monday first), month, quarter, year
 $w->label();          // '2026-09'
 $w->previous();       // August
 $w->yearEarlier();    // September 2025; for a week, the same ISO week
 Window::range(Window::MONTH, '2026-01-01', '2026-10-31');   // every month in between
 ```
+
+**By the hour.** `Window::HOUR` is the zone's hour, keyed and labelled `2026-09-17 14:00`. Hours
+are counted in time, not on the clock, so the night the clocks go back has 25 of them. A metric is
+kept by the hour only when it asks for it:
+
+```php
+Metric::flow('readings.count', 'Readings')->grains(['hour', 'day', 'month'])->source(…);
+```
+
+`Window::DEFAULT_GRAINS` (day to year) is what every other metric keeps. An application that wants
+every metric by the hour names `hour` in `metrics.grains`. `metrics.retention` keeps the hours
+short: after each computation, older ones are dropped, as whole chunks on TimescaleDB
+(`Store::prune()`). Computing a day of hours with `--from`/`--to` days covers every hour of the
+last day.
 
 ## Related
 

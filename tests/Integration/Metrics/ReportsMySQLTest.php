@@ -214,7 +214,7 @@ class ReportsMySQLTest extends TestCase
         // Arrange
         Application::getInstance()->applicationInfo['metrics']['reports'] = [
             'kpi' => ['name' => 'Test KPI', 'sections' => [['rows' => [['metric' => 'test.sales']]]]],
-            'bad' => ['grain' => 'hour'],
+            'bad' => ['grain' => 'era'],
         ];
         $store = new Reports();
         $owner = self::reader(90, 2);

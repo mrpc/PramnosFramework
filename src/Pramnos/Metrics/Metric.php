@@ -66,6 +66,9 @@ final class Metric
 
     private ?\Closure $source  = null;
 
+    /** @var list<string>|null The grains it is kept at; null: the application's ({@see Metrics::grains()}) */
+    private ?array $grains = null;
+
     /** The source's column that names the organisation a row is of; null for none. */
     private ?string $tenantColumn = null;
     private ?\Closure $rows    = null;
@@ -161,6 +164,30 @@ final class Metric
         $this->tenantColumn = $column;
 
         return $this;
+    }
+
+    /**
+     * The grains it is kept at — `['hour', 'day', 'month']` — when not the application's. An hour
+     * is kept only for a metric that asks, and `metrics.retention` keeps it short.
+     *
+     * @param list<string> $grains
+     */
+    public function grains(array $grains): self
+    {
+        foreach ($grains as $grain) {
+            if (!in_array($grain, Window::GRAINS, true)) {
+                throw new \InvalidArgumentException('Grain "' . $grain . '" is not one of: ' . implode(', ', Window::GRAINS) . '.');
+            }
+        }
+        $this->grains = array_values(array_unique($grains));
+
+        return $this;
+    }
+
+    /** @return list<string>|null The grains it asked for, or null for the application's */
+    public function getGrains(): ?array
+    {
+        return $this->grains;
     }
 
     /** The column that names the organisation, or null. */

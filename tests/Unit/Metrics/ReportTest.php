@@ -24,7 +24,7 @@ class ReportTest extends TestCase
     {
         // Arrange
         $refused = 0;
-        foreach ([['grain' => 'hour'], ['compare' => 'last']] as $bad) {
+        foreach ([['grain' => 'fortnight'], ['compare' => 'last']] as $bad) {
             try {
                 Report::fromArray($bad);
             } catch (\InvalidArgumentException) {

@@ -76,11 +76,11 @@ class MetricsCatalogueTest extends TestCase
     public function testTheGrainsKept(): void
     {
         // Act & Assert
-        $this->assertSame(Window::GRAINS, Metrics::grains());
+        $this->assertSame(Window::DEFAULT_GRAINS, Metrics::grains(), 'day to year: an hour only where asked');
         Application::getInstance()->applicationInfo['metrics'] = ['grains' => ['month', 'day', 'hour']];
-        $this->assertSame(['day', 'month'], Metrics::grains());
-        Application::getInstance()->applicationInfo['metrics'] = ['grains' => ['hour']];
-        $this->assertSame(Window::GRAINS, Metrics::grains(), 'nothing it knows: all of them');
+        $this->assertSame(['hour', 'day', 'month'], Metrics::grains(), 'in their order, the hour among them when the application asks');
+        Application::getInstance()->applicationInfo['metrics'] = ['grains' => ['fortnight']];
+        $this->assertSame(Window::DEFAULT_GRAINS, Metrics::grains(), 'nothing it knows: the default');
     }
 
     /**

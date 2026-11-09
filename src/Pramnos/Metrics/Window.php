@@ -20,6 +20,7 @@ namespace Pramnos\Metrics;
  */
 final class Window
 {
+    public const HOUR    = 'hour';
     public const DAY     = 'day';
     public const WEEK    = 'week';
     public const MONTH   = 'month';
@@ -27,7 +28,10 @@ final class Window
     public const YEAR    = 'year';
 
     /** The grains, finest first. */
-    public const GRAINS = [self::DAY, self::WEEK, self::MONTH, self::QUARTER, self::YEAR];
+    public const GRAINS = [self::HOUR, self::DAY, self::WEEK, self::MONTH, self::QUARTER, self::YEAR];
+
+    /** The grains a metric is kept at unless it says otherwise: an hour only where a metric asks. */
+    public const DEFAULT_GRAINS = [self::DAY, self::WEEK, self::MONTH, self::QUARTER, self::YEAR];
 
     private function __construct(
         public readonly string $grain,
@@ -52,9 +56,11 @@ final class Window
             is_int($at)                       => (new \DateTimeImmutable('@' . $at))->setTimezone($zone),
             default                           => new \DateTimeImmutable($at, $zone),
         };
-        $day = $day->setTime(0, 0);
+        $hour = $day->setTime((int) $day->format('G'), 0);
+        $day  = $day->setTime(0, 0);
         [$y, $m] = [(int) $day->format('Y'), (int) $day->format('n')];
         $start = match ($grain) {
+            self::HOUR    => $hour,
             self::DAY     => $day,
             self::WEEK    => $day->modify('-' . ((int) $day->format('N') - 1) . ' days'),
             self::MONTH   => $day->setDate($y, $m, 1),
@@ -62,7 +68,7 @@ final class Window
             self::YEAR    => $day->setDate($y, 1, 1),
         };
 
-        return new self($grain, $start, $start->modify(self::step($grain)));
+        return new self($grain, $start, self::after($grain, $start));
     }
 
     /** The zone periods are counted in: `'metrics' => ['timezone' => …]` in app.php, or PHP's. */
@@ -76,13 +82,13 @@ final class Window
     /** The period after this one. */
     public function next(): self
     {
-        return new self($this->grain, $this->end, $this->end->modify(self::step($this->grain)));
+        return new self($this->grain, $this->end, self::after($this->grain, $this->end));
     }
 
     /** The period before this one. */
     public function previous(): self
     {
-        return self::of($this->grain, $this->start->modify('-1 day'));
+        return self::of($this->grain, $this->grain === self::HOUR ? $this->start->getTimestamp() - 3600 : $this->start->modify('-1 day'));
     }
 
     /** The same period a year earlier: the same month, quarter, ISO week or day. */
@@ -108,7 +114,7 @@ final class Window
     /** The first day, as stored: `Y-m-d`. */
     public function key(): string
     {
-        return $this->start->format('Y-m-d');
+        return $this->start->format($this->grain === self::HOUR ? 'Y-m-d H:00' : 'Y-m-d');
     }
 
     /** Its start, Unix seconds — compare with `>=`. */
@@ -139,6 +145,7 @@ final class Window
     public function label(): string
     {
         return match ($this->grain) {
+            self::HOUR    => $this->start->format('Y-m-d H:00'),
             self::DAY     => $this->start->format('Y-m-d'),
             self::WEEK    => $this->start->format('o-\WW'),
             self::MONTH   => $this->start->format('Y-m'),
@@ -163,6 +170,17 @@ final class Window
         }
 
         return $out;
+    }
+
+    /**
+     * Where a period that starts at `$start` ends. An hour is 3600 seconds on, counted in time,
+     * not on the clock: the night the clocks go back has two 03:00s, and both are hours.
+     */
+    private static function after(string $grain, \DateTimeImmutable $start): \DateTimeImmutable
+    {
+        return $grain === self::HOUR
+            ? (new \DateTimeImmutable('@' . ($start->getTimestamp() + 3600)))->setTimezone($start->getTimezone())
+            : $start->modify(self::step($grain));
     }
 
     private static function step(string $grain): string

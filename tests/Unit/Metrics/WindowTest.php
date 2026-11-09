@@ -58,6 +58,29 @@ class WindowTest extends TestCase
     }
 
     /**
+     * The hour: the zone's hour holding the moment, keyed and labelled with its time; the next
+     * and the one before an hour apart; across the night the clocks go back (Athens, 25 October
+     * 2026) the hours stay an hour long, so a day has 25 of them.
+     */
+    public function testTheHour(): void
+    {
+        // Arrange
+        $hour = Window::of(Window::HOUR, '2026-09-17 14:37:12');
+
+        // Act
+        $day = Window::range(Window::HOUR, '2026-10-25 00:00', '2026-10-25 23:59');
+
+        // Assert
+        $this->assertSame(['2026-09-17 14:00:00', '2026-09-17 15:00:00'], [$hour->startText(), $hour->endText()]);
+        $this->assertSame(['2026-09-17 14:00', '2026-09-17 14:00'], [$hour->key(), $hour->label()]);
+        $this->assertSame('2026-09-17 13:00', $hour->previous()->key());
+        $this->assertSame('2025-09-17 14:00', $hour->yearEarlier()->key());
+        $this->assertCount(25, $day, 'the night the clocks go back');
+        $this->assertSame(3600, $day[3]->endsAt() - $day[3]->startsAt());
+        $this->assertNotContains(Window::HOUR, Window::DEFAULT_GRAINS, 'an hour only where a metric asks');
+    }
+
+    /**
      * The moments are the zone's: midnight in Athens is 21:00 UTC the day before in summer, and a
      * Unix moment lands in the zone's day, not UTC's.
      */

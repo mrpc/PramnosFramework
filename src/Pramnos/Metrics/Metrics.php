@@ -130,9 +130,9 @@ final class Metrics
     /** @return list<string> The grains metrics:compute keeps */
     public static function grains(): array
     {
-        $grains = array_values(array_intersect(Window::GRAINS, (array) (self::config()['grains'] ?? Window::GRAINS)));
+        $grains = array_values(array_intersect(Window::GRAINS, (array) (self::config()['grains'] ?? Window::DEFAULT_GRAINS)));
 
-        return $grains !== [] ? $grains : Window::GRAINS;
+        return $grains !== [] ? $grains : Window::DEFAULT_GRAINS;
     }
 
     // ------------------------------------------------------------------ computing
@@ -181,10 +181,15 @@ final class Metrics
             if (!$metric->hasSource() || ($only !== null && !in_array($metric->name, $only, true))) {
                 continue;
             }
-            foreach ($grains ?? self::grains() as $grain) {
+            // The grains asked, of those the metric is kept at: an hour only where it asks for hours.
+            $kept = $metric->getGrains() ?? self::grains();
+            foreach (array_values(array_intersect($grains ?? $kept, $kept)) as $grain) {
                 try {
+                    $last    = $to ?? date('Y-m-d', $now);
+                    // Days asked of hours: every hour of the last day too.
+                    $last    = $grain === Window::HOUR && strlen($last) === 10 ? $last . ' 23:00' : $last;
                     $windows = $from !== null || $to !== null
-                        ? Window::range($grain, $from ?? (string) $to, $to ?? date('Y-m-d', $now))
+                        ? Window::range($grain, $from ?? (string) $to, $last)
                         : self::due($metric, $grain, $now);
                     foreach ($windows as $window) {
                         $done = self::computeOne($metric, $window, $source, $recompute, $now);
@@ -195,6 +200,11 @@ final class Metrics
                     \Pramnos\Logs\Logger::log('Metric ' . $metric->name . ' (' . $grain . ') not computed: ' . $e->getMessage(), 'metrics');
                 }
             }
+        }
+        try {
+            Store::prune(self::db(), $now);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Old metric values not pruned: ' . $e->getMessage(), 'metrics');
         }
 
         return $report;
@@ -211,7 +221,7 @@ final class Metrics
         $open   = Window::of($grain, $now);
         $last   = self::db()->queryBuilder()->table(Store::table($grain))->where('metric', $metric->name)
             ->where('version', Store::VERSION)->where('final', 1)->max('period_start');
-        $window = $last ? Window::of($grain, Store::key((string) $last))->next() : $open->previous();
+        $window = $last ? Window::of($grain, Store::key((string) $last, $grain))->next() : $open->previous();
         $due    = [];
         while ($window->start < $open->start && count($due) < self::CATCH_UP) {
             $due[]  = $window;
@@ -440,7 +450,7 @@ final class Metrics
         $known = [];
         $sums  = [];
         while ($result && ($row = $result->fetch()) !== null) {
-            $period         = Store::key((string) $row['period_start']);
+            $period         = Store::key((string) $row['period_start'], $periods[0]->grain);
             // The total marks a period as computed; only the breakdown asked for is added up.
             $known[$period] = true;
             $from[(int) $row['tenant']] = true;
