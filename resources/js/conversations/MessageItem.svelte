@@ -86,10 +86,12 @@
         }
     }
 
+    // Asked in the message itself, never the browser's confirm(): a desktop application has
+    // none, and a native box looks like nothing else in the chat.
+    let confirming = $state(false);
+
     async function remove() {
-        if (!window.confirm(t('Delete this message? It cannot be brought back.'))) {
-            return;
-        }
+        confirming = false;
         try {
             await api.post('delete/' + message.id);
         } catch (err) {
@@ -267,8 +269,15 @@
                 <button type="button" title={t('Edit message')} aria-label={t('Edit message')} onclick={startEdit}>✎</button>
             {/if}
             {#if mine || moderator}
-                <button type="button" class="pf-conv-danger" title={t('Delete message')} aria-label={t('Delete message')} onclick={remove}>🗑</button>
+                <button type="button" class="pf-conv-danger" title={t('Delete message')} aria-label={t('Delete message')} onclick={() => (confirming = true)}>🗑</button>
             {/if}
+        </div>
+    {/if}
+    {#if confirming}
+        <div class="pf-conv-confirm" role="alertdialog" aria-label={t('Delete message')}>
+            <span>{t('Delete this message? It cannot be brought back.')}</span>
+            <button type="button" class="pf-conv-btn pf-conv-danger" onclick={remove}>{t('Delete')}</button>
+            <button type="button" class="pf-conv-btn" onclick={() => (confirming = false)}>{t('Cancel')}</button>
         </div>
     {/if}
     {#if reminding}

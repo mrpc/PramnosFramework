@@ -73,21 +73,74 @@
             ],
             buttons: [
                 { name: 'checklist', label: CHECK, title: t('Checklist'), run: (e) => e.chain().focus().toggleTaskList().run(), active: (e) => e.isActive('taskList') },
-                { name: 'mention', label: AT, title: t('Mention someone'), run: (e) => mention(e) },
+                { name: 'mention', label: AT, title: t('Mention someone'), run: (e, ui) => mention(e, ui) },
             ],
         };
     }
 
-    /** Ask for a name, and put the one person found, or the first of several, in the text. */
-    async function mention(e) {
-        const q = window.prompt(t('Mention someone'), '');
-        if (!q) {
+    /**
+     * A people picker in a panel of the editor's own, under its toolbar — never the browser's
+     * prompt(), which a desktop application does not have: a name typed, the people found, one
+     * chosen goes into the text. Escape, or the button again, closes it.
+     */
+    let picker = null;
+    function mention(e, ui) {
+        if (picker) {
+            picker.remove();
+            picker = null;
             return;
         }
-        const found = (await api.get('people', { q })).people || [];
-        if (found.length) {
-            e.chain().focus().insertContent([{ type: 'mention', attrs: { id: String(found[0].id), label: found[0].name } }, { type: 'text', text: ' ' }]).run();
-        }
+        const box = document.createElement('div');
+        box.className = 'pf-rich-panel pf-canvas-picker';
+        box.setAttribute('role', 'group');
+        box.setAttribute('aria-label', t('Mention someone'));
+        const search = document.createElement('input');
+        search.type = 'search';
+        search.className = 'pf-rich-input';
+        search.placeholder = t('Mention someone');
+        search.setAttribute('aria-label', t('Mention someone'));
+        const found = document.createElement('ul');
+        found.className = 'pf-rich-found';
+        const close = () => { box.remove(); picker = null; e.commands.focus(); };
+        let typing = null;
+        let asked = 0;
+        search.addEventListener('input', () => {
+            clearTimeout(typing);
+            typing = setTimeout(async () => {
+                const mine = ++asked;
+                const q = search.value.trim();
+                const people = q ? ((await api.get('people', { q }).catch(() => ({}))).people || []) : [];
+                if (mine !== asked) {
+                    return;
+                }
+                found.textContent = '';
+                people.slice(0, 8).forEach((person) => {
+                    const li = document.createElement('li');
+                    const pick = document.createElement('button');
+                    pick.type = 'button';
+                    pick.textContent = person.name;
+                    pick.addEventListener('click', () => {
+                        close();
+                        e.chain().focus().insertContent([{ type: 'mention', attrs: { id: String(person.id), label: person.name } }, { type: 'text', text: ' ' }]).run();
+                    });
+                    li.append(pick);
+                    found.append(li);
+                });
+            }, 250);
+        });
+        search.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                close();
+            }
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                found.querySelector('button')?.click();
+            }
+        });
+        box.append(search, found);
+        picker = ui.addPanel(box);
+        search.focus();
     }
 
     /** Take the lock and open the editor; or say who has it. */
@@ -148,6 +201,8 @@
     }
 
     function stop() {
+        picker?.remove();
+        picker = null;
         clearInterval(beat);
         beat = null;
         instance?.destroy();

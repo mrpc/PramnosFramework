@@ -2428,3 +2428,5 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-canvas-body span[data-type="mention"], .pf-canvas-mention { color: var(--pf-info); font-weight: 500; }
 .pf-canvas-versions { margin: 0; padding-left: 1.2rem; font-size: 0.9rem; }
 .pf-canvas-versions li { display: flex; gap: 0.5rem; align-items: center; padding: 0.15rem 0; }
+/* A question asked in the page, never a browser box: deleting a message */
+.pf-conv-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.3rem; padding: 0.4rem 0.6rem; font-size: 0.85rem; background: var(--pf-subtle); border-radius: var(--pf-radius); }

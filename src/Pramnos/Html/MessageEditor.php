@@ -196,7 +196,7 @@ final class MessageEditor
             'removeLink' => 'Remove link', 'findLink' => 'Find a page on the site — its title or address',
             'altText' => 'Alt text', 'altHint' => 'What the picture shows, for who cannot see it',
             'caption' => 'Caption', 'captionHint' => 'Shown under the picture', 'body' => 'Text',
-            'block' => 'Block', 'paragraph' => 'Paragraph',
+            'block' => 'Block', 'paragraph' => 'Paragraph', 'insert' => 'Insert', 'cancel' => 'Cancel',
         ];
 
         return function_exists('t') ? array_map(static fn (string $words): string => (string) t($words), $english) : $english;

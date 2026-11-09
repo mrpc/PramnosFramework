@@ -124,6 +124,11 @@ pfRichEditor.use({
 A plugin under a name already registered replaces it. Plugins apply to editors made after they are
 registered.
 
+`ui.ask(label, value)` asks for one line in a panel under the toolbar. It resolves with what was
+typed (Enter, or Insert), or null (Escape, or Cancel). The editor never uses the browser's
+`prompt()` or `confirm()`, and a plugin should not either: a desktop application has neither,
+and a native box looks like nothing else on the page. "Picture URL" asks this way.
+
 An embed provider of the site's own is asked before the built-in ones:
 
 ```js

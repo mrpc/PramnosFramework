@@ -72,6 +72,8 @@ export const LABELS = {
     body: 'Text',
     block: 'Block',
     paragraph: 'Paragraph',
+    insert: 'Insert',
+    cancel: 'Cancel',
 };
 
 /** The built-in buttons, in toolbar order. */
@@ -91,9 +93,12 @@ function builtinButtons(l, ui) {
         buttons.push({ name: 'pictureFile', label: l.picture, title: l.pictureFile, run: () => ui.pickFile() });
     }
     buttons.push(
+        // Asked in a panel of the editor's own, never the browser's prompt(): a desktop
+        // application has none, and a native box looks like nothing else on the page.
         { name: 'pictureUrl', label: l.pictureUrlShort, title: l.pictureUrl, run: (e) => {
-            const src = window.prompt(l.pictureAddress, 'https://');
-            if (src) { e.chain().focus().insertContent({ type: 'picture', attrs: { src } }).run(); }
+            ui.ask(l.pictureAddress, 'https://').then((src) => {
+                if (src && src !== 'https://') { e.chain().focus().insertContent({ type: 'picture', attrs: { src } }).run(); }
+            });
         } },
         { name: 'moveUp', label: '▲', title: l.moveUp, run: (e) => { moveBlock(e, -1); e.commands.focus(); } },
         { name: 'moveDown', label: '▼', title: l.moveDown, run: (e) => { moveBlock(e, 1); e.commands.focus(); } },
@@ -181,6 +186,43 @@ export function createRichEditor(host, options = {}) {
         pickFile: () => file.click(),
         /** A panel of a plugin's own, under the toolbar. */
         addPanel(element) { panels.append(element); return element; },
+        /**
+         * Ask for one line in a panel under the toolbar, in place of the browser's prompt():
+         * resolves with what was typed (Enter, or Insert), or null (Escape, or Cancel).
+         */
+        ask(label, value = '') {
+            return new Promise((resolve) => {
+                const box = document.createElement('div');
+                box.className = 'pf-rich-panel';
+                box.setAttribute('role', 'group');
+                box.setAttribute('aria-label', label);
+                const text = document.createElement('label');
+                text.textContent = label + ' ';
+                const input = document.createElement('input');
+                input.className = 'pf-rich-input';
+                input.value = value;
+                text.append(input);
+                const done = (answer) => { box.remove(); resolve(answer); };
+                const ok = document.createElement('button');
+                ok.type = 'button';
+                ok.className = 'pf-rich-button';
+                ok.textContent = l.insert;
+                ok.addEventListener('click', () => done(input.value.trim()));
+                const no = document.createElement('button');
+                no.type = 'button';
+                no.className = 'pf-rich-button';
+                no.textContent = l.cancel;
+                no.addEventListener('click', () => done(null));
+                input.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter') { event.preventDefault(); done(input.value.trim()); }
+                    if (event.key === 'Escape') { event.preventDefault(); done(null); }
+                });
+                box.append(text, ok, no);
+                panels.append(box);
+                input.focus();
+                input.select();
+            });
+        },
         labels: l,
         wrapper: wrap,
         toolbar: bar,

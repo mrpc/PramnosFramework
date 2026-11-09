@@ -2544,4 +2544,5 @@ return [
     'A system channel is not deleted: the application writes to it.' => 'Ένα κανάλι συστήματος δεν διαγράφεται: η εφαρμογή γράφει σε αυτό.',
     'A direct conversation has no details to change.' => 'Μια απευθείας συζήτηση δεν έχει στοιχεία για αλλαγή.',
     'Only its owner, an admin of it or a moderator changes that.' => 'Αυτό το αλλάζει μόνο ο ιδιοκτήτης, ένας διαχειριστής ή ένας συντονιστής.',
+    'Insert' => 'Εισαγωγή',
 ];

@@ -226,6 +226,7 @@ final class Client
             'This message was deleted.' => t('This message was deleted.'),
             'Enter to save · Esc to cancel' => t('Enter to save · Esc to cancel'),
             'Cancel' => t('Cancel'),
+            'Delete' => t('Delete'),
             'Save' => t('Save'),
             'removed on %s' => t('removed on %s'),
             'Add a reaction' => t('Add a reaction'),
