@@ -440,8 +440,7 @@ breakdown and period. A view over them all, `stats.metric_values` (`Metrics::TAB
   which is safe to run again), names a grain's table (`Store::table('month')`), and holds the
   lock below.
 - **Made on first use.** The first computation or read in a process checks once that every grain's
-  table is there, and not the single table of an earlier version (`Store::ready()`). When
-  something is missing, it calls `ensure()`. A deploy whose migration has not run yet therefore
+  table is there (`Store::ready()`). When one is missing, it calls `ensure()`. A deploy whose migration has not run yet therefore
   computes and reads normally, and does not fail on a missing table.
 
 ### TimescaleDB
@@ -490,9 +489,6 @@ an application's own store or its statistics tables. `$map` names the columns:
 Every value comes in final, as `imported`. A second run replaces what the first wrote. Rows whose
 grain is none of the metrics' are counted as left out.
 
-An installation whose `stats.metric_values` is still the single table of an earlier version calls
-`Store::ensure($db)` once. It moves that table aside, copies every value into the grains' tables
-and drops it. A conversion cut short is finished by the next call.
 
 **Why there are no continuous aggregates over the values.** A continuous aggregate rolls a fine
 grain up into a coarser one, for example days into months, and that roll-up gives the right

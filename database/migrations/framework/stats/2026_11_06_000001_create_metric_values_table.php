@@ -19,9 +19,7 @@ use Pramnos\Database\Migration;
  *
  * A table per grain — `stats.metric_values_day` … `_year` — and a view over them all,
  * `stats.metric_values`, made by {@see \Pramnos\Metrics\Store::ensure()}: hypertables with
- * compression where TimescaleDB is installed. Changed in place from a single table (rule 14's
- * rule for a migration that has run): an installation that ran the single-table version calls
- * `Store::ensure()` once, which converts it and keeps every value.
+ * compression where TimescaleDB is installed.
  */
 class CreateMetricValuesTable extends Migration
 {

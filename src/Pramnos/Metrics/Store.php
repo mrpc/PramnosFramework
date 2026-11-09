@@ -22,8 +22,7 @@ use Pramnos\Database\Instant;
  * chunk interval, compressed by `(metric, tenant, dims_hash)` once its periods are well past
  * correction. Rewriting a closed period inside a compressed chunk is direct DML on 2.11+.
  *
- * {@see ensure()} makes all of it, and is safe to run again; it also converts the single
- * `stats.metric_values` table an installation may have from before, keeping every row.
+ * {@see ensure()} makes whatever of it is missing, and is safe to run again.
  */
 final class Store
 {
@@ -68,8 +67,8 @@ final class Store
     }
 
     /**
-     * Make the tables, the view and — with TimescaleDB — the hypertables and their compression;
-     * convert a single values table from before. Safe to run again.
+     * Make what is missing of the tables, the view and — with TimescaleDB — the hypertables and
+     * their compression. Safe to run again.
      *
      * @return list<string> What was done, a line each
      */
@@ -126,14 +125,6 @@ final class Store
         $schema = $db->schema();
         $schema->ensureSchema('stats');
         $done   = [];
-        $legacy = 'stats.metric_values_before';
-        // The single table from before is named like the view: moved aside, then copied over. A
-        // conversion cut short left it aside: the copy starts again, and replaces what it had done.
-        if (!$schema->hasTable($legacy) && $schema->hasTable(self::VIEW) && $schema->hasColumn(self::VIEW, 'dimset') && !$schema->hasColumn(self::VIEW, 'tenant')) {
-            $schema->renameTable(self::VIEW, $legacy);
-            $done[] = 'moved the single values table aside';
-        }
-        $legacy = $schema->hasTable($legacy) ? $legacy : null;
         $timescale = $db->type === 'postgresql' && $db->capabilities()->hasTimescaleDB();
         foreach (Window::GRAINS as $grain) {
             $table = self::table($grain);
@@ -169,10 +160,6 @@ final class Store
             }
         }
         $schema->createOrReplaceView(self::VIEW, self::viewSql($db));
-        if ($legacy !== null) {
-            $done[] = 'copied ' . self::copyLegacy($db, $legacy) . ' values from the single table';
-            $schema->dropTableIfExists($legacy);
-        }
 
         return $done;
     }
@@ -181,8 +168,8 @@ final class Store
     private static array $ready = [];
 
     /**
-     * Make sure the store is there before it is used: every grain's table, and not the single
-     * table of an earlier version. Asked once per database and process; when something is missing
+     * Make sure the store is there before it is used: every grain's table. Asked once per
+     * database and process; when one is missing
      * {@see ensure()} makes it, under its lock. A connection that cannot be asked is let be.
      */
     public static function ready(Database $db): void
@@ -194,7 +181,7 @@ final class Store
         self::$ready[$key] = true;
         try {
             $schema  = $db->schema();
-            $missing = $schema->hasColumn(self::VIEW, 'dimset') && !$schema->hasColumn(self::VIEW, 'tenant');
+            $missing = false;
             foreach (Window::GRAINS as $grain) {
                 $missing = $missing || !$schema->hasTable(self::table($grain));
             }
@@ -438,19 +425,5 @@ final class Store
         }
 
         return implode(' UNION ALL ', $parts);
-    }
-
-    /** Copy the single table's rows into the grains' tables; how many. */
-    private static function copyLegacy(Database $db, string $legacy): int
-    {
-        return self::pour($db, $db->queryBuilder()->table($legacy)->get(), static function (array $old) use ($db): ?array {
-            if (!in_array((string) $old['grain'], Window::GRAINS, true)) {
-                return null;
-            }
-            $window = Window::of((string) $old['grain'], substr((string) $old['period_start'], 0, 10));
-            $dims   = json_decode((string) $old['dims'], true);
-
-            return [(string) $old['grain'], self::row($db, (string) $old['metric'], $window, is_array($dims) ? $dims : [], $old['value'] === null ? null : (float) $old['value'], (string) $old['source'], (int) $old['final'] === 1, (int) $old['computed_at'])];
-        }, null)['rows'];
     }
 }

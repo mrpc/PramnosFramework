@@ -479,58 +479,6 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
-     * An installation that ran the single-table migration: its table is converted to the grains'
-     * tables on the next ensure, keeping every value — its periods, breakdowns and closed state.
-     */
-    public function testTheSingleTableFromBeforeIsConverted(): void
-    {
-        // Arrange — the table as the first version of the migration made it
-        $schema = $this->db->schema();
-        \Pramnos\Metrics\Store::drop($this->db);
-        $schema->createTable(Metrics::TABLE, function ($table) {
-            $table->string('metric', 100);
-            $table->string('grain', 8);
-            $table->date('period_start');
-            $table->string('dimset', 200)->default('');
-            $table->text('dims');
-            $table->char('dims_hash', 32);
-            $table->decimal('value', 20, 4)->default(0);
-            $table->string('source', 10)->default('computed');
-            $table->smallInteger('final')->default(0);
-            $table->integer('computed_at')->default(0);
-            $table->primary(['metric', 'grain', 'period_start', 'dims_hash']);
-        });
-        $old = fn (string $grain, string $period, string $dims, float $value, int $final): mixed => $this->db->queryBuilder()->table(Metrics::TABLE)->insert([
-            'metric' => 'test.orders', 'grain' => $grain, 'period_start' => $period, 'dimset' => $dims === '{}' ? '' : 'region', 'dims' => $dims,
-            'dims_hash' => md5($dims), 'value' => $value, 'source' => 'computed', 'final' => $final, 'computed_at' => 1,
-        ]);
-        $old('month', '2026-08-01', '{}', 5, 1);
-        $old('month', '2026-08-01', '{"region":"north"}', 3, 1);
-        $old('day', '2026-08-02', '{}', 2, 0);
-        $old('era', '2026-08-02', '{}', 9, 0);
-
-        try {
-            // Act
-            $done = \Pramnos\Metrics\Store::ensure($this->db);
-            $again = \Pramnos\Metrics\Store::ensure($this->db);
-
-            // Assert
-            $this->assertContains('moved the single values table aside', $done);
-            $this->assertContains('copied 3 values from the single table', $done, 'a grain no table has is left out');
-            $this->assertNotContains('moved the single values table aside', $again, 'once');
-            $this->assertSame(5.0, Metrics::value('test.orders', 'month', '2026-08-01'));
-            $this->assertSame(3.0, Metrics::value('test.orders', 'month', '2026-08-01', ['region' => 'north']));
-            $this->assertSame(2.0, Metrics::value('test.orders', 'day', '2026-08-02'));
-            $this->assertSame(1, $this->db->queryBuilder()->table(\Pramnos\Metrics\Store::table('month'))->where('metric', 'test.orders')->where('final', 1)->where('dimset', '')->count(), 'closed stays closed');
-            $this->assertFalse($schema->hasTable('stats.metric_values_before'), 'the old table is gone');
-        } finally {
-            \Pramnos\Metrics\Store::drop($this->db);
-            $schema->dropTableIfExists(Metrics::TABLE);
-            \Pramnos\Framework\Testing\Schema::ensure([CreateMetricValuesTable::class], $this->db);
-        }
-    }
-
-    /**
      * An application's own store is imported once: its columns mapped to metric, grain, period,
      * value, a dimension (empty for the total) and a kept text; every value final and imported,
      * a second run replacing rather than adding, and rows that cannot be placed counted aside.
@@ -827,40 +775,5 @@ class MetricsMySQLTest extends TestCase
             \Pramnos\Metrics\Store::unlock($other);
             $other->close();
         }
-    }
-
-    /**
-     * A conversion cut short — the single table moved aside, not yet copied — is finished by the
-     * next ensure: its rows copied, it dropped.
-     */
-    public function testAConversionCutShortIsFinished(): void
-    {
-        // Arrange
-        $schema = $this->db->schema();
-        $schema->dropTableIfExists('stats.metric_values_before');
-        $schema->createTable('stats.metric_values_before', function ($table) {
-            $table->string('metric', 100);
-            $table->string('grain', 8);
-            $table->date('period_start');
-            $table->string('dimset', 200)->default('');
-            $table->text('dims');
-            $table->char('dims_hash', 32);
-            $table->decimal('value', 20, 4)->default(0);
-            $table->string('source', 10)->default('computed');
-            $table->smallInteger('final')->default(0);
-            $table->integer('computed_at')->default(0);
-        });
-        $this->db->queryBuilder()->table('stats.metric_values_before')->insert([
-            'metric' => 'test.orders', 'grain' => 'month', 'period_start' => '2026-06-01', 'dimset' => '', 'dims' => '{}',
-            'dims_hash' => md5('{}'), 'value' => 8, 'source' => 'computed', 'final' => 1, 'computed_at' => 1,
-        ]);
-
-        // Act
-        $done = \Pramnos\Metrics\Store::ensure($this->db);
-
-        // Assert
-        $this->assertSame(['copied 1 values from the single table'], $done);
-        $this->assertSame(8.0, Metrics::value('test.orders', 'month', '2026-06-01'));
-        $this->assertFalse($schema->hasTable('stats.metric_values_before'));
     }
 }
