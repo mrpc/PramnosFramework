@@ -527,8 +527,8 @@ Listed, alongside every other extension point the framework fires, in the
 
 ## Notifications — the bell and a push
 
-A new message notifies, in the bell and as a push to every browser the person subscribed
-(`Notify`, `ConversationNotification`), as Slack does:
+A new message notifies, in the bell and as a push (`Notify`, `ConversationNotification`), as
+Slack does:
 
 | why | who |
 |---|---|
@@ -583,6 +583,34 @@ A click focuses the page already open at the notification's address and moves it
 (it also posts `{type: 'notification-click', url}` to the page), or opens one — on a phone, the
 installed app when the address is in its scope. The page subscribes to push through that worker's
 registration, as the [Push Guide](Pramnos_Push_Guide.md) describes.
+
+### Told in the client the person is in
+
+The push and the realtime notification go to **the client the person was last active in**, and to
+every client once they have been away longer than they chose, as Slack, Teams and Discord do. A
+client is a browser tab or the desktop application. The bell is told of every message, always.
+
+- **Which client.** Each tab keeps a random id, `window.pfClientId` (pf-utils.js, kept in
+  sessionStorage, so a reload keeps it). It reports "I did something" to `active`: when it opens,
+  when it comes to front, and on a key or a click at most once a minute. pf-utils starts this by
+  itself where the conversations' dock is on the page; `window.pfActivity(url)` starts it
+  elsewhere. The desktop application also sends `idle` (the system's idle seconds) and `locked`.
+  The server keeps one row per person, `pramnos.conversation_clients`, with the client, when, how
+  idle and whether it was in front (`Clients::active()`).
+- **Away.** Nothing reported for longer than the person's minutes, or a system idle or locked for
+  longer than that. The minutes are 0, 5 (the default), 10 or 30 (`Clients::awayAfter()`, `away`).
+  With 0, "at once", a client that is not in front (a hidden tab, a minimised window) counts as
+  away.
+- **The push** goes to the subscription made in that tab: the subscribe request sends `client`,
+  and `Subscriptions::tagClient()` keeps it. A subscription that names no client — from a page
+  older than this — is told as before, so nobody loses a notification. If the person is in a client
+  with no subscription (the desktop application), no push goes out and the push log says
+  `ELSEWHERE`. When the person is away, every subscription gets the push.
+- **The realtime telling** (`conversation.activity` on the person's own channel) carries `notify`:
+  the client that shows a notification, or `all`. A client shows one only when `notify` is its own
+  id or `all`; a client with no id shows one always.
+
+`Clients::target($userId)` answers the client a notification goes to, or null for every one.
 
 ## Scheduled messages
 

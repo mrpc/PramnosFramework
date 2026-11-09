@@ -792,3 +792,17 @@ happened.
 - [Email Guide → a message to many accounts](Pramnos_Email_Mass_Mail_Guide.md#a-message-to-many-accounts) — pushing a campaign, and the audience filters
 - [Queue Guide](Pramnos_Queue_Guide.md) — sending a large batch off the request
 - [Email Guide](Pramnos_Email_Guide.md) — the other channel that reaches somebody who is not here
+
+## A push to one client
+
+A notification can name the client its person is in by a method, `pushClient($notifiable)`, that
+returns a client id, or null for every subscription. The channel then sends to that client's
+subscriptions and to any subscription that names no client. It sends to no other client's.
+`ConversationNotification` does this, from `Pramnos\Conversations\Clients` (see the
+Conversations guide).
+
+A subscription learns its client when the page that makes it sends `client` with the
+subscription (`push-notifications.js` sends `window.pfClientId`); `Subscriptions::tagClient($userId,
+$endpoint, $client)` keeps it in `pushsubscriptions.client`. When every subscription belongs to
+another client, nothing is sent and the push log records `Log::ELSEWHERE`.
+

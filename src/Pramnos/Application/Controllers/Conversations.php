@@ -61,6 +61,8 @@ use Pramnos\Http\Response;
  * | `notify/{id}` | POST | `notify` (all, mentions, none), `muted` | `{ok}` |
  * | `star/{id}` | POST | `on`, `before` | `{ok}` — `before`, a starred conversation it is placed before, in the reader's own order |
  * | `starorder` | POST | `ids[]` | `{ok}`: the reader's own order of their starred conversations, all at once; ids not theirs are let be |
+ * | `active` | POST | `client`, `idle`, `front`, `locked` | `{ok}`: this client is where the person is, so a message is notified here alone |
+ * | `away` | POST | `minutes` (0, 5, 10, 30) | `{minutes, choices}`: away this long, every client is notified; read without `minutes` |
  * | `save/{id}` | POST | `on` | `{ok}`: a message kept for later, or let go |
  * | `upload/{id}` | POST | `file` (multipart) | `{id, name, size, mime}` |
  * | `file/{id}` | GET | `thumbnail` | the file, to a reader of its conversation |
@@ -68,7 +70,7 @@ use Pramnos\Http\Response;
 class Conversations extends Controller
 {
     /** The writes: each a POST with the session's token. */
-    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder'];
+    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away'];
 
     /** The JSON body, decoded once. @var array<string, mixed>|null */
     private ?array $json = null;
@@ -579,6 +581,33 @@ class Conversations extends Controller
             }
 
             return ['ok' => true];
+        });
+    }
+
+    /**
+     * "I did something", from a client: its id (`client`), and where it can tell, the system's idle
+     * seconds (`idle`), whether it is in front (`front`) and whether the screen is locked
+     * (`locked`). Where the person is decides which client is notified ({@see \Pramnos\Conversations\Clients}).
+     */
+    public function active(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Clients::active((int) $me->userid, (string) $this->in('client'),
+                $this->in('idle') !== null && $this->in('idle') !== '' ? (int) $this->in('idle') : null,
+                $this->flag('front'), $this->flag('locked', false));
+
+            return ['ok' => true];
+        });
+    }
+
+    /** How many minutes away before every client is told: read, or set with `minutes`. */
+    public function away(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $minutes = $this->in('minutes');
+
+            return ['minutes' => \Pramnos\Conversations\Clients::awayAfter((int) $me->userid, $minutes === null || $minutes === '' ? null : (int) $minutes),
+                'choices' => \Pramnos\Conversations\Clients::CHOICES];
         });
     }
 

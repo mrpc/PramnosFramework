@@ -45,6 +45,15 @@ class ConversationNotification implements NotificationInterface
         return array_values(array_filter(['database', $push ? 'push' : ''], static fn (string $via): bool => $via !== '' && in_array($via, $allowed, true)));
     }
 
+    /**
+     * The client to push to — the one the person was last active in — or null for every one
+     * ({@see Clients::target()}); a bell is told regardless.
+     */
+    public function pushClient(mixed $notifiable): ?string
+    {
+        return Clients::target((int) ($notifiable->userid ?? 0));
+    }
+
     /** @return array{message: string, url: string, group: string, about: list<string>} */
     public function toDatabase(mixed $notifiable): array
     {

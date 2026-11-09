@@ -80,6 +80,10 @@ class Push extends \Pramnos\Application\Controller
          */
         if ($stored) {
             $this->linkTrustedDevice($userId, (string) ($subscription['endpoint'] ?? ''));
+            // The tab it was made in, where the page names it (`client`, window.pfClientId).
+            if (is_string($subscription['client'] ?? null)) {
+                Subscriptions::tagClient($userId, (string) ($subscription['endpoint'] ?? ''), $subscription['client']);
+            }
         }
 
         return $stored

@@ -12,7 +12,7 @@ use Pramnos\Broadcasting\Auth\ChannelRegistry;
  * | channel                         | events                                                     |
  * |---------------------------------|------------------------------------------------------------|
  * | `private-conversation.{id}`     | `message.posted`, `message.edited`, `message.deleted`, `message.reacted`, `message.pinned` — and `client-typing`, which browsers whisper to each other |
- * | each member's own (`private-users.{id}`) | `conversation.activity`: a message in one of their conversations — a reply also sent to it marked `broadcast` — whether it mentions them; `conversation.read`: what they have read there moved — read, or marked unread — with what is left; `conversation.draft`: their draft somewhere changed |
+ * | each member's own (`private-users.{id}`) | `conversation.activity`: a message in one of their conversations — a reply also sent to it marked `broadcast` — whether it mentions them, and `notify`: the client to show a notification (the one they were last active in) or `all`; `conversation.read`: what they have read there moved — read, or marked unread — with what is left; `conversation.draft`: their draft somewhere changed |
  * | `presence-chat`                 | who of the team is connected                               |
  *
  * A message is written first and told second, so a browser that missed a telling asks for what came
@@ -62,12 +62,13 @@ final class Realtime
             return;
         }
         self::tell(self::channel($message['conversationId']), 'message.posted', $message);
-        foreach (Conversations::members($message['conversationId']) as $person) {
-            if ($person !== $message['authorId']) {
-                self::tell(self::userChannel($person), 'conversation.activity', ['conversationId' => $message['conversationId'],
-                    'messageId' => $messageId, 'threadRootId' => $message['threadRootId'], 'broadcast' => $message['broadcast'], 'authorId' => $message['authorId'],
-                    'mention' => isset($mentioned[$person])]);
-            }
+        $others  = array_values(array_filter(Conversations::members($message['conversationId']), static fn (int $person): bool => $person !== $message['authorId']));
+        // Which of each one's clients shows a notification: the one they were last active in, or all.
+        $targets = Clients::targets($others);
+        foreach ($others as $person) {
+            self::tell(self::userChannel($person), 'conversation.activity', ['conversationId' => $message['conversationId'],
+                'messageId' => $messageId, 'threadRootId' => $message['threadRootId'], 'broadcast' => $message['broadcast'], 'authorId' => $message['authorId'],
+                'mention' => isset($mentioned[$person]), 'notify' => $targets[$person] ?? 'all']);
         }
     }
 

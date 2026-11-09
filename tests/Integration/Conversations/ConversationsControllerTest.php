@@ -314,7 +314,7 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame([422, 'A message needs something in it.'], [$empty['status'], $empty['body']['error']]);
         $this->assertSame([422, 'There is a channel called #finance already.'], [$twice['status'], $twice['body']['error']]);
         $this->assertSame(403, $off['status'], 'an application without the conversations');
-        $this->assertSame(['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder'], $writes,
+        $this->assertSame(['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away'], $writes,
             'every write checks the session\'s token');
     }
 

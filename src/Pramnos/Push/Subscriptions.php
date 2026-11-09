@@ -106,6 +106,29 @@ class Subscriptions
     }
 
     /**
+     * Mark one of the person's subscriptions with the client — the tab — it was made in, by the
+     * random id the tab keeps for itself ({@see \Pramnos\Conversations\Clients}), so a
+     * notification that knows where its person is goes to that subscription alone.
+     */
+    public static function tagClient(int $userId, string $endpoint, string $client): bool
+    {
+        $client = \Pramnos\Conversations\Clients::clean($client);
+        if ($userId < 1 || $endpoint === '' || $client === '') {
+            return false;
+        }
+        try {
+            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('pramnos.pushsubscriptions')
+                ->where('userid', $userId)->where('endpoint_hash', hash('sha256', $endpoint))->update(['client' => $client]);
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log('Could not mark a push subscription with its client: ' . $exception->getMessage(), 'push');
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Mark this browser's subscription as belonging to one of the account's trusted devices.
      *
      * Only a trusted device is asked to approve a sign-in elsewhere, and the subscription is

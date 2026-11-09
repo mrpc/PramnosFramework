@@ -102,6 +102,21 @@ class PushChannel implements ChannelInterface
             return;
         }
 
+        /*
+         * A notification that knows which client its person is in (`pushClient()`, a conversation's
+         * message) goes to that client's subscription alone — and to any subscription made by a
+         * page that names no client, which is told as before. Null: every subscription.
+         */
+        $client = method_exists($notification, 'pushClient') ? $notification->pushClient($notifiable) : null;
+        if (is_string($client) && $client !== '') {
+            $subscriptions = array_values(array_filter($subscriptions, static fn (array $one): bool => ($one['client'] ?? null) === null || $one['client'] === '' || $one['client'] === $client));
+            if ($subscriptions === []) {
+                $this->refuse($userId, Log::ELSEWHERE, $data, $name);
+
+                return;
+            }
+        }
+
         $vapid = $this->vapid();
 
         if ($vapid === null) {

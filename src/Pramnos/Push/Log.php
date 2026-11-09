@@ -41,6 +41,9 @@ class Log
     /** The reasons a send stops before it reaches a subscription. */
     public const NO_SUBSCRIPTION = 'No browser on this account is subscribed';
 
+    /** The person is active in a client with no push subscription (the desktop application): it is told there. */
+    public const ELSEWHERE = 'The person is active in another client, which is told there instead';
+
     public const NO_KEYS = 'This installation has no VAPID key pair — run `push:vapid-generate`';
 
     public const NO_LIBRARY = 'The payload encryption library is not installed';

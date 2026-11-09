@@ -330,7 +330,8 @@
                     method: 'POST',
                     credentials: 'include',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token() },
-                    body: JSON.stringify(subscription.toJSON())
+                    // The tab it is made in, so a conversation's push reaches the tab its reader is in.
+                    body: JSON.stringify(Object.assign(subscription.toJSON(), window.pfClientId ? { client: window.pfClientId } : {}))
                 });
             })
             .then(function (response) {

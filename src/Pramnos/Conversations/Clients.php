@@ -1,0 +1,142 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Pramnos\Conversations;
+
+/**
+ * Where a person is: the client — a browser tab, the desktop application — they last did
+ * something in, so a message's notification goes there alone, as Slack, Teams and Discord do,
+ * and to every client once they have been away longer than they chose.
+ *
+ * ```php
+ * Clients::active($userId, $clientId);                        // "I did something" — from each client, now and then
+ * Clients::active($userId, $clientId, idle: 240, front: false); // the desktop app: the system idle 4 min, window hidden
+ * Clients::target($userId);                                    // the client to notify, or null: every client
+ * Clients::awayAfter($userId, 10);                             // their choice: 0 (at once), 5, 10 or 30 minutes
+ * ```
+ *
+ * A client is a random id a tab or an application keeps for itself (`window.pfClientId` in
+ * pf-utils.js). A push subscription made in that tab carries it ({@see \Pramnos\Push\Subscriptions::tagClient()}),
+ * so a push goes to that subscription alone; the realtime telling of a message carries `notify`,
+ * the id or `all`, and each client shows a notification only when it is the one. A client with no
+ * id — an older version, a cached page — is told as before, so nobody loses a notification.
+ *
+ * Away is: nothing reported for longer than the person's minutes, or the system reported idle
+ * (or locked) longer than that. With "at once" (0 minutes) a client that is not in front — a
+ * hidden tab, a minimised application — counts as away. The bell is told of every message, always.
+ *
+ * State, not history (rule 14): one row per person, `pramnos.conversation_clients`, replaced at
+ * each report.
+ */
+final class Clients
+{
+    public const TABLE = 'pramnos.conversation_clients';
+
+    /** The minutes away before every client is told, when the person chose none. */
+    public const AWAY_AFTER = 5;
+
+    /** The choices of minutes. */
+    public const CHOICES = [0, 5, 10, 30];
+
+    /**
+     * A client of the person did something.
+     *
+     * @param int|null $idle  The system's idle seconds, where the client can tell (the desktop application)
+     * @param bool     $front Whether the client is in front — a visible tab, a window not minimised
+     * @param bool     $locked Whether the screen is locked
+     */
+    public static function active(int $userId, string $clientId, ?int $idle = null, bool $front = true, bool $locked = false, ?int $now = null): void
+    {
+        $clientId = self::clean($clientId);
+        if ($userId < 1 || $clientId === '') {
+            return;
+        }
+        $row = ['client' => $clientId, 'seenat' => $now ?? time(), 'idle' => $locked ? 31_536_000 : max(0, (int) $idle), 'front' => $front ? 1 : 0];
+        $db  = Conversations::db();
+        if ($db->queryBuilder()->table(self::TABLE)->where('userid', $userId)->count() > 0) {
+            $db->queryBuilder()->table(self::TABLE)->where('userid', $userId)->update($row);
+
+            return;
+        }
+        $db->queryBuilder()->table(self::TABLE)->insert(['userid' => $userId] + $row);
+    }
+
+    /** The person's choice of minutes away before every client is told; with `$minutes`, set it. */
+    public static function awayAfter(int $userId, ?int $minutes = null): int
+    {
+        $db = Conversations::db();
+        if ($minutes !== null) {
+            if (!in_array($minutes, self::CHOICES, true)) {
+                throw new \InvalidArgumentException(sprintf(t('Choose one of: %s minutes.'), implode(', ', self::CHOICES)));
+            }
+            if ($db->queryBuilder()->table(self::TABLE)->where('userid', $userId)->count() > 0) {
+                $db->queryBuilder()->table(self::TABLE)->where('userid', $userId)->update(['awayafter' => $minutes]);
+            } else {
+                $db->queryBuilder()->table(self::TABLE)->insert(['userid' => $userId, 'client' => '', 'seenat' => 0, 'idle' => 0, 'front' => 0, 'awayafter' => $minutes]);
+            }
+
+            return $minutes;
+        }
+        $row = $db->queryBuilder()->table(self::TABLE)->where('userid', $userId)->first()?->fetch();
+
+        return is_array($row) && $row['awayafter'] !== null ? (int) $row['awayafter'] : self::AWAY_AFTER;
+    }
+
+    /** The client to notify of a message, or null for every client. */
+    public static function target(int $userId, ?int $now = null): ?string
+    {
+        return self::targets([$userId], $now)[$userId];
+    }
+
+    /**
+     * {@see target()} for several people at once.
+     *
+     * @param list<int> $userIds
+     * @return array<int, string|null>
+     */
+    public static function targets(array $userIds, ?int $now = null): array
+    {
+        $now = $now ?? time();
+        $out = array_fill_keys($userIds, null);
+        if ($userIds === []) {
+            return $out;
+        }
+        try {
+            $rows = Conversations::db()->queryBuilder()->table(self::TABLE)->whereIn('userid', array_values(array_unique($userIds)))->get();
+        } catch (\Throwable) {
+            // Before its migration has run: everybody told everywhere, as before.
+            return $out;
+        }
+        while ($rows && ($row = $rows->fetch()) !== null && $row !== false) {
+            $out[(int) $row['userid']] = self::choose($row, $now);
+        }
+
+        return $out;
+    }
+
+    /** One person's row decided: their client, or null when they are away. @param array<string, mixed> $row */
+    private static function choose(array $row, int $now): ?string
+    {
+        if ((string) $row['client'] === '') {
+            return null;
+        }
+        $limit = 60 * ($row['awayafter'] !== null ? (int) $row['awayafter'] : self::AWAY_AFTER);
+        $quiet = $now - (int) $row['seenat'];
+        if ($limit === 0) {
+            // "At once": the client must be in front, and have been seen within a minute.
+            return (int) $row['front'] === 1 && $quiet <= 60 && (int) $row['idle'] < 60 ? (string) $row['client'] : null;
+        }
+        if ($quiet > $limit || (int) $row['idle'] + $quiet > $limit) {
+            return null;
+        }
+
+        return (string) $row['client'];
+    }
+
+    /** An id as a client may give it: letters, digits, `-` and `_`, up to 64. */
+    public static function clean(string $clientId): string
+    {
+        return preg_match('/^[A-Za-z0-9_-]{1,64}$/', $clientId) === 1 ? $clientId : '';
+    }
+}

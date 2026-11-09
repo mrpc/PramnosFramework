@@ -145,6 +145,54 @@
     window.pfApiHeaders = pfApiHeaders;
 
     // ══════════════════════════════════════════════════════════════════════════
+    // Where the person is: a random id this tab keeps for itself while it lives (a reload keeps
+    // it, sessionStorage), and "I did something" sent to the server — on a key, a click or the
+    // tab coming to front, at most once a minute — so a conversation's message is notified in
+    // the client the person is in, and everywhere once they are away (Pramnos\Conversations\Clients).
+    // A push subscription made here sends the same id. Started by itself where the conversations'
+    // dock is on the page; window.pfActivity(url) starts it elsewhere.
+    // ══════════════════════════════════════════════════════════════════════════
+    window.pfClientId = (function () {
+        var made = function () {
+            return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+        };
+        try {
+            var id = window.sessionStorage.getItem('pf-client');
+            if (!id) { id = made(); window.sessionStorage.setItem('pf-client', id); }
+            return id;
+        } catch (err) {
+            return made();
+        }
+    }());
+
+    window.pfActivity = function (url) {
+        if (!url || window.pfActivity.url) { return; }
+        window.pfActivity.url = url;
+        var last = 0;
+        var send = function (force) {
+            var now = Date.now();
+            if (!force && now - last < 60000) { return; }
+            last = now;
+            var front = !document.hidden;
+            var headers = pfApiHeaders();
+            headers['Content-Type'] = 'application/json';
+            window.fetch(url, { method: 'POST', credentials: 'same-origin', headers: headers,
+                body: JSON.stringify({ client: window.pfClientId, front: front }) }).catch(function () { /* told next time */ });
+        };
+        ['keydown', 'pointerdown', 'focus'].forEach(function (name) { window.addEventListener(name, function () { send(false); }, true); });
+        document.addEventListener('visibilitychange', function () { send(true); });
+        send(true);
+    };
+    (function () {
+        var dock = document.querySelector('[data-pf-conversations-dock]');
+        if (!dock) { return; }
+        try {
+            var base = (JSON.parse(dock.getAttribute('data-props') || '{}') || {}).base;
+            if (base) { window.pfActivity(base + 'active'); }
+        } catch (err) { /* no dock settings: nothing to report to */ }
+    }());
+
+    // ══════════════════════════════════════════════════════════════════════════
     // <meta name="csrf-refresh" content="…/Csrf"> — a page open a while takes the current token
     //
     // A form keeps the token it was drawn with. Signing in in another tab, or a session that

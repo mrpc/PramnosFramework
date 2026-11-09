@@ -499,6 +499,36 @@ class PushChannelTest extends TestCase
         $this->assertSame([], $channel->recorded);
     }
 
+    /**
+     * A notification that knows which client its person is in pushes to that client's
+     * subscription and to any subscription that names no client (a page that sends none is told
+     * as before) — never to another client's. When only another client is subscribed, nothing is
+     * sent: the person is told in the client they are in. Without a client named, all of them.
+     */
+    public function testAPushGoesToTheClientThePersonIsIn(): void
+    {
+        // Arrange
+        $keys = ['publicKey' => 'p', 'privateKey' => 'k', 'subject' => 'mailto:a@b.c'];
+        $subs = [
+            ['client' => 'tab-a'] + $this->subscription('https://a.example/1'),
+            ['client' => 'tab-b'] + $this->subscription('https://b.example/2'),
+            ['client' => null] + $this->subscription('https://c.example/3'),
+        ];
+
+        // Act — each channel made just before its send: the fake library reports to the last one made
+        $there = new SendingPushChannel($subs, $keys);
+        $there->send((object) ['userid' => 1], new ClientPushNotification('tab-a'));
+        $elsewhere = new SendingPushChannel([$subs[1]], $keys);
+        $elsewhere->send((object) ['userid' => 1], new ClientPushNotification('tab-a'));
+        $anywhere = new SendingPushChannel($subs, $keys);
+        $anywhere->send((object) ['userid' => 1], new ClientPushNotification(null));
+
+        // Assert
+        $this->assertSame(['https://a.example/1', 'https://c.example/3'], array_column($there->sent, 'endpoint'), 'its own tab, and the one that names none');
+        $this->assertSame([], $elsewhere->sent, 'the person is in a client with no subscription here');
+        $this->assertCount(3, $anywhere->sent, 'away: every subscription');
+    }
+
     /** @return array<string, mixed> */
     private function subscription(string $endpoint = 'https://a.example/1'): array
     {
@@ -651,4 +681,16 @@ class PushChannelProbe extends PushChannel
     public function probeSubscriptionClass(): string { return $this->subscriptionClass(); }
 
     public function probeVapid(): ?array { return $this->vapid(); }
+}
+
+/** A notification that names the client its person is in, as a conversation's message does. */
+class ClientPushNotification extends PushableNotification
+{
+    public function __construct(private ?string $client)
+    {
+        parent::__construct();
+    }
+
+    /** The client to push to, or null for all. */
+    public function pushClient(mixed $notifiable): ?string { return $this->client; }
 }
