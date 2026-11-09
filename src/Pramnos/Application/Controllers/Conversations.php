@@ -597,7 +597,8 @@ class Conversations extends Controller
             $canvas = \Pramnos\Conversations\Canvases::readable($this->id(), $me);
             $editor = $canvas['lockedBy'] !== null && (int) $canvas['lockedAt'] >= time() - \Pramnos\Conversations\Canvases::LOCK ? $canvas['lockedBy'] : null;
 
-            return ['canvas' => ['lockedBy' => $editor, 'editorName' => $editor !== null ? (\Pramnos\Conversations\People::names([$editor])[$editor] ?? null) : null] + $canvas,
+            return ['canvas' => ['lockedBy' => $editor, 'editorName' => $editor !== null ? (\Pramnos\Conversations\People::names([$editor])[$editor] ?? null) : null,
+                'deletable' => \Pramnos\Conversations\Canvases::mayDelete($canvas, (int) $me->userid)] + $canvas,
                 'heartbeat' => \Pramnos\Conversations\Canvases::HEARTBEAT]
                 + ($this->in('version') !== null ? ['version' => \Pramnos\Conversations\Canvases::version($this->id(), (int) $this->in('version'))] : []);
         });

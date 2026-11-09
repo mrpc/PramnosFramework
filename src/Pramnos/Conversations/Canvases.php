@@ -214,13 +214,23 @@ final class Canvases
     public static function delete(int $id, int $by): void
     {
         $canvas = self::readable($id);
-        if ($canvas['createdBy'] !== $by && !Access::moderates(new \Pramnos\User\User($by), $canvas['conversationId'])) {
+        if (!self::mayDelete($canvas, $by)) {
             throw new \DomainException(t('Only its author, or an admin of the conversation, deletes a canvas.'));
         }
         self::table()->where('canvasid', $id)->delete();
         Tabs::forgetCanvas($canvas['conversationId'], $id, $by);
         ChangelogWriter::event('canvas', $id, 'canvas.deleted', ['title' => $canvas['title']], by: $by);
         self::told($canvas['conversationId'], $id, 'deleted', $by);
+    }
+
+    /**
+     * Whether somebody may delete a canvas: its author, or whoever manages its conversation.
+     *
+     * @param array<string, mixed> $canvas
+     */
+    public static function mayDelete(array $canvas, int $by): bool
+    {
+        return $canvas['createdBy'] === $by || Access::moderates(new \Pramnos\User\User($by), (int) $canvas['conversationId']);
     }
 
     /**

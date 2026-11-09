@@ -40,7 +40,7 @@ function canvas(element, props) {
     setStrings(props.strings);
     element.textContent = '';
 
-    return mount(CanvasEditor, { target: element, props: { api: createApi(props.base), canvasId: props.canvasId, conversationId: props.conversationId, me: props.me, onclose: props.onclose || null } });
+    return mount(CanvasEditor, { target: element, props: { api: createApi(props.base), canvasId: props.canvasId, conversationId: props.conversationId, me: props.me, onclose: props.onclose || null, ondelete: props.ondelete || null } });
 }
 
 window.PfConversations = { dock, canvas };

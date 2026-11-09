@@ -1126,7 +1126,7 @@ application with the `conversations` feature; an application made before adds th
 | `removetab/{id}`, `hidetab/{id}` | POST | `tab`, `on` | `{tabs}` |
 | `ordertabs/{id}` | POST | `order` (tab ids) | `{tabs}` |
 | `canvases/{id}` | GET | — | `{canvases}`: a conversation's, without their bodies |
-| `canvas/{canvasId}` | GET | `version` | `{canvas, heartbeat}` with `lockedBy`, `editorName`; with `version`, `{version: {title, body}}` too |
+| `canvas/{canvasId}` | GET | `version` | `{canvas, heartbeat}` with `lockedBy`, `editorName`, `deletable` (whether the reader may delete it); with `version`, `{version: {title, body}}` too |
 | `canvasversions/{canvasId}` | GET | — | `{versions}`: `{version, by, at, title}`, newest first |
 | `newcanvas/{id}` | POST | `title` | `{canvas}` |
 | `lockcanvas/{canvasId}` | POST | — | `{locked, lockedBy, editorName}` — the heartbeat too |

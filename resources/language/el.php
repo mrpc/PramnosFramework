@@ -2545,4 +2545,5 @@ return [
     'A direct conversation has no details to change.' => 'Μια απευθείας συζήτηση δεν έχει στοιχεία για αλλαγή.',
     'Only its owner, an admin of it or a moderator changes that.' => 'Αυτό το αλλάζει μόνο ο ιδιοκτήτης, ένας διαχειριστής ή ένας συντονιστής.',
     'Insert' => 'Εισαγωγή',
+    'Delete this canvas? Its versions are kept in the history.' => 'Διαγραφή αυτού του καμβά; Οι εκδόσεις του μένουν στο ιστορικό.',
 ];

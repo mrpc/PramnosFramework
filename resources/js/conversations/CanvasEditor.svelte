@@ -10,13 +10,15 @@
      * and a plugin of its own: a checklist, and mentions of people (`@`, or the button) as
      * `<span data-type="mention" data-id>`. Pictures dropped or chosen are the conversation's files.
      *
-     * Props: `api` (the conversations' client), `canvasId`, `conversationId`, `me`, and `onclose`.
+     * Props: `api` (the conversations' client), `canvasId`, `conversationId`, `me`, `onclose`, and
+     * `ondelete` (after it was deleted; `onclose` without it). Its author, and whoever manages the
+     * conversation, see "Delete", asked in the page.
      * Call `reload()` when the conversation's channel says `canvas.changed` for this canvas.
      */
     import { tick } from 'svelte';
     import { t } from './t.js';
 
-    let { api, canvasId, conversationId, me, onclose = null } = $props();
+    let { api, canvasId, conversationId, me, onclose = null, ondelete = null } = $props();
 
     let canvas = $state(null);
     let editing = $state(false);
@@ -26,6 +28,7 @@
     let saving = $state(false);
     let versions = $state(null);
     let shown = $state(null);           // a version being looked at
+    let deleting = $state(false);       // asked in the page: delete it?
     let host = $state(null);
     let instance = null;
     let beat = null;
@@ -210,6 +213,19 @@
         editing = false;
     }
 
+    /** Delete it, asked in the page first; then whoever opened it is told. */
+    async function destroy() {
+        deleting = false;
+        try {
+            await api.post('deletecanvas/' + canvasId);
+            stop();
+            canvas = null;
+            (ondelete || onclose)?.();
+        } catch (err) {
+            error = err.message;
+        }
+    }
+
     async function listVersions() {
         versions = versions ? null : (await api.get('canvasversions/' + canvasId)).versions;
     }
@@ -246,10 +262,18 @@
                     <button type="button" class="pf-conv-btn" onclick={edit}>{t('Edit')}</button>
                 {/if}
                 <button type="button" class="pf-conv-btn" aria-expanded={!!versions} onclick={listVersions}>{t('Versions')}</button>
+                {#if canvas.deletable}<button type="button" class="pf-conv-btn pf-conv-danger" onclick={() => (deleting = true)}>{t('Delete')}</button>{/if}
                 {#if onclose}<button type="button" class="pf-conv-btn" onclick={onclose} aria-label={t('Close')}>✕</button>{/if}
             {/if}
         </header>
         {#if error}<p class="pf-conv-error" role="alert">{error}</p>{/if}
+        {#if deleting}
+            <div class="pf-conv-confirm" role="alertdialog" aria-label={t('Delete')}>
+                <span>{t('Delete this canvas? Its versions are kept in the history.')}</span>
+                <button type="button" class="pf-conv-btn pf-conv-danger" onclick={destroy}>{t('Delete')}</button>
+                <button type="button" class="pf-conv-btn" onclick={() => (deleting = false)}>{t('Cancel')}</button>
+            </div>
+        {/if}
         {#if versions}
             <ol class="pf-canvas-versions">
                 {#each versions as v (v.version)}

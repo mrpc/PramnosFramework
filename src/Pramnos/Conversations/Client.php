@@ -227,6 +227,7 @@ final class Client
             'Enter to save · Esc to cancel' => t('Enter to save · Esc to cancel'),
             'Cancel' => t('Cancel'),
             'Delete' => t('Delete'),
+            'Delete this canvas? Its versions are kept in the history.' => t('Delete this canvas? Its versions are kept in the history.'),
             'Save' => t('Save'),
             'removed on %s' => t('removed on %s'),
             'Add a reaction' => t('Add a reaction'),

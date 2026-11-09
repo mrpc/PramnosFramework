@@ -189,6 +189,7 @@ class TabsAndCanvasesTest extends TestCase
             $saved    = $this->ask('maria', 'savecanvas', $id, ['title' => 'Plan', 'body' => '<p>Everything about it</p>']);
             $this->ask('maria', 'savecanvas', $id, ['title' => 'Plan', 'body' => '<p>Changed</p>']);
             $read     = $this->ask('nikos', 'canvas', $id, ['version' => 1]);
+            $mine     = $this->ask('maria', 'canvas', $id, []);
             $versions = $this->ask('nikos', 'canvasversions', $id, []);
             $restored = $this->ask('maria', 'restorecanvas', $id, ['version' => 1]);
             $this->ask('maria', 'unlockcanvas', $id, []);
@@ -208,6 +209,7 @@ class TabsAndCanvasesTest extends TestCase
             $this->assertSame(1, $saved['body']['version']);
             $this->assertSame('<p>Everything about it</p>', $read['body']['version']['body']);
             $this->assertSame($maria, $read['body']['canvas']['lockedBy'], 'who is editing it');
+            $this->assertSame([false, true], [$read['body']['canvas']['deletable'], $mine['body']['canvas']['deletable']], 'Delete offered to its author, not to a member');
             $this->assertSame([2, 1], array_column($versions['body']['versions'], 'version'));
             $this->assertIsInt($versions['body']['versions'][0]['at'], 'a moment, for the reader\'s own format');
             $this->assertGreaterThan(time() - 3600, $versions['body']['versions'][0]['at']);
