@@ -318,6 +318,23 @@ if (!is_object($user) || (int) $user->userid < 2) {   // user 1 is the anonymous
 A controller extending `ApiCrudController` gets this, plus the permission check, from
 `$this->guard('<action>')`.
 
+### A token of the OAuth server stands for the key
+
+An OAuth client's `client_id` is an application's `apikey`. So a request with no `apiKey` but a
+bearer token that this installation's OAuth server issued (`/oauth/token`, RS256) is let through
+as that client:
+
+- **The calling application** is the token's client, as if its key had been sent. Its limits,
+  addresses, origins and logs apply, so each client is told apart, and one can be switched off
+  alone.
+- **A public client** (a desktop or mobile application with PKCE) has no secret, and its
+  `client_id` alone is still refused as a key. Its token is what proves it.
+- **A client switched off** is refused: `401 APIKeyInvalid`.
+- **A token that does not verify**, or one signed with the shared HS256 key, names no client.
+  The key is asked for as before: `403 APIKeyMissing`.
+
+The client is read from the token's `client_id` claim, else its `aud`.
+
 ### `POST /account/login` — a password for a bearer token
 
 The framework's own API login, in `Pramnos\Auth\Controllers\ApiAccount`. It runs the same

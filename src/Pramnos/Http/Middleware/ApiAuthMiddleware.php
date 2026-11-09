@@ -64,12 +64,14 @@ class ApiAuthMiddleware implements MiddlewareInterface
      * @param string        $authKey       Symmetric HMAC key for HS256 JWT verification.
      * @param string|null   $appNamespace  Application namespace used to resolve a custom User class.
      * @param list<string>  $publicPaths   Glob patterns this middleware lets through unauthenticated.
+     * @param string|null   $publicKeyPath The OAuth server's RSA public key; `app/keys/public.key` (or `keys/public.key`) when null.
      */
     public function __construct(
         private readonly mixed   $apiKeyChecker,
         private readonly string  $authKey       = '',
         private readonly ?string $appNamespace  = null,
         private readonly array   $publicPaths   = [],
+        private readonly ?string $publicKeyPath = null,
     ) {}
 
     /**
@@ -151,6 +153,30 @@ class ApiAuthMiddleware implements MiddlewareInterface
 
         // --- API key check ---
         if (empty($_SERVER['HTTP_APIKEY'])) {
+            /*
+             * A token this installation's OAuth server issued names its client, and the client is
+             * an application with its key: `client_id` is the `apikey`. So a token that verifies
+             * stands for the key — a public client (a desktop application with PKCE) has no
+             * secret to send, and its id alone is refused as a key on purpose. The calling
+             * application is then that client, for its limits and its logs, and a client switched
+             * off is refused here. A token that does not verify, or one signed with the shared
+             * HS256 key, names no client, and the key is asked for as before.
+             */
+            $tkn = Request::accessToken();
+            if ($tkn !== null) {
+                $claims = null;
+                $user   = $this->verifiedTokenUser($tkn, $why, $claims);
+                $client = self::clientOf($claims);
+                if ($client !== null) {
+                    if (!($this->apiKeyChecker)($client)) {
+                        return $this->error(401, 'APIKeyInvalid', 'The application this token was issued to is not active.');
+                    }
+                    $this->setRequestUser($user);
+
+                    return $next($request);
+                }
+            }
+
             /**
              * One caller legitimately has no API key: the application's own
              * signed-in page.
@@ -246,11 +272,13 @@ class ApiAuthMiddleware implements MiddlewareInterface
      * declared-public path, which stays anonymous on null — so the two cannot come to
      * different opinions about the same token.
      *
-     * @param string      $tkn The raw token.
-     * @param string|null $why Set to what went wrong, for the debug detail of a refusal.
+     * @param string      $tkn    The raw token.
+     * @param string|null $why    Set to what went wrong, for the debug detail of a refusal.
+     * @param object|null $claims Set to the claims of an RS256 token that verified — the OAuth server's
      */
-    private function verifiedTokenUser(string $tkn, ?string &$why = null): ?\Pramnos\User\User
+    private function verifiedTokenUser(string $tkn, ?string &$why = null, ?object &$claims = null): ?\Pramnos\User\User
     {
+        $claims = null;
         $tokenInfo = \Pramnos\Auth\JWT::getTokenInformation($tkn);
 
         if (!$tokenInfo) {
@@ -263,7 +291,7 @@ class ApiAuthMiddleware implements MiddlewareInterface
         $decodeKey = $this->authKey;
 
         if ($rs256) {
-            foreach ([ROOT . '/app/keys/public.key', ROOT . '/keys/public.key'] as $path) {
+            foreach (array_filter([$this->publicKeyPath, ROOT . '/app/keys/public.key', ROOT . '/keys/public.key']) as $path) {
                 if (file_exists($path)) {
                     $decodeKey = file_get_contents($path);
                     break;
@@ -273,10 +301,13 @@ class ApiAuthMiddleware implements MiddlewareInterface
 
         try {
             \Pramnos\Auth\JWT::$leeway = 60;
-            $claims = \Pramnos\Auth\JWT::decode($tkn, $decodeKey, $rs256 ? ['HS256', 'RS256'] : ['HS256']);
+            $decoded = \Pramnos\Auth\JWT::decode($tkn, $decodeKey, $rs256 ? ['RS256'] : ['HS256']);
         } catch (\Exception $ex) {
             $why = $ex->getMessage();
             return null;
+        }
+        if ($rs256 && is_object($decoded)) {
+            $claims = $decoded;
         }
 
         $user = $this->resolveUser();
@@ -293,11 +324,23 @@ class ApiAuthMiddleware implements MiddlewareInterface
          * `Gdpr::resolveActor()` is one — would otherwise accept any forged JWT carrying a
          * real `jti`.
          */
-        if ($user->userid <= 1 && is_object($claims) && is_string($claims->jti ?? null) && $claims->jti !== '') {
-            $user->loadByToken($claims->jti);
+        if ($user->userid <= 1 && is_object($decoded) && is_string($decoded->jti ?? null) && $decoded->jti !== '') {
+            $user->loadByToken($decoded->jti);
         }
 
         return $user->userid > 1 ? $user : null;
+    }
+
+    /** The client an OAuth token was issued to — its `client_id`, else its audience — or null. */
+    private static function clientOf(?object $claims): ?string
+    {
+        if ($claims === null) {
+            return null;
+        }
+        $aud    = $claims->client_id ?? $claims->aud ?? null;
+        $client = is_array($aud) ? ($aud[0] ?? null) : $aud;
+
+        return is_string($client) && $client !== '' ? $client : null;
     }
 
     /**
