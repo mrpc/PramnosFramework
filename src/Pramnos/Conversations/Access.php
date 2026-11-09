@@ -68,12 +68,12 @@ final class Access
     }
 
     /**
-     * Whether an account moderates a conversation: its owner, or whoever has `admin.chat.moderate` —
-     * a superuser's by default.
+     * Whether an account moderates a conversation: its owner or one of its admins, or whoever has
+     * `admin.chat.moderate` — a superuser's by default.
      */
     public static function moderates(?object $user, int $conversationId): bool
     {
-        return self::canUse($user) && ((Conversations::member($conversationId, (int) $user->userid)['role'] ?? null) === 'owner'
+        return self::canUse($user) && (in_array(Conversations::member($conversationId, (int) $user->userid)['role'] ?? null, ['owner', 'admin'], true)
             || \Pramnos\Auth\AdminAccess::allows($user, self::MODERATE, \Pramnos\Auth\AdminAccess::superuserUsertype()));
     }
 

@@ -8,6 +8,8 @@ use_cases:
   - Showing a link's preview card under a message, or turning previews off for some sites
   - Letting people send GIFs from Giphy or Klipy without the key reaching the browser
   - Keeping the team talking when the server is down, with a second server as a beacon
+  - Renaming, describing, archiving or deleting a channel, and managing its members and their roles
+  - Listing the links and files said in a channel, a page at a time
 ---
 
 # Conversations Guide
@@ -518,6 +520,56 @@ Messages::react($id, $maria, ':our-heart:');
 
 The table is `chat.conversation_emoji`, created by the migration `create_conversation_emoji_table`.
 
+## A channel's details
+
+`Pramnos\Conversations\Details` keeps what Slack's "Channel details" shows: the name, the topic and
+description, the members and their roles, private or public, archived, deleted for good, the
+channel's settings, and the links and files said in it.
+
+```php
+Conversations::rename($id, 'Launch Q4', $by);                 // #launch-q4
+Details::describe($id, ['topic' => 'Ships on the 20th', 'description' => 'Everything about the launch'], $by);
+Details::setPrivate($id, true, $by);                           // channel → private, and back
+Details::archive($id, true, $by);                              // for everyone; false brings it back
+Details::remove($id, $person, $by);
+Details::setRole($id, $person, 'admin', $by);                  // owner, admin, member
+Details::roster($id);                                          // [{id, name, role, joinedAt}], owners first
+Details::settings($id, ['suggestMembers' => true, 'tabsBy' => 'admins'], $by);
+Details::links($id, q: 'figma', before: $messageId, limit: 50);
+Files::page($id, q: 'report', kind: 'media', before: $fileId, limit: 50);
+Details::destroy($id, $superuser);
+```
+
+- **Who.** A channel's owner, one of its admins, or a moderator (`admin.chat.moderate`). A group is
+  changed by any of its members, as its name always was. A direct or bot conversation has no
+  details to change.
+- **The name.** A channel's `#name` is made from the new name as `create()` makes one, and one
+  another channel has is refused. A **system channel keeps its `#name`**: the application finds
+  it by it (`bySlug()`), so only the name shown changes.
+- **Topic and description:** a topic up to 250 characters, a description up to 250; '' clears
+  either.
+- **Private or public:** a channel and a private channel turn into each other. A system channel
+  stays open.
+- **Archived for everyone:** it leaves every list (`forPerson()`), is read and not written, and
+  `browse($person, archived: true)` finds it to bring back.
+- **Members:** `remove()` takes somebody out, and `setRole()` makes them an owner, an admin or a
+  member. A channel never loses its last owner. A channel's admin manages it as its owner does.
+- **Settings:** `suggestMembers` (on by default) — a message mentioning somebody not in the
+  channel answers its writer with them (`notMembers` in the `post` answer), to offer adding them;
+  `tabsBy` — who manages its tabs, `everyone` or `admins`.
+- **Links and files**, newest first, a page at a time. A link carries its host, path, the card's
+  title and image where it has one, the message, who and when; a deleted message's links are
+  left out. Files are `media` (pictures and videos) or `files` (the rest), by a part of the name.
+- **Deleted for good** by a superuser alone, never a system channel: its messages, their
+  reactions, mentions, pins and saves, its files and their files on disk, what was scheduled
+  and drafted in it, its members and its picture. The changelog keeps that it was.
+- **Told.** Each change is a line in the conversation, an event in the changelog
+  (`conversation.renamed`, `.described`, `.privacy`, `.archived`, `.unarchived`,
+  `.member_removed`, `.role`, `.settings`, `.destroyed`) and `conversation.changed` to its
+  members.
+
+The columns are added by the migration `add_details_to_conversations`.
+
 ## A channel's or a group's picture
 
 A channel, a private or system channel, or a group can have a picture of its own, as in Slack.
@@ -983,7 +1035,16 @@ conversation or message the person does not read 404.
 | `unreads` | GET | — | `{unreads}`: every unread message, conversation by conversation |
 | `sent` | GET | — | `{messages}`: what one wrote, newest first |
 | `saved` | GET | — | `{messages}`: what one kept for later |
-| `files/{id}` | GET | — | `{files}`: the files sent in a conversation and still kept, newest first |
+| `files/{id}` | GET | `kind` (`media`, `files`), `q`, `before` (a file id), `limit` | `{files}`: the files sent in a conversation and still kept, newest first, each with `thumbnail`; a page when any of these is given |
+| `links/{id}` | GET | `q`, `before` (a message id), `limit` | `{links}`: every address said in it, newest first — `{url, host, path, title, image, messageId, authorId, at}` |
+| `members/{id}` | GET | — | `{members}`: `{id, name, role, joinedAt}`, owners first |
+| `archived` | GET | — | `{conversations}`: the archived ones the reader reads |
+| `describe/{id}` | POST | `topic`, `description` | `{conversation}` |
+| `setprivate/{id}` | POST | `on` | `{conversation}` |
+| `archive/{id}`, `unarchive/{id}` | POST | — | `{ok}` |
+| `removemember/{id}`, `setrole/{id}` | POST | `person`, `role` | `{members}` |
+| `settings/{id}` | POST | `suggestMembers`, `tabsBy` | `{conversation}` |
+| `destroy/{id}` | POST | — | `{deleted: {messages, files}}`: a superuser's alone |
 | `people` | GET | `q` | `{people}`: who may use the conversations, by a part of the name |
 | `person/{id}` | GET | `show` (`messages`, `mentions`, `files`), `q` | `{person}`: as `People::profile()` answers; with `show`, also what they wrote holding the words of `q`, what mentions them, or the files they sent — 404 for somebody the reader does not see |
 | `refs` | GET | `keys` (`user:5,jira:NAN-1`) | `{cards}`: each as the application draws it for the reader, or null |

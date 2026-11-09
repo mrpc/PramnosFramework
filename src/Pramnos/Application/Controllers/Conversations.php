@@ -72,7 +72,8 @@ use Pramnos\Http\Response;
 class Conversations extends Controller
 {
     /** The writes: each a POST with the session's token. */
-    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away', 'rename', 'setimage', 'clearimage', 'addtodo', 'changetodo', 'deletetodo', 'savetodo'];
+    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away', 'rename', 'setimage', 'clearimage', 'addtodo', 'changetodo', 'deletetodo', 'savetodo',
+        'describe', 'setprivate', 'archive', 'unarchive', 'removemember', 'setrole', 'destroy', 'settings'];
 
     /** The JSON body, decoded once. @var array<string, mixed>|null */
     private ?array $json = null;
@@ -80,7 +81,7 @@ class Conversations extends Controller
     /** Registers the actions: all behind sign-in, the writes POSTs with the session's token. */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'emoji', 'preview', 'gifs', 'refs', 'emergencykey', 'reach', 'scheduled', 'drafts', 'todolist'], self::WRITES));
+        $this->addAuthAction(array_merge(['display', 'conversations', 'messages', 'people', 'person', 'search', 'threads', 'activity', 'unreads', 'sent', 'saved', 'files', 'file', 'emoji', 'preview', 'gifs', 'refs', 'emergencykey', 'reach', 'scheduled', 'drafts', 'todolist', 'members', 'links', 'archived'], self::WRITES));
         $this->addWriteAction(self::WRITES);
         // A conversation's picture: an <img> may ask without a session where `images_public` is on;
         // image() itself asks whether the reader may see it.
@@ -262,10 +263,136 @@ class Conversations extends Controller
                 throw new \DomainException(t('That conversation no longer exists.'));
             }
 
+            // A page: `kind` media or files, `q` in the name, `before` a file id.
+            $before = (int) ($this->in('before') ?? 0) ?: null;
+            $paged  = $this->in('kind') !== null || $this->in('q') !== null || $before !== null || $this->in('limit') !== null;
+            $files  = $paged ? Files::page($this->id(), (string) ($this->in('q') ?? ''), (string) ($this->in('kind') ?? ''), $before, (int) ($this->in('limit') ?? 50))
+                : Files::inConversation($this->id());
+
             return ['files' => array_map(static fn (array $f): array => ['id' => $f['id'], 'messageId' => $f['messageId'], 'name' => $f['name'],
-                'mime' => $f['mime'], 'size' => $f['size'], 'uploadedBy' => $f['uploadedBy'], 'createdAt' => $f['createdAt']],
-                Files::inConversation($this->id()))];
+                'mime' => $f['mime'], 'size' => $f['size'], 'uploadedBy' => $f['uploadedBy'], 'createdAt' => $f['createdAt'], 'thumbnail' => $f['thumbPath'] !== null],
+                $files)];
         });
+    }
+
+    /** Who is in a conversation one reads: name, role and since when. */
+    public function members(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            if (!Store::canRead($this->id(), $me)) {
+                throw new \DomainException(t('That conversation no longer exists.'));
+            }
+
+            return ['members' => \Pramnos\Conversations\Details::roster($this->id())];
+        });
+    }
+
+    /** The links said in a conversation one reads, newest first: `q`, `before` a message id, `limit`. */
+    public function links(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            if (!Store::canRead($this->id(), $me)) {
+                throw new \DomainException(t('That conversation no longer exists.'));
+            }
+
+            return ['links' => \Pramnos\Conversations\Details::links($this->id(), (string) ($this->in('q') ?? ''),
+                (int) ($this->in('before') ?? 0) ?: null, (int) ($this->in('limit') ?? 50))];
+        });
+    }
+
+    /** The archived conversations one reads, to open and bring back. */
+    public function archived(): mixed
+    {
+        return $this->answer(static fn (object $me): array => ['conversations' => Store::browse((int) $me->userid, true)]);
+    }
+
+    /** A channel's topic and description: `topic`, `description`, each one sent. */
+    public function describe(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $changes = [];
+            foreach (['topic', 'description'] as $field) {
+                if ($this->in($field) !== null) {
+                    $changes[$field] = (string) $this->in($field);
+                }
+            }
+            \Pramnos\Conversations\Details::describe($this->id(), $changes, (int) $me->userid);
+
+            return ['conversation' => Store::get($this->id())];
+        });
+    }
+
+    /** A channel made private (`on`), or public. */
+    public function setprivate(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Details::setPrivate($this->id(), $this->flag('on'), (int) $me->userid);
+
+            return ['conversation' => Store::get($this->id())];
+        });
+    }
+
+    /** Archive a channel for everyone. */
+    public function archive(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Details::archive($this->id(), true, (int) $me->userid);
+
+            return ['ok' => true];
+        });
+    }
+
+    /** Bring a channel back from the archive. */
+    public function unarchive(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Details::archive($this->id(), false, (int) $me->userid);
+
+            return ['ok' => true];
+        });
+    }
+
+    /** Take somebody (`person`) out of a channel or a group. */
+    public function removemember(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Details::remove($this->id(), (int) $this->in('person'), (int) $me->userid);
+
+            return ['members' => \Pramnos\Conversations\Details::roster($this->id())];
+        });
+    }
+
+    /** A member's (`person`) role: owner, admin or member. */
+    public function setrole(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            \Pramnos\Conversations\Details::setRole($this->id(), (int) $this->in('person'), (string) $this->in('role'), (int) $me->userid);
+
+            return ['members' => \Pramnos\Conversations\Details::roster($this->id())];
+        });
+    }
+
+    /** A channel's settings: `suggestMembers`, `tabsBy`, each one sent. */
+    public function settings(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $settings = [];
+            if ($this->in('suggestMembers') !== null) {
+                $settings['suggestMembers'] = $this->flag('suggestMembers');
+            }
+            if ($this->in('tabsBy') !== null) {
+                $settings['tabsBy'] = (string) $this->in('tabsBy');
+            }
+            \Pramnos\Conversations\Details::settings($this->id(), $settings, (int) $me->userid);
+
+            return ['conversation' => Store::get($this->id())];
+        });
+    }
+
+    /** Delete a conversation for good: a superuser's alone, never a system channel. */
+    public function destroy(): mixed
+    {
+        return $this->answer(fn (object $me): array => ['deleted' => \Pramnos\Conversations\Details::destroy($this->id(), $me)]);
     }
 
     /** The threads one takes part in. */
@@ -463,7 +590,11 @@ class Conversations extends Controller
             \Pramnos\Conversations\Ask::start($id, $me);
 
             // Who it addresses with their notifications paused: the composer offers "Notify anyway".
-            return ['id' => $id, 'message' => Messages::present([(array) Messages::get($id)])[0], 'paused' => \Pramnos\Conversations\Notify::paused($id)];
+            // Who it mentions that is not in the channel: the writer, alone, is offered to add them.
+            preg_match_all('/<@(\d+)>/', (string) $this->in('body'), $named);
+
+            return ['id' => $id, 'message' => Messages::present([(array) Messages::get($id)])[0], 'paused' => \Pramnos\Conversations\Notify::paused($id),
+                'notMembers' => \Pramnos\Conversations\Details::notMembers($this->id(), array_map('intval', $named[1]))];
         });
     }
 
@@ -701,8 +832,9 @@ class Conversations extends Controller
     public function rename(): mixed
     {
         $me = $this->me();
-        // Somebody not in it may not rename it: refused as such, not as a group that is not there.
-        if ($me !== null && Store::get($this->id()) !== null && Store::member($this->id(), (int) $me->userid) === null) {
+        // Somebody not in a group may not rename it: refused as such, not as a group that is not
+        // there. A channel's owner, admins and moderators are asked by Details.
+        if ($me !== null && (Store::get($this->id())['kind'] ?? null) === 'group' && Store::member($this->id(), (int) $me->userid) === null) {
             return Response::json(['error' => t('Only its members rename a group.')], 403);
         }
 

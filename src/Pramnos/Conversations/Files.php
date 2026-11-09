@@ -204,6 +204,32 @@ final class Files
     }
 
     /**
+     * A page of a conversation's files, newest first: `media` (pictures and videos) or `files`
+     * (the rest), or both; `q` in the name; `before` a file id, for the next page.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function page(int $conversationId, string $q = '', string $kind = '', ?int $before = null, int $limit = 50): array
+    {
+        $query = Conversations::db()->queryBuilder()->table('chat.conversation_files')->where('conversationid', $conversationId)
+            ->whereNotNull('messageid')->whereNull('removedat')->orderBy('fileid', 'desc')->limit(max(1, min(200, $limit)));
+        if ($before !== null) {
+            $query->where('fileid', '<', $before);
+        }
+        if (trim($q) !== '') {
+            $query->whereLike('name', '%' . addcslashes(trim($q), '%_\\') . '%');
+        }
+        $media = static fn ($w) => $w->where('mime', 'LIKE', 'image/%')->orWhere('mime', 'LIKE', 'video/%');
+        if ($kind === 'media') {
+            $query->where($media);
+        } elseif ($kind === 'files') {
+            $query->where('mime', 'NOT LIKE', 'image/%')->where('mime', 'NOT LIKE', 'video/%');
+        }
+
+        return array_map(self::row(...), $query->getAllOrFail());
+    }
+
+    /**
      * The files somebody sent, still kept, in the conversations a reader reads — newest first.
      *
      * @return list<array<string, mixed>>

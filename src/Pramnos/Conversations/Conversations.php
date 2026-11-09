@@ -123,14 +123,19 @@ final class Conversations
      * Name a group conversation, or take its name away (`null` or empty: its title is its members
      * again). Any member may. A line in the conversation says who did it and to what, its members
      * see the new title at once (`conversation.changed`), and the change is in the changelog
-     * (`conversation.renamed`). A direct, bot or channel conversation is refused: a direct one has
-     * no name, and a channel's is its `#name`.
+     * (`conversation.renamed`). A direct or bot conversation is refused: neither has a name. A
+     * channel is renamed by its owner, an admin of it or a moderator ({@see Details::renameChannel()}).
      *
      * @throws \DomainException When the conversation cannot be named, or `$by` is not in it
      */
     public static function rename(int $id, ?string $name, int $by): void
     {
         $conversation = self::get($id);
+        if ($conversation !== null && in_array($conversation['kind'], ['channel', 'private', 'system'], true)) {
+            Details::renameChannel($conversation, (string) $name, $by);
+
+            return;
+        }
         if ($conversation === null || $conversation['kind'] !== 'group') {
             throw new \DomainException(t('Only a group conversation is named.'));
         }
@@ -437,6 +442,8 @@ final class Conversations
             // starorder where the migration has run: the list still opens before it.
             ->select(['c.*', 'm.lastreadid', 'm.muted', 'm.notify', 'm.starred', ...($db->schema()->hasColumn('chat.conversation_members', 'starorder') ? ['m.starorder'] : [])])
             ->where('m.participanttype', 'user')->where('m.participantid', $person)->whereNull('m.leftat')
+            // An archived one leaves the lists: browse(…, archived: true) finds it.
+            ->whereNull('c.archivedat')
             ->orderBy('c.lastmessageat', 'desc')->getAllOrFail();
         $out = [];
         foreach ($rows as $row) {
@@ -471,14 +478,24 @@ final class Conversations
 
     /**
      * The open conversations — channels and system ones — for somebody to browse and join, with
-     * whether they are in each.
+     * whether they are in each; or, with `$archived`, the archived ones they read, to open and
+     * restore.
      *
      * @return list<array<string, mixed>>
      */
-    public static function browse(int $person): array
+    public static function browse(int $person, bool $archived = false): array
     {
-        $rows = self::db()->queryBuilder()->table('chat.conversations')->whereIn('kind', self::OPEN)->whereNull('archivedat')
-            ->orderBy('slug')->getAllOrFail();
+        $query = self::db()->queryBuilder()->table('chat.conversations');
+        if ($archived) {
+            // The archived ones the person reads: open, or private and theirs.
+            $mine = array_column(self::members_()->select(['conversationid'])->where('participanttype', 'user')->where('participantid', $person)
+                ->getAllOrFail(), 'conversationid');
+            $query->whereNotNull('archivedat')->where(static fn ($q) => $q->whereIn('kind', self::OPEN)
+                ->orWhere(static fn ($p) => $p->where('kind', 'private')->whereIn('conversationid', $mine === [] ? [0] : $mine)));
+        } else {
+            $query->whereIn('kind', self::OPEN)->whereNull('archivedat');
+        }
+        $rows = $query->orderBy('slug')->getAllOrFail();
 
         return array_map(static fn (array $row): array => self::row($row) + ['joined' => self::member((int) $row['conversationid'], $person) !== null,
             'memberCount' => count(self::members((int) $row['conversationid']))], $rows);
@@ -695,7 +712,11 @@ final class Conversations
             'name' => $row['name'] === null ? null : (string) $row['name'], 'topic' => $row['topic'] === null ? null : (string) $row['topic'],
             'retentionDays' => $int($row['retentiondays']), 'createdBy' => $int($row['createdby']), 'createdAt' => (int) $row['createdat'],
             'archivedAt' => $int($row['archivedat']), 'lastMessageId' => $int($row['lastmessageid']), 'lastMessageAt' => $int($row['lastmessageat']),
-            'image' => Images::url($row), 'imageOwn' => (string) ($row['image'] ?? '') !== '']
+            'image' => Images::url($row), 'imageOwn' => (string) ($row['image'] ?? '') !== '',
+            // Its details, where the migration has run (FW-369): the defaults before it.
+            'description' => isset($row['description']) ? (string) $row['description'] : null,
+            'suggestMembers' => !array_key_exists('suggestmembers', $row) || (bool) $row['suggestmembers'],
+            'tabsBy' => (string) ($row['tabsby'] ?? 'everyone')]
             // The analyst's own conversation: shown by its name and picture, kept under Ask::NAME.
             + ($row['kind'] === 'bot' && $row['name'] === Ask::NAME
                 ? ['displayName' => \Pramnos\Llm\Analyst\Analyst::name(), 'avatar' => \Pramnos\Llm\Analyst\Analyst::avatar()] : []);
