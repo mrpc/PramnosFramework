@@ -17,6 +17,12 @@ namespace Pramnos\Conversations;
  * CustomEmoji::all();                                         // ['our-heart' => '/admin/Conversations/emoji?name=…', …]
  * ```
  *
+ * An application can ship defaults of its own, everywhere at once: `'conversations' =>
+ * ['emoji_defaults' => ['kappa' => '/path/to/kappa.png']]`. A default is not renamed or removed —
+ * its settings say it is there — and the team may add its own picture under the same name, which
+ * then wins. A standard shortcode is refused as a name, except those in
+ * {@see Markdown::REPLACEABLE} (`:kappa:`, a smirk until a picture is given).
+ *
  * A picture is a PNG, GIF, WebP or JPEG — never an SVG, which can carry a script — no larger
  * than a file sent in a conversation ({@see Files::maxMegabytes()}), and is kept at most 128
  * pixels a side with its proportions. A GIF is made smaller frame by frame where the server has
@@ -39,7 +45,7 @@ final class CustomEmoji
     /** The table. */
     private const TABLE = '#PREFIX#conversation_emoji';
 
-    /** @var array<string, array{path: string, mime: string, aliasof: ?string, createdat: int}>|null Read once a request */
+    /** @var array<string, array{path: string, mime: string, aliasof: ?string, createdat: int, default?: bool}>|null Read once a request */
     private static ?array $rows = null;
 
     /**
@@ -98,7 +104,7 @@ final class CustomEmoji
      */
     public static function rename(string $from, string $to, int $by): void
     {
-        if (!isset(self::rows()[$from])) {
+        if (!isset(self::rows()[$from]) || !empty(self::rows()[$from]['default'])) {
             throw new \InvalidArgumentException(t('There is no emoji :%s:.', $from));
         }
         self::free($to);
@@ -117,7 +123,8 @@ final class CustomEmoji
     public static function remove(string $name, int $by): bool
     {
         $row = self::rows()[$name] ?? null;
-        if ($row === null) {
+        if ($row === null || !empty($row['default'])) {
+            // None, or the application's own: its settings say it is there.
             return false;
         }
         $db = Conversations::db();
@@ -163,7 +170,7 @@ final class CustomEmoji
     {
         $row = self::rows()[$name] ?? null;
         $row = $row !== null && $row['aliasof'] !== null ? (self::rows()[$row['aliasof']] ?? null) : $row;
-        $file = $row !== null ? Files::root() . '/' . $row['path'] : '';
+        $file = $row !== null ? (!empty($row['default']) ? $row['path'] : Files::root() . '/' . $row['path']) : '';
         if ($row === null || !is_file($file)) {
             return false;
         }
@@ -188,7 +195,7 @@ final class CustomEmoji
         if (preg_match(self::NAME, $name) !== 1) {
             throw new \InvalidArgumentException(t('An emoji\'s name is 2 to 32 small letters, digits, _, + or -.'));
         }
-        if (isset(Markdown::EMOJI[$name]) || isset(self::rows()[$name])) {
+        if ((isset(Markdown::EMOJI[$name]) && !in_array($name, Markdown::REPLACEABLE, true)) || (isset(self::rows()[$name]) && empty(self::rows()[$name]['default']))) {
             throw new \InvalidArgumentException(t('There is an emoji :%s: already.', $name));
         }
     }
@@ -245,11 +252,36 @@ final class CustomEmoji
                     'aliasof' => $row['aliasof'] !== null && $row['aliasof'] !== '' ? (string) $row['aliasof'] : null, 'createdat' => (int) $row['createdat']];
             }
         } catch (\Throwable) {
-            // No table yet — `migrate` has not run since it was added: no emoji of the team's own.
-            return [];
+            // No table yet — `migrate` has not run since it was added: only the application's defaults.
+            return self::defaults([]);
         }
 
-        return self::$rows = $rows;
+        return self::$rows = self::defaults($rows);
+    }
+
+    /**
+     * The application's own defaults — `conversations.emoji_defaults`, name => a picture file on
+     * the server — beside the team's; one the team added under the same name is the team's. A
+     * default that is not a picture this accepts is left out.
+     *
+     * @param array<string, array{path: string, mime: string, aliasof: ?string, createdat: int}> $rows
+     * @return array<string, array{path: string, mime: string, aliasof: ?string, createdat: int}>
+     */
+    private static function defaults(array $rows): array
+    {
+        foreach ((array) (Conversations::settings()['emoji_defaults'] ?? []) as $name => $file) {
+            $name = (string) $name;
+            $file = (string) $file;
+            if (isset($rows[$name]) || preg_match(self::NAME, $name) !== 1 || !is_file($file)) {
+                continue;
+            }
+            $mime = (string) (new \finfo(FILEINFO_MIME_TYPE))->file($file);
+            if (isset(self::TYPES[$mime])) {
+                $rows[$name] = ['path' => $file, 'mime' => $mime, 'aliasof' => null, 'createdat' => (int) filemtime($file), 'default' => true];
+            }
+        }
+
+        return $rows;
     }
 
     /** Read again, kept in the audit log, and told to everyone with the conversations open. */

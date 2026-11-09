@@ -145,6 +145,71 @@ class CustomEmojiTest extends TestCase
         $this->assertSame(['conversations.emoji_added', 'conversations.emoji_aliased', 'conversations.emoji_aliased', 'conversations.emoji_renamed', 'conversations.emoji_removed'], $events);
     }
 
+    /**
+     * `:kappa:` everywhere: a smirk with nothing set; the application's default picture from its
+     * settings once given — reacted with, sent, not removed or renamed, since its settings say it
+     * is there; the team's own picture under that name then wins. Other standard shortcodes are
+     * still refused as names.
+     */
+    #[DataProvider('databases')]
+    public function testKappaIsThereEverywhere(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        require_once ROOT . '/database/migrations/framework/conversations/2026_11_09_000007_create_conversation_emoji_table.php';
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Conversations\CreateConversationEmojiTable::class], $this->db);
+        $this->db->queryBuilder()->table('#PREFIX#conversation_emoji')->delete();
+        $this->files = sys_get_temp_dir() . '/pf-emoji-' . bin2hex(random_bytes(4));
+        mkdir($this->files, 0770, true);
+        $default = $this->files . '/kappa.png';
+        rename($this->picture(28, 28), $default);
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        $name = static fn (int $id): ?string => null;
+
+        // Act
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30, 'files_path' => $this->files];
+        CustomEmoji::forget();
+        $smirk = Markdown::render('Sure :kappa:', $name);
+        Application::getInstance()->applicationInfo['conversations']['emoji_defaults'] = ['kappa' => $default, 'Bad Name' => $default, 'nofile' => '/nowhere.png'];
+        CustomEmoji::forget();
+        $given = Markdown::render('Sure :kappa:', $name);
+        $room  = Conversations::create('channel', 'general', [$maria], $eleni);
+        $said  = Messages::post($room, $eleni, 'hi');
+        Messages::react($said, $maria, ':kappa:');
+        ob_start();
+        $sent  = CustomEmoji::send('kappa');
+        $bytes = (string) ob_get_clean();
+        $kept  = CustomEmoji::remove('kappa', $eleni);
+        $renamed = null;
+        try {
+            CustomEmoji::rename('kappa', 'kappa2', $eleni);
+        } catch (\InvalidArgumentException $e) {
+            $renamed = $e->getMessage();
+        }
+        CustomEmoji::add('kappa', $this->picture(40, 40), $eleni);
+        ob_start();
+        CustomEmoji::send('kappa');
+        $ours = (string) ob_get_clean();
+        $tada = null;
+        try {
+            CustomEmoji::add('tada', $this->picture(40, 40), $eleni);
+        } catch (\InvalidArgumentException $e) {
+            $tada = $e->getMessage();
+        }
+
+        // Assert
+        $this->assertStringContainsString('Sure 😏', $smirk, 'a smirk with nothing set');
+        $this->assertStringContainsString('<img class="pf-conv-custom-emoji"', $given, 'the application\'s picture');
+        $this->assertStringContainsString('alt=":kappa:"', $given);
+        $this->assertTrue($sent);
+        $this->assertSame(file_get_contents($default), $bytes);
+        $this->assertFalse($kept, 'a default is not removed');
+        $this->assertSame('There is no emoji :kappa:.', $renamed, 'nor renamed');
+        $this->assertNotSame($bytes, $ours, 'the team\'s own picture wins');
+        $this->assertSame(['kappa'], array_keys(CustomEmoji::all()), 'a bad name and a missing file left out');
+        $this->assertSame('There is an emoji :tada: already.', $tada);
+    }
+
     /** Using them is everybody's who uses the conversations; managing them a superuser's by default. */
     #[DataProvider('databases')]
     public function testWhoManagesThem(string $type, string $host, int $port, string $user): void

@@ -34,7 +34,14 @@ final class Markdown
         'raised_hands' => '🙌', 'sweat_smile' => '😅', 'cry' => '😢', 'sob' => '😭', 'angry' => '😠', 'point_up' => '☝️',
         'question' => '❓', 'exclamation' => '❗', 'star' => '⭐', 'bulb' => '💡', 'memo' => '📝', 'calendar' => '📅',
         'phone' => '📞', 'email' => '📧', 'moneybag' => '💰', 'bug' => '🐛', 'coffee' => '☕', 'sunglasses' => '😎',
+        'smirk' => '😏', 'kappa' => '😏',
     ];
+
+    /**
+     * Shortcodes a team may give a picture of its own ({@see CustomEmoji}): where it has, the
+     * picture is shown in place of the emoji. `:kappa:` has no emoji of its own, only a smirk.
+     */
+    public const REPLACEABLE = ['kappa'];
 
     /**
      * The HTML of a message.
@@ -181,8 +188,9 @@ final class Markdown
         $html = (string) preg_replace('/(?<![\w*])\*(?=\S)(.+?)(?<=\S)\*(?![\w*])/', '<em>$1</em>', $html);
         $html = (string) preg_replace('/(?<!\w)_(?=\S)(.+?)(?<=\S)_(?!\w)/', '<em>$1</em>', $html);
         $custom = CustomEmoji::all();
-        $html   = (string) preg_replace_callback('/:([a-z0-9_+-]+):/', static fn (array $m): string => self::EMOJI[$m[1]]
-            ?? (isset($custom[$m[1]]) ? self::customEmoji($m[1], $custom[$m[1]]) : $m[0]), $html);
+        // The team's own first: a name it may have is one of the replaceable shortcodes, or none.
+        $html   = (string) preg_replace_callback('/:([a-z0-9_+-]+):/', static fn (array $m): string => isset($custom[$m[1]])
+            ? self::customEmoji($m[1], $custom[$m[1]]) : (self::EMOJI[$m[1]] ?? $m[0]), $html);
 
         return (string) preg_replace_callback("/\x02(\d+)\x02/", static fn (array $m): string => $kept[(int) $m[1]] ?? '', $html);
     }

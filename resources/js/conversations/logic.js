@@ -344,8 +344,8 @@ export function playerUrl(embed) {
 }
 
 /**
- * A reaction as it is drawn: the team's own emoji (`:name:`) as its picture, a shortcode as its
- * emoji, anything else as it is.
+ * A reaction as it is drawn: the team's own emoji (`:name:`) as its picture — before a shortcode
+ * of the same name, such as `:kappa:` — a shortcode as its emoji, anything else as it is.
  *
  * @param {string} reaction
  * @param {Record<string, string>} emoji shortcode → emoji
@@ -354,11 +354,12 @@ export function playerUrl(embed) {
  */
 export function reactionGlyph(reaction, emoji = {}, custom = {}) {
     const name = /^:([a-z0-9_+-]+):$/.exec(reaction)?.[1];
-    if (name && emoji[name]) {
-        return { text: emoji[name] };
+    if (name && custom[name]) {
+        // The team's own first: a name it has is one of the shortcodes it may replace, or none.
+        return { src: custom[name], alt: reaction };
     }
 
-    return name && custom[name] ? { src: custom[name], alt: reaction } : { text: reaction };
+    return { text: (name && emoji[name]) || reaction };
 }
 
 /**

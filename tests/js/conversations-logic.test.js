@@ -377,3 +377,21 @@ test('the team\'s emoji are drawn in HTML as the server draws them, never in cod
         + '<code>:team-heart:</code> <a title=":team-heart:">x</a> :nope:</p>');
     assert.ok(odd.includes('src="/x&quot;onerror=&quot;y"'), 'escaped: ' + odd);
 });
+
+/**
+ * `:kappa:` is a smirk until the application or the team gives it a picture; then the picture wins
+ * over the shortcode of the same name.
+ */
+test('a picture given to a replaceable shortcode wins over its emoji', async () => {
+    // Arrange
+    const { reactionGlyph } = await load();
+    const emoji = { kappa: '😏' };
+
+    // Act
+    const plain = reactionGlyph(':kappa:', emoji, {});
+    const given = reactionGlyph(':kappa:', emoji, { kappa: '/e?name=kappa' });
+
+    // Assert
+    assert.deepEqual(plain, { text: '😏' });
+    assert.deepEqual(given, { src: '/e?name=kappa', alt: ':kappa:' });
+});

@@ -454,7 +454,14 @@ Messages::react($id, $maria, ':our-heart:');
 ```
 
 - **Names** are 2 to 32 characters from `a-z 0-9 _ + -`. A name that is a standard shortcode, or
-  that is already taken, is refused.
+  that is already taken, is refused. The exceptions are the shortcodes in `Markdown::REPLACEABLE`
+  (`:kappa:`). A picture under one of those names is shown in place of its emoji.
+- **Defaults of the application's own.** These are available everywhere without an upload:
+  `'conversations' => ['emoji_defaults' => ['kappa' => '/path/to/kappa.png']]`, name => a picture
+  on the server. A default cannot be renamed or removed, because its settings say it is there. If
+  the team adds its own picture under the same name, the team's picture wins.
+- **`:kappa:`** is a standard shortcode: 😏 until a picture is given, through a default or by the
+  team. The framework ships no picture for it, because Twitch's Kappa is Twitch's own.
 - **Pictures** are PNG, GIF, WebP or JPEG, never SVG, which can carry a script. They may be no
   larger than a file sent in a conversation, and are kept at most 128 pixels a side with their
   proportions and transparency. A GIF is made smaller frame by frame where the server has the
