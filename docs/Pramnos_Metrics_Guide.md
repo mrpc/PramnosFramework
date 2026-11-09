@@ -798,6 +798,26 @@ Each is kept for the total and for each value of the dimension the metric adds u
 `base`: no competitor's channel), per organisation, and never twice. `metrics:achievements` scans
 nightly at 03:40.
 
+**As JSON, and to an assistant.** `MetricsApi::routes()` mounts the goals under
+`/metrics/goals`, or `MetricsApi::goalRoutes($r, '/goals')` on a path of the application's own:
+
+| Route | Does |
+|---|---|
+| `GET {path}` | the goals the person may read, each judged, with the `kinds`, `repeats` and `metrics` a form needs |
+| `POST {path}` | add one, with `Goals::create()`'s keys; 201 |
+| `PUT {path}/{id}` | change one: what is not sent stays; the metric, organisation and dimension values cannot change |
+| `DELETE {path}/{id}` | take one away; what it reached stays |
+| `GET {path}/achievements?limit=` | what was reached, newest first |
+
+A goal on a metric, an organisation or a dimension value the person may not read is a 404.
+
+The analyst has two tools when the application has metrics:
+- `goals` reads the goals, the metrics a goal can be set on, and the achievements. It is read only,
+  and its name comes from `'metrics' => ['goals' => ['tool' => '…']]`, so an assistant that knew
+  an application's own tool by its name keeps it.
+- `goals_change` adds or changes one. Its owner is `me`, a user id or a name. It is a write, so
+  the assistant asks before it.
+
 **A target relative to last year.** Instead of a fixed number, a goal can grow over its
 reference: the reference period's total times 1 + growth, worked out each period. One goal set
 once then serves every day, with no daily script:

@@ -1761,6 +1761,30 @@ class MetricsMySQLTest extends TestCase
         $noGoal    = $api($boss)->goal();
         \Pramnos\Metrics\MetricsApi::routes($router, '/api/metrics');
         $_GET      = [];
+        // The goals over JSON: added, listed, changed, refused, taken away; what was reached.
+        $method    = $_SERVER['REQUEST_METHOD'] ?? null;
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST     = ['metric' => 'test.orders', 'target' => 10, 'repeats' => 'month'];
+        $added     = $api($boss)->addGoal();
+        $_POST     = ['metric' => 'test.nothing', 'target' => 1, 'repeats' => 'month'];
+        $refused   = $api($boss)->addGoal();
+        $_POST     = [];
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $listed    = $api($boss)->goals();
+        $_SERVER['REQUEST_METHOD'] = 'PUT';
+        \Pramnos\Http\Request::setRawInput((string) json_encode(['target' => 12]));
+        $changed   = $api($boss)->changeGoal((int) ($added['data']['id'] ?? 0));
+        $_SERVER['REQUEST_METHOD'] = 'DELETE';
+        $gone      = $api($boss)->deleteGoal((int) ($added['data']['id'] ?? 0));
+        $notThere  = $api($boss)->deleteGoal((int) ($added['data']['id'] ?? 0));
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $reached   = $api($boss)->achievements();
+        \Pramnos\Http\Request::setRawInput('');
+        if ($method === null) {
+            unset($_SERVER['REQUEST_METHOD']);
+        } else {
+            $_SERVER['REQUEST_METHOD'] = $method;
+        }
 
         // Assert
         $this->assertSame(200, $catalogue['status']);
@@ -1774,7 +1798,13 @@ class MetricsMySQLTest extends TestCase
         $this->assertSame(['value' => 1.0], $value['data']);
         $this->assertSame($goal, $progress['data']['goal']['id']);
         $this->assertSame([401, 404, 422, 404], [$nobody['status'], $unknown['status'], $badGrain['status'], $noGoal['status']]);
-        $this->assertSame(['/api/metrics/series', '/api/metrics/value', '/api/metrics/goal', '/api/metrics'], $router->mounted, 'mounted under the path given');
+        $this->assertSame(['/api/metrics/series', '/api/metrics/value', '/api/metrics/goal', '/api/metrics', '/api/metrics/goals/achievements', '/api/metrics/goals'], $router->mounted, 'mounted under the path given');
+        $this->assertSame([201, 'count'], [$added['status'], $added['data']['kind']]);
+        $this->assertContains($added['data']['id'], array_column($listed['data']['goals'], 'id'));
+        $this->assertSame(['count', 'growth', 'reach', 'sustain', 'pace'], $listed['data']['kinds']);
+        $this->assertSame(12.0, $changed['data']['target'], 'changed: the target, the rest kept');
+        $this->assertSame([200, 404, 200, 404], [$changed['status'], $refused['status'], $gone['status'], $notThere['status']]);
+        $this->assertSame(200, $reached['status']);
     }
 
     /**

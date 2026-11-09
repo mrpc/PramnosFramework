@@ -172,7 +172,7 @@ class AnalystAssistant extends BaseAssistant
 
     public function writes(): array
     {
-        return ['remember', 'forget'];
+        return ['remember', 'forget', 'goals_change'];
     }
 
     /** The analyst's clock — {@see Analyst::timezone()}: its days, and its tasks' times. */

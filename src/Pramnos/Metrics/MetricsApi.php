@@ -34,6 +34,118 @@ class MetricsApi
         $r->get($path . '/value', static fn () => (new static())->value());
         $r->get($path . '/goal', static fn () => (new static())->goal());
         $r->get($path, static fn () => (new static())->catalogue());
+        static::goalRoutes($r, $path . '/goals');
+    }
+
+    /**
+     * The goals' routes, under `$path` — mounted with the metrics' as `/metrics/goals`, or on their
+     * own where an application's client already asks `/goals`:
+     *
+     *   - `GET    {path}`               the goals, each judged, with `kinds`, `repeats`, `metrics` and `overall`
+     *   - `POST   {path}`               add one ({@see Goals::create()}'s keys)
+     *   - `PUT    {path}/{id}`          change one: what is not sent stays
+     *   - `DELETE {path}/{id}`          take one away (its achievements stay)
+     *   - `GET    {path}/achievements`  what was reached, newest first (`?limit=`)
+     */
+    public static function goalRoutes(Router $r, string $path = '/goals'): void
+    {
+        $path = '/' . trim($path, '/');
+        $r->get($path . '/achievements', static fn () => (new static())->achievements());
+        $r->get($path, static fn () => (new static())->goals());
+        $r->post($path, static fn () => (new static())->addGoal());
+        $r->put($path . '/{id}', static fn ($id) => (new static())->changeGoal((int) $id));
+        $r->delete($path . '/{id}', static fn ($id) => (new static())->deleteGoal((int) $id));
+    }
+
+    /** The goals the person may read, each judged, and what a form needs to add one. @return array<string, mixed> */
+    public function goals(): array
+    {
+        return $this->answer(function (object $user): array {
+            $tool    = new \Pramnos\Llm\Analyst\Tools\GoalsTool((int) $user->userid, $user);
+            $metrics = [];
+            foreach (Metrics::all($user, false) as $metric) {
+                $across     = $metric->getAcross();
+                $overall    = null;
+                if ($across !== null) {
+                    try {
+                        $overall = Metrics::query($metric->name)->for($user)->grain(Window::DAY)->at(date('Y-m-d'))->series()['values'][''][0] ?? null;
+                    } catch (\Throwable) {
+                        $overall = null;
+                    }
+                }
+                $metrics[] = ['metric' => $metric->name, 'label' => $metric->label(), 'kinds' => $metric->kind === Metric::LEVEL ? GoalJudge::KINDS_LEVEL : GoalJudge::KINDS_TOTAL,
+                    'higher_is_better' => $metric->getDirection() !== Metric::LOWER_IS_BETTER, 'overall' => $across !== null, 'now' => $overall];
+            }
+
+            return ['goals' => $tool->execute(['achievements' => false])['goals'], 'kinds' => array_values(array_unique([...GoalJudge::KINDS_TOTAL, ...GoalJudge::KINDS_LEVEL])),
+                'repeats' => GoalJudge::RECURRING, 'metrics' => $metrics,
+                'overall' => (object) array_column(array_filter($metrics, static fn (array $m): bool => $m['overall']), 'now', 'metric')];
+        });
+    }
+
+    /** Add a goal. @return array<string, mixed> */
+    public function addGoal(): array
+    {
+        return $this->answer(function (object $user): array {
+            $body = (new \Pramnos\Http\Request())->body();
+            if (!isset(Metrics::all($user, false)[(string) ($body['metric'] ?? '')])) {
+                throw new \DomainException('There is no metric "' . ($body['metric'] ?? '') . '" you may set a goal on.');
+            }
+            $tenants = Metrics::tenantsOf($user);
+            $tenant  = (int) ($body['tenant'] ?? ($tenants !== null && count($tenants) === 1 ? $tenants[0] : 0));
+            if ($tenants !== null && !in_array($tenant, $tenants, true)) {
+                throw new \DomainException('That organisation\'s goals are not yours to set.');
+            }
+            $goal = array_intersect_key($body, array_flip(['metric', 'kind', 'target', 'growth', 'reference', 'repeats', 'starts', 'due', 'filters', 'owner', 'note', 'notify']));
+            if (!Metrics::withinScope((string) $goal['metric'], (array) ($goal['filters'] ?? []), $user)) {
+                throw new \DomainException('Those figures are not yours to set a goal on.');
+            }
+            $id = Goals::create($goal + ['tenant' => $tenant, 'by' => (int) $user->userid]);
+
+            return ['id' => $id] + (Goals::judge($id) ?? []);
+        }, 201);
+    }
+
+    /** Change a goal the person may read: its metric, organisation and dimension values stay. @return array<string, mixed> */
+    public function changeGoal(int $id): array
+    {
+        return $this->answer(function (object $user) use ($id): array {
+            $this->readableGoal($user, $id);
+            $body = array_intersect_key((new \Pramnos\Http\Request())->body(), array_flip(['kind', 'target', 'growth', 'reference', 'repeats', 'starts', 'due', 'owner', 'note', 'notify']));
+            Goals::update($id, $body);
+
+            return ['id' => $id] + (Goals::judge($id) ?? []);
+        });
+    }
+
+    /** Take a goal away; what it reached stays. @return array<string, mixed> */
+    public function deleteGoal(int $id): array
+    {
+        return $this->answer(function (object $user) use ($id): array {
+            $this->readableGoal($user, $id);
+            Goals::delete($id);
+
+            return ['deleted' => $id];
+        });
+    }
+
+    /** What was reached, newest first. @return array<string, mixed> */
+    public function achievements(): array
+    {
+        return $this->answer(function (object $user): array {
+            $tenants = Metrics::tenantsOf($user);
+            $limit   = max(1, min(500, (int) ($_GET['limit'] ?? 100)));
+
+            return ['achievements' => Achievements::list($tenants !== null && count($tenants) === 1 ? $tenants[0] : null, $limit)];
+        });
+    }
+
+    /** @throws \DomainException For a goal that is not there, or not the person's to read */
+    private function readableGoal(object $user, int $id): void
+    {
+        if (!in_array($id, array_column(\Pramnos\Llm\Analyst\Tools\GoalsTool::readable($user), 'id'), true)) {
+            throw new \DomainException('There is no such goal.');
+        }
     }
 
     /** The metrics the person may read. @return array<string, mixed> */
@@ -140,14 +252,14 @@ class MetricsApi
      *
      * @return array<string, mixed>
      */
-    private function answer(\Closure $action): array
+    private function answer(\Closure $action, int $status = 200): array
     {
         $user = $this->user();
         if ($user === null) {
             return ['status' => 401, 'error' => 'Sign in to read the metrics.'];
         }
         try {
-            return ['status' => 200, 'data' => $action($user)];
+            return ['status' => $status, 'data' => $action($user)];
         } catch (\DomainException $e) {
             return ['status' => 404, 'error' => $e->getMessage()];
         } catch (\InvalidArgumentException|\LogicException $e) {

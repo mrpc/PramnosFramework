@@ -307,7 +307,7 @@ class AnalystTest extends LlmTestCase
         $this->assertSame('waiting', $asked['status']);
         $this->assertInstanceOf(AnalystAssistant::class, \Pramnos\Llm\Chat\Chat::assistant(Scope::ADMIN));
         $assistant = new AnalystAssistant();
-        $this->assertSame(['remember', 'forget'], $assistant->writes(), 'only its memory writes');
+        $this->assertSame(['remember', 'forget', 'goals_change'], $assistant->writes(), 'only its memory and the goals it is asked to set');
         $this->assertStringEndsWith('admin/Ai/analyst?c=4', $assistant->conversationUrl(4));
         $this->assertStringEndsWith('admin/Ai/analyst', $assistant->conversationUrl(null));
         $this->assertSame('analyst', Analyst::scope(7)->purpose());

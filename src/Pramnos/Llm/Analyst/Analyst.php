@@ -232,6 +232,9 @@ final class Analyst
         // The application's metrics, where it declares any; each one only for those it allows.
         if (\Pramnos\Metrics\Metrics::all() !== []) {
             $tools[] = new \Pramnos\Llm\Analyst\Tools\MetricsTool($adminId);
+            // The goals on them, and what was reached; adding and changing them is a write.
+            $tools[] = new \Pramnos\Llm\Analyst\Tools\GoalsTool($adminId);
+            $tools[] = new \Pramnos\Llm\Analyst\Tools\GoalsChangeTool($adminId);
         }
 
         // The installation's help pages, with the `help` feature.
