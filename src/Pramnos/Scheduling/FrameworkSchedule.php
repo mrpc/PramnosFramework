@@ -300,6 +300,13 @@ class FrameworkSchedule
                 'description' => 'Keep the milestones, best weeks and goals met that are new',
             ],
 
+            // The to-do list kept in step with the application's sources, every `todos.sync_every`
+            // minutes (5 by default). Nothing to do where no source is declared.
+            'todos:sync' => [
+                'cadence'     => [['cron', '*/' . max(1, min(59, (int) (\Pramnos\Todos\Todos::config()['sync_every'] ?? 5))) . ' * * * *']],
+                'description' => 'Keep the to-do list in step with the application\'s sources',
+            ],
+
             'queue:cleanup' => [
                 'cadence'     => [['daily'], ['at', '03:10']],
                 'description' => 'Remove completed and expired queue items',

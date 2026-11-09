@@ -110,6 +110,7 @@ nav:
       - Hypertables (TimescaleDB): Pramnos_Hypertable_Guide.md
       - Cross-Entity Search: Pramnos_Search_Guide.md
       - Metrics: Pramnos_Metrics_Guide.md
+      - To-dos: Pramnos_Todos_Guide.md
     - Infrastructure Services:
       - Caching: Pramnos_Cache_Guide.md
       - Page Cache: Pramnos_Page_Cache_Guide.md

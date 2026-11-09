@@ -275,6 +275,7 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\HelpGaps());
         $this->add(new \Pramnos\Console\Commands\MetricsReportsSend());
         $this->add(new \Pramnos\Console\Commands\MetricsAchievements());
+        $this->add(new \Pramnos\Console\Commands\TodosSync());
         // Push has five parts and four of them are invisible when missing. Five numbered steps
         // in a guide are five chances to stop after four.
         $this->add(new \Pramnos\Console\Commands\PushSetup());
