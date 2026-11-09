@@ -716,6 +716,40 @@ Goals::progress($id);
 - **Where they are kept.** Goals are kept in `stats.goals`. They are state; a missed goal is an
   alert.
 
+**Every kind of goal.** `Goals::create()` makes a goal of any kind, and `Goals::judge($id)` says
+how it stands:
+
+```php
+Goals::create(['metric' => 'payments.revenue', 'target' => 2000, 'repeats' => 'month']);                 // count, every month
+Goals::create(['metric' => 'registrations', 'kind' => 'growth', 'target' => 10, 'repeats' => 'week']);   // +10% on the week before
+Goals::create(['metric' => 'followers', 'kind' => 'reach', 'target' => 10000, 'due' => '2026-12-31']);  // a level, by a day
+Goals::judge($id);   // ['kind' => 'reach', 'state' => 'on_track', 'says' => 'On this trend, 2026-11-19.', 'current' => …, 'projected' => …]
+```
+
+- **On a total (a flow):**
+  - `count`: the period's total reaches the target, expected along the elapsed time, or along last
+    year's curve where the metric is kept by the hour;
+  - `growth`: the total reaches its reference × (1 + the target %). The reference is `previous`
+    (the same length before), `lastyear` or `weekdays`.
+- **On a level:**
+  - `reach`: a reading crosses the target, in the metric's direction. Otherwise the least-squares
+    trend gives the day it would, compared with the due date (`stalled` when it does not move
+    towards it);
+  - `sustain`: no reading worse than the target, its worst said;
+  - `pace`: the change since the start reaches the target;
+  - `growth`: that change in %.
+- **When:**
+  - a one-off goal runs from `starts` (now when left out; it may be in the past) to `due`;
+  - a recurring one (`repeats`: day, week, month, quarter) is judged on its current period, with
+    `history` (each past period as it stood at its end) and `streak` (the met ones in a row).
+  - Days are the organisation's.
+- **States:** `met`, `on_track`, `behind`, `stalled` or `unknown`, with a sentence that says why.
+  - A one-off `reach` is `unknown` until it has 12 readings over 7 days. A recurring one needs half
+    its period's days.
+  - After its due date a goal is still judged: a missed reach is `behind`, and a `sustain` that held
+    is `met`.
+- **Changes:** `Goals::update($id, [...])` keeps what it does not name, and forgets the goal's state.
+
 **A target relative to last year.** Instead of a fixed number, a goal can grow over its
 reference: the reference period's total times 1 + growth, worked out each period. One goal set
 once then serves every day, with no daily script:

@@ -1034,7 +1034,7 @@ and the achievements, which it will read from `stats.achievements` and `stats.go
 
 | Step | What |
 |---|---|
-| 16a | The kinds, references, recurrence, history, streak and minimum history on the store; `stats.goals` gains `kind`, `starts_at`, `due_at`, `repeats`, `owner`, `note`, `notify`, `last_state`, `last_told_at` (the migration changed in place, as on 9 November, with the columns added to tables made before) |
+| 16a | **Built (except the across-a-dimension declarations):** The kinds, references, recurrence, history, streak and minimum history on the store; `stats.goals` gains `kind`, `starts_at`, `due_at`, `repeats`, `owner`, `note`, `notify`, `last_state`, `last_told_at` (the migration changed in place, as on 9 November, with the columns added to tables made before) |
 | 16b | `Goals::check()`, the notification, `goal.turned`, the schedule |
 | 16c | Achievements |
 | 16d | The screen, the card, the tool and the API |

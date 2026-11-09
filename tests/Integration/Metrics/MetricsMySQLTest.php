@@ -1384,6 +1384,91 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * The kinds of goal on a total and on a level (FW-360, design §16):
+     * - a monthly `count` on a total, judged on its current month, with each past month judged as
+     *   it stood at its end, and a streak of the met ones;
+     * - a one-off `growth` on a total against the same length before it;
+     * - on a level rising 10 a day: `reach` met on the day it crosses, on track by the trend's
+     *   crossing day, behind when that day is after the due date, unknown with too few readings;
+     *   `stalled` on a level that does not move; `sustain` with its worst reading; `pace` and
+     *   level `growth` from the first reading;
+     * - a goal with neither target nor growth, a recurring one with a due date (ignored), and a
+     *   change that forgets the state.
+     */
+    public function testEveryKindOfGoal(): void
+    {
+        // Arrange — sales: 10 a day in August, 5 a day in September, 10 a day in October so far
+        foreach (['2026-08' => 31, '2026-09' => 30, '2026-10' => 20] as $month => $days) {
+            for ($d = 1; $d <= $days; $d++) {
+                $this->order(sprintf('%s-%02d 12:00:00', $month, $d), 'north', $month === '2026-09' ? 5 : 10);
+            }
+        }
+        $base = self::at('2026-09-01 00:00');
+        Metrics::register(
+            Metric::flow('test.sold', 'Sold')->source(function (Window $w, array $by, Database $db): int {
+                return (int) $db->queryBuilder()->table(self::ORDERS)->where('placed_at', '>=', $w->startsAt())->where('placed_at', '<', $w->endsAt())->sum('customer');
+            }),
+            Metric::level('test.rising', 'Rising')->knowsThePast()->source(static fn (Window $w): int => max(0, (int) (($w->endsAt() - $base) / 86400)) * 10),
+            Metric::level('test.flat', 'Flat')->knowsThePast()->source(static fn (): int => 50),
+            Metric::level('test.falling', 'Falling')->knowsThePast()->source(static fn (Window $w): int => 1000 - max(0, (int) (($w->endsAt() - $base) / 86400)) * 10),
+        );
+        $now = self::at('2026-10-20 18:00');
+        Metrics::compute(['test.sold', 'test.rising', 'test.flat', 'test.falling'], ['day'], '2026-07-25', '2026-10-20', false, $now);
+        $goals = \Pramnos\Metrics\Goals::class;
+        $refused = [];
+        foreach ([['metric' => 'test.sold'], ['metric' => 'test.sold', 'target' => 5], ['metric' => 'test.sold', 'target' => 5, 'repeats' => 'fortnight'],
+            ['metric' => 'test.sold', 'target' => 5, 'due' => '2026-10-01', 'starts' => '2026-10-05']] as $bad) {
+            try {
+                $goals::create($bad);
+            } catch (\InvalidArgumentException $e) {
+                $refused[] = $e->getMessage();
+            }
+        }
+
+        // Act
+        $monthly = $goals::create(['metric' => 'test.sold', 'target' => 250, 'repeats' => 'month', 'due' => '2026-10-31']);
+        $judged  = $goals::judge($monthly, $now);
+        $growth  = $goals::judge($goals::create(['metric' => 'test.sold', 'kind' => 'growth', 'target' => 50, 'starts' => '2026-10-01', 'due' => '2026-10-30']), $now);
+        $reach   = static fn (float $target, string $due, string $starts = '2026-09-01') => $goals::judge($goals::create(['metric' => 'test.rising', 'target' => $target, 'starts' => $starts, 'due' => $due]), $now);
+        $met     = $reach(300, '2026-12-31');
+        $onTrack = $reach(800, '2026-12-31');
+        $late    = $reach(800, '2026-10-25');
+        $early   = $reach(800, '2026-12-31', '2026-10-15');
+        $stalled = $goals::judge($goals::create(['metric' => 'test.flat', 'target' => 80, 'starts' => '2026-09-01', 'due' => '2026-12-31']), $now);
+        $sustain = $goals::judge($goals::create(['metric' => 'test.falling', 'kind' => 'sustain', 'target' => 600, 'starts' => '2026-09-01', 'due' => '2026-12-31']), $now);
+        $pace    = $goals::judge($goals::create(['metric' => 'test.rising', 'kind' => 'pace', 'target' => 500, 'starts' => '2026-10-01', 'due' => '2026-10-31']), $now);
+        $levelUp = $goals::judge($goals::create(['metric' => 'test.rising', 'kind' => 'growth', 'target' => 100, 'starts' => '2026-10-01', 'due' => '2026-10-31']), $now);
+        $this->db->queryBuilder()->table($goals::TABLE)->where('goalid', $monthly)->update(['last_state' => 'behind']);
+        $goals::update($monthly, ['target' => 200]);
+        $changed = $goals::get($monthly);
+
+        // Assert
+        $this->assertSame(['A goal needs a target above nought, or a growth over its reference.', 'A goal needs a date to be met by.',
+            'A goal recurs every day, week, month or quarter.', 'A goal is met by a day after it starts.'], $refused);
+        $this->assertSame(['count', 200.0, 'on_track'], [$judged['kind'], $judged['current'], $judged['state']], '200 of 250 by the 20th of 31');
+        $this->assertStringStartsWith('This month: ', $judged['says']);
+        $this->assertSame('2026-10-01', $judged['period']);
+        $this->assertNull($changed['due_at'], 'a recurring goal has no due date');
+        $months = array_column($judged['history'], 'met', 'from');
+        $this->assertSame([true, false], [$months['2026-08-01'], $months['2026-09-01']], 'August 310, September 150');
+        $this->assertNull($months['2026-06-01'], 'nothing that month: neither');
+        $this->assertSame(0, $judged['streak'], 'September missed');
+        $this->assertSame([225.0, 'on_track'], [$growth['target'], $growth['state']], 'the 30 days before: 150 in September, plus 50%');
+        $this->assertSame(['met', '2026-09-30'], [$met['state'], $met['met_at']]);
+        $this->assertSame('on_track', $onTrack['state']);
+        $this->assertSame('2026-11-19', $onTrack['projected'], 'ten a day from 500 on 20 October: 30 days, across the clocks changing');
+        $this->assertSame('behind', $late['state']);
+        $this->assertSame('unknown', $early['state']);
+        $this->assertStringContainsString('more reading(s) needed', $early['says']);
+        $this->assertSame('stalled', $stalled['state']);
+        $this->assertSame(['behind', 600.0], [$sustain['state'], $sustain['worst'] < 600 ? 600.0 : $sustain['worst']], 'it fell below 600');
+        $this->assertSame('pace', $pace['kind']);
+        $this->assertSame('growth', $levelUp['kind']);
+        $this->assertNull($changed['last_state'], 'a changed goal is judged afresh');
+        $this->assertSame(200.0, $changed['target']);
+    }
+
+    /**
      * A month's goal follows the days of the same month a year earlier; a goal for every period
      * gives way to one set for the period; a grain or a reference it does not know is refused; a
      * goal taken away is gone, and a goal that is not there has no progress.

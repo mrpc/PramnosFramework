@@ -79,22 +79,167 @@ final class Goals
         return $db->type === 'postgresql' ? (int) ($result->fields['goalid'] ?? 0) : (int) $db->getInsertId();
     }
 
+    /** The same length of time just before: what a total's growth is measured against by default. */
+    public const PREVIOUS = 'previous';
+
+    /** The period's first reading: what a level's growth is measured against. */
+    public const FIRST = 'first';
+
+    /** The references a goal is measured against. */
+    public const REFERENCES = [self::LAST_YEAR, self::WEEKDAYS, self::PREVIOUS, self::FIRST];
+
     /**
-     * Change a goal: its `target`, its `growth` (null makes it the target as set again), or its
-     * `reference`.
+     * A goal of any kind (Metrics-BI-Design §16):
      *
-     * @param array{target?: float, growth?: ?float, reference?: string} $changes
+     * ```php
+     * Goals::create(['metric' => 'payments.revenue', 'target' => 2000, 'repeats' => 'month']);
+     * Goals::create(['metric' => 'followers', 'kind' => 'reach', 'target' => 10000, 'due' => '2026-12-31', 'filters' => ['channel' => '7']]);
+     * Goals::create(['metric' => 'registrations', 'kind' => 'growth', 'target' => 10, 'repeats' => 'week', 'reference' => 'previous']);
+     * ```
+     *
+     * Keys: `metric`, `kind` (the metric's default where left out or not its own), `target` (a
+     * growth's %), `growth` (a count relative to its reference), `reference`, `repeats` (day,
+     * week, month, quarter) or `starts` and `due` (`Y-m-d`; `starts` now when left out),
+     * `filters`, `tenant`, `owner`, `note`, `notify`, `by`.
+     *
+     * @param array<string, mixed> $goal
+     * @throws \InvalidArgumentException For a goal that cannot be judged
+     */
+    public static function create(array $goal): int
+    {
+        self::ready();
+        $row = self::checked($goal);
+        $db  = Metrics::connection();
+        $insert = $db->queryBuilder()->table(self::TABLE);
+        if ($db->type === 'postgresql') {
+            $insert->returning('goalid');
+        }
+        $result = $insert->insert($row + ['createdby' => isset($goal['by']) ? (int) $goal['by'] : null, 'createdat' => time()]);
+
+        return $db->type === 'postgresql' ? (int) ($result->fields['goalid'] ?? 0) : (int) $db->getInsertId();
+    }
+
+    /**
+     * Change a goal: any key {@see create()} takes. A changed goal is judged afresh, its state
+     * forgotten, so a change is not told as a turn.
+     *
+     * @param array<string, mixed> $changes
      */
     public static function update(int $id, array $changes): void
     {
         self::ready();
-        $values = array_intersect_key($changes, ['target' => 1, 'growth' => 1, 'reference' => 1]);
-        if (isset($values['reference']) && !in_array($values['reference'], [self::LAST_YEAR, self::WEEKDAYS], true)) {
-            throw new \InvalidArgumentException(t('A goal follows last year or the same weekdays.'));
+        $goal = self::get($id) ?? throw new \InvalidArgumentException(t('There is no such goal.'));
+        if (isset($changes['reference']) && !in_array($changes['reference'], self::REFERENCES, true)) {
+            throw new \InvalidArgumentException(t('A goal is measured against last year, the same weekdays, the time before or its first reading.'));
         }
-        if ($values !== []) {
-            Metrics::connection()->queryBuilder()->table(self::TABLE)->where('goalid', $id)->update($values);
+        // What is not said stays.
+        $merged = $changes + ['metric' => $goal['metric'], 'kind' => $goal['kind'], 'target' => $goal['target'], 'growth' => $goal['growth'],
+            'reference' => $goal['reference'], 'filters' => $goal['filters'], 'tenant' => $goal['tenant'], 'owner' => $goal['owner'],
+            'note' => $goal['note'], 'notify' => $goal['notify']];
+        if (in_array($goal['grain'], GoalJudge::RECURRING, true) && $goal['period'] === '') {
+            $merged += ['repeats' => $goal['grain']];
+        } elseif ($goal['grain'] === 'once') {
+            $zone    = Window::zoneOf((int) $goal['tenant']);
+            $merged += ['starts' => (new \DateTimeImmutable('@' . $goal['starts_at']))->setTimezone($zone)->format('Y-m-d'),
+                'due' => (new \DateTimeImmutable('@' . $goal['due_at']))->setTimezone($zone)->format('Y-m-d')];
+        } else {
+            // A goal for one day or month (FW-358): its own period kept.
+            $merged += ['repeats' => $goal['grain']];
         }
+        $row = self::checked($merged);
+        if ($goal['period'] !== '' && $goal['grain'] !== 'once') {
+            $row['period'] = $goal['period'];
+        }
+        Metrics::connection()->queryBuilder()->table(self::TABLE)->where('goalid', $id)->update($row + ['last_state' => null]);
+    }
+
+    /**
+     * How a goal stands now: its state (met, on_track, behind, stalled or unknown), a sentence
+     * saying so, the figures behind it, and for a recurring one its history and streak
+     * ({@see GoalJudge}).
+     *
+     * @param int|array<string, mixed> $goal
+     * @return array<string, mixed>|null Null for a goal that is not there
+     */
+    public static function judge(int|array $goal, ?int $now = null): ?array
+    {
+        $goal = is_int($goal) ? self::get($goal) : $goal;
+
+        return $goal === null ? null : GoalJudge::judge($goal, $now);
+    }
+
+    /**
+     * The goals of an organisation (0: those of none), or of every one.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function all(?int $tenant = null): array
+    {
+        self::ready();
+        $query = Metrics::connection()->queryBuilder()->table(self::TABLE)->orderBy('goalid');
+        if ($tenant !== null) {
+            $query->where('tenant', $tenant);
+        }
+        try {
+            return array_map(self::shape(...), $query->getAllOrFail());
+        } catch (\Throwable) {
+            return [];   // no goals table yet
+        }
+    }
+
+    /**
+     * A goal's row, checked: a metric there is, a kind it takes, a target or a growth, a period it
+     * recurs every one of, or one-off dates.
+     *
+     * @param array<string, mixed> $goal
+     * @return array<string, mixed>
+     */
+    private static function checked(array $goal): array
+    {
+        $metric = Metrics::get((string) ($goal['metric'] ?? ''));
+        $kind   = GoalJudge::kindOf($metric, isset($goal['kind']) ? (string) $goal['kind'] : null);
+        $target = (float) ($goal['target'] ?? 0);
+        $growth = isset($goal['growth']) && $goal['growth'] !== null && $goal['growth'] !== '' ? (float) $goal['growth'] : null;
+        if ($growth === null && $target <= 0) {
+            throw new \InvalidArgumentException(t('A goal needs a target above nought, or a growth over its reference.'));
+        }
+        if ($kind === 'growth' && $target > 1000) {
+            throw new \InvalidArgumentException(t('A growth is at most 1000%.'));
+        }
+        $reference = (string) ($goal['reference'] ?? '');
+        if ($reference === '') {
+            $reference = $kind === 'growth' && $metric->kind === Metric::LEVEL ? self::FIRST : ($kind === 'growth' ? self::PREVIOUS : self::LAST_YEAR);
+        }
+        if (!in_array($reference, self::REFERENCES, true)) {
+            throw new \InvalidArgumentException(t('A goal is measured against last year, the same weekdays, the time before or its first reading.'));
+        }
+        $repeats = ($goal['repeats'] ?? '') ?: null;
+        $row     = ['metric' => $metric->name, 'kind' => $kind, 'target' => $growth === null ? $target : ($kind === 'growth' ? $target : 0.0),
+            'growth' => $growth, 'reference' => $reference, 'filters' => ($goal['filters'] ?? []) === [] ? null : json_encode($goal['filters'], JSON_UNESCAPED_UNICODE),
+            'tenant' => (int) ($goal['tenant'] ?? 0), 'owner' => isset($goal['owner']) && (int) $goal['owner'] > 0 ? (int) $goal['owner'] : null,
+            'note' => isset($goal['note']) && $goal['note'] !== '' ? mb_substr((string) $goal['note'], 0, 255) : null,
+            'notify' => isset($goal['notify']) && $goal['notify'] !== '' ? mb_substr((string) $goal['notify'], 0, 16) : null, 'period' => ''];
+        if ($repeats !== null) {
+            if (!in_array($repeats, GoalJudge::RECURRING, true)) {
+                throw new \InvalidArgumentException(t('A goal recurs every day, week, month or quarter.'));
+            }
+
+            // A recurring goal has no due date: each period is its own.
+            return $row + ['grain' => $repeats, 'starts_at' => null, 'due_at' => null];
+        }
+        // Days in the organisation's zone: a goal starts at its midnight and ends at its end of day.
+        $zone  = Window::zoneOf($row['tenant']);
+        $day   = static fn (string $d): ?\DateTimeImmutable => preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) === 1 ? new \DateTimeImmutable($d . ' 00:00:00', $zone) : null;
+        $due   = $day((string) ($goal['due'] ?? ''));
+        $start = ($goal['starts'] ?? '') !== '' ? $day((string) $goal['starts']) : new \DateTimeImmutable('today', $zone);
+        if ($due === null) {
+            throw new \InvalidArgumentException(t('A goal needs a date to be met by.'));
+        }
+        if ($start === null || $due < $start) {
+            throw new \InvalidArgumentException(t('A goal is met by a day after it starts.'));
+        }
+
+        return $row + ['grain' => 'once', 'starts_at' => $start->getTimestamp(), 'due_at' => $due->modify('+1 day')->getTimestamp() - 1];
     }
 
     /** Take a goal away. */
@@ -280,17 +425,23 @@ final class Goals
      */
     private static function shape(array $row): array
     {
+        $int = static fn (string $c): ?int => isset($row[$c]) && $row[$c] !== null && $row[$c] !== '' ? (int) $row[$c] : null;
+
         return ['id' => (int) $row['goalid'], 'metric' => (string) $row['metric'], 'grain' => (string) $row['grain'], 'period' => (string) $row['period'],
             'tenant' => (int) $row['tenant'], 'filters' => (array) json_decode((string) ($row['filters'] ?? ''), true), 'target' => (float) $row['target'],
-            'growth' => isset($row['growth']) && $row['growth'] !== null ? (float) $row['growth'] : null, 'reference' => (string) $row['reference']];
+            'growth' => isset($row['growth']) && $row['growth'] !== null ? (float) $row['growth'] : null, 'reference' => (string) $row['reference'],
+            'kind' => ($row['kind'] ?? null) ?: null, 'starts_at' => $int('starts_at'), 'due_at' => $int('due_at'), 'owner' => $int('owner'),
+            'note' => (string) ($row['note'] ?? ''), 'notify' => ($row['notify'] ?? null) ?: null, 'last_state' => ($row['last_state'] ?? null) ?: null,
+            'last_told_at' => $int('last_told_at')];
     }
 
-    /** @var array<int, true> The connections whose table was seen to have its `growth` column */
+    /** @var array<int, true> The connections whose table was seen to have every column */
     private static array $ready = [];
 
     /**
-     * The `growth` column, added where the table was made before it existed — once, the first time
-     * a goal is read or set — so an installation needs no step of its own.
+     * The columns added after the table was first made (`growth`, and the kinds, one-off dates,
+     * owner and state of FW-360), added where it lacks them — once, the first time a goal is read
+     * or set — so an installation needs no step of its own.
      */
     private static function ready(): void
     {
@@ -299,10 +450,18 @@ final class Goals
             return;
         }
         $schema = $db->schema();
-        if ($schema->hasTable(self::TABLE) && !$schema->hasColumn(self::TABLE, 'growth')) {
-            $schema->table(self::TABLE, static function ($table): void {
-                $table->double('growth')->nullable();
-            });
+        if ($schema->hasTable(self::TABLE)) {
+            // Each column a table made before it gains, the first time a goal is read or set.
+            $columns = ['growth' => static fn ($t) => $t->double('growth')->nullable(), 'kind' => static fn ($t) => $t->string('kind', 12)->nullable(),
+                'starts_at' => static fn ($t) => $t->integer('starts_at')->nullable(), 'due_at' => static fn ($t) => $t->integer('due_at')->nullable(),
+                'owner' => static fn ($t) => $t->integer('owner')->nullable(), 'note' => static fn ($t) => $t->string('note', 255)->nullable(),
+                'notify' => static fn ($t) => $t->string('notify', 16)->nullable(), 'last_state' => static fn ($t) => $t->string('last_state', 12)->nullable(),
+                'last_told_at' => static fn ($t) => $t->integer('last_told_at')->nullable()];
+            foreach ($columns as $column => $add) {
+                if (!$schema->hasColumn(self::TABLE, $column)) {
+                    $schema->table(self::TABLE, $add);
+                }
+            }
         }
         self::$ready[spl_object_id($db)] = true;
     }
