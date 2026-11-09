@@ -715,6 +715,33 @@ a GIN index on `to_tsvector('simple', body)` on PostgreSQL. A shorter word (`Φ�
 two) is not in a MySQL index whose `innodb_ft_min_token_size` is 3, so a search with one runs as
 `LIKE` over the readable conversations instead.
 
+## A summary
+
+The analyst sums up a conversation for one reader — what they have not read, or the last hours —
+and only for them: the summary is answered, not posted.
+
+```php
+\Pramnos\Conversations\Summary::of($conversationId, $reader, 'unread', 'el');
+\Pramnos\Conversations\Summary::of($conversationId, $reader, ['hours' => 24]);
+\Pramnos\Conversations\Summary::of($conversationId, $reader, ['since' => $unix]);
+// ['summary' => markdown citing [#id], 'messages' => [the ids it cites], 'from', 'to', 'count', 'cut']
+```
+
+- It reads only a conversation the reader reads (`Conversations::canRead()`); another is a
+  `DomainException`, a 404 from `summarize/{id}`.
+- Replies in threads are read, deleted messages are not. With `unread`, the reader's own
+  messages are left out. Somebody who reads an open channel without being in it has read none
+  of it, so they get its last day.
+- At most 400 messages and 60,000 characters go to the model, the newest. `cut` says older
+  ones were left out, and the summary says so too.
+- `messages` holds only the ids among those read, so a link never points at a message the
+  reader may not open.
+- Nothing to sum up is answered empty, without a call. The call is logged and costed to the
+  reader (`purpose` `conversation_summary`), on the analyst's connection, and the summary is
+  kept nowhere else.
+
+The analyst has the same as a tool, `conversation_summary`, for "what was said in #sales today?".
+
 ## Files
 
 A file sent in a conversation is a file on disk under a tree of its own, `var/chat-files` by
@@ -1134,6 +1161,7 @@ application with the `conversations` feature; an application made before adds th
 | `savecanvas/{canvasId}` | POST | `title`, `body` | `{version, canvas}` |
 | `restorecanvas/{canvasId}` | POST | `version` | `{version}` |
 | `deletecanvas/{canvasId}` | POST | — | `{ok}` |
+| `summarize/{id}` | POST | `since` (`unread`, the default, or a Unix time), `hours`, `language` | `{summary, messages, from, to, count, cut}`: see [A summary](#a-summary) |
 | `people` | GET | `q` | `{people}`: who may use the conversations, by a part of the name |
 | `person/{id}` | GET | `show` (`messages`, `mentions`, `files`), `q` | `{person}`: as `People::profile()` answers; with `show`, also what they wrote holding the words of `q`, what mentions them, or the files they sent — 404 for somebody the reader does not see |
 | `refs` | GET | `keys` (`user:5,jira:NAN-1`) | `{cards}`: each as the application draws it for the reader, or null |

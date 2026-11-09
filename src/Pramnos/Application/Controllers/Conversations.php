@@ -74,7 +74,7 @@ class Conversations extends Controller
     /** The writes: each a POST with the session's token. */
     private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away', 'rename', 'setimage', 'clearimage', 'addtodo', 'changetodo', 'deletetodo', 'savetodo',
         'describe', 'setprivate', 'archive', 'unarchive', 'removemember', 'setrole', 'destroy', 'settings',
-        'addtab', 'removetab', 'hidetab', 'ordertabs', 'newcanvas', 'savecanvas', 'lockcanvas', 'unlockcanvas', 'restorecanvas', 'deletecanvas'];
+        'addtab', 'removetab', 'hidetab', 'ordertabs', 'newcanvas', 'savecanvas', 'lockcanvas', 'unlockcanvas', 'restorecanvas', 'deletecanvas', 'summarize'];
 
     /** The JSON body, decoded once. @var array<string, mixed>|null */
     private ?array $json = null;
@@ -523,6 +523,25 @@ class Conversations extends Controller
             $this->in('conversation') !== null && $this->in('conversation') !== '' ? (int) $this->in('conversation') : null),
             // The canvases holding the words too, where there are any.
             'canvases' => \Pramnos\Conversations\Canvases::search($me, (string) $this->in('q'))]);
+    }
+
+    /**
+     * The analyst's summary of a conversation, for the reader alone: `since` — `unread` (the
+     * default) or a Unix time — or `hours`, and `language` (`el`, `en`). Answers `summary`
+     * (markdown, citing `[#id]`), the cited `messages`, `from`, `to`, `count` and `cut`.
+     */
+    public function summarize(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            if (!\Pramnos\Llm\Analyst\Analyst::available()) {
+                throw new \InvalidArgumentException(t('The assistant is not set up here.'));
+            }
+            $since = (string) ($this->in('since') ?? '');
+            $since = $this->in('hours') !== null ? ['hours' => (int) $this->in('hours')]
+                : (ctype_digit($since) ? ['since' => (int) $since] : ($since === '' ? 'unread' : $since));
+
+            return \Pramnos\Conversations\Summary::of($this->id(), $me, $since, (string) ($this->in('language') ?? ''));
+        });
     }
 
     /** A conversation's tabs, in order, and whether the reader manages them. */

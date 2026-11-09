@@ -243,6 +243,11 @@ final class Analyst
             $tools[] = new \Pramnos\Llm\Analyst\Tools\TodosChangeTool($adminId);
         }
 
+        // What was said in a conversation the person reads, summed up.
+        if (\Pramnos\Conversations\Conversations::installed()) {
+            $tools[] = new \Pramnos\Llm\Analyst\Tools\ConversationSummaryTool($adminId);
+        }
+
         // The installation's help pages, with the `help` feature.
         if (\Pramnos\Assist\Help::enabled()) {
             $tools[] = new \Pramnos\Llm\Analyst\Tools\HelpTool($area);
