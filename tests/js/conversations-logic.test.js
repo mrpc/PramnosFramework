@@ -554,3 +554,45 @@ test('/gif opens the GIF picker where GIFs are set up', async () => {
     assert.equal(off, null, 'no provider: sent as written');
     assert.equal(other, null);
 });
+
+/**
+ * A pop-up closes on a press outside it and on Escape — not on a press inside it, nor on its own
+ * toggle button — and only from the next tick, so the press that opened it does not close it;
+ * destroyed, it listens no more.
+ */
+test('a pop-up closes on a press outside or Escape, but not on its own button', async () => {
+    // Arrange
+    const { dismiss } = await import(pathToFileURL(path.join(__dirname, '..', '..', 'resources', 'js', 'conversations', 'dismiss.js')).href);
+    const { createDom, Event } = require('../../resources/js/pramnos-testing');
+    const { document } = createDom({ url: 'https://app.test/' });
+    const pop = document.createElement('div');
+    const inside = document.createElement('button');
+    pop.appendChild(inside);
+    const toggle = document.createElement('button');
+    toggle.setAttribute('data-pf-toggle', '');
+    const elsewhere = document.createElement('p');
+    document.body.append(pop, toggle, elsewhere);
+    let closed = 0;
+    const press = (target) => target.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    const escape = () => { const e = new Event('keydown', { bubbles: true }); e.key = 'Escape'; document.dispatchEvent(e); };
+
+    // Act
+    const action = dismiss(pop, () => { closed++; });
+    press(elsewhere);
+    const beforeTick = closed;
+    await new Promise((r) => setTimeout(r, 5));
+    press(inside);
+    press(toggle);
+    const afterOwn = closed;
+    press(elsewhere);
+    escape();
+    const afterBoth = closed;
+    action.destroy();
+    press(elsewhere);
+
+    // Assert
+    assert.equal(beforeTick, 0, 'the press that opened it does not close it');
+    assert.equal(afterOwn, 0, 'inside, and its own button');
+    assert.equal(afterBoth, 2, 'a press outside, and Escape');
+    assert.equal(closed, 2, 'destroyed: no longer listening');
+});

@@ -5,6 +5,7 @@
      */
     import { t } from './t.js';
     import { gifProvider } from './extras.js';
+    import { dismiss } from './dismiss.js';
 
     let { api, onpick, onclose, onerror = () => {}, initial = '' } = $props();
 
@@ -42,7 +43,7 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <!-- svelte-ignore a11y_interactive_supports_focus -->
-<div class="pf-conv-pop pf-conv-gifs" role="dialog" aria-label={t('Find a GIF')} onkeydown={onKeydown}>
+<div class="pf-conv-pop pf-conv-gifs" role="dialog" aria-label={t('Find a GIF')} onkeydown={onKeydown} use:dismiss={() => onclose?.()}>
     <input bind:this={box} type="search" class="pf-conv-input" bind:value={query} placeholder={t('Find a GIF')} aria-label={t('Find a GIF')} />
     <div class="pf-conv-gif-grid" aria-busy={busy}>
         {#each found as gif (gif.id + gif.url)}

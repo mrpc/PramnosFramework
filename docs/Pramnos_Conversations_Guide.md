@@ -505,6 +505,10 @@ Messages::react($id, $maria, ':our-heart:');
   such as a desktop application's blob URL. The zoom's arithmetic (`fitScale`, `zoomAt`,
   `clampPan`, `toggleScale`) is in pure functions. It is plain DOM, so a chat page of the
   application's own imports it from `vendor/` too.
+- **Pop-ups close by themselves.** The GIF picker, the `@`/`:` suggestions and the dock's list
+  close on a press outside them or on Escape (`dismiss.js`, a Svelte action that an
+  application's own pop-ups can use too). Their own button, marked `data-pf-toggle`, opens and
+  closes them itself. The GIF and emoji pickers are never open together.
 - **The pickers.** A message's reaction picker floats over the page beside its button, opening
   upward where there is no room below, so the message list neither clips it nor scrolls. Scrolling
   closes it, and a click outside closes any picker.

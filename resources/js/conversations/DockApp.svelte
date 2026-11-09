@@ -13,6 +13,7 @@
     import DockWindow from './DockWindow.svelte';
     import { t } from './t.js';
     import { installLightbox } from './lightbox.js';
+    import { dismiss } from './dismiss.js';
     import { dockLayout, sidebarPrefs, keepSidebarPrefs, withFormer, openWindow, minimiseWindow, keptWindows } from './logic.js';
 
     let { api, props } = $props();
@@ -216,14 +217,14 @@
         </span>
     {/each}
     <button type="button" class="pf-conv-dock-button" aria-expanded={listOpen} aria-label={t('Conversations') + (unread ? ' (' + unread + ')' : '')}
-        title={t('Conversations')} onclick={() => (listOpen = !listOpen)}>
+        title={t('Conversations')} data-pf-toggle onclick={() => (listOpen = !listOpen)}>
         <span aria-hidden="true">💬</span>
         {#if unread > 0}<span class="pf-conv-dock-count" class:pf-conv-dock-mention={urgent}>{unread > 99 ? '99+' : unread}</span>{/if}
     </button>
 </div>
 
 {#if listOpen}
-    <div class="pf-conv-dock-panel" role="dialog" aria-label={t('Conversations')}>
+    <div class="pf-conv-dock-panel" role="dialog" aria-label={t('Conversations')} use:dismiss={() => (listOpen = false)}>
         <DockList {api} {me} {conversations} {browse} {online} {avatars} links={props.links || []} page={props.page || ''} filesUrl={props.files} {noFaces}
             onopen={(id) => open(id)} onfaces={setFaces} oncreated={async (id) => { await refresh(); open(id); }} onerror={fail} />
     </div>
