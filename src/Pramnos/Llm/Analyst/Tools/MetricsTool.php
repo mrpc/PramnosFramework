@@ -141,7 +141,12 @@ final class MetricsTool implements McpToolInterface
         if (!$metric->hasRows()) {
             return ['metric' => $metric->name, 'says' => 'This metric lists no records behind its numbers.'];
         }
-        $rows = Metrics::records($metric->name, $grain, $period, array_map(static fn ($v): string => is_array($v) ? (string) reset($v) : $v, $filters));
+        try {
+            $only = Metrics::scoped($metric->name, array_map(static fn ($v): string => is_array($v) ? (string) reset($v) : $v, $filters), $this->user(), null, true);
+        } catch (\DomainException $e) {
+            return ['metric' => $metric->name, 'says' => $e->getMessage()];
+        }
+        $rows = Metrics::records($metric->name, $grain, $period, $only);
 
         return ['metric' => $metric->name, 'period' => Window::of($grain, $period)->label(), 'count' => count($rows), 'rows' => array_slice($rows, 0, self::ROWS)];
     }

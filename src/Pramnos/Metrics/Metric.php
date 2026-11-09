@@ -90,6 +90,9 @@ final class Metric
     /** Read from its source when asked, never stored. */
     private bool $live = false;
 
+    /** Read whole by everybody who may read it, whatever their scope ({@see Metrics::scopeOf()}). */
+    private bool $unscoped = false;
+
     /** The definition's version: computed and read; another is kept beside it. */
     private int $version = 1;
 
@@ -354,6 +357,24 @@ final class Metric
     public function declared(): ?array
     {
         return $this->query;
+    }
+
+    /**
+     * Read whole by every viewer who may read it, though it lacks a dimension their scope
+     * narrows — a figure that is nobody's region, the site's visits. Without it such a metric is
+     * not shown to a scoped viewer: its whole would be more than theirs.
+     */
+    public function unscoped(): self
+    {
+        $this->unscoped = true;
+
+        return $this;
+    }
+
+    /** Whether it is read whole by any viewer ({@see unscoped()}). */
+    public function isUnscoped(): bool
+    {
+        return $this->unscoped;
     }
 
     /** Whether it is read from its source when asked. */

@@ -17,7 +17,8 @@ namespace Pramnos\Metrics;
  * ```
  *
  * `for($user)` refuses a metric the viewer may not read ({@see Metric::allowed()}) and narrows the
- * values to the organisations `metrics.tenant` gives them; `tenant($id)` narrows further to one.
+ * values to the organisations `metrics.tenant` gives them, and to the dimension values
+ * `metrics.scope` gives them ({@see Metrics::scoped()}); `tenant($id)` narrows further to one.
  * Without `for()` every organisation is read, as a scheduled job reads them. A period never
  * computed is null in every answer.
  */
@@ -38,6 +39,9 @@ final class Query
 
     /** @var list<int>|null */
     private ?array $tenants = null;
+
+    /** Whose scope the filters are narrowed to ({@see for()}); false: nobody's, every value. */
+    private object|false|null $viewer = false;
 
     /** The definition's version read; null: the metric's own. */
     private ?int $version = null;
@@ -118,6 +122,7 @@ final class Query
             throw new \DomainException(sprintf(t('There is no metric "%s" you may read.'), $this->metric));
         }
         $this->tenants = Metrics::tenantsOf($user);
+        $this->viewer  = $user;
 
         return $this;
     }
@@ -147,7 +152,7 @@ final class Query
     {
         $periods = $this->periods();
 
-        return ['periods' => $periods, 'values' => Metrics::read($this->metric, $periods, $this->filters, $this->by, $this->tenants, $this->version)];
+        return ['periods' => $periods, 'values' => Metrics::read($this->metric, $periods, $this->filters($this->by), $this->by, $this->tenants, $this->version)];
     }
 
     /**
@@ -174,7 +179,7 @@ final class Query
     public function value(): ?float
     {
         $periods = $this->periods();
-        $values  = Metrics::read($this->metric, [end($periods)], $this->filters, null, $this->tenants, $this->version);
+        $values  = Metrics::read($this->metric, [end($periods)], $this->filters(), null, $this->tenants, $this->version);
 
         return $values[''][0] ?? null;
     }
@@ -189,7 +194,7 @@ final class Query
         $periods = $this->periods();
         $window  = end($periods);
         $other   = $this->against === Metrics::YEAR_EARLIER ? $window->yearEarlier() : $window->previous();
-        $values  = Metrics::read($this->metric, [$window, $other], $this->filters, null, $this->tenants, $this->version);
+        $values  = Metrics::read($this->metric, [$window, $other], $this->filters(), null, $this->tenants, $this->version);
         [$a, $b] = [$values[''][0] ?? null, $values[''][1] ?? null];
 
         return [
@@ -232,7 +237,7 @@ final class Query
         }
         $periods = $this->periods();
         $last    = [];
-        foreach (Metrics::read($this->metric, [end($periods)], $this->filters, $this->by, $this->tenants, $this->version) as $key => $values) {
+        foreach (Metrics::read($this->metric, [end($periods)], $this->filters($this->by), $this->by, $this->tenants, $this->version) as $key => $values) {
             if (($values[0] ?? null) !== null) {
                 $last[(string) $key] = (float) $values[0];
             }
@@ -240,6 +245,12 @@ final class Query
         arsort($last);
 
         return array_slice($last, 0, max(0, $count), true);
+    }
+
+    /** @return array<string, string|list<string>> The filters, narrowed to the viewer's scope where read for one */
+    private function filters(?string $by = null): array
+    {
+        return $this->viewer === false ? $this->filters : Metrics::scoped($this->metric, $this->filters, $this->viewer ?: null, $by);
     }
 
     /** @return list<Window> The periods asked: today's when none were. */

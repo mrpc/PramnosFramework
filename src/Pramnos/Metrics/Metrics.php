@@ -97,7 +97,11 @@ final class Metrics
             return self::$metrics;
         }
 
-        return array_filter(self::$metrics, static fn (Metric $m): bool => $m->allows($user));
+        // A scoped viewer sees a metric only where their scope can narrow it, or it is nobody's.
+        $scope = array_keys(self::scopeOf($user) ?? []);
+
+        return array_filter(self::$metrics, static fn (Metric $m): bool => $m->allows($user)
+            && ($m->isUnscoped() || array_diff($scope, $m->getDimensions()) === []));
     }
 
     /** One metric by name. */
@@ -502,6 +506,79 @@ final class Metrics
         $ids = $scope($user);
 
         return $ids === null ? null : array_values(array_map('intval', (array) $ids));
+    }
+
+    /**
+     * The values of each dimension a viewer may read, from `metrics.scope` in app.php — `fn (?object
+     * $user): ?array`, dimension => values — or null for all of them. A regional manager's is
+     * `['region' => ['north']]`: every figure they read is north's, its totals north's total.
+     *
+     * @return array<string, list<string>>|null
+     */
+    public static function scopeOf(?object $user): ?array
+    {
+        $scope = self::config()['scope'] ?? null;
+        $given = is_callable($scope) ? $scope($user) : null;
+        if (!is_array($given)) {
+            return null;
+        }
+        $out = [];
+        foreach ($given as $dimension => $values) {
+            $out[(string) $dimension] = array_values(array_map('strval', (array) $values));
+        }
+
+        return $out;
+    }
+
+    /**
+     * The filters a viewer reads a metric with: theirs, narrowed to their scope ({@see
+     * scopeOf()}), checked against the dimensions they may use ({@see Dimension::ability()}).
+     * A dimension they did not filter is filtered to the values of their scope, so a total is the
+     * total of what they may read. `$single` is for the records behind a number, which an
+     * application's `rows()` reads one value at a time.
+     *
+     * @param array<string, string|list<string>> $filters
+     * @return array<string, string|list<string>>
+     * @throws \DomainException For a value, or a dimension, the viewer may not read
+     */
+    public static function scoped(string $metric, array $filters, ?object $user, ?string $breakdown = null, bool $single = false): array
+    {
+        foreach (array_filter([...array_keys($filters), $breakdown]) as $dimension) {
+            if (!self::dimensionOf((string) $dimension)->allows($user)) {
+                throw new \DomainException(sprintf(t('You may not break down or filter by %s.'), t(self::dimensionOf((string) $dimension)->label)));
+            }
+        }
+        $scope = self::get($metric)->isUnscoped() ? null : self::scopeOf($user);
+        foreach ($scope ?? [] as $dimension => $allowed) {
+            $asked = isset($filters[$dimension]) ? array_map('strval', (array) $filters[$dimension]) : $allowed;
+            if (array_diff($asked, $allowed) !== [] || $asked === []) {
+                throw new \DomainException(t('Those figures are not yours to read.'));
+            }
+            if ($single && count($asked) !== 1) {
+                throw new \DomainException(sprintf(t('Choose one %s to list its records.'), t(self::dimensionOf($dimension)->label)));
+            }
+            $filters[$dimension] = count($asked) === 1 && !is_array($filters[$dimension] ?? null) ? $asked[0] : $asked;
+        }
+
+        return $filters;
+    }
+
+    /**
+     * Whether a figure read with these filters is wholly within what the viewer may read — a goal
+     * or an alert set for every region is not a north manager's, though its metric is.
+     *
+     * @param array<string, string|list<string>> $filters
+     */
+    public static function withinScope(string $metric, array $filters, ?object $user): bool
+    {
+        try {
+            self::scoped($metric, $filters, $user);
+        } catch (\DomainException) {
+            return false;
+        }
+        $scope = self::get($metric)->isUnscoped() ? [] : (self::scopeOf($user) ?? []);
+
+        return array_diff_key($scope, $filters) === [];
     }
 
     /**

@@ -27,6 +27,9 @@ final class Dimension
     /** Where a value is on a map, or null. */
     private ?\Closure $geo = null;
 
+    /** The ability needed to break down or filter by it; empty for anybody who reads the metric. */
+    private string $ability = '';
+
     private function __construct(public readonly string $name, public readonly string $label)
     {
     }
@@ -101,6 +104,23 @@ final class Dimension
         $where = $this->geo !== null ? ($this->geo)($value) : null;
 
         return is_array($where) && isset($where[0], $where[1]) && is_numeric($where[0]) && is_numeric($where[1]) ? [(float) $where[0], (float) $where[1]] : null;
+    }
+
+    /**
+     * Only accounts with this ability break down or filter by it — as an audience attribute's
+     * `ability()` guards it — while the metric's totals stay theirs to read.
+     */
+    public function ability(string $ability): self
+    {
+        $this->ability = $ability;
+
+        return $this;
+    }
+
+    /** Whether this person may break down or filter by it. */
+    public function allows(?object $user): bool
+    {
+        return $this->ability === '' || \Pramnos\Auth\Gate::forUser($user)->check($this->ability);
     }
 
     /** One value's words: its label, or the value itself. */

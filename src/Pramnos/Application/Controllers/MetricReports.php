@@ -87,9 +87,12 @@ class MetricReports extends Controller
         // The board's variables: a picker for each dimension with listed values, set from the address.
         $view->variables = ReportBoard::variables()['filters'];
         $view->pickers   = [];
+        // Only what the reader may choose: a dimension they may use, the values of their scope.
+        $scope = Metrics::scopeOf($this->user()) ?? [];
         foreach (Metrics::dimensions() as $name => $dimension) {
-            if ($dimension->all() !== []) {
-                $view->pickers[(string) $name] = ['label' => t($dimension->label), 'values' => $dimension->all()];
+            $values = isset($scope[$name]) ? array_intersect_key($dimension->all(), array_flip($scope[$name])) : $dimension->all();
+            if ($values !== [] && (!isset($scope[$name]) || count($values) > 1) && $dimension->allows($this->user())) {
+                $view->pickers[(string) $name] = ['label' => t($dimension->label), 'values' => $values];
             }
         }
         // A report of one's own with no cards yet — a new one — opens to be arranged.
@@ -147,7 +150,14 @@ class MetricReports extends Controller
         $filters = array_map('strval', array_filter((array) ($_GET['f'] ?? []), 'is_scalar'));
         $period  = Window::of($grain, self::day((string) ($_GET['period'] ?? '')));
         \Pramnos\Framework\Factory::getDocument()->title = $metric->label();
-        $rows          = Metrics::records($name, $grain, $period->key(), $filters);
+        try {
+            $rows = Metrics::records($name, $grain, $period->key(), Metrics::scoped($name, $filters, $this->user(), null, true));
+        } catch (\DomainException $e) {
+            $this->addError($e->getMessage());
+            $this->redirect($this->urls()['list']);
+
+            return null;
+        }
         $view          = $this->getView('metricreports', 'tpl');
         $view->metric  = $metric;
         $view->period  = $period->label();

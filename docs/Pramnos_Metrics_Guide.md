@@ -6,6 +6,7 @@ use_cases:
   - Importing a report's history from an old statistics table
   - Reading a metric over time, broken down by a dimension, against last year
   - Building a report of metrics by period or market, shared and mailed every month
+  - Letting a regional manager see only their region's figures in every report, card and export
 ---
 
 # Metrics Guide
@@ -354,6 +355,42 @@ can be a function of the organisation. `metrics.tenants` then lists the organisa
   reading several organisations adds up each one's own day.
 - **An unknown zone.** A zone the function names that does not exist falls back to the
   installation's.
+
+### A viewer's scope: their part of each dimension
+
+Some viewers may read only part of the figures: a regional manager reads one region, a store
+manager one store. `metrics.scope` says which part:
+
+```php
+// app/app.php: dimension => the values this viewer may read, or null for everything
+'metrics' => ['scope' => fn (?object $user): ?array => $user?->region ? ['region' => [$user->region]] : null],
+
+Metric::flow('site.visits', 'Visits')->unscoped()->source(…);           // nobody's region: whole for everybody
+Metrics::dimension(Dimension::of('customer', 'Customer')->ability('reports.customers'));
+```
+
+Every reader applies it, because it is part of the one query (`Query::for()`): cards, reports,
+the JSON API, exports and the assistant.
+
+- **Totals are theirs.** A dimension the viewer did not filter on is filtered to their values, so
+  a total is the total of their region, never the whole.
+- **A breakdown** by the scoped dimension has only their values.
+- **A filter outside the scope** is refused with a `DomainException`. The JSON API answers 404,
+  and a card says the figures are not theirs.
+- **A metric without the dimension** is not theirs, because its whole would be more than their
+  part. It is shown to them only when it is declared `unscoped()`.
+- **Records** behind a number are listed one value at a time: a viewer scoped to two regions
+  chooses one.
+- **Goals.** A goal set for more than the viewer's part (`Metrics::withinScope()`) is not shown
+  to them.
+- **The report's pickers** offer only the viewer's values, and nothing at all for a single value.
+- **A distinct metric** cannot add up several values. A viewer scoped to two regions reads it one
+  region at a time.
+
+`Dimension::ability()` guards a dimension the way an audience attribute's `ability()` does, through
+the same `Gate`. Somebody without the ability does not break down or filter by that dimension, but
+the metric's totals stay theirs. `Metrics::scoped($metric, $filters, $user)` gives the filters a
+viewer reads with, for code that reads a metric some other way.
 
 ## On the dashboard and for the assistant
 

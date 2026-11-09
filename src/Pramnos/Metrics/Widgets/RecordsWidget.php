@@ -51,7 +51,9 @@ class RecordsWidget extends ReportWidget
         $filters = (array) ($this->setting('filters') ?? []);
         $window  = $report['window'];
         try {
-            $rows = Metrics::records($name, $window->grain, $window->key(), $filters);
+            $rows = Metrics::records($name, $window->grain, $window->key(), Metrics::scoped($name, $filters, $report['user'], null, true));
+        } catch (\DomainException $e) {
+            return self::note($e->getMessage());
         } catch (\Throwable $e) {
             \Pramnos\Logs\Logger::log('Report records of ' . $name . ' failed: ' . $e->getMessage(), 'metrics');
 

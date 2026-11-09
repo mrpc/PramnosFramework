@@ -808,6 +808,76 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * A viewer scoped to one region (`metrics.scope`) reads only that region, everywhere a figure
+     * is read: a total is the region's total, a breakdown has only its key, a filter on another
+     * region is refused, records are listed for it, a metric with no region is not theirs unless
+     * it is declared nobody's, a goal for every region is not theirs, and the report's pickers
+     * offer nothing to choose. A dimension behind an ability is not broken down by somebody
+     * without it, though its totals stay theirs. Somebody unscoped reads everything as before.
+     */
+    public function testAScopedViewerReadsOnlyTheirRegion(): void
+    {
+        // Arrange
+        Application::getInstance()->applicationInfo['metrics']['scope'] = static fn (?object $u): ?array => match ((int) ($u->userid ?? 0)) {
+            5 => ['region' => ['north']], 6 => ['region' => ['north', 'south']], default => null };
+        Metrics::register(Metric::flow('test.visits', 'Visits')->source(static fn (): int => 40),
+            Metric::flow('test.site', 'Site')->unscoped()->source(static fn (): int => 7));
+        Metrics::dimension(Dimension::of('customer', 'Customer')->ability('reports.customers')->values(['new' => 'New', 'returning' => 'Returning']));
+        $north = self::reader(90, 5);
+        $query = static fn (?object $u): \Pramnos\Metrics\Query => Metrics::query('test.sales')->grain('month')->at('2026-09-10')->for($u);
+        $refused = [];
+        foreach (['south' => static fn () => $query($north)->where(['region' => 'south'])->value(),
+            'customers' => static fn () => $query($north)->by('customer')->series(),
+            'visits' => static fn () => Metrics::query('test.visits')->for($north)] as $why => $read) {
+            try {
+                $read();
+            } catch (\DomainException $e) {
+                $refused[$why] = $e->getMessage();
+            }
+        }
+
+        // Act
+        $total   = $query($north)->value();
+        $byArea  = array_keys($query($north)->by('region')->series()['values']);
+        $all     = $query(self::reader())->value();
+        $records = Metrics::scoped('test.sales', [], $north, null, true);
+        $visible = array_keys(Metrics::all($north, false));
+        $this->signIn(98, 5);
+        $id = (new Reports())->save($north, ['name' => 'Test north', 'sections' => [['title' => 'S', 'rows' => [['metric' => 'test.sales']]]]]);
+        $screen = $this->screen(MetricReports::class);
+        $this->request('GET', null, ['report' => (string) $id, 'at' => '2026-09-01']);
+        $screen->show();
+        $page = (array) $screen->view;
+        $screen->flash = [];
+        $this->request('GET', null, ['metric' => 'test.sales', 'grain' => 'month', 'period' => '2026-09-01', 'f' => ['region' => 'south']]);
+        $screen->rows();
+        $twoRegions = null;
+        try {
+            Metrics::scoped('test.sales', [], self::reader(90, 6), null, true);
+        } catch (\DomainException $e) {
+            $twoRegions = $e->getMessage();
+        }
+
+        // Assert
+        $this->assertSame([['error', 'Those figures are not yours to read.']], $screen->flash, 'another region\'s records');
+        $this->assertSame('Choose one Region to list its records.', $twoRegions, 'records are one region at a time');
+        $this->assertFalse(Metrics::withinScope('test.sales', ['region' => 'south'], $north));
+        $this->assertSame(5.0, $total, 'north\'s total, not the whole 6');
+        $this->assertSame(6.0, $all, 'unscoped: the whole');
+        $this->assertSame(['north'], $byArea);
+        $this->assertSame(['south', 'customers', 'visits'], array_keys($refused));
+        $this->assertSame('Those figures are not yours to read.', $refused['south']);
+        $this->assertSame('You may not break down or filter by Customer.', $refused['customers'], 'an ability the viewer lacks');
+        $this->assertSame(['region' => 'north'], $records, 'the records of their region');
+        $this->assertContains('test.site', $visible, 'nobody\'s metric: whole for everybody');
+        $this->assertNotContains('test.visits', $visible, 'no region to narrow it: not theirs');
+        $this->assertFalse(Metrics::withinScope('test.sales', [], $north), 'a goal for every region');
+        $this->assertTrue(Metrics::withinScope('test.sales', ['region' => 'north'], $north));
+        $this->assertArrayNotHasKey('region', $page['pickers'], 'one region: nothing to choose');
+        $this->assertMatchesRegularExpression('~<th scope="row">Sales</th><td[^>]*>(<a [^>]*>)?5<~', $page['body'], 'the report is north\'s: 5, not 6');
+    }
+
+    /**
      * A report built from words: the assistant is given the catalogue the person may read, and
      * its answer — the editor's text — is kept only where it names what they may read: a secret
      * metric, an unknown one, a breakdown or filter on a dimension the metric does not keep, all

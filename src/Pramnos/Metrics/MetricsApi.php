@@ -95,6 +95,9 @@ class MetricsApi
             if ($goal === null || !isset(Metrics::all($user, false)[$goal['metric']])) {
                 throw new \DomainException('There is no such goal.');
             }
+            if (!Metrics::withinScope($goal['metric'], (array) $goal['filters'], $user)) {
+                throw new \DomainException('There is no such goal.');
+            }
             $tenants = Metrics::tenantsOf($user);
             if ($tenants !== null && $goal['tenant'] > 0 && !in_array($goal['tenant'], $tenants, true)) {
                 throw new \DomainException('There is no such goal.');
