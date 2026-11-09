@@ -784,6 +784,20 @@ The bell and a push (one per goal, replacing its last) link where `metrics.goals
 There is no mail. The turn is kept in the changelog and fired as `goal.turned` (the goal, its
 state before, its state now), for a rule or a to-do source to act on.
 
+**Achievements.** What a business reached, kept for good in `stats.achievements` and listed by
+`Achievements::list($tenant)`, newest first, each with a sentence:
+- `Metric::level(…)->milestones()` earns a milestone at each rung of the ladder (100, 250, 500,
+  1k … 10M) its readings pass above their first. It is dated the day it was passed, and a crossing
+  not seen is never invented.
+- `Metric::flow(…)->bestWeeks()` earns its best week so far, Monday to Sunday, the current week
+  left out. A new record is a new row.
+- A one-off `reach` goal that is met is kept with its goal's id, and stays when the goal is
+  deleted.
+
+Each is kept for the total and for each value of the dimension the metric adds up across (its
+`base`: no competitor's channel), per organisation, and never twice. `metrics:achievements` scans
+nightly at 03:40.
+
 **A target relative to last year.** Instead of a fixed number, a goal can grow over its
 reference: the reference period's total times 1 + growth, worked out each period. One goal set
 once then serves every day, with no daily script:

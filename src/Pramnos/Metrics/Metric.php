@@ -96,6 +96,9 @@ final class Metric
     /** @var array{0: string, 1: bool}|null The dimension it adds up across, and whether a value's last reading carries */
     private ?array $across = null;
 
+    /** @var array{milestones: bool, best: bool} What achievements it earns ({@see Achievements}) */
+    private array $earns = ['milestones' => false, 'best' => false];
+
     /** A level whose source answers how things stood at the end of any period, past ones too. */
     private bool $knowsThePast = false;
 
@@ -366,6 +369,28 @@ final class Metric
     public function declared(): ?array
     {
         return $this->query;
+    }
+
+    /** It earns a milestone at each rung of the ladder its readings pass (a level, higher being better). */
+    public function milestones(): self
+    {
+        $this->earns['milestones'] = true;
+
+        return $this;
+    }
+
+    /** It earns a record at each best week (a flow): weeks from Monday, the current one excluded. */
+    public function bestWeeks(): self
+    {
+        $this->earns['best'] = true;
+
+        return $this;
+    }
+
+    /** @return array{milestones: bool, best: bool} What achievements it earns */
+    public function earns(): array
+    {
+        return $this->earns;
     }
 
     /**

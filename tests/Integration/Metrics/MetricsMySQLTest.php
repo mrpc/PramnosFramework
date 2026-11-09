@@ -1433,6 +1433,55 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * Achievements (FW-360, 16c): a level declared `milestones()`, rising 100 a day from 150 on 1
+     * September, passes 250, 500 and 1000 — each dated the day it did, never 100, which it began
+     * above — for the total and for each channel of its base, not a competitor's; a flow declared
+     * `bestWeeks()` keeps its best week, the current one left out; a one-off reach goal met is kept
+     * with its goal, and stays when the goal is deleted; a second scan keeps nothing twice.
+     */
+    public function testAchievementsAreKeptOnce(): void
+    {
+        // Arrange
+        require_once ROOT . '/database/migrations/framework/stats/2026_11_09_000010_create_achievements_table.php';
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Stats\CreateAchievementsTable::class], $this->db);
+        $this->db->queryBuilder()->table(\Pramnos\Metrics\Achievements::TABLE)->delete();
+        $base = self::at('2026-09-01 00:00');
+        $day  = static fn (Window $w): int => (int) (($w->startsAt() - $base) / 86400);
+        Metrics::dimension(\Pramnos\Metrics\Dimension::of('channel', 'Channel')->values(['1' => 'Shop', '3' => 'Rival'])->base(static fn (): array => ['1']));
+        Metrics::register(
+            Metric::level('test.fans', 'Fans')->dimensions(['channel'])->knowsThePast()->acrossBy('channel')->milestones()
+                ->source(static function (Window $w, array $by) use ($day): array|int {
+                    $rows = [['channel' => '1', 'value' => 150 + 100 * $day($w)], ['channel' => '3', 'value' => 99999]];
+
+                    return $by === [] ? 150 + 100 * $day($w) + 99999 : $rows;
+                }),
+            Metric::flow('test.views', 'Views')->bestWeeks()->source(static fn (Window $w): int => $w->startsAt() >= self::at('2026-09-07 00:00') && $w->startsAt() < self::at('2026-09-14 00:00') ? 50 : 5),
+        );
+        $now = self::at('2026-09-20 12:00');
+        Metrics::compute(['test.fans', 'test.views'], ['day'], '2026-09-01', '2026-09-20', false, $now);
+        $goal = \Pramnos\Metrics\Goals::create(['metric' => 'test.fans', 'kind' => 'reach', 'target' => 800, 'starts' => '2026-09-01', 'due' => '2026-09-30', 'filters' => ['channel' => '1']]);
+
+        // Act
+        $first  = \Pramnos\Metrics\Achievements::scan($now);
+        $second = \Pramnos\Metrics\Achievements::scan($now);
+        \Pramnos\Metrics\Goals::delete($goal);
+        $list   = \Pramnos\Metrics\Achievements::list(0);
+        $kept   = array_map(static fn (array $a): string => $a['kind'] . ' ' . json_encode($a['dims']) . ' ' . $a['value'] . ' ' . $a['achieved_at'], $list);
+        sort($kept);
+
+        // Assert
+        $this->assertSame(0, $second, 'nothing twice');
+        $this->assertSame(count($kept), $first);
+        $this->assertContains('milestone {"channel":"1"} 250 2026-09-02', $kept, 'the day it passed');
+        $this->assertContains('milestone {"channel":"1"} 1000 2026-09-10', $kept);
+        $this->assertNotContains('milestone {"channel":"1"} 100 2026-09-01', $kept, 'it began above 100');
+        $this->assertEmpty(array_filter($kept, static fn (string $k): bool => str_contains($k, '"3"')), 'no competitor\'s channel');
+        $this->assertContains('best [] 350 2026-09-07', $kept, 'the week of the 7th, 50 a day');
+        $this->assertContains('goal {"channel":"1"} 800 2026-09-08', $kept, 'met the day it crossed 800, kept though its goal is gone');
+        $this->assertStringContainsString('Fans on Shop', implode(' | ', array_column($list, 'says')));
+    }
+
+    /**
      * The kinds of goal on a total and on a level (FW-360, design §16):
      * - a monthly `count` on a total, judged on its current month, with each past month judged as
      *   it stood at its end, and a streak of the met ones;

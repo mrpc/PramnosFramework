@@ -293,6 +293,13 @@ class FrameworkSchedule
                 'description' => 'Mail the scheduled metric reports for the periods that closed',
             ],
 
+            // What was reached — milestones, best weeks, goals met — once a night, after the
+            // metrics are computed. Nothing to do where no metric earns them and no goal is set.
+            'metrics:achievements' => [
+                'cadence'     => [['daily'], ['at', '03:40']],
+                'description' => 'Keep the milestones, best weeks and goals met that are new',
+            ],
+
             'queue:cleanup' => [
                 'cadence'     => [['daily'], ['at', '03:10']],
                 'description' => 'Remove completed and expired queue items',

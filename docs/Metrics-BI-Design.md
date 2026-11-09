@@ -1036,5 +1036,5 @@ and the achievements, which it will read from `stats.achievements` and `stats.go
 |---|---|
 | 16a | **Built:** The kinds, references, recurrence, history, streak and minimum history on the store; `stats.goals` gains `kind`, `starts_at`, `due_at`, `repeats`, `owner`, `note`, `notify`, `last_state`, `last_told_at` (the migration changed in place, as on 9 November, with the columns added to tables made before) |
 | 16b | **Built:** `Goals::check()`, the notification, `goal.turned`, the schedule (in `metrics:compute`) |
-| 16c | Achievements |
+| 16c | **Built:** Achievements (`milestones()`, `bestWeeks()`, goals met; `metrics:achievements`) |
 | 16d | The screen, the card, the tool and the API |
