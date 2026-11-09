@@ -14,6 +14,7 @@ use Pramnos\Routing\Router;
  *
  * ```php
  * \Pramnos\Broadcasting\BroadcastingApi::routes($r);        // POST /broadcasting/auth
+ * \Pramnos\Broadcasting\BroadcastingApi::routes($r, '/broadcasting/auth', \App\Controllers\Broadcasting::class);   // the application's own
  * ```
  *
  * The client's Pusher-protocol library points its `authEndpoint` here. The answer is the
@@ -23,10 +24,18 @@ use Pramnos\Routing\Router;
  */
 final class BroadcastingApi
 {
-    /** Mount the route, at `$path`, described for the API's document. */
-    public static function routes(Router $r, string $path = '/broadcasting/auth'): void
+    /**
+     * Mount the route, at `$path`, described for the API's document. `$controller` is the
+     * application's own subclass where it has one — its `channels()` then decide.
+     *
+     * @param class-string<Broadcasting> $controller
+     */
+    public static function routes(Router $r, string $path = '/broadcasting/auth', string $controller = Broadcasting::class): void
     {
-        $r->post('/' . trim($path, '/'), static fn () => (new Broadcasting())->postAuth())->describe('Authorize a private or presence channel',
+        if (!is_a($controller, Broadcasting::class, true)) {
+            throw new \InvalidArgumentException($controller . ' is not a ' . Broadcasting::class);
+        }
+        $r->post('/' . trim($path, '/'), static fn () => (new $controller())->postAuth())->describe('Authorize a private or presence channel',
             'For a Pusher-protocol client signed in with the API\'s credentials: `socket_id` and `channel_name` (form fields, as the'
             . ' libraries send them). Answers the protocol\'s own `{auth}` (and `channel_data` for a presence channel), not the API\'s envelope;'
             . ' 403 for a channel the person may not join, 400 for a malformed request.', [

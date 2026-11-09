@@ -114,4 +114,54 @@ class ConversationsApiTest extends TestCase
             \Pramnos\Broadcasting\Testing\FakeDriver::restore();
         }
     }
+
+    /**
+     * An application's own screen, a subclass with an action of its own, is mounted with it: the
+     * action is offered — a read by GET, described from its docblock — and answers as the
+     * application wrote it, with the id from the route; the framework's actions stay. A class that
+     * is not the conversations' screen is refused.
+     */
+    #[DataProvider('databases')]
+    public function testAnApplicationsOwnScreen(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
+        Application::getInstance()->applicationInfo['features'] = ['conversations'];
+        $own = new class (Application::getInstance()) extends \Pramnos\Application\Controllers\Conversations {
+            /** Declares its own action. */
+            public function __construct(?Application $application = null)
+            {
+                $this->addAuthAction(['lastopen']);
+                parent::__construct($application);
+            }
+
+            /** When the person last opened a conversation. */
+            public function lastopen(): mixed
+            {
+                return \Pramnos\Http\Response::json(['conversation' => (int) \Pramnos\Http\Request::staticGetOption(), 'at' => 1]);
+            }
+        };
+        $router = new \Pramnos\Routing\Router(Application::getInstance());
+
+        // Act
+        ConversationsApi::routes($router, '/chat', $own::class);
+        $routes = $router->getRoutesWithPermissions();
+        $answer = $this->api('maria')->call('GET', 'lastopen', 42, $own::class);
+        $actions = ConversationsApi::actions($own::class);
+        $refused = null;
+        try {
+            ConversationsApi::routes($router, '/x', \stdClass::class);
+        } catch (\InvalidArgumentException $e) {
+            $refused = $e;
+        }
+
+        // Assert
+        $this->assertArrayHasKey('/chat/lastopen/{id?}', $routes['GET']);
+        $this->assertSame('When the person last opened a conversation.', $routes['GET']['/chat/lastopen/{id?}']['route']->getDoc()['summary']);
+        $this->assertSame([200, ['conversation' => 42, 'at' => 1]], [$answer['status'], $answer['data']]);
+        $this->assertArrayHasKey('describe', $actions, 'the framework\'s actions stay');
+        $this->assertArrayNotHasKey('lastopen', ConversationsApi::actions(), 'the framework\'s screen alone has not');
+        $this->assertNotNull($refused);
+    }
 }

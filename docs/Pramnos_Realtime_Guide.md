@@ -921,6 +921,8 @@ credentials:
 
 ```php
 \Pramnos\Broadcasting\BroadcastingApi::routes($r);     // POST /api/<version>/broadcasting/auth
+// an application whose Broadcasting controller has channels() of its own:
+\Pramnos\Broadcasting\BroadcastingApi::routes($r, '/broadcasting/auth', \App\Controllers\Broadcasting::class);
 ```
 
 The client's library points its `authEndpoint` there and sends its token in the

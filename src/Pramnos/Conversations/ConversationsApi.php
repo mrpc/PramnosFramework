@@ -13,7 +13,12 @@ use Pramnos\Routing\Router;
  *
  * ```php
  * \Pramnos\Conversations\ConversationsApi::routes($r);                  // /conversations
+ * \Pramnos\Conversations\ConversationsApi::routes($r, '/conversations', \App\Controllers\Conversations::class);   // the application's own
  * ```
+ *
+ * An application with a screen of its own — a subclass, with actions of its own and its own
+ * `me()` — gives it as `$screen`: its actions are offered too, and it answers as it is, with its
+ * own way of knowing who asks.
  *
  *   - `GET  {path}/{action}` and `GET {path}/{action}/{id}` — a read: `conversations`,
  *     `messages/{id}`, `members/{id}`, `links/{id}`, `tabs/{id}`, `canvas/{canvasId}`, …
@@ -33,12 +38,15 @@ class ConversationsApi
      * Mount the routes, under `$path`: one for each action, a read by GET and a write by POST, each
      * described for the API's document (`api:docs`) by the action's own docblock.
      */
-    public static function routes(Router $r, string $path = '/conversations'): void
+    public static function routes(Router $r, string $path = '/conversations', string $screen = \Pramnos\Application\Controllers\Conversations::class): void
     {
+        if (!is_a($screen, \Pramnos\Application\Controllers\Conversations::class, true)) {
+            throw new \InvalidArgumentException($screen . ' is not a ' . \Pramnos\Application\Controllers\Conversations::class);
+        }
         $path = '/' . trim($path, '/');
-        foreach (static::actions() as $action => [$method, $summary]) {
+        foreach (static::actions($screen) as $action => [$method, $summary]) {
             $uri   = $path . '/' . $action . '/{id?}';
-            $call  = static fn ($id = null) => (new static())->call($method, $action, (int) $id);
+            $call  = static fn ($id = null) => (new static())->call($method, $action, (int) $id, $screen);
             $route = $method === 'POST' ? $r->post($uri, $call) : $r->get($uri, $call);
             $route->describe($summary !== '' ? $summary : ucfirst($action),
                 'The conversations\' `' . $action . '` action, as `/admin/Conversations/' . $action . '` answers it. `id` is the conversation, message,'
@@ -48,28 +56,36 @@ class ConversationsApi
     }
 
     /**
-     * The actions offered, each with its method and the first line of its docblock.
+     * The actions offered, each with its method and the first line of its docblock: the
+     * framework's screen's, or those of the application's own.
      *
+     * @param class-string<\Pramnos\Application\Controllers\Conversations> $class
      * @return array<string, array{0: string, 1: string}>
      */
-    public static function actions(): array
+    public static function actions(string $class = \Pramnos\Application\Controllers\Conversations::class): array
     {
-        static $actions = null;
-        if ($actions !== null) {
-            return $actions;
+        static $known = [];
+        if (isset($known[$class])) {
+            return $known[$class];
         }
-        $screen = (new static())->screen((object) ['userid' => 0], 0);
-        $writes = $screen->writes();
+        $screen  = (new static())->screen((object) ['userid' => 0], 0, $class);
+        $writes  = self::writesOf($screen);
         $actions = [];
         foreach (array_unique(array_map('strtolower', $screen->actions_auth)) as $action) {
-            if ($action === 'display' || !method_exists(\Pramnos\Application\Controllers\Conversations::class, $action)) {
+            if ($action === 'display' || !method_exists($class, $action)) {
                 continue;
             }
-            $summary = \Pramnos\Routing\Route::fromDocblock((string) (new \ReflectionMethod(\Pramnos\Application\Controllers\Conversations::class, $action))->getDocComment())[0];
+            $summary = \Pramnos\Routing\Route::fromDocblock((string) (new \ReflectionMethod($class, $action))->getDocComment())[0];
             $actions[$action] = [in_array($action, $writes, true) ? 'POST' : 'GET', $summary];
         }
 
-        return $actions;
+        return $known[$class] = $actions;
+    }
+
+    /** @return list<string> A screen's write actions, in lower case */
+    private static function writesOf(\Pramnos\Application\Controllers\Conversations $screen): array
+    {
+        return (fn (): array => array_map('strtolower', $this->writeActions))->call($screen);
     }
 
     /**
@@ -77,15 +93,15 @@ class ConversationsApi
      *
      * @return array<string, mixed>
      */
-    public function call(string $method, string $action, int $id): array
+    public function call(string $method, string $action, int $id, string $class = \Pramnos\Application\Controllers\Conversations::class): array
     {
         $user = $this->user();
         if ($user === null) {
             return ['status' => 401, 'error' => 'Sign in to use the conversations.'];
         }
         $action = strtolower($action);
-        $screen = $this->screen($user, $id);
-        $writes = $screen->writes();
+        $screen = $this->screen($user, $id, $class);
+        $writes = self::writesOf($screen);
         $reads  = array_values(array_diff(array_map('strtolower', $screen->actions_auth), $writes, ['display']));
         $known  = $method === 'POST' ? $writes : $reads;
         if (!in_array($action, $known, true) || !method_exists($screen, $action)) {
@@ -115,9 +131,18 @@ class ConversationsApi
         return is_object($user) && (int) ($user->userid ?? 0) > 1 ? $user : null;
     }
 
-    /** The administration's screen, answering for this person and this id. */
-    protected function screen(object $user, int $id): \Pramnos\Application\Controllers\Conversations
+    /**
+     * The administration's screen, answering for this person and this id. An application's own
+     * screen answers as it is: the id where its page's address would carry it, who asks as its own
+     * `me()` decides.
+     */
+    protected function screen(object $user, int $id, string $class = \Pramnos\Application\Controllers\Conversations::class): \Pramnos\Application\Controllers\Conversations
     {
+        if ($class !== \Pramnos\Application\Controllers\Conversations::class) {
+            $_GET['_option'] = (string) $id;
+
+            return new $class(\Pramnos\Application\Application::getInstance());
+        }
         $screen = new class (\Pramnos\Application\Application::getInstance()) extends \Pramnos\Application\Controllers\Conversations {
             /** Who asks: the API's person. */
             public ?object $asking = null;
@@ -135,12 +160,6 @@ class ConversationsApi
             protected function id(): int
             {
                 return $this->routeId;
-            }
-
-            /** @return list<string> The actions that write */
-            public function writes(): array
-            {
-                return array_map('strtolower', $this->writeActions);
             }
         };
         $screen->asking  = $user;

@@ -43,4 +43,35 @@ class BroadcastingApiTest extends TestCase
         $this->assertInstanceOf(\Pramnos\Http\Response::class, $answer, 'the protocol\'s answer, not the API\'s envelope');
         $this->assertSame(400, $answer->getStatusCode(), 'socket_id and channel_name are required');
     }
+
+    /**
+     * The application's own subclass answers instead of the framework's: here its postAuth()
+     * says so; a class that is no Broadcasting is refused when mounted.
+     */
+    public function testTheApplicationsOwnControllerAnswers(): void
+    {
+        // Arrange
+        $router = new Router(\Pramnos\Application\Application::getInstance());
+        $own    = new class extends \Pramnos\Broadcasting\Controllers\Broadcasting {
+            /** Its own answer, to be told apart. */
+            public function postAuth(): mixed
+            {
+                return \Pramnos\Http\Response::make('{"auth":"own"}', 200);
+            }
+        };
+
+        // Act
+        BroadcastingApi::routes($router, '/broadcasting/auth', $own::class);
+        $answer = $router->getRoutesWithPermissions()['POST']['/broadcasting/auth']['route']->execute(null);
+        $refused = null;
+        try {
+            BroadcastingApi::routes($router, '/x', \stdClass::class);
+        } catch (\InvalidArgumentException $e) {
+            $refused = $e;
+        }
+
+        // Assert
+        $this->assertSame('{"auth":"own"}', (string) $answer->getBody(), 'raw, as the Pusher library reads it');
+        $this->assertNotNull($refused);
+    }
 }

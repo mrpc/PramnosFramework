@@ -1178,6 +1178,14 @@ is in the API's shape, `{status, data}` or `{status, error}`. The wrong method i
 there is not a 404, and the page itself (`display`) is not offered. `init` mounts it for an
 application with the `conversations` feature; an application made before adds the line.
 
+An application whose screen is a subclass of its own, with actions and a way of knowing who asks
+of its own, gives it as the third argument. Its actions are offered beside the framework's, each
+described by its docblock, and it answers as it is, with its own `me()`:
+
+```php
+\Pramnos\Conversations\ConversationsApi::routes($r, '/conversations', \App\Controllers\Conversations::class);
+```
+
 | action | method | in | out |
 |---|---|---|---|
 | `conversations` | GET | — | `{me, conversations, browse, people, avatars}`: one's own with unread, mentions and a `title`, the open ones to join, the names of the people in direct and group ones |
