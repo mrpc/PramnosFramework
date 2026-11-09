@@ -154,8 +154,44 @@ final class Query
     public function series(): array
     {
         $periods = $this->periods();
+        $metric  = Metrics::get($this->metric);
+        $across  = $metric->getAcross();
+        $filters = $this->filters($this->by);
+        // Added up across a dimension whose values carry their last reading: read by it, carried, then added.
+        if ($across !== null && $across[1] && $this->by === null && !is_string($filters[$across[0]] ?? null)) {
+            $byValue        = Metrics::readIn($this->metric, $periods, $filters, $across[0], $this->tenants, $this->version, true);
+            $this->currency = $byValue['currency'];
 
-        return ['periods' => $periods, 'values' => $this->read($periods, $this->filters($this->by), $this->by)];
+            return ['periods' => $periods, 'values' => ['' => self::carried($byValue['values'], count($periods))]];
+        }
+
+        return ['periods' => $periods, 'values' => $this->read($periods, $filters, $this->by)];
+    }
+
+    /**
+     * Each value's readings carried over the periods it was not read — its first reading for
+     * those before it, its last for those after — then added up, period by period; a period with no
+     * value read at all, and none to carry, is null.
+     *
+     * @param array<string, list<float|null>> $byValue
+     * @return list<float|null>
+     */
+    private static function carried(array $byValue, int $count): array
+    {
+        $total = array_fill(0, $count, null);
+        foreach ($byValue as $values) {
+            $known = array_filter($values, static fn ($v): bool => $v !== null);
+            if ($known === []) {
+                continue;
+            }
+            $last = $known[array_key_first($known)];
+            for ($i = 0; $i < $count; $i++) {
+                $last      = ($values[$i] ?? null) ?? $last;
+                $total[$i] = ($total[$i] ?? 0.0) + (float) $last;
+            }
+        }
+
+        return $total;
     }
 
     /**
@@ -276,7 +312,19 @@ final class Query
     /** @return array<string, string|list<string>> The filters, narrowed to the viewer's scope where read for one */
     private function filters(?string $by = null): array
     {
-        return $this->viewer === false ? $this->filters : Metrics::scoped($this->metric, $this->filters, $this->viewer ?: null, $by);
+        $filters = $this->viewer === false ? $this->filters : Metrics::scoped($this->metric, $this->filters, $this->viewer ?: null, $by);
+        // A dimension's base: a read that does not name its values reads only those it counts.
+        $metric = Metrics::get($this->metric);
+        if ($metric->getAggregate() === Metric::SUM) {
+            foreach ($metric->getDimensions() as $dimension) {
+                $base = isset($filters[$dimension]) ? null : Metrics::dimensionOf($dimension)->baseValues();
+                if ($base !== null) {
+                    $filters[$dimension] = $base;
+                }
+            }
+        }
+
+        return $filters;
     }
 
     /** @return list<Window> The periods asked: today's when none were. */

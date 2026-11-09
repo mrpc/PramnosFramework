@@ -258,8 +258,11 @@ class Routines
             $proposal   = \Pramnos\Metrics\ReportProposal::fromWords((string) $found['prompt'], $owner);
             $layout     = \Pramnos\Metrics\ReportBoard::layout($proposal);
             $layout[]   = ['id' => 'report.analysis~a', 'size' => \Pramnos\Dashboard\Widget::FULL, 'settings' => ['instructions' => mb_substr((string) $found['prompt'], 0, 2000)]];
-            $recipients = array_filter(array_map(static fn (int $id): string => (string) (new \Pramnos\User\User($id))->email,
-                array_unique([$scope->userId, ...$this->emailSubscribers($routineId)])));
+            // The owner's and the mail readers' addresses, in one read, the owner first.
+            $ids        = array_values(array_unique([$scope->userId, ...$this->emailSubscribers($routineId)]));
+            $mail       = array_column(\Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table(defined('DB_USERSTABLE') ? DB_USERSTABLE : '#PREFIX#users')
+                ->select(['userid', 'email'])->whereIn('userid', $ids)->getAllOrFail(), 'email', 'userid');
+            $recipients = array_filter(array_map(static fn (int $id): string => (string) ($mail[$id] ?? ''), $ids));
             $reportId   = (new \Pramnos\Metrics\Reports())->save($owner, ['name' => mb_substr((string) $found['title'], 0, 120), 'grain' => $grain, 'layout' => $layout]
                 + array_intersect_key($proposal->definition, ['columns' => 1, 'compare' => 1]), \Pramnos\Dashboard\Presets::PRIVATE, null, $grain, implode(', ', $recipients));
         } catch (\InvalidArgumentException $e) {

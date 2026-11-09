@@ -418,6 +418,28 @@ Metric::flow('fees', 'Fees')->tenant('org')->currency(fn (int $org): string => O
 
 There is no conversion between currencies: a figure in pounds is never turned into euros.
 
+### Across a dimension: all channels
+
+A metric kept per channel, or per store, is often wanted for all of them together. Three
+declarations make that total right:
+
+```php
+Metrics::dimension(Dimension::of('channel', 'Channel')->base(fn () => Channels::ownActiveIds()));
+Metric::level('followers', 'Followers')->dimensions(['channel'])->acrossBy('channel')->source(…);
+Metric::coalesce('audience', 'Audience', ['followers', 'subscribers', 'members'], 'channel');
+```
+
+- **`Dimension::base()`.** The values a total counts when a read does not name the dimension's
+  values, for instance active channels that are not a competitor's, where competitors are rows of
+  the same table. A read that names a value reads it.
+- **`Metric::acrossBy($dimension, carry: true)`.** A series across the dimension carries each
+  value's last reading over the days it was not read: its first reading for the days before it,
+  its last for the days after. A channel not measured one day does not drop the total, and one
+  first connected does not look like growth. Goals on such a metric read this series.
+- **`Metric::coalesce()`.** A level made of others: for each value of the dimension, the first of
+  the metrics that has a reading, added up across it. It is computed from the parts' kept values,
+  so it is registered after them.
+
 ### The audience's own metrics
 
 Where the audience's tables are, its segments and person events are metrics with nothing

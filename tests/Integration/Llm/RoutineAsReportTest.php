@@ -62,11 +62,14 @@ class RoutineAsReportTest extends LlmTestCase
         $owner = (int) $this->db->getInsertId();
         $this->db->queryBuilder()->table('users')->insert(['username' => 'routine-reader', 'email' => 'reader@example.test', 'usertype' => 98]);
         $reader = (int) $this->db->getInsertId();
+        // The accounts as this database has them: another test's account with the same id is not this one.
+        \Pramnos\User\User::clearUserCache();
         // The metrics as this test declares them: no scope, tenants or audience another test left set.
         $this->metricsConfig = \Pramnos\Application\Application::getInstance()->applicationInfo['metrics'] ?? null;
         \Pramnos\Application\Application::getInstance()->applicationInfo['metrics'] = ['audience' => false];
         Metrics::reset();
-        Metrics::register(Metric::flow('test.sales', 'Sales')->source(static fn (): int => 3));
+        // Readable by its owner whatever roles another test left configured: this test is about the report, not the role.
+        Metrics::register(Metric::flow('test.sales', 'Sales')->allowed(static fn (?object $u): bool => $u !== null)->source(static fn (): int => 3));
         ReportProposal::useClient(static fn (): \Pramnos\Llm\Client => new class () extends \Pramnos\Llm\Client {
             public function __construct()
             {

@@ -499,18 +499,19 @@ final class Metrics
     /**
      * {@see read()}, and the currency its amounts are in — null for a metric that is not money.
      * Amounts in two currencies are never added: such a read throws a `LogicException`, and the
-     * reader reads one organisation, or one currency, at a time.
+     * reader reads one organisation, or one currency, at a time. `$unreadAsNull`: a breakdown's value
+     * not read in a computed period is null, not nought — for carrying a reading over it.
      *
      * @param list<Window>                        $periods
      * @param array<string, string|list<string>> $filters
      * @param list<int>|null                      $tenants
      * @return array{values: array<string, list<float|null>>, currency: ?string}
      */
-    public static function readIn(string $metric, array $periods, array $filters = [], ?string $breakdown = null, ?array $tenants = null, ?int $version = null): array
+    public static function readIn(string $metric, array $periods, array $filters = [], ?string $breakdown = null, ?array $tenants = null, ?int $version = null, bool $unreadAsNull = false): array
     {
         $model    = self::get($metric);
         $currency = $model->getCurrency($tenants !== null && count($tenants) === 1 ? (int) $tenants[0] : 0);
-        $values   = self::valuesFor($model, $periods, $filters, $breakdown, [], $tenants, $version, $currency);
+        $values   = self::valuesFor($model, $periods, $filters, $breakdown, [], $tenants, $version, $currency, $unreadAsNull);
 
         return ['values' => $values, 'currency' => $currency];
     }
@@ -611,7 +612,7 @@ final class Metrics
      * @param list<string>                        $seen    Derived metrics on the way here, against a loop
      * @return array<string, list<float|null>>
      */
-    private static function valuesFor(Metric $metric, array $periods, array $filters, ?string $breakdown, array $seen, ?array $tenants = null, ?int $version = null, ?string &$currency = null): array
+    private static function valuesFor(Metric $metric, array $periods, array $filters, ?string $breakdown, array $seen, ?array $tenants = null, ?int $version = null, ?string &$currency = null, bool $unreadAsNull = false): array
     {
         if ($metric->kind === Metric::DERIVED) {
             return self::derive($metric, $periods, $filters, $breakdown, $seen, $tenants);
@@ -711,7 +712,7 @@ final class Metrics
         }
         $out = [];
         foreach ($sums as $key => $byPeriod) {
-            $out[(string) $key] = array_map(static fn (string $p): ?float => isset($known[$p]) ? (float) ($byPeriod[$p] ?? 0.0) : null, $keys);
+            $out[(string) $key] = array_map(static fn (string $p): ?float => isset($known[$p]) && (!$unreadAsNull || isset($byPeriod[$p])) ? (float) ($byPeriod[$p] ?? 0.0) : null, $keys);
         }
         ksort($out);
 

@@ -27,6 +27,9 @@ final class Dimension
     /** Where a value is on a map, or null. */
     private ?\Closure $geo = null;
 
+    /** @var (\Closure(): list<string>)|null The values a total across it counts; null: every one */
+    private ?\Closure $base = null;
+
     /** The ability needed to break down or filter by it; empty for anybody who reads the metric. */
     private string $ability = '';
 
@@ -115,6 +118,26 @@ final class Dimension
         $this->ability = $ability;
 
         return $this;
+    }
+
+    /**
+     * The values a total across this dimension counts — the active channels that are not a
+     * competitor's, where competitors are rows of the same table: `->base(fn () => Channels::ownIds())`.
+     * A read that does not filter by the dimension reads only these; one that names a value reads it.
+     *
+     * @param \Closure(): list<string|int> $values
+     */
+    public function base(\Closure $values): self
+    {
+        $this->base = $values;
+
+        return $this;
+    }
+
+    /** @return list<string>|null The values a total across it counts, or null for every one */
+    public function baseValues(): ?array
+    {
+        return $this->base === null ? null : array_values(array_map('strval', (array) ($this->base)()));
     }
 
     /** Whether this person may break down or filter by it. */

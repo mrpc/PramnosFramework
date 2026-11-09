@@ -1384,6 +1384,55 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * Across a dimension (FW-360, design §16.1): three channels, the third a competitor's
+     * (`Dimension::base()` leaves it out of every total that does not name it). The first is
+     * measured by followers every day, the second only on even days, and a fourth by subscribers. Followers
+     * across the channels carry the second's last reading over the days it was not read
+     * (`acrossBy`), so the total does not drop on odd days, nor rise on the day it is first read; an
+     * `audience` made of followers or subscribers, the first each channel has (`coalesce`), adds
+     * them the same way; and a goal reads that series.
+     */
+    public function testATotalAcrossChannelsCarriesEachChannelsLastReading(): void
+    {
+        // Arrange
+        $base = self::at('2026-09-01 00:00');
+        $day  = static fn (Window $w): int => (int) (($w->startsAt() - $base) / 86400) + 1;
+        Metrics::dimension(\Pramnos\Metrics\Dimension::of('channel', 'Channel')->base(static fn (): array => ['1', '2', '4']));
+        Metrics::register(
+            Metric::level('test.followers', 'Followers')->dimensions(['channel'])->knowsThePast()->acrossBy('channel')
+                ->source(static function (Window $w, array $by) use ($day): array|int {
+                    $rows = [['channel' => '1', 'value' => 100 + 10 * $day($w)], ['channel' => '3', 'value' => 9999]];
+                    if ($day($w) >= 3 && $day($w) % 2 === 0) {
+                        $rows[] = ['channel' => '2', 'value' => 500];
+                    }
+
+                    return $by === [] ? array_sum(array_column($rows, 'value')) : $rows;
+                }),
+            Metric::level('test.subscribers', 'Subscribers')->dimensions(['channel'])->knowsThePast()
+                ->source(static fn (Window $w, array $by): array|int => $by === [] ? 7 : [['channel' => '4', 'value' => 7]]),
+        );
+        Metrics::register(Metric::coalesce('test.audience', 'Audience', ['test.followers', 'test.subscribers'], 'channel'));
+        Metrics::compute(['test.followers', 'test.subscribers', 'test.audience'], ['day'], '2026-09-01', '2026-09-06', false, self::at('2026-09-07 12:00'));
+        $series = static fn (string $metric, array $where = []): array => Metrics::query($metric)->grain('day')->between('2026-09-01', '2026-09-06')->where($where)->series()['values'][''];
+
+        // Act
+        $across   = $series('test.followers');
+        $one      = $series('test.followers', ['channel' => '1']);
+        $rival    = $series('test.followers', ['channel' => '3']);
+        $audience = $series('test.audience');
+        $goal     = \Pramnos\Metrics\Goals::judge(['id' => 0, 'metric' => 'test.followers', 'grain' => 'once', 'period' => '', 'tenant' => 0, 'filters' => [],
+            'target' => 2000, 'growth' => null, 'reference' => 'first', 'kind' => 'reach', 'starts_at' => $base, 'due_at' => self::at('2026-09-30 23:59:59')],
+            self::at('2026-09-06 18:00'));
+
+        // Assert
+        $this->assertSame([610.0, 620.0, 630.0, 640.0, 650.0, 660.0], $across, 'the second\'s 500 from its first reading on, back to the first day, and over odd days; no competitor');
+        $this->assertSame([110.0, 120.0, 130.0, 140.0, 150.0, 160.0], $one);
+        $this->assertSame([9999.0, 9999.0, 9999.0, 9999.0, 9999.0, 9999.0], $rival, 'a competitor named is read');
+        $this->assertSame([617.0, 627.0, 637.0, 647.0, 657.0, 667.0], $audience, 'followers for the first two, carried; subscribers for the fourth, which has no followers');
+        $this->assertSame(660.0, $goal['current'], 'a goal across the channels reads the carried total');
+    }
+
+    /**
      * The kinds of goal on a total and on a level (FW-360, design §16):
      * - a monthly `count` on a total, judged on its current month, with each past month judged as
      *   it stood at its end, and a streak of the met ones;

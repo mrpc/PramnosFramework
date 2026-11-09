@@ -93,6 +93,9 @@ final class Metric
     /** @var string|(\Closure(int): string)|null Its currency, or each organisation's; null: `metrics.currency` */
     private string|\Closure|null $currency = null;
 
+    /** @var array{0: string, 1: bool}|null The dimension it adds up across, and whether a value's last reading carries */
+    private ?array $across = null;
+
     /** A level whose source answers how things stood at the end of any period, past ones too. */
     private bool $knowsThePast = false;
 
@@ -363,6 +366,56 @@ final class Metric
     public function declared(): ?array
     {
         return $this->query;
+    }
+
+    /**
+     * Adds up across a dimension — "all channels" — where a value read on a day it was not, a
+     * channel not measured that day, carries its last reading (`carry`): its first reading for the
+     * days before it, its last for the days after. A total across the dimension then does not drop
+     * on a day one value is missing, nor rise when one is first read. A metric that does not say so
+     * takes no goal across the dimension ({@see Goals}).
+     */
+    public function acrossBy(string $dimension, bool $carry = true): self
+    {
+        $this->across = [$dimension, $carry];
+
+        return $this;
+    }
+
+    /** @return array{0: string, 1: bool}|null The dimension it adds up across, and whether readings carry */
+    public function getAcross(): ?array
+    {
+        return $this->across;
+    }
+
+    /**
+     * A level made of others: for each value of a dimension, the first of the metrics that has a
+     * reading — `coalesce('audience', 'Audience', ['followers', 'subscribers', 'members'], 'channel')`,
+     * each channel's own measure of its audience — then added up across the dimension. Computed
+     * from the parts' kept values, so it is registered after them.
+     *
+     * @param list<string> $parts
+     */
+    public static function coalesce(string $name, string $label, array $parts, string $dimension): self
+    {
+        $metric = self::level($name, $label)->dimensions([$dimension])->knowsThePast()->acrossBy($dimension);
+        $metric->source(static function (Window $window, array $by) use ($parts, $dimension): array|float {
+            $chosen = [];
+            foreach ($parts as $part) {
+                foreach (Metrics::read($part, [$window], [], $dimension) as $key => $values) {
+                    if (!isset($chosen[$key]) && ($values[0] ?? null) !== null) {
+                        $chosen[$key] = (float) $values[0];
+                    }
+                }
+            }
+            if ($by === []) {
+                return (float) array_sum($chosen);
+            }
+
+            return array_map(static fn ($key, $value): array => [$dimension => (string) $key, 'value' => $value], array_keys($chosen), $chosen);
+        });
+
+        return $metric;
     }
 
     /**
