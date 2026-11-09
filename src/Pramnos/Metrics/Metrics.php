@@ -34,8 +34,8 @@ use Pramnos\Database\Database;
  */
 final class Metrics
 {
-    /** The values' table. */
-    public const TABLE = 'stats.metric_values';
+    /** The view over every grain's values, for SQL and exports; each grain is kept in its own table ({@see Store}). */
+    public const TABLE = Store::VIEW;
 
     /** Compare with the period before. */
     public const PREVIOUS = 'previous';
@@ -145,12 +145,37 @@ final class Metrics
      *
      * @param list<string>|null $only   Metric names; all by default
      * @param list<string>|null $grains Grains; {@see grains()} by default
-     * @return array{computed: int, closed: int, skipped: int, failed: array<string, string>}
+     * Nothing is done while the store is being changed (a conversion or an import through {@see Store}, a migration) or another
+     * computation runs: `busy` says so, and the next run computes what is due.
+     *
+     * @return array{computed: int, closed: int, skipped: int, failed: array<string, string>, busy: bool}
      */
     public static function compute(?array $only = null, ?array $grains = null, ?string $from = null, ?string $to = null, bool $recompute = false, ?int $now = null): array
     {
         $now    = $now ?? time();
-        $report = ['computed' => 0, 'closed' => 0, 'skipped' => 0, 'failed' => []];
+        $report = ['computed' => 0, 'closed' => 0, 'skipped' => 0, 'failed' => [], 'busy' => false];
+        if (!Store::lock(self::db(), 0)) {
+            $report['busy'] = true;
+
+            return $report;
+        }
+        try {
+            return self::computeAll($report, $only, $grains, $from, $to, $recompute, $now);
+        } finally {
+            Store::unlock(self::db());
+        }
+    }
+
+    /**
+     * {@see compute()}, the store's lock held.
+     *
+     * @param array{computed: int, closed: int, skipped: int, failed: array<string, string>, busy: bool} $report
+     * @param list<string>|null $only
+     * @param list<string>|null $grains
+     * @return array{computed: int, closed: int, skipped: int, failed: array<string, string>, busy: bool}
+     */
+    private static function computeAll(array $report, ?array $only, ?array $grains, ?string $from, ?string $to, bool $recompute, int $now): array
+    {
         $source = self::sourceConnection();
         foreach (self::all() as $metric) {
             if (!$metric->hasSource() || ($only !== null && !in_array($metric->name, $only, true))) {
@@ -184,9 +209,9 @@ final class Metrics
     private static function due(Metric $metric, string $grain, int $now): array
     {
         $open   = Window::of($grain, $now);
-        $last   = self::db()->queryBuilder()->table(self::TABLE)->where('metric', $metric->name)->where('grain', $grain)
-            ->where('final', 1)->max('period_start');
-        $window = $last ? Window::of($grain, (string) $last)->next() : $open->previous();
+        $last   = self::db()->queryBuilder()->table(Store::table($grain))->where('metric', $metric->name)
+            ->where('version', Store::VERSION)->where('final', 1)->max('period_start');
+        $window = $last ? Window::of($grain, Store::key((string) $last))->next() : $open->previous();
         $due    = [];
         while ($window->start < $open->start && count($due) < self::CATCH_UP) {
             $due[]  = $window;
@@ -206,8 +231,8 @@ final class Metrics
             return 'skipped';
         }
         $ended = $window->ended($now);
-        $final = self::db()->queryBuilder()->table(self::TABLE)->where('metric', $metric->name)->where('grain', $window->grain)
-            ->where('period_start', $window->key())->where('final', 1)->count() > 0;
+        $final = self::db()->queryBuilder()->table(Store::table($window->grain))->where('metric', $metric->name)
+            ->where('period_start', Store::instant(self::db(), $window))->where('version', Store::VERSION)->where('final', 1)->count() > 0;
         // A closed period is kept; a level that has ended was either kept when it closed or never can be.
         if (($final && !$recompute) || ($metric->kind === Metric::LEVEL && $ended && ($final || !self::closesNow($window, $now)))) {
             return 'skipped';
@@ -226,7 +251,7 @@ final class Metrics
             $rows[] = ['dims' => [], 'value' => array_sum(array_column($rows, 'value'))];
         }
 
-        $kind = $metric->kind === Metric::LEVEL ? 'snapshot' : 'computed';
+        $kind = $metric->kind === Metric::LEVEL ? Store::SNAPSHOT : Store::COMPUTED;
         self::write($metric->name, $window, $rows, $kind, $ended, $now, $recompute);
 
         return $ended ? 'closed' : 'computed';
@@ -248,20 +273,26 @@ final class Metrics
      */
     private static function write(string $metric, Window $window, array $rows, string $source, bool $final, int $now, bool $replaceFinal): void
     {
-        $db = self::db();
+        $db    = self::db();
+        $table = Store::table($window->grain);
         $db->startTransaction();
         try {
-            $delete = $db->queryBuilder()->table(self::TABLE)->where('metric', $metric)->where('grain', $window->grain)->where('period_start', $window->key());
+            if ($replaceFinal && $db->type === 'postgresql' && $db->capabilities()->hasTimescaleDB()) {
+                // A closed month of hours rewritten in one statement decompresses more than the 100 000
+                // tuples a DML may by default (302 400 measured): lifted for this transaction alone.
+                $db->query('SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0');
+            }
+            $delete = $db->queryBuilder()->table($table)->where('metric', $metric)->where('version', Store::VERSION)->where('period_start', Store::instant($db, $window));
             if (!$replaceFinal) {
                 $delete->where('final', 0);
             }
             $delete->delete();
             $insert = [];
             foreach ($rows as $row) {
-                $insert[] = self::row($metric, $window, $row['dims'], $row['value'], $source, $final, $now);
+                $insert[] = Store::row($db, $metric, $window, $row['dims'], (float) $row['value'], $source, $final, $now);
             }
             foreach (array_chunk($insert, 500) as $chunk) {
-                $db->queryBuilder()->table(self::TABLE)->insertMany($chunk);
+                $db->queryBuilder()->table($table)->insertMany($chunk);
             }
             $db->commitTransaction();
         } catch (\Throwable $e) {
@@ -281,29 +312,8 @@ final class Metrics
     {
         self::get($metric);
         $window = Window::of($grain, $period);
-        $row    = self::row($metric, $window, $dims, (float) $value, 'imported', true, time());
-        self::db()->queryBuilder()->table(self::TABLE)->upsert($row, ['metric', 'grain', 'period_start', 'dims_hash'], ['value', 'source', 'final', 'computed_at']);
-    }
-
-    /** @param array<string, string> $dims @return array<string, mixed> */
-    private static function row(string $metric, Window $window, array $dims, float $value, string $source, bool $final, int $now): array
-    {
-        $dims = array_map('strval', $dims);
-        ksort($dims);
-        $json = (string) json_encode((object) $dims, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-
-        return [
-            'metric'       => $metric,
-            'grain'        => $window->grain,
-            'period_start' => $window->key(),
-            'dimset'       => implode(',', array_keys($dims)),
-            'dims'         => $json,
-            'dims_hash'    => md5($json),
-            'value'        => round($value, 4),
-            'source'       => $source,
-            'final'        => $final ? 1 : 0,
-            'computed_at'  => $now,
-        ];
+        $row    = Store::row(self::db(), $metric, $window, $dims, (float) $value, Store::IMPORTED, true, time());
+        self::db()->queryBuilder()->table(Store::table($grain))->upsert($row, Store::KEY, ['value', 'source', 'final', 'computed_at']);
     }
 
     // ------------------------------------------------------------------ reading
@@ -386,12 +396,14 @@ final class Metrics
         if ($keys === []) {
             return [];
         }
-        $result = self::db()->queryBuilder()->table(self::TABLE)->select(['period_start', 'dimset', 'dims', 'value'])
-            ->where('metric', $metric->name)->where('grain', $periods[0]->grain)->whereIn('period_start', array_values(array_unique($keys)))->get();
+        $db      = self::db();
+        $instants = array_values(array_unique(array_map(static fn (Window $w): string => Store::instant($db, $w), $periods)));
+        $result = $db->queryBuilder()->table(Store::table($periods[0]->grain))->select(['period_start', 'dimset', 'dims', 'value'])
+            ->where('metric', $metric->name)->where('version', Store::VERSION)->whereIn('period_start', $instants)->get();
         $known = [];
         $sums  = [];
         while ($result && ($row = $result->fetch()) !== null) {
-            $period         = substr((string) $row['period_start'], 0, 10);
+            $period         = Store::key((string) $row['period_start']);
             $known[$period] = true;
             if ((string) $row['dimset'] !== implode(',', $set)) {
                 continue;

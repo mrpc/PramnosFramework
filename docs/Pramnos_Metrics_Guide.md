@@ -367,33 +367,81 @@ numbers every time it is opened. Nothing has to be frozen separately.
 
 ## Where the values are kept
 
-The values are kept in `stats.metric_values`, one row per metric, grain, period and breakdown.
-On MySQL the table is `stats_metric_values`.
+Each grain has a table of its own: `stats.metric_values_day`, `_week`, `_month`, `_quarter` and
+`_year` (on MySQL, `stats_metric_values_day` and so on). Each holds one row per metric, tenant,
+breakdown and period. A view over them all, `stats.metric_values` (`Metrics::TABLE`), adds a
+`grain` column, for SQL, exports and the assistant. Read through the view; write through
+`Metrics::compute()` and `Metrics::import()`, never into the view.
+
+| Column | |
+|---|---|
+| `metric`, `tenant` | the metric's name; the organisation the value is of (0 for the installation) |
+| `period_start` | the period's first instant in the metrics' time zone, `timestamptz` |
+| `dimset`, `dims`, `dims_hash` | the breakdown's dimensions, its values as JSON (`{}` for the total), md5 of them as a uuid |
+| `version` | the metric's definition the value was computed by |
+| `value`, `extra` | a `double precision`; what a value carries beside it, as JSON |
+| `source`, `final`, `computed_at` | computed, snapshot or imported; 1 once the period closed; when |
 
 - **Why `stats`:** these are the business's figures, so they get a schema of their own, apart
   from the engine's state (`pramnos.*`) and sign-in (`authserver.*`).
-- **Why a plain table by default, also on TimescaleDB:** the table holds a few thousand rows per
-  metric and year. A hypertable is optional; see below.
+- **Why a table per grain:** each grain needs its own chunk size, compression and retention, and
+  a read of one grain never pays for another's rows. Measured on 100 M rows, a 24-month chart
+  reads in 0.5 ms this way, and in 3.1 ms from one table of every grain (10 ms once compressed).
+  The split is the same on MySQL and plain PostgreSQL, where it costs nothing, so there is one
+  layout and one query path everywhere.
+- **`Pramnos\Metrics\Store`** makes all of it (`Store::ensure($db)`, which the migration calls and
+  which is safe to run again), names a grain's table (`Store::table('month')`), and holds the
+  lock below.
 
 ### TimescaleDB
 
-**The values as a hypertable.** The table is plain by default. Its primary key is the natural
-one, `(metric, grain, period_start, dims_hash)`, and it holds the time column, so an
-installation can make it a hypertable on `period_start` with two steps:
+Where the extension is installed, each grain's table is a hypertable on `period_start`, with
+no declaration from the application:
 
-```php
-// app/app.php
-'hypertables' => [
-    'stats.metric_values' => ['time_column' => 'period_start', 'chunk_interval' => '1 year'],
-],
-```
+| Grain | Chunk interval | Compressed after |
+|---|---|---|
+| day | 90 days | 90 days |
+| week | 1 year | 1 year |
+| month | 2 years | 2 years |
+| quarter | 5 years | 5 years |
+| year | 10 years | never: too few rows |
 
-```bash
-php bin/pramnos timescale:ensure --table=stats.metric_values
-```
+Compression is by `(metric, tenant, dims_hash)`, ordered by `period_start DESC`, and makes the
+values 7–9 times smaller. `--recompute` and `Metrics::import()` rewrite closed periods inside
+compressed chunks directly (TimescaleDB 2.11+). A rewrite lifts
+`timescaledb.max_tuples_decompressed_per_dml_transaction` for its own transaction, because a
+closed month of a large metric decompresses more than the default 100 000 tuples.
 
-Leave `compress_after` unset. `--recompute` and `Metrics::import()` rewrite rows of closed
-periods, and a compressed chunk refuses those writes.
+### The store's lock
+
+A computation and a change of the store — a conversion, an import — never run together, on any
+host. `Store::lock($db, $wait)` takes an advisory lock (`pg_advisory_lock`, MySQL `GET_LOCK`), and
+`Store::unlock($db)` releases it.
+
+- `Store::ensure()` and `Store::adopt()` wait for the lock.
+- `Metrics::compute()` only tries it. If the lock is taken, the computation does nothing and
+  reports `busy`; `metrics:compute` says so and exits 0. The next run computes what is due.
+- A script of the application's own that changes the store takes the same lock.
+
+### Bringing figures in
+
+`Store::adopt($db, $from, $table, $map)` imports another table's figures once. The table can be
+an application's own store or its statistics tables. `$map` names the columns:
+
+- `metric`, `period` and `value`;
+- the grain, either as a column (`grain`) or as one grain for the whole table (`grainIs`);
+- optionally `dims` (dimension columns; an empty value is the total), `extra` (columns kept beside
+  the number) and `prefix` (put before each metric's name);
+- optionally `version`, for the figures of another definition of the same metrics, such as
+  corrected ones. They are kept beside version 1, which is the version computed and read
+  (`Store::VERSION`). A recomputation never touches them.
+
+Every value comes in final, as `imported`. A second run replaces what the first wrote. Rows whose
+grain is none of the metrics' are counted as left out.
+
+An installation whose `stats.metric_values` is still the single table of an earlier version calls
+`Store::ensure($db)` once. It moves that table aside, copies every value into the grains' tables
+and drops it. A conversion cut short is finished by the next call.
 
 **Why there are no continuous aggregates over the values.** A continuous aggregate rolls a fine
 grain up into a coarser one, for example days into months, and that roll-up gives the right

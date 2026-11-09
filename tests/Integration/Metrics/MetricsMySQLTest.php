@@ -27,6 +27,7 @@ use Pramnos\Metrics\Window;
  */
 #[CoversClass(Metrics::class)]
 #[CoversClass(CreateMetricValuesTable::class)]
+#[CoversClass(\Pramnos\Metrics\Store::class)]
 #[CoversClass(\Pramnos\Console\Commands\MetricsCompute::class)]
 #[CoversClass(\Pramnos\Dashboard\Widgets\MetricCard::class)]
 #[CoversClass(\Pramnos\Llm\Analyst\Tools\MetricsTool::class)]
@@ -55,7 +56,7 @@ class MetricsMySQLTest extends TestCase
             $table->string('region', 20);
             $table->integer('customer');
         });
-        $this->db->queryBuilder()->table(Metrics::TABLE)->where('metric', 'like', 'test.%')->delete();
+        \Pramnos\Metrics\Store::forget($this->db, 'test.%');
         $this->info = Application::getInstance()->applicationInfo;
         Application::getInstance()->applicationInfo['metrics'] = ['timezone' => 'Europe/Athens'];
         Metrics::reset();
@@ -64,7 +65,7 @@ class MetricsMySQLTest extends TestCase
 
     protected function tearDown(): void
     {
-        $this->db->queryBuilder()->table(Metrics::TABLE)->where('metric', 'like', 'test.%')->delete();
+        \Pramnos\Metrics\Store::forget($this->db, 'test.%');
         $this->db->schema()->dropTableIfExists(self::ORDERS);
         Application::getInstance()->applicationInfo = $this->info;
         Metrics::reset();
@@ -145,7 +146,7 @@ class MetricsMySQLTest extends TestCase
         $days   = Metrics::series('test.orders', 'day', '2026-09-01', '2026-09-03');
 
         // Assert
-        $this->assertSame(['computed' => 0, 'closed' => 31, 'skipped' => 0, 'failed' => []], $report, '30 days and the month, all ended');
+        $this->assertSame(['computed' => 0, 'closed' => 31, 'skipped' => 0, 'failed' => [], 'busy' => false], $report, '30 days and the month, all ended');
         $this->assertSame(['north' => [2.0], 'south' => [1.0], 'west' => [1.0]], $month['values']);
         $this->assertSame(['' => [2.0, 1.0, 0.0]], $days['values'], 'a day with no orders is 0, not missing');
         $this->assertSame(4.0, Metrics::value('test.orders', 'month', '2026-09-15'));
@@ -440,39 +441,232 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
-     * Where TimescaleDB is, an installation may make the values a hypertable on `period_start`
-     * — declared in app.php's `hypertables`, done by `timescale:ensure` — since the primary key
-     * holds the time column; computing, importing and reading go on as before.
+     * Each grain has its own table, and the view shows them all with their grain. On TimescaleDB
+     * each is a hypertable, compressed; a closed month rewritten after its chunk is compressed is
+     * replaced in place (direct DML), and an import replaces rather than duplicates.
      */
-    public function testTheValuesMayBeAHypertable(): void
+    public function testEachGrainHasItsTableAndTheViewShowsThemAll(): void
     {
         // Arrange
-        if ($this->db->type !== 'postgresql' || !$this->db->capabilities()->hasTimescaleDB()) {
-            $this->markTestSkipped('TimescaleDB only.');
-        }
         $schema = $this->db->schema();
-        $schema->dropTableIfExists(Metrics::TABLE);
-        \Pramnos\Framework\Testing\Schema::ensure([CreateMetricValuesTable::class], $this->db);
-        \Pramnos\Database\HypertableRegistry::loadOverridesFromConfig([Metrics::TABLE => ['time_column' => 'period_start', 'chunk_interval' => '1 year']]);
         $this->order('2026-09-01 09:00:00', 'north', 1);
+        $timescale = $this->db->type === 'postgresql' && $this->db->capabilities()->hasTimescaleDB();
+
+        // Act
+        Metrics::compute(['test.orders'], ['day', 'month'], '2026-09-01', '2026-09-01', false, self::at('2026-11-06 12:00'));
+        if ($timescale) {
+            // Raw: compressing a chunk is TimescaleDB's own function.
+            $this->db->query("SELECT compress_chunk(c, true) FROM show_chunks('" . $schema->quoteTable(\Pramnos\Metrics\Store::table('month')) . "') c");
+        }
+        $this->order('2026-09-02 09:00:00', 'south', 2);
+        Metrics::compute(['test.orders'], ['month'], '2026-09-01', '2026-09-30', true, self::at('2026-11-06 13:00'));
+        Metrics::import('test.active', 'month', '2026-08-01', [], 31);
+        Metrics::import('test.active', 'month', '2026-08-01', [], 32);
+        $view = $this->db->queryBuilder()->table(Metrics::TABLE)->where('metric', 'test.orders')->where('dimset', '')->orderBy('grain')->get()->fetchAll();
+
+        // Assert
+        foreach (\Pramnos\Metrics\Window::GRAINS as $grain) {
+            $this->assertTrue($schema->hasTable(\Pramnos\Metrics\Store::table($grain)), $grain);
+            if ($timescale) {
+                $this->assertTrue($schema->hasHypertable(\Pramnos\Metrics\Store::table($grain)), $grain . ' is a hypertable');
+            }
+        }
+        $this->assertSame(['day', 'month'], array_column($view, 'grain'), 'the view: each grain\'s rows, with their grain');
+        $this->assertSame(2.0, Metrics::value('test.orders', 'month', '2026-09-01'), 'recomputed over its own rows, compressed or not');
+        $this->assertSame(1.0, Metrics::value('test.orders', 'day', '2026-09-01'));
+        $this->assertSame(32.0, Metrics::value('test.active', 'month', '2026-08-01'), 'an import replaces, not duplicates');
+    }
+
+    /**
+     * An installation that ran the single-table migration: its table is converted to the grains'
+     * tables on the next ensure, keeping every value — its periods, breakdowns and closed state.
+     */
+    public function testTheSingleTableFromBeforeIsConverted(): void
+    {
+        // Arrange — the table as the first version of the migration made it
+        $schema = $this->db->schema();
+        \Pramnos\Metrics\Store::drop($this->db);
+        $schema->createTable(Metrics::TABLE, function ($table) {
+            $table->string('metric', 100);
+            $table->string('grain', 8);
+            $table->date('period_start');
+            $table->string('dimset', 200)->default('');
+            $table->text('dims');
+            $table->char('dims_hash', 32);
+            $table->decimal('value', 20, 4)->default(0);
+            $table->string('source', 10)->default('computed');
+            $table->smallInteger('final')->default(0);
+            $table->integer('computed_at')->default(0);
+            $table->primary(['metric', 'grain', 'period_start', 'dims_hash']);
+        });
+        $old = fn (string $grain, string $period, string $dims, float $value, int $final): mixed => $this->db->queryBuilder()->table(Metrics::TABLE)->insert([
+            'metric' => 'test.orders', 'grain' => $grain, 'period_start' => $period, 'dimset' => $dims === '{}' ? '' : 'region', 'dims' => $dims,
+            'dims_hash' => md5($dims), 'value' => $value, 'source' => 'computed', 'final' => $final, 'computed_at' => 1,
+        ]);
+        $old('month', '2026-08-01', '{}', 5, 1);
+        $old('month', '2026-08-01', '{"region":"north"}', 3, 1);
+        $old('day', '2026-08-02', '{}', 2, 0);
+        $old('hour', '2026-08-02', '{}', 9, 0);
 
         try {
             // Act
-            $done = \Pramnos\Database\HypertableRegistry::apply($schema, Metrics::TABLE);
-            Metrics::compute(['test.orders'], ['month'], '2026-09-01', '2026-09-30', false, self::at('2026-11-06 12:00'));
-            Metrics::compute(['test.orders'], ['month'], '2026-09-01', '2026-09-30', true, self::at('2026-11-06 13:00'));
-            Metrics::import('test.active', 'month', '2026-08-01', [], 31);
-            Metrics::import('test.active', 'month', '2026-08-01', [], 32);
+            $done = \Pramnos\Metrics\Store::ensure($this->db);
+            $again = \Pramnos\Metrics\Store::ensure($this->db);
 
             // Assert
-            $this->assertContains('converted to hypertable', $done);
-            $this->assertTrue($schema->hasHypertable(Metrics::TABLE));
-            $this->assertSame(1.0, Metrics::value('test.orders', 'month', '2026-09-01'), 'recomputed over its own rows');
-            $this->assertSame(32.0, Metrics::value('test.active', 'month', '2026-08-01'), 'an import replaces, not duplicates');
+            $this->assertContains('moved the single values table aside', $done);
+            $this->assertContains('copied 3 values from the single table', $done, 'a grain no table has is left out');
+            $this->assertNotContains('moved the single values table aside', $again, 'once');
+            $this->assertSame(5.0, Metrics::value('test.orders', 'month', '2026-08-01'));
+            $this->assertSame(3.0, Metrics::value('test.orders', 'month', '2026-08-01', ['region' => 'north']));
+            $this->assertSame(2.0, Metrics::value('test.orders', 'day', '2026-08-02'));
+            $this->assertSame(1, $this->db->queryBuilder()->table(\Pramnos\Metrics\Store::table('month'))->where('metric', 'test.orders')->where('final', 1)->where('dimset', '')->count(), 'closed stays closed');
+            $this->assertFalse($schema->hasTable('stats.metric_values_before'), 'the old table is gone');
         } finally {
-            \Pramnos\Database\HypertableRegistry::reset();
+            \Pramnos\Metrics\Store::drop($this->db);
             $schema->dropTableIfExists(Metrics::TABLE);
             \Pramnos\Framework\Testing\Schema::ensure([CreateMetricValuesTable::class], $this->db);
         }
+    }
+
+    /**
+     * An application's own store is imported once: its columns mapped to metric, grain, period,
+     * value, a dimension (empty for the total) and a kept text; every value final and imported,
+     * a second run replacing rather than adding, and rows that cannot be placed counted aside.
+     */
+    public function testAnApplicationsStoreIsAdopted(): void
+    {
+        // Arrange
+        $schema = $this->db->schema();
+        $schema->dropTableIfExists('metrics_test_store');
+        $schema->createTable('metrics_test_store', function ($table) {
+            $table->string('grain', 8);
+            $table->timestampTz('period_start');
+            $table->string('metric', 64);
+            $table->string('market', 8)->default('');
+            $table->decimal('value', 20, 4)->nullable();
+            $table->text('text')->nullable();
+        });
+        $at = fn (string $day): string => \Pramnos\Database\Instant::utc((new \DateTimeImmutable($day, new \DateTimeZone('Europe/Athens')))->getTimestamp(), $this->db);
+        foreach ([
+            ['month', $at('2025-09-01'), 'orders', '', 40, null],
+            ['month', $at('2025-09-01'), 'orders', 'gr', 30, null],
+            ['month', $at('2025-09-01'), 'income', '', null, '1.234,50'],
+            ['era', $at('2025-09-01'), 'orders', '', 1, null],
+        ] as [$grain, $period, $metric, $market, $value, $text]) {
+            $this->db->queryBuilder()->table('metrics_test_store')->insert(['grain' => $grain, 'period_start' => $period, 'metric' => $metric, 'market' => $market, 'value' => $value, 'text' => $text]);
+        }
+        $map = ['metric' => 'metric', 'grain' => 'grain', 'period' => 'period_start', 'value' => 'value', 'dims' => ['market'], 'extra' => ['text'], 'prefix' => 'test.'];
+
+        try {
+            // Act
+            $first  = \Pramnos\Metrics\Store::adopt($this->db, $this->db, 'metrics_test_store', $map);
+            $second = \Pramnos\Metrics\Store::adopt($this->db, $this->db, 'metrics_test_store', $map);
+            $refused = [];
+            foreach ([['metric' => 'metric', 'period' => 'period_start', 'value' => ''], ['metric' => 'metric', 'period' => 'period_start', 'value' => 'value']] as $bad) {
+                try {
+                    \Pramnos\Metrics\Store::adopt($this->db, $this->db, 'metrics_test_store', $bad);
+                } catch (\InvalidArgumentException $e) {
+                    $refused[] = $e->getMessage();
+                }
+            }
+            $kept = $this->db->queryBuilder()->table(\Pramnos\Metrics\Store::table('month'))->where('metric', 'like', 'test.%')->orderBy('metric')->orderBy('dimset')->get()->fetchAll();
+
+            // Assert
+            $this->assertSame(['rows' => 3, 'skipped' => 1], $first, 'a grain that is none of ours is skipped');
+            $this->assertSame($first, $second);
+            $this->assertCount(3, $kept, 'the second run replaced');
+            $this->assertSame(['test.income', 'test.orders', 'test.orders'], array_column($kept, 'metric'));
+            $this->assertSame('2025-09-01', \Pramnos\Metrics\Store::key((string) $kept[1]['period_start']), 'the period, in the metrics\' zone');
+            $this->assertSame(['', 'market'], [$kept[1]['dimset'], $kept[2]['dimset']], 'an empty market is the total');
+            $this->assertNull($kept[0]['value']);
+            $this->assertSame(['text' => '1.234,50'], json_decode((string) $kept[0]['extra'], true), 'the kept text, beside the number');
+            $this->assertSame(['imported', 1], [$kept[1]['source'], (int) $kept[1]['final']]);
+            $this->assertCount(2, $refused, 'a column missing, and neither a grain column nor one grain');
+            // A corrected version of the same figures, kept beside them and not read in their place.
+            $fixed = \Pramnos\Metrics\Store::adopt($this->db, $this->db, 'metrics_test_store', ['version' => 2] + $map);
+            Metrics::compute(['test.orders'], ['month'], '2025-09-01', '2025-09-30', true, self::at('2026-11-06 12:00'));
+            $this->assertSame(3, $fixed['rows']);
+            $this->assertSame(2, $this->db->queryBuilder()->table(\Pramnos\Metrics\Store::table('month'))->where('metric', 'test.orders')->where('version', 2)->count(), 'version 2 kept, also through a recomputation of version 1');
+            $this->assertSame(0.0, Metrics::value('test.orders', 'month', '2025-09-01'), 'the computed version 1 is read (no orders), never added to version 2');
+        } finally {
+            \Pramnos\Metrics\Store::forget($this->db, 'test.%');
+            $schema->dropTableIfExists('metrics_test_store');
+        }
+    }
+
+    /**
+     * The store's lock: while another connection holds it — a conversion, an import, another
+     * computation — a computation does nothing and says it was busy (the command too, without
+     * failing), and once it is let go the computation runs.
+     */
+    public function testAComputationWaitsItsTurnForTheStore(): void
+    {
+        // Arrange
+        $other = new Database();
+        foreach (['type', 'server', 'port', 'user', 'password', 'database', 'prefix', 'schema'] as $setting) {
+            if (property_exists($this->db, $setting)) {
+                $other->{$setting} = $this->db->{$setting};
+            }
+        }
+        $other->connect(false);
+        $this->order('2026-09-01 09:00:00', 'north', 1);
+        $held = \Pramnos\Metrics\Store::lock($other, 0);
+
+        try {
+            // Act
+            $busy   = Metrics::compute(['test.orders'], ['month'], '2026-09-01', '2026-09-30', false, self::at('2026-11-06 12:00'));
+            $tester = new \Symfony\Component\Console\Tester\CommandTester(new \Pramnos\Console\Commands\MetricsCompute());
+            $code   = $tester->execute([]);
+            \Pramnos\Metrics\Store::unlock($other);
+            $done   = Metrics::compute(['test.orders'], ['month'], '2026-09-01', '2026-09-30', false, self::at('2026-11-06 12:00'));
+
+            // Assert
+            $this->assertTrue($held, 'the other connection took it');
+            $this->assertTrue($busy['busy']);
+            $this->assertSame(0, $busy['computed'] + $busy['closed'], 'nothing written meanwhile');
+            $this->assertSame(0, $code, 'busy is not a failure');
+            $this->assertStringContainsString('busy', $tester->getDisplay());
+            $this->assertFalse($done['busy']);
+            $this->assertSame(1.0, Metrics::value('test.orders', 'month', '2026-09-01'), 'computed once it was free');
+        } finally {
+            \Pramnos\Metrics\Store::unlock($other);
+            $other->close();
+        }
+    }
+
+    /**
+     * A conversion cut short — the single table moved aside, not yet copied — is finished by the
+     * next ensure: its rows copied, it dropped.
+     */
+    public function testAConversionCutShortIsFinished(): void
+    {
+        // Arrange
+        $schema = $this->db->schema();
+        $schema->dropTableIfExists('stats.metric_values_before');
+        $schema->createTable('stats.metric_values_before', function ($table) {
+            $table->string('metric', 100);
+            $table->string('grain', 8);
+            $table->date('period_start');
+            $table->string('dimset', 200)->default('');
+            $table->text('dims');
+            $table->char('dims_hash', 32);
+            $table->decimal('value', 20, 4)->default(0);
+            $table->string('source', 10)->default('computed');
+            $table->smallInteger('final')->default(0);
+            $table->integer('computed_at')->default(0);
+        });
+        $this->db->queryBuilder()->table('stats.metric_values_before')->insert([
+            'metric' => 'test.orders', 'grain' => 'month', 'period_start' => '2026-06-01', 'dimset' => '', 'dims' => '{}',
+            'dims_hash' => md5('{}'), 'value' => 8, 'source' => 'computed', 'final' => 1, 'computed_at' => 1,
+        ]);
+
+        // Act
+        $done = \Pramnos\Metrics\Store::ensure($this->db);
+
+        // Assert
+        $this->assertSame(['copied 1 values from the single table'], $done);
+        $this->assertSame(8.0, Metrics::value('test.orders', 'month', '2026-06-01'));
+        $this->assertFalse($schema->hasTable('stats.metric_values_before'));
     }
 }

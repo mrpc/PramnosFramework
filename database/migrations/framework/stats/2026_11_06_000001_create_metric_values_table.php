@@ -17,10 +17,11 @@ use Pramnos\Database\Migration;
  * show. None of the four logs holds a value per period and breakdown, with a unique key to read it
  * back by.
  *
- * A plain table by default, also on TimescaleDB: a few thousand rows per metric and year, and
- * `metrics:compute --recompute` rewrites closed periods, which a compressed chunk refuses. Its
- * primary key is the natural one and holds `period_start`, so an installation that wants a
- * hypertable declares it in app.php and runs `timescale:ensure` — see the Metrics guide.
+ * A table per grain — `stats.metric_values_day` … `_year` — and a view over them all,
+ * `stats.metric_values`, made by {@see \Pramnos\Metrics\Store::ensure()}: hypertables with
+ * compression where TimescaleDB is installed. Changed in place from a single table (rule 14's
+ * rule for a migration that has run): an installation that ran the single-table version calls
+ * `Store::ensure()` once, which converts it and keeps every value.
  */
 class CreateMetricValuesTable extends Migration
 {
@@ -28,37 +29,17 @@ class CreateMetricValuesTable extends Migration
     public string $scope        = 'framework';
     public int    $priority     = 62;
     public array  $dependencies = [];
-    public $description = 'Creates stats.metric_values, the values of the application\'s metrics per period';
+    public $description = 'Creates the stats.metric_values_<grain> tables and their view, the values of the application\'s metrics';
 
-    /** Create the schema and the table. */
+    /** The grains' tables and their view. */
     public function up(): void
     {
-        $schema = $this->application->database->schema();
-        $schema->ensureSchema('stats');
-        if ($schema->hasTable('stats.metric_values')) {
-            return;
-        }
-
-        $schema->createTable('stats.metric_values', function ($table) {
-            $table->comment('The values of the application\'s metrics, per grain, period and breakdown');
-            $table->string('metric', 100)->comment('The metric\'s name, as its catalogue declares it');
-            $table->string('grain', 8)->comment('day, week, month, quarter or year');
-            $table->date('period_start')->comment('The period\'s first day, in the metrics\' time zone');
-            $table->string('dimset', 200)->default('')->comment('The dimensions of this breakdown, sorted and comma-joined; empty for the total');
-            $table->text('dims')->comment('The breakdown\'s values as a JSON object; {} for the total');
-            $table->char('dims_hash', 32)->comment('md5 of dims, for the unique key');
-            $table->decimal('value', 20, 4)->default(0);
-            $table->string('source', 10)->default('computed')->comment('computed, snapshot (a level) or imported');
-            $table->smallInteger('final')->default(0)->comment('1 once the period is closed: never computed again unless asked');
-            $table->integer('computed_at')->default(0);
-            $table->primary(['metric', 'grain', 'period_start', 'dims_hash']);
-            $table->index(['metric', 'grain', 'final'], 'idx_metric_values_final');
-        });
+        \Pramnos\Metrics\Store::ensure($this->application->database);
     }
 
-    /** Drop it. */
+    /** Drop them. */
     public function down(): void
     {
-        $this->application->database->schema()->dropTableIfExists('stats.metric_values');
+        \Pramnos\Metrics\Store::drop($this->application->database);
     }
 }

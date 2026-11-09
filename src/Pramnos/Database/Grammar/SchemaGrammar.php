@@ -470,7 +470,11 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
 
     public function compileRename(string $from, string $to): string
     {
-        return 'ALTER TABLE ' . $this->quoteTable($from) . ' RENAME TO ' . $this->quoteTable($to);
+        // RENAME TO takes a bare name — the table stays in its schema — and a qualified one is a
+        // syntax error: `stats.a` renamed to `stats.b` is `ALTER TABLE "stats"."a" RENAME TO "b"`.
+        $bare = str_contains($to, '.') ? substr($to, strrpos($to, '.') + 1) : $to;
+
+        return 'ALTER TABLE ' . $this->quoteTable($from) . ' RENAME TO ' . $this->quoteTable($bare);
     }
 
     // =========================================================================

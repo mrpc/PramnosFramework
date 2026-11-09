@@ -101,7 +101,7 @@ class ReportsMySQLTest extends TestCase
 
     private function clean(): void
     {
-        $this->db->queryBuilder()->table(Metrics::TABLE)->where('metric', 'like', 'test.%')->delete();
+        \Pramnos\Metrics\Store::forget($this->db, 'test.%');
         $this->db->queryBuilder()->table(Reports::TABLE)->where('name', 'like', 'Test %')->delete();
     }
 

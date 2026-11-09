@@ -742,6 +742,22 @@ class SchemaBuilderUnitTest extends TestCase
         $this->assertEquals('ALTER TABLE "old" RENAME TO "new"', $g->compileRename('old', 'new'));
     }
 
+    /**
+     * A table in a schema renamed: RENAME TO takes the bare name — a qualified one is a syntax
+     * error in PostgreSQL — and the table stays in its schema.
+     */
+    public function testPGRenameTableInASchema(): void
+    {
+        // Arrange
+        $g = new PostgreSQLSchemaGrammar();
+
+        // Act
+        $sql = $g->compileRename('stats.metric_values', 'stats.metric_values_before');
+
+        // Assert
+        $this->assertSame('ALTER TABLE "stats"."metric_values" RENAME TO "metric_values_before"', $sql);
+    }
+
     // =========================================================================
     // Index DDL
     // =========================================================================

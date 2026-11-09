@@ -71,6 +71,11 @@ class MetricsCompute extends Command
         }
 
         $report = Metrics::compute($only ?: null, $grains ?: null, $input->getOption('from'), $input->getOption('to'), (bool) $input->getOption('recompute'));
+        if ($report['busy']) {
+            $output->writeln('The metrics\' store is busy (being changed, or computed by another run): nothing done; the next run computes what is due.');
+
+            return Command::SUCCESS;
+        }
         $output->writeln(sprintf('Computed %d open, closed %d, skipped %d.', $report['computed'], $report['closed'], $report['skipped']));
         foreach ($report['failed'] as $what => $why) {
             $output->writeln('<error>' . $what . ': ' . $why . '</error>');

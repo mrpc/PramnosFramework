@@ -304,20 +304,20 @@ not a zero.
 ### 5.1 The row
 
 ```sql
--- PostgreSQL (MySQL: DATETIME UTC, JSON, TINYINT, BINARY(16))
-metric       text        NOT NULL,
+-- stats.metric_values_<grain>, one table per grain (§5.2); PostgreSQL (MySQL: DATETIME UTC, JSON, CHAR(36))
+metric       varchar(100) NOT NULL,
 tenant       bigint      NOT NULL DEFAULT 0,
-period_start timestamptz NOT NULL,          -- the period's first instant, in its tenant's zone
+period_start timestamptz NOT NULL,          -- the period's first instant, in its zone
+dimset       varchar(200) NOT NULL DEFAULT '', -- the breakdown's dimensions, sorted: picks a breakdown by index
 dims         jsonb       NOT NULL,          -- {} for the total
 dims_hash    uuid        NOT NULL,          -- md5 of the canonical dims, as a uuid: 16 bytes
 version      smallint    NOT NULL DEFAULT 1,
 value        double precision,
-extra        jsonb,                         -- AVG: {sum, count}; counter: {first, last, resets}
-source       smallint    NOT NULL,          -- computed, snapshot, imported
-final        boolean     NOT NULL DEFAULT false,
-computed_at  timestamptz NOT NULL,
+extra        jsonb,                         -- AVG: {sum, count}; counter: {first, last, resets}; a kept text
+source       varchar(10) NOT NULL,          -- computed, snapshot, imported
+final        smallint    NOT NULL DEFAULT 0,
+computed_at  timestamptz,
 PRIMARY KEY (metric, tenant, dims_hash, version, period_start)
--- one table per grain (§5.2): stats.metric_values_hour, _day, _week, _month, _quarter, _year
 ```
 
 Indexes:
@@ -334,7 +334,8 @@ that declares `->exact()`, and is kept in a second column.
 The table already exists with `date`, `integer` and `text` columns, in at least one production. By
 rule 15 and the rule on changing a migration that has run, **the create-table migration is
 changed in place**. Installations that ran it get a one-time statement in the Upgrade Guide row,
-which converts the columns. A `metrics:adopt` command (§10) brings in an application's own store.
+which converts the columns. `Store::adopt()` (§10) brings in an application's own store; it is a
+method, not a command, since each application's store is moved once, by a script of its own.
 
 ### 5.2 One table, or a hypertable per grain
 
@@ -538,8 +539,9 @@ behaviour, closing at the period's end. Compression waits for the longest latene
 ### 6.4 History
 
 `Metrics::import()` stays the way in for old reports, and gains a bulk form for a whole table.
-`metrics:adopt` maps an application's existing store or statistics tables onto metrics, with the
-tenant, dimensions and grains each column means, and imports them once (§10).
+`Store::adopt()` maps an application's existing store or statistics tables onto metrics, with the
+dimensions and grains each column means, and imports them once (§10), from the application's own
+one-off script.
 
 ---
 
@@ -655,7 +657,7 @@ These three tables are state, not logs (rule 14). Firings and changes go to the 
 
 | Application | What goes | How, without losing history |
 |---|---|---|
-| Marketplace | its own metric store (`timestamptz`) and its monthly report classes | its metrics are declared; `metrics:adopt` imports its store into `stats`; its two ready reports are rebuilt as boards; its table is dropped once compared for a month |
+| Marketplace | its own metric store (`timestamptz`) and its monthly report classes | its metrics are declared; its own data script imports its store into `stats` with `Store::adopt()`; its two ready reports are rebuilt as boards; its table is dropped once compared for a month |
 | Sensor platform | its report builder, formula language and aggregate tables | declared sources over its readings hypertable; its day/month/year continuous aggregates become the metrics' sources (live per device, stored per zone and tenant); its formulas become derived metrics with `delta()`; XLSX from §8 |
 | Analytics service | its catalogue, goals, annotations, SVG charts | catalogue → metrics (counter/gauge/rate, direction, format); its hourly and daily continuous aggregates → sources; goals and annotations imported into §9's tables |
 | Chat service | `stats_hourly` … `stats_yearly` and the PL/pgSQL roll-up | metrics at hour to year; the tables imported; no-cron mode (§6.1) |
@@ -679,7 +681,7 @@ Each phase ends with measured timings, not estimates.
 | Phase | What | Done when |
 |---|---|---|
 | 0 | The storage benchmark (§5.2) in three sizes; PostgreSQL 10 and MySQL checks | **Done:** B, on the numbers in §5.4. MySQL is measured in phase 1, on the real code |
-| 1 | The row (§5.1): `timestamptz`, `jsonb`, tenant, version; the chosen layout; compression and retention; the migration changed in place and the one-time statement; `metrics:adopt` | the marketplace's store imported, its table dropped, one store |
+| 1 | The row (§5.1): `timestamptz`, `jsonb`, tenant, version; the chosen layout; compression and retention; the migration changed in place and the one-time statement; `Store::adopt()` | **Built:** the tables per grain and their view, hypertables and compression, the store's lock, `Store::ensure()` converting the single table, `Store::adopt()`. The marketplace's import is its own data script |
 | 2 | Hour grain; tenant scope and time zone per tenant; the query API (§7), with today's calls on top | every reader on the query API; a per-tenant card on a multi-tenant application |
 | 3 | Aggregations and kinds (§4.3); declared sources (§4.4) with `time_bucket` and unix time; live metrics (§4.5); lateness (§6.3); versions and gaps (§4.6) | the sensor platform's daily report rebuilt from declarations |
 | 4 | Alerts, goals, annotations (§9) | "data stopped" and a goal's intraday progress on a real board |
