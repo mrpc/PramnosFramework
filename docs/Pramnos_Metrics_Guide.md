@@ -588,6 +588,26 @@ Alerts::create(['metric' => 'registrations', 'grain' => 'day', 'kind' => Alerts:
 - **Where it is kept.** The rules are kept in `stats.alert_rules`, which is state. Each firing is
   kept in the changelog (`alert.fired`), not in a table of its own.
 
+## Notes on the charts
+
+Something that explains a figure — a deploy, a price change, a campaign — a moment or a span:
+
+```php
+Annotations::add(time(), 'Spring campaign', 'campaign', until: strtotime('+14 days'), link: '/admin/Campaigns/3');
+Annotations::add(time(), 'New prices', 'price', tenant: $organisation);
+Annotations::between($from, $to, $tenant);   // the notes that touch a range: an organisation's and everybody's
+```
+
+- **On the charts.** Report charts and metric cards draw the notes of their periods
+  (`Annotations::forPeriods()`, and `Html\Chart::render()`'s `annotations` option). Each note is a
+  dashed line at the period it begins in, named at the top, and also listed under the chart for a
+  screen reader and without JavaScript.
+- **Deploys.** The daemon orchestrator notes each deploy it notices: `deploy`, "Deployed" and the
+  commit.
+- **Where they are kept.** Notes are kept in `stats.annotations`. Why a table and not the
+  changelog: they are the business's own notes, written and edited by people, read by time range
+  across every metric, and kept as long as the figures are.
+
 ## Where the values are kept
 
 Each grain has a table of its own: `stats.metric_values_day`, `_week`, `_month`, `_quarter` and

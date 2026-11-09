@@ -127,7 +127,8 @@ final class MetricCard extends Widget
             (string) ($this->setting('chart') ?? 'line'),
             array_map(static fn (Window $w): string => $w->label(), $series['periods']),
             $sets,
-            ['title' => $this->title(), 'height' => 220, 'format' => $this->metric->getUnit() === '%' ? 'percent' : 'number', 'decimals' => $this->metric->getUnit() === '' ? 0 : 2],
+            ['title' => $this->title(), 'height' => 220, 'format' => $this->metric->getUnit() === '%' ? 'percent' : 'number', 'decimals' => $this->metric->getUnit() === '' ? 0 : 2,
+                'annotations' => \Pramnos\Metrics\Annotations::forPeriods($series['periods'])],
         );
     }
 

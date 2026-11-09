@@ -1026,6 +1026,7 @@ abstract class DaemonOrchestrator extends CommandBase
                         . '). Requesting graceful restart of all daemons…'
                     );
                     $this->requestDeployRestart($output);
+                    $this->annotateDeploy($currentHash);
                     // Also reload THIS process's code, so newly-declared workers in
                     // buildDesiredProcesses() take effect on a redeploy without a
                     // manual service restart. Returns only if it could not self-exec
@@ -1942,6 +1943,21 @@ abstract class DaemonOrchestrator extends CommandBase
         }
         if ($changed) {
             $this->saveState(array_values($state));
+        }
+    }
+
+    /**
+     * A note on the metrics' charts that the application was deployed — the commit it runs now —
+     * where the application keeps notes (`stats.annotations`); nothing otherwise.
+     */
+    protected function annotateDeploy(string $hash): void
+    {
+        try {
+            if (\Pramnos\Metrics\Metrics::connection()->schema()->hasTable(\Pramnos\Metrics\Annotations::TABLE)) {
+                \Pramnos\Metrics\Annotations::add(time(), 'Deployed ' . substr($hash, 0, 8), 'deploy');
+            }
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('The deploy was not noted on the charts: ' . $e->getMessage(), 'metrics');
         }
     }
 

@@ -86,6 +86,10 @@ final class Chart
             'stacked'  => !empty($options['stacked']),
             'height'   => max(80, (int) ($options['height'] ?? 300)),
             'options'  => (object) (array) ($options['chart'] ?? []),
+            // Notes on the figures, each at the index of its label: a deploy, a campaign.
+            'annotations' => array_values(array_filter(array_map(static fn ($n): ?array => is_array($n) && isset($n['at'], $n['text'])
+                ? ['at' => (int) $n['at'], 'text' => mb_substr((string) $n['text'], 0, 120), 'kind' => (string) ($n['kind'] ?? 'note')] : null,
+                (array) ($options['annotations'] ?? [])))),
         ];
 
         self::enqueueLibrary();
@@ -99,7 +103,27 @@ final class Chart
             . '<div class="pf-chart-canvas" hidden><canvas aria-hidden="true"></canvas></div>'
             . '<script type="application/json" data-pf-chart-config>' . $json . '</script>'
             . self::table($title, $labels, $datasets, $format, $decimals, (string) ($config['format']['currency'] ?? ''))
+            . self::notes($config['annotations'], $labels)
             . '</figure>';
+    }
+
+    /**
+     * The notes on a chart as words under it — for a screen reader, and without Chart.js.
+     *
+     * @param list<array{at: int, text: string, kind: string}> $notes
+     * @param list<string> $labels
+     */
+    private static function notes(array $notes, array $labels): string
+    {
+        if ($notes === []) {
+            return '';
+        }
+        $html = '<ul class="pf-chart-notes">';
+        foreach ($notes as $note) {
+            $html .= '<li data-kind="' . self::e($note['kind']) . '">' . self::e(($labels[$note['at']] ?? '') . ': ' . $note['text']) . '</li>';
+        }
+
+        return $html . '</ul>';
     }
 
     /**

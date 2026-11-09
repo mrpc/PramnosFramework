@@ -2289,4 +2289,5 @@ return [
     'above' => 'πάνω',
     'below' => 'κάτω',
     'Alert' => 'Ειδοποίηση',
+    'A note needs words, and an end after its start.' => 'Μια σημείωση χρειάζεται κείμενο, και τέλος μετά την αρχή της.',
 ];

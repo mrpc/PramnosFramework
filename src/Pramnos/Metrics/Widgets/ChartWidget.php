@@ -86,7 +86,16 @@ class ChartWidget extends TableWidget
             return self::numbers($labels, $sets);
         }
 
-        return \Pramnos\Html\Chart::render($type, $labels, $sets, ['title' => $this->heading(), 'height' => 260]);
+        // The notes that fall in the chart's periods: a deploy, a campaign.
+        $report = $this->report();
+        $last   = Window::of($report['grain'], $report['at']);
+        $first  = $last;
+        for ($i = 1; $i < $periods; $i++) {
+            $first = $first->previous();
+        }
+        $notes  = \Pramnos\Metrics\Annotations::forPeriods(Window::range($report['grain'], $first->key(), $last->key()));
+
+        return \Pramnos\Html\Chart::render($type, $labels, $sets, ['title' => $this->heading(), 'height' => 260, 'annotations' => $notes]);
     }
 
     /**

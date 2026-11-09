@@ -50,8 +50,10 @@ class MetricsMySQLTest extends TestCase
         $this->db = $this->connect();
         require_once ROOT . '/database/migrations/framework/stats/2026_11_09_000004_create_goals_table.php';
         require_once ROOT . '/database/migrations/framework/stats/2026_11_09_000005_create_alert_rules_table.php';
+        require_once ROOT . '/database/migrations/framework/stats/2026_11_09_000006_create_annotations_table.php';
         \Pramnos\Framework\Testing\Schema::ensure([CreateMetricValuesTable::class, \Pramnos\Framework\Migrations\Stats\CreateGoalsTable::class,
-            \Pramnos\Framework\Migrations\Stats\CreateAlertRulesTable::class], $this->db);
+            \Pramnos\Framework\Migrations\Stats\CreateAlertRulesTable::class, \Pramnos\Framework\Migrations\Stats\CreateAnnotationsTable::class], $this->db);
+        $this->db->queryBuilder()->table(\Pramnos\Metrics\Annotations::TABLE)->delete();
         $this->db->queryBuilder()->table(\Pramnos\Metrics\Alerts::TABLE)->where('metric', 'like', 'test.%')->delete();
         $this->db->queryBuilder()->table(\Pramnos\Metrics\Goals::TABLE)->where('metric', 'like', 'test.%')->delete();
         $schema = $this->db->schema();
@@ -1319,6 +1321,53 @@ class MetricsMySQLTest extends TestCase
         $this->assertSame([], $morning, 'outside its hours');
         $this->assertSame(0, $this->db->queryBuilder()->table(\Pramnos\Metrics\Alerts::TABLE)->where('ruleid', $threshold)->count());
         $this->assertSame(3, $refused);
+    }
+
+    /**
+     * Notes on the figures: a moment and a span, an organisation's and everybody's, read by range
+     * — a span still running counts — and placed at the period each begins in for a chart, which
+     * draws them and lists them under it; a deploy the orchestrator notices is noted; a note with
+     * no words, or ending before it starts, is refused.
+     */
+    public function testNotesAreKeptAndDrawnOnTheCharts(): void
+    {
+        // Arrange
+        $campaign = \Pramnos\Metrics\Annotations::add(self::at('2026-08-25 10:00'), 'Spring campaign', 'campaign', self::at('2026-09-10 00:00'), '/admin/Campaigns/3');
+        $price    = \Pramnos\Metrics\Annotations::add(self::at('2026-09-15 09:00'), 'New prices', 'price', null, null, 7);
+        $refused  = 0;
+        foreach ([static fn () => \Pramnos\Metrics\Annotations::add(1, '  '), static fn () => \Pramnos\Metrics\Annotations::add(10, 'x', 'note', 5)] as $attempt) {
+            try {
+                $attempt();
+            } catch (\InvalidArgumentException) {
+                $refused++;
+            }
+        }
+        $orchestrator = new class extends \Pramnos\Console\DaemonOrchestrator {
+            protected function buildDesiredProcesses(): array { return []; }
+
+            protected function getDashboardTitle(): string { return 'TEST'; }
+
+            protected function getEntryPoint(): string { return '/dev/null'; }
+        };
+
+        // Act
+        $september = \Pramnos\Metrics\Annotations::between(self::at('2026-09-01 00:00'), self::at('2026-10-01 00:00'));
+        $others    = \Pramnos\Metrics\Annotations::between(self::at('2026-09-01 00:00'), self::at('2026-10-01 00:00'), 3);
+        $placed    = \Pramnos\Metrics\Annotations::forPeriods(Window::range('month', '2026-09-01', '2026-10-01'));
+        $chart     = \Pramnos\Html\Chart::render('line', ['2026-09', '2026-10'], [['label' => 'Orders', 'data' => [1, 2]]], ['annotations' => $placed]);
+        (new \ReflectionMethod($orchestrator, 'annotateDeploy'))->invoke($orchestrator, 'abcdef1234567890');
+        $deploys   = array_values(array_filter(\Pramnos\Metrics\Annotations::between(time() - 60, time() + 60), static fn (array $n): bool => $n['kind'] === 'deploy'));
+        \Pramnos\Metrics\Annotations::delete($price);
+
+        // Assert
+        $this->assertSame([$campaign, $price], array_column($september, 'id'), 'a span running into September counts');
+        $this->assertSame([$campaign], array_column($others, 'id'), 'another organisation sees only everybody\'s');
+        $this->assertSame([['at' => 0, 'text' => 'Spring campaign', 'kind' => 'campaign'], ['at' => 0, 'text' => 'New prices', 'kind' => 'price']], $placed);
+        $this->assertStringContainsString('"annotations":[{"at":0,"text":"Spring campaign","kind":"campaign"}', $chart, 'drawn by the page');
+        $this->assertStringContainsString('<li data-kind="price">2026-09: New prices</li>', $chart, 'and listed under the chart');
+        $this->assertSame('Deployed abcdef12', $deploys[0]['words'] ?? null);
+        $this->assertSame([$campaign], array_column(\Pramnos\Metrics\Annotations::between(self::at('2026-09-01 00:00'), self::at('2026-10-01 00:00')), 'id'));
+        $this->assertSame(2, $refused);
     }
 
     /**

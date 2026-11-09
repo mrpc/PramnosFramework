@@ -2173,11 +2173,36 @@
             if (fig._pfChart) { fig._pfChart.destroy(); }
             box.hidden = false;
             box.style.height = cfg.height + 'px';
+            // Notes on the figures — a deploy, a campaign — a dashed line at their period, named at the top.
+            var notes = (cfg.annotations || []).filter(function () { return !round && cfg.type !== 'radar'; });
+            var marks = { id: 'pfNotes', afterDatasetsDraw: function (chart) {
+                if (!notes.length || !chart.scales || !chart.scales.x) { return; }
+                var ctx = chart.ctx;
+                var area = chart.chartArea;
+                ctx.save();
+                ctx.strokeStyle = alpha(text, 0.45);
+                ctx.fillStyle = text;
+                ctx.setLineDash([4, 3]);
+                ctx.font = '11px sans-serif';
+                notes.forEach(function (note) {
+                    var x = chart.scales.x.getPixelForValue(note.at);
+                    if (!isFinite(x)) { return; }
+                    ctx.beginPath();
+                    ctx.moveTo(x, area.top);
+                    ctx.lineTo(x, area.bottom);
+                    ctx.stroke();
+                    ctx.fillText(note.text, x + 3, area.top + 10);
+                });
+                ctx.restore();
+            } };
             fig._pfChart = new window.Chart(canvas, {
                 type: cfg.type,
                 data: { labels: cfg.labels, datasets: datasets },
                 options: merge(options, cfg.options),
+                plugins: [marks],
             });
+            var list = fig.querySelector('.pf-chart-notes');
+            if (list) { list.classList.add('pf-visually-hidden'); }
             var table = fig.querySelector('.pf-chart-data');
             if (table) { table.classList.add('pf-visually-hidden'); }
         }
