@@ -23,6 +23,7 @@ $shown = static fn (array $field): bool => array_reduce(array_keys((array) ($fie
     <div class="@if ($plain)pf-report-section-body@else card-body@endif">
         <div class="pf-dashboard-head" data-pf-widget-head>
             @if ($widget['title'] !== '')<h3>@if ($widget['link'])<a href="{{ $widget['link'] }}">{{ $t($widget['title']) }}</a>@php else: echo $e($t($widget['title'])); endif; @endphp</h3>@endif
+            @if (!empty($widget['ask']))<a class="pf-card-ask" href="{{ $widget['ask'] }}" style="font-size:.8em;margin-inline-start:auto" title="{{ $t('Ask about this') }}">{{ $t('Ask about this') }}</a>@endif
             <div class="pf-dashboard-tools btn-group" data-pf-widget-tools hidden>
                 <span class="btn btn-outline-secondary btn-sm pf-dashboard-grip" data-pf-widget-grip aria-hidden="true" title="{{ $t('Drag to move') }}">&#10303;</span>
                 <button type="button" class="btn btn-outline-secondary btn-sm" data-pf-widget-move="-1" aria-label="{{ $t('Move up') }}">&uarr;</button>

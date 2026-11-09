@@ -93,6 +93,29 @@ abstract class ReportWidget extends Widget
         return ($report['tenant'] ?? null) !== null ? $query->tenant((int) $report['tenant']) : $query;
     }
 
+    /**
+     * A question for the assistant about what this card shows — its metric, filters, the board's
+     * organisation, the period and its comparison — for "Ask about this"; null for a card that
+     * reads no single metric.
+     */
+    public function askAbout(): ?string
+    {
+        $first = (array) (((array) ($this->setting('rows') ?? $this->setting('series') ?? []))[0] ?? []);
+        $name  = (string) ($this->setting('metric') ?? ($first['metric'] ?? ''));
+        if ($name === '' || !isset(Metrics::all($this->report()['user'], false)[$name])) {
+            return null;
+        }
+        $report  = $this->report();
+        $filters = $this->narrowed((array) ($this->setting('filters') ?? []));
+        $parts   = [];
+        foreach ($filters as $dimension => $value) {
+            $parts[] = $dimension . ' = ' . (is_array($value) ? implode(', ', $value) : $value);
+        }
+
+        return sprintf(t('About %s (%s) in %s%s%s: what explains it, and what moved most?'), Metrics::get($name)->label(), $name, $report['window']->label(),
+            $parts !== [] ? ', ' . implode('; ', $parts) : '', ($report['tenant'] ?? null) !== null ? ', ' . sprintf(t('organisation %s'), (string) $report['tenant']) : '');
+    }
+
     /** A heading, up to 120 characters. */
     protected static function titleOption(): array
     {

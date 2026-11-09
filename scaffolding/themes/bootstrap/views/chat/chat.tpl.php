@@ -240,7 +240,7 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false); @endphp
                 {!! $token() !!}
                 <input type="hidden" name="conversation_id" value="{!! $openId !!}">
                 <label for="chat-ask" class="pf-sr-only">{{ t('Your question') }}</label>
-                <textarea id="chat-ask" name="content" rows="{!! $empty ? 3 : 1 !!}" class="pf-chat-input" placeholder="{{ (string) ($this->placeholder ?? '') !== '' ? $this->placeholder : t('Ask a question…') }}" aria-describedby="chat-ask-hint"></textarea>
+                <textarea id="chat-ask" name="content" rows="{!! $empty ? 3 : 1 !!}" class="pf-chat-input" placeholder="{{ (string) ($this->placeholder ?? '') !== '' ? $this->placeholder : t('Ask a question…') }}" aria-describedby="chat-ask-hint">{{ (string) ($this->prefill ?? '') }}</textarea>
                 <div class="pf-chat-bar">
                     @if ($voiceOn)
                         <button type="button" class="pf-chat-mic" data-pf-chat-mic aria-pressed="false" title="{{ t('Dictate your question') }}">🎤<span class="pf-sr-only">{{ t('Dictate your question') }}</span></button>

@@ -119,6 +119,8 @@ class AiController extends Controller
             $view->{$key} = is_string($analyst[$key] ?? null) ? $analyst[$key] : '';
         }
         $view->commands = is_array($analyst['commands'] ?? null) ? $analyst['commands'] : [];
+        // `?q=`: a question begun elsewhere — "Ask about this" on a report's card — left to be sent.
+        $view->prefill  = mb_substr((string) $request->get('q', '', 'get'), 0, 2000);
         $view->urls        = [
             'page'    => adminUrl('Ai'),
             'ask'     => adminUrl('Ai/ask'),

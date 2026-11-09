@@ -742,6 +742,104 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * The assistant's reading of a report: written from the report's numbers when it is drawn
+     * for sending — the numbers in what it is asked — and kept for the period, so a second send
+     * and the page do not ask again; a period not sent yet says when it is written; an answer the
+     * model could not give leaves the note, not an error.
+     */
+    public function testTheAssistantsReadingOfAReport(): void
+    {
+        // Arrange
+        $cache = new \Pramnos\Cache\Cache();
+        $cache->caching = true;
+        (new \ReflectionProperty(\Pramnos\Cache\Cache::class, 'adapter'))->setValue($cache, new \Pramnos\Cache\Adapter\ArrayAdapter());
+        \Pramnos\Metrics\Widgets\AnalysisWidget::useCache($cache);
+        $asked  = [];
+        $answer = ['ok' => true, 'reply' => 'Sales **rose** sixfold.'];
+        \Pramnos\Metrics\Widgets\AnalysisWidget::useClient(static function () use (&$asked, &$answer): \Pramnos\Llm\Client {
+            return new class ($asked, $answer) extends \Pramnos\Llm\Client {
+                public function __construct(private array &$asked, private array &$answer)
+                {
+                }
+
+                public function askCheaply(string $systemPrompt, array $messages): array
+                {
+                    $this->asked[] = (string) $messages[0]['content'];
+
+                    return $this->answer;
+                }
+            };
+        });
+        $layout = [
+            ['id' => 'report.table~a', 'settings' => ['rows' => [['metric' => 'test.sales', 'label' => 'Sales']]]],
+            ['id' => 'report.analysis~b', 'settings' => ['instructions' => 'The regions']],
+        ];
+        $id    = (new Reports())->save(self::reader(), ['name' => 'Test analysis', 'layout' => $layout]);
+        $entry = (new Reports())->find((string) $id, self::reader());
+        $draw  = static function (string $at, bool $static) use ($entry): string {
+            $html = \Pramnos\Metrics\ReportBoard::html($entry, $at, self::reader(), null, $static);
+            \Pramnos\Metrics\ReportBoard::leave();
+
+            return $html;
+        };
+
+        try {
+            // Act
+            $sent   = $draw('2026-09-10', true);
+            $again  = $draw('2026-09-10', true);
+            $page   = $draw('2026-09-10', false);
+            $notYet = $draw('2026-08-10', false);
+            $answer = ['ok' => false, 'reply' => ''];
+            $failed = $draw('2026-07-10', true);
+
+            // Assert
+            $this->assertStringContainsString('Sales <strong>rose</strong> sixfold.', $sent);
+            $this->assertCount(2, $asked, 'once for September — not again — and once for July');
+            $this->assertStringContainsString('Look at: The regions', $asked[0]);
+            $this->assertStringContainsString("Sales,6", $asked[0], 'the report\'s own numbers');
+            $this->assertStringContainsString('rose', $again);
+            $this->assertStringContainsString('rose', $page, 'the page shows what was written');
+            $this->assertStringContainsString('writes its reading when the report is sent', $notYet);
+            $this->assertStringContainsString('writes its reading when the report is sent', $failed, 'no answer: the note');
+        } finally {
+            \Pramnos\Metrics\Widgets\AnalysisWidget::useClient(null);
+            \Pramnos\Metrics\Widgets\AnalysisWidget::useCache(null);
+        }
+    }
+
+    /**
+     * "Ask about this": a card that reads a metric — a figure, a table by its first row — asks the
+     * assistant about it with its context (the metric, its period, the board's variable); a card
+     * that reads none asks nothing; the card's page links to Ask with the question to send.
+     */
+    public function testACardAsksTheAssistantAboutWhatItShows(): void
+    {
+        // Arrange
+        $id    = (new Reports())->save(self::reader(), ['name' => 'Test ask', 'layout' => []]);
+        $entry = (new Reports())->find((string) $id, self::reader());
+        $_GET['v'] = ['region' => 'north'];
+        \Pramnos\Metrics\ReportBoard::enter($entry, '2026-09-10', self::reader());
+        unset($_GET['v']);
+
+        try {
+            // Act
+            $kpi   = (new \Pramnos\Metrics\Widgets\KpiWidget())->configure(['metric' => 'test.sales'])->askAbout();
+            $table = (new \Pramnos\Metrics\Widgets\TableWidget())->configure(['rows' => [['metric' => 'test.buyers']]])->askAbout();
+            $text  = (new \Pramnos\Metrics\Widgets\TextWidget())->configure(['text' => 'x'])->askAbout();
+            $page  = $this->renderTemplate('bootstrap', 'dashboard/card.tpl.php', ['widget' => ['id' => 'report.kpi~a', 'size' => 's', 'title' => 'Sales', 'link' => null,
+                'settings' => [], 'fields' => [], 'html' => '1', 'ask' => '/admin/Ai?q=About%20sales']]);
+        } finally {
+            \Pramnos\Metrics\ReportBoard::leave();
+        }
+
+        // Assert
+        $this->assertSame('About Sales (test.sales) in 2026-09, region = north: what explains it, and what moved most?', $kpi);
+        $this->assertStringContainsString('Buyers (test.buyers)', (string) $table, 'a table by its first row');
+        $this->assertNull($text, 'words read no metric');
+        $this->assertStringContainsString('href="/admin/Ai?q=About%20sales"', $page);
+    }
+
+    /**
      * A report written as sections is read as cards: its heading, its chart, its table. Its board's
      * layout is kept in the report by its owner alone — another reader sees it and cannot change
      * it — and the dashboard serves a report's board: a card drawn for the period asked, a save by

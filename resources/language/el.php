@@ -2310,4 +2310,12 @@ return [
     'A metric by place, on a map' => 'Ένας δείκτης ανά τόπο, σε χάρτη',
     'Places' => 'Τόποι',
     'Choose a metric and a dimension with places in the card\'s settings.' => 'Διαλέξτε δείκτη και ανάλυση με τόπους στις ρυθμίσεις της κάρτας.',
+    'Analysis' => 'Ανάλυση',
+    'The assistant\'s reading of the report\'s numbers, written when it is sent' => 'Η ανάγνωση των αριθμών της αναφοράς από τον βοηθό, γραμμένη όταν αποστέλλεται',
+    'What to look at' => 'Τι να προσέξει',
+    'An analysis is written on a saved report.' => 'Ανάλυση γράφεται σε αποθηκευμένη αναφορά.',
+    'The assistant writes its reading when the report is sent.' => 'Ο βοηθός γράφει την ανάγνωσή του όταν αποστέλλεται η αναφορά.',
+    'Ask about this' => 'Ρωτήστε γι\' αυτό',
+    'About %s (%s) in %s%s%s: what explains it, and what moved most?' => 'Για τον δείκτη %s (%s) στο %s%s%s: τι τον εξηγεί, και τι κινήθηκε περισσότερο;',
+    'organisation %s' => 'οργανισμός %s',
 ];

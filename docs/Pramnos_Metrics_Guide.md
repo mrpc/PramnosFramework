@@ -397,10 +397,16 @@ every theme lines them up the same.
 | Figure | `report.kpi` | One metric's value in the period, with its change against the period before, a year earlier, or as the report compares. |
 | Top values | `report.top` | The largest values of a breakdown in the period, 5, 10 or 20, each with a bar to the largest. |
 | Goal | `report.goal` | Progress towards a target in the period, a day or a month: the actual so far, what was expected by now along the reference's curve (dashed), and the forecast (see *Goals*). Nothing where the reference has a hole. |
+| Analysis | `report.analysis` | The assistant's reading of the report's numbers, written when the report is drawn for sending from the tables its CSV holds, with what to look at in the card's own words. It is kept for the period (`reports` cache), so opening the report does not ask again. The page shows what was written; before the first send, a note says when it will be. |
 | Map | `report.map` | A metric by place: a circle at each value of a dimension that has places (`Dimension::geo()`), sized by its figure, over OpenStreetMap. It is drawn with Leaflet where the page has it, and the figures are a table under it, or alone without Leaflet. |
 | Cohorts | `report.cohorts` | A cohort metric as a grid: each of the last periods a row, its cohort's size and the share that reached the event within each span. |
 | Text | `report.text` | Words in markdown, escaped and then formatted as the assistant's answers are. |
 | Records | `report.rows` | The records behind a metric that declares `rows()`, the first ones as a table, with a link to all of them. |
+
+**Ask about this.** Where Ask is on, a card that reads a metric links to Ask with a question that
+carries its context, ready to send (`?q=`, `ReportWidget::askAbout()`). The context is the metric,
+its period, the board's variables and organisation. A table or a chart asks about its first row.
+The assistant then reads further through the query API, under the same scope as the person.
 
 **The board's variables.** A report's bar has a picker for each dimension with listed values. A
 choice narrows every card on the board (`?v[region]=north`, and `?v[tenant]=7` for one

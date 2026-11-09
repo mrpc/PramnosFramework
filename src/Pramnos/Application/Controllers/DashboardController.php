@@ -811,6 +811,9 @@ class DashboardController extends Controller
             'title'    => $widget instanceof \Pramnos\Metrics\Widgets\ReportWidget ? ($widget instanceof \Pramnos\Metrics\Widgets\SectionWidget ? '' : $widget->heading()) : $widget->title(),
             'label'    => $widget->title(),
             'plain'    => $widget instanceof \Pramnos\Metrics\Widgets\SectionWidget,
+            // "Ask about this": the assistant opened with the card's question, where Ask is on.
+            'ask'      => $widget instanceof \Pramnos\Metrics\Widgets\ReportWidget && \Pramnos\Llm\Analyst\Analyst::available()
+                && ($question = $widget->askAbout()) !== null ? adminUrl('Ai') . '?q=' . rawurlencode($question) : null,
             'link'     => $widget->link(),
             'settings' => $settings,
             // name => [value => label], or null for a free value — what views of the first shape read
