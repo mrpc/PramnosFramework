@@ -450,7 +450,8 @@ process that defined it.
 Every run is a row in `pramnos.scheduleruns`, whoever started it — `work`, `schedule:run`, a
 background process, a run asked for from the screen: the task, when it started, how long it
 took, `ok` / `failed` / `skipped`, a command's exit status and the last 4 KB of what it
-printed or the error it threw. A run in progress is `running`; one a killed worker left
+printed or the error it threw — cut so it starts on a whole character, since half a letter of
+Greek is invalid UTF-8 and PostgreSQL would refuse the row's whole update. A run in progress is `running`; one a killed worker left
 behind is marked `interrupted` by the task's next run, where the task holds an overlap lock
 that proves nothing else of it is alive.
 

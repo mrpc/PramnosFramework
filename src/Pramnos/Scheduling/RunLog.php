@@ -76,9 +76,22 @@ final class RunLog
                 'result'      => $result,
                 'duration_ms' => $durationMs,
                 'exit_code'   => $exitCode,
-                'output'      => $output === null || trim($output) === '' ? null : substr(trim($output), -self::OUTPUT_BYTES),
+                'output'      => $output === null || trim($output) === '' ? null : self::tail(trim($output)),
             ]);
         });
+    }
+
+    /**
+     * The last `OUTPUT_BYTES` of a run's output, starting on a whole character.
+     *
+     * A byte cut can land inside a multi-byte character, and PostgreSQL refuses the half
+     * character — losing the whole UPDATE, its result and duration with it, not only the output.
+     */
+    private static function tail(string $output): string
+    {
+        // The bytes a cut inside a character leaves at the start are continuation bytes
+        // (10xxxxxx): dropping them begins the tail on the next whole character.
+        return (string) preg_replace('/^[\x80-\xBF]+/', '', substr($output, -self::OUTPUT_BYTES));
     }
 
     /**

@@ -146,6 +146,39 @@ final class ScheduleRunsTest extends TestCase
     }
 
     /**
+     * Output longer than the kept tail, in Greek, is kept from a whole character (FW-389).
+     *
+     * The tail is the last `OUTPUT_BYTES` bytes, and a byte cut landing inside a two-byte letter
+     * left half a character at its start. PostgreSQL refused it as invalid UTF-8 and the whole
+     * UPDATE was lost — the result, exit code and duration with the output.
+     */
+    #[DataProvider('databases')]
+    public function testALongGreekOutputIsKeptFromAWholeCharacter(string $type, string $host, int $port): void
+    {
+        // Arrange — 5,002 bytes: the 4,000-byte cut falls on the second byte of an «α»
+        $this->connect($type, $host, $port);
+        $output = 'x' . str_repeat('α', 2500) . 'z';
+        $task   = Scheduler::call(static function () use ($output): void {
+            throw new \RuntimeException($output);
+        })->everyMinute();
+
+        // Act
+        try {
+            $task->run();
+        } catch (\RuntimeException) {
+        }
+        $row = $this->rows()[0] ?? [];
+
+        // Assert — the row was finished, not left without its result
+        $this->assertSame('failed', $row['result'] ?? null, 'the finishing UPDATE was lost');
+        $kept = (string) ($row['output'] ?? '');
+        $this->assertTrue(mb_check_encoding($kept, 'UTF-8'), 'half a character was kept');
+        $this->assertLessThanOrEqual(RunLog::OUTPUT_BYTES, strlen($kept));
+        // The end of the output, from the first whole letter after the cut.
+        $this->assertSame(str_repeat('α', 1999) . 'z', $kept);
+    }
+
+    /**
      * A run the overlap lock refused is a `skipped` row, so the screen shows why nothing ran.
      */
     #[DataProvider('databases')]
