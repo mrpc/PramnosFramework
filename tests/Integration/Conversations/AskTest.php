@@ -263,7 +263,10 @@ class AskTest extends TestCase
         // Act
         $again = Ask::conversationFor($this->user('eleni'));
         $first = Ask::start(Messages::post($dm, $eleni, 'πόσες εγγραφές χθες;'), $this->user('eleni'));
-        // The analyst answered it in its conversation 55: the ask's row says so.
+        // The analyst answered it in its conversation 55, which is there: the ask's row says so.
+        $this->db->queryBuilder()->table('assist.chat_conversations')->where('conversation_id', 55)->delete();
+        $this->db->queryBuilder()->table('assist.chat_conversations')->insert(['conversation_id' => 55, 'organization_id' => null, 'userid' => $eleni,
+            'space' => 'admin', 'title' => 'Εγγραφές', 'created_at' => '2026-10-22 10:00:00', 'updated_at' => '2026-10-22 10:00:00']);
         $this->db->queryBuilder()->table('assist.chat_asks')->insert(['organization_id' => null, 'userid' => $eleni, 'space' => 'admin',
             'conversation_id' => 55, 'status' => 'answered', 'created_at' => '2026-10-22 10:00:00', 'updated_at' => '2026-10-22 10:00:00']);
         $askId = (int) $this->db->queryBuilder()->table('assist.chat_asks')->orderBy('ask_id', 'desc')->first()->fields['ask_id'];
@@ -272,6 +275,11 @@ class AskTest extends TestCase
         $second = Ask::start($root, $this->user('eleni'));
         $reply  = Ask::start(Messages::post($dm, $eleni, 'σημείωση', ['thread' => $root]), $this->user('eleni'));
         $answer = array_values(array_filter(Messages::list($dm), static fn (array $m): bool => $m['authorId'] === null))[0];
+        // FW-405: the analyst conversation deleted, and an answer with no ask after it — the next
+        // question starts a conversation of its own, rather than failing for ever on the one gone.
+        $this->db->queryBuilder()->table('assist.chat_conversations')->where('conversation_id', 55)->delete();
+        Messages::post($dm, null, 'δοκιμή', ['source' => 'ask', 'externalid' => '']);
+        $afterDeletion = Ask::start(Messages::post($dm, $eleni, 'και αύριο;'), $this->user('eleni'));
 
         // Assert
         $this->assertSame($dm, $again, 'one conversation with Ask');
@@ -282,6 +290,8 @@ class AskTest extends TestCase
         $this->assertNull($asked[0][2]['conversations']['thread'], 'answered in the conversation, not a thread');
         $this->assertArrayNotHasKey('rights_of', $asked[0][2], 'with the asker\'s own rights');
         $this->assertSame(55, $asked[1][3], 'the next question goes on in the same analyst conversation');
+        $this->assertNotNull($afterDeletion);
+        $this->assertNull($asked[2][3], 'its analyst conversation deleted: a new one, not "There is no such conversation" for ever');
         $this->assertNull($reply, 'a note in a thread is not a question');
         $this->assertSame(['42', null, 'Open in Ask'], [$answer['body'], $answer['threadRootId'], $answer['card']['title']]);
         $this->assertStringEndsWith('Ai?c=55', $answer['card']['url']);

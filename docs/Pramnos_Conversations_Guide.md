@@ -402,7 +402,8 @@ because the worker does not know who reads it, and the page translates it into t
   `bot` conversation named "Ask" (`Ask::conversationFor()`, the `withask` endpoint). Every message
   there is a question, answered in the conversation, not in a thread, with the asker's own rights,
   memory and CSV exports, as on Ask's page. It is one analyst conversation, which goes on from answer
-  to answer and is the same conversation `/admin/Ai` lists. Each answer carries an *Open in Ask*
+  to answer and is the same conversation `/admin/Ai` lists. If that analyst conversation has been
+  deleted, the next question starts a new one. Each answer carries an *Open in Ask*
   card to it. The page shows *Ask is thinking…* until the answer comes — the analyst's own name and
   picture, where the application gives it one. It is listed with the direct conversations.
 - **`@Ask` anywhere else** — or the analyst's own name and mentions (`llm.analyst.name`,

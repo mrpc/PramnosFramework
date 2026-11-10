@@ -135,18 +135,29 @@ final class Ask
 
     /**
      * The analyst conversation a conversation with Ask goes on: the one its last answered question
-     * was answered in — its answers carry their ask.
+     * was answered in — its answers carry their ask — as long as it is still there.
+     *
+     * One that was deleted is passed over, and so is an answer with no ask: going on in a
+     * conversation that is gone failed every question after it with "There is no such
+     * conversation", and the failure, pointing to the same one, kept it so. With none left, the
+     * question starts a conversation of its own.
      */
     private static function analystConversation(int $conversationId, int $person): ?int
     {
-        $asks = Conversations::db()->queryBuilder()->table('chat.conversation_messages')->select(['externalid'])
+        $asks  = Conversations::db()->queryBuilder()->table('chat.conversation_messages')->select(['externalid'])
             ->where('conversationid', $conversationId)->where('source', 'ask')->orderBy('messageid', 'desc')->limit(10)->getAllOrFail();
+        $scope = \Pramnos\Llm\Analyst\Analyst::scope($person);
         // ponytail: a question sent before the last one is answered starts a conversation of its own; a pending-ask lookup if that matters.
         foreach ($asks as $row) {
-            $id = \Pramnos\Llm\Analyst\Analyst::scope($person)->apply(Conversations::db()->queryBuilder()->table('assist.chat_asks'))
-                ->select(['conversation_id'])->where('ask_id', (int) $row['externalid'])->limit(1)->getAllOrFail()[0]['conversation_id'] ?? null;
-            if ($id !== null) {
-                return (int) $id;
+            $askId = (int) ($row['externalid'] ?? 0);
+            if ($askId <= 0) {
+                continue;
+            }
+            $id = (int) ($scope->apply(Conversations::db()->queryBuilder()->table('assist.chat_asks'))
+                ->select(['conversation_id'])->where('ask_id', $askId)->limit(1)->getAllOrFail()[0]['conversation_id'] ?? 0);
+            if ($id > 0 && $scope->apply(Conversations::db()->queryBuilder()->table('assist.chat_conversations'))
+                ->where('conversation_id', $id)->count() > 0) {
+                return $id;
             }
         }
 
