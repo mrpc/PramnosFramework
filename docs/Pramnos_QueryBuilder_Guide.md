@@ -985,6 +985,19 @@ $result = $qb
     ]);
 ```
 
+An INSERT binds its own values and nothing else the builder holds, so the builder that asked first
+can write:
+
+```php
+$q = $db->queryBuilder()->table('settings')->where('key', $key);
+if (!$q->exists()) {
+    $q->insert(['key' => $key, 'value' => $value]);   // the WHERE's binding is not sent with it
+}
+```
+
+The same holds for `insertOrIgnore()`, `upsert()`, `insertMany()` and `upsertMany()`. An UPDATE or
+a DELETE on that builder does use its WHERE.
+
 ### UPDATE
 
 ```php

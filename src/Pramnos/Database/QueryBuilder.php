@@ -2219,6 +2219,21 @@ class QueryBuilder
     }
 
     /**
+     * The values an INSERT binds: its own, and nothing else the builder holds.
+     *
+     * An INSERT has no WHERE, JOIN or ORDER of its own, so a builder that asked something first —
+     * `where(…)->exists()`, then `insert()` on the same instance — must not send those bindings
+     * with it. It did: they were added after the values, the placeholders and the arguments no
+     * longer matched, and every insert failed with "wrong number of arguments", writing nothing.
+     *
+     * @return list<mixed>
+     */
+    private function insertBindings(): array
+    {
+        return $this->bindings['values'];
+    }
+
+    /**
      * Insert a new record.
      *
      * @param array $values
@@ -2235,7 +2250,7 @@ class QueryBuilder
 
         $sql = $this->grammar->compileInsert($this, $values);
         $sql = str_replace('#PREFIX#', $this->db->prefix, $sql);
-        return $this->db->execute($sql, ...$this->getBindings());
+        return $this->db->execute($sql, ...$this->insertBindings());
     }
 
     /**
@@ -2338,7 +2353,7 @@ class QueryBuilder
             // compileInsert() ends in the first tuple (and a RETURNING, which a list does not take).
             $head = substr($first, 0, (int) strrpos($first, ' VALUES (')) . ' VALUES ';
             $sql  = str_replace('#PREFIX#', $this->db->prefix, $head . implode(', ', $tuples));
-            $this->db->execute($sql, ...$this->getBindings());
+            $this->db->execute($sql, ...$this->insertBindings());
             $written += count($chunk);
         }
 
@@ -2395,7 +2410,7 @@ class QueryBuilder
             $single = $this->grammar->compileUpsert($this, array_combine($columns, array_map(static fn (string $c) => $chunk[0][$c], $columns)), $conflictColumns, $updateColumns);
             $at     = (int) strpos($single, ' VALUES (') + strlen(' VALUES ');
             $sql    = substr($single, 0, $at) . implode(', ', $tuples) . substr($single, $at + strlen($tuples[0]));
-            $this->db->execute(str_replace('#PREFIX#', $this->db->prefix, $sql), ...$this->getBindings());
+            $this->db->execute(str_replace('#PREFIX#', $this->db->prefix, $sql), ...$this->insertBindings());
             $written += count($chunk);
         }
 
@@ -2421,7 +2436,7 @@ class QueryBuilder
 
         $sql = $this->grammar->compileInsertOrIgnore($this, $values);
         $sql = str_replace('#PREFIX#', $this->db->prefix, $sql);
-        return $this->db->execute($sql, ...$this->getBindings());
+        return $this->db->execute($sql, ...$this->insertBindings());
     }
 
     /**
@@ -2462,6 +2477,6 @@ class QueryBuilder
 
         $sql = $this->grammar->compileUpsert($this, $values, $conflictColumns, $updateValues);
         $sql = str_replace('#PREFIX#', $this->db->prefix, $sql);
-        return $this->db->execute($sql, ...$this->getBindings());
+        return $this->db->execute($sql, ...$this->insertBindings());
     }
 }
