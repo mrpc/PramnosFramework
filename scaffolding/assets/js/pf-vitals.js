@@ -60,7 +60,8 @@
      */
     function target(metric) {
         var a = metric.attribution || {};
-        var element = a.element || a.interactionTarget || a.largestShiftTarget || '';
+        // web-vitals 5 and later name the largest paint's element `target`; 4 named it `element`.
+        var element = a.target || a.element || a.interactionTarget || a.largestShiftTarget || '';
 
         return typeof element === 'string' ? element.slice(0, 100) : '';
     }

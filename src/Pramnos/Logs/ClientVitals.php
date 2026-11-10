@@ -47,7 +47,7 @@ final class ClientVitals
     private const PER_REPORT = 10;
 
     /** The web-vitals build pf-vitals.js reads, as `scaffolding/assets.json` installs it. */
-    public const LIBRARY = 'assets/vendor/web-vitals/4.2.4/web-vitals.attribution.iife.js';
+    public const LIBRARY = 'assets/vendor/web-vitals/6.2.2/web-vitals.attribution.iife.js';
 
     public function __construct(private readonly ?Database $db = null)
     {

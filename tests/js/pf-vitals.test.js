@@ -47,7 +47,7 @@ function page({ sample = '1', meta = true, library = true, beacon = true, contro
     if (library) {
         window.webVitals = {};
         for (const [name, value] of [['TTFB', 80.12345], ['LCP', 2100], ['CLS', 0.031]]) {
-            const attribution = name === 'LCP' ? { element: 'main > img.hero' + 'x'.repeat(120) } : name === 'CLS' ? { largestShiftTarget: 'div.banner' } : {};
+            const attribution = name === 'LCP' ? { target: 'main > img.hero' + 'x'.repeat(120) } : name === 'CLS' ? { largestShiftTarget: 'div.banner' } : {};
             window.webVitals['on' + name] = (report) => report({ name, value, rating: 'good', navigationType: 'navigate', attribution });
         }
     }
