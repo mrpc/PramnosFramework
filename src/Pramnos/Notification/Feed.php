@@ -30,6 +30,14 @@ use Pramnos\Database\QueryBuilder;
  * A group named in the config is filtered by type; any other by the stored JSON. A notification in
  * neither has no group: it is in the feed, and in no tab but "all".
  *
+ * A bell can leave groups out — `$except`, by the same names: a page whose own screen shows the
+ * conversations keeps their notifications off its bell. "Mark all read" there leaves them as
+ * they are.
+ *
+ * Whatever marks notifications read — one, all, or {@see settleAbout()} — tells each person's
+ * channel `notification.read`, so a bell open in another window refreshes at once rather than at
+ * its next poll.
+ *
  * Every read and write is the person's own: an id that is somebody else's notification marks
  * nothing.
  */
@@ -47,20 +55,21 @@ final class Feed
     /**
      * One page of the feed, newest first.
      *
+     * @param list<string> $except Groups left out
      * @return array{items: list<array<string, mixed>>, total: int, unread: int, page: int, pages: int}
      */
-    public function list(int $page = 1, int $perPage = 20, bool $unreadOnly = false, ?string $group = null): array
+    public function list(int $page = 1, int $perPage = 20, bool $unreadOnly = false, ?string $group = null, array $except = []): array
     {
         $page    = max(1, $page);
         $perPage = max(1, min(self::MAX_PER_PAGE, $perPage));
 
-        $count = $this->query($group);
+        $count = $this->query($group, $except);
         if ($unreadOnly) {
             $count->whereNull('read_at');
         }
         $total = (int) $count->count();
 
-        $rows = $this->query($group);
+        $rows = $this->query($group, $except);
         if ($unreadOnly) {
             $rows->whereNull('read_at');
         }
@@ -75,28 +84,33 @@ final class Feed
         return [
             'items'  => $items,
             'total'  => $total,
-            'unread' => $this->unreadCount($group),
+            'unread' => $this->unreadCount($group, $except),
             'page'   => $page,
             'pages'  => max(1, (int) ceil($total / $perPage)),
         ];
     }
 
-    /** How many are unread — in a group, or in all. */
-    public function unreadCount(?string $group = null): int
+    /**
+     * How many are unread — in a group, or in all.
+     *
+     * @param list<string> $except Groups left out
+     */
+    public function unreadCount(?string $group = null, array $except = []): int
     {
-        return (int) $this->query($group)->whereNull('read_at')->count();
+        return (int) $this->query($group, $except)->whereNull('read_at')->count();
     }
 
     /**
      * Unread counts by group, and in all: the figures a tabbed header shows.
      *
+     * @param list<string> $except Groups left out — of the count of all, and of their own
      * @return array<string, int> Group => count, with `''` for all of them
      */
-    public function unreadByGroup(): array
+    public function unreadByGroup(array $except = []): array
     {
-        $counts = ['' => $this->unreadCount()];
+        $counts = ['' => $this->unreadCount(null, $except)];
         foreach (array_keys(self::groups()) as $group) {
-            $counts[$group] = $this->unreadCount($group);
+            $counts[$group] = $this->unreadCount($group, $except);
         }
 
         return $counts;
@@ -116,16 +130,22 @@ final class Feed
             return false;
         }
         $query->update(['read_at' => date('Y-m-d H:i:s')]);
+        self::announceRead([$this->userId]);
 
         return true;
     }
 
-    /** Mark every unread one read — in a group, or in all. Returns how many. */
-    public function markAllRead(?string $group = null): int
+    /**
+     * Mark every unread one read — in a group, or in all, but those in `$except`. Returns how many.
+     *
+     * @param list<string> $except Groups left as they are
+     */
+    public function markAllRead(?string $group = null, array $except = []): int
     {
-        $count = $this->unreadCount($group);
+        $count = $this->unreadCount($group, $except);
         if ($count > 0) {
-            $this->query($group)->whereNull('read_at')->update(['read_at' => date('Y-m-d H:i:s')]);
+            $this->query($group, $except)->whereNull('read_at')->update(['read_at' => date('Y-m-d H:i:s')]);
+            self::announceRead([$this->userId]);
         }
 
         return $count;
@@ -158,7 +178,7 @@ final class Feed
         $db ??= Database::getInstance();
         // Narrowed by text on every database, then checked as JSON here: the stored `data` is
         // text on one and jsonb on another, and only the decoded list says what it is about.
-        $query = $db->queryBuilder()->table('#PREFIX#notifications')->select(['id', 'data'])->whereNull('read_at')
+        $query = $db->queryBuilder()->table('#PREFIX#notifications')->select(['id', 'notifiable_id', 'data'])->whereNull('read_at')
             ->where(static function ($q) use ($keys): void {
                 foreach ($keys as $key) {
                     $q->orWhere('data', 'LIKE', '%' . self::likeSafe(json_encode($key, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) . '%');
@@ -169,16 +189,19 @@ final class Feed
         }
         $result = $query->get();
         $ids    = [];
+        $people = [];
         while ($result && $result->fetch()) {
             $data  = json_decode((string) $result->fields['data'], true);
             $about = is_array($data) ? (array) ($data['about'] ?? []) : [];
             if (array_intersect(array_map('strval', $about), $keys) !== []) {
                 $ids[] = (string) $result->fields['id'];
+                $people[(int) $result->fields['notifiable_id']] = true;
             }
         }
         foreach (array_chunk($ids, 500) as $chunk) {
             $db->queryBuilder()->table('#PREFIX#notifications')->whereIn('id', $chunk)->update(['read_at' => date('Y-m-d H:i:s')]);
         }
+        self::announceRead(array_keys($people));
 
         return count($ids);
     }
@@ -235,10 +258,22 @@ final class Feed
         return static fn (int $userId): int => (new self($userId))->unreadCount();
     }
 
-    /** This person's rows, in a group or all. */
-    private function query(?string $group): QueryBuilder
+    /**
+     * This person's rows, in a group or all, without the groups in `$except`.
+     *
+     * @param list<string> $except
+     */
+    private function query(?string $group, array $except = []): QueryBuilder
     {
         $query = $this->db()->queryBuilder()->table('#PREFIX#notifications')->where('notifiable_id', $this->userId);
+        foreach (array_unique(array_filter(array_map(static fn ($g): string => trim((string) $g), $except), static fn (string $g): bool => $g !== '')) as $out) {
+            $types = self::groups()[$out] ?? null;
+            if ($types === null) {
+                $query->where('data', 'NOT LIKE', self::groupPattern($out));
+            } elseif ($types !== []) {
+                $query->whereNotIn('type', $types);
+            }
+        }
         $group = $group === null ? '' : trim($group);
 
         if ($group === '') {
@@ -250,8 +285,44 @@ final class Feed
             return $types === [] ? $query->whereRaw('1 = 0') : $query->whereIn('type', $types);
         }
 
+        return $query->where('data', 'LIKE', self::groupPattern($group));
+    }
+
+    /** The LIKE pattern for a group named in a notification's stored JSON. */
+    private static function groupPattern(string $group): string
+    {
         // json_encode() writes `"group":"tasks"` with no space: the stored text holds it as is.
-        return $query->where('data', 'LIKE', '%' . self::likeSafe('"group":' . json_encode($group, JSON_UNESCAPED_UNICODE)) . '%');
+        return '%' . self::likeSafe('"group":' . json_encode($group, JSON_UNESCAPED_UNICODE)) . '%';
+    }
+
+    /**
+     * Tell each person's channel their notifications were read — only that: a bell re-reads its
+     * feed with its own session, so nothing private travels over the socket. Best effort, and
+     * nothing where the application has no broadcasting.
+     *
+     * @param list<int> $userIds
+     */
+    private static function announceRead(array $userIds): void
+    {
+        if ($userIds === []) {
+            return;
+        }
+        try {
+            $app       = \Pramnos\Application\Application::currentInstance();
+            $container = $app?->getContainer();
+            $manager   = $container !== null && $container->has('broadcasting') ? $container->get('broadcasting') : null;
+            $manager   = $manager instanceof \Pramnos\Broadcasting\BroadcastingManager ? $manager : \Pramnos\Broadcasting\BroadcastingManager::currentInstance();
+            if ($manager === null) {
+                return;
+            }
+            $config = $app?->applicationInfo['broadcasting'] ?? [];
+            foreach ($userIds as $userId) {
+                $manager->broadcast(\Pramnos\Broadcasting\RealtimeConfig::userChannel((int) $userId, is_array($config) ? $config : []), 'notification.read', []);
+            }
+        } catch (\Throwable $e) {
+            // The rows are read; a bell finds out at its next poll.
+            \Pramnos\Logs\Logger::log('Notifications read were not announced: ' . $e->getMessage(), 'broadcasting');
+        }
     }
 
     /**

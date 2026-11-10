@@ -23,7 +23,7 @@ const SOURCE = path.join(__dirname, '..', '..', 'scaffolding', 'assets', 'js', '
 const settle = async () => { for (let i = 0; i < 8; i++) { await new Promise((r) => setImmediate(r)); } };
 
 /** The bell's markup, as NotificationBell draws it, and the script over it. */
-function page({ realtime = null, hidden = false } = {}) {
+function page({ realtime = null, hidden = false, except = null } = {}) {
     const { window, document } = createDom({ meta: { csrf: 't0ken' } });
     const el = (tag, attrs = {}, parent = null) => {
         const node = document.createElement(tag);
@@ -31,7 +31,8 @@ function page({ realtime = null, hidden = false } = {}) {
         (parent || document.body).appendChild(node);
         return node;
     };
-    const bell   = el('div', { class: 'pf-notify', 'data-pf-notifications': '', 'data-url': '/Notifications/', 'data-interval': '30', 'data-channel': 'users.5' });
+    const bell   = el('div', { class: 'pf-notify', 'data-pf-notifications': '', 'data-url': '/Notifications/', 'data-interval': '30', 'data-channel': 'users.5',
+        ...(except ? { 'data-except': except } : {}) });
     const toggle = el('button', { 'data-pf-notifications-toggle': '', 'data-label': 'Notifications' }, bell);
     const count  = el('span', { 'data-pf-notifications-count': '' }, toggle);
     count.hidden = true;
@@ -145,19 +146,49 @@ test('an item is marked read before its link is followed; read-all marks the gro
 
 test('a refresh event, and the page realtime connection, refresh it at once', async () => {
     // Arrange — a websocket connection on the page
-    let listener = null;
-    const realtime = { transport: 'websocket', channel: (name) => ({ listen: (event, fn) => { listener = [name, event, fn]; } }) };
+    const listeners = {};
+    let channelName = null;
+    const realtime = { transport: 'websocket', channel: (name) => { channelName = name; return { listen: (event, fn) => { listeners[event] = fn; } }; } };
     const ui = page({ realtime });
-    let heard = null;
-    page({ realtime: { transport: 'sse', on: (event) => { heard = event; } } });
+    const heard = [];
+    page({ realtime: { transport: 'sse', on: (event) => { heard.push(event); } } });
 
     // Act
     ui.document.dispatchEvent(new CustomEvent('pf:notifications:refresh'));
-    listener[2]();
+    listeners['notification.created']();
+    // Read elsewhere (another window, the conversation it was about): counted again too.
+    listeners['notification.read']();
     await settle();
 
     // Assert
-    assert.deepEqual(listener.slice(0, 2), ['users.5', 'notification.created']);
-    assert.equal(ui.window.fetch.calls.filter((c) => c.path === '/Notifications/count').length, 2);
-    assert.equal(heard, 'notification.created', 'an SSE connection, by event name');
+    assert.equal(channelName, 'users.5');
+    assert.deepEqual(Object.keys(listeners), ['notification.created', 'notification.read']);
+    assert.equal(ui.window.fetch.calls.filter((c) => c.path === '/Notifications/count').length, 3);
+    assert.deepEqual(heard, ['notification.created', 'notification.read'], 'an SSE connection, by event name');
+});
+
+test('a bell that leaves groups out asks every request without them', async () => {
+    // Arrange — `except` of Html\NotificationBell, on its markup
+    const ui = page({ except: 'conversations' });
+    ui.window.fetch = (function (calls) {
+        const fake = (url, opts = {}) => {
+            calls.push({ path: String(url), method: (opts.method || 'GET').toUpperCase() });
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ unread: 0, items: [], groups: {} }) });
+        };
+        fake.calls = calls;
+        return fake;
+    })([]);
+
+    // Act
+    ui.document.dispatchEvent(new CustomEvent('pf:notifications:refresh'));
+    ui.toggle.click();
+    await settle();
+    ui.all.click();
+    await settle();
+
+    // Assert — the count, the list and read-all each carry it
+    const paths = ui.window.fetch.calls.map((c) => c.method + ' ' + c.path);
+    assert.ok(paths.includes('GET /Notifications/count?except=conversations'), paths.join(', '));
+    assert.ok(paths.includes('GET /Notifications?per_page=10&except=conversations'), paths.join(', '));
+    assert.ok(paths.includes('POST /Notifications/readall?except=conversations'), paths.join(', '));
 });

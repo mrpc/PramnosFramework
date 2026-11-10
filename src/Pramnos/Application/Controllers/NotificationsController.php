@@ -15,6 +15,9 @@ use Pramnos\Notification\Feed;
  *   - `POST /Notifications/read?id=…`                    mark one read
  *   - `POST /Notifications/readall?group=tasks`          mark every unread one read
  *
+ * Each takes `except=conversations,…` too: groups the bell leaves out, of its list, its counts and
+ * its "mark all read".
+ *
  * An MVC controller rather than an API route, on purpose: it answers with the page's own session,
  * and a write with the page's CSRF token (`X-CSRF-Token`, as `pfApiHeaders` sends), so it works in
  * any application that has a session — the site, an administration area, or an administration
@@ -44,7 +47,8 @@ class NotificationsController extends Controller
             (int) ($_GET['page'] ?? 1),
             (int) ($_GET['per_page'] ?? 20),
             !empty($_GET['unread']),
-            isset($_GET['group']) ? (string) $_GET['group'] : null
+            isset($_GET['group']) ? (string) $_GET['group'] : null,
+            $this->exceptedGroups()
         ));
     }
 
@@ -55,7 +59,7 @@ class NotificationsController extends Controller
         if ($feed === null) {
             return $this->answer(['error' => 'Sign in to see your notifications.'], 401);
         }
-        $counts = $feed->unreadByGroup();
+        $counts = $feed->unreadByGroup($this->exceptedGroups());
         $all    = $counts[''];
         unset($counts['']);
 
@@ -71,7 +75,7 @@ class NotificationsController extends Controller
         }
         $id = (string) ($_POST['id'] ?? $_GET['id'] ?? '');
 
-        return $this->answer(['read' => $feed->markRead($id), 'unread' => $feed->unreadCount()]);
+        return $this->answer(['read' => $feed->markRead($id), 'unread' => $feed->unreadCount(null, $this->exceptedGroups())]);
     }
 
     /** Mark every unread one read, in `?group=` or in all. */
@@ -83,7 +87,22 @@ class NotificationsController extends Controller
         }
         $group = (string) ($_POST['group'] ?? $_GET['group'] ?? '');
 
-        return $this->answer(['marked' => $feed->markAllRead($group === '' ? null : $group), 'unread' => $feed->unreadCount()]);
+        $except = $this->exceptedGroups();
+
+        return $this->answer(['marked' => $feed->markAllRead($group === '' ? null : $group, $except), 'unread' => $feed->unreadCount(null, $except)]);
+    }
+
+    /**
+     * The groups the bell leaves out: `except=a,b`, or `except[]=a`, asked or posted.
+     *
+     * @return list<string>
+     */
+    protected function exceptedGroups(): array
+    {
+        $raw = $_POST['except'] ?? $_GET['except'] ?? [];
+        $raw = is_array($raw) ? $raw : explode(',', (string) $raw);
+
+        return array_values(array_filter(array_map(static fn ($g): string => trim((string) $g), $raw), static fn (string $g): bool => $g !== ''));
     }
 
     /** The signed-in person's feed, or null. */

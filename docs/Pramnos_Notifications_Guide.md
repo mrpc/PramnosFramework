@@ -645,6 +645,13 @@ Otherwise it is the `group` key the notification stored. A configured group is f
 `type`, which is indexed; any other group by the stored JSON. A notification in neither has no
 group: it shows under "all" and in no tab.
 
+**Leaving groups out of a bell.** A page whose own screen already shows some notifications — the
+conversations' screen shows its messages — can keep them off its bell:
+`NotificationBell::render(['except' => ['conversations']])`. The bell sends `except=` on every
+request to `/Notifications` (the list, the counts, read-all), and `Feed` takes the same names
+(`list(…, except: ['conversations'])`, `unreadCount(null, ['conversations'])`,
+`markAllRead(null, ['conversations'])`). "Mark all read" there leaves the groups left out unread.
+
 ### The endpoint: `/Notifications`
 
 `NotificationsController` answers the signed-in person's feed as JSON, with the page's own session.
@@ -711,9 +718,9 @@ shows 0 before the real number. `pf-utils.js` does the rest through the data att
   connection names one tab — the visible one, else the one seen last — and without it the visible
   tab plays it. Where the browser refuses to play before a click, nothing plays and nothing
   complains.
-- **Refreshing at once:** a `pf:notifications:refresh` event on the document refreshes it, as does
-  a `notification.created` event on `channel` where the page has a realtime connection in
-  `window.pfRealtime`. See [Arriving at once](#arriving-at-once).
+- **Refreshing at once:** a `pf:notifications:refresh` event on the document refreshes it, as do
+  a `notification.created` and a `notification.read` event on `channel` where the page has a
+  realtime connection in `window.pfRealtime`. See [Arriving at once](#arriving-at-once).
 
 The scaffolded stylesheets style the `pf-notify-*` hooks. A theme can write its own markup with
 the same `data-pf-notifications*` attributes. Each item can be its own too, as a
@@ -736,6 +743,12 @@ reaches an open page the moment it is stored, with nothing written in the applic
    `broadcasting.channels` registry admits a user to their own channel and nobody else's.
 4. The bell re-reads its count through `/Notifications`, with the page's session. Only the id
    travels over the socket, so nothing private passes through the relay.
+
+Reading is told the same way. Whatever marks notifications read — `Feed::markRead()`,
+`markAllRead()`, `settleAbout()` — broadcasts `notification.read`, with nothing in it, on the
+channel of each person whose notifications it read, once per call and only when it read any. A
+bell in another window, or in the administration beside an application, refreshes then rather
+than at its next poll.
 
 The announcement is best effort. With no broadcasting manager nothing is sent; a broadcast that
 fails is logged to the `broadcasting` log and the row stays, so the page finds it at its next

@@ -58,13 +58,16 @@ final class NotificationBell
     private static ?bool $hasFeed = null;
 
     /**
-     * @param array{url?: string, interval?: int, channel?: string, groups?: array<string, string>, class?: string, label?: string, empty?: string, readAll?: string, all?: string, allLabel?: string, titleFlash?: bool, sound?: bool|string} $options
+     * @param array{url?: string, interval?: int, channel?: string, groups?: array<string, string>, except?: list<string>, class?: string, label?: string, empty?: string, readAll?: string, all?: string, allLabel?: string, titleFlash?: bool, sound?: bool|string} $options
      *  - `url` — the feed's address: `/Notifications` on the site by default
      *  - `interval` — seconds between counts, while the tab is visible (60)
-     *  - `channel` — a realtime channel whose `notification.created` refreshes it at once; by
+     *  - `channel` — a realtime channel whose `notification.created` and `notification.read`
+     *    refresh it at once; by
      *    default the user's own (`private-users.{id}`) where `broadcasting.transport` is
      *    `websocket` or `pusher`, none otherwise
      *  - `groups` — tabs: group => label, `''` for all; none by default
+     *  - `except` — groups left out of the bell: its count, its list and its "mark all read",
+     *    e.g. `['conversations']` on a page whose own screen shows them; none by default
      *  - `class` — the bell button's classes
      *  - `all` — the address of the page listing every notification: a link at the foot of the
      *    panel, under the list and when it is empty; none by default
@@ -81,9 +84,10 @@ final class NotificationBell
         if ($id <= 1) {
             return '';
         }
+        $except = array_values(array_filter(array_map('strval', (array) ($options['except'] ?? [])), static fn (string $g): bool => $g !== ''));
 
         try {
-            $unread = (new \Pramnos\Notification\Feed($id))->unreadCount();
+            $unread = (new \Pramnos\Notification\Feed($id))->unreadCount(null, $except);
         } catch (\Throwable) {
             // No table yet: the bell still draws, and the first count tells the truth.
             $unread = 0;
@@ -101,6 +105,7 @@ final class NotificationBell
 
         $html = '<div class="pf-notify" data-pf-notifications data-url="' . self::e($url) . '"'
             . ' data-interval="' . (int) ($options['interval'] ?? 60) . '"'
+            . ($except !== [] ? ' data-except="' . self::e(implode(',', $except)) . '"' : '')
             // An empty channel is none: `'channel' => ''` keeps a bell off the realtime connection.
             . ((string) ($options['channel'] ?? '') !== '' ? ' data-channel="' . self::e((string) $options['channel']) . '"' : '')
             . (($options['titleFlash'] ?? true) === false ? ' data-title-flash="0"' : '')

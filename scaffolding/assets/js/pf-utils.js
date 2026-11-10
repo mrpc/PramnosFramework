@@ -1807,13 +1807,19 @@
 
             if (!url || !toggle || !panel || !list) { return; }
 
+            // Groups the bell leaves out (`except` of Html\NotificationBell), on every request.
+            var except = bell.getAttribute('data-except') || '';
+            function at(path) {
+                return url + path + (except ? (path.indexOf('?') >= 0 ? '&' : '?') + 'except=' + encodeURIComponent(except) : '');
+            }
+
             function get(path) {
-                return fetch(url + path, { credentials: 'same-origin', headers: pfApiHeaders({ 'Accept': 'application/json' }) })
+                return fetch(at(path), { credentials: 'same-origin', headers: pfApiHeaders({ 'Accept': 'application/json' }) })
                     .then(function (r) { if (!r.ok) { throw new Error('HTTP ' + r.status); } return r.json(); });
             }
 
             function post(path) {
-                return fetch(url + path, {
+                return fetch(at(path), {
                     method: 'POST',
                     credentials: 'same-origin',
                     keepalive: true,
@@ -2032,10 +2038,14 @@
             var channel = bell.getAttribute('data-channel');
             var rt = window.pfRealtime;
             if (channel && rt) {
+                // Read elsewhere — another window, the conversation it was about — is news too.
                 if (rt.transport === 'sse' && rt.on) {
                     rt.on('notification.created', refresh);
+                    rt.on('notification.read', refresh);
                 } else if (rt.channel) {
-                    rt.channel(channel).listen('notification.created', arrived);
+                    var heard = rt.channel(channel);
+                    heard.listen('notification.created', arrived);
+                    heard.listen('notification.read', refresh);
                 }
             }
 

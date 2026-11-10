@@ -58,7 +58,8 @@ function page({ hidden = true, attrs = {}, items = null, unread = 2 } = {}) {
     const played = [];
     window.Audio = class { constructor(src) { this.src = src; } play() { played.push(this.src); return Promise.resolve(); } };
     let handler = null;
-    window.pfRealtime = { channel: () => ({ listen: (event, fn) => { handler = fn; } }) };
+    // The arrival's listener; the bell also hears `notification.read`, which only refreshes.
+    window.pfRealtime = { channel: () => ({ listen: (event, fn) => { if (event === 'notification.created') { handler = fn; } } }) };
     document.hidden = hidden;
     const announced = [];
     document.addEventListener('pf:notification', (e) => announced.push(e.detail));

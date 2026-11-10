@@ -155,6 +155,131 @@ class FeedMySQLTest extends TestCase
     }
 
     /**
+     * Groups left out of a bell (FW-392): a group named by its classes and one named in the
+     * stored JSON both go from the list and the counts, and "mark all read" leaves them unread —
+     * through the feed, the endpoint (`?except=`) and the bell's markup.
+     *
+     * A page whose own screen shows the conversations keeps their notifications off its bell;
+     * marking the bell read there must not mark read what that screen still has to show.
+     */
+    public function testGroupsLeftOut(): void
+    {
+        // Arrange — unread: m1, m3 (tasks), m4 (mine_and_yours), m5 (system); m2 (system) read
+        $feed = new Feed(self::ME, $this->db);
+        $me   = new \Pramnos\User\User();
+        $me->userid = self::ME;
+        \Pramnos\Http\RequestIdentity::seal($me, 'test');
+        $controller = new NotificationsController(Application::getInstance());
+
+        // Act
+        $noSystem = self::tags($feed->list(1, 20, false, null, ['system']));
+        $noTasks  = self::tags($feed->list(1, 20, false, null, ['tasks', '', ' ']));
+        $neither  = $feed->list(1, 20, false, null, ['system', 'tasks']);
+        $byGroup  = $feed->unreadByGroup(['tasks']);
+        $_GET     = ['except' => 'system,tasks'];
+        $listed   = json_decode((string) $controller->display()->getBody(), true);
+        $counted  = json_decode((string) $controller->count()->getBody(), true);
+        $bell     = \Pramnos\Html\NotificationBell::render(['except' => ['system', 'tasks']]);
+        $_GET     = [];
+        $_POST    = ['except' => ['system']];
+        $marked   = json_decode((string) $controller->readall()->getBody(), true);
+
+        // Assert
+        $this->assertSame(['m4', 'm3', 'm1'], $noSystem, 'a group named in the stored JSON');
+        $this->assertSame(['m5', 'm4', 'm2'], $noTasks, 'a group named by its classes; empty names ignored');
+        $this->assertSame(['m4'], self::tags($neither));
+        $this->assertSame(1, $neither['unread']);
+        $this->assertSame(['' => 2, 'tasks' => 0, 'empty' => 0], $byGroup);
+        $this->assertSame(['m4'], array_map(static fn ($i) => $i['data']['tag'], $listed['items']));
+        $this->assertSame(1, $counted['unread']);
+        $this->assertStringContainsString(' data-except="system,tasks"', $bell);
+        $this->assertStringContainsString('data-pf-notifications-count>1</span>', $bell, 'the count drawn leaves them out too');
+        // Read-all without the system group: the three others read, the system one still unread.
+        $this->assertSame(['marked' => 3, 'unread' => 0], $marked);
+        $this->assertSame(1, $feed->unreadCount(), 'm5 untouched');
+        $this->assertSame(1, $feed->unreadCount('system'));
+    }
+
+    /**
+     * Whatever marks notifications read tells each person's channel `notification.read` (FW-392):
+     * one, all, and those settled about something — once per person, none when nothing was read —
+     * so a bell open in another window refreshes at once, not at its next poll.
+     */
+    public function testReadingIsAnnounced(): void
+    {
+        // Arrange
+        $this->db->queryBuilder()->table('notifications')->insert([
+            'id' => '20000000-0000-4000-8000-000000000001', 'type' => 'App\\Notifications\\CommentWaiting', 'notifiable_type' => 'App\\User',
+            'notifiable_id' => self::SOMEBODY, 'data' => json_encode(['about' => ['comment:9']]), 'read_at' => null, 'created_at' => '2026-10-15 11:00:00',
+        ]);
+        $this->db->queryBuilder()->table('notifications')->insert([
+            'id' => '20000000-0000-4000-8000-000000000002', 'type' => 'App\\Notifications\\CommentWaiting', 'notifiable_type' => 'App\\User',
+            'notifiable_id' => self::ME, 'data' => json_encode(['about' => ['comment:9']]), 'read_at' => null, 'created_at' => '2026-10-15 11:00:00',
+        ]);
+        $feed = new Feed(self::ME, $this->db);
+        $fake = \Pramnos\Broadcasting\Testing\FakeDriver::swap();
+
+        try {
+            // Act
+            $feed->markRead('00000000-0000-4000-8000-000000000001');
+            $one = $fake->recorded();
+            $fake->flush();
+            Feed::settleAbout(['comment:9'], null, $this->db);
+            $settled = $fake->recorded();
+            $fake->flush();
+            $feed->markAllRead();
+            $feed->markAllRead();
+            $feed->markRead('00000000-0000-4000-8000-000000000001');
+            $all = $fake->recorded();
+        } finally {
+            \Pramnos\Broadcasting\Testing\FakeDriver::restore();
+        }
+
+        // Assert
+        $this->assertSame([['private-users.' . self::ME, 'notification.read', []]], array_map(static fn ($r) => [$r['channel'], $r['event'], $r['payload']], $one));
+        $channels = array_column($settled, 'channel');
+        sort($channels);
+        $this->assertSame(['private-users.' . self::ME, 'private-users.' . self::SOMEBODY], $channels, 'each person settled, once');
+        // The first read-all marked the rest; the second, and reading one already read, told nobody.
+        $this->assertCount(1, $all);
+    }
+
+    /**
+     * A broadcast that fails costs the announcement only: the rows are read, and nothing throws.
+     */
+    public function testAFailingAnnouncementLeavesTheRowsRead(): void
+    {
+        // Arrange
+        $previous = \Pramnos\Broadcasting\BroadcastingManager::currentInstance();
+        $manager  = new \Pramnos\Broadcasting\BroadcastingManager();
+        $manager->addDriver(new class implements \Pramnos\Broadcasting\Drivers\DriverInterface {
+            /** Always fails, as a backplane that is down does. */
+            public function broadcast(string $channel, string $event, array $payload): void
+            {
+                throw new \RuntimeException('backplane down');
+            }
+
+            /** Its name. */
+            public function name(): string
+            {
+                return 'down';
+            }
+        })->setDefault('down');
+        \Pramnos\Broadcasting\BroadcastingManager::setInstance($manager);
+
+        try {
+            // Act
+            $marked = (new Feed(self::ME, $this->db))->markAllRead();
+        } finally {
+            \Pramnos\Broadcasting\BroadcastingManager::setInstance($previous);
+        }
+
+        // Assert
+        $this->assertSame(4, $marked);
+        $this->assertSame(0, (new Feed(self::ME, $this->db))->unreadCount());
+    }
+
+    /**
      * Read and read-all touch only this person's unread rows: somebody else's id, an id already
      * read, and a string that is not an id all mark nothing.
      */
