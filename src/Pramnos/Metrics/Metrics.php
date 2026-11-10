@@ -327,10 +327,12 @@ final class Metrics
         }
 
         $rows = [];
-        foreach ($metric->storedSets() as $set) {
-            if ($set === [] && $metric->getAggregate() === Metric::SUM && $metric->getDimensions() !== []) {
-                continue;   // a sum's total is its full breakdown added up, below
-            }
+        $sets = array_values(array_filter($metric->storedSets(), static fn (array $set): bool =>
+            // a sum's total is its full breakdown added up, below
+            !($set === [] && $metric->getAggregate() === Metric::SUM && $metric->getDimensions() !== [])));
+        // Every breakdown of the period in one read, where it can be: see Metric::prefetchSets().
+        $metric->prefetchSets($window, $sets, $source);
+        foreach ($sets as $set) {
             foreach ($metric->measure($window, $set, $source) as $row) {
                 if ($tenants === null || in_array((int) ($row['tenant'] ?? 0), $tenants, true)) {
                     $rows[] = $row;

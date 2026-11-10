@@ -97,13 +97,16 @@ final class VisitsMetrics implements Catalogue
             ->describe(t('Hits from robots, counted apart from people'));
         yield $hits('visits.no_js', t('Pages without JavaScript'))->count()->where('flags', [2, 6, 10, 14])
             ->describe(t('Pages seen without JavaScript, robots left out, counted apart'));
-        yield Metric::flow('visits.signed_in', t('Signed-in visits'))->refresh($every)->dimensions(array_values(array_diff($dims, ['signed_in'])))
+        yield Metric::flow('visits.signed_in', t('Signed-in visits'))->refresh($every)
+            ->sourceSets(static fn (Window $w, array $sets, Database $db): ?array => self::perVisitSets($w->startsAt(), $w->endsAt(), $sets, $db, 'signed'))->dimensions(array_values(array_diff($dims, ['signed_in'])))
             ->describe(t('Visits in which the person was signed in at some page'))
             ->source(static fn (Window $w, array $by, Database $db): int|array => self::perVisit($w->startsAt(), $w->endsAt(), $by, $db, 'signed'));
-        yield Metric::flow('visits.single_page', t('Single-page visits'))->refresh($every)->dimensions($dims)
+        yield Metric::flow('visits.single_page', t('Single-page visits'))->refresh($every)
+            ->sourceSets(static fn (Window $w, array $sets, Database $db): ?array => self::perVisitSets($w->startsAt(), $w->endsAt(), $sets, $db, 'single'))->dimensions($dims)
             ->describe(t('Visits of one page'))
             ->source(static fn (Window $w, array $by, Database $db): int|array => self::perVisit($w->startsAt(), $w->endsAt(), $by, $db, 'single'));
-        yield Metric::flow('visits.duration', t('Visit length'))->refresh($every)->aggregate(Metric::AVG)->dimensions($dims)->unit('s')->format('duration')
+        yield Metric::flow('visits.duration', t('Visit length'))->refresh($every)
+            ->sourceSets(static fn (Window $w, array $sets, Database $db): ?array => self::perVisitSets($w->startsAt(), $w->endsAt(), $sets, $db, 'duration'))->aggregate(Metric::AVG)->dimensions($dims)->unit('s')->format('duration')
             ->describe(t('The mean visit, in seconds, from its first page to its last; visits longer than 4 hours (a tab left open) are left out'))
             ->source(static fn (Window $w, array $by, Database $db): int|array => self::perVisit($w->startsAt(), $w->endsAt(), $by, $db, 'duration'));
     }
@@ -119,13 +122,89 @@ final class VisitsMetrics implements Catalogue
      */
     public static function perVisit(int $from, int $to, array $by, Database $db, string $what, ?int $site = null): int|array
     {
-        $postgres = $db->type === 'postgresql';
-        $inner    = $db->queryBuilder()->table(self::TABLE);
-        $select   = [$inner->raw('visit'), $inner->raw('COUNT(*) AS pages'),
-            $inner->raw($postgres ? 'CAST(EXTRACT(EPOCH FROM MAX(at) - MIN(at)) AS BIGINT) AS seconds' : 'TIMESTAMPDIFF(SECOND, MIN(at), MAX(at)) AS seconds'),
+        $inner = self::visits($from, $to, $by, $db, $site);
+        $outer  = $db->queryBuilder()->fromSub($inner, 'v');
+        $value  = match ($what) {
+            'duration' => 'AVG(seconds) AS value, COUNT(*) AS count',
+            default    => 'COUNT(*) AS value',
+        };
+        $outer->select(array_merge(array_map(static fn (string $n) => $outer->raw(preg_replace('/[^a-z0-9_]/', '', $n)), $by), [$outer->raw($value)]));
+        self::which($outer, $what);
+        if ($by !== []) {
+            return $outer->groupBy(array_map(static fn (string $n): string => preg_replace('/[^a-z0-9_]/', '', $n), $by))->getAllOrFail();
+        }
+        $row = $outer->getAllOrFail()[0] ?? [];
+
+        return $what === 'duration' ? [['value' => (float) ($row['value'] ?? 0), 'count' => (int) ($row['count'] ?? 0)]] : (int) ($row['value'] ?? 0);
+    }
+
+    /**
+     * {@see perVisit()} for every breakdown of a period at once — one read, `GROUPING SETS` — on
+     * PostgreSQL; null elsewhere, where each breakdown is read on its own.
+     *
+     * @param list<list<string>> $sets
+     * @return array<string, list<array<string, mixed>>>|null By the breakdown's dimensions joined with commas
+     */
+    public static function perVisitSets(int $from, int $to, array $sets, Database $db, string $what): ?array
+    {
+        if ($db->type !== 'postgresql') {
+            return null;
+        }
+        $names  = array_values(array_unique(array_merge(...$sets)));
+        $clean  = static fn (string $n): string => (string) preg_replace('/[^a-z0-9_]/', '', $n);
+        $outer  = $db->queryBuilder()->fromSub(self::visits($from, $to, $names, $db, null), 'v');
+        $select = [];
+        foreach ($names as $name) {
+            $select[] = $outer->raw($clean($name));
+            // Raw: which dimensions a row is grouped by, PostgreSQL's GROUPING().
+            $select[] = $outer->raw('GROUPING(' . $clean($name) . ') AS pf_g_' . $clean($name));
+        }
+        $select[] = $outer->raw($what === 'duration' ? 'AVG(seconds) AS value, COUNT(*) AS count' : 'COUNT(*) AS value');
+        $outer->select($select);
+        self::which($outer, $what);
+        $outer->groupByRaw('GROUPING SETS (' . implode(', ', array_map(static fn (array $set): string => '(' . implode(', ', array_map($clean, $set)) . ')', $sets)) . ')');
+        $answer = [];
+        foreach ($sets as $set) {
+            $answer[implode(',', $set)] = [];
+        }
+        $bySignature = [];
+        foreach ($sets as $set) {
+            $sorted = $set;
+            sort($sorted);
+            $bySignature[implode(',', $sorted)] = implode(',', $set);
+        }
+        foreach ($outer->getAllOrFail() as $row) {
+            $grouped = [];
+            foreach ($names as $name) {
+                if ((int) $row['pf_g_' . $clean($name)] === 0) {
+                    $grouped[] = $name;
+                }
+                unset($row['pf_g_' . $clean($name)]);
+            }
+            sort($grouped);
+            $key = $bySignature[implode(',', $grouped)] ?? null;
+            if ($key !== null) {
+                $answer[$key][] = array_intersect_key($row, array_flip([...($key === '' ? [] : explode(',', $key)), 'value', 'count']));
+            }
+        }
+
+        return $answer;
+    }
+
+    /**
+     * Each visit of `[$from, $to)` once, its hits grouped: its pages, its length, whether the person
+     * was signed in, and the landing page's breakdown by `$names`.
+     *
+     * @param list<string> $names
+     */
+    private static function visits(int $from, int $to, array $names, Database $db, ?int $site): \Pramnos\Database\QueryBuilder
+    {
+        $inner  = $db->queryBuilder()->table(self::TABLE);
+        $select = [$inner->raw('visit'), $inner->raw('COUNT(*) AS pages'),
+            $inner->raw($db->type === 'postgresql' ? 'CAST(EXTRACT(EPOCH FROM MAX(at) - MIN(at)) AS BIGINT) AS seconds' : 'TIMESTAMPDIFF(SECOND, MIN(at), MAX(at)) AS seconds'),
             $inner->raw('MAX(CASE WHEN userid IS NULL THEN 0 ELSE 1 END) AS signed')];
         $columns = self::columns();
-        foreach ($by as $name) {
+        foreach ($names as $name) {
             // The landing page's: where it came from is only on it, the rest is the visit's own.
             $column   = $name === 'signed_in' ? "CASE WHEN MAX(CASE WHEN userid IS NULL THEN 0 ELSE 1 END) = 1 THEN 'yes' ELSE 'no' END" : 'MAX(' . ($columns[$name] ?? 'NULL') . ')';
             $select[] = $inner->raw($column . ' AS ' . preg_replace('/[^a-z0-9_]/', '', $name));
@@ -136,28 +215,21 @@ final class VisitsMetrics implements Catalogue
         if ($site !== null) {
             $inner->where('site', $site);
         }
-        $outer  = $db->queryBuilder()->fromSub($inner, 'v');
-        $value  = match ($what) {
-            'duration' => 'AVG(seconds) AS value, COUNT(*) AS count',
-            default    => 'COUNT(*) AS value',
-        };
-        $outer->select(array_merge(array_map(static fn (string $n) => $outer->raw(preg_replace('/[^a-z0-9_]/', '', $n)), $by), [$outer->raw($value)]));
-        if ($what === 'single') {
-            $outer->where('pages', 1);
-        } elseif ($what === 'signed') {
-            $outer->where('signed', 1);
-        } elseif ($what === 'duration') {
+
+        return $inner;
+    }
+
+    /** The visits a count is of: of one page, signed in, up to LONG (for the mean), or beyond it. */
+    private static function which(\Pramnos\Database\QueryBuilder $outer, string $what): void
+    {
+        match ($what) {
+            'single'   => $outer->where('pages', 1),
+            'signed'   => $outer->where('signed', 1),
             // A tab left open for hours is not a visit of hours: the mean is of the visits up to
             // LONG; those beyond it are counted on their own (`long`).
-            $outer->where('seconds', '<=', self::LONG);
-        } elseif ($what === 'long') {
-            $outer->where('seconds', '>', self::LONG);
-        }
-        if ($by !== []) {
-            return $outer->groupBy(array_map(static fn (string $n): string => preg_replace('/[^a-z0-9_]/', '', $n), $by))->getAllOrFail();
-        }
-        $row = $outer->getAllOrFail()[0] ?? [];
-
-        return $what === 'duration' ? [['value' => (float) ($row['value'] ?? 0), 'count' => (int) ($row['count'] ?? 0)]] : (int) ($row['value'] ?? 0);
+            'duration' => $outer->where('seconds', '<=', self::LONG),
+            'long'     => $outer->where('seconds', '>', self::LONG),
+            default    => null,
+        };
     }
 }

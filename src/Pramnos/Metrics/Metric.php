@@ -790,6 +790,112 @@ final class Metric
     /** @var array<string, list<array<string, mixed>>> Rows read ahead, by period and breakdown ({@see prefetch()}) */
     private array $ahead = [];
 
+    /** @var \Closure|null Every breakdown of a period at once: fn (Window, list<list<string>> $sets, Database): ?array<string, list<row>> */
+    private ?\Closure $sourceSets = null;
+
+    /**
+     * A source that answers every breakdown of a period at once — keyed by the breakdown's
+     * dimensions joined with commas (`''` for the total) — or null where it cannot, beside the
+     * one-at-a-time {@see source()}. For a distinct or averaged metric, which keeps its total and
+     * each dimension apart: one read of the period instead of one per breakdown.
+     */
+    public function sourceSets(\Closure $sets): self
+    {
+        $this->sourceSets = $sets;
+
+        return $this;
+    }
+
+    /**
+     * Read every breakdown of one period at once, for {@see measure()} to answer from: the
+     * declared query with `GROUPING SETS` on PostgreSQL, or the metric's own {@see sourceSets()}.
+     * A distinct metric that keeps its total and nine dimensions was ten scans of the period, and
+     * five periods open at a time — a day to a year — made fifty; it is five. Elsewhere, and for a
+     * single breakdown, nothing is read ahead.
+     *
+     * @param list<list<string>> $sets The breakdowns to be measured
+     */
+    public function prefetchSets(Window $window, array $sets, \Pramnos\Database\Database $db): bool
+    {
+        if (count($sets) < 2) {
+            return false;
+        }
+        $keyOf = fn (array $set): string => $window->key() . '|' . implode(',', $this->tenantColumn !== null ? [...$set, $this->tenantColumn] : $set);
+        foreach ($sets as $set) {
+            if (isset($this->ahead[$keyOf($set)])) {
+                return false;   // read ahead already, by period
+            }
+        }
+        if ($this->sourceSets !== null && $this->tenantColumn === null) {
+            $answer = ($this->sourceSets)($window, $sets, $db);
+            if (!is_array($answer)) {
+                return false;
+            }
+            foreach ($sets as $set) {
+                $this->ahead[$keyOf($set)] = array_values((array) ($answer[implode(',', $set)] ?? []));
+            }
+
+            return true;
+        }
+        $q = $this->query;
+        if ($q === null || $db->type !== 'postgresql' || $q['time'] === '' || in_array($q['fn'], ['', 'LAST', 'COUNTER', 'COHORT'], true)) {
+            return false;
+        }
+        $names  = array_values(array_unique(array_merge(...$sets)));
+        $query  = $db->queryBuilder()->table($q['table']);
+        $select = [];
+        foreach ($names as $name) {
+            $expression = $q['columns'][$name] ?? $name;
+            $select[]   = $query->raw($expression . ' AS ' . self::identifier($name));
+            // Raw: which dimensions a row is grouped by, PostgreSQL's GROUPING().
+            $select[]   = $query->raw('GROUPING(' . $expression . ') AS pf_g_' . self::identifier($name));
+        }
+        if ($this->tenantColumn !== null) {
+            $select[] = $query->raw($this->tenantColumn . ' AS ' . self::identifier($this->tenantColumn));
+        }
+        $select[] = $query->raw(match ($q['fn']) {
+            'COUNT'          => 'COUNT(*)',
+            'COUNT DISTINCT' => 'COUNT(DISTINCT ' . $q['column'] . ')',
+            default          => $q['fn'] . '(' . $q['column'] . ')',
+        } . ' AS value');
+        if ($q['fn'] === 'AVG') {
+            $select[] = $query->raw('COUNT(' . $q['column'] . ') AS count');
+        }
+        $query->select($select);
+        [$from, $to] = $q['unix'] ? [$window->startsAt(), $window->endsAt()] : [\Pramnos\Database\Instant::utc($window->startsAt(), $db), \Pramnos\Database\Instant::utc($window->endsAt(), $db)];
+        $query->where($q['time'], '>=', $from)->where($q['time'], '<', $to);
+        foreach ($q['where'] as [$column, $value]) {
+            is_array($value) ? $query->whereIn($column, array_values($value)) : $query->where($column, $value);
+        }
+        // Raw: GROUPING SETS, one parenthesised list of expressions a breakdown.
+        $groups = array_map(fn (array $set): string => '(' . implode(', ', array_merge(array_map(static fn (string $n): string => (string) ($q['columns'][$n] ?? $n), $set),
+            $this->tenantColumn !== null ? [$this->tenantColumn] : [])) . ')', $sets);
+        $query->groupByRaw('GROUPING SETS (' . implode(', ', $groups) . ')');
+        $bySignature = [];
+        foreach ($sets as $set) {
+            $sorted = $set;
+            sort($sorted);
+            $bySignature[implode(',', $sorted)] = $set;
+            $this->ahead[$keyOf($set)] = [];
+        }
+        foreach ($query->getAllOrFail() as $row) {
+            $grouped = [];
+            foreach ($names as $name) {
+                if ((int) $row['pf_g_' . self::identifier($name)] === 0) {
+                    $grouped[] = $name;
+                }
+                unset($row['pf_g_' . self::identifier($name)]);
+            }
+            sort($grouped);
+            $set = $bySignature[implode(',', $grouped)] ?? null;
+            if ($set !== null) {
+                $this->ahead[$keyOf($set)][] = array_intersect_key($row, array_flip([...$set, 'value', 'count', ...($this->tenantColumn !== null ? [$this->tenantColumn] : [])]));
+            }
+        }
+
+        return true;
+    }
+
     /**
      * Read many periods of a declared source at once — one query per breakdown, grouped by the
      * period in the metrics' zone — instead of one query per period, where it can be done exactly:

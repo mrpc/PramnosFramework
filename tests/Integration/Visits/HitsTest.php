@@ -323,6 +323,33 @@ class HitsTest extends TestCase
         $this->assertSame(1.0, $uk, 'the application\'s own dimension, under the name it chose');
         $this->assertSame(1.0, $search, 'a visit\'s source is its landing page\'s');
         $this->assertArrayHasKey('market', \Pramnos\Metrics\Metrics::dimensions());
+        // Every breakdown of a period in one read on PostgreSQL — a declared distinct count, and a
+        // per-visit mean through its own sourceSets() — the very rows the reads one at a time give.
+        $window = \Pramnos\Metrics\Window::of('day', $day);
+        foreach (['visits.visitors', 'visits.duration'] as $name) {
+            $sets   = \Pramnos\Metrics\Metrics::get($name)->storedSets();
+            $apart  = [];
+            foreach ($sets as $set) {
+                $apart[implode(',', $set)] = \Pramnos\Metrics\Metrics::get($name)->measure($window, $set, $this->db);
+            }
+            \Pramnos\Metrics\Metrics::reset();
+            $metric = \Pramnos\Metrics\Metrics::get($name);
+            $inOne  = $metric->prefetchSets($window, $sets, $this->db);
+            $once   = [];
+            foreach ($sets as $set) {
+                $once[implode(',', $set)] = $metric->measure($window, $set, $this->db);
+            }
+            $sort = static function (array $byKey): array {
+                foreach ($byKey as &$rows) {
+                    usort($rows, static fn (array $a, array $b): int => strcmp(json_encode($a['dims']), json_encode($b['dims'])));
+                }
+
+                return $byKey;
+            };
+            $this->assertSame($this->db->type === 'postgresql', $inOne, $name . ': in one read on PostgreSQL only');
+            $this->assertEquals($sort($apart), $sort($once), $name . ': the same rows either way');
+            $metric->forgetAhead();
+        }
         $this->assertSame(['views' => 4, 'visits' => 2, 'visitors' => 2, 'signed_in' => 1, 'single_page' => 1, 'mean_visit_seconds' => 60.0, 'visits_over_4_hours' => 0, 'bots' => 1, 'no_js' => 1],
             $read['figures'], 'the tool\'s figures are the metrics\'');
         $this->assertSame(0, $read['before']['figures']['views'], 'the day before: nothing');

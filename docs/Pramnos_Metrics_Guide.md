@@ -251,6 +251,13 @@ FrameworkSchedule::disable('metrics:compute');
 Scheduler::command('metrics:compute')->cron('2 1,5,9,17,19,22 * * *');
 ```
 
+**Every breakdown in one read.** A distinct metric, or a mean, keeps its total and each
+dimension apart, and each is a read of the period. On PostgreSQL a declared source reads them all
+at once, with `GROUPING SETS`. A closure source does the same where it declares
+`->sourceSets(fn (Window $w, array $sets, Database $db): ?array => …)`: every breakdown, keyed by
+its dimensions joined with commas (`''` for the total), or null for one at a time. Elsewhere each
+breakdown is read on its own, with the same figures.
+
 **A costly open period, computed less often.** By default every run computes the open period of
 every grain from the source: the open day, but also the open month and year. For a source that
 reads raw rows, a count of distinct people over a year say, that is most of the run.
