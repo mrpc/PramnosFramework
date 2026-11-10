@@ -181,6 +181,10 @@
         clean = stripEmojisAndSymbols(clean);
         clean = clean.replace(/\(\s*[a-zA-Z0-9\s,._/-]+\s*\)/g, '');
 
+        // "ό,τι" (whatever) sounds exactly as "ότι" (that), but a voice reads the comma as a
+        // letter's name — "όμικρον τι". Without it, the word is said as written.
+        clean = clean.replace(/(?<!\p{L})([όΌ]),\s?(τι)(?!\p{L})/giu, '$1$2');
+
         var assistantTitle = getAssistantTitle(gender);
         clean = clean.replace(/\bAsk\s*AI\b/gi, assistantTitle);
         clean = clean.replace(/\bAskAi\b/gi, assistantTitle);

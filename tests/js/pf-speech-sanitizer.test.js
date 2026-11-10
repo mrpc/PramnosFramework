@@ -58,6 +58,20 @@ test('getAssistantSelfIntroduction includes the given name, grammatically agreei
     assert.match(sanitizer.getAssistantSelfIntroduction('neutral'), /σύστημα υποστήριξης/);
 });
 
+/**
+ * "ό,τι" is read as the word, not as "όμικρον τι": the comma a voice spells out goes, at the start
+ * of a sentence too and written with a space, and a comma after any other ό stays.
+ */
+test('prepareGreekSpeechText reads "ό,τι" as the word it is', () => {
+    // Act
+    const said = sanitizer.prepareGreekSpeechText('Κάνε ό,τι θέλεις. Ό, τι πεις. Πού, τι ώρα;', { gender: 'female' });
+
+    // Assert
+    assert.ok(said.includes('Κάνε ότι θέλεις'), said);
+    assert.ok(said.includes('Ότι πεις'), said);
+    assert.ok(said.includes('Πού, τι ώρα'), 'a comma after another word stays: ' + said);
+});
+
 test('prepareGreekSpeechText replaces "Ask AI" with the gendered title', () => {
     const result = sanitizer.prepareGreekSpeechText('Ask AI σου λέει καλημέρα', { gender: 'female' });
     assert.match(result, /η βοηθός σου λέει καλημέρα/);

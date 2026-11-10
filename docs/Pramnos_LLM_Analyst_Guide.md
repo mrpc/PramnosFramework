@@ -252,6 +252,7 @@ shared by the mic and every answer's 🔊 button:
 **`pf-speech-sanitizer.js`** — `window.PfSpeechSanitizer`, what makes the spoken text sound
 natural rather than spelled out or mis-gendered:
 
+- Reads `ό,τι` as the word: a voice says the comma as a letter's name ("όμικρον τι").
 - Strips Markdown and emoji, converts `%`/`&`/`+` to spoken words, and transliterates any
   remaining Latin word to Greek phonetics — without it, a Greek voice spells `"WordPress"`
   letter by letter.
