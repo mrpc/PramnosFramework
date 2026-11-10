@@ -170,7 +170,9 @@ final class ApplicationSettings
      *
      * HTTPS directly, or through a proxy that says so in `X-Forwarded-Proto`. A request from the
      * loopback address is exempt — that is a developer's own server, with no certificate — and so
-     * is one with no address at all, which did not come over a network.
+     * is one with no address at all, which did not come over a network. So is one from an address
+     * the installation names ({@see plainHttpFrom()}): a browser on the host reaching a container
+     * through Docker's port mapping arrives from the bridge's gateway, not from loopback.
      *
      * @param array<string, mixed> $settings {@see for()}
      * @param array<string, mixed> $server   The server variables
@@ -186,7 +188,38 @@ final class ApplicationSettings
         }
 
         // No address is no network: a command line, or a test.
-        return $address !== '' && !Helpers::ipInRange($address, '127.0.0.0/8') && !Helpers::ipInRange($address, '::1');
+        if ($address === '' || Helpers::ipInRange($address, '127.0.0.0/8') || Helpers::ipInRange($address, '::1')) {
+            return false;
+        }
+        foreach (self::plainHttpFrom() as $range) {
+            if (Helpers::ipInRange($address, $range)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * The addresses `require_https` lets in over plain HTTP besides loopback: none unless the
+     * installation names them — `'plain_http_from' => ['172.17.0.1']` in app.php, or
+     * `PRAMNOS_PLAIN_HTTP_FROM=172.16.0.0/12` in the environment (commas between several), which a
+     * development container sets and production does not.
+     *
+     * Named, never inferred: a private range is also where a production proxy sits, and exempting
+     * it by itself would let plain HTTP through the very proxy the check is for.
+     *
+     * @return list<string>
+     */
+    public static function plainHttpFrom(): array
+    {
+        $configured = \Pramnos\Application\Application::currentInstance()?->applicationInfo['plain_http_from'] ?? [];
+        $fromEnv    = (string) (getenv('PRAMNOS_PLAIN_HTTP_FROM') ?: '');
+
+        return array_values(array_filter(array_map('trim', array_merge(
+            is_array($configured) ? array_map('strval', $configured) : [],
+            $fromEnv === '' ? [] : explode(',', $fromEnv)
+        )), static fn (string $range): bool => $range !== ''));
     }
 
     /**

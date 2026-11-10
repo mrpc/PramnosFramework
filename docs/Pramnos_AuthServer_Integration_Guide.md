@@ -526,7 +526,24 @@ A clock that steps back (NTP correcting it, a virtual machine resumed) counts as
 so it never takes tokens away.
 
 **HTTPS** is HTTPS on the server, or a proxy's `X-Forwarded-Proto: https`. A request from the
-server's own loopback address is exempt — a developer's machine has no certificate.
+server's own loopback address is exempt — a developer's machine has no certificate. So are the
+addresses the installation names, and only those. A browser on the host that reaches a container
+through Docker's port mapping arrives from the bridge's gateway, not from loopback, so a
+development setup names it, in the environment or in app.php:
+
+```php
+// app/app.php — every installation that reads it
+'plain_http_from' => ['172.17.0.1'],
+```
+
+```bash
+# the development container's environment alone, which production does not set
+PRAMNOS_PLAIN_HTTP_FROM=172.16.0.0/12,192.168.65.0/24
+```
+
+Nothing is exempt by default beyond loopback. A private range is also where a production proxy
+sits, and exempting it by itself would let plain HTTP through the proxy the check is for.
+`ApplicationSettings::plainHttpFrom()` lists what is named.
 
 **The IP lock.** A blocked address or range (`198.51.100.0/24`, IPv6 too) is always refused. With
 the lock on and allowed addresses listed, only those are accepted. The address is the one
