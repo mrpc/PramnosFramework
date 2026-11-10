@@ -312,31 +312,41 @@ class ClientErrorsMySQLTest extends TestCase
     /**
      * The log screens list the errors with their paging, forget one by its hash and forget all;
      * a toolbar link leads there. Each write goes back to the list.
+     *
+     * The hash is forgotten as the screen's Delete reaches it: the request's option, with the
+     * arguments array `exec()` passes in place of a hash (FW-407: read as "Array", it deleted
+     * nothing) — and given directly as well.
      */
     public function testTheLogScreensListAndForgetThem(): void
     {
         // Arrange
         $errors = new ClientErrors($this->db);
         $one = $errors->record(['message' => 'one']);
-        $errors->record(['message' => 'two']);
+        $two = $errors->record(['message' => 'two']);
+        $errors->record(['message' => 'three']);
         $controller = new BrowserErrorsLogController(null);
         $_GET = [];
 
         // Act
         $controller->jserrors();
         $listed = $controller->view;
-        $controller->deletejserror($one);
+        $_GET['_option'] = $one;
+        $controller->deletejserror([]);
+        $_GET = [];
+        $afterRouted = $errors->list()['total'];
+        $controller->deletejserror($two);
         $afterDelete = $errors->list()['total'];
         $controller->clearjserrors();
 
         // Assert
         $this->assertSame('jserrors', $listed->shown);
-        $this->assertCount(2, $listed->jsErrors);
-        $this->assertSame(2, $listed->total);
+        $this->assertCount(3, $listed->jsErrors);
+        $this->assertSame(3, $listed->total);
         $this->assertSame(1, $listed->pages);
         $this->assertNull($listed->notice);
         $this->assertContains('Browser Errors', array_column($listed->toolbar, 'label'));
-        $this->assertSame(1, $afterDelete);
+        $this->assertSame(2, $afterRouted, 'forgotten through the option, as exec() calls it');
+        $this->assertSame(1, $afterDelete, 'and by a hash given directly');
         $this->assertSame(0, $errors->list()['total']);
         $this->assertStringEndsWith('Logs/jserrors', (string) $controller->redirectedTo);
     }

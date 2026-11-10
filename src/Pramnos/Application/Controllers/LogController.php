@@ -340,10 +340,15 @@ class LogController extends Controller
         return $view->display('jserrors');
     }
 
-    /** Forget one browser error: `jserrors/delete` with its hash. */
+    /**
+     * Forget one browser error: `jserrors/delete` with its hash.
+     *
+     * The hash is the request's option. `exec()` passes its arguments array, never null, so a
+     * string given here is the only argument read — a caller's own.
+     */
     public function deletejserror(mixed $hash = null)
     {
-        $hash = (string) ($hash ?? Request::staticGetOption());
+        $hash = is_string($hash) && $hash !== '' ? $hash : (string) Request::staticGetOption();
         if ($hash !== '') {
             $this->clientErrors()->delete($hash);
         }
