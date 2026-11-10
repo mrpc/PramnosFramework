@@ -36,7 +36,8 @@ class ConversationNotification implements NotificationInterface
      * No push while the client the person is in is in front ({@see Clients::inFront()}): it tells
      * of the message itself, from the realtime connection. A push its worker then had to keep from
      * showing would be one the browser counts against the subscription — Chrome on Android cancels
-     * a subscription after a few.
+     * a subscription after a few. Nor while their desktop application runs and they are at it
+     * ({@see Clients::appRunning()}): it notifies them, and a push would open the browser instead.
      *
      * @return list<string>
      */
@@ -46,7 +47,7 @@ class ConversationNotification implements NotificationInterface
         $allowed = is_array($allowed) ? $allowed : ['database', 'push'];
         $person  = (int) ($notifiable->userid ?? 0);
         $push    = in_array('push', $allowed, true) && \Pramnos\Notification\Channels\PushChannel::sends()
-            && \Pramnos\Push\Subscriptions::exist($person) && !Clients::inFront($person);
+            && \Pramnos\Push\Subscriptions::exist($person) && !Clients::inFront($person) && !Clients::appRunning($person);
 
         return array_values(array_filter(['database', $push ? 'push' : ''], static fn (string $via): bool => $via !== '' && in_array($via, $allowed, true)));
     }

@@ -26,6 +26,10 @@ namespace Pramnos\Conversations;
  * (or locked) longer than that. With "at once" (0 minutes) a client that is not in front — a
  * hidden tab, a minimised application — counts as away. The bell is told of every message, always.
  *
+ * The desktop application — the client that reports the system's idle seconds — is kept apart
+ * too: while it runs, and its person is not away, it is the client told, unless a tab is in front,
+ * and no web push goes to the browser beside it ({@see appRunning()}), as Slack's does.
+ *
  * State, not history (rule 14): one row per person, `pramnos.conversation_clients`, replaced at
  * each report.
  */
@@ -52,14 +56,65 @@ final class Clients
         if ($userId < 1 || $clientId === '') {
             return;
         }
-        $row = ['client' => $clientId, 'seenat' => $now ?? time(), 'idle' => $locked ? 31_536_000 : max(0, (int) $idle), 'front' => $front ? 1 : 0];
-        $db  = Conversations::db();
-        if ($db->queryBuilder()->table(self::TABLE)->where('userid', $userId)->count() > 0) {
+        $now     = $now ?? time();
+        $fromApp = $idle !== null;
+        $idle    = $locked ? 31_536_000 : max(0, (int) $idle);
+        $row  = ['client' => $clientId, 'seenat' => $now, 'idle' => $idle, 'front' => $front ? 1 : 0];
+        $db   = Conversations::db();
+        $was  = $db->queryBuilder()->table(self::TABLE)->where('userid', $userId)->first()?->fetch();
+        // Only the desktop application tells the system's idle seconds: its report is kept apart, and
+        // its minute's "still here" does not take the place of a tab in front. Any report of the
+        // application's own id is its own too — the screen locked, say.
+        if (($fromApp || (is_array($was) && (string) ($was['app'] ?? '') === $clientId)) && self::tracksApp()) {
+            $tab = is_array($was) && (string) $was['client'] !== '' && (string) $was['client'] !== $clientId
+                && (int) $was['front'] === 1 && $now - (int) $was['seenat'] <= 60;
+            $row = ($tab ? [] : $row) + ['app' => $clientId, 'appseenat' => $now, 'appidle' => $idle];
+        }
+        if (is_array($was)) {
             $db->queryBuilder()->table(self::TABLE)->where('userid', $userId)->update($row);
 
             return;
         }
         $db->queryBuilder()->table(self::TABLE)->insert(['userid' => $userId] + $row);
+    }
+
+    /**
+     * Whether the person's desktop application is running and they are at it: it reported within
+     * three minutes (it does every minute), the screen is not locked, and the system has not been
+     * idle longer than their minutes away. Then it notifies them, and no web push is sent.
+     */
+    public static function appRunning(int $userId, ?int $now = null): bool
+    {
+        try {
+            $row = Conversations::db()->queryBuilder()->table(self::TABLE)->where('userid', $userId)->first()?->fetch();
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return is_array($row) && self::appOn($row, $now ?? time());
+    }
+
+    /** {@see appRunning()} of a row. @param array<string, mixed> $row */
+    private static function appOn(array $row, int $now): bool
+    {
+        $since = $now - (int) ($row['appseenat'] ?? 0);
+        if ((string) ($row['app'] ?? '') === '' || $since > 180) {
+            return false;
+        }
+        $minutes = $row['awayafter'] !== null ? (int) $row['awayafter'] : self::AWAY_AFTER;
+
+        // Idle as it said, and for as long since: the same away as any client's.
+        return (int) ($row['appidle'] ?? 0) + $since < max(60, 60 * $minutes);
+    }
+
+    /** Whether the application's columns are there: before their migration, nothing is kept apart. */
+    private static function tracksApp(): bool
+    {
+        try {
+            return Conversations::db()->schema()->hasColumn(self::TABLE, 'app');
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /** The person's choice of minutes away before every client is told; with `$minutes`, set it. */
@@ -137,11 +192,16 @@ final class Clients
     /** One person's row decided: their client, or null when they are away. @param array<string, mixed> $row */
     private static function choose(array $row, int $now): ?string
     {
+        $quiet = $now - (int) $row['seenat'];
+        // The application, while it runs and its person is at it — unless a tab is in front now.
+        if (self::appOn($row, $now) && !((string) $row['client'] !== (string) $row['app']
+            && (string) $row['client'] !== '' && (int) $row['front'] === 1 && $quiet <= 60 && (int) $row['idle'] < 60)) {
+            return (string) $row['app'];
+        }
         if ((string) $row['client'] === '') {
             return null;
         }
         $limit = 60 * ($row['awayafter'] !== null ? (int) $row['awayafter'] : self::AWAY_AFTER);
-        $quiet = $now - (int) $row['seenat'];
         if ($limit === 0) {
             // "At once": the client must be in front, and have been seen within a minute.
             return (int) $row['front'] === 1 && $quiet <= 60 && (int) $row['idle'] < 60 ? (string) $row['client'] : null;

@@ -915,6 +915,12 @@ client is a browser tab or the desktop application. The bell is told of every me
   elsewhere. The desktop application also sends `idle` (the system's idle seconds) and `locked`.
   The server keeps one row per person, `pramnos.conversation_clients`, with the client, when, how
   idle and whether it was in front (`Clients::active()`).
+- **The desktop application** is the client that sends `idle`, every minute. Its last report is
+  kept apart from the last client (`app`, `appseenat`, `appidle`), and its minute's report does not
+  take the place of a tab in front. While it runs — reported within three minutes, the screen not
+  locked, the system not idle longer than the person's minutes (`Clients::appRunning()`) — it is
+  the client told, unless a tab is in front now, and **no web push** goes to the browser: the
+  application notifies, and a push's click would open the browser instead, as Slack's does.
 - **Away.** Nothing reported for longer than the person's minutes, or a system idle or locked for
   longer than that. The minutes are 0, 5 (the default), 10 or 30 (`Clients::awayAfter()`, `away`).
   With 0, "at once", a client that is not in front (a hidden tab, a minimised window) counts as

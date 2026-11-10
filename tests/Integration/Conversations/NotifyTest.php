@@ -276,11 +276,11 @@ class NotifyTest extends TestCase
         $noSub    = $notification->via($this->user('nikos'));
         // FW-395: the client she is in, in front — it tells of the message itself, no push; behind,
         // or in front but not seen for two minutes — pushed.
-        \Pramnos\Conversations\Clients::active($maria, 'tab-a', 0, true);
+        \Pramnos\Conversations\Clients::active($maria, 'tab-a', null, true);
         $inFront  = $notification->via($mariaUser);
-        \Pramnos\Conversations\Clients::active($maria, 'tab-a', 0, false);
+        \Pramnos\Conversations\Clients::active($maria, 'tab-a', null, false);
         $behind   = $notification->via($mariaUser);
-        \Pramnos\Conversations\Clients::active($maria, 'tab-a', 0, true, false, time() - 120);
+        \Pramnos\Conversations\Clients::active($maria, 'tab-a', null, true, false, time() - 120);
         $stale    = $notification->via($mariaUser);
         Application::getInstance()->applicationInfo['conversations']['notify_via'] = ['database'];
         $bellOnly = $notification->via($mariaUser);

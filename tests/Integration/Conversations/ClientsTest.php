@@ -101,11 +101,60 @@ class ClientsTest extends TestCase
         $this->db->schema()->dropTableIfExists(Clients::TABLE);
         $missing = Clients::targets([$eleni], $at + 30);
         (new \Pramnos\Framework\Migrations\Conversations\CreateConversationClientsTable($this->migrationApplication()))->up();
+        (new \Pramnos\Framework\Migrations\Conversations\AddAppToConversationClients($this->migrationApplication()))->up();
 
         // Assert
         $this->assertSame(30, $kept, 'kept before any report');
         $this->assertSame([], $none);
         $this->assertSame([$eleni => null], $missing);
+    }
+
+    /**
+     * While the desktop application runs and its person is at it, it is the client told — unless a
+     * tab is in front now — and no web push goes to the browser beside it (FW-397).
+     *
+     * The application tells the system's idle seconds, every minute, and nothing else does: that is
+     * how its report is known. In production, with the application open behind other windows, every
+     * message went as a web push to the browser as well, whose click opened the browser instead. Its
+     * minute's report must not take the place of a tab in front; once it stops reporting, the screen
+     * locks, or the system has been idle longer than the person's minutes, it is as before.
+     */
+    #[DataProvider('databases')]
+    public function testTheDesktopApplicationNotifiesWhileItRuns(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — the production case: the application behind other windows, a browser subscribed
+        $this->boot($type, $host, $port, $user);
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        $at = time();
+        Subscriptions::store($maria, ['endpoint' => 'https://push.test/chrome', 'keys' => ['p256dh' => 'k', 'auth' => 'a']]);
+        $dm = Conversations::create('dm', null, [$maria], $eleni);
+        $id = Messages::post($dm, $eleni, 'γεια');
+        $notification = new ConversationNotification($id, 'direct');
+
+        // Act
+        Clients::active($maria, 'desktop-1', 0, false, false, $at - 30);
+        $behind  = [Clients::appRunning($maria, $at), Clients::target($maria, $at), $notification->via($this->user('maria'))];
+        Clients::active($maria, 'tab-a', null, true, false, $at - 10);
+        Clients::active($maria, 'desktop-1', 0, false, false, $at - 5);   // its minute's report, beside the tab
+        $tabFront = Clients::target($maria, $at);
+        $tabGone  = Clients::target($maria, $at + 60);                       // the tab not seen for 70 s
+        Clients::active($maria, 'tab-a', null, false, false, $at - 1);     // the tab hidden
+        Clients::active($maria, 'desktop-1', 0, false, true, $at);          // the screen locked
+        $locked   = [Clients::appRunning($maria, $at + 1), $notification->via($this->user('maria'))];
+        Clients::active($maria, 'desktop-1', 200, false, false, $at);       // idle for long, on five minutes
+        $idle     = Clients::appRunning($maria, $at + 120);
+        Clients::active($maria, 'desktop-1', 0, false, false, $at);
+        $stopped  = Clients::appRunning($maria, $at + 181);                 // no report for three minutes
+
+        // Assert
+        $this->assertSame([true, 'desktop-1', ['database']], $behind, 'running behind other windows: it is told, no web push');
+        $this->assertSame('tab-a', $tabFront, 'a tab in front now is told, and the application\'s report did not replace it');
+        $this->assertSame('desktop-1', $tabGone, 'the tab gone from front: the application again');
+        $this->assertSame([false, ['database', 'push']], $locked, 'a locked screen: the web push goes');
+        $this->assertFalse($idle, 'idle longer than their minutes: away');
+        $this->assertFalse($stopped, 'not reported for three minutes: not running');
+        $this->assertFalse(Clients::appRunning($this->ids['nikos'], $at), 'nobody known');
     }
 
     /** An application holding this database, for a migration run by hand. */
