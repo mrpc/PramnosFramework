@@ -17,7 +17,8 @@ use Pramnos\Routing\Router;
  *
  * Everything sits under `/chat` by default: `/chat`, `/chat/{conversation_id}`,
  * `/chat/asks/{ask_id}`, `/chat/memory`, `/chat/connections`, `/chat/routines`, `/chat/runs`, `/chat/reports`,
- * `/chat/skills` and `/chat/consent`. The fixed paths
+ * `/chat/skills`, `/chat/consent` and `/chat/speak` — which follows `chat` where it is not named,
+ * so a second mount at `/naya` reads aloud at `/naya/speak`. The fixed paths
  * are registered before `/chat/{conversation_id}`, which would otherwise take "memory" for an id.
  */
 final class Routes
@@ -46,8 +47,10 @@ final class Routes
     public static function register(Router $r, string $controller = ChatController::class, array $paths = []): void
     {
         $p    = array_replace(self::PATHS, $paths);
+        $p['speak'] ??= $p['chat'] . '/speak';
         $make = static fn (): ChatController => new $controller();
 
+        $r->post($p['speak'], static fn () => $make()->speak())->describeFrom([$controller, 'speak']);
         $r->get($p['asks'] . '/{ask_id}', static fn ($ask_id) => $make()->asked($ask_id))->describeFrom([$controller, 'asked']);
         $r->post($p['asks'] . '/{ask_id}/cancel', static fn ($ask_id) => $make()->cancelAsk($ask_id))->describeFrom([$controller, 'cancelAsk']);
         $r->get($p['skills'], static fn () => $make()->skillList())->describeFrom([$controller, 'skillList']);

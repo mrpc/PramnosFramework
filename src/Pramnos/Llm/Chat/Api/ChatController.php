@@ -333,6 +333,25 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return $this->takeQuestion($input, \Pramnos\Llm\Chat\Attachments::fromJson($input));
     }
 
+    /**
+     * Read a text aloud — an answer, where the browser has no voice in its language — with the
+     * application's speech server ({@see \Pramnos\Llm\Speech\Speech}).
+     *
+     * `{"text": "…"}` → `audio` (base64), its `type` (`audio/wav`) and `bytes`. 501 where no speech
+     * server is set up, 422 for an empty or overlong text, 502 when the server fails.
+     */
+    public function speak(): array
+    {
+        if (($stop = $this->refusal('ask')) !== null) {
+            return $stop;
+        }
+        $spoken = \Pramnos\Llm\Speech\Speech::speak((string) ($this->input()['text'] ?? ''));
+
+        return $spoken['ok']
+            ? ['status' => 200, 'data' => ['audio' => base64_encode($spoken['audio']), 'type' => $spoken['type'], 'bytes' => strlen($spoken['audio'])]]
+            : self::error($spoken['status'], $spoken['says']);
+    }
+
     /** A question while the worker answers it: waiting, answered with its conversation, or failed and why. */
     public function asked($ask_id): array
     {

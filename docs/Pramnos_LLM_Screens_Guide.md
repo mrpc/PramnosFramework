@@ -4,6 +4,7 @@ use_cases:
   - Calling the conversations JSON API from a SPA or a mobile app
   - Making the Ask page look like the application's own
   - Giving people a page to see, pause and receive their scheduled AI tasks and reports
+  - Reading an assistant's answers aloud with a self-hosted voice (Piper) where the browser has none
 ---
 
 # Screens for conversations
@@ -55,6 +56,35 @@ One line in the application's API routes mounts every endpoint:
 | `GET /chat/reports` | the shared reports here the person may receive, with `subscribed` and `latest_run` |
 | `POST`/`DELETE /chat/routines/{id}/subscribe` | receive a shared report (`email` in the body), or stop |
 | `GET`/`POST`/`DELETE /chat/consent?feature=` | a feature's provider (`chat` by default), whether it needs agreement and whether it was given; agree; withdraw |
+| `POST /chat/speak` | read `text` aloud with the application's speech server: `audio` (base64), `type`, `bytes`; 501 with no server, 422 for an empty text or one over 5 000 characters, 502 when the server fails |
+
+`speak` follows `chat` where its own path is not named: a second mount with `'chat' => '/naya'`
+reads aloud at `/naya/speak`.
+
+### Reading answers aloud
+
+A browser's own voices (`speechSynthesis`) are often missing a language — no free Greek voice on
+any platform, for one. `speak` reads a text with a speech server the application runs.
+`Speech\Speech::BUILT_IN` says how to reach each kind; `piper` speaks to
+[Piper](https://github.com/OHF-Voice/piper1-gpl)'s HTTP server (`python3 -m piper.http_server`),
+which answers `POST /` with a WAV file. The application names the server and the voice:
+
+```php
+'llm' => ['speech' => [
+    'provider'  => 'piper',                              // the default
+    'providers' => ['piper' => [
+        'base_url' => 'http://piper:5000',
+        'voice'    => 'el_GR-rapunzelina-low',
+        'options'  => ['length_scale' => 1.1],           // sent as they are: slower, a speaker…
+        'timeout'  => 30,
+    ]],
+]],
+```
+
+A provider of the application's own is an entry with `transport`, a `Speech\Transport` class.
+Each call writes one line to the `speech` log: provider, voice, `chars`, `ms`, `bytes` and the
+server's `status` — enough to size the server from before scaling it. `Speech::speak($text)` reads
+a text aloud outside the API too.
 
 A refusal is `{status, error}`; one for want of agreement adds `consent_required` and `provider`,
 so a screen can ask on the spot. The provider checked — whether it is set up, whether it needs
