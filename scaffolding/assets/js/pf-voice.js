@@ -1,7 +1,7 @@
 /**
  * Voice for Ask AI: dictation (speech to text) and read-aloud (text to speech), over the
- * browser's native Web Speech API — no server side, per the Roadmap's Phase 1
- * (docs/Pramnos_LLM_Analyst_Guide.md "## Voice"). Chrome/Chromium carries recognition through
+ * browser's native Web Speech API (docs/Pramnos_LLM_Analyst_Guide.md "## Voice") — or, given
+ * `server`, read aloud by the application's speech server, a sentence at a time. Chrome/Chromium carries recognition through
  * Google's speech service; Firefox has none.
  *
  * `window.PfVoice.createVoiceState()` returns one controller — dictation start/stop/toggle,
@@ -301,13 +301,63 @@
     }
 
     /**
+     * A text cut into sentences to be read one at a time — after `.`, `!`, `?`, `;` (the Greek
+     * question mark, either code point), `·` (the ano teleia, either) and `…` followed by a space. A piece shorter than `min` goes with the
+     * next, so no request is a single word; one longer than `max` is cut at its last comma or
+     * space before it, so none takes long to synthesise.
+     *
+     * @param {string} text
+     * @param {{ min?: number, max?: number }} [options]
+     * @returns {string[]}
+     */
+    function splitSentences(text, options) {
+        var opts = options || {};
+        var min = opts.min || 20;
+        var max = opts.max || 250;
+        var pieces = String(text || '').split(/(?<=[.!?;;··…])\s+/);
+        var out = [];
+        var held = '';
+        pieces.forEach(function (piece) {
+            held = held ? held + ' ' + piece : piece;
+            while (held.length > max) {
+                var cut = Math.max(held.lastIndexOf(', ', max - 1), held.lastIndexOf(' ', max - 1));
+                cut = cut > 0 ? cut + 1 : max;
+                out.push(held.slice(0, cut).trim());
+                held = held.slice(cut).trim();
+            }
+            if (held.length >= min) {
+                out.push(held.trim());
+                held = '';
+            }
+        });
+        if (held.trim()) {
+            if (out.length && held.length < min && out[out.length - 1].length + held.length < max) {
+                out[out.length - 1] += ' ' + held.trim();
+            } else {
+                out.push(held.trim());
+            }
+        }
+        return out.filter(function (s) { return s !== ''; });
+    }
+
+    /**
      * One voice controller: dictation, read-aloud, voice picking, barge-in. Plain object with
      * getters/setters — no reactivity framework assumed, so it works equally from a vanilla
      * `pf-chat.js` wiring or a Svelte/React component that reads its properties itself.
      *
+     * With `options.server` — a function from a sentence to a Promise of its audio, a `Blob` or
+     * the speech API's `{audio, type}` — read-aloud is the application's speech server's: the
+     * text is read a sentence at a time, the next one fetched while the one before it plays, so
+     * the first is heard as soon as it alone is ready. Should the first fail (no server set up,
+     * the network), the browser's own voice reads the text instead.
+     *
+     * @param {{ server?: function(string): Promise<Blob|{audio: string, type: string}> }} [options]
      * @returns {object}
      */
-    function createVoiceState() {
+    function createVoiceState(options) {
+        var server = options && typeof options.server === 'function' ? options.server : null;
+        var serverRun = 0;
+        var currentAudio = null;
         var dictating = false;
         var interim = '';
         var dictationError = null;
@@ -589,7 +639,115 @@
             }
         }
 
+        /** Read aloud through the speech server, a sentence at a time; see createVoiceState(). */
+        function speakOnServer(id, rawText, opts) {
+            var cleaned = stripMarkdownForSpeech(rawText, { gender: opts.gender || assistantGender || 'female', concise: opts.concise });
+            var parts = splitSentences(cleaned);
+            if (!parts.length) {
+                return false;
+            }
+            var run = ++serverRun;
+            var fetched = [];
+            var started = false;
+
+            /** The audio of one sentence as an address to play, asked for once. */
+            function fetchPart(i) {
+                if (i < parts.length && !fetched[i]) {
+                    fetched[i] = Promise.resolve().then(function () { return server(parts[i]); }).then(function (got) {
+                        if (got && typeof got.audio === 'string') {
+                            return 'data:' + (got.type || 'audio/wav') + ';base64,' + got.audio;
+                        }
+                        return window.URL.createObjectURL(got);
+                    });
+                }
+                return fetched[i];
+            }
+
+            function release(src) {
+                if (String(src).indexOf('blob:') === 0 && window.URL.revokeObjectURL) {
+                    window.URL.revokeObjectURL(src);
+                }
+            }
+
+            function finished(err) {
+                if (run !== serverRun) {
+                    return;
+                }
+                currentAudio = null;
+                speaking = false;
+                speakingId = null;
+                currentlySpeakingText = '';
+                paused = false;
+                lastSpeechEndTime = Date.now();
+                stopDictation();
+                if (err && opts.onError) {
+                    opts.onError(err);
+                } else if (!err && opts.onEnd) {
+                    opts.onEnd();
+                }
+            }
+
+            function play(i) {
+                if (run !== serverRun) {
+                    return;
+                }
+                if (i >= parts.length) {
+                    finished(null);
+                    return;
+                }
+                fetchPart(i).then(function (src) {
+                    if (run !== serverRun) {
+                        release(src);
+                        return undefined;
+                    }
+                    fetchPart(i + 1);
+                    var audio = new window.Audio(src);
+                    currentAudio = audio;
+                    audio.onended = function () { release(src); play(i + 1); };
+                    audio.onerror = function (err) { release(src); finished(err || new Error('audio')); };
+                    if (!started) {
+                        started = true;
+                        if (opts.onStart) {
+                            opts.onStart();
+                        }
+                    }
+                    return audio.play();
+                }).catch(function (err) {
+                    if (run !== serverRun) {
+                        return;
+                    }
+                    if (i === 0 && hasSynthesis) {
+                        // No sentence was heard: the browser's own voice reads the text instead.
+                        serverRun++;
+                        speakWithBrowser(id, rawText, opts);
+                        return;
+                    }
+                    finished(err);
+                });
+            }
+
+            speaking = true;
+            lastSpeechEndTime = 0;
+            speakingId = id;
+            currentlySpeakingText = cleaned;
+            paused = false;
+            play(0);
+            return true;
+        }
+
         function speak(id, rawText, options) {
+            var opts = options || {};
+            if (server && typeof window.Audio === 'function') {
+                if (!opts.keepDictation) {
+                    stopDictation();
+                }
+                stopSpeech();
+                return speakOnServer(id, rawText, opts);
+            }
+            return speakWithBrowser(id, rawText, opts);
+        }
+
+        function speakWithBrowser(id, rawText, options) {
             if (!hasSynthesis) {
                 return false;
             }
@@ -697,6 +855,13 @@
         }
 
         function stopSpeech() {
+            serverRun++;
+            if (currentAudio) {
+                currentAudio.onended = null;
+                currentAudio.onerror = null;
+                currentAudio.pause();
+                currentAudio = null;
+            }
             if (hasSynthesis) {
                 window.speechSynthesis.cancel();
             }
@@ -740,6 +905,7 @@
             refreshVoices: refreshVoices,
             hasRecognition: hasRecognition,
             hasSynthesis: hasSynthesis,
+            hasServer: server !== null,
             isChrome: isChrome,
             isFirefox: isFirefox,
             startDictation: startDictation,
@@ -757,6 +923,7 @@
         isChromeBrowser: isChromeBrowser,
         isFirefoxBrowser: isFirefoxBrowser,
         stripMarkdownForSpeech: stripMarkdownForSpeech,
+        splitSentences: splitSentences,
         detectLanguage: detectLanguage,
         getVoiceGender: getVoiceGender,
         isGreekVoice: isGreekVoice,

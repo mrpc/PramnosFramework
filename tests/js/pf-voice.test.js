@@ -280,3 +280,114 @@ test('a female persona on a male-detected voice gets a higher pitch than a match
 
     assert.ok(utter1.pitch > utter2.pitch, 'a male voice forced female needs a bigger pitch shift than an already-female voice');
 });
+
+/**
+ * A fake Audio element: records what it plays; a test ends it by calling `onended`.
+ *
+ * @param {object[]} played Every element created, in order
+ */
+function fakeAudio(played) {
+    return function FakeAudio(src) {
+        this.src = src;
+        this.paused = false;
+        this.play = () => Promise.resolve();
+        this.pause = () => { this.paused = true; };
+        played.push(this);
+    };
+}
+
+/** Wait for every queued promise callback to run. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test('splitSentences cuts at sentence ends, Greek ones too, keeps pieces neither tiny nor long', () => {
+    const { window } = page();
+    const { splitSentences } = window.PfVoice;
+
+    // Arrange — a Greek question mark (;) and ano teleia (·), and a one-word sentence
+    const text = 'Καλημέρα σε όλους εδώ μέσα. Ναι. Τι κάνεις σήμερα το πρωί; Όλα καλά· πάμε παρακάτω!';
+
+    // Act
+    const parts = splitSentences(text);
+
+    // Assert — "Ναι." is too short alone and goes with the next sentence
+    assert.deepEqual([...parts], ['Καλημέρα σε όλους εδώ μέσα.', 'Ναι. Τι κάνεις σήμερα το πρωί;', 'Όλα καλά· πάμε παρακάτω!']);
+    // A sentence over max is cut at a comma or space, never mid-word
+    const long = splitSentences('λέξη, '.repeat(80).trim(), { max: 100 });
+    assert.ok(long.length > 1 && long.every((p) => p.length <= 100), 'every piece within max');
+    assert.ok(long.every((p) => /^λέξη/.test(p)), 'no word cut in two');
+    assert.deepEqual([...splitSentences('')], []);
+});
+
+test('with a server, speak() reads a sentence at a time, fetching the next while one plays', async () => {
+    // Arrange
+    const { window } = page();
+    const played = [];
+    const asked = [];
+    window.Audio = fakeAudio(played);
+    window.URL = { createObjectURL: (b) => 'blob:' + b.name, revokeObjectURL: (u) => asked.push('revoked ' + u) };
+    const voice = window.PfVoice.createVoiceState({
+        server: (text) => { asked.push(text); return Promise.resolve(asked.length === 1 ? { audio: 'QUFB', type: 'audio/mpeg' } : { name: text.slice(0, 5) }); },
+    });
+    let ended = false;
+    let startedCount = 0;
+
+    // Act — three sentences
+    const ok = voice.speak(1, 'Η πρώτη πρόταση είναι εδώ. Η δεύτερη πρόταση ακολουθεί. Και η τρίτη στο τέλος.', {
+        onStart: () => { startedCount++; },
+        onEnd: () => { ended = true; },
+    });
+    await settle();
+
+    // Assert — the first plays as soon as it alone is ready; the second is already being fetched
+    assert.equal(ok, true);
+    assert.equal(voice.hasServer, true);
+    assert.equal(played.length, 1);
+    assert.equal(played[0].src, 'data:audio/mpeg;base64,QUFB', 'the speech API\'s {audio, type} as a data address');
+    assert.equal(asked.length, 2, 'the second fetched while the first plays');
+    assert.equal(voice.speaking, true);
+    assert.equal(voice.speakingId, 1);
+    assert.equal(window.speechSynthesis.spoken.length, 0, 'the browser\'s voice is not used');
+
+    // Act — each sentence ends; the next plays
+    played[0].onended();
+    await settle();
+    played[1].onended();
+    await settle();
+    played[2].onended();
+    await settle();
+
+    // Assert
+    assert.equal(played.length, 3);
+    assert.equal(played[1].src.indexOf('blob:'), 0, 'a Blob as an object address');
+    assert.ok(asked.includes('revoked ' + played[1].src), 'released once played');
+    assert.equal(startedCount, 1, 'onStart once, not per sentence');
+    assert.equal(ended, true);
+    assert.equal(voice.speaking, false);
+});
+
+test('with a server, stopSpeech() silences it and nothing later plays; a failing first sentence falls back to the browser', async () => {
+    // Arrange
+    const { window } = page({ voices: [{ name: 'Microsoft Athina', lang: 'el-GR', voiceURI: 'athina' }] });
+    const played = [];
+    window.Audio = fakeAudio(played);
+    window.URL = { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} };
+    let release;
+    const slow = window.PfVoice.createVoiceState({ server: () => new Promise((resolve) => { release = resolve; }) });
+    const down = window.PfVoice.createVoiceState({ server: () => Promise.reject(new Error('501')) });
+
+    // Act — stopped while the first sentence is still being fetched, and while one plays
+    slow.speak(1, 'Μια πρόταση αρκετά μεγάλη για να σταθεί. Και μια δεύτερη εξίσου μεγάλη.');
+    await settle();
+    slow.stopSpeech();
+    release({ audio: 'QQ==', type: 'audio/wav' });
+    await settle();
+    const afterStop = played.length;
+    down.speak(2, 'Δεν υπάρχει server για αυτό το κείμενο.');
+    await settle();
+
+    // Assert
+    assert.equal(afterStop, 0, 'a sentence that arrives after stop is not played');
+    assert.equal(slow.speaking, false);
+    assert.equal(window.speechSynthesis.spoken.length, 1, 'the browser read the text instead');
+    assert.equal(down.speakingId, 2);
+});

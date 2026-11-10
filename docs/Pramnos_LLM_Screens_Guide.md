@@ -56,7 +56,7 @@ One line in the application's API routes mounts every endpoint:
 | `GET /chat/reports` | the shared reports here the person may receive, with `subscribed` and `latest_run` |
 | `POST`/`DELETE /chat/routines/{id}/subscribe` | receive a shared report (`email` in the body), or stop |
 | `GET`/`POST`/`DELETE /chat/consent?feature=` | a feature's provider (`chat` by default), whether it needs agreement and whether it was given; agree; withdraw |
-| `POST /chat/speak` | read `text` aloud with the application's speech server: `audio` (base64), `type`, `bytes`; 501 with no server, 422 for an empty text or one over 5 000 characters, 502 when the server fails |
+| `POST /chat/speak` | read `text` aloud with the application's speech server: `audio` (base64), `type`, `bytes`; with `raw: true` the audio itself, under the server's `Content-Type`; 501 with no server, 422 for an empty text or one over 5 000 characters, 502 when the server fails |
 
 `speak` follows `chat` where its own path is not named: a second mount with `'chat' => '/naya'`
 reads aloud at `/naya/speak`.
@@ -67,7 +67,10 @@ A browser's own voices (`speechSynthesis`) are often missing a language — no f
 any platform, for one. `speak` reads a text with a speech server the application runs.
 `Speech\Speech::BUILT_IN` says how to reach each kind; `piper` speaks to
 [Piper](https://github.com/OHF-Voice/piper1-gpl)'s HTTP server (`python3 -m piper.http_server`),
-which answers `POST /` with a WAV file. The application names the server and the voice:
+which answers `POST /` with a WAV file — or with whatever the server returns: the type it states
+is passed on, so a server that encodes MP3 (about a seventh of the WAV's size) needs nothing
+here. Encoding belongs to the speech server, not to the web server. The application names the
+server and the voice:
 
 ```php
 'llm' => ['speech' => [
@@ -85,6 +88,19 @@ A provider of the application's own is an entry with `transport`, a `Speech\Tran
 Each call writes one line to the `speech` log: provider, voice, `chars`, `ms`, `bytes` and the
 server's `status` — enough to size the server from before scaling it. `Speech::speak($text)` reads
 a text aloud outside the API too.
+
+In the browser, `pf-voice.js` reads an answer through it a sentence at a time, fetching the next
+while one plays:
+
+```js
+const voice = window.PfVoice.createVoiceState({
+    server: (sentence) => fetch('/api/1.0/chat/speak', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: token },
+        body: JSON.stringify({ text: sentence, raw: true }),
+    }).then((r) => (r.ok ? r.blob() : Promise.reject(r.status))),
+});
+voice.speak(answerId, answerText);
+```
 
 A refusal is `{status, error}`; one for want of agreement adds `consent_required` and `provider`,
 so a screen can ask on the spot. The provider checked — whether it is set up, whether it needs

@@ -77,7 +77,8 @@ final class SpeechTest extends LlmTestCase
 
     /**
      * The same text read aloud at `/chat/speak` and, mounted again under `/naya` with only its
-     * `chat` path named, at `/naya/speak` — the audio as base64 with its type; Piper is sent the
+     * `chat` path named, at `/naya/speak` — the audio as base64 with its type, or itself with
+     * `raw`; Piper is sent the
      * text, the voice and the options; and each call is one line in the speech log with the
      * text's length, the time and the audio's size.
      */
@@ -89,6 +90,7 @@ final class SpeechTest extends LlmTestCase
         // Act
         $chat = $this->call('/chat/speak', ['text' => '  Καλημέρα  ']);
         $naya = $this->call('/naya/speak', ['text' => 'Καλημέρα'], ['chat' => '/naya']);
+        $raw  = $this->call('/chat/speak', ['text' => 'Καλημέρα', 'raw' => true]);
         rewind($this->log);
         $lines = array_values(array_filter(explode("\n", (string) stream_get_contents($this->log)), static fn (string $l): bool => str_contains($l, 'speak')));
 
@@ -99,7 +101,11 @@ final class SpeechTest extends LlmTestCase
         $this->assertSame(['audio/wav', 10], [$chat['data']['type'], $chat['data']['bytes']]);
         $this->assertSame('http://piper:5000/', $this->sent[0]['url']);
         $this->assertSame(['text' => 'Καλημέρα', 'length_scale' => 1.1, 'voice' => 'el_GR-test'], $this->sent[0]['body'], 'trimmed, with the voice and options');
-        $this->assertCount(2, $lines, 'one line per call');
+        // Raw: the audio itself, with the server's type, no base64
+        $this->assertInstanceOf(\Pramnos\Http\Response::class, $raw);
+        $this->assertSame("RIFF\0\0WAVE", $raw->getBody());
+        $this->assertSame('audio/wav', $raw->getHeaders()['Content-Type']);
+        $this->assertCount(3, $lines, 'one line per call');
         foreach (['"chars":8', '"bytes":10', '"ms":', '"voice":"el_GR-test"', '"status":200'] as $field) {
             $this->assertStringContainsString($field, $lines[0]);
         }

@@ -240,6 +240,14 @@ shared by the mic and every answer's 🔊 button:
 - `assistantGender` (`'female'|'male'|'neutral'`) and the chosen synthesis voice persist in
   `localStorage` under `pf-voice-gender` / `pf-voice-preferred` — framework-namespaced keys, not
   an application's own, since two applications can share an origin.
+- **A speech server instead of the browser's voice** — `createVoiceState({ server: fn })`, where
+  `fn(sentence)` returns a Promise of the audio: a `Blob` (from `POST {chat}/speak` with
+  `raw: true`) or the endpoint's `{audio, type}`. `speak()` then reads the text a sentence at a
+  time (`PfVoice.splitSentences()`: after `.` `!` `?` `;` `·` `…`, pieces of 20 to 250
+  characters), asking for the next sentence while one plays, so the first is heard as soon as it
+  alone is synthesised. `stopSpeech()` and barge-in silence it the same way; if the first
+  sentence fails — no server set up, the network — the browser's voice reads the text instead.
+  `hasServer` says which is in use. See the Screens guide, "Reading answers aloud", for the server.
 
 **`pf-speech-sanitizer.js`** — `window.PfSpeechSanitizer`, what makes the spoken text sound
 natural rather than spelled out or mis-gendered:

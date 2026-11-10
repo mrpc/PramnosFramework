@@ -337,19 +337,24 @@ class ChatController extends \Pramnos\Application\ApiCrudController
      * Read a text aloud — an answer, where the browser has no voice in its language — with the
      * application's speech server ({@see \Pramnos\Llm\Speech\Speech}).
      *
-     * `{"text": "…"}` → `audio` (base64), its `type` (`audio/wav`) and `bytes`. 501 where no speech
-     * server is set up, 422 for an empty or overlong text, 502 when the server fails.
+     * `{"text": "…"}` → `audio` (base64), its `type` (as the server says: `audio/wav`, `audio/mpeg`…)
+     * and `bytes`; with `"raw": true`, the audio itself, a third smaller. 501 where no speech server
+     * is set up, 422 for an empty or overlong text, 502 when the server fails — JSON either way.
      */
-    public function speak(): array
+    public function speak(): array|\Pramnos\Http\Response
     {
         if (($stop = $this->refusal('ask')) !== null) {
             return $stop;
         }
-        $spoken = \Pramnos\Llm\Speech\Speech::speak((string) ($this->input()['text'] ?? ''));
+        $input  = $this->input();
+        $spoken = \Pramnos\Llm\Speech\Speech::speak((string) ($input['text'] ?? ''));
+        if (!$spoken['ok']) {
+            return self::error($spoken['status'], $spoken['says']);
+        }
 
-        return $spoken['ok']
-            ? ['status' => 200, 'data' => ['audio' => base64_encode($spoken['audio']), 'type' => $spoken['type'], 'bytes' => strlen($spoken['audio'])]]
-            : self::error($spoken['status'], $spoken['says']);
+        return filter_var($input['raw'] ?? false, FILTER_VALIDATE_BOOLEAN)
+            ? \Pramnos\Http\Response::make($spoken['audio'])->withHeader('Content-Type', $spoken['type'])
+            : ['status' => 200, 'data' => ['audio' => base64_encode($spoken['audio']), 'type' => $spoken['type'], 'bytes' => strlen($spoken['audio'])]];
     }
 
     /** A question while the worker answers it: waiting, answered with its conversation, or failed and why. */
