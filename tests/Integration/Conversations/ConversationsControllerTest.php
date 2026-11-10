@@ -140,6 +140,8 @@ class ConversationsControllerTest extends TestCase
         $edited  = $this->ask('eleni', 'edit', $posted['body']['id'], ['body' => 'Καλημέρα σε όλους']);
         $list    = $this->ask('maria', 'messages', $id);
         $thread  = $this->ask('maria', 'messages', $id, ['thread' => $posted['body']['id']]);
+        // Opened at the reply (FW-393): the stream around its thread's start, and which it was.
+        $around  = $this->ask('maria', 'messages', $id, ['around' => $replied['body']['id']]);
         $found   = $this->ask('maria', 'search', null, ['q' => 'καλημέρα']);
         $unread  = $this->ask('maria', 'unread', $id, ['message' => $posted['body']['id']]);
         $unreadSide = $this->ask('maria', 'conversations');
@@ -171,6 +173,10 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame(':wave:', $list['body']['messages'][0]['reactions'][0]['emoji']);
         $this->assertSame(['member', 'Οι πωλήσεις'], [$list['body']['conversation']['member']['role'], $list['body']['conversation']['topic']]);
         $this->assertSame([$posted['body']['id'], $replied['body']['id'], $loud['body']['id']], array_column($thread['body']['messages'], 'id'));
+        $this->assertSame([$posted['body']['id'], $loud['body']['id']], array_column($around['body']['messages'], 'id'));
+        $this->assertSame(['messageId' => $replied['body']['id'], 'threadRootId' => $posted['body']['id']], $around['body']['around']);
+        $this->assertSame([false, false], [$around['body']['older'], $around['body']['newer']]);
+        $this->assertArrayNotHasKey('around', $list['body'], 'only an answer opened at a message says so');
         $this->assertCount(2, $found['body']['messages']);
         $this->assertSame(['mentions', true], [Conversations::member($id, $maria)['notify'], Conversations::member($id, $maria)['muted']]);
         $this->assertSame([$eleni, $maria, $this->ids['nikos']], Conversations::members($id), 'nikos joined, left, was added');

@@ -114,6 +114,7 @@ Messages::list($general);                         // the newest top-level messag
 Messages::list($general, ['before' => $oldest]);  // further back
 Messages::list($general, ['after' => $lastSeen]); // what a reconnect missed, replies too
 Messages::list($general, ['thread' => $id]);      // a thread: its root and replies
+Messages::around($general, $id);                  // opened at a message: the stream around it, with older/newer
 Conversations::markRead($general, $me, $newest);  // never back
 Conversations::markUnread($general, $me, $id);    // unread again from that message on (a reply: from its root)
 Conversations::counts($general, $me, $lastReadId); // ['unread' => …, 'mentions' => …] after a message
@@ -127,6 +128,14 @@ message stands, and two messages of the same second are told apart by id, so a p
 repeats one. What somebody has read is a message too: history written before it is not unread,
 and `markRead()` never moves back, by the same order. The index behind it is
 `idx_conversation_messages_time` (`conversationid, created_at, messageid`).
+
+**Opening at a message.** A link to a message, or a to-do from one, opens its conversation there:
+`Messages::around($id, $messageId, $limit)` gives about half the page up to the message and the
+rest after it, with `older` and `newer` saying whether there is more each way — the client then
+pages with `before` and `after` as usual. A thread's reply is shown where its thread starts, and
+`around.threadRootId` names that start, so the client opens the thread too. A message that is
+another conversation's, deleted, or none is no anchor: `around()` answers null, and
+`list($id, ['around' => …])` and the endpoint answer the newest instead.
 
 Code that orders or narrows by it uses `Messages`: `position($id)` reads where a message stands,
 `positions($ids)` many of them in one query, `standsAfter($a, $pa, $b, $pb)` compares two whose
@@ -1208,7 +1217,7 @@ described by its docblock, and it answers as it is, with its own `me()`:
 | action | method | in | out |
 |---|---|---|---|
 | `conversations` | GET | — | `{me, conversations, browse, people, avatars}`: one's own with unread, mentions and a `title`, the open ones to join, the names of the people in direct and group ones |
-| `messages/{id}` | GET | `before`, `after`, `thread`, `limit` | `{conversation, handles, members, messages, pinned, saved, draft}` — `saved`, which of these messages the reader kept; `draft`, what the reader has begun writing there (in `thread`, when asked for one) |
+| `messages/{id}` | GET | `before`, `after`, `thread`, `around`, `limit` | `{conversation, handles, members, messages, pinned, saved, draft}` — `saved`, which of these messages the reader kept; `draft`, what the reader has begun writing there (in `thread`, when asked for one); with `around` (a message id) the stream around it and `around: {messageId, threadRootId}`, `older`, `newer` — none of the three when the message is no anchor, and the newest are shown |
 | `threads` | GET | — | `{threads}`: the threads one takes part in, newest reply first — `{root, latest, replies, newReplies}` |
 | `activity` | GET | — | `{activity}`: mentions of one, reactions to what one wrote, replies in one's threads — `{kind, at, message, by, byName, emoji}` |
 | `unreads` | GET | — | `{unreads}`: every unread message, conversation by conversation |

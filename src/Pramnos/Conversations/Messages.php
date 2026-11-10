@@ -429,15 +429,23 @@ final class Messages
 
     /**
      * Messages of a conversation, oldest first: the newest top-level ones, or those before or after
-     * a message — what a reconnect missed — or a thread's replies.
+     * a message — what a reconnect missed — or a thread's replies, or those around a message
+     * ({@see around()}; the newest where it is not one of this conversation's).
      *
-     * @param array{before?: int, after?: int, thread?: int, limit?: int} $options
+     * @param array{before?: int, after?: int, thread?: int, around?: int, limit?: int} $options
      * @return list<array<string, mixed>> Each with its reactions, files, pinned and HTML
      */
     public static function list(int $conversationId, array $options = []): array
     {
         $db    = Conversations::db();
         $limit = max(1, min(self::MAX_LIST, (int) ($options['limit'] ?? 50)));
+        if (isset($options['around'])) {
+            $around = self::around($conversationId, (int) $options['around'], $limit);
+            if ($around !== null) {
+                return $around['messages'];
+            }
+            unset($options['around']);
+        }
         $query = $db->queryBuilder()->table('chat.conversation_messages')->select(['*', Instant::unix($db, 'created_at', 'at_unix')])
             ->where('conversationid', $conversationId);
         if (isset($options['thread'])) {
@@ -458,6 +466,45 @@ final class Messages
         }
 
         return self::present(array_map(self::row(...), $rows));
+    }
+
+    /**
+     * The conversation's stream around a message — a link to it, a to-do from it — so it opens
+     * there, not at the newest: about half the page up to it and the rest after, in the stream's
+     * order. A thread's reply is shown where its thread starts, and `threadRootId` says so, for
+     * the client to open the thread too.
+     *
+     * Null for a message that is not this conversation's, deleted, or none: the caller shows the
+     * newest instead.
+     *
+     * @return array{messages: list<array<string, mixed>>, around: array{messageId: int, threadRootId: ?int}, older: bool, newer: bool}|null
+     */
+    public static function around(int $conversationId, int $messageId, int $limit = 50): ?array
+    {
+        $message = $messageId > 0 ? self::get($messageId) : null;
+        if ($message === null || $message['conversationId'] !== $conversationId || $message['deletedAt'] !== null) {
+            return null;
+        }
+        // A reply also sent to the conversation stands in the stream itself.
+        $root   = $message['threadRootId'] !== null && !$message['broadcast'] ? $message['threadRootId'] : null;
+        $anchor = $root ?? $messageId;
+        $limit  = max(1, min(self::MAX_LIST, $limit));
+        $before = intdiv($limit - 1, 2);          // with the anchor, about half
+        $after  = $limit - 1 - $before;
+        $db       = Conversations::db();
+        $position = self::position($anchor);
+        $stream   = static fn () => self::inStream($db->queryBuilder()->table('chat.conversation_messages')
+            ->select(['*', Instant::unix($db, 'created_at', 'at_unix')])->where('conversationid', $conversationId));
+        // One more than shown each way says whether there are more.
+        $older = self::inOrder(self::beyondPosition($stream(), $anchor, $position, false), 'desc')->limit($before + 1)->getAllOrFail();
+        $newer = self::inOrder(self::beyondPosition($stream(), $anchor, $position))->limit($after + 1)->getAllOrFail();
+        $self  = $db->queryBuilder()->table('chat.conversation_messages')->select(['*', Instant::unix($db, 'created_at', 'at_unix')])
+            ->where('messageid', $anchor)->limit(1)->getAllOrFail();
+        $rows  = [...array_reverse(array_slice($older, 0, $before)), ...$self, ...array_slice($newer, 0, $after)];
+
+        return ['messages' => self::present(array_map(self::row(...), $rows)),
+            'around' => ['messageId' => $messageId, 'threadRootId' => $root],
+            'older' => count($older) > $before, 'newer' => count($newer) > $after];
     }
 
     /**

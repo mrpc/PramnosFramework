@@ -293,6 +293,63 @@ class ConversationsTest extends TestCase
     }
 
     /**
+     * A conversation opened at a message — a link to it, a to-do from it — shows the stream around
+     * it, not the newest page, and says whether there is more each way (FW-393).
+     *
+     * About half the page up to the message and the rest after, in the stream's order; a thread's
+     * reply is shown where its thread starts, and named, so the client opens the thread too. A
+     * message of another conversation, deleted, or none is no anchor: the newest are shown.
+     */
+    #[DataProvider('databases')]
+    public function testAConversationOpensAroundAMessage(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — twelve messages; a thread on the third; another conversation's message
+        $this->boot($type, $host, $port, $user);
+        $this->team();
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        $general = Conversations::create('channel', 'general', [$maria], $eleni);
+        $other   = Conversations::create('channel', 'other', [$maria], $eleni);
+        $ids     = [];
+        for ($i = 1; $i <= 12; $i++) {
+            $ids[$i] = Messages::post($general, $i % 2 ? $eleni : $maria, 'μήνυμα ' . $i);
+        }
+        $reply   = Messages::post($general, $maria, 'στο νήμα', ['thread' => $ids[3]]);
+        $elsewhere = Messages::post($other, $eleni, 'αλλού');
+        $gone    = Messages::post($general, $eleni, 'θα σβηστεί');
+        Messages::delete($gone, $this->user('eleni'));
+        $newest  = array_column(Messages::list($general, ['limit' => 6]), 'id');
+
+        // Act
+        $middle  = Messages::around($general, $ids[7], 6);
+        $early   = Messages::around($general, $ids[2], 6);
+        $last    = Messages::around($general, $ids[12], 6);
+        $threaded = Messages::around($general, $reply, 6);
+        $listed  = array_column(Messages::list($general, ['around' => $ids[7], 'limit' => 6]), 'id');
+        $foreign = array_column(Messages::list($general, ['around' => $elsewhere, 'limit' => 6]), 'id');
+
+        // Assert — two before, the message, three after
+        $this->assertSame([$ids[5], $ids[6], $ids[7], $ids[8], $ids[9], $ids[10]], array_column($middle['messages'], 'id'));
+        $this->assertSame(['messageId' => $ids[7], 'threadRootId' => null], $middle['around']);
+        $this->assertSame([true, true], [$middle['older'], $middle['newer']]);
+        // Near the start there is less before, and nothing older.
+        $this->assertSame([$ids[1], $ids[2], $ids[3], $ids[4], $ids[5]], array_column($early['messages'], 'id'));
+        $this->assertSame([false, true], [$early['older'], $early['newer']]);
+        // The newest: nothing newer (the deleted one is in the stream, shown as deleted).
+        $this->assertSame([$ids[10], $ids[11], $ids[12], $gone], array_column($last['messages'], 'id'));
+        $this->assertFalse($last['newer']);
+        // A reply: the stream around its thread's start, which is named.
+        $this->assertSame(['messageId' => $reply, 'threadRootId' => $ids[3]], $threaded['around']);
+        $this->assertContains($ids[3], array_column($threaded['messages'], 'id'));
+        $this->assertNotContains($reply, array_column($threaded['messages'], 'id'), 'a reply is in its thread, not the stream');
+        $this->assertSame(array_column($middle['messages'], 'id'), $listed, 'list() with around gives the same messages');
+        // No anchor: another conversation's, deleted, none — the newest are shown.
+        $this->assertNull(Messages::around($general, $elsewhere));
+        $this->assertNull(Messages::around($general, $gone));
+        $this->assertNull(Messages::around($general, 0));
+        $this->assertSame($newest, $foreign);
+    }
+
+    /**
      * History brought in from another system is written as it was, through the public API, with no
      * table touched by the application: a message found again by where it came from, never written
      * twice; when it was written and last changed; a writer with no account here shown by name as

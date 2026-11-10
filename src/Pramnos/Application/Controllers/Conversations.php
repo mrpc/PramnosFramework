@@ -225,7 +225,7 @@ class Conversations extends Controller
         });
     }
 
-    /** A conversation's messages: the newest, further back, what came after, or a thread. */
+    /** A conversation's messages: the newest, further back, what came after, a thread, or `around` a message. */
     public function messages(): mixed
     {
         return $this->answer(function (object $me): array {
@@ -235,13 +235,16 @@ class Conversations extends Controller
             }
             $options = array_filter(['before' => $this->in('before'), 'after' => $this->in('after'), 'thread' => $this->in('thread'),
                 'limit' => $this->in('limit')], static fn ($v): bool => $v !== null && $v !== '');
+            // `around`: opened at a message — a link to it, a to-do from it — rather than at the newest.
+            $around = $this->in('around') !== null && $this->in('around') !== ''
+                ? Messages::around($id, (int) $this->in('around'), (int) ($options['limit'] ?? 50)) : null;
 
             $members = Store::members($id);
             $names   = \Pramnos\Conversations\People::names($members);
             $asleep  = \Pramnos\Conversations\People::inactive($members);
             $faces   = \Pramnos\Conversations\People::avatars($members, $me);
 
-            $messages = Messages::list($id, array_map('intval', $options));
+            $messages = $around['messages'] ?? Messages::list($id, array_map('intval', $options));
 
             return ['conversation' => Store::get($id) + ['member' => Store::member($id, (int) $me->userid)],
                 // The handles its composer offers the reader: `@here`, `@channel`, `@everyone` in the general one, the groups — those they may use.
@@ -253,7 +256,8 @@ class Conversations extends Controller
                 'saved' => Inbox::savedIds((int) $me->userid, array_column($messages, 'id')),
                 // The reader's "✓ to-do added" marks.
                 'todos' => \Pramnos\Todos\Chat::messageIds((int) $me->userid, array_column($messages, 'id')),
-                'draft' => \Pramnos\Conversations\Drafts::get((int) $me->userid, $id, isset($options['thread']) ? (int) $options['thread'] : null)];
+                'draft' => \Pramnos\Conversations\Drafts::get((int) $me->userid, $id, isset($options['thread']) ? (int) $options['thread'] : null)]
+                + ($around === null ? [] : ['around' => $around['around'], 'older' => $around['older'], 'newer' => $around['newer']]);
         });
     }
 
