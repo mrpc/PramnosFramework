@@ -47,6 +47,28 @@ final class MarkdownTest extends TestCase
                 '<p>Ανά πυλώνα:</p><div class="pf-conv-table"><table><thead><tr><th>Πυλώνας</th><th style="text-align:center">Επαγγελματίες</th><th style="text-align:right">%</th></tr></thead>'
                 . '<tbody><tr><td><strong>Φύλαξη</strong></td><td style="text-align:center">1.204</td><td style="text-align:right">61</td></tr>'
                 . '<tr><td>Κατοικίδια</td><td style="text-align:center">88</td></tr></tbody></table></div><p>τέλος</p>'],
+            // Drawn with lines (FW-394): a terminal's or a model's box, a cell over two lines joined,
+            // the text around it kept; ASCII's, ruled under the heading, a | in a cell kept in it.
+            'a drawn table'         => [implode("\n", [
+                'Το ιστορικό:',
+                '┌────────────┬──────────────────────────┐',
+                '│    Πότε    │         Τι έγινε         │',
+                '├────────────┼──────────────────────────┤',
+                '│ 5/11 15:26 │ Αγοράζει Premium Ετήσιο  │',
+                '├────────────┼──────────────────────────┤',
+                '│ 6/11 17:28 │ Η thvasileiou την        │',
+                '│            │ ξαναβάζει εξακριβωμένη   │',
+                '└────────────┴──────────────────────────┘',
+                'τέλος',
+            ]), '<p>Το ιστορικό:</p><div class="pf-conv-table"><table><thead><tr><th>Πότε</th><th>Τι έγινε</th></tr></thead>'
+                . '<tbody><tr><td>5/11 15:26</td><td>Αγοράζει Premium Ετήσιο</td></tr><tr><td>6/11 17:28</td><td>Η thvasileiou την ξαναβάζει εξακριβωμένη</td></tr></tbody></table></div><p>τέλος</p>'],
+            'an ascii table'        => ["+----+-------+\n| id | name  |\n+----+-------+\n| 1  | a|b   |\n| 2  | c     |\n+----+-------+",
+                '<div class="pf-conv-table"><table><thead><tr><th>id</th><th>name</th></tr></thead><tbody><tr><td>1</td><td>a|b</td></tr><tr><td>2</td><td>c</td></tr></tbody></table></div>'],
+            // A line shifted off the rule (a wide character) is split at its bars instead.
+            'a shifted line'        => ["┌───┬───┐\n│ α │ β │\n├───┼───┤\n│ 👍👍 │ γ │\n└───┴───┘",
+                '<div class="pf-conv-table"><table><thead><tr><th>α</th><th>β</th></tr></thead><tbody><tr><td>👍👍</td><td>γ</td></tr></tbody></table></div>'],
+            'one drawn line'        => ['│ just one │', '<p>│ just one │</p>'],
+            'drawn, but in code'    => ["```\n+---+\n| a |\n| b |\n+---+\n```", '<pre class="pf-conv-code"><code>+---+' . "\n" . '| a |' . "\n" . '| b |' . "\n" . '+---+</code></pre>'],
             'pipes but no table'    => ["a | b\nc | d", '<p>a | b<br>c | d</p>'],
             'a chart that is not'   => ["```chart\n{\"type\":\"radar\"}\n```", '<pre class="pf-conv-code"><code>{&quot;type&quot;:&quot;radar&quot;}</code></pre>'],
             'a link'                => ['[Jira](https://jira.example/NAN-1)', '<p><a href="https://jira.example/NAN-1" target="_blank" rel="noopener noreferrer nofollow">Jira</a></p>'],

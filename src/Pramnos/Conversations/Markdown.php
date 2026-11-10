@@ -16,6 +16,7 @@ namespace Pramnos\Conversations;
  * | `- item`, `1. item`             | a list                                  |
  * | `> quoted`                      | a quote                                 |
  * | `| a | b |` then `|---|:-:|`     | a table — `:-:` centred, `--:` to the right; it scrolls when wide |
+ * | a table drawn with lines, `┌─┬─┐ │ a │ b │` or `+---+ | a |` | the same table |
  * | `<@48211>`                      | @ and the person's name                 |
  * | `@here`, `@channel`, `@everyone`, a group's `@name` (and `@all`, `@online`) | the mention, marked ({@see Handles}) |
  * | `#user:48211`, `NAN-6212`       | a reference, marked for a card ({@see Messages::refs()}) |
@@ -63,6 +64,7 @@ final class Markdown
             return "\x01" . (count($blocks) - 1) . "\x01";
         }, $text);
 
+        $text  = self::drawnTables($text);
         $html  = [];
         $list  = null;
         $quote = [];
@@ -144,7 +146,101 @@ final class Markdown
     /** @return list<string> A table row's cells */
     private static function cells(string $line): array
     {
-        return array_map('trim', explode('|', trim(trim($line), '|')));
+        // A `|` a drawn table had inside a cell is kept as \x03 until here, so it splits nothing.
+        return array_map(static fn (string $c): string => str_replace("\x03", '|', trim($c)), explode('|', trim(trim($line), '|')));
+    }
+
+    /** A drawn table's rule: a corner or a side's crossing at each end, lines and crossings between. */
+    private const BORDER = '/^\s*[┌├└╒╞╘╓╟╙╔╠╚┏┣┗+][─━═┄┅╌╍\-=┬┼┴╤╪╧╥╫╨╦╬╩┳╋┻+:\s]*[┐┤┘╕╡╛╖╢╜╗╣╝┓┫┛+]\s*$/u';
+
+    /** A drawn table's line of cells: a bar at each end. */
+    private const ROW = '/^\s*[│║┃|].*[│║┃|]\s*$/u';
+
+    /** Where a rule's columns part. */
+    private const JUNCTIONS = '┌┬┐├┼┤└┴┘╒╤╕╞╪╡╘╧╛╓╥╖╟╫╢╙╨╜╔╦╗╠╬╣╚╩╝┏┳┓┣╋┫┗┻┛+';
+
+    /**
+     * A table drawn with lines — a terminal's or a model's (`┌─┬─┐ │ a │ b │ └─┴─┘`), or ASCII's
+     * (`+---+ | a |`) — as the table this markdown knows, so it shows as a table, not a wall of
+     * lines; the text around it stays.
+     *
+     * A block of only rules and lines of cells is one when it has a rule and two such lines. Its
+     * columns part where the rule crosses, so a `|` written in a cell stays in it; a line not as long
+     * as the rule (a wide emoji shifted it) is split at its bars instead. The first row is the
+     * heading. A row drawn over several lines is one row, its pieces joined; a table ruled only
+     * under its heading has a row a line.
+     */
+    private static function drawnTables(string $text): string
+    {
+        $lines = preg_split('/\r\n?|\n/', $text) ?: [];
+        $out   = [];
+        for ($i = 0, $count = count($lines); $i < $count;) {
+            $end = $i;
+            while ($end < $count && (preg_match(self::BORDER, $lines[$end]) === 1 || preg_match(self::ROW, $lines[$end]) === 1)) {
+                $end++;
+            }
+            $table = $end > $i ? self::tableOf(array_slice($lines, $i, $end - $i)) : null;
+            if ($table !== null) {
+                array_push($out, ...$table);
+                $i = $end;
+            } else {
+                $out[] = $lines[$i];
+                $i++;
+            }
+        }
+
+        return implode("\n", $out);
+    }
+
+    /**
+     * One drawn block as markdown's table lines; null when it is no table.
+     *
+     * @param list<string> $block
+     * @return list<string>|null
+     */
+    private static function tableOf(array $block): ?array
+    {
+        $isRule = static fn (string $l): bool => preg_match(self::BORDER, $l) === 1;
+        $rules  = array_values(array_filter($block, $isRule));
+        if ($rules === [] || count(array_filter($block, static fn (string $l): bool => preg_match(self::ROW, $l) === 1 && !preg_match(self::BORDER, $l))) < 2) {
+            return null;
+        }
+        $rule  = mb_str_split($rules[0]);
+        $cuts  = array_keys(array_filter($rule, static fn (string $ch): bool => str_contains(self::JUNCTIONS, $ch)));
+        $cells = static function (string $line) use ($rule, $cuts): array {
+            $chars = mb_str_split($line);
+            $parts = count($chars) === count($rule) && count($cuts) > 1
+                ? array_map(static fn (int $at, int $next): string => implode('', array_slice($chars, $at + 1, $next - $at - 1)), array_slice($cuts, 0, -1), array_slice($cuts, 1))
+                : (preg_split('/[│║┃|]/u', mb_substr(trim($line), 1, -1)) ?: []);
+
+            return array_map(static fn (string $c): string => str_replace('|', "\x03", trim($c)), $parts);
+        };
+        $groups = [];
+        $group  = [];
+        foreach ($block as $line) {
+            if ($isRule($line)) {
+                if ($group !== []) {
+                    $groups[] = $group;
+                }
+                $group = [];
+            } else {
+                $group[] = $cells($line);
+            }
+        }
+        if ($group !== []) {
+            $groups[] = $group;
+        }
+        // Ruled under the heading only: each line after it a row. Ruled between rows: each group one
+        // row, a cell's pieces joined.
+        $rows = count($groups) === 2 && count($groups[1]) > 1 && count($groups[0]) === 1
+            ? [$groups[0][0], ...$groups[1]]
+            : array_map(static fn (array $g): array => array_map(
+                static fn (int $col): string => implode(' ', array_filter(array_map(static fn (array $l): string => $l[$col] ?? '', $g), static fn (string $p): bool => $p !== '')),
+                array_keys($g[0])), $groups);
+        $width = max(array_map('count', $rows));
+        $line  = static fn (array $cells): string => '| ' . implode(' | ', array_map(static fn (int $c): string => $cells[$c] ?? '', range(0, $width - 1))) . ' |';
+
+        return [$line($rows[0]), '|' . implode('|', array_fill(0, $width, '---')) . '|', ...array_map($line, array_slice($rows, 1))];
     }
 
     /**

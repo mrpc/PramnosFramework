@@ -225,6 +225,14 @@ everything before it, for its writer.
 sideways when wider than the message, styled as Ask's) and `:shortcode:` emoji. Everything is escaped first — a writer's HTML is shown as text, and only
 http(s) and mailto links are made.
 
+A table **drawn with lines** — a terminal's or a model's `┌─┬─┐ │ a │ b │ └─┴─┘`, or ASCII's
+`+---+ | a |` — shows as the same table, wherever the message came from (pasted, an analyst's
+answer, the API, an import). A block of only rules and lines of cells is one when it has a rule and
+two lines of cells; the text around it stays as it is, and one inside a fenced block stays code. Its
+columns part where the rule crosses, so a `|` written in a cell stays in it; a line not as long as
+the rule is split at its bars instead. The first row is the heading, a row drawn over several lines
+is one row, and a table ruled only under its heading has a row a line.
+
 **Mentions.** A person is written `<@id>` — what a composer writes for a chosen name, and what an
 import writes — and shown as `@` and their name, so a name can change without a message changing.
 Each mention is a row, and an event.
