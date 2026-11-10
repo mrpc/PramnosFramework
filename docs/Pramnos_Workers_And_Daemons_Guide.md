@@ -553,6 +553,12 @@ php pramnos spool:drain             # write everything buffered
 php pramnos spool:drain --status    # how much is waiting, and where
 ```
 
+**Drains at once write each row once.** A drain renames the file it takes and holds a lock on
+it while it reads, and a drain that finds a file held passes it by. The scheduler's every-minute
+drain and a long one of a migration's can therefore run together. A file whose drain died is
+held by nobody, so the next drain takes it again. Redis lists are renamed atomically, so only
+one drain ever has one.
+
 ### Rows that can never be written
 
 A spool is a promise to write a row **later**, and later can arrive after the row stopped

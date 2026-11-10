@@ -890,6 +890,27 @@ class WriteSpool
                 continue;
             }
 
+            /*
+             * Held, while it is read: a file another drain is reading is passed by. A working
+             * file left behind is taken again only when nobody holds it — its drain died, and the
+             * lock died with it. Without this a second drain started while the first was reading
+             * (`spool:drain` every minute, beside a long one of a migration's) read the same
+             * file, and every row was written twice: 113,536 of them, on one installation.
+             *
+             * And still there once held: the drain before may have finished it between our open
+             * and our lock. It removes the file before letting go, so a file that is gone is done.
+             */
+            if (!flock($handle, LOCK_EX | LOCK_NB)) {
+                fclose($handle);
+                continue;
+            }
+            clearstatcache(true, $working);
+            if (!is_file($working)) {
+                flock($handle, LOCK_UN);
+                fclose($handle);
+                continue;
+            }
+
             // Streamed, a batch at a time. Reading the whole file into an array
             // first costs memory proportional to the backlog: a 100 MB spool
             // measured at 130 MB peak, which on a default `memory_limit` is a
@@ -921,8 +942,6 @@ class WriteSpool
                 $written += static::writeBatch($table, $batch, $stats, $failed, $reporter);
             }
 
-            fclose($handle);
-
             if ($written > 0 || $failed !== [] || $stats['parked'] > $parkedBefore) {
                 $parked = $stats['parked'] - $parkedBefore;
                 static::report(
@@ -939,7 +958,10 @@ class WriteSpool
             // replay every row that already landed, on every run, for as long as
             // one bad row stayed in it.
             static::requeue($table, $failed);
+            // Removed before the lock goes: a drain waiting for it finds it gone, not unread.
             @unlink($working);
+            flock($handle, LOCK_UN);
+            fclose($handle);
         }
     }
 

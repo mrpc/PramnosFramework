@@ -365,6 +365,85 @@ class WriteSpoolTest extends TestCase
     }
 
     /**
+     * A working file another drain is reading is passed by — its rows are not written twice —
+     * and is taken again once nobody holds it, as when its drain died: written once, and gone.
+     *
+     * A second drain started while the first was reading (the scheduler's `spool:drain` every
+     * minute, beside a long one of a migration's) took the `.draining` file as left behind and
+     * read it too: every row twice, 113,536 of them on one installation.
+     */
+    public function testAFileAnotherDrainIsReadingIsNotReadTwice(): void
+    {
+        // Arrange — rows spooled, and a drain that has taken the file and is reading it
+        TestableWriteSpool::$redisUp = false;
+        foreach ([1, 2, 3] as $id) {
+            TestableWriteSpool::append('readings', ['id' => $id]);
+        }
+        $spool   = $this->files()[0];
+        $working = $spool . '.4242.abcdef.draining';
+        rename($spool, $working);
+        $other = fopen($working, 'rb');
+        flock($other, LOCK_EX);
+
+        // Act — a second drain meanwhile, then the first lets go without finishing (it died)
+        $during = TestableWriteSpool::drain();
+        flock($other, LOCK_UN);
+        fclose($other);
+        $after = TestableWriteSpool::drain();
+        $again = TestableWriteSpool::drain();
+
+        // Assert
+        $this->assertSame(0, $during['written'], 'held by another drain: passed by');
+        $this->assertSame(3, $after['written'], 'nobody holds it any more: taken, once');
+        $this->assertSame(0, $again['written']);
+        $this->assertSame([1, 2, 3], array_map(static fn (array $w): int => $w['row']['id'], TestableWriteSpool::$written), 'each row once');
+        $this->assertSame([], $this->files());
+    }
+
+    /**
+     * Two drains at once in two processes, over one large file: every row is written once.
+     */
+    public function testTwoDrainsAtOnceWriteEveryRowOnce(): void
+    {
+        if (!function_exists('pcntl_fork')) {
+            $this->markTestSkipped('pcntl is needed to drain from two processes.');
+        }
+        // Arrange — a large spool, and a log each process writes its rows to
+        TestableWriteSpool::$redisUp = false;
+        $lines = '';
+        for ($id = 1; $id <= 20000; $id++) {
+            $lines .= json_encode(['id' => $id]) . "\n";
+        }
+        $spool = $this->dir . '/readings.spool';
+        file_put_contents($spool, $lines);
+        rename($spool, $spool . '.1.left.draining');   // a file a previous run left behind
+        $log = $this->dir . '/written.log';
+
+        // Act — two processes drain at the same moment
+        $children = [];
+        foreach ([1, 2] as $n) {
+            $pid = pcntl_fork();
+            if ($pid === 0) {
+                TestableWriteSpool::$discard = false;
+                TestableWriteSpool::$written = [];
+                TestableWriteSpool::drain();
+                file_put_contents($log, implode("\n", array_map(static fn (array $w): int => $w['row']['id'], TestableWriteSpool::$written)) . "\n", FILE_APPEND | LOCK_EX);
+                exit(0);
+            }
+            $children[] = $pid;
+        }
+        foreach ($children as $pid) {
+            pcntl_waitpid($pid, $status);
+        }
+        $ids = array_map('intval', array_filter(explode("\n", (string) file_get_contents($log)), static fn (string $l): bool => $l !== ''));
+        unlink($log);
+
+        // Assert
+        $this->assertCount(20000, $ids, 'every row, and none twice');
+        $this->assertCount(20000, array_unique($ids));
+    }
+
+    /**
      * A line that is not a row is counted as failed rather than skipped.
      *
      * Counting it is what stops the file it came from being deleted — a
