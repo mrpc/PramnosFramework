@@ -228,6 +228,8 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\MailHypertable());
         $this->add(new \Pramnos\Console\Commands\LlmPrune());
         $this->add(new \Pramnos\Console\Commands\LlmRoutines());
+        // The analyst asked from a terminal, as an administrator: checking a fix without a browser.
+        $this->add(new \Pramnos\Console\Commands\LlmAsk());
         $this->add(new \Pramnos\Console\Commands\LlmEval());
         $this->add(new \Pramnos\Console\Commands\LlmMemoryReview());
         // Skills taken from catalogues: off until read, never updated by themselves.

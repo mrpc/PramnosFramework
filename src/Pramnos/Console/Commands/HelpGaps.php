@@ -175,6 +175,10 @@ class HelpGaps extends Command
             ->where('m.role', 'assistant')
             ->where('m.created_at', '>=', \Pramnos\Llm\CallLog::instant($since))
             ->whereLike('m.tools', '%"help"%')
+            // An answer asked from the console (`llm:ask`) is somebody checking a fix, not a gap.
+            ->where(static function ($q): void {
+                $q->whereNull('m.extra')->orWhere('m.extra', 'NOT LIKE', '%"source":"console"%');
+            })
             ->orderBy('m.message_id');
         if ($badOnly) {
             $query->where('m.rating', -1);

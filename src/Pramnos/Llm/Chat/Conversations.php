@@ -89,6 +89,9 @@ class Conversations
 
     private bool $scheduled = false;
 
+    /** Asked from the console (`llm:ask`): kept, but not learned from, and marked as such. */
+    private bool $console = false;
+
     /** @var array<string, int> What every call is marked with besides the scope: the scheduled task */
     private array $about = [];
 
@@ -131,6 +134,20 @@ class Conversations
     {
         $chat        = clone $this;
         $chat->about = ['routine_id' => $routineId];
+
+        return $chat;
+    }
+
+    /**
+     * These conversations, asked from the console (`llm:ask`) — somebody checking how the
+     * assistant answers, not the person speaking. Kept as any conversation and opened the same
+     * way; the answer is marked `extra.source = console`, so `help:gaps` leaves it out, and
+     * nothing in it is learned about the person.
+     */
+    public function fromConsole(): static
+    {
+        $chat          = clone $this;
+        $chat->console = true;
 
         return $chat;
     }
@@ -492,12 +509,12 @@ class Conversations
         $stopped = !empty($answer['over_budget']) ? 'budget' : (!empty($answer['out_of_rounds']) ? 'rounds' : null);
         $message = $this->store($conversationId, 'assistant', self::withoutMark((string) ($answer['final'] ?? $answer['reply'])),
             (array) ($answer['calls'] ?? []), $answer['cost'], $stamp, $answer['context'] ?? null,
-            array_filter(['steps' => $steps, 'stopped' => $stopped]));
+            array_filter(['steps' => $steps, 'stopped' => $stopped, 'source' => $this->console ? 'console' : null]));
         $message['artifacts'] = $artifacts->link($conversationId, (int) $message['message_id'], $turn->tags);
 
         // What the person stated, kept — once several of their messages have gathered. An answer
         // others read, or a scheduled run, is nothing of the person's to learn from.
-        if (Memory::learns() && !$turn->shared() && !$this->scheduled) {
+        if (Memory::learns() && !$turn->shared() && !$this->scheduled && !$this->console) {
             $this->tracks() ? $this->learnFrom($conversationId, $memory, $client, false) : $memory->learn($client, $asked);
         } elseif ($this->tracks()) {
             $this->mark($conversationId, ['learned_upto' => (int) $message['message_id']]);

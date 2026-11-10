@@ -98,6 +98,9 @@ class HelpGapsTest extends LlmTestCase
         $this->storedAnswer($admin, [['name' => 'help', 'arguments' => ['page' => 'billing', 'section' => 'Refunds']], ['name' => 'help', 'arguments' => ['map' => true]]]);
         $this->storedAnswer(new Scope(7, null), [['name' => 'help', 'arguments' => ['question' => 'a chat question']]]);
         $this->storedAnswer($admin, [['name' => 'help', 'arguments' => ['question' => 'an old one']]], 90);
+        // Asked from the console (`llm:ask`, FW-396): somebody checking a fix, not a gap.
+        $console = $this->storedAnswer($admin, [['name' => 'help', 'arguments' => ['question' => 'checked at the console']]]);
+        $this->db->queryBuilder()->table('assist.chat_messages')->where('message_id', $console)->update(['extra' => json_encode(['source' => 'console'])]);
 
         // Act
         $text   = $this->gaps(['--weak' => '100']);
@@ -110,6 +113,7 @@ class HelpGapsTest extends LlmTestCase
         $this->assertStringNotContainsString('Which card processors', $text, 'answered well: in none of the lists');
         $this->assertStringNotContainsString('a chat question', $golden, 'another space');
         $this->assertStringNotContainsString('an old one', $golden, 'older than --days');
+        $this->assertStringNotContainsString('checked at the console', $golden, 'asked from the console');
         $this->assertStringContainsString("    'order page' => 'billing#refunds',", $golden);
         $this->assertStringContainsString("    'zebra crossing' => '',", $golden);
     }

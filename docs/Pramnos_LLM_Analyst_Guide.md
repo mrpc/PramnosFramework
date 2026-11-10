@@ -5,6 +5,7 @@ use_cases:
   - Giving the analyst its own SQL, files to download and the application's figures
   - Keeping personal data out of what the analyst reads
   - Adding a microphone and read-aloud to the Ask AI page
+  - Checking from the console how the analyst answers after fixing a tool or the help
 ---
 
 # The administrators' analyst
@@ -50,6 +51,29 @@ page:
 ```
 
 A new project's layouts have it; a project's own header takes that line.
+
+## Asking it from the console
+
+After fixing one of its tools or a help page, ask the question again from a terminal and see what
+it does now:
+
+```bash
+php bin/pramnos llm:ask "How many parents paid in October?" --as=5
+php bin/pramnos llm:ask "And in September?" --as=5 --conversation=812
+php bin/pramnos llm:ask "…" --as=5 --json
+```
+
+It is the same analyst as `/admin/Ai`, as the administrator `--as`, with their tools and
+abilities, through the path a question from the screen takes (`Assistant::acting()`, then
+`Conversations::ask()`). It prints the answer, each tool it called with its arguments, the cost
+and the conversation with its address. The conversation is kept and opens on the screen like any
+other. Its answers are marked `extra.source = console`, so `help:gaps` leaves them out, and nothing
+in it is learned about the person (`Conversations::fromConsole()`).
+
+`mcp:call` (and a local `mcp:serve`) offers the same as the tool `ask` — `question`, `as`,
+`conversation_id` — and asks only as root or a super administrator, since every call is a paid
+answer. It is never among the tools the public MCP endpoint offers. Code calls
+`\Pramnos\Llm\Analyst\ConsoleAsk::ask($userId, $question, $conversationId)`.
 
 ## As JSON
 

@@ -263,7 +263,7 @@ help.
 
 **Where the help falls short.** Every answer of the analyst keeps the tools it called, so each
 question it put to the help is stored with that answer and the answer's rating. These are kept,
-and pruned, as the conversations are. `php bin/pramnos help:gaps` reads them, answers each
+and pruned, as the conversations are; those asked with `llm:ask` are left out. `php bin/pramnos help:gaps` reads them, answers each
 question again with the help as it is now, and lists three things, most asked first:
 - **Questions nothing answers:** a page that is missing.
 - **Questions answered below `--weak`** (2 by default): a section that needs the question among

@@ -255,6 +255,10 @@ class McpServiceProvider extends ServiceProvider
         // nothing back; the lines are on disk.
         $server->addTool(new \Pramnos\Mcp\Tools\RequestDebugTool());
 
+        // The analyst asked, as root or a super administrator: a paid answer, so here only — the
+        // console's server — and never among the tools the public endpoint offers.
+        $server->addTool(new \Pramnos\Mcp\Tools\AnalystAskTool());
+
         // The application's own: one list for its analyst and for an MCP client.
         foreach (self::applicationTools($app) as $tool) {
             if (!isset($server->getTools()[$tool->name()])) {
