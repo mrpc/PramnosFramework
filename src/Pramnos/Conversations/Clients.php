@@ -115,6 +115,25 @@ final class Clients
         return $out;
     }
 
+    /**
+     * Whether the person's client is in front now — a visible tab or a window not minimised, seen
+     * within a minute and not idle: it tells of a message itself, from the realtime connection,
+     * so no push is sent to it.
+     */
+    public static function inFront(int $userId, ?int $now = null): bool
+    {
+        $now = $now ?? time();
+        try {
+            $row = Conversations::db()->queryBuilder()->table(self::TABLE)->where('userid', $userId)->first()?->fetch();
+        } catch (\Throwable) {
+            // Before its migration has run: nobody is known to be in front.
+            return false;
+        }
+
+        return is_array($row) && (string) $row['client'] !== '' && (int) $row['front'] === 1
+            && $now - (int) $row['seenat'] <= 60 && (int) $row['idle'] < 60;
+    }
+
     /** One person's row decided: their client, or null when they are away. @param array<string, mixed> $row */
     private static function choose(array $row, int $now): ?string
     {

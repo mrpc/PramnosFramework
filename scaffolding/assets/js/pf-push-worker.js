@@ -4,8 +4,10 @@
  *
  * `push` shows what the server sent (`title`, `body`, `tag`, `url`, `data`), a notification of one
  * tag replacing the last; `silent` shows it without the system's sound (`'ifOpen'`: only while a
- * page of the site is open, hidden or not, to play its own), and `unlessFocused` not at
- * all while a window of the site is visible and focused — that page tells of it itself; `notificationclick` goes to its `url` — the page already open at that
+ * page of the site is open, hidden or not, to play its own), and `unlessFocused` only for a
+ * moment while a window of the site is visible and focused — that page tells of it itself, and
+ * a push that shows nothing is one the browser counts against the subscription (Chrome on
+ * Android cancels it after a few); `notificationclick` goes to its `url` — the page already open at that
  * address is focused and moved there, any other is left alone, and with none a window is opened,
  * which on a phone is the installed app when the address is in its scope.
  *
@@ -24,8 +26,14 @@ self.addEventListener('push', (event) => {
     event.waitUntil((async () => {
         const open = payload.unlessFocused || payload.silent === 'ifOpen'
             ? await clients.matchAll({ type: 'window', includeUncontrolled: true }) : [];
-        // A page of the site in front tells of it itself; the browser asks for no notice then.
+        // A page of the site in front tells of it itself. Something is still shown, quietly, and
+        // closed at once: a push that shows nothing is counted against the subscription, and Chrome
+        // on Android cancels one after a few.
         if (payload.unlessFocused && open.some((client) => client.visibilityState === 'visible' && client.focused)) {
+            await self.registration.showNotification(payload.title || '', { tag: 'pf-quiet', silent: true })
+                .then(() => self.registration.getNotifications({ tag: 'pf-quiet' }))
+                .then((shown) => shown.forEach((one) => one.close()))
+                .catch(() => undefined);
             return;
         }
         // Otherwise something is always shown: a push that shows nothing gets the browser's own notice instead.

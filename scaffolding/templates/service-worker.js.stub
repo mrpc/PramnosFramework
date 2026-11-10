@@ -548,13 +548,20 @@ self.addEventListener('push', (event) => {
         ? fetch(payload.data.ack, { method: 'POST', credentials: 'include' }).catch(() => undefined)
         : Promise.resolve();
 
-    // `unlessFocused` (a conversation's message): nothing while a page of the site is in front, which tells of it itself.
+    // `unlessFocused`: only for a moment while a page of the site is in front, which tells of it
+    // itself — shown quietly and closed at once, since a push that shows nothing is counted
+    // against the subscription, and Chrome on Android cancels one after a few.
     // `silent: 'ifOpen'`: quiet only while a page of the site is open, hidden or not, to play its own sound.
     const pages = payload.unlessFocused || payload.silent === 'ifOpen'
         ? self.clients.matchAll({ type: 'window', includeUncontrolled: true })
         : Promise.resolve([]);
 
-    event.waitUntil(Promise.all([receipt, pages.then((open) => payload.unlessFocused && open.some((c) => c.visibilityState === 'visible' && c.focused) ? undefined : self.registration.showNotification(title, {
+    const quietly = () => self.registration.showNotification(title, { tag: 'pf-quiet', silent: true })
+        .then(() => self.registration.getNotifications({ tag: 'pf-quiet' }))
+        .then((shown) => shown.forEach((one) => one.close()))
+        .catch(() => undefined);
+
+    event.waitUntil(Promise.all([receipt, pages.then((open) => payload.unlessFocused && open.some((c) => c.visibilityState === 'visible' && c.focused) ? quietly() : self.registration.showNotification(title, {
         body: payload.body || '',
         icon: payload.icon || sitePath('assets/img/icon-192.png'),
         badge: payload.badge || sitePath('assets/img/badge-72.png'),

@@ -274,6 +274,14 @@ class NotifyTest extends TestCase
         $push     = $notification->toPush($mariaUser);
         $via      = $notification->via($mariaUser);
         $noSub    = $notification->via($this->user('nikos'));
+        // FW-395: the client she is in, in front — it tells of the message itself, no push; behind,
+        // or in front but not seen for two minutes — pushed.
+        \Pramnos\Conversations\Clients::active($maria, 'tab-a', 0, true);
+        $inFront  = $notification->via($mariaUser);
+        \Pramnos\Conversations\Clients::active($maria, 'tab-a', 0, false);
+        $behind   = $notification->via($mariaUser);
+        \Pramnos\Conversations\Clients::active($maria, 'tab-a', 0, true, false, time() - 120);
+        $stale    = $notification->via($mariaUser);
         Application::getInstance()->applicationInfo['conversations']['notify_via'] = ['database'];
         $bellOnly = $notification->via($mariaUser);
 
@@ -283,7 +291,13 @@ class NotifyTest extends TestCase
         $this->assertSame('Ελένη Σ.: Προσοχή @Μαρία Κ., ο server', $push['body'], 'marks out, mentions by name');
         $this->assertSame('conversation-' . $ops, $push['tag'], 'a conversation\'s pushes replace one another');
         $this->assertSame(['conversationId' => $ops, 'messageId' => $id], $push['data']);
-        $this->assertSame(['ifOpen', true], [$push['silent'], $push['unlessFocused']], 'quiet while a page is open to play its own sound, and not shown while one is in front');
+        $this->assertSame('ifOpen', $push['silent'], 'quiet while a page is open to play its own sound');
+        // Never kept from showing: a push the worker shows nothing for is counted against the
+        // subscription, and another page in front is not the one told of the message.
+        $this->assertArrayNotHasKey('unlessFocused', $push);
+        $this->assertSame(['database'], $inFront, 'the client in front tells of it itself');
+        $this->assertSame(['database', 'push'], $behind);
+        $this->assertSame(['database', 'push'], $stale, 'in front, but not seen for two minutes');
         Application::getInstance()->applicationInfo['conversations']['push_silent'] = 'always';
         $always = (new ConversationNotification($id, 'mention'))->toPush($mariaUser)['silent'];
         Application::getInstance()->applicationInfo['conversations']['push_silent'] = 'never';

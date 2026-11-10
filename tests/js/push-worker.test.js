@@ -24,8 +24,14 @@ function worker(open = []) {
     const listeners = {};
     const shown = [];
     const opened = [];
+    const closed = [];
     const self = {
-        registration: { scope: 'https://app.test/chat', showNotification: async (title, options) => { shown.push({ title, options }); } },
+        registration: {
+            scope: 'https://app.test/chat',
+            showNotification: async (title, options) => { shown.push({ title, options }); },
+            // The ones shown under a tag, each closable.
+            getNotifications: async ({ tag }) => shown.filter((one) => one.options.tag === tag).map((one) => ({ close: () => closed.push(one.options.tag) })),
+        },
         addEventListener: (type, fn) => { listeners[type] = fn; },
     };
     const clients = { matchAll: async () => open, openWindow: async (url) => { opened.push(url); } };
@@ -38,7 +44,7 @@ function worker(open = []) {
         await waited;
     }
 
-    return { fire, shown, opened };
+    return { fire, shown, opened, closed };
 }
 
 /** An object made in the worker's realm, as a plain one of this realm. */
@@ -107,9 +113,13 @@ test('a click with no such page open opens one', async () => {
 
 /**
  * A conversation's push: `silent` shows it without the system's sound (the page or the app plays
- * its own), and `unlessFocused` shows nothing while a window of the site is visible and focused —
- * that page tells of the message itself — but shows it when the site is only in a hidden tab or
- * an unfocused window. Without `unlessFocused`, a focused page changes nothing.
+ * its own), and `unlessFocused` shows it only for a moment while a window of the site is visible
+ * and focused — that page tells of the message itself — but in full when the site is only in a
+ * hidden tab or an unfocused window. Without `unlessFocused`, a focused page changes nothing.
+ *
+ * "Only for a moment", not "nothing": a push that shows nothing is counted against the
+ * subscription, and Chrome on Android cancels it after a few (FW-395). So a quiet notice under a
+ * tag of its own, closed at once — never the conversation's, which may still be showing.
  */
 test('a silent push is quiet, and one unless focused waits for the site to be out of front', async () => {
     // Arrange
@@ -126,7 +136,10 @@ test('a silent push is quiet, and one unless focused waits for the site to be ou
     await approval.fire('push', { data: { json: () => ({ title: 'Νέα σύνδεση' }) } });
 
     // Assert
-    assert.equal(inFront.shown.length, 0, 'the page in front tells of it itself');
+    assert.equal(inFront.shown.length, 1, 'something is shown, so the browser counts no violation');
+    // Field by field: the options object is made in the worker's own context.
+    assert.deepEqual([inFront.shown[0].options.tag, inFront.shown[0].options.silent], ['pf-quiet', true], 'quietly, under a tag of its own');
+    assert.deepEqual(inFront.closed, ['pf-quiet'], 'and closed at once: the page in front tells of it itself');
     assert.equal(away.shown.length, 1);
     assert.equal(away.shown[0].options.silent, true, 'without the system\'s sound');
     assert.equal(approval.shown.length, 1, 'a push that does not ask is shown whatever is in front');

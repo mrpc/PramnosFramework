@@ -923,7 +923,11 @@ client is a browser tab or the desktop application. The bell is told of every me
   and `Subscriptions::tagClient()` keeps it. A subscription that names no client — from a page
   older than this — is told as before, so nobody loses a notification. If the person is in a client
   with no subscription (the desktop application), no push goes out and the push log says
-  `ELSEWHERE`. When the person is away, every subscription gets the push.
+  `ELSEWHERE`. When the person is away, every subscription gets the push. While the client the
+  person is in is in front — reported in front within the last minute, and not idle
+  (`Clients::inFront()`) — no push goes out at all: that client tells of the message itself from
+  the realtime connection, and the bell is told as always. A push it would have had to keep from
+  showing is one Chrome on Android counts against the subscription, and cancels it after a few.
 - **The realtime telling** (`conversation.activity` on the person's own channel) carries `notify`:
   the client that shows a notification, or `all`. A client shows one only when `notify` is its own
   id or `all`; a client with no id shows one always.

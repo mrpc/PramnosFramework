@@ -33,14 +33,20 @@ class ConversationNotification implements NotificationInterface
      * The bell, and a push where the person has a browser subscribed and push is switched on — of
      * those, the ones `conversations.notify_via` names.
      *
+     * No push while the client the person is in is in front ({@see Clients::inFront()}): it tells
+     * of the message itself, from the realtime connection. A push its worker then had to keep from
+     * showing would be one the browser counts against the subscription — Chrome on Android cancels
+     * a subscription after a few.
+     *
      * @return list<string>
      */
     public function via(mixed $notifiable): array
     {
         $allowed = Notify::config('notify_via');
         $allowed = is_array($allowed) ? $allowed : ['database', 'push'];
+        $person  = (int) ($notifiable->userid ?? 0);
         $push    = in_array('push', $allowed, true) && \Pramnos\Notification\Channels\PushChannel::sends()
-            && \Pramnos\Push\Subscriptions::exist((int) ($notifiable->userid ?? 0));
+            && \Pramnos\Push\Subscriptions::exist($person) && !Clients::inFront($person);
 
         return array_values(array_filter(['database', $push ? 'push' : ''], static fn (string $via): bool => $via !== '' && in_array($via, $allowed, true)));
     }
@@ -71,7 +77,8 @@ class ConversationNotification implements NotificationInterface
 
         // Quiet while a page of the site is open, which plays the conversations' own sound; with none
         // open — a phone, mostly — the system's sound (`conversations.push_silent`: ifOpen, always,
-        // never). Not shown while a page of the site is in front: it tells of the message itself.
+        // never). Never `unlessFocused`: a client in front gets no push at all (via()), and any other
+        // page in front is not the one told of the message, so it must not silence it.
         $silent = match ((string) (Conversations::settings()['push_silent'] ?? 'ifOpen')) {
             'always' => true,
             'never'  => false,
@@ -79,7 +86,7 @@ class ConversationNotification implements NotificationInterface
         };
 
         return ['title' => mb_substr($told['title'], 0, 90), 'body' => $told['text'], 'url' => $told['url'], 'tag' => 'conversation-' . $told['conversationId'],
-            'silent' => $silent, 'unlessFocused' => true,
+            'silent' => $silent,
             'data' => ['conversationId' => $told['conversationId'], 'messageId' => $this->messageId]];
     }
 

@@ -521,7 +521,8 @@ test('maxAge, the timeout and maxPages', async () => {
 /**
  * The scaffolded worker treats `silent: 'ifOpen'` as the shared push worker does: quiet while a
  * page of the site is open to play its own sound, the system's sound with none; and with
- * `unlessFocused`, nothing while a page is in front.
+ * `unlessFocused`, while a page is in front, a quiet notice closed at once — a push that shows
+ * nothing is counted against the subscription (FW-395).
  */
 test('the scaffolded worker is quiet if a page is open, and sounds with none', async () => {
     // Arrange
@@ -529,6 +530,7 @@ test('the scaffolded worker is quiet if a page is open, and sounds with none', a
         const sw = worker();
         const shown = [];
         sw.self.registration.showNotification = async (title, options) => { shown.push(options); };
+        sw.self.registration.getNotifications = async ({ tag }) => shown.filter((o) => o.tag === tag).map((o) => ({ close: () => { o.closed = true; } }));
         sw.self.clients.matchAll = async () => open;
         await sw.fire('push', { data: { json: () => payload } });
 
@@ -544,5 +546,6 @@ test('the scaffolded worker is quiet if a page is open, and sounds with none', a
     // Assert
     assert.equal(hidden[0].silent, true, 'a page open plays its own');
     assert.equal(none[0].silent, false, 'no page: the system\'s sound');
-    assert.equal(front.length, 0, 'a page in front tells of it itself');
+    assert.equal(front.length, 1, 'something is shown, so the browser counts no violation');
+    assert.deepEqual([front[0].tag, front[0].silent, front[0].closed], ['pf-quiet', true, true], 'quietly, and closed at once');
 });

@@ -802,12 +802,19 @@ Two flags of a notification's `toPush()` change how the worker shows it. The wor
   plays its own sound. `'silent' => 'ifOpen'` is quiet only while a page of the site is open,
   hidden or not, to play its own sound. With none open, which on a phone is most of the time, the
   system's sound plays.
-- **`unlessFocused`** shows nothing while a window of the site is visible and focused, because
-  that page tells of the message itself. With the site in a hidden tab, or in a window that is not
-  focused, the notification is shown. Browsers do not require a notification for a push while the
-  site's origin is focused.
+- **`unlessFocused`** shows it only for a moment while a window of the site is visible and
+  focused, because that page tells of it itself: a quiet notification under the tag `pf-quiet`,
+  closed at once. Not nothing — with `userVisibleOnly`, a push that shows no notification is
+  counted against the subscription, and Chrome on Android cancels the subscription after a few
+  (the server then gets `410` and drops it). With the site in a hidden tab, or in a window that is
+  not focused, the notification is shown in full.
 
-A conversation's message sends `silent: 'ifOpen'` and `unlessFocused`. `conversations.push_silent`
+The worker cannot tell which client a focused window is, so `unlessFocused` suits a notice any
+page of the site tells of. A notice meant for one client decides on the server instead: a
+conversation's message is not pushed at all while the client its reader is in is in front
+(`Clients::inFront()`), and is pushed in full otherwise.
+
+A conversation's message sends `silent: 'ifOpen'`. `conversations.push_silent`
 changes the first: `ifOpen` (the default), `always` or `never`. A worker copied before `ifOpen`
 existed reads it as `silent` and stays quiet until it is resynced. A notification that sends neither, such as a sign-in
 approval, is shown with the system's sound whatever is in front. An application that copied
