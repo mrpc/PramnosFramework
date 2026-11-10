@@ -74,8 +74,11 @@ final class VisitsMetrics implements Catalogue
         yield Dimension::of('signed_in', t('Signed in'))->values(['yes' => t('Yes'), 'no' => t('No')]);
         yield Dimension::of(self::areaName(), (string) (Visits::config()['dimension_label'] ?? t('Area')));
 
-        $hits = static function (string $name, string $label) {
-            $metric = Metric::flow($name, $label)->from(self::TABLE)->at('at');
+        // A month or a year of raw hits is costly to read: their open period is computed again
+        // hourly and daily, the day at every run. `metrics.refresh` or a metric's own changes it.
+        $every = (array) (Visits::config()['refresh'] ?? ['week' => '1 hour', 'month' => '1 hour', 'quarter' => '6 hours', 'year' => '1 day']);
+        $hits = static function (string $name, string $label) use ($every) {
+            $metric = Metric::flow($name, $label)->from(self::TABLE)->at('at')->refresh($every);
             foreach (self::columns() as $dimension => $column) {
                 $metric->dimension($dimension, $column);
             }
@@ -94,13 +97,13 @@ final class VisitsMetrics implements Catalogue
             ->describe(t('Hits from robots, counted apart from people'));
         yield $hits('visits.no_js', t('Pages without JavaScript'))->count()->where('flags', [2, 6, 10, 14])
             ->describe(t('Pages seen without JavaScript, robots left out, counted apart'));
-        yield Metric::flow('visits.signed_in', t('Signed-in visits'))->dimensions(array_values(array_diff($dims, ['signed_in'])))
+        yield Metric::flow('visits.signed_in', t('Signed-in visits'))->refresh($every)->dimensions(array_values(array_diff($dims, ['signed_in'])))
             ->describe(t('Visits in which the person was signed in at some page'))
             ->source(static fn (Window $w, array $by, Database $db): int|array => self::perVisit($w->startsAt(), $w->endsAt(), $by, $db, 'signed'));
-        yield Metric::flow('visits.single_page', t('Single-page visits'))->dimensions($dims)
+        yield Metric::flow('visits.single_page', t('Single-page visits'))->refresh($every)->dimensions($dims)
             ->describe(t('Visits of one page'))
             ->source(static fn (Window $w, array $by, Database $db): int|array => self::perVisit($w->startsAt(), $w->endsAt(), $by, $db, 'single'));
-        yield Metric::flow('visits.duration', t('Visit length'))->aggregate(Metric::AVG)->dimensions($dims)->unit('s')->format('duration')
+        yield Metric::flow('visits.duration', t('Visit length'))->refresh($every)->aggregate(Metric::AVG)->dimensions($dims)->unit('s')->format('duration')
             ->describe(t('The mean visit, in seconds, from its first page to its last; visits longer than 4 hours (a tab left open) are left out'))
             ->source(static fn (Window $w, array $by, Database $db): int|array => self::perVisit($w->startsAt(), $w->endsAt(), $by, $db, 'duration'));
     }

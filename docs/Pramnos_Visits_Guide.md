@@ -171,6 +171,10 @@ They break down by `visit_site`, `visit_source`, `visit_country`, `visit_device`
 say, lets one filter cover both, and the application's values win. A visit's breakdown is its
 landing page's. `'metrics' => ['visits' => false]` leaves them out.
 
+Their open periods are read from the raw hits, so they are computed less often than the day: a
+week and a month hourly, a quarter every six hours, a year daily. `visits.refresh` changes that
+(`['month' => '30 minutes']`); see [computing less often](Pramnos_Metrics_Guide.md#computing-and-closing-periods).
+
 ## The daily rollup
 
 The counts by source, country, device and the rest are kept by the metrics' store. Pages,

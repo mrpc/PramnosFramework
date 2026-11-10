@@ -251,6 +251,14 @@ FrameworkSchedule::disable('metrics:compute');
 Scheduler::command('metrics:compute')->cron('2 1,5,9,17,19,22 * * *');
 ```
 
+**A costly open period, computed less often.** By default every run computes the open period of
+every grain from the source: the open day, but also the open month and year. For a source that
+reads raw rows, a count of distinct people over a year say, that is most of the run.
+`->refresh(['month' => '1 hour', 'year' => '1 day'])` computes an open month at most hourly and
+an open year daily, while the day is computed at every run. A period that ends is closed as ever.
+`'metrics' => ['refresh' => ['month' => '1 hour']]` in app.php sets it for every metric, and a
+metric's own wins.
+
 If one metric's source throws, only that metric is skipped. The command still keeps every other
 metric, names the failed one, and exits `1`.
 

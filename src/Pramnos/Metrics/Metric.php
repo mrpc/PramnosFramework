@@ -900,6 +900,52 @@ final class Metric
         return $this->grains;
     }
 
+    /** @var array<string, int> Seconds between computings of an open period, by grain */
+    private array $refresh = [];
+
+    /**
+     * How often an open period of a grain is computed again: `->refresh(['month' => '1 hour',
+     * 'year' => '1 day'])`. Between, `metrics:compute` passes it by — its days still computed every
+     * run — and a period that ends is closed as ever. For a source that is costly over a long
+     * period: a count of distinct people over a month of raw rows, say. `metrics.refresh` in
+     * app.php sets it for every metric; the metric's own wins.
+     *
+     * @param array<string, string|int> $every By grain: an interval, or seconds
+     */
+    public function refresh(array $every): self
+    {
+        foreach ($every as $grain => $length) {
+            if (!in_array($grain, Window::GRAINS, true)) {
+                throw new \InvalidArgumentException('Grain "' . $grain . '" is not one of: ' . implode(', ', Window::GRAINS) . '.');
+            }
+            $this->refresh[$grain] = is_int($length) ? $length : self::seconds((string) $length);
+        }
+
+        return $this;
+    }
+
+    /** Seconds between computings of an open period of a grain: the metric's own, else `metrics.refresh`'s, else 0 (every run). */
+    public function refreshOf(string $grain): int
+    {
+        if (isset($this->refresh[$grain])) {
+            return $this->refresh[$grain];
+        }
+        $config = Metrics::config()['refresh'][$grain] ?? null;
+
+        return $config === null ? 0 : (is_int($config) ? $config : self::seconds((string) $config));
+    }
+
+    /** `1 hour`, `30 minutes`, `1 day` as seconds. */
+    private static function seconds(string $length): int
+    {
+        $at = strtotime('+' . ltrim(trim($length), '+'), 0);
+        if ($at === false || $at <= 0) {
+            throw new \InvalidArgumentException('"' . $length . '" is not a length of time: write it as "1 hour".');
+        }
+
+        return $at;
+    }
+
     /** The first day the source has data for: a period before it shows why, not a nought. */
     public function since(string $day): self
     {

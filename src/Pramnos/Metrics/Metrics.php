@@ -249,6 +249,15 @@ final class Metrics
             $due[]  = $window;
             $window = $window->next();
         }
+        // The open period, unless computed lately enough for how often the metric asks.
+        $every = $metric->refreshOf($grain);
+        if ($every > 0) {
+            $at = self::db()->queryBuilder()->table(Store::table($grain))->where('metric', $metric->name)->where('version', $metric->getVersion())
+                ->where('period_start', Store::instant(self::db(), $open))->max('computed_at');
+            if ($at !== null && (new \DateTimeImmutable((string) $at, new \DateTimeZone('UTC')))->getTimestamp() > $now - $every) {
+                return $due;
+            }
+        }
         $due[] = $open;
 
         return $due;

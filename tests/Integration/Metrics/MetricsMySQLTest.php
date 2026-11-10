@@ -1957,4 +1957,53 @@ class MetricsMySQLTest extends TestCase
             $other->close();
         }
     }
+
+    /**
+     * An open period of a grain the metric asks to refresh less often is passed by while it was
+     * computed lately — its days still computed every run — and computed again once the time is
+     * up; a period that ended is closed whatever. `metrics.refresh` sets it for every metric, the
+     * metric's own wins; a length that is none is refused.
+     */
+    public function testAnOpenPeriodIsComputedAsOftenAsTheMetricAsks(): void
+    {
+        // Arrange
+        $calls = [];
+        Metrics::register(Metric::flow('test.refresh', 'Costly')->grains(['day', 'month'])->refresh(['month' => '1 hour'])
+            ->source(static function (Window $w) use (&$calls): int {
+                $calls[] = $w->grain;
+
+                return 1;
+            }));
+        $now   = (int) gmmktime(10, 0, 0, 10, 15, 2026);
+        $count = static function () use (&$calls): array {
+            $by    = array_count_values($calls);
+            $calls = [];
+
+            return [$by['day'] ?? 0, $by['month'] ?? 0];
+        };
+
+        // Act
+        Metrics::compute(['test.refresh'], null, null, null, false, $now);
+        $first = $count();
+        Metrics::compute(['test.refresh'], null, null, null, false, $now + 60);
+        $soon = $count();
+        Metrics::compute(['test.refresh'], null, null, null, false, $now + 3700);
+        $later = $count();
+        Application::getInstance()->applicationInfo['metrics']['refresh'] = ['day' => '1 day'];
+        $configured = Metrics::get('test.refresh')->refreshOf('day');
+        $refused = null;
+        try {
+            Metric::flow('test.never', 'x')->refresh(['month' => 'whenever']);
+        } catch (\InvalidArgumentException $e) {
+            $refused = $e;
+        }
+
+        // Assert
+        $this->assertSame([2, 2], $first, 'the day and month just ended, closed, and the open ones');
+        $this->assertSame([1, 0], $soon, 'the open day at every run; the open month computed a minute ago: passed by');
+        $this->assertSame([1, 1], $later, 'an hour on: the month again');
+        $this->assertSame(86400, $configured, 'metrics.refresh, for a grain the metric says nothing of');
+        $this->assertSame(3600, Metrics::get('test.refresh')->refreshOf('month'), 'the metric\'s own wins');
+        $this->assertNotNull($refused);
+    }
 }
