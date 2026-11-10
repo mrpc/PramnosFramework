@@ -907,6 +907,13 @@ looking for the bare form.
 With no area configured `adminUrl('Users')` is exactly `sURL . 'Users'`, so one
 view serves an application that has an area and one that does not.
 
+**The area is the site's, whichever front controller is running.** With the site's root
+configured (`site_url` or `APP_URL`, see [`SiteUrl`](#siteurl-is-the-site-root)), the area's
+addresses are built on it rather than on `sURL`. An API served from `www/api/`, whose `sURL` ends
+in `api/`, links to `https://example.com/admin/Users`, not to `…/api/admin/Users`. That covers
+a notification, a push or a card written through the API. Without a configured root, or
+without an area, they are on `sURL` as before.
+
 **With no path it is a base, and ends in a slash** — `adminUrl()` is to the area what
 `sURL` is to the site, so `adminUrl() . 'Users'` and `adminUrl('Users')` are the same
 string. The breadcrumb partials rely on that.
@@ -1294,6 +1301,10 @@ inferred from a request — because a web request almost always infers a usable 
 `sURL` is unchanged and still right for what it is: a link to another page of the
 application served by the same front controller. Use `SiteUrl` for an address that has to
 work somewhere else — an asset, an email, a webhook payload, a feed.
+
+`assetUrl()` with no base of its own follows the file. A file found beside the running front
+controller is under `sURL`. A file found at the site's root, above it, is under the configured
+site root, so an API served from `www/api/` does not point at `…/api/assets/…`.
 
 ## Reference
 

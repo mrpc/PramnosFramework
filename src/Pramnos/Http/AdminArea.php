@@ -209,6 +209,13 @@ final class AdminArea
             return $base . $path;
         }
 
+        // The area is the site's — at its root, under the prefix — whichever front controller is
+        // running: an API served from `www/api/` has `sURL` `…/api/`, and the area is not under it.
+        // So the site's configured root, where there is one ({@see SiteUrl}).
+        if (SiteUrl::isConfigured()) {
+            $base = SiteUrl::get();
+        }
+
         // An application that is the area, served from `www/<prefix>/`, has the area's URL as
         // its `sURL` already: a second prefix would make `/admin/admin/…`.
         if (self::$served && str_ends_with(rtrim($base, '/'), '/' . self::$prefix)) {

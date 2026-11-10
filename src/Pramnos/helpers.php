@@ -292,13 +292,19 @@ if (!function_exists('assetUrl')) {
      * `project:resync --js --all`, which publishes it.
      *
      * @param  string      $path Path under the web root, e.g. `assets/js/pf-auth.js`
+     * Omitting `$base`, a file found beside the front controller is under `sURL`; one found at the
+     * site's root, above it, is under the site's configured root (`SiteUrl`) where there is one —
+     * so an API served from `www/api/` does not point at `…/api/assets/…`.
+     *
      * @param  string|null $base URL of the web root; `sURL` when omitted
      */
     function assetUrl(string $path, ?string $base = null): string
     {
         $path   = ltrim($path, '/');
+        $given  = $base !== null;
         $base ??= defined('sURL') ? (string) \sURL : '/';
         $script = (string) ($_SERVER['SCRIPT_FILENAME'] ?? '');
+        $root   = [];
         $mtime  = false;
 
         /*
@@ -311,16 +317,24 @@ if (!function_exists('assetUrl')) {
             $dir     = dirname($script);
             $dirs[]  = $dir;
             $docRoot = rtrim((string) ($_SERVER['DOCUMENT_ROOT'] ?? ''), '/');
+            $root[]  = $docRoot;
             while ($docRoot !== '' && str_starts_with($dir, $docRoot . '/') ) {
                 $dir    = dirname($dir);
                 $dirs[] = $dir;
             }
         }
         if (defined('ROOT') && class_exists(\Pramnos\Application\FrameworkScripts::class)) {
-            $dirs[] = \Pramnos\Application\FrameworkScripts::webRoot((string) ROOT);
+            $dirs[] = $root[] = \Pramnos\Application\FrameworkScripts::webRoot((string) ROOT);
         }
         foreach (array_unique($dirs) as $dir) {
             if (($mtime = @filemtime($dir . '/' . $path)) !== false) {
+                // Found at the site's root, not beside the front controller — an API served from
+                // `www/api/`, whose `sURL` is `…/api/` — so it is the site's root that serves it,
+                // where that is configured ({@see \Pramnos\Http\SiteUrl}).
+                if (!$given && $script !== '' && $dir !== dirname($script) && in_array($dir, $root, true)
+                    && \Pramnos\Http\SiteUrl::isConfigured()) {
+                    $base = \Pramnos\Http\SiteUrl::get();
+                }
                 break;
             }
         }

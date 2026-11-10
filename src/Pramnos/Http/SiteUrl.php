@@ -154,9 +154,11 @@ final class SiteUrl
             return trim((string) $_ENV['APP_URL']);
         }
 
+        // The application running, never one made for the question: building one resets what a
+        // request has set up — the administration area among it — and AdminArea::url() asks this.
         try {
-            $application = \Pramnos\Application\Application::getInstance();
-            $configured  = $application->applicationInfo['site_url'] ?? '';
+            $application = \Pramnos\Application\Application::currentInstance();
+            $configured  = is_object($application) ? ($application->applicationInfo['site_url'] ?? '') : '';
         } catch (\Throwable) {
             // No application yet — a very early boot, or a unit test. The request
             // fallback still applies.
