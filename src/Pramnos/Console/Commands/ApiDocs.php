@@ -74,6 +74,7 @@ class ApiDocs extends Command
             ->addOption('api-version', null, InputOption::VALUE_REQUIRED, 'API version', '1.0.0')
             ->addOption('description', null, InputOption::VALUE_REQUIRED, 'API description')
             ->addOption('server', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Server URL (repeatable)')
+            ->addOption('apidoc', null, InputOption::VALUE_REQUIRED, 'A directory whose apidoc @api blocks describe the routes that say nothing of themselves. Default: the controllers directory')
             ->addOption('overrides', null, InputOption::VALUE_REQUIRED, 'Path to an openapi-overrides.json to deep-merge')
             ->addOption('no-html', null, InputOption::VALUE_NONE, 'Do not also generate the HTML viewer')
             ->addOption('viewer', null, InputOption::VALUE_REQUIRED, 'The HTML viewer: rapidoc or scalar', 'rapidoc');
@@ -140,6 +141,11 @@ class ApiDocs extends Command
         }
 
         $generator    = new OpenApiGenerator($info, $servers, $overrides);
+        // apidoc's @api blocks, where an older API is documented that way: the controllers' own,
+        // or the directory named.
+        $apidocOption = $input->getOption('apidoc');
+        $apidocPath   = $apidocOption !== null ? $this->resolve($base, (string) $apidocOption) : $controllersPath;
+        $generator->withApidoc(\Pramnos\Routing\ApidocReader::read($apidocPath));
         $routesOption = $input->getOption('routes');
         $routesRead   = '';
 

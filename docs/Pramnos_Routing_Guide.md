@@ -608,6 +608,21 @@ $r->post('/me/password', fn () => …)->describe('Change your password', 'Signs 
 ]);
 ```
 
+**An API documented with apidoc.** A route that says nothing of itself takes its description
+from the apidoc `@api` block of the same method and path, in the controllers' directory (or
+`--apidoc=<dir>`):
+- the title becomes the summary, `@apiDescription` the description, `@apiGroup` the tag;
+- `@apiParam` becomes a path parameter under the route's own name (`:id` in the block is
+  `{userid}` in the route, by place), else a query parameter for GET and DELETE, else a body
+  field (`[name]` is optional);
+- `@apiSuccess` gives the 200 response's fields, `@apiError` a 4XX response naming the errors.
+
+A version prefix (`1.0/`) is left out of the match. `describe()` and `#[Route]` win over a block.
+
+```
+php pramnos api:docs --routes=src/Api/routes.php --apidoc=src/Api/Controllers
+```
+
 Every route the framework's own API providers mount (`FeedApi`, `HelpApi`, `HistoryApi`,
 `MetricsApi`, `TodosApi`, `Llm\Chat\Api\Routes`, `ConversationsApi`, the administration's screens
 under `AdminApi`, …) is described this way.

@@ -49,6 +49,9 @@ class OpenApiGenerator
      * @param list<array<string,mixed>>  $servers   OpenAPI servers array
      * @param array<string,mixed>        $overrides Document deep-merged over the generated one
      */
+    /** @var array<string, array<string, mixed>> apidoc's operations, by method and path shape */
+    private array $apidoc = [];
+
     public function __construct(array $info = [], array $servers = [], array $overrides = [])
     {
         $this->info      = $info + ['title' => 'API', 'version' => '1.0.0'];
@@ -180,6 +183,20 @@ class OpenApiGenerator
      *        Keyed by HTTP method, then by URI, as `Router::stopCollecting()` returns.
      * @return array<string,mixed>
      */
+    /**
+     * The operations apidoc's `@api` blocks describe ({@see ApidocReader::read()}): a route
+     * registered with nothing said of itself — no `describe()`, no `#[Route]` — takes the block of
+     * the same method and path.
+     *
+     * @param array<string, array<string, mixed>> $operations By {@see ApidocReader::key()}
+     */
+    public function withApidoc(array $operations): static
+    {
+        $this->apidoc = $operations;
+
+        return $this;
+    }
+
     public function fromRoutes(array $routes): array
     {
         return $this->assemble(...$this->collectRoutes($routes));
@@ -241,6 +258,9 @@ class OpenApiGenerator
                 // What the route says of itself (Route::describe()): its summary, description and
                 // the rest, over what the path alone could say. A permissions line stays first.
                 $doc = is_array($entry['doc'] ?? null) ? $entry['doc'] : [];
+                if ($doc === [] && isset($this->apidoc[ApidocReader::key($verb, $path)])) {
+                    $doc = $this->fromApidoc($this->apidoc[ApidocReader::key($verb, $path)], $params);
+                }
                 if ($doc !== []) {
                     if (isset($operation['description'], $doc['description'])) {
                         $doc['description'] = $operation['description'] . "\n\n" . $doc['description'];
@@ -258,6 +278,30 @@ class OpenApiGenerator
         }
 
         return [$paths, $secured];
+    }
+
+    /**
+     * An apidoc block's operation for a route: its path parameters under the route's own names,
+     * in their places — `:id` in the block is `{notificationid}` in the route.
+     *
+     * @param array<string, mixed> $operation
+     * @param list<string>         $params    The route's path parameters, in order
+     * @return array<string, mixed>
+     */
+    private function fromApidoc(array $operation, array $params): array
+    {
+        $inPath = array_values(array_filter($operation['parameters'] ?? [], static fn (array $p): bool => $p['in'] === 'path'));
+        $others = array_values(array_filter($operation['parameters'] ?? [], static fn (array $p): bool => $p['in'] !== 'path'));
+        $named  = [];
+        foreach ($params as $i => $name) {
+            $named[] = ['name' => $name] + ($inPath[$i] ?? ['in' => 'path', 'required' => true, 'schema' => ['type' => 'string']]);
+        }
+        unset($operation['parameters']);
+        if ($named !== [] || $others !== []) {
+            $operation['parameters'] = array_merge($named, $others);
+        }
+
+        return $operation;
     }
 
     /**
