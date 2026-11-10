@@ -850,7 +850,24 @@ $result = $db->queryBuilder()
     }, 'cat_avgs')
     ->where('avg_price', '>', 5.00)
     ->get();
+
+// As a JOIN (a derived table joined): every nationality, with one site's count — null where none
+$rows = $db->queryBuilder()->table('nationalities n')
+    ->select(['n.name', 'x.c'])
+    ->leftJoinSub(fn ($q) => $q->table('users u')
+            ->select(['u.nationality', $q->raw('COUNT(*) AS c')])
+            ->where('u.originalsite', $site)->groupBy('u.nationality'),
+        'x', 'x.nationality', '=', 'n.nationalityid')
+    ->orderBy('x.c', 'desc')
+    ->getAllOrFail();
 ```
+
+`joinSub($query, $alias, $first, $operator, $second, $type = 'inner')` and `leftJoinSub()` take a
+builder or a closure, as `fromSub()` does, and the conditions as `join()` takes them — a closure
+over the `JoinClause` for several. The subquery's bindings are bound where its SQL stands: after
+the select's and the FROM's, before the WHERE's. A grouped count joined this way is one statement
+the database plans as a whole, where a condition like `OR u.nationality IS NULL` in a plain join's
+`ON` forces it through every row.
 
 #### Set Operations
 

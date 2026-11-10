@@ -1030,6 +1030,61 @@ class QueryBuilder
     }
 
     /**
+     * Join a subquery (a derived table), as {@see fromSub()} reads one:
+     *   JOIN (SELECT ...) AS alias ON ...
+     *
+     * ```php
+     * $qb->table('nationalities n')->leftJoinSub(
+     *     fn ($q) => $q->table('users u')->select(['u.nationality', new Expression('COUNT(*) AS c')])
+     *         ->where('u.originalsite', $site)->groupBy('u.nationality'),
+     *     'x', 'x.nationality', '=', 'n.nationalityid');
+     * ```
+     *
+     * The conditions as {@see join()} takes them — `$first op $second`, or a closure over a
+     * {@see JoinClause} for several. The subquery's bindings go into the 'join' slot: after the
+     * select's and the FROM's, before the WHERE's, where its SQL stands.
+     *
+     * @param QueryBuilder|\Closure $query
+     * @param string                $alias    The derived table's alias
+     * @param string|\Closure       $first    Column reference, or a closure for several conditions
+     * @param string|null           $operator
+     * @param string|null           $second
+     * @param string                $type     inner, left or right
+     */
+    public function joinSub($query, string $alias, $first, $operator = null, $second = null, string $type = 'inner'): static
+    {
+        [$sql, $bindings] = $this->createSub($query);
+        // Not through join(): its table resolution would read the subquery's `a.b` as a schema.
+        $table = $sql . ' AS ' . $alias;
+        if ($first instanceof \Closure) {
+            $clause = new JoinClause();
+            $first($clause);
+            $this->joins[] = ['table' => $table, 'type' => $type, 'conditions' => $clause->getConditions()];
+        } else {
+            $this->joins[] = compact('table', 'first', 'operator', 'second', 'type');
+        }
+        foreach ($bindings as $b) {
+            $this->bindings['join'][] = $b;
+        }
+
+        return $this;
+    }
+
+    /**
+     * {@see joinSub()} as a LEFT JOIN: every row of the query kept, the subquery's columns null where
+     * nothing matches.
+     *
+     * @param QueryBuilder|\Closure $query
+     * @param string|\Closure       $first
+     * @param string|null           $operator
+     * @param string|null           $second
+     */
+    public function leftJoinSub($query, string $alias, $first, $operator = null, $second = null): static
+    {
+        return $this->joinSub($query, $alias, $first, $operator, $second, 'left');
+    }
+
+    /**
      * Add a cross join clause (no ON condition).
      *
      * @param string $table
