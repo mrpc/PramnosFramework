@@ -1123,6 +1123,24 @@ Ask and every MCP client holding the scope. An analyst tool without a scope stay
 it was written for administrators and on MCP it would answer any token. A framework tool keeps
 its name; an application's tool of the same name is not added.
 
+**The framework's own analyst tools** reach MCP when the application gives each a scope:
+
+```php
+'mcp' => ['analyst' => [
+    'visits'  => 'myapp:admin.read',   // the site's traffic, under the name visits.tool gives it
+    'metrics' => 'myapp:admin.read',
+    'goals'   => 'myapp:admin.read',
+    // 'todos', 'conversation_summary'
+]],
+```
+
+Each is the tool the Ask page has, answering for the person the token is theirs, with that
+person's rights. It is offered only where the analyst would offer it: the traffic where it is
+counted, metrics and goals where the application declares metrics, and so on. Only the tools
+that read are offered. Changing a goal or a to-do waits for a person's approval on the Ask page,
+and an MCP call has no page for that. Without a scope a tool stays on the Ask page. An
+application's own tool of the same name wins.
+
 !!! warning "The application behind an MCP tool is the console kernel"
     `mcp:serve` is a console command, so the application your tool receives never handled
     an HTTP request. Anything built during HTTP bootstrap is absent — the router being the

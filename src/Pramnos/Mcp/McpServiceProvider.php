@@ -286,6 +286,11 @@ class McpServiceProvider extends ServiceProvider
         $app  = $app ?? \Pramnos\Application\Application::currentInstance();
         $info = is_object($app) && is_array($app->applicationInfo ?? null) ? $app->applicationInfo : [];
         $tools = [];
+        // The analyst's own read tools the application gave a scope (`mcp.analyst`); an
+        // application's tool of the same name, below, wins.
+        foreach (AnalystMcpTool::configured($info) as $tool) {
+            $tools[$tool->name()] = $tool;
+        }
         foreach ([[$info['llm']['admin_tools'] ?? [], true], [$info['mcp']['tools'] ?? [], false]] as [$list, $scopedOnly]) {
             foreach ((array) $list as $tool) {
                 $tool = is_string($tool) && class_exists($tool) ? new $tool() : $tool;
