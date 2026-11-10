@@ -71,10 +71,10 @@ final class ApidocReader
     public static function key(string $verb, string $path): string
     {
         $segments = array_values(array_filter(explode('/', $path), static fn (string $s): bool => $s !== ''));
-        if ($segments !== [] && preg_match('/^v?\d+(\.\d+)*$/', $segments[0]) === 1) {
+        if ($segments !== [] && preg_match('/^v?\d+(\.\d+)*$/u', $segments[0]) === 1) {
             array_shift($segments);
         }
-        $segments = array_map(static fn (string $s): string => preg_match('/^(:\w+|\{\w+\??\})$/', $s) === 1 ? '{}' : strtolower($s), $segments);
+        $segments = array_map(static fn (string $s): string => preg_match('/^(:\w+|\{\w+\??\})$/u', $s) === 1 ? '{}' : strtolower($s), $segments);
 
         return strtolower($verb) . ' /' . implode('/', $segments);
     }
@@ -86,10 +86,12 @@ final class ApidocReader
      */
     public static function parse(string $block): ?array
     {
-        $lines = array_map(static fn (string $l): string => (string) preg_replace('~^\s*(/\*\*|\*/|\*)\s?~', '', $l), preg_split('/\R/', $block) ?: []);
+        // With /u throughout: without it \R and \s take the byte 0x85 — the second byte of the
+        // Greek «υ» (CF 85) — for a line break, and cut the text into what is no longer UTF-8.
+        $lines = array_map(static fn (string $l): string => (string) preg_replace('~^\s*(/\*\*|\*/|\*)\s?~u', '', $l), preg_split('/\R/u', $block) ?: []);
         $tags  = [];
         foreach ($lines as $line) {
-            if (preg_match('/^@(\w+)\s*(.*)$/', trim($line), $m) === 1) {
+            if (preg_match('/^@(\w+)\s*(.*)$/u', trim($line), $m) === 1) {
                 $tags[] = [$m[1], trim($m[2])];
             } elseif ($tags !== [] && trim($line) !== '' && !str_ends_with(trim($line), '/')) {
                 $tags[count($tags) - 1][1] .= "\n" . trim($line);
@@ -97,7 +99,7 @@ final class ApidocReader
         }
         $api = null;
         foreach ($tags as [$tag, $text]) {
-            if ($tag === 'api' && preg_match('/^\{(\w+)\}\s+(\S+)\s*(.*)$/s', $text, $m) === 1) {
+            if ($tag === 'api' && preg_match('/^\{(\w+)\}\s+(\S+)\s*(.*)$/su', $text, $m) === 1) {
                 $api = [strtolower($m[1]), '/' . ltrim($m[2], '/'), trim($m[3])];
             }
         }
@@ -105,7 +107,7 @@ final class ApidocReader
             return null;
         }
         [$verb, $path, $title] = $api;
-        $inPath    = preg_match_all('/:(\w+)/', $path, $p) ? $p[1] : [];
+        $inPath    = preg_match_all('/:(\w+)/u', $path, $p) ? $p[1] : [];
         $operation = ['summary' => $title !== '' ? $title : strtoupper($verb) . ' ' . $path];
         $body      = [];
         $required  = [];
@@ -132,7 +134,7 @@ final class ApidocReader
                 }
             } elseif ($tag === 'apiSuccess' && ($field = self::field($text)) !== null) {
                 $success[$field['name']] = ['type' => $field['type']] + ($field['description'] !== '' ? ['description' => $field['description']] : []);
-            } elseif ($tag === 'apiError' && preg_match('/^(?:\([^)]*\)\s*)?(?:\{[^}]*\}\s*)?(\S+)\s*(.*)$/s', $text, $m) === 1) {
+            } elseif ($tag === 'apiError' && preg_match('/^(?:\([^)]*\)\s*)?(?:\{[^}]*\}\s*)?(\S+)\s*(.*)$/su', $text, $m) === 1) {
                 $errors[] = $m[1] . ($m[2] !== '' ? ': ' . trim($m[2]) : '');
             }
         }
@@ -155,7 +157,7 @@ final class ApidocReader
      */
     private static function field(string $text): ?array
     {
-        if (preg_match('/^(?:\([^)]*\)\s*)?(?:\{([^}]*)\}\s*)?(\[?)([\w.\-]+)(?:=[^\]\s]*)?\]?\s*(.*)$/s', $text, $m) !== 1) {
+        if (preg_match('/^(?:\([^)]*\)\s*)?(?:\{([^}]*)\}\s*)?(\[?)([\w.\-]+)(?:=[^\]\s]*)?\]?\s*(.*)$/su', $text, $m) !== 1) {
             return null;
         }
         $type = strtolower(trim(explode('{', $m[1])[0]));

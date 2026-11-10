@@ -55,13 +55,14 @@ class X {
 }
 PHP);
         file_put_contents($this->dir . '/Me/N.php', "<?php\n/**\n * @api {put} 1.0/me/notifications/:id/read Read it\n */\nfunction n() {}\n");
+        file_put_contents($this->dir . '/Greek.php', "<?php\n/**\n * @api {delete} 1.0/profile/:id Απόκρυψη\n * @apiDescription Αποκρυψη ενος profile από το ευρετήριο\n * @apiParam {Number} id Ο χρήστης\n */\nfunction g() {}\n");
         file_put_contents($this->dir . '/readme.txt', '@api {get} /nothing Not PHP');
     }
 
     /** The scratch directory gone. */
     protected function tearDown(): void
     {
-        foreach (['/X.php', '/Me/N.php', '/readme.txt'] as $file) {
+        foreach (['/X.php', '/Me/N.php', '/Greek.php', '/readme.txt'] as $file) {
             @unlink($this->dir . $file);
         }
         @rmdir($this->dir . '/Me');
@@ -93,7 +94,13 @@ PHP);
         // Assert
         $keys = array_keys($read);
         sort($keys);
-        $this->assertSame(['get /x/{}', 'post /x', 'put /me/notifications/{}/read'], $keys, 'the PHP files only, every block');
+        $this->assertSame(['delete /profile/{}', 'get /x/{}', 'post /x', 'put /me/notifications/{}/read'], $keys, 'the PHP files only, every block');
+        // «υ» is CF 85; without /u, 85 was a line break and every «υ» was cut in half.
+        $this->assertSame(['Απόκρυψη', 'Αποκρυψη ενος profile από το ευρετήριο', 'Ο χρήστης'],
+            [$read['delete /profile/{}']['summary'], $read['delete /profile/{}']['description'], $read['delete /profile/{}']['parameters'][0]['description']]);
+        $this->assertNotFalse(json_encode($read), 'and it is JSON');
+        $this->assertSame(['Ο ευρετήριος υπάρχει.', 'Δεύτερη παράγραφος με υ.'], \Pramnos\Routing\Route::fromDocblock("/**\n * Ο ευρετήριος υπάρχει.\n *\n * Δεύτερη παράγραφος με υ.\n */"),
+            'a route\'s own docblock, read the same way');
         $this->assertSame(['Get X', ['Things'], "One x,\nif it is yours."], [$get['summary'], $get['tags'], $get['description']]);
         $this->assertSame(['xid', 'path', 'number', 'The x'], [$get['parameters'][0]['name'], $get['parameters'][0]['in'], $get['parameters'][0]['schema']['type'], $get['parameters'][0]['description']]);
         $this->assertSame(['full', 'query', false, 'boolean'], [$get['parameters'][1]['name'], $get['parameters'][1]['in'], $get['parameters'][1]['required'], $get['parameters'][1]['schema']['type']]);

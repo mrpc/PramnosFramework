@@ -97,6 +97,32 @@ class ApiDocsTest extends TestCase
     }
 
     /**
+     * A document that cannot be written as JSON — here a title that is not UTF-8 — writes
+     * nothing: the good document already there stays, and the command says why and fails,
+     * where it wrote one byte over it and said it had written the paths.
+     */
+    public function testADocumentThatIsNotJsonWritesNothing(): void
+    {
+        // Arrange
+        file_put_contents($this->tmp . '/openapi.json', '{"good": true}');
+        $tester = $this->tester();
+
+        // Act
+        $exit = $tester->execute([
+            '--controllers' => $this->fixturesDir(),
+            '--namespace'   => 'Pramnos\\Tests\\Fixtures\\OpenApi',
+            '--output'      => 'openapi.json',
+            '--title'       => "Αποκρ\xCF",
+            '--no-html'     => true,
+        ]);
+
+        // Assert
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString('could not be written as JSON', $tester->getDisplay());
+        $this->assertSame('{"good": true}', (string) file_get_contents($this->tmp . '/openapi.json'), 'the good one stays');
+    }
+
+    /**
      * --no-html suppresses the HTML viewer (spec only).
      */
     public function testNoHtmlSkipsViewer(): void

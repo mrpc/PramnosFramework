@@ -467,7 +467,7 @@ class OpenApiGenerator
             return ['', ''];
         }
 
-        $text  = (string) preg_replace(['#^\s*/\*+#', '#\*+/\s*$#'], '', $docComment);
+        $text  = (string) preg_replace(['#^\s*/\*+#u', '#\*+/\s*$#u'], '', $docComment);
         $lines = [];
         foreach (explode("\n", $text) as $line) {
             $line = ltrim(trim($line), '*');

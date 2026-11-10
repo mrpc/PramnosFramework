@@ -347,9 +347,11 @@ class Route
     public static function fromDocblock(string $doc): array
     {
         $paragraphs = [[]];
-        foreach (preg_split('/\R/', $doc) ?: [] as $line) {
-            $line = (string) preg_replace('~^\s*(/\*\*|\*/|\* ?)~', '', $line);
-            $line = rtrim((string) preg_replace('~\*/\s*$~', '', $line));
+        // With /u: without it \R and \s take the byte 0x85 for a line break — the second byte of
+        // the Greek «υ» (CF 85) — and cut every such word in half, into text that is no longer UTF-8.
+        foreach (preg_split('/\R/u', $doc) ?: [] as $line) {
+            $line = (string) preg_replace('~^\s*(/\*\*|\*/|\* ?)~u', '', $line);
+            $line = rtrim((string) preg_replace('~\*/\s*$~u', '', $line));
             if (str_starts_with(ltrim($line), '@')) {
                 break;
             }

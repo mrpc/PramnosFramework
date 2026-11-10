@@ -221,14 +221,20 @@ class ApiDocs extends Command
             $base,
             $outputOption !== null ? (string) $outputOption : $this->defaultOutputFile($base)
         );
+        // Encoded before anything is written: a document that cannot be JSON — text that is not
+        // UTF-8 in a docblock — wrote one byte over a good document, and said it had written it.
+        $json = json_encode($document, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($json === false) {
+            $output->writeln('<error>The document could not be written as JSON: ' . json_last_error_msg()
+                . '. Nothing was written; ' . $outputPath . ' is as it was.</error>');
+
+            return Command::FAILURE;
+        }
         $dir        = dirname($outputPath);
         if (!is_dir($dir)) {
             mkdir($dir, 0775, true);
         }
-        file_put_contents(
-            $outputPath,
-            (string) json_encode($document, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n"
-        );
+        file_put_contents($outputPath, $json . "\n");
 
         $output->writeln(sprintf(
             '<info>Scanned %s (namespace %s)%s</info>',
