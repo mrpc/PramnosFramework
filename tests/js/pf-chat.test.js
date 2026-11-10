@@ -144,7 +144,9 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
     const picker = form.appendChild(element('input', { 'data-pf-chat-files': '' }));
     const attach = form.appendChild(element('button', { 'data-pf-chat-attach': '' }));
     const chips = form.appendChild(element('span', { 'data-pf-chat-chips': '' }));
-    const button = form.appendChild(element('button', { type: 'submit' }));
+    // As the themes draw it: an arrow, its word as its label.
+    const button = form.appendChild(element('button', { type: 'submit', 'aria-label': 'Ask', title: 'Ask' }));
+    button.textContent = '↑';
     const micButton = mic ? form.appendChild(element('button', { 'data-pf-chat-mic': '' })) : null;
     const speakButton = speak ? page.appendChild(element('button', { 'data-pf-chat-speak': speak.text, 'data-pf-chat-speak-id': speak.id })) : null;
 
@@ -234,16 +236,21 @@ test('the answer shows while it is written, and is looked at more often', async 
 });
 
 /**
- * While a question is answered, a Stop button sits under it and posts to the page's `cancel/`
- * address — the `asked/` one with its last word changed, so the analyst's page under /admin and
- * the conversations page both work without a template naming it. Once the worker has stopped,
- * the waiting line says so and the button goes.
+ * While a question is answered, the send button is Stop (FW-399, as Claude's): the same button,
+ * a square for its arrow, its word as its label — and it posts to the page's `cancel/` address,
+ * the `asked/` one with its last word changed, so the analyst's page under /admin and the
+ * conversations page both work without a template naming it. Meanwhile Enter sends nothing more.
+ * Once the worker has stopped, the waiting line says so and the button sends again, as it was.
  */
-test('a question being answered can be stopped', async () => {
+test('a question being answered can be stopped from the send button', async () => {
     // Arrange — a page following question 5, still waiting
     const ui = run({ waiting: '5', answers: [{ data: { status: 'waiting' } }, { data: { cancelled: true } }, { data: { status: 'cancelled' } }] });
     await settle();
     const stop = ui.page.querySelector('[data-pf-chat-stop]');
+    const look = [stop.getAttribute('type'), stop.textContent, stop.getAttribute('aria-label'), stop.getAttribute('title')];
+    ui.box.value = 'Another question';
+    const entered = ui.box.dispatch('keydown', { key: 'Enter', shiftKey: false });
+    const askedBefore = ui.requests.length;
 
     // Act — Stop, then the next look
     stop.dispatch('click');
@@ -252,13 +259,15 @@ test('a question being answered can be stopped', async () => {
     await settle();
 
     // Assert
-    // Small and unfilled, part of the thinking bubble — not the send button's look (FW-399).
-    assert.equal(stop.className, 'pf-chat-stop');
-    assert.equal(stop.textContent, '■');
-    assert.deepEqual([stop.getAttribute('aria-label'), stop.getAttribute('title')], ['Stop', 'Stop'], 'its word, for a screen reader and as a tooltip');
+    assert.equal(stop, ui.button, 'the send button itself, in its place — nothing under the bubble');
+    assert.deepEqual(look, ['button', '■', 'Stop', 'Stop']);
+    assert.equal(entered.prevented, true);
+    assert.equal(askedBefore, 1, 'Enter while it answers sends nothing more');
     assert.equal(ui.requests[1].url, '/chat/cancel/5', 'the cancel address beside the asked one');
     assert.equal(ui.requests[1].method, 'POST');
-    assert.equal(ui.page.querySelector('[data-pf-chat-stop]'), null, 'gone once stopped');
+    assert.equal(ui.page.querySelector('[data-pf-chat-stop]'), null, 'no longer Stop once stopped');
+    assert.deepEqual([ui.button.getAttribute('type'), ui.button.textContent, ui.button.getAttribute('aria-label'), ui.button.getAttribute('title'), ui.button.disabled],
+        ['submit', '↑', 'Ask', 'Ask', false], 'it sends again, as it was');
     assert.equal(ui.messages.children[0].textContent, 'Stopped.');
     assert.equal(ui.messages.children[0].getAttribute('data-pf-chat-waiting'), null, 'no longer a line a later failure would be said in');
 });
@@ -676,15 +685,20 @@ test('while waiting: thinking at once, the application\'s lines after a few seco
     ui.form.dispatch('submit');
     const line = ui.messages.children.at(-1);
     const first = line.textContent;
+    const firstClass = line.className;
     clock = 9000;
     ui.intervals[0]();
     const later = line.textContent;
+    const laterClass = line.className;
     clock = 61000;
     ui.intervals[0]();
 
     // Assert
-    assert.equal(first, 'Thinking…');
+    assert.equal(first, 'Thinking…', 'the word, for a screen reader');
+    // At first the dots alone, the word out of sight; a waiting line is shown beside them.
+    assert.equal(firstClass, 'pf-chat-thinking pf-chat-thinking-quiet pf-muted');
     assert.equal(later, 'Counting the clicks…');
+    assert.equal(laterClass, 'pf-chat-thinking pf-muted');
     assert.equal(line.textContent, 'Still going.');
 });
 

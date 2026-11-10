@@ -229,7 +229,7 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false); @endphp
                 @endforeach
 
                 @if ($waiting)
-                    <p class="{!! $c['muted'] !!}" data-pf-chat-waiting="{!! (int) $ask['ask_id'] !!}" role="status">{{ t('Thinking') }}…</p>
+                    <p class="pf-chat-thinking pf-chat-thinking-quiet {!! $c['muted'] !!}" data-pf-chat-waiting="{!! (int) $ask['ask_id'] !!}" role="status">{{ t('Thinking') }}…</p>
                 @elseif ($ask !== null && ($ask['status'] ?? '') === 'failed')
                     <p class="{!! $c['bad'] !!}" role="alert">{{ $ask['says'] ?? '' }}</p>
                 @endif

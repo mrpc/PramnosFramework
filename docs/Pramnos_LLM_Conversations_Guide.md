@@ -452,10 +452,16 @@ Both screens draw a Stop button while they follow a question. `pf-chat.js` posts
 `cancel/{id}` (the `asked/` address with its last word changed, so the conversations page and the
 analyst's page under `/admin/Ai` need nothing in their templates), with the form's hidden fields
 for the session's token. The SPA calls `chatClient().cancelAsk(id)`, and `waitForAnswer()`
-returns `{status: 'cancelled'}`. On the page the button sits under the thinking bubble, small,
-round and unfilled, with a square in it (`.pf-chat-stop`), because it belongs to the bubble and is
-not the page's main action. The view's `stop` is its label for a screen reader and its tooltip,
-and `stopped` is the line once it has stopped.
+returns `{status: 'cancelled'}`. On the page, while the answer is written, the send button
+itself is Stop: the same place and size, a ■ for its arrow (`[data-pf-chat-stop]`), the view's
+`stop` as its label and tooltip. The box stays open, and Enter sends nothing more until the answer
+is done or stopped. The button then sends again, as it was. `stopped` is the line once it has
+stopped.
+
+**Thinking** is three dots that take turns, drawn by the theme's stylesheet
+(`.pf-chat-thinking::before`), and still under `prefers-reduced-motion`. The word stays in the line
+for a screen reader, out of sight (`.pf-chat-thinking-quiet`), until a waiting line from
+`data-waiting-lines` has something to say beside the dots.
 
 A `Client` used directly takes the same hook:
 

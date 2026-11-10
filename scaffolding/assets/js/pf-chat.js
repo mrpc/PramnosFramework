@@ -331,6 +331,18 @@
         var asked = root.getAttribute('data-asked') || '';
         var form = root.querySelector('[data-pf-chat-form]');
         var messages = root.querySelector('[data-pf-chat-messages]');
+        // The send button, which is Stop while an answer is written (stopButton()).
+        var sendButton = form ? form.querySelector('button[type="submit"]') : null;
+        var sendLook = { text: '', label: null, title: null };
+        var stopping = null;
+        if (sendButton) {
+            sendButton.addEventListener('click', function (event) {
+                if (sendButton.getAttribute('data-pf-chat-stop') !== null) {
+                    event.preventDefault();
+                    cancel();
+                }
+            });
+        }
         var held = [];
         var clock = null;
         // Dictation + read-aloud (pf-voice.js), one controller shared by the mic button and
@@ -408,7 +420,9 @@
             var lines = [];
             var started = Date.now();
             line.setAttribute('data-pf-chat-waiting', '');
-            line.className = 'pf-chat-thinking pf-muted';
+            // Dots that move, drawn by the stylesheet; the word stays for a screen reader, out of sight
+            // until a waiting line has something to say.
+            line.className = 'pf-chat-thinking pf-chat-thinking-quiet pf-muted';
 
             try {
                 lines = JSON.parse(root.getAttribute('data-waiting-lines') || '[]');
@@ -423,8 +437,10 @@
 
                 if (waited >= LONG_MS) {
                     line.textContent = words('long', 'Still working on a long answer — it will appear here.');
+                    line.className = 'pf-chat-thinking pf-muted';
                 } else if (waited >= QUIET_MS && lines.length) {
                     line.textContent = lines[Math.floor((waited - QUIET_MS) / PHRASE_MS) % lines.length];
+                    line.className = 'pf-chat-thinking pf-muted';
                 }
             }, 1000);
         }
@@ -437,45 +453,53 @@
         }
 
         /**
-         * A Stop button under the thinking bubble, while the answer is written; gone once it is not.
-         * Small, a square and no fill — part of the bubble, not the page's main action — with its
-         * word for a screen reader and as a tooltip.
+         * While the answer is written, the send button is Stop — the same place and size, a square
+         * for its arrow, its word as its label and tooltip — and posts the cancel; once it is not,
+         * the button sends again. As Claude's and ChatGPT's do: nothing to look for under the
+         * bubble, and the box stays open to write the next question in.
          */
         function stopButton(askId) {
-            var button = root.querySelector('[data-pf-chat-stop]');
-
+            var button = sendButton;
+            if (!button) {
+                return;
+            }
             if (askId === null) {
-                if (button) {
-                    button.parentNode.removeChild(button);
+                if (button.getAttribute('data-pf-chat-stop') !== null) {
+                    button.removeAttribute('data-pf-chat-stop');
+                    button.setAttribute('type', 'submit');
+                    button.textContent = sendLook.text;
+                    sendLook.label === null ? button.removeAttribute('aria-label') : button.setAttribute('aria-label', sendLook.label);
+                    sendLook.title === null ? button.removeAttribute('title') : button.setAttribute('title', sendLook.title);
+                    button.disabled = false;
                 }
 
                 return;
             }
-            if (button || !messages || !form) {
-                return;
+            stopping = askId;
+            if (button.getAttribute('data-pf-chat-stop') === null) {
+                sendLook = { text: button.textContent, label: button.getAttribute('aria-label'), title: button.getAttribute('title') };
+                button.setAttribute('data-pf-chat-stop', '');
+                button.setAttribute('type', 'button');
+                button.setAttribute('aria-label', words('stop', 'Stop'));
+                button.setAttribute('title', words('stop', 'Stop'));
+                button.textContent = '■';
             }
-            button = document.createElement('button');
-            button.type = 'button';
-            button.className = 'pf-chat-stop';
-            button.setAttribute('data-pf-chat-stop', '');
-            button.setAttribute('aria-label', words('stop', 'Stop'));
-            button.setAttribute('title', words('stop', 'Stop'));
-            button.textContent = '■';
-            button.addEventListener('click', function () {
-                // The form's hidden fields carry the session's token, as the question did.
-                var body = new FormData();
-                Array.prototype.forEach.call(form.querySelectorAll('input[type="hidden"]'), function (field) {
-                    body.append(field.name, field.value);
-                });
-                button.disabled = true;
-                fetch(asked.replace(/asked\/?$/, 'cancel/') + askId, {
-                    method: 'POST',
-                    body: body,
-                    headers: { Accept: 'application/json' },
-                    credentials: 'same-origin'
-                }).catch(function () { button.disabled = false; });
+            button.disabled = false;
+        }
+
+        /** Stop pressed: the cancel posted, with the form's hidden fields — the session's token, as the question had. */
+        function cancel() {
+            var body = new FormData();
+            Array.prototype.forEach.call(form.querySelectorAll('input[type="hidden"]'), function (field) {
+                body.append(field.name, field.value);
             });
-            messages.appendChild(button);
+            sendButton.disabled = true;
+            fetch(asked.replace(/asked\/?$/, 'cancel/') + stopping, {
+                method: 'POST',
+                body: body,
+                headers: { Accept: 'application/json' },
+                credentials: 'same-origin'
+            }).catch(function () { sendButton.disabled = false; });
         }
 
         /** Follow a queued question until it is answered, fails or is stopped. */
@@ -980,12 +1004,16 @@
 
         form.addEventListener('submit', function (event) {
             event.preventDefault();
+            // An answer is being written: Enter does not send another until it is done or stopped.
+            if (sendButton && sendButton.getAttribute('data-pf-chat-stop') !== null) {
+                return;
+            }
             if (quiet !== null) {
                 window.clearTimeout(quiet);
                 quiet = null;
             }
 
-            var button = form.querySelector('button[type="submit"]');
+            var button = sendButton;
             var question = box ? box.value : '';
             var sent = held.slice();
 
