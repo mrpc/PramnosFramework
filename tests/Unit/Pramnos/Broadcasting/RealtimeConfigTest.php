@@ -40,6 +40,25 @@ class RealtimeConfigTest extends TestCase
     }
 
     /**
+     * A SPA's shell boots no application, so it names the signing endpoint itself — the API's own
+     * `/broadcasting/auth` — and is told the user's channel's pattern to fill in. Nothing for a
+     * transport the page's client does not speak; a configured endpoint still wins.
+     */
+    public function testForShellTakesTheEndpointItIsGiven(): void
+    {
+        // Act
+        $sse        = RealtimeConfig::forShell('https://app.test/api/broadcasting/auth', ['transport' => 'sse']);
+        $socket     = RealtimeConfig::forShell('https://app.test/api/broadcasting/auth', ['transport' => 'websocket', 'websocket' => ['app_key' => 'k1']]);
+        $configured = RealtimeConfig::forShell('https://app.test/api/broadcasting/auth', ['transport' => 'pusher', 'auth_endpoint' => '/rt/auth', 'notifications_channel' => 'private-team.{id}']);
+
+        // Assert
+        $this->assertNull($sse);
+        $this->assertSame(['websocket', 'k1', 'https://app.test/api/broadcasting/auth', 'private-users.{id}'],
+            [$socket['transport'], $socket['appKey'], $socket['authEndpoint'], $socket['userChannel']]);
+        $this->assertSame(['/rt/auth', 'private-team.{id}'], [$configured['authEndpoint'], $configured['userChannel']]);
+    }
+
+    /**
      * A user's notifications channel: `private-users.{id}`, or the configured pattern, with the
      * id filled in.
      */

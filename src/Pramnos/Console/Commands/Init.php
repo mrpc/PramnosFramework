@@ -87,6 +87,7 @@ class Init extends Command
         'components/NotificationBell.svelte' => 'spa-notification-bell.svelte',
         'components/HistoryPanel.svelte'  => 'spa-history-panel.svelte',
         'lib/i18n.svelte.js'              => 'spa-i18n.js',
+        'lib/live.js'                     => 'spa-live.js',
         'lib/section.js'                  => 'spa-section.js',
         'lib/ui.js'                       => 'spa-ui.js',
         'lib/page.js'                     => 'spa-page.js',
@@ -783,6 +784,11 @@ class Init extends Command
         if (in_array('auth', $enabledFeatures, true)) {
             $this->scaffoldNotificationsWiring($namespace);
             $this->scaffoldTokenActionsWiring($namespace);
+        }
+
+        // The page's realtime channels are signed at /broadcasting/auth: Document's tag names it.
+        if (in_array('broadcasting', $enabledFeatures, true)) {
+            $this->scaffoldBroadcastingWiring($namespace);
         }
 
         if (in_array('authserver', $enabledFeatures, true)) {
@@ -9315,6 +9321,40 @@ class Notifications extends NotificationsController
 PHP;
 
         $this->writeFile('src/Controllers/Notifications.php', $controller);
+    }
+
+    /**
+     * `/broadcasting/auth`: signs a page's private realtime channels — its user's notifications, a
+     * conversation's — with the page's session. Document's `<meta name="pf-realtime">` names it;
+     * without the wrapper the address answers 404 and no page joins a private channel. (A SPA or an
+     * app signs at the API's own, `BroadcastingApi::routes()`.)
+     */
+    private function scaffoldBroadcastingWiring(string $namespace): void
+    {
+        $this->mkdir('src/Controllers');
+
+        $controller = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Broadcasting\\Controllers\\Broadcasting as FrameworkBroadcasting;
+
+/**
+ * `POST /broadcasting/auth` — signs the page's private realtime channels with its session: the
+ * signed-in person's own notifications, a conversation they are in.
+ *
+ * Delegates to the framework controller. Who may join which channel is its `channels()`
+ * (`broadcasting.channels` in app.php); override it here for channels of the application's own.
+ */
+class Broadcasting extends FrameworkBroadcasting
+{
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Broadcasting.php', $controller);
     }
 
     /**

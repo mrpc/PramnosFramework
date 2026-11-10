@@ -46,6 +46,15 @@ $runtime = [
     'routerBase' => '{{ routerBase }}',
 ];
 
+// Realtime, where the application serves a socket (broadcast:serve, or Pusher): the tag pf-utils.js
+// connects from, as Document prints it on a server page. Its private channels are signed by the
+// API's own /broadcasting/auth, which takes the API key and token lib/live.js hands it — the shell
+// boots no application to ask for the site's address. Null, and nothing loaded, with no socket.
+$realtime = \Pramnos\Broadcasting\RealtimeConfig::forShell(
+    $siteUrl . ltrim('{{ apiPrefix }}', '/') . '/broadcasting/auth',
+    is_array($appConfig) && is_array($appConfig['broadcasting'] ?? null) ? $appConfig['broadcasting'] : []
+);
+
 /** Stamp an asset URL with the file's mtime — the build-less cache-buster. */
 $stamp = static function (string $path) use ($root): string {
     $mtime = @filemtime($root . '/' . ltrim($path, '/')) ?: 0;
@@ -96,6 +105,9 @@ header('Cache-Control: no-cache, must-revalidate');
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ appName }}</title>
+<?php if ($realtime !== null): ?>
+    <meta name="pf-realtime" content="<?php echo htmlspecialchars((string) json_encode($realtime, JSON_UNESCAPED_SLASHES), ENT_QUOTES); ?>">
+<?php endif; ?>
 <?php foreach ($styles as $style): ?>
     <link rel="stylesheet" href="<?php echo $style; ?>">
 <?php endforeach; ?>
@@ -103,6 +115,9 @@ header('Cache-Control: no-cache, must-revalidate');
 <body>
     <div id="app">Loading…</div>
     <script>window.__PRAMNOS__ = <?php echo json_encode($runtime, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG); ?>;</script>
+<?php if ($realtime !== null && is_file($root . '/assets/js/pf-utils.js')): ?>
+    <script src="<?php echo htmlspecialchars($siteUrl, ENT_QUOTES) . $stamp('assets/js/pf-utils.js'); ?>" defer></script>
+<?php endif; ?>
 <?php foreach ($scripts as $script): ?>
     <script type="module" src="<?php echo $script; ?>"></script>
 <?php endforeach; ?>

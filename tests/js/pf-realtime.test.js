@@ -117,6 +117,29 @@ test('a private channel is signed with the CSRF token, then subscribed; a ping i
     assert.deepEqual(ui.sockets[0].sent[1], { event: 'pusher:pong', data: {} });
 });
 
+/**
+ * A SPA signs its private channels at the API's `/broadcasting/auth`, which takes the API's key and
+ * token: the page sets `window.pfRealtimeHeaders` (lib/live.js does), asked at each signing, and
+ * they go with the session's CSRF token.
+ */
+test('a page\'s own headers go with the signing of a channel', async () => {
+    // Arrange
+    const ui = page();
+    let token = 'first';
+    ui.window.pfRealtimeHeaders = () => ({ apiKey: 'k', accessToken: token });
+
+    // Act — the token changes before the channel is signed
+    ui.window.pfRealtime.channel('private-users.5');
+    token = 'second';
+    handshake(ui.sockets[0]);
+    await settle();
+    const auth = ui.window.fetch.calls[0];
+
+    // Assert
+    assert.deepEqual([auth.headers.apiKey, auth.headers.accessToken, auth.headers['X-CSRF-Token']], ['k', 'second', 't0ken'], 'asked at the signing, beside the CSRF token');
+    assert.equal(auth.headers['Content-Type'], 'application/x-www-form-urlencoded');
+});
+
 test('notification.created on the bell channel refreshes the bell', async () => {
     // Arrange
     const ui = page({ bell: true });

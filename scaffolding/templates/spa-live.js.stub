@@ -1,0 +1,62 @@
+/**
+ * The signed-in user's notifications, the moment they are stored or read, to the open screens.
+ *
+ * The framework announces every stored notification as `notification.created`, and every reading
+ * of them as `notification.read`, on the user's channel (`private-users.{id}`, or the application's
+ * `broadcasting.notifications_channel`). Where the site serves a socket (`broadcasting.transport`
+ * websocket or pusher), the shell prints `<meta name="pf-realtime">` and loads `pf-utils.js`, which
+ * holds the connection as `window.pfRealtime`. This joins the user's channel and turns each into
+ * `pf:notifications:refresh`, which the bell (components/NotificationBell.svelte) and any screen
+ * that wants to reads again on.
+ *
+ * The channel is private, signed by the API's `/broadcasting/auth` with the API key and the token
+ * this client signed in with: `headers` answers them, and pf-utils.js sends them with the signing.
+ *
+ * Without a socket — development, or a site with none — it does nothing, and the bell polls.
+ *
+ * ```js
+ * const stop = listen(user.userid, { headers: () => ({ apiKey, accessToken: getToken() }) });
+ * ```
+ *
+ * Maintained by the framework: `project:resync --spa-components` brings a newer one.
+ */
+
+/** What a notification's arrival or reading is told as, to the window. */
+export const REFRESH = 'pf:notifications:refresh';
+
+/**
+ * Listen for the user's notifications. Returns the way to stop.
+ *
+ * @param {number} userId
+ * @param {{ headers?: () => Record<string, string>, win?: Window }} [options]
+ * @returns {() => void}
+ */
+export function listen(userId, { headers = null, win = window } = {}) {
+    // The signing's credentials: asked each time, so a token taken after this still counts.
+    if (headers) {
+        win.pfRealtimeHeaders = () => {
+            const own = headers() || {};
+            return Object.fromEntries(Object.entries(own).filter(([, value]) => value));
+        };
+    }
+    const realtime = win.pfRealtime;
+    if (!realtime || typeof realtime.channel !== 'function' || !(userId > 0)) {
+        return () => {};
+    }
+    let pattern = 'private-users.{id}';
+    try {
+        const meta = win.document.querySelector('meta[name="pf-realtime"]');
+        pattern = JSON.parse(meta?.getAttribute('content') || '{}').userChannel || pattern;
+    } catch {
+        // A tag that cannot be read: the framework's own channel.
+    }
+    const refresh = () => win.dispatchEvent(new CustomEvent(REFRESH));
+    const channel = realtime.channel(pattern.replace('{id}', String(userId)));
+    channel.listen('notification.created', refresh);
+    channel.listen('notification.read', refresh);
+
+    return () => {
+        channel.stopListening?.('notification.created', refresh);
+        channel.stopListening?.('notification.read', refresh);
+    };
+}

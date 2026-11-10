@@ -178,6 +178,49 @@ class InitSpaScaffoldingTest extends TestCase
      * The Svelte stack: sources under frontend/, a Vite build with Tailwind and
      * daisyUI, Vitest wiring, and the helper scripts that run them in Docker.
      */
+    /**
+     * With `broadcasting`, a SPA hears its notifications the moment they are stored: the shell
+     * prints the realtime tag and loads pf-utils.js where the site serves a socket — and nothing
+     * where it does not — `lib/live.js` joins the user's channel once somebody signs in, and the
+     * session's `/broadcasting/auth` has its wrapper for the server pages.
+     *
+     * The shell is run, not read: a shell that boots no application cannot ask the site its
+     * address, which is what kept SPAs off the socket.
+     */
+    public function testASpaWithBroadcastingHearsItsNotifications(): void
+    {
+        // Arrange
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte', '--features' => 'auth,broadcasting']);
+        symlink(ROOT . '/vendor', $this->tmpDir . '/vendor');
+        $run = function (string $transport): string {
+            file_put_contents($this->tmpDir . '/app/app.php', "<?php\nreturn ['broadcasting' => ['transport' => '" . $transport . "', 'websocket' => ['app_key' => 'k1', 'port' => 6001]]];\n");
+            $out = [];
+            exec('cd ' . escapeshellarg($this->tmpDir . '/www') . ' && SERVER_NAME=app.test HTTP_HOST=app.test php -r '
+                . escapeshellarg('$_SERVER["HTTP_HOST"] = "app.test"; $_SERVER["SERVER_NAME"] = "app.test"; $_SERVER["REQUEST_URI"] = "/"; include "spa.php";') . ' 2>&1', $out);
+
+            return implode("\n", $out);
+        };
+
+        // Act
+        $socket = $run('websocket');
+        $sse    = $run('sse');
+
+        // Assert — the tag and the script, signed at the API's endpoint, before the app's module
+        $this->assertMatchesRegularExpression('/<meta name="pf-realtime" content="[^"]*&quot;transport&quot;:&quot;websocket&quot;/', $socket);
+        $this->assertStringContainsString('/api/1.0/broadcasting/auth', $socket, 'the API\'s own endpoint, in its version');
+        $this->assertStringContainsString('&quot;userChannel&quot;:&quot;private-users.{id}&quot;', $socket);
+        $this->assertLessThan(strpos($socket, 'type="module"'), strpos($socket, 'assets/js/pf-utils.js'), 'pf-utils.js before the app');
+        $this->assertStringNotContainsString('pf-realtime', $sse, 'no socket: nothing printed');
+        $this->assertStringNotContainsString('pf-utils.js', $sse, 'and nothing loaded');
+        // The SPA's side and the server pages' wrapper
+        $this->assertStringContainsString('export function listen(', $this->read('frontend/lib/live.js'));
+        $app = $this->read('frontend/App.svelte');
+        $this->assertStringContainsString("import { listen } from './lib/live.js';", $app);
+        $this->assertStringContainsString('return listen(id, { headers: () => ({ apiKey: window.__PRAMNOS__?.apiKey, accessToken: getToken() }) });', $app);
+        $this->assertStringContainsString('class Broadcasting extends FrameworkBroadcasting', $this->read('src/Controllers/Broadcasting.php'));
+        $this->assertStringContainsString('BroadcastingApi::routes($r)', $this->read('src/Api/routes.php'), 'the API signs the SPA\'s channels');
+    }
+
     public function testSvelteStackScaffoldsSourcesBuildAndTests(): void
     {
         // Act

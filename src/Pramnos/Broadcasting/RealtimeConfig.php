@@ -65,6 +65,34 @@ final class RealtimeConfig
     }
 
     /**
+     * {@see forPage()} for a page that boots no application — a SPA's shell, which requires the
+     * autoloader alone and so cannot ask `SiteUrl` for an address. The endpoint that signs a
+     * private channel is the caller's: the shell's own `{api}/broadcasting/auth`
+     * ({@see BroadcastingApi}), which takes the API's key and token as well as a session.
+     * `broadcasting.auth_endpoint` still wins where the application set one.
+     *
+     * ```php
+     * RealtimeConfig::forShell($siteUrl . 'api/broadcasting/auth', $appConfig['broadcasting'] ?? []);
+     * ```
+     *
+     * @param array<string,mixed> $broadcasting The app.php['broadcasting'] array.
+     * @return array<string,mixed>|null
+     */
+    public static function forShell(string $authEndpoint, array $broadcasting): ?array
+    {
+        if (!in_array($broadcasting['transport'] ?? null, ['websocket', 'pusher'], true)) {
+            return null;
+        }
+        $endpoint = (string) ($broadcasting['auth_endpoint'] ?? '');
+
+        return self::forClient($broadcasting) + [
+            'authEndpoint' => $endpoint !== '' ? $endpoint : $authEndpoint,
+            // The pattern a client fills with its user's id: the shell knows no user.
+            'userChannel'  => (string) ($broadcasting['notifications_channel'] ?? '') ?: self::USER_CHANNEL,
+        ];
+    }
+
+    /**
      * The channel user `$id` hears their notifications on: `broadcasting.notifications_channel`
      * with `{id}` filled in, `private-users.{id}` by default.
      *

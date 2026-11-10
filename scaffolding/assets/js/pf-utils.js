@@ -978,12 +978,19 @@
         var channels = {};
         var authEndpoint = config.authEndpoint || '/broadcasting/auth';
 
-        /** A channel signed by the endpoint, with this page's session and CSRF token. */
+        /**
+         * A channel signed by the endpoint, with this page's session and CSRF token — and, where the
+         * page sets `window.pfRealtimeHeaders` (an object, or a function answering one), those too:
+         * a SPA's API key and token, for the API's `/broadcasting/auth`.
+         */
         function sign(name, socketId, done) {
+            var own = typeof window.pfRealtimeHeaders === 'function' ? window.pfRealtimeHeaders() : window.pfRealtimeHeaders;
+            var headers = { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' };
+            Object.keys(own || {}).forEach(function (key) { headers[key] = own[key]; });
             window.fetch(authEndpoint, {
                 method: 'POST',
                 credentials: 'same-origin',
-                headers: pfApiHeaders({ 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }),
+                headers: pfApiHeaders(headers),
                 body: 'socket_id=' + encodeURIComponent(socketId) + '&channel_name=' + encodeURIComponent(name),
             }).then(function (r) { return r.ok ? r.json() : null; })
                 .then(function (signed) { done(signed && signed.auth ? signed : null); })

@@ -8,6 +8,7 @@ use_cases:
   - Deciding who may subscribe to a private or presence channel
   - Serving the /broadcasting/auth endpoint a Pusher or Echo client needs
   - Using AuthServer applications as realtime app keys instead of config values
+  - Giving a single-page application (SPA) a live connection to its notifications
   - Showing who is currently in a room, and reacting when they join or leave
   - Sending a typing indicator or cursor from one browser to another
   - Stopping an optimistic UI from rendering its own change twice
@@ -831,6 +832,38 @@ There is no tag for an anonymous page, and none for `sse`. A page that defines i
 
 The notification bell is the built-in user of this connection. Its channel, announcement and rule
 are in the [Notifications Guide](Pramnos_Notifications_Guide.md#arriving-at-once).
+
+## A single-page application's connection
+
+A SPA's shell (`www/spa.php`, `www/app.php` in a hybrid) requires the autoloader alone and boots
+no application, so it cannot use `Document`'s tag, nor `forPage()`, which asks `SiteUrl` for the
+site's address. Its scaffolded shell does the same with what it has:
+
+- **The tag.** `RealtimeConfig::forShell($authEndpoint, $broadcasting)` is `forPage()` with the
+  endpoint given, plus `userChannel`, the pattern a client fills with its user's id
+  (`notifications_channel`, or `private-users.{id}`). The shell reads `broadcasting` from
+  `app/app.php` and gives the API's own `{apiPrefix}/broadcasting/auth`. Where the transport is
+  `websocket` or `pusher` it prints `<meta name="pf-realtime">` and loads `pf-utils.js` before
+  the application's module. With no socket it prints and loads nothing, and the bell polls.
+- **The signing.** A SPA signs in with a token, not a session, so its channels are signed by the
+  API (`BroadcastingApi::routes($r)`, scaffolded with the feature), which takes the API key and
+  token. `pf-utils.js` sends whatever the page puts in `window.pfRealtimeHeaders` (an object, or a
+  function asked at each signing) beside the CSRF token.
+- **The listening.** `lib/live.js` (a shared component; `project:resync --spa-components`)
+  sets those headers from the API client, joins the user's channel and turns `notification.created`
+  and `notification.read` into `pf:notifications:refresh` on the window, which the bell reads
+  again on. `App.svelte` calls it once somebody is signed in, and stops on sign-out:
+
+```js
+import { listen } from './lib/live.js';
+const stop = listen(user.userid, { headers: () => ({ apiKey: window.__PRAMNOS__.apiKey, accessToken: getToken() }) });
+```
+
+A project scaffolded before this takes the shell's two blocks from
+`vendor/mrpc/pramnosframework/scaffolding/templates/spa-shell.php.stub`, and `lib/live.js` with
+`project:resync --spa-components`. With the `broadcasting` feature, `init` also writes
+`src/Controllers/Broadcasting.php`, the session's `/broadcasting/auth` that the server pages'
+tag names. Without it that address answers 404, and no page joins a private channel.
 
 ---
 
