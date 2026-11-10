@@ -104,6 +104,7 @@ abstract class LlmTestCase extends TestCase
                 'url'  => $request->url(),
                 'body' => (array) json_decode((string) $request->requestBody(), true),
                 'raw'  => (string) $request->requestBody(),
+                'headers' => $request->requestHeaders(),
             ];
             [$status, $body] = count($queue) > 1 ? array_shift($queue) : $queue[0];
 

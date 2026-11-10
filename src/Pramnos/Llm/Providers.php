@@ -152,6 +152,37 @@ final class Providers
                 'mistral-large-latest' => 'Mistral Large',
             ],
         ],
+        /*
+         * Anthropic's Claude, through the Messages API — translated to and from the client's shape
+         * by its own transport. The newest models always think and take no temperature; how hard
+         * they think is `effort`, `low` with reasoning off. A structured answer is asked for through
+         * a tool: `output_config.format` refuses schemas with bounds, and an application's own
+         * schema may have them. Thinking counts against the answer's budget, so the default is
+         * larger than the others'.
+         */
+        'anthropic' => [
+            'label'         => 'Anthropic (Claude)',
+            'transport'     => Transport\Anthropic::class,
+            'base_url'      => 'https://api.anthropic.com/v1',
+            'api_key_url'   => 'https://platform.claude.com/settings/keys',
+            'models_path'   => '/models',
+            'balance_path'  => null,
+            'token_param'   => 'max_tokens',
+            'default_max_tokens' => 16000,
+            'json_schema'   => false,
+            'reasoning_param' => 'effort',
+            'reasoning_models' => '/^claude-/i',
+            'efforts'       => ['off' => 'low', 'on' => 'high'],
+            'supports_temperature' => false,
+            'model_pattern' => '/^claude-/i',
+            'default_model' => 'claude-opus-5-5',
+            'context_window' => 1000000,
+            'models'        => [
+                'claude-opus-5-5'   => 'Claude Opus 5.5 — the most capable for everyday work',
+                'claude-sonnet-5-5' => 'Claude Sonnet 5.5 — fast and capable, half the price',
+                'claude-haiku-5-5'  => 'Claude Haiku 5.5 — the cheapest, for simple tasks',
+            ],
+        ],
     ];
 
     /** What an entry holds when it does not say. */

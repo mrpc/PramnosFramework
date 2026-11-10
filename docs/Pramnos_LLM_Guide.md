@@ -1,6 +1,6 @@
 ---
 use_cases:
-  - Calling a language model (OpenAI, DeepSeek, Gemini, Mistral) from an application
+  - Calling a language model (OpenAI, DeepSeek, Gemini, Mistral, Claude) from an application
   - Getting an answer in a given JSON shape, or reading the fields of an invoice or form
   - Capping what one answer may spend, and falling back when a provider is down
   - Keeping data of one kind away from a provider that may not have it, and choosing a model per question
@@ -92,8 +92,8 @@ $answer['ok'] ? $answer['data']['topic'] : $answer['says'];
 Where the provider takes `response_format: json_schema` (its entry says `'json_schema' => true`:
 OpenAI, Gemini, Mistral), the answer is asked for in that shape, with no tool. An answer that does
 not fit is sent back once with what is wrong, and a second one that does not fit is a failure. A
-fenced code block around the JSON is read. Elsewhere, DeepSeek for one, the schema becomes the
-arguments of one tool named `$name`, which the model is made to call.
+fenced code block around the JSON is read. Elsewhere, DeepSeek and Claude for two, the schema
+becomes the arguments of one tool named `$name`, which the model is asked to call.
 
 `JsonSchema::errors($value, $schema)` is the check. It covers `type` (one, or a list),
 `required`, `properties`, `items`, `enum`, `minimum`/`maximum`, `minLength`/`maxLength` and
@@ -167,8 +167,9 @@ the whole conversation again, so an answer of six rounds over a 25,000-token pro
 
 ## Providers and connections
 
-Four are built in, all through the OpenAI-compatible `/chat/completions`: `openai`, `deepseek`,
-`gemini` and `mistral`. Each keeps its own settings, so several stay configured at once:
+Five are built in. Four go through the OpenAI-compatible `/chat/completions` — `openai`,
+`deepseek`, `gemini` and `mistral` — and `anthropic` (Claude) through Anthropic's Messages API,
+by its own transport (see below). Each keeps its own settings, so several stay configured at once:
 `llm_<provider>_api_key`, `_base_url`, `_model`, `_temperature`, `_max_tokens`, `_reasoning`.
 `llm_provider` chooses the one in use. Everything is edited on `/admin/Ai/settings`; keys are stored
 encrypted (they need `APP_KEY`) and never printed back.
@@ -192,7 +193,7 @@ What an entry can say: `label`, `base_url`, `api_key_url`, `models_path`, `balan
 `token_param` (`max_tokens` or `max_completion_tokens` — the wrong one is a 400),
 `reasoning_param` (`thinking` for DeepSeek's switch, `effort` with `reasoning_models` and
 `efforts` for OpenAI-style), `supports_temperature`, `cache_key_param`, `model_pattern` (which of
-`/models` are chat models), `default_model`, `models` (the curated list and what each is for),
+`/models` are chat models), `default_model`, `default_max_tokens` (the answer budget when nothing sets one; 2 000), `models` (the curated list and what each is for),
 `requires_consent` and `place`, and `transport` — a `Pramnos\Llm\Transport\Transport` class for a
 provider that does not speak the OpenAI shape.
 
@@ -207,6 +208,35 @@ $theirs = (new Connection('openai'))->with(['api_key' => $key, 'own' => true]);
 `check()` asks the provider whether the key works and says what is wrong in words;
 `models()` reads the provider's catalogue (falling back to the curated list); `balance()` and
 `hasCredit()` read the balance where a provider publishes one (DeepSeek does).
+
+### Claude (`anthropic`)
+
+Set `llm_anthropic_api_key` to a key from the Claude Console
+(<https://platform.claude.com/settings/keys>) — the API is billed in its own credits, not by a
+Claude.ai subscription — and choose `anthropic` as the provider. The models offered are
+`claude-opus-5-5` (the default), `claude-sonnet-5-5` and `claude-haiku-5-5`, with a context window
+of a million tokens.
+
+`Transport\Anthropic` translates the client's requests and answers both ways, so the tool loop,
+budgets, fallback, streaming and costing work as they do for the other providers:
+
+- the system prompt is the request's `system`; a system note the client adds later in the
+  conversation (last round, a correction) goes as text in the user's turn it follows;
+- tools go as `input_schema`, calls come back as `tool_calls`, results go back as `tool_result`
+  blocks in one user turn;
+- a forced tool call goes as `tool_choice: auto` — the current models refuse forced tool use with a
+  400 — and the client already says in its prompt which tool it expects;
+- the models always think and take no temperature; the reasoning setting is
+  `output_config.effort`, `low` with reasoning off and `high` with it on. Thinking is not sent back
+  in later rounds: a thinking block replayed after the client has trimmed the history near the
+  window is a 400, and none at all is always valid;
+- every request asks for the prompt cache, and what it saved is costed at the cache price — the
+  Claude models are in `Pricing::SEED`; an installation whose `llm_prices` was already saved adds
+  them on `/admin/Ai/settings`, or their calls show no cost;
+- the default answer budget is 16 000 tokens rather than 2 000, because thinking spends from it.
+
+A structured answer (`askForJson()`) goes through a tool rather than `output_config.format`, which
+refuses schemas with bounds such as `minimum` or `maxLength`.
 
 ### When a provider is busy or down
 
@@ -233,7 +263,8 @@ nothing. An answer cut off at the length limit and continued goes on from where 
 answer `ask()` and `askWithTools()` return is the same as without streaming: its tool calls and
 usage are put together from the stream's pieces. `onText(null)` stops it.
 
-Only a transport with a `chatStream()` method streams. `OpenAiCompatible` has one: it sends
+Only a transport with a `chatStream()` method streams; `Anthropic` reads the Messages API's own
+events (`content_block_delta`, `message_delta`). `OpenAiCompatible` has one too: it sends
 `stream: true` with `stream_options.include_usage` and reads the server-sent events. A provider
 that refuses that request with a 400 or 422 is asked again the ordinary way, and one that answers
 with a plain body is read as one. A transport of the application's own without `chatStream()`

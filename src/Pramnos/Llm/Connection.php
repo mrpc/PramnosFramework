@@ -214,7 +214,8 @@ class Connection
         $value = (int) ($this->overrides['max_tokens'] ?? 0);
         $value = $value > 0 ? $value : (int) ($this->fromFeature('max_tokens') ?: Settings::getSetting((string) Providers::settingKey($this->provider, 'max_tokens'), 0));
 
-        return $value > 0 ? $value : 2000;
+        // The provider's own default where it has one: a model that thinks spends from the same budget.
+        return $value > 0 ? $value : max(1, (int) ($this->config()['default_max_tokens'] ?? 2000));
     }
 
     /**

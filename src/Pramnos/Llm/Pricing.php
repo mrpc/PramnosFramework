@@ -56,6 +56,11 @@ final class Pricing
         'gemini-3.1-flash-lite' => ['cache_hit' => 0.025, 'cache_miss' => 0.25, 'output' => 1.50],
         'gemini-3.8-flash'      => ['cache_hit' => 0.075, 'cache_miss' => 0.75, 'output' => 3.75],
         'mistral-small-2603'    => ['cache_hit' => 0.015, 'cache_miss' => 0.15, 'output' => 0.60],
+        // Claude: a cache read is the hit; a cache write is costed as a miss (it is 1.25× an input token).
+        'claude-opus-5-5'       => ['cache_hit' => 0.20, 'cache_miss' => 4.00, 'output' => 20.00],
+        'claude-sonnet-5-5'     => ['cache_hit' => 0.10, 'cache_miss' => 2.00, 'output' => 10.00],
+        // ponytail: Haiku 5.5's cache-read price is not in the seed's source — priced as a miss, erring high.
+        'claude-haiku-5-5'      => ['cache_hit' => 0.10, 'cache_miss' => 0.10, 'output' => 0.50],
         'mistral-large-latest'  => ['cache_hit' => 0.05, 'cache_miss' => 0.50, 'output' => 1.50],
     ];
 
