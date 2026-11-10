@@ -436,7 +436,11 @@
             }
         }
 
-        /** A Stop button under the answer being written, while it is; gone once it is not. */
+        /**
+         * A Stop button under the thinking bubble, while the answer is written; gone once it is not.
+         * Small, a square and no fill — part of the bubble, not the page's main action — with its
+         * word for a screen reader and as a tooltip.
+         */
         function stopButton(askId) {
             var button = root.querySelector('[data-pf-chat-stop]');
 
@@ -450,12 +454,13 @@
             if (button || !messages || !form) {
                 return;
             }
-            var send = form.querySelector('button[type="submit"]');
             button = document.createElement('button');
             button.type = 'button';
-            button.className = send ? send.className : '';
+            button.className = 'pf-chat-stop';
             button.setAttribute('data-pf-chat-stop', '');
-            button.textContent = words('stop', 'Stop');
+            button.setAttribute('aria-label', words('stop', 'Stop'));
+            button.setAttribute('title', words('stop', 'Stop'));
+            button.textContent = '■';
             button.addEventListener('click', function () {
                 // The form's hidden fields carry the session's token, as the question did.
                 var body = new FormData();

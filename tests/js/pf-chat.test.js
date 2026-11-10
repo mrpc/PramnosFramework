@@ -252,6 +252,10 @@ test('a question being answered can be stopped', async () => {
     await settle();
 
     // Assert
+    // Small and unfilled, part of the thinking bubble — not the send button's look (FW-399).
+    assert.equal(stop.className, 'pf-chat-stop');
+    assert.equal(stop.textContent, '■');
+    assert.deepEqual([stop.getAttribute('aria-label'), stop.getAttribute('title')], ['Stop', 'Stop'], 'its word, for a screen reader and as a tooltip');
     assert.equal(ui.requests[1].url, '/chat/cancel/5', 'the cancel address beside the asked one');
     assert.equal(ui.requests[1].method, 'POST');
     assert.equal(ui.page.querySelector('[data-pf-chat-stop]'), null, 'gone once stopped');
@@ -280,6 +284,28 @@ function rating(pressed = false) {
 
     return { span, good, bad, note, value, pressedOf };
 }
+
+/**
+ * The note pf-chat.js hides stays hidden on every theme (FW-399): a stylesheet rule that gives the
+ * rating's text field a display of its own wins over the browser's `[hidden]`, so the field showed
+ * from the start — cut off in a narrow panel, the line under the answer looking broken. Every such
+ * rule must leave a hidden field alone.
+ */
+test('no theme shows the rating\'s note while it is hidden', () => {
+    // Arrange
+    const themes = ['plain-css', 'bootstrap', 'tailwind'];
+
+    for (const theme of themes) {
+        // Act — every rule naming the rating's input that sets a display
+        const css   = fs.readFileSync(path.join(__dirname, '..', '..', 'scaffolding', 'themes', theme, 'components.css'), 'utf8');
+        const rules = [...css.matchAll(/([^{}]*\.pf-rating[^{}]*input[^{}]*)\{([^}]*)\}/g)]
+            .filter((m) => /display\s*:\s*(?!none)/.test(m[2]));
+
+        // Assert
+        assert.ok(rules.length > 0, theme + ': the rule is there to check');
+        rules.forEach((m) => assert.match(m[1], /:not\(\[hidden\]\)/, theme + ': ' + m[1].trim()));
+    }
+});
 
 /**
  * 👎 asks what was wrong before it sends: the note is hidden until the first press, which shows

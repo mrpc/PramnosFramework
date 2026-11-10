@@ -317,7 +317,9 @@ as `rating` (1, -1 or null).
 
 A bad answer carries a note of what was wrong, asked for after 👎 is pressed. On the page the first
 press shows the note beside the button, and the next press, or Enter in the note, sends it. The
-note is on view from the start when the page runs without JavaScript. The SPA asks for it in a
+note is on view from the start when the page runs without JavaScript. The themes' rule for the
+note leaves a hidden one hidden (`:not([hidden])`). A theme's own rule that gives it a `display`
+must do the same, or the note shows from the start. The SPA asks for it in a
 prompt.
 
 On the page and in the side panel, `pf-chat.js` sends a rating in the background: the buttons
@@ -449,7 +451,10 @@ Both screens draw a Stop button while they follow a question. `pf-chat.js` posts
 `cancel/{id}` (the `asked/` address with its last word changed, so the conversations page and the
 analyst's page under `/admin/Ai` need nothing in their templates), with the form's hidden fields
 for the session's token. The SPA calls `chatClient().cancelAsk(id)`, and `waitForAnswer()`
-returns `{status: 'cancelled'}`. The button's words are the view's `stop` and `stopped`.
+returns `{status: 'cancelled'}`. On the page the button sits under the thinking bubble, small,
+round and unfilled, with a square in it (`.pf-chat-stop`), because it belongs to the bubble and is
+not the page's main action. The view's `stop` is its label for a screen reader and its tooltip,
+and `stopped` is the line once it has stopped.
 
 A `Client` used directly takes the same hook:
 

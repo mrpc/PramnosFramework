@@ -2188,8 +2188,15 @@ a.pf-person:hover { background: var(--pf-subtle); }
 }
 .pf-chat .pf-chat-send:hover { background: color-mix(in oklab, var(--pf-chat-accent) 88%, #000); transform: none; }
 .pf-chat .pf-chat-send:disabled { opacity: 0.4; cursor: default; }
-/* Stop, drawn by pf-chat.js with the send button's class: the colour, but a word, not an icon. */
-.pf-chat .pf-chat-send[data-pf-chat-stop] { width: auto; height: 2rem; padding: 0 0.9rem; margin-top: 6px; font-size: 0.85rem; font-weight: 500; }
+/* Stop, drawn by pf-chat.js under the thinking bubble: small, a square, no fill — part of the
+   bubble, not the page's main action. */
+.pf-chat .pf-chat-stop {
+    display: inline-flex; align-items: center; justify-content: center; width: 1.75rem; height: 1.75rem; min-height: 0;
+    margin: 2px 0 0; padding: 0; border: 1px solid var(--pf-line); border-radius: 999px; background: transparent;
+    color: var(--pf-muted); font-size: 0.6rem; line-height: 1; cursor: pointer;
+}
+.pf-chat .pf-chat-stop:hover { color: var(--pf-fg); border-color: var(--pf-muted); }
+.pf-chat .pf-chat-stop:disabled { opacity: 0.4; cursor: default; }
 .pf-chat-suggestions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 16px; }
 /* A full reset, not just the radius: the host's own `.btn-outline-*` default — padding, border,
    font — is exactly what a Bootstrap 3.3.1 page gets wrong for this button. */
@@ -2278,7 +2285,8 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-rating button, .pf-rating button:hover, .pf-rating button:focus, .pf-rating button:active { text-decoration: none !important; box-shadow: none !important; background: transparent !important; }
 .pf-rating button:focus-visible { outline: 2px solid var(--pf-accent) !important; outline-offset: 2px; }
 .pf-rating button[aria-pressed="true"] { background: color-mix(in oklab, var(--pf-accent) 14%, transparent) !important; border-radius: var(--pf-radius); }
-.pf-rating input[type="text"] { display: inline-block; width: 14rem; height: auto; min-height: 0; padding: 0.25rem 0.5rem; font-size: 0.85rem; }
+/* Not while hidden: a display of its own would win over the browser's [hidden] (pf-chat.js hides the note until 👎). */
+.pf-rating input[type="text"]:not([hidden]) { display: inline-block; width: 14rem; height: auto; min-height: 0; padding: 0.25rem 0.5rem; font-size: 0.85rem; }
 
 /* ── pf-tour.js: a spotlight product tour ──────────────────────────────────────────────────────
    Mechanism only — the steps and their text are an application's own (window.PfTour.start()).
