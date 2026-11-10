@@ -135,6 +135,8 @@ class HitsTest extends TestCase
         (new \ReflectionProperty(Token::class, 'urlIdCache'))->setValue(null, []);
         (new \ReflectionProperty(Token::class, 'urlsHaveSha'))->setValue(null, null);
         WriteSpool::setDriver(WriteSpool::DRIVER_SYNC);
+        // A rebuilt probe has no metrics store, whatever this process found before.
+        \Pramnos\Metrics\Store::forgetReady();
         Application::getInstance()->applicationInfo['visits'] = [
             'sites'     => ['main' => ['hosts' => ['site.test'], 'visitor' => $visitor, 'idle' => 1800]],
             'dimension' => static fn (string $path, array $hit): ?string => explode('/', trim($path, '/'))[0] ?: null,
@@ -321,10 +323,13 @@ class HitsTest extends TestCase
         $this->assertSame(1.0, $uk, 'the application\'s own dimension, under the name it chose');
         $this->assertSame(1.0, $search, 'a visit\'s source is its landing page\'s');
         $this->assertArrayHasKey('market', \Pramnos\Metrics\Metrics::dimensions());
-        $this->assertSame(['views' => 4, 'visits' => 2, 'visitors' => 2, 'signed_in' => 1, 'single_page' => 1, 'mean_visit_seconds' => 60.0, 'bots' => 1, 'no_js' => 1],
+        $this->assertSame(['views' => 4, 'visits' => 2, 'visitors' => 2, 'signed_in' => 1, 'single_page' => 1, 'mean_visit_seconds' => 60.0, 'visits_over_4_hours' => 0, 'bots' => 1, 'no_js' => 1],
             $read['figures'], 'the tool\'s figures are the metrics\'');
         $this->assertSame(0, $read['before']['figures']['views'], 'the day before: nothing');
-        $this->assertSame(['direct', 'search'], array_column(array_values(array_filter($read['breakdown']['sources'], static fn (array $r): bool => $r['visits'] > 0)), 'name'));
+        $sources = $read['breakdown']['sources'];
+        usort($sources, static fn (array $a, array $b): int => strcmp((string) $a['name'], (string) $b['name']));
+        $this->assertSame([['name' => 'direct', 'visits' => 1], ['name' => 'search', 'visits' => 1]], $sources,
+            'visits only, by where they came from: the pages after the first are no "(none)" source');
         $this->assertSame(2, $jobs['figures']['views'], 'only pages holding "jobs"');
         $this->assertCount(2, $jobs['breakdown']['pages']);
         $this->assertSame(['name' => 'https://out.test/', 'clicks' => 1], $clicks['breakdown']['clicks'][0]);
@@ -424,5 +429,37 @@ class HitsTest extends TestCase
             $this->assertStringNotContainsString('private', $url);
         }
         $this->assertSame('mail', $this->rows()[0]['medium'], 'the campaign read from the address as it came: utm_source stands for the medium');
+    }
+
+    /**
+     * A visit of hours — a tab left open — is left out of the mean visit, as metric and as the
+     * tool's figure, and counted on its own.
+     */
+    #[DataProvider('databases')]
+    public function testAVisitOfHoursIsCountedApart(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        Application::getInstance()->applicationInfo['metrics'] = ['timezone' => 'UTC'];
+        \Pramnos\Metrics\Metrics::reset();
+        Hits::limitWith(static fn (): bool => true);
+        $ten  = (int) gmmktime(9, 0, 0, 10, 5, 2026);
+        $desk = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36';
+        $a = Hits::take([['k' => 'view', 'u' => 'https://site.test/el/']], self::server(), [], null, $ten);
+        Hits::take([['k' => 'view', 'u' => 'https://site.test/el/a']], self::server(), self::cookies($a['cookies']), null, $ten + 90);
+        // A tab left open: a page every 25 minutes, five hours long.
+        $b = Hits::take([['k' => 'view', 'u' => 'https://site.test/el/']], self::server($desk), [], null, $ten);
+        for ($t = 1500; $t <= 18000; $t += 1500) {
+            $b = Hits::take([['k' => 'view', 'u' => 'https://site.test/el/b']], self::server($desk), self::cookies($b['cookies']), null, $ten + $t);
+        }
+
+        // Act
+        \Pramnos\Metrics\Metrics::compute(['visits.duration'], ['day'], '2026-10-05', '2026-10-05', true, $ten + 86400 * 2);
+        $metric  = \Pramnos\Metrics\Metrics::value('visits.duration', 'day', '2026-10-05');
+        $figures = (new \Pramnos\Llm\Analyst\Tools\VisitsTool(2))->execute(['from' => '2026-10-05', 'to' => '2026-10-05'])['figures'];
+
+        // Assert
+        $this->assertSame(90.0, $metric, 'the mean of the visits up to 4 hours');
+        $this->assertSame([90.0, 1, 2], [$figures['mean_visit_seconds'], $figures['visits_over_4_hours'], $figures['visits']]);
     }
 }

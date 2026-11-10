@@ -161,7 +161,7 @@ given goals and alerts:
 | `visits.visitors` | distinct visitors (a distinct metric: it does not add up across days) |
 | `visits.signed_in` | visits in which the person was signed in at some page |
 | `visits.single_page` | visits of one page |
-| `visits.duration` | the mean visit, in seconds, from its first page to its last |
+| `visits.duration` | the mean visit, in seconds, from its first page to its last, of the visits up to 4 hours: one longer is a tab left open, and would pull the mean to hours |
 | `visits.bots`, `visits.no_js` | robots' hits, and pages without JavaScript, counted apart |
 
 They break down by `visit_site`, `visit_source`, `visit_country`, `visit_device`,
@@ -195,7 +195,9 @@ The analyst's `visits` tool (`visits.tool` renames it) reads the hits directly, 
   before.
 - **A breakdown:** sources, campaigns, referrers, countries, devices, browsers, os, the
   application's dimension, pages, clicks out, or the kinds of account signed in. Each row has its
-  views and visits.
+  views and the visits that began there. Sources, campaigns and referrers count visits only:
+  where a visit came from is known on its landing page, not on the pages after it.
+- **The mean visit** is of the visits up to 4 hours, and `visits_over_4_hours` counts the rest.
 - **`page`:** keeps only the pages whose address holds a given part.
 
 Robots and pages without JavaScript are never in the figures. They are counted apart, and the

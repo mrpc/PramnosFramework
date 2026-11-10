@@ -36,6 +36,9 @@ final class VisitsMetrics implements Catalogue
     /** The hits. */
     public const TABLE = 'pramnos.page_hits';
 
+    /** A visit longer than this, in seconds, is left out of the mean visit and counted on its own: 4 hours. */
+    public const LONG = 14400;
+
     /** The flags of a person's page with JavaScript: none, or only prerendered or cached. */
     public const PEOPLE = [0, 4, 8, 12];
 
@@ -98,14 +101,15 @@ final class VisitsMetrics implements Catalogue
             ->describe(t('Visits of one page'))
             ->source(static fn (Window $w, array $by, Database $db): int|array => self::perVisit($w->startsAt(), $w->endsAt(), $by, $db, 'single'));
         yield Metric::flow('visits.duration', t('Visit length'))->aggregate(Metric::AVG)->dimensions($dims)->unit('s')->format('duration')
-            ->describe(t('The mean visit, in seconds, from its first page to its last'))
+            ->describe(t('The mean visit, in seconds, from its first page to its last; visits longer than 4 hours (a tab left open) are left out'))
             ->source(static fn (Window $w, array $by, Database $db): int|array => self::perVisit($w->startsAt(), $w->endsAt(), $by, $db, 'duration'));
     }
 
     /**
      * Counted per visit: each visit of `[$from, $to)` once — its hits grouped — with its landing
-     * page's breakdown, then counted (`single`: of one page, `signed`: signed in, `all`), or its
-     * length averaged (`duration`, with how many it is of).
+     * page's breakdown, then counted (`single`: of one page, `signed`: signed in, `long`: longer
+     * than {@see LONG}, `all`), or its length averaged (`duration`, of the visits up to LONG, with
+     * how many it is of).
      *
      * @param list<string> $by
      * @return int|list<array<string, mixed>>
@@ -139,6 +143,12 @@ final class VisitsMetrics implements Catalogue
             $outer->where('pages', 1);
         } elseif ($what === 'signed') {
             $outer->where('signed', 1);
+        } elseif ($what === 'duration') {
+            // A tab left open for hours is not a visit of hours: the mean is of the visits up to
+            // LONG; those beyond it are counted on their own (`long`).
+            $outer->where('seconds', '<=', self::LONG);
+        } elseif ($what === 'long') {
+            $outer->where('seconds', '>', self::LONG);
         }
         if ($by !== []) {
             return $outer->groupBy(array_map(static fn (string $n): string => preg_replace('/[^a-z0-9_]/', '', $n), $by))->getAllOrFail();

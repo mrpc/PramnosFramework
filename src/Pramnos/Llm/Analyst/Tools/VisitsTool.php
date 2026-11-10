@@ -44,9 +44,10 @@ final class VisitsTool implements McpToolInterface
     {
         return 'The website\'s own traffic (page views, visits, visitors) — the count of people: robots and pages without JavaScript are '
             . 'left out of the figures and counted apart (say so). from/to: YYYY-MM-DD, both days included (the last 7 days by default). '
-            . 'Answers the period\'s figures — views, visits, visitors, signed_in visits, single_page visits, mean visit seconds, bots, no_js — '
+            . 'Answers the period\'s figures — views, visits, visitors, signed_in visits, single_page visits, mean visit seconds (of visits up to 4 hours; visits_over_4_hours counted apart: a tab left open), bots, no_js — '
             . 'and, with compare: true, the same for the period before it. breakdown: ' . implode(', ', array_keys(self::BREAKDOWNS))
-            . ' — each row with its views and the visits that began there (landing page, or where they came from), largest first; '
+            . ' — pages and the rest each row with its views and the visits that began there, largest first; sources, campaigns and referrers '
+            . 'count visits only (where a visit came from is known on its landing page, not on its other pages: "(none)" there means no campaign or no referrer); '
             . 'clicks are links out, each with its clicks; usertypes the kinds of account signed in. Over a month, by whole UTC days. page: a part of the page\'s address, to keep only pages '
             . 'containing it (with breakdown pages, or for the figures). site: one site\'s name, when there are several.';
     }
@@ -131,6 +132,7 @@ final class VisitsTool implements McpToolInterface
             'signed_in'   => $page === '' ? VisitsMetrics::perVisit($start, $end, [], $db, 'signed', $site) : null,
             'single_page' => $page === '' ? VisitsMetrics::perVisit($start, $end, [], $db, 'single', $site) : null,
             'mean_visit_seconds' => $duration === null ? null : round((float) $duration['value'], 1),
+            'visits_over_4_hours' => $page === '' ? VisitsMetrics::perVisit($start, $end, [], $db, 'long', $site) : null,
             'bots'     => $count([1, 3, 5, 7, 9, 11, 13, 15], 'all'),
             'no_js'    => $count([2, 6, 10, 14]),
         ], static fn ($v): bool => $v !== null);
@@ -177,12 +179,21 @@ final class VisitsTool implements McpToolInterface
             $q->where('h.kind', 'view');
             $key = 'h.' . $column;
         }
+        // Where a visit came from is on its landing page alone: its other pages have none, and
+        // counting their views under "(none)" read as a source of most of the traffic. So these
+        // count visits, on the landing pages, and nothing else.
+        $bySource = in_array($breakdown, ['sources', 'campaigns', 'referrers'], true);
+        if ($bySource) {
+            $rolled ? $q->where('h.visits', '>', 0) : $q->where('h.seq', 1);
+        }
         $rows = $q->select([$q->raw($key . ' AS name'), $q->raw($views . ' AS views'), $q->raw($visits . ' AS visits')])
-            ->groupBy([$q->raw($key)])->orderBy('views', 'desc')->limit(self::LIMIT)->getAllOrFail();
+            ->groupBy([$q->raw($key)])->orderBy($bySource ? 'visits' : 'views', 'desc')->limit(self::LIMIT)->getAllOrFail();
 
-        return array_map(static fn (array $r): array => $breakdown === 'clicks'
-            ? ['name' => $r['name'] ?? '(none)', 'clicks' => (int) $r['views']]
-            : ['name' => $r['name'] ?? '(none)', 'views' => (int) $r['views'], 'visits' => (int) $r['visits']], $rows);
+        return array_map(static fn (array $r): array => match (true) {
+            $breakdown === 'clicks' => ['name' => $r['name'] ?? '(none)', 'clicks' => (int) $r['views']],
+            $bySource               => ['name' => $r['name'] ?? '(none)', 'visits' => (int) $r['visits']],
+            default                 => ['name' => $r['name'] ?? '(none)', 'views' => (int) $r['views'], 'visits' => (int) $r['visits']],
+        }, $rows);
     }
 
     /** The hits of the period — of one site, of pages holding a part of an address — joined to their pages. */
