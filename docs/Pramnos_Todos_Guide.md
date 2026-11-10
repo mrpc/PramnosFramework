@@ -127,7 +127,8 @@ Chat::list($reader, filter: 'overdue', order: 'when');
   ("Maria in #general", "Direct with Maria"), `when`, `overdue` and `editable` (a hand-written
   item's text can be edited in place; a message's or an automatic one opens what it is about).
 - **The mark.** `Chat::messageIds($reader, $ids)` lists the messages with the reader's open
-  to-do: the "✓ to-do added" mark.
+  to-do: the "✓ to-do added" mark. It is asked on every conversation opened, so where the
+  installation has no to-do table (`Todos::installed()`) it answers none without a query.
 - **Move to saved.** `Chat::toSaved($id, $reader)` saves the message for later and the item goes.
 - **Live.** Every add, change and delete is told as `todo.changed` (`{id, deleted}`) on the
   people's own channels, so a list and the marks are drawn again on every device and tab.

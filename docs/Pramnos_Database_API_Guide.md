@@ -586,6 +586,10 @@ transaction, a plan is looked for on the server (`pg_prepared_statements`) befor
 there, a collision would abort the transaction itself, and nothing could recover after it. That
 holds whether the transaction was opened with `startTransaction()` or with raw `START TRANSACTION`.
 
+Outside a transaction, a refused prepare is tried once more — dropping the plan of that name first —
+only when such a plan is on the server. A statement refused for its own SQL (a table or a column
+that is not there) fails once, with that error, and nothing else is sent after it.
+
 ## A paginated list that groups
 
 `_getPaginated()` takes a `$group` clause, and two shapes of it behave differently in a way worth

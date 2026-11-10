@@ -126,6 +126,32 @@ class TodosChatTest extends TestCase
     }
 
     /**
+     * Where the installation has no to-do list, the messages' marks ask nothing of the database
+     * (FW-388).
+     *
+     * `messageIds()` is asked on every conversation opened. Without the table its query failed and
+     * the failure was caught — the page stood, but the server and the application each logged an
+     * error every time. It answers no marks, and no statement on the table is sent.
+     */
+    #[DataProvider('databases')]
+    public function testNoToDoListAsksNothing(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — the table gone, and the "it is there" this process remembered forgotten
+        $this->ready($type, $host, $port, $user);
+        $this->db->schema()->dropIfExists(Todos::TABLE);
+        (new \ReflectionProperty(Todos::class, 'installed'))->setValue(null, null);
+        $this->db->error_text = '';
+
+        // Act
+        $marks = Chat::messageIds(1, [1, 2, 3]);
+
+        // Assert
+        $this->assertSame([], $marks);
+        // No statement failed on this connection: the query on the missing table was not sent.
+        $this->assertSame('', (string) $this->db->error_text);
+    }
+
+    /**
      * The presets: minutes and hours from now; tomorrow and next Monday at 9:00 in the zone; a
      * preset there is not refused.
      */

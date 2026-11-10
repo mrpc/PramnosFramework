@@ -77,6 +77,57 @@ final class PreparedPlanAfterAbortTest extends TestCase
         $this->assertStringNotContainsString('already exists', (string) $db->error_text);
     }
 
+    /**
+     * A statement refused for its own SQL — a table that is not there — fails once, and nothing
+     * else is sent after it (FW-388).
+     *
+     * The retry after a refused prepare drops a plan of the same name and prepares again. With no
+     * such plan, that was a DEALLOCATE of a plan that never existed and a second prepare refused
+     * the same way: three errors in the server's log for one, every time the page was opened.
+     * Each failed statement outside a transaction is one rollback in the database's statistics,
+     * so the count says how many were sent.
+     */
+    public function testAStatementOnAMissingTableFailsOnceWithoutADeallocate(): void
+    {
+        // Arrange
+        $db           = new Database();
+        $db->type     = 'postgresql';
+        $db->server   = 'timescaledb';
+        $db->port     = 5432;
+        $db->user     = 'postgres';
+        $db->password = 'secret';
+        $db->database = TEST_DATABASE;
+        try {
+            if (!$db->connect(false)) {
+                $this->markTestSkipped('PostgreSQL not reachable');
+            }
+        } catch (\Throwable $e) {
+            $this->markTestSkipped('PostgreSQL not reachable: ' . $e->getMessage());
+        }
+        $this->db    = $db;
+        $rollbacks   = static function (Database $db): int {
+            // Flush this backend's counters and read them afresh, not from the cached snapshot.
+            $db->query('SELECT pg_stat_force_next_flush()');
+            $db->query('SELECT 1');
+            $db->query('SELECT pg_stat_clear_snapshot()');
+            $result = $db->query('SELECT xact_rollback FROM pg_stat_database WHERE datname = current_database()');
+            $result->fetch();
+
+            return (int) $result->fields['xact_rollback'];
+        };
+        $before = $rollbacks($db);
+
+        // Act
+        $plan  = self::attempt(static fn () => $db->prepare('SELECT * FROM fw388_no_such_table WHERE id = %i'));
+        $after = $rollbacks($db);
+
+        // Assert
+        $this->assertFalse((bool) $plan, 'the prepare is refused');
+        $this->assertStringContainsString('fw388_no_such_table', (string) $db->error_text, 'the real error is kept');
+        // One failed statement: the prepare, not a DEALLOCATE and a second prepare after it.
+        $this->assertSame(1, $after - $before);
+    }
+
     /** A call that may throw, as false. */
     private static function attempt(callable $call): mixed
     {

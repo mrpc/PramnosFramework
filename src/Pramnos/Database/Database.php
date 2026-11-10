@@ -2165,9 +2165,18 @@ class Database extends \Pramnos\Framework\Base
                      */
                     $result = true;
                 } elseif (@pg_transaction_status($connection) !== PGSQL_TRANSACTION_INERROR) {
-                    // Some other refusal outside a failed transaction: drop whatever is there and try once more.
-                    @pg_query($connection, 'DEALLOCATE "' . $stmtName . '"');
-                    $result = @pg_prepare($connection, $stmtName, $query);
+                    /*
+                     * Some other refusal outside a failed transaction: drop the plan of this name
+                     * and try once more — only when there is one (a collision reported in the
+                     * server's own language). A refusal of the SQL itself, a table or a column
+                     * that is not there, is the answer: dropping a plan that never existed and
+                     * preparing again only wrote two more errors to the server's log.
+                     */
+                    $known = @pg_query_params($connection, 'SELECT 1 FROM pg_prepared_statements WHERE name = $1', [$stmtName]);
+                    if ($known !== false && pg_num_rows($known) > 0) {
+                        @pg_query($connection, 'DEALLOCATE "' . $stmtName . '"');
+                        $result = @pg_prepare($connection, $stmtName, $query);
+                    }
                 }
             }
 
