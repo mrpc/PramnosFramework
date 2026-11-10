@@ -1275,6 +1275,64 @@ class MediaObjectTest extends TestCase
         $this->assertEquals($originalHeight, $media->x);
     }
 
+    /**
+     * An image named `.jpg` that is not one — a damaged upload — is not rotated: rotateLeft()
+     * answers false and leaves the media as it was, rather than a TypeError from imagerotate()
+     * (FW-400, sixteen times in production from the site's "rotate photo").
+     *
+     * @return void
+     */
+    #[Test]
+    public function testRotatingAnImageThatCannotBeReadAnswersFalse(): void
+    {
+        // Arrange — a real upload, then its file overwritten with what is no image
+        $sourceImg = $this->createDummyJpg('rotate_broken.jpg', 20, 10);
+        $media     = new MediaObject();
+        $media->addImage($sourceImg, 'test_media_module');
+        $media->save();
+        $before = $media->filename;
+        file_put_contents($media->filename, 'not an image at all');
+
+        // Act
+        $rotated = $media->rotateLeft();
+
+        // Assert
+        $this->assertFalse($rotated);
+        $this->assertSame($before, $media->filename, 'nothing changed');
+        $this->assertFileDoesNotExist(str_replace('.jpg', '-r90.jpg', $before), 'nothing written');
+    }
+
+    /**
+     * A WebP named `.jpg` — what a phone often uploads — is rotated as the WebP it is: the format is
+     * read from the content, not the name, and the rotated file is written in it (FW-400).
+     *
+     * @return void
+     */
+    #[Test]
+    public function testAWebpNamedJpgIsRotatedAsWebp(): void
+    {
+        if (!function_exists('imagewebp')) {
+            $this->markTestSkipped('GD without WebP');
+        }
+        // Arrange — a real upload, then its file replaced by a WebP of the same size
+        $sourceImg = $this->createDummyJpg('rotate_webp.jpg', 20, 10);
+        $media     = new MediaObject();
+        $media->addImage($sourceImg, 'test_media_module');
+        $media->save();
+        $webp = imagecreatetruecolor(20, 10);
+        imagewebp($webp, $media->filename);
+
+        // Act
+        $rotated = $media->rotateLeft();
+        $info    = getimagesize($media->filename);
+
+        // Assert
+        $this->assertTrue($rotated);
+        $this->assertStringContainsString('-r90', $media->filename);
+        // Its content still WebP, and turned: 20×10 became 10×20.
+        $this->assertSame([IMAGETYPE_WEBP, 10, 20], [$info[2], $info[0], $info[1]]);
+    }
+
     // ────────────────────────────────────────────────────────────────────────
     // Thumbnail retrieval tests
     // ────────────────────────────────────────────────────────────────────────

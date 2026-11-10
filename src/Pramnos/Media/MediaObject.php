@@ -1467,7 +1467,13 @@ class MediaObject extends \Pramnos\Framework\Base
     }
 
     /**
-     * Rotate an image
+     * Rotate an image, and its thumbnails, by `$degrees`: each written beside the original with
+     * `-r{degrees}` in its name, in the format its content is.
+     *
+     * The format is read from the content, not the name: a phone's WebP saved as `.jpg` is rotated as
+     * the WebP it is. An image that cannot be read — a damaged file, a format GD does not read, such
+     * as HEIC — leaves everything as it was and answers false; a thumbnail that cannot is left out.
+     *
      * @todo  Delete original images & calculate disk space again
      * @param int $degrees -360 to 360
      * @return boolean
@@ -1478,34 +1484,15 @@ class MediaObject extends \Pramnos\Framework\Base
             return false;
         }
         $fileExt = '-r' . $degrees;
-        $isJpg = false;
         $rotatedImages = array();
         if (file_exists($this->filename)) {
-            if (stripos($this->filename, '.jpg') !== false
-                || stripos($this->filename, '.jpeg') !== false) {
-                $image = imagecreatefromjpeg($this->filename);
-            } elseif (stripos($this->filename, '.png') !== false) {
-                $image = imagecreatefrompng($this->filename);
-            } else {
-                $image = imagecreatefromjpeg($this->filename);
-                $isJpg = true;
-                if (!$image) {
-                    return false;
-                }
+            [$image, $type] = self::readImage($this->filename);
+            if ($image === null) {
+                return false;
             }
             $image = imagerotate($image, $degrees, 0);
-            if (stripos($this->filename, '.jpg') !== false
-                || stripos($this->filename, '.jpeg') !== false || $isJpg) {
-                imagejpeg(
-                    $image,
-                    $this->addStringToFilename($this->filename, $fileExt),
-                    100
-                );
-            } else {
-                imagepng(
-                    $image,
-                    $this->addStringToFilename($this->filename, $fileExt)
-                );
+            if ($image === false || !self::writeImage($image, $type, $this->addStringToFilename($this->filename, $fileExt))) {
+                return false;
             }
             $x = $this->x;
             $y = $this->y;
@@ -1518,55 +1505,67 @@ class MediaObject extends \Pramnos\Framework\Base
             $rotatedImages[$this->filename] = true;
         }
         foreach ($this->thumbnails as $key => $thumbnail) {
-            $validFormat = true;
-            if (!isset($rotatedImages[$thumbnail->filename])) {
-                if (stripos($thumbnail->filename, '.jpg') !== false
-                    || stripos($thumbnail->filename, '.jpeg') !== false
-                    || $isJpg) {
-                    $image = imagecreatefromjpeg($thumbnail->filename);
-                } elseif (stripos($thumbnail->filename, '.png') !== false) {
-                    $image = imagecreatefrompng($thumbnail->filename);
-                } else {
-                    $validFormat = false;
-                }
+            if (isset($rotatedImages[$thumbnail->filename])) {
+                continue;
             }
-            if ($validFormat) {
-                $image = imagerotate($image, $degrees, 0);
-                if (stripos($thumbnail->filename, '.jpg') !== false
-                    || stripos($thumbnail->filename, '.jpeg') !== false
-                    || $isJpg) {
-                    imagejpeg(
-                        $image,
-                        $this->addStringToFilename(
-                            $thumbnail->filename, $fileExt
-                        ),
-                        100
-                    );
-                } elseif (stripos($thumbnail->filename, '.png') !== false)  {
-                    imagepng(
-                        $image,
-                        $this->addStringToFilename(
-                            $thumbnail->filename, $fileExt
-                        )
-                    );
-                }
-                $x = $thumbnail->x;
-                $y = $thumbnail->y;
-                $thumbnail->x = $y;
-                $thumbnail->y = $x;
-                $thumbnail->filename = $this->addStringToFilename(
-                    $thumbnail->filename, $fileExt
-                );
-                $thumbnail->url = $this->addStringToFilename(
-                    $thumbnail->url, $fileExt
-                );
-                $this->thumbnails[$key] = $thumbnail;
-                $rotatedImages[$thumbnail->filename] = true;
+            [$image, $type] = self::readImage((string) $thumbnail->filename);
+            $image = $image === null ? false : imagerotate($image, $degrees, 0);
+            if ($image === false
+                || !self::writeImage($image, $type, $this->addStringToFilename($thumbnail->filename, $fileExt))) {
+                continue;
             }
+            $x = $thumbnail->x;
+            $y = $thumbnail->y;
+            $thumbnail->x = $y;
+            $thumbnail->y = $x;
+            $thumbnail->filename = $this->addStringToFilename(
+                $thumbnail->filename, $fileExt
+            );
+            $thumbnail->url = $this->addStringToFilename(
+                $thumbnail->url, $fileExt
+            );
+            $this->thumbnails[$key] = $thumbnail;
+            $rotatedImages[$thumbnail->filename] = true;
         }
         $this->save();
 
         return true;
+    }
+
+    /**
+     * An image read by what its content is, and that format; null when it cannot be read.
+     *
+     * @return array{0: \GdImage|null, 1: int}
+     */
+    private static function readImage(string $file): array
+    {
+        $info = is_file($file) ? @getimagesize($file) : false;
+        $type = is_array($info) ? (int) $info[2] : 0;
+        $image = match ($type) {
+            IMAGETYPE_JPEG => @imagecreatefromjpeg($file),
+            IMAGETYPE_PNG  => @imagecreatefrompng($file),
+            IMAGETYPE_GIF  => @imagecreatefromgif($file),
+            IMAGETYPE_WEBP => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($file) : false,
+            default        => false,
+        };
+
+        return [$image instanceof \GdImage ? $image : null, $type];
+    }
+
+    /** Write an image in `$type`, the format it was read in. */
+    private static function writeImage(\GdImage $image, int $type, string $file): bool
+    {
+        if ($type === IMAGETYPE_PNG || $type === IMAGETYPE_GIF) {
+            // Transparency kept, as it was.
+            imagesavealpha($image, true);
+        }
+
+        return match ($type) {
+            IMAGETYPE_PNG  => imagepng($image, $file),
+            IMAGETYPE_GIF  => imagegif($image, $file),
+            IMAGETYPE_WEBP => function_exists('imagewebp') && imagewebp($image, $file, 100),
+            default        => imagejpeg($image, $file, 100),
+        };
     }
 
     /**

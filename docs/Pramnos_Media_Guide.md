@@ -505,6 +505,12 @@ $media->rotateLeft();
 $media->rotateRight();
 ```
 
+Each answers whether it rotated. The image and its thumbnails are written beside the originals,
+with `-r90` or `-r-90` in the name, in the format their content is: JPEG, PNG, GIF or WebP, read from
+the file, not its name. A phone's WebP saved as `.jpg` is rotated as the WebP it is. An image that
+cannot be read, such as a damaged file or a HEIC that GD does not read, is left as it was, and the
+call answers `false`. A thumbnail that cannot be read is left out.
+
 ### Transparency
 
 A PNG keeps its alpha through resizing **and** through cropping. Both paths prepare their
