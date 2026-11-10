@@ -391,3 +391,21 @@ test('with a server, stopSpeech() silences it and nothing later plays; a failing
     assert.equal(window.speechSynthesis.spoken.length, 1, 'the browser read the text instead');
     assert.equal(down.speakingId, 2);
 });
+
+/**
+ * A voice reads a punctuation mark that ends no phrase by its name — "τελεία", "κόμμα". What is
+ * read aloud therefore never has two marks together: a line's end adds a full stop only where
+ * the line has no mark of its own, a table's rows read as lists, and its separator row is gone.
+ */
+test('stripMarkdownForSpeech never leaves two punctuation marks together', () => {
+    // Arrange — lines ending in ;, :, and ., a list, and a table
+    const { window } = page();
+    const text = 'Γεια σου! Πώς πάει η μέρα σου;\n\nΣήμερα έχεις:\n- Ραντεβού στις 10:00.\n- Γυμναστήριο, στις 18:00\n\n| Ώρα | Τι |\n|---|---|\n| 10 | Γιατρός |\n\nΚαλή συνέχεια.';
+
+    // Act
+    const said = window.PfVoice.stripMarkdownForSpeech(text, { gender: 'female' });
+
+    // Assert
+    assert.equal(said, 'Γεια σου! Πώς πάει η μέρα σου; Σήμερα έχεις: Ραντεβού στις 10:00. Γυμναστήριο, στις 18:00. Ώρα, Τι. 10, Γιατρός. Καλή συνέχεια.');
+    assert.doesNotMatch(said, /[.!?;:,]\s*[.,;:]/, 'no mark followed by another');
+});

@@ -253,6 +253,9 @@ shared by the mic and every answer's 🔊 button:
 natural rather than spelled out or mis-gendered:
 
 - Reads `ό,τι` as the word: a voice says the comma as a letter's name ("όμικρον τι").
+- `PfVoice.stripMarkdownForSpeech()` leaves no two punctuation marks together: a voice reads a
+  mark that ends no phrase by its name ("τελεία", "κόμμα"). A line's end becomes a full stop only
+  where the line has no mark of its own, and a table reads as its rows, cells separated by commas.
 - Strips Markdown and emoji, converts `%`/`&`/`+` to spoken words, and transliterates any
   remaining Latin word to Greek phonetics — without it, a Greek voice spells `"WordPress"`
   letter by letter.

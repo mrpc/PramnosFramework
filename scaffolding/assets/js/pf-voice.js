@@ -71,9 +71,16 @@
         clean = clean.replace(/^(?:[-*_]\s*){3,}$/gm, '');
         clean = clean.replace(/^\s*[-*+]\s+/gm, '');
         clean = clean.replace(/^\s*\d+\.\s+/gm, '');
-        clean = clean.replace(/\|/g, ', ');
-        clean = clean.replace(/^,\s*[-:]+.*$/gm, '');
-        clean = clean.replace(/\n+/g, '. ');
+        // A table: its separator row goes, a row's outer pipes go, the cells between them are
+        // a list.
+        clean = clean.replace(/^\s*\|?(?:\s*:?-{3,}:?\s*\|?)+\s*$/gm, '');
+        clean = clean.replace(/^[ \t]*\|[ \t]*|[ \t]*\|[ \t]*$/gm, '');
+        clean = clean.replace(/[ \t]*\|[ \t]*/g, ', ');
+        // A line's end is a sentence's end, unless the line already ends in punctuation of its own.
+        clean = clean.replace(/([.!?;;:·…,])?[ \t]*\n+\s*/g, function (m, mark) { return mark ? mark + ' ' : '. '; });
+        // One mark where several meet (";.", ".,"): a voice reads the second as a word —
+        // "τελεία", "κόμμα" — since it ends no phrase.
+        clean = clean.replace(/([.!?;;:·…,])(?:\s*[.,;;:·])+/g, '$1');
         clean = clean.replace(/\s{2,}/g, ' ');
 
         clean = hasGreek
