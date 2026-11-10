@@ -53,6 +53,19 @@ final class Providers
     /** The fields every provider keeps in settings, and the screen edits. */
     public const FIELDS = ['api_key', 'base_url', 'model', 'temperature', 'max_tokens', 'reasoning'];
 
+    /**
+     * A model name a provider retired, and the one that answers in its place — a setting saved
+     * with the old name keeps working after the provider stops accepting it.
+     *
+     * `deepseek-chat` was DeepSeek's name for its fast model without thinking, which `deepseek-flash`
+     * is now. `deepseek-reasoner` is not here: its thinking would be lost wherever reasoning is off.
+     *
+     * @var array<string, string>
+     */
+    public const RENAMED = [
+        'deepseek-chat' => 'deepseek-flash',
+    ];
+
     /** @var array<string, array<string, mixed>> */
     public const BUILT_IN = [
         'deepseek' => [
@@ -67,14 +80,14 @@ final class Providers
             'reasoning_param' => 'thinking',
             'supports_temperature' => true,
             'model_pattern' => '/^deepseek/i',
-            'default_model' => 'deepseek-chat',
+            'default_model' => 'deepseek-flash',
             // Established outside the EU with no adequacy decision: a Policy\Consent may ask first.
             'requires_consent' => true,
             'place'            => "the People's Republic of China",
             'context_window' => 128000,
             'models'        => [
-                'deepseek-chat'     => 'DeepSeek Chat — fast and cheap',
-                'deepseek-reasoner' => 'DeepSeek Reasoner — thinks first, costs more and is slower',
+                'deepseek-flash'  => 'DeepSeek Flash — fast and cheap; thinks first with reasoning on',
+                'deepseek-v4-pro' => 'DeepSeek V4 Pro — stronger, about four times the price',
             ],
         ],
         'openai' => [

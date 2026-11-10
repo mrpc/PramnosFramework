@@ -46,11 +46,11 @@ class ClientTest extends LlmTestCase
         $this->assertTrue($answer['ok']);
         $this->assertSame('Hello', $answer['reply']);
         $this->assertSame(15, $answer['usage']['total_tokens']);
-        $this->assertIsFloat($answer['cost'], 'deepseek-chat is priced');
+        $this->assertIsFloat($answer['cost'], 'deepseek-flash is priced');
         $this->assertSame('deepseek', $answer['provider']);
         $this->assertSame('https://api.deepseek.com/chat/completions', $this->sent[0]['url']);
         $body = $this->sent[0]['body'];
-        $this->assertSame('deepseek-chat', $body['model']);
+        $this->assertSame('deepseek-flash', $body['model']);
         $this->assertSame(2000, $body['max_tokens']);
         $this->assertSame(['type' => 'disabled'], $body['thinking']);
         $this->assertSame(['role' => 'system', 'content' => 'Be brief.'], $body['messages'][0]);
@@ -79,8 +79,8 @@ class ClientTest extends LlmTestCase
 
         // Assert
         $this->assertTrue($stays['ok'] && $moves['ok']);
-        // deepseek-chat costs less than deepseek-reasoner: one call, on it.
-        $this->assertSame('deepseek-chat', $this->sent[0]['body']['model']);
+        // deepseek-flash costs less than deepseek-v4-pro: one call, on it.
+        $this->assertSame('deepseek-flash', $this->sent[0]['body']['model']);
         // gpt-5 has no price; gpt-6-luna is the cheapest OpenAI model priced.
         $this->assertSame('gpt-6-luna', $this->sent[1]['body']['model']);
         $this->assertCount(2, $this->sent);

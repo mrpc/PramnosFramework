@@ -162,6 +162,31 @@ class ProvidersAndConnectionTest extends LlmTestCase
     }
 
     /**
+     * A model name the provider retired is asked for by the one that answers in its place,
+     * wherever the name was saved — the provider's setting, a feature's, a caller's override —
+     * and prices saved under the old name still cost it. `deepseek-chat` stopped being one of
+     * DeepSeek's names; an installation that saved it must not start failing, nor go unpriced.
+     */
+    public function testARetiredModelNameIsAskedForByItsSuccessor(): void
+    {
+        // Arrange
+        $this->setting('llm_deepseek_model', 'deepseek-chat');
+        $saved = new \Pramnos\Llm\Pricing(['deepseek-chat' => ['cache_hit' => 1, 'cache_miss' => 2, 'output' => 3]]);
+
+        // Act
+        $stored   = (new Connection('deepseek'))->model();
+        $override = (new Connection('openai'))->with(['model' => 'deepseek-chat'])->model();
+        $reasoner = (new Connection('deepseek'))->with(['model' => 'deepseek-reasoner'])->model();
+
+        // Assert
+        $this->assertSame(['deepseek-flash', 'deepseek-flash'], [$stored, $override]);
+        $this->assertSame('deepseek-reasoner', $reasoner, 'not renamed: its thinking would be lost with reasoning off');
+        $this->assertSame(2.0, $saved->forModel('deepseek-flash')['cache_miss'], 'the old name\'s saved price');
+        $this->assertNull($saved->forModel('gpt-4o'), 'a model nobody priced stays unpriced');
+        $this->assertSame('deepseek-flash', Providers::config('deepseek')['default_model']);
+    }
+
+    /**
      * A feature's settings apply, follow another feature when empty, and a model set for one
      * provider is not asked of another.
      */

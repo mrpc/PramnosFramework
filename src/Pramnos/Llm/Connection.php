@@ -184,17 +184,13 @@ class Connection
 
     public function model(): string
     {
-        if (trim((string) ($this->overrides['model'] ?? '')) !== '') {
-            return trim((string) $this->overrides['model']);
-        }
+        $model = trim((string) ($this->overrides['model'] ?? ''));
+        $model = $model !== '' ? $model : $this->fromFeature('model');
+        $model = $model !== '' ? $model : trim((string) Settings::getSetting((string) Providers::settingKey($this->provider, 'model'), ''));
+        $model = $model !== '' ? $model : (string) $this->config()['default_model'];
 
-        if (($feature = $this->fromFeature('model')) !== '') {
-            return $feature;
-        }
-
-        $stored = trim((string) Settings::getSetting((string) Providers::settingKey($this->provider, 'model'), ''));
-
-        return $stored !== '' ? $stored : (string) $this->config()['default_model'];
+        // A name the provider retired is asked for by the name that answers in its place.
+        return Providers::RENAMED[$model] ?? $model;
     }
 
     public function temperature(): float

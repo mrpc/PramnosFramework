@@ -209,6 +209,12 @@ $theirs = (new Connection('openai'))->with(['api_key' => $key, 'own' => true]);
 `models()` reads the provider's catalogue (falling back to the curated list); `balance()` and
 `hasCredit()` read the balance where a provider publishes one (DeepSeek does).
 
+A model name a provider has retired is sent as the name that answers in its place
+(`Providers::RENAMED`), wherever it was saved, and prices saved under the old name still cost it.
+DeepSeek's `deepseek-chat` is sent as `deepseek-flash`. `deepseek-reasoner` is not renamed,
+because with reasoning off its thinking would be lost: set `deepseek-flash` with reasoning on
+instead.
+
 ### Claude (`anthropic`)
 
 Set `llm_anthropic_api_key` to a key from the Claude Console

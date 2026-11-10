@@ -48,6 +48,16 @@ final class Pricing
             'off_peak'  => ['cache_hit' => 0.003, 'cache_miss' => 0.15, 'output' => 0.60],
             'peak_utc'  => ['days' => [1, 2, 3, 4, 5], 'hours' => [1, 2, 3, 6, 7, 8, 9]],
         ],
+        'deepseek-flash'    => [
+            'cache_hit' => 0.006, 'cache_miss' => 0.30, 'output' => 1.20,
+            'off_peak'  => ['cache_hit' => 0.003, 'cache_miss' => 0.15, 'output' => 0.60],
+            'peak_utc'  => ['days' => [1, 2, 3, 4, 5], 'hours' => [1, 2, 3, 6, 7, 8, 9]],
+        ],
+        'deepseek-v4-pro'   => [
+            'cache_hit' => 0.044, 'cache_miss' => 1.32, 'output' => 3.96,
+            'off_peak'  => ['cache_hit' => 0.022, 'cache_miss' => 0.66, 'output' => 1.98],
+            'peak_utc'  => ['days' => [1, 2, 3, 4, 5], 'hours' => [1, 2, 3, 6, 7, 8, 9]],
+        ],
         'deepseek-reasoner'     => ['cache_hit' => 0.14, 'cache_miss' => 0.55, 'output' => 2.19],
         'gpt-4o-mini'           => ['cache_hit' => 0.075, 'cache_miss' => 0.15, 'output' => 0.60],
         // ponytail: uncached at the cache-write price — OpenAI reports no write count, so this errs high.
@@ -85,7 +95,8 @@ final class Pricing
     /** @return array<string, mixed>|null The three buckets, and `off_peak` / `peak_utc` where priced by the hour */
     public function forModel(string $model): ?array
     {
-        return $this->prices[$model] ?? null;
+        // Prices saved before a model was renamed are still its prices under the new name.
+        return $this->prices[$model] ?? $this->prices[(string) array_search($model, Providers::RENAMED, true)] ?? null;
     }
 
     /**
