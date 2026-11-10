@@ -72,4 +72,32 @@ class ReservedColumnQuotingTest extends TestCase
         // Assert
         $this->assertStringContainsString('SELECT model, c.model, c.*, COUNT(*) AS n, SUM(cost) AS Total, users.userid, usage AS usage FROM', $sql);
     }
+
+    /**
+     * What a column takes, as the QueryBuilder guide's "What a column takes" states it, in SELECT,
+     * WHERE, GROUP BY and ORDER BY alike: an expression is emitted as written — ordering by
+     * `coalesce(x.c, 0)` needs no `orderByRaw()` — a mixed-case name is quoted bare and after its
+     * table, and a raw ORDER BY clause (NULLS LAST) is the caller's SQL.
+     *
+     * The guide said `orderBy()` took a column name and sent anything else to `orderByRaw()`; an
+     * application concluded that ordering by an expression was not possible. This holds the
+     * guide's examples to what the grammar does.
+     */
+    #[DataProvider('dialects')]
+    public function testWhatAColumnTakesAsTheGuideSaysIt(string $type, string $q): void
+    {
+        // Act
+        $sql = $this->builder($type)
+            ->select(['u.registrationStatus', 'lower(email) AS mail'])
+            ->where('lower(email)', 'a@b.gr')
+            ->groupBy('u.registrationStatus')
+            ->orderBy('coalesce(x.c, 0)', 'desc')->orderBy('parentToken')->orderByRaw('x.c DESC NULLS LAST')
+            ->toSql();
+
+        // Assert
+        $this->assertStringContainsString("SELECT u.{$q}registrationStatus{$q}, lower(email) AS mail FROM", $sql, 'the column quoted, its table not; an expression as written');
+        $this->assertStringContainsString('WHERE lower(email) = ', $sql);
+        $this->assertStringContainsString("GROUP BY u.{$q}registrationStatus{$q}", $sql);
+        $this->assertStringContainsString("ORDER BY coalesce(x.c, 0) DESC, {$q}parentToken{$q} ASC, x.c DESC NULLS LAST", $sql);
+    }
 }

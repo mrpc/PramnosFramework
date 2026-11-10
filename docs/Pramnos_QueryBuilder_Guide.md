@@ -7,6 +7,8 @@ use_cases:
   - Inspecting the SQL a builder chain produces
   - Reading a column whose name has upper-case letters, such as parentToken
   - Selecting or filtering on a column named after a reserved word, such as order or usage
+  - Ordering or grouping by an expression, such as coalesce(x.c, 0)
+  - Joining a subquery, such as a grouped count, to a list
 ---
 
 # Pramnos QueryBuilder Guide
@@ -223,6 +225,33 @@ $db->queryBuilder()
 ```
 
 ## SELECT Queries
+
+### What a column takes
+
+Wherever the builder names a column — `select()`, `where()` and its kin, `groupBy()`, `having()`,
+`orderBy()` — it takes the same four things:
+
+| Written | Emitted (PostgreSQL; MySQL quotes with backticks) |
+|---|---|
+| a bare name: `email`, `parentToken`, `order` | `email` as written; `"parentToken"` and `"order"` quoted |
+| `table.column`: `u.registrationStatus`, `c.usage` | `u."registrationStatus"`, `c."usage"` — the column by the bare name's rule, the table or alias only when it is a reserved word |
+| `column AS alias`: `tokens AS order` | `tokens AS "order"` — the alias quoted only when it is a reserved word |
+| an expression: `lower(email)`, `coalesce(x.c, 0)`, `COUNT(*) AS n`, `t.*` | exactly as written |
+
+The rules, and why:
+
+- **A name with an upper-case letter is quoted.** PostgreSQL folds an unquoted name to lower case,
+  so `parentToken` would be looked up as `parenttoken` and not found.
+- **A reserved word is quoted** (`order`, `group`, `key`, `usage` and the rest), since unquoted it
+  is not a name at all.
+- **An all-lower-case name is left as it is**, so what the builder writes for ordinary names does
+  not change.
+- **Anything else is an expression and is emitted as written**: anything with a parenthesis, a
+  space, a star, a quote or more than one dot. Quoting it would break it. So `orderBy()`,
+  `groupBy()` and `where()` take an expression as they take a name, with no raw method needed.
+
+An expression is the caller's SQL, never bound. Never build one, or `orderBy()`'s direction,
+from user input: map a sort key the user chose to a column through a list of your own.
 
 ### Column Selection
 
@@ -582,10 +611,32 @@ $qb->table('authserver.user_roles ur')
 // MySQL → FROM authserver_user_roles ur INNER JOIN authserver_roles rd ON …
 ```
 
+#### Joining a subquery: `joinSub()` / `leftJoinSub()`
+
+A derived table joined: a grouped count beside the list it counts, in one statement. Here every
+nationality is listed with how many people of one site hold it, and null where nobody does:
+
+```php
+$rows = $db->queryBuilder()->table('nationalities n')
+    ->select(['n.name', 'x.c'])
+    ->leftJoinSub(fn ($q) => $q->table('users u')
+            ->select(['u.nationality', $q->raw('COUNT(*) AS c')])
+            ->where('u.originalsite', $site)->groupBy('u.nationality'),
+        'x', 'x.nationality', '=', 'n.nationalityid')
+    ->orderBy('coalesce(x.c, 0)', 'desc')
+    ->getAllOrFail();
+```
+
+`joinSub($query, $alias, $first, $operator, $second, $type = 'inner')` and `leftJoinSub()` take
+a builder or a closure, as `fromSub()` does, and the conditions as `join()` takes them, with a
+closure for several. The subquery's bindings are bound where its SQL stands: after the select's
+and the FROM's, before the WHERE's. The database plans it as one statement. A condition such as
+`OR u.nationality IS NULL` in a plain join's `ON` instead forces the join through every row.
+
 #### `joinRaw(string $sql): static`
 
 For a join the builder cannot express. A multi-condition `ON` does not need
-one — pass a closure to `join()` (above):
+one — pass a closure to `join()` (above) — nor does a subquery: use `joinSub()`.
 
 ```php
 $qb->joinRaw("LEFT JOIN permissions p ON p.userid = u.userid AND p.active = 1");
@@ -602,7 +653,13 @@ bound, so never build one out of user input.
 $qb->orderBy('created_at', 'desc');
 $qb->orderBy('username');           // defaults to 'asc'
 $qb->orderBy('id', 'asc')->orderBy('name', 'asc');  // multiple columns
+$qb->orderBy('coalesce(x.c, 0)', 'desc');           // an expression: ORDER BY coalesce(x.c, 0) DESC
+$qb->orderBy('parentToken');                        // a mixed-case column, quoted: ORDER BY "parentToken" ASC
 ```
+
+The column is any of what [a column takes](#what-a-column-takes). `orderByRaw()` is for a
+clause that is more than a column and a direction, such as `x.c DESC NULLS LAST`. Neither binds a
+value.
 
 #### `latest(string $column = 'created_at'): static` / `oldest(...)`
 
@@ -851,23 +908,9 @@ $result = $db->queryBuilder()
     ->where('avg_price', '>', 5.00)
     ->get();
 
-// As a JOIN (a derived table joined): every nationality, with one site's count — null where none
-$rows = $db->queryBuilder()->table('nationalities n')
-    ->select(['n.name', 'x.c'])
-    ->leftJoinSub(fn ($q) => $q->table('users u')
-            ->select(['u.nationality', $q->raw('COUNT(*) AS c')])
-            ->where('u.originalsite', $site)->groupBy('u.nationality'),
-        'x', 'x.nationality', '=', 'n.nationalityid')
-    ->orderBy('x.c', 'desc')
-    ->getAllOrFail();
 ```
 
-`joinSub($query, $alias, $first, $operator, $second, $type = 'inner')` and `leftJoinSub()` take a
-builder or a closure, as `fromSub()` does, and the conditions as `join()` takes them — a closure
-over the `JoinClause` for several. The subquery's bindings are bound where its SQL stands: after
-the select's and the FROM's, before the WHERE's. A grouped count joined this way is one statement
-the database plans as a whole, where a condition like `OR u.nationality IS NULL` in a plain join's
-`ON` forces it through every row.
+As a JOIN, see [Joining a subquery](#joining-a-subquery-joinsub-leftjoinsub).
 
 #### Set Operations
 
