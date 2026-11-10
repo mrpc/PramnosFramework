@@ -71,7 +71,60 @@ final class Messages
      */
     public static function beyond(QueryBuilder $query, int $id, bool $after = true, string $prefix = ''): QueryBuilder
     {
-        $position = self::position($id);
+        return self::beyondPosition($query, $id, self::position($id), $after, $prefix);
+    }
+
+    /**
+     * Where several messages stand, in one query: by id, those that are messages.
+     *
+     * @param list<int> $ids
+     * @return array<int, array{at: string, id: int}>
+     */
+    public static function positions(array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn (int $id): bool => $id > 0)));
+        if ($ids === []) {
+            return [];
+        }
+        $out = [];
+        foreach (Conversations::db()->queryBuilder()->table('chat.conversation_messages')->select(['messageid', 'created_at'])
+            ->whereIn('messageid', $ids)->getAllOrFail() as $row) {
+            $out[(int) $row['messageid']] = ['at' => (string) $row['created_at'], 'id' => (int) $row['messageid']];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Whether message `$a` stands after message `$b`, their positions already read
+     * ({@see positions()}); ids compared where either is no message.
+     *
+     * @param array{at: string, id: int}|null $pa
+     * @param array{at: string, id: int}|null $pb
+     */
+    public static function standsAfter(int $a, ?array $pa, int $b, ?array $pb): bool
+    {
+        if ($pa === null || $pb === null) {
+            return $a > $b;
+        }
+        // To the microsecond: a time written by the database's default can carry a fraction.
+        $key = static function (array $p): array {
+            $at = new \DateTimeImmutable($p['at']);
+
+            return [(int) $at->format('U'), (int) $at->format('u'), $p['id']];
+        };
+
+        return $key($pa) > $key($pb);
+    }
+
+    /**
+     * {@see beyond()} with the message's position already read, so a list of conversations
+     * narrows each without asking for it again.
+     *
+     * @param array{at: string, id: int}|null $position
+     */
+    public static function beyondPosition(QueryBuilder $query, int $id, ?array $position, bool $after = true, string $prefix = ''): QueryBuilder
+    {
         $op       = $after ? '>' : '<';
         if ($position === null) {
             return $query->where($prefix . 'messageid', $op, $id);

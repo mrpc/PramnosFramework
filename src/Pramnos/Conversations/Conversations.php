@@ -421,15 +421,16 @@ final class Conversations
      */
     public static function counts(int $id, int $person, int $after): array
     {
-        $db = self::db();
+        $db       = self::db();
+        $position = Messages::position($after);
         $unread = (int) (Messages::inStream($db->queryBuilder()->table('chat.conversation_messages'))->select([new Expression('COUNT(*) AS n')])
-            ->where('conversationid', $id)->where(static fn ($q) => Messages::beyond($q, $after))->whereNull('deletedat')
+            ->where('conversationid', $id)->where(static fn ($q) => Messages::beyondPosition($q, $after, $position))->whereNull('deletedat')
             ->where(static function ($q) use ($person): void {
                 $q->whereNull('authorid')->orWhere('authorid', '!=', $person);
             })->getAllOrFail()[0]['n'] ?? 0);
         $mentions = (int) ($db->queryBuilder()->table('chat.conversation_mentions AS mn')
             ->join('chat.conversation_messages AS m', 'm.messageid', '=', 'mn.messageid')->select([new Expression('COUNT(*) AS n')])
-            ->where('mn.conversationid', $id)->where(static fn ($q) => Messages::beyond($q, $after, true, 'm.'))
+            ->where('mn.conversationid', $id)->where(static fn ($q) => Messages::beyondPosition($q, $after, $position, true, 'm.'))
             ->where(static function ($q) use ($person): void {
                 $q->where('mn.participantid', $person)->whereIn('mn.kind', ['all', 'online'], 'or');
             })->getAllOrFail()[0]['n'] ?? 0);
@@ -460,13 +461,123 @@ final class Conversations
             // An archived one leaves the lists: browse(…, archived: true) finds it.
             ->whereNull('c.archivedat')
             ->orderBy('c.lastmessageat', 'desc')->getAllOrFail();
+        // A sidebar is asked for every few seconds, so its counts are read for all the conversations
+        // at once — not two counts, two position lookups and the members per conversation, which
+        // over a hypertable of many chunks cost seconds for a hundred conversations.
+        $positions = Messages::positions(array_merge(array_column($rows, 'lastreadid'), array_column($rows, 'lastmessageid')));
+        $unread    = self::unreadIn($rows, $person, $positions);
+        $mentions  = self::mentionsIn($rows, $person, $positions);
+        $personal  = array_map(static fn (array $r): int => (int) $r['conversationid'],
+            array_filter($rows, static fn (array $r): bool => in_array($r['kind'], self::PERSONAL, true)));
+        $members   = [];
+        if ($personal !== []) {
+            foreach (self::members_()->select(['conversationid', 'participantid'])->whereIn('conversationid', $personal)
+                ->where('participanttype', 'user')->whereNull('leftat')->orderBy('participantid')->getAllOrFail() as $m) {
+                $members[(int) $m['conversationid']][] = (int) $m['participantid'];
+            }
+        }
         $out = [];
         foreach ($rows as $row) {
             $id = (int) $row['conversationid'];
-            ['unread' => $unread, 'mentions' => $mentions] = self::counts($id, $person, (int) $row['lastreadid']);
-            $out[] = self::row($row) + ['unread' => $unread, 'mentions' => $mentions, 'muted' => (bool) $row['muted'], 'starred' => (bool) ($row['starred'] ?? false),
+            $out[] = self::row($row) + ['unread' => $unread[$id] ?? 0, 'mentions' => $mentions[$id] ?? 0, 'muted' => (bool) $row['muted'], 'starred' => (bool) ($row['starred'] ?? false),
                 'starOrder' => !empty($row['starred']) && isset($row['starorder']) ? (int) $row['starorder'] : null, 'notify' => (string) $row['notify'],
-                'lastReadId' => (int) $row['lastreadid'], 'members' => in_array($row['kind'], self::PERSONAL, true) ? self::members($id) : null];
+                'lastReadId' => (int) $row['lastreadid'], 'members' => in_array($row['kind'], self::PERSONAL, true) ? ($members[$id] ?? []) : null];
+        }
+
+        return $out;
+    }
+
+    /**
+     * {@see counts()}'s unread, for many conversations in one query: only those whose newest
+     * message stands after what the person read are asked about, since the newest message is the
+     * newest one a count could find.
+     *
+     * @param list<array<string, mixed>> $rows The person's memberships, with the conversation
+     * @param array<int, array{at: string, id: int}> $positions
+     * @return array<int, int> By conversation
+     */
+    private static function unreadIn(array $rows, int $person, array $positions): array
+    {
+        $behind = [];
+        foreach ($rows as $row) {
+            $read = (int) $row['lastreadid'];
+            $last = (int) ($row['lastmessageid'] ?? 0);
+            if ($last > 0 && Messages::standsAfter($last, $positions[$last] ?? null, $read, $positions[$read] ?? null)) {
+                $behind[(int) $row['conversationid']] = $read;
+            }
+        }
+        if ($behind === []) {
+            return [];
+        }
+        $query = Messages::inStream(self::db()->queryBuilder()->table('chat.conversation_messages'))
+            ->select(['conversationid', new Expression('COUNT(*) AS n')])
+            ->whereIn('conversationid', array_keys($behind))->whereNull('deletedat')
+            ->where(static function ($q) use ($person): void {
+                $q->whereNull('authorid')->orWhere('authorid', '!=', $person);
+            })
+            ->where(static function ($q) use ($behind, $positions): void {
+                foreach ($behind as $id => $read) {
+                    $q->orWhere(static function ($one) use ($id, $read, $positions): void {
+                        $one->where('conversationid', $id);
+                        Messages::beyondPosition($one, $read, $positions[$read] ?? null);
+                    });
+                }
+            })
+            ->groupBy('conversationid');
+        $out = [];
+        foreach ($query->getAllOrFail() as $row) {
+            $out[(int) $row['conversationid']] = (int) $row['n'];
+        }
+
+        return $out;
+    }
+
+    /**
+     * {@see counts()}'s mentions, for many conversations in one query: the person's mentions,
+     * `@all` and `@online`, from the oldest point any of them was read, counted here against
+     * each conversation's own.
+     *
+     * @param list<array<string, mixed>> $rows The person's memberships, with the conversation
+     * @param array<int, array{at: string, id: int}> $positions
+     * @return array<int, int> By conversation
+     */
+    private static function mentionsIn(array $rows, int $person, array $positions): array
+    {
+        if ($rows === []) {
+            return [];
+        }
+        $read  = [];
+        $since = null;
+        $bound = true;
+        foreach ($rows as $row) {
+            $id = (int) $row['lastreadid'];
+            $read[(int) $row['conversationid']] = $id;
+            if (!isset($positions[$id])) {
+                // A conversation never read, or read up to no message: nothing bounds it by time.
+                $bound = false;
+            } elseif ($since === null || Messages::standsAfter(0, ['at' => $since, 'id' => 0], 0, ['at' => $positions[$id]['at'], 'id' => 0])) {
+                $since = $positions[$id]['at'];
+            }
+        }
+        $since = $bound ? $since : null;
+        $query = self::db()->queryBuilder()->table('chat.conversation_mentions AS mn')
+            ->join('chat.conversation_messages AS m', 'm.messageid', '=', 'mn.messageid')
+            ->select(['mn.conversationid', 'm.messageid', 'm.created_at'])
+            ->whereIn('mn.conversationid', array_keys($read))
+            ->where(static function ($q) use ($person): void {
+                $q->where('mn.participantid', $person)->whereIn('mn.kind', ['all', 'online'], 'or');
+            });
+        if (is_string($since)) {
+            $query->where('m.created_at', '>=', $since);
+        }
+        $out = [];
+        foreach ($query->getAllOrFail() as $row) {
+            $conversation = (int) $row['conversationid'];
+            $message      = (int) $row['messageid'];
+            $last         = $read[$conversation];
+            if (Messages::standsAfter($message, ['at' => (string) $row['created_at'], 'id' => $message], $last, $positions[$last] ?? null)) {
+                $out[$conversation] = ($out[$conversation] ?? 0) + 1;
+            }
         }
 
         return $out;

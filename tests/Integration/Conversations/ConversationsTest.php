@@ -230,6 +230,69 @@ class ConversationsTest extends TestCase
     }
 
     /**
+     * The sidebar's counts are those {@see Conversations::counts()} gives each conversation, read
+     * for all of them in a few queries, however many there are (FW-390).
+     *
+     * It is asked every few seconds. One count of the unread, one of the mentions, two lookups of
+     * where the last read message stands, and the members, for every conversation, came to
+     * seconds for a hundred conversations over a hypertable of many chunks. The shapes that must
+     * stay right: read to the newest (no unread), behind, never read, a mention in a thread reply
+     * (not in the stream, still a mention), `@all`, history written into the past, and a dm's
+     * members.
+     */
+    #[DataProvider('databases')]
+    public function testTheSidebarCountsEveryConversationInAFewQueries(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->team();
+        [$eleni, $maria, $nikos] = [$this->ids['eleni'], $this->ids['maria'], $this->ids['nikos']];
+        $read    = Conversations::create('channel', 'read', [$maria], $eleni);
+        $behind  = Conversations::create('channel', 'behind', [$maria, $nikos], $eleni);
+        $never   = Conversations::create('channel', 'never', [$maria], $maria);
+        Conversations::enroll($never, $eleni);
+        $dm      = Conversations::create('dm', null, [$maria], $eleni);
+        Messages::post($read, $maria, 'καλημέρα');
+        Messages::post($read, $eleni, 'καλημέρα');                      // writing reads up to it
+        $root    = Messages::post($behind, $eleni, 'ερώτηση');
+        Messages::post($behind, $maria, 'πρώτη απάντηση');
+        Messages::post($behind, $nikos, '@all συνάντηση');
+        Messages::post($behind, $maria, 'στο νήμα, <@' . $eleni . '>', ['thread' => $root]);
+        Messages::post($behind, $maria, 'παλιό', ['at' => 1700000000]);     // into the past: already read
+        Messages::post($never, $maria, 'ένα');
+        Messages::post($never, $maria, 'δύο, <@' . $eleni . '>');
+        Messages::post($dm, $maria, 'γεια');
+        $expected = [];
+        foreach ([$read, $behind, $never, $dm] as $id) {
+            $expected[$id] = Conversations::counts($id, $eleni, (int) Conversations::member($id, $eleni)['lastReadId']);
+        }
+        $this->db->enableQueryLog()->clearQueryLog();
+
+        // Act
+        $side    = array_column(Conversations::forPerson($eleni), null, 'id');
+        $queries = count($this->db->getQueryLog());
+
+        // Assert — every conversation as counts() has it
+        foreach ($expected as $id => $counts) {
+            $this->assertSame($counts, ['unread' => $side[$id]['unread'], 'mentions' => $side[$id]['mentions']], 'conversation ' . $id);
+        }
+        // The shapes the counts are checked on, so a test of nothing cannot pass.
+        $this->assertSame(['unread' => 0, 'mentions' => 0], $expected[$read]);
+        $this->assertSame(['unread' => 2, 'mentions' => 2], $expected[$behind], 'two in the stream; @all and the thread reply\'s mention');
+        $this->assertSame(['unread' => 2, 'mentions' => 1], $expected[$never]);
+        $this->assertSame([$eleni, $maria], $side[$dm]['members']);
+        $this->assertNull($side[$read]['members'], 'a channel lists no members');
+        // The memberships, the positions, the unread, the mentions, the members — not per conversation.
+        $this->assertLessThanOrEqual(6, $queries);
+        // Somebody read to the newest everywhere — the past message and the thread reply move no
+        // newest — has nothing unread without a count being asked; somebody in none has no list.
+        $nikosBehind = Conversations::counts($behind, $nikos, (int) Conversations::member($behind, $nikos)['lastReadId']);
+        $this->assertSame(0, $nikosBehind['unread']);
+        $this->assertSame($nikosBehind, array_intersect_key(array_column(Conversations::forPerson($nikos), null, 'id')[$behind], $nikosBehind));
+        $this->assertSame([], Conversations::forPerson($this->ids['tasos']));
+    }
+
+    /**
      * History brought in from another system is written as it was, through the public API, with no
      * table touched by the application: a message found again by where it came from, never written
      * twice; when it was written and last changed; a writer with no account here shown by name as

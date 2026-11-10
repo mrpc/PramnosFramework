@@ -61,7 +61,12 @@ A channel, a private channel and a system one have a unique name for `#` — low
 joined by dashes, in any script (`#γενικά-θέματα`). Its maker is its owner and first member.
 `Conversations::forPerson($id)` is a sidebar: the conversations somebody is in, newest first, with
 how many messages they have not read and how many of those mention them;
-`Conversations::browse($id)` lists the open ones to join.
+`Conversations::browse($id)` lists the open ones to join. A client asks for the sidebar every few
+seconds, so it is read in a few queries however many conversations there are: where every
+conversation's last read message stands, in one; the unread, counted only in the conversations
+whose newest message stands after what was read, in one; the mentions in one; a direct or group
+conversation's members in one. `Conversations::counts($id, $person, $after)` gives the same two
+numbers for one conversation.
 
 **A group's name.** A group conversation may have a name of its own, up to 80 characters,
 neither unique nor a `#` name: `create('group', 'Sales shift', …)`. Its title is then that name;
@@ -122,6 +127,19 @@ message stands, and two messages of the same second are told apart by id, so a p
 repeats one. What somebody has read is a message too: history written before it is not unread,
 and `markRead()` never moves back, by the same order. The index behind it is
 `idx_conversation_messages_time` (`conversationid, created_at, messageid`).
+
+Code that orders or narrows by it uses `Messages`: `position($id)` reads where a message stands,
+`positions($ids)` many of them in one query, `standsAfter($a, $pa, $b, $pb)` compares two whose
+positions are already read, and `beyond($query, $id)` — or `beyondPosition($query, $id, $position)`
+with the position in hand — narrows a query to the messages after (or before) one.
+
+On TimescaleDB the messages are a hypertable in 30-day chunks. A query with no time in it is
+planned over every chunk, so history imported from years back makes each one dearer; an
+installation with little traffic and a long history can take larger chunks: in `app.php`
+(`'hypertables' => ['chat.conversation_messages' => ['chunk_interval' => '1 year']]`) where the
+table is still to be made, and on one already made with
+`SELECT set_chunk_time_interval('chat.conversation_messages', INTERVAL '1 year')`, which sizes the
+chunks made after it — the ones there keep theirs.
 
 A client that keeps its own timeline does the same: sort by `at`, then `id` — `byPosition()` in
 `resources/js/conversations/logic.js`, which `upsert()` uses — so a message arriving for the past
