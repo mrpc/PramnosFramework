@@ -19,6 +19,7 @@ resetdb=false
 force=false
 parallel=0
 mariadb=false
+toolkit=false
 keep=false
 passthrough=()
 for arg in "$@"; do
@@ -44,6 +45,10 @@ for arg in "$@"; do
         # The MariaDB-only tests, against the profile-gated MariaDB service. Not part of a
         # normal run: see the `mariadb` group excluded in phpunit.xml.
         mariadb=true
+    elif [[ "$arg" == "--toolkit" ]]; then
+        # The tests that need TimescaleDB's toolkit (HyperLogLog), against the profile-gated
+        # service that has it. Not part of a normal run: see the `toolkit` group in phpunit.xml.
+        toolkit=true
     elif [[ "$arg" == "--keep" ]]; then
         # Leave up the containers this run had to start. Without it they are stopped on
         # exit, so a test run does not leave a database stack holding memory on a shared
@@ -106,6 +111,7 @@ fi
 # A hard SIGKILL runs neither; the stale-PID check above handles the lock on the next run.
 started_here=false
 mariadb_started_here=false
+toolkit_started_here=false
 _finish() {
     if [[ "$keep" == false ]]; then
         if [[ "$started_here" == true ]]; then
@@ -114,6 +120,9 @@ _finish() {
         fi
         if [[ "$mariadb_started_here" == true ]]; then
             timeout -k 5 "${DOCKERTEST_DOCKER_TIMEOUT:-45}" docker-compose --profile mariadb stop mariadb >/dev/null 2>&1
+        fi
+        if [[ "$toolkit_started_here" == true ]]; then
+            timeout -k 5 "${DOCKERTEST_DOCKER_TIMEOUT:-45}" docker-compose --profile toolkit stop timescaledb-toolkit >/dev/null 2>&1
         fi
     fi
     _release_lock
@@ -371,10 +380,28 @@ if [[ "$mariadb" == true ]]; then
     done
 fi
 
+# --toolkit: start the profile-gated TimescaleDB with its toolkit, wait until it answers, and run
+# only the `toolkit` group. Stopped afterwards if this run started it.
+if [[ "$toolkit" == true ]]; then
+    echo "Starting TimescaleDB with its toolkit..."
+    if ! docker-compose --profile toolkit ps --services --filter status=running 2>/dev/null | grep -qx timescaledb-toolkit; then
+        toolkit_started_here=true
+    fi
+    if ! timeout -k 10 300 docker-compose --profile toolkit up -d timescaledb-toolkit; then
+        echo "ERROR: could not start the timescaledb-toolkit service." >&2
+        exit 1
+    fi
+    for _ in $(seq 1 60); do
+        docker-compose --profile toolkit exec -T timescaledb-toolkit pg_isready -U postgres </dev/null >/dev/null 2>&1 && break
+        sleep 2
+    done
+fi
+
 # Run tests
 echo -e "\e[32mRunning PHPUnit tests...\e[0m"
 extra_flags="--configuration phpunit.xml --display-deprecations --display-warnings --display-incomplete --display-skipped --display-phpunit-deprecations"
 [[ "$mariadb" == true ]] && extra_flags="$extra_flags --group mariadb"
+[[ "$toolkit" == true ]] && extra_flags="$extra_flags --group toolkit"
 [[ "$testdox" == true ]] && extra_flags="$extra_flags --testdox"
 
 # `set -e` is not in force here, so the exit status is captured explicitly and

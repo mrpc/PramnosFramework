@@ -171,5 +171,8 @@ final class MetricsTimescaleDBTest extends TestCase
         $this->assertSame(7.0, $hour);
         $this->assertSame(12.0, $kept, 'from the aggregate, the source gone');
         $this->assertTrue(Store::liveAggregate($this->db, $live), 'made once, there after');
+        // One with no dimension: its aggregate grouped by the hour alone.
+        $total = Metric::flow('test.flows_total', 'Water in all')->from('flows')->at('at')->sum('litres')->live();
+        $this->assertTrue(Store::liveAggregate($this->db, $total), 'made with no dimension too');
     }
 }

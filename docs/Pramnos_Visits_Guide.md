@@ -158,7 +158,7 @@ given goals and alerts:
 | --- | --- |
 | `visits.views` | page views by people: robots and pages without JavaScript left out |
 | `visits.visits` | visits, counted on their landing page (the cookie model: a cookieless site has none) |
-| `visits.visitors` | distinct visitors (a distinct metric: it does not add up across days) |
+| `visits.visitors` | distinct visitors (a distinct metric: it does not add up across days). With TimescaleDB's toolkit, read from daily HyperLogLog sketches, approximate to about 0.6% ([how](Pramnos_Metrics_Guide.md#computing-and-closing-periods)) |
 | `visits.signed_in` | visits in which the person was signed in at some page |
 | `visits.single_page` | visits of one page |
 | `visits.duration` | the mean visit, in seconds, from its first page to its last, of the visits up to 4 hours: one longer is a tab left open, and would pull the mean to hours |

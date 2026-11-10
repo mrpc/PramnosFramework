@@ -330,8 +330,15 @@ final class Metrics
         $sets = array_values(array_filter($metric->storedSets(), static fn (array $set): bool =>
             // a sum's total is its full breakdown added up, below
             !($set === [] && $metric->getAggregate() === Metric::SUM && $metric->getDimensions() !== [])));
-        // Every breakdown of the period in one read, where it can be: see Metric::prefetchSets().
-        $metric->prefetchSets($window, $sets, $source);
+        // A distinct count from the days' HyperLogLog sketches where they are (Store::sketched());
+        // else every breakdown of the period in one read, where it can be (Metric::prefetchSets()).
+        if ($window->grain !== Window::HOUR && $tenants === null && Store::sketched(self::db(), $metric)) {
+            foreach ($sets as $set) {
+                $metric->readAhead($window, $set, Store::sketchRows($source, $metric, $window, $set));
+            }
+        } else {
+            $metric->prefetchSets($window, $sets, $source);
+        }
         foreach ($sets as $set) {
             foreach ($metric->measure($window, $set, $source) as $row) {
                 if ($tenants === null || in_array((int) ($row['tenant'] ?? 0), $tenants, true)) {

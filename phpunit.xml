@@ -23,11 +23,13 @@
     <!--
         The `mariadb` group needs the MariaDB service, which only dockertest with its mariadb flag starts;
         it runs that group alone. Kept out of every other run so the main suite does not wait on
-        a third database.
+        a third database. The `toolkit` group the same, with its own flag and the TimescaleDB that
+        has the toolkit.
     -->
     <groups>
         <exclude>
             <group>mariadb</group>
+            <group>toolkit</group>
         </exclude>
     </groups>
     <extensions>

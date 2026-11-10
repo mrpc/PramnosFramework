@@ -258,6 +258,19 @@ at once, with `GROUPING SETS`. A closure source does the same where it declares
 its dimensions joined with commas (`''` for the total), or null for one at a time. Elsewhere each
 breakdown is read on its own, with the same figures.
 
+**A distinct metric from daily sketches.** Where TimescaleDB's toolkit is in the database
+(`CREATE EXTENSION timescaledb_toolkit`), a distinct metric declared with `countDistinct()` over a
+hypertable on a time column is read from HyperLogLog sketches. It must be kept for the whole
+installation, with no organisations:
+- `metrics:compute` makes, the first time, a continuous aggregate for each breakdown the metric
+  keeps (`stats.hll_<metric>_<hash>`): a sketch of the counted column per day, in the metrics' zone.
+  The first refresh reads the table's whole history once.
+- A week, a month or a year is then its days' sketches rolled up, not a count over every raw row
+  of it. It is approximate, to about 0.6% (2^15 buckets).
+- An hour, and anything not so declared, is counted exactly, as ever.
+
+`Store::sketched($db, $metric)` says whether a metric is read this way.
+
 **A costly open period, computed less often.** By default every run computes the open period of
 every grain from the source: the open day, but also the open month and year. For a source that
 reads raw rows, a count of distinct people over a year say, that is most of the run.

@@ -178,6 +178,19 @@ it creates it in a database of its own. After pulling a change to that Dockerfil
 docker-compose up -d --build timescaledb
 ```
 
+## TimescaleDB's toolkit, for HyperLogLog and the rest
+
+```bash
+./dockertest --nocoverage --toolkit
+```
+
+Starts the profile-gated `timescaledb-toolkit` service (`timescale/timescaledb-ha:pg18`:
+TimescaleDB 2.31.0 with its toolkit), and runs only the tests in the `toolkit` group against it,
+at host `timescaledb-toolkit`. The suite's own PostgreSQL stays Alpine, which the toolkit has no
+build for. Moving every PostgreSQL test to Ubuntu for it would change collations under all of
+them. Like the `mariadb` group, it is not part of a normal run. Run it after touching what the
+toolkit serves, a distinct metric's sketches first (`Metrics\Store::sketched()`).
+
 ## MariaDB, when a change is dialect-sensitive
 
 ```bash

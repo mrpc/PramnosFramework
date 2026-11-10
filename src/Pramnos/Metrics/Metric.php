@@ -793,6 +793,12 @@ final class Metric
     /** @var \Closure|null Every breakdown of a period at once: fn (Window, list<list<string>> $sets, Database): ?array<string, list<row>> */
     private ?\Closure $sourceSets = null;
 
+    /** Rows a breakdown of a period answers, read elsewhere — a sketch — for {@see measure()}. @param list<array<string, mixed>> $rows */
+    public function readAhead(Window $window, array $set, array $rows): void
+    {
+        $this->ahead[$window->key() . '|' . implode(',', $this->tenantColumn !== null ? [...$set, $this->tenantColumn] : $set)] = $rows;
+    }
+
     /**
      * A source that answers every breakdown of a period at once — keyed by the breakdown's
      * dimensions joined with commas (`''` for the total) — or null where it cannot, beside the

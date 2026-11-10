@@ -56,6 +56,24 @@ services:
       - MARIADB_ROOT_PASSWORD=secret
       - MARIADB_DATABASE=pramnos_test
 
+  # TimescaleDB with its toolkit (HyperLogLog and the rest), for the tests in the `toolkit` group,
+  # which `./dockertest --toolkit` runs against it alone. Its own service because the toolkit has
+  # no Alpine build and the suite's PostgreSQL is Alpine: moving every PostgreSQL test to Ubuntu
+  # would change collations under all of them. TimescaleDB 2.31.0, as the main one; profile-gated,
+  # so `docker-compose up -d` leaves it off.
+  timescaledb-toolkit:
+    image: timescale/timescaledb-ha:pg18
+    container_name: pramnos_timescaledb_toolkit
+    profiles: ["toolkit"]
+    command: >-
+      postgres -c timescaledb.max_background_workers=0
+      -c shared_preload_libraries=timescaledb
+      -c fsync=off -c full_page_writes=off
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=secret
+      - POSTGRES_DB=pramnos_test
+
   timescaledb:
     # Pinned to a version, not `latest`: the version production runs, TimescaleDB 2.31.0 on
     # PostgreSQL 18. `latest` moves on its own, and a suite that changes under nobody's

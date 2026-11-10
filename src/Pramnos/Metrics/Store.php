@@ -200,6 +200,125 @@ final class Store
         self::$ready = [];
     }
 
+    /** The buckets of a distinct metric's daily sketch: 2^15, a standard error of about 0.6%. */
+    public const SKETCH_BUCKETS = 32768;
+
+    /**
+     * Whether TimescaleDB's toolkit is in this database — its HyperLogLog, for a distinct metric's
+     * daily sketch ({@see sketched()}). Asked once per connection.
+     */
+    public static function toolkit(Database $db): bool
+    {
+        static $known = null;
+        $known ??= new \WeakMap();
+        if (!isset($known[$db])) {
+            try {
+                $known[$db] = $db->type === 'postgresql'
+                    && $db->queryBuilder()->table('pg_extension')->where('extname', 'timescaledb_toolkit')->count() > 0;
+            } catch (\Throwable) {
+                $known[$db] = false;
+            }
+        }
+
+        return $known[$db];
+    }
+
+    /**
+     * Whether a distinct metric is read from daily HyperLogLog sketches — made here the first time:
+     * a continuous aggregate for each breakdown it keeps, a sketch of the counted column per day
+     * (in the metrics' zone) and value. A period, a week to a year, is then the days' sketches
+     * rolled up, not a count of distinct values over every raw row of it — approximate, to about
+     * 0.6%. Only where TimescaleDB's toolkit is, the source a hypertable on a time column, the
+     * metric declared with `countDistinct()` and kept for the whole installation (no
+     * organisations); elsewhere it is counted exactly, as ever.
+     */
+    public static function sketched(Database $db, Metric $metric): bool
+    {
+        static $known = null;
+        $known ??= new \WeakMap();
+        $ready = $known[$db] ?? [];
+        $q     = $metric->declared();
+        $key   = $metric->name . '|' . $metric->getVersion();
+        if (isset($ready[$key])) {
+            return $ready[$key];
+        }
+        $remember = static function (bool $is) use ($known, $db, $key): bool {
+            $all       = $known[$db] ?? [];
+            $all[$key] = $is;
+            $known[$db] = $all;
+
+            return $is;
+        };
+        if ($q === null || $q['fn'] !== 'COUNT DISTINCT' || $q['unix'] || $metric->getTenant() !== null || Metrics::zones() !== null
+            || !self::toolkit($db) || !$db->capabilities()->hasTimescaleDB() || !$db->schema()->hasHypertable($q['table'])) {
+            return $remember(false);
+        }
+        $schema = $db->schema();
+        $zone   = Window::zone()->getName();
+        if (preg_match('~^[A-Za-z0-9_/+-]+$~', $zone) !== 1) {
+            return $remember(false);
+        }
+        $where = [];
+        foreach ($q['where'] as [$column, $value]) {
+            // The metric's own declared values, written into the aggregate's definition.
+            $list    = array_map(static fn ($v): string => is_int($v) || is_float($v) ? (string) $v : "'" . str_replace("'", "''", (string) $v) . "'", array_values((array) $value));
+            $where[] = $column . ' IN (' . implode(', ', $list) . ')';
+        }
+        try {
+            foreach ($metric->storedSets() as $set) {
+                $view = self::sketchView($metric, $set);
+                if ($schema->hasView($view)) {
+                    continue;
+                }
+                $schema->ensureSchema('stats');
+                $columns = array_map(static fn (string $n): string => ($q['columns'][$n] ?? $n) . ' AS ' . $n, $set);
+                $sql = "SELECT time_bucket(INTERVAL '1 day', " . $q['time'] . ", '" . $zone . "') AS bucket"
+                    . ($columns !== [] ? ', ' . implode(', ', $columns) : '')
+                    . ', hyperloglog(' . self::SKETCH_BUCKETS . ', ' . $q['column'] . ') AS sketch'
+                    . ' FROM ' . $schema->quoteTable($q['table']) . ($where !== [] ? ' WHERE ' . implode(' AND ', $where) : '')
+                    // The breakdown's columns by place; none for the total — range(2, 1) counts down.
+                    . ' GROUP BY ' . implode(', ', array_merge(['bucket'], $set === [] ? [] : range(2, count($set) + 1)));
+                $schema->createContinuousAggregate($view, $sql, ['timescaledb.materialized_only' => false]);
+                $schema->addContinuousAggregatePolicy($view, '3 days', '1 hour', '1 hour');
+            }
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Metric ' . $metric->name . ': no HyperLogLog sketch made, counted exactly: ' . $e->getMessage(), 'metrics');
+
+            return $remember(false);
+        }
+
+        return $remember(true);
+    }
+
+    /**
+     * A period's distinct count by a breakdown, from the days' sketches: rows of the breakdown's
+     * dimensions and `value`, as a source answers.
+     *
+     * @param list<string> $set
+     * @return list<array<string, mixed>>
+     */
+    public static function sketchRows(Database $db, Metric $metric, Window $window, array $set): array
+    {
+        $query  = $db->queryBuilder()->table(self::sketchView($metric, $set));
+        // Raw: the toolkit's own functions, rolling the days' sketches into the period's.
+        $query->select([...array_map(static fn (string $n) => $query->raw($n), $set), $query->raw('distinct_count(rollup(sketch)) AS value')])
+            ->where('bucket', '>=', Instant::utc($window->startsAt(), $db))->where('bucket', '<', Instant::utc($window->endsAt(), $db));
+        if ($set !== []) {
+            $query->groupBy($set);
+        }
+
+        return $query->getAllOrFail();
+    }
+
+    /** The continuous aggregate of a metric's breakdown: its name, the breakdown and the zone in a short hash. */
+    public static function sketchView(Metric $metric, array $set): string
+    {
+        $slug = substr((string) preg_replace('/[^a-z0-9]+/', '_', strtolower($metric->name)), 0, 24);
+
+        return 'stats.hll_' . $slug . '_' . substr(md5(implode(',', $set) . '|' . Window::zone()->getName() . '|' . $metric->getVersion()
+            . '|' . json_encode($metric->declared())), 0, 10);
+    }
+
     /** A live metric's hourly continuous aggregate. */
     public static function liveView(Metric $metric): string
     {
@@ -240,7 +359,8 @@ final class Store
         $bucket = 'time_bucket(' . ($q['unix'] ? '3600' : "INTERVAL '1 hour'") . ', ' . $q['time'] . ')';
         $sql    = 'SELECT ' . implode(', ', [$bucket . ' AS bucket', ...$columns, ($q['fn'] === 'COUNT' ? 'COUNT(*)' : $q['fn'] . '(' . $q['column'] . ')') . ' AS value'])
             . ' FROM ' . $schema->quoteTable($q['table']) . ($where !== [] ? ' WHERE ' . implode(' AND ', $where) : '')
-            . ' GROUP BY ' . implode(', ', array_merge(['bucket'], range(2, count($columns) + 1)));
+            // The columns by place; none without a dimension — range(2, 1) counts down to 2, 1.
+            . ' GROUP BY ' . implode(', ', array_merge(['bucket'], $columns === [] ? [] : range(2, count($columns) + 1)));
         $schema->createContinuousAggregate($view, $sql, ['timescaledb.materialized_only' => false]);
         $schema->addContinuousAggregatePolicy($view, '3 days', '1 hour', '1 hour');
 
