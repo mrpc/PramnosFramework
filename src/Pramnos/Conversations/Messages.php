@@ -707,6 +707,8 @@ final class Messages
     public static function plain(string $body, array $names, int $length = 120): string
     {
         $text = (string) preg_replace_callback('/<@(\d+)>/', static fn (array $m): string => '@' . ($names[(int) $m[1]] ?? '#' . $m[1]), $body);
+        // `++` only in pairs, as Markdown underlines: a lone one is `C++`.
+        $text = (string) preg_replace('/(?<![\w+])\+\+(?=[^\s+])(.+?)(?<=[^\s+])\+\+(?![\w+])/u', '$1', $text);
         $text = trim((string) preg_replace('/\s+/u', ' ', str_replace(['**', '__', '`', '~~'], '', $text)));
 
         return mb_strlen($text) > $length ? mb_substr($text, 0, $length - 1) . '…' : $text;

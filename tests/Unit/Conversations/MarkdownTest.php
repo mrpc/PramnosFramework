@@ -8,12 +8,14 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Conversations\Markdown;
+use Pramnos\Conversations\Messages;
 
 /**
  * A message's markdown-lite as HTML: each mark it knows, and nothing the writer wrote as HTML —
  * a message is read by the whole team, so a script in one must reach nobody.
  */
 #[CoversClass(Markdown::class)]
+#[CoversClass(Messages::class)]
 final class MarkdownTest extends TestCase
 {
     /** Names for `<@id>`: one known, others not. */
@@ -31,6 +33,9 @@ final class MarkdownTest extends TestCase
     {
         return [
             'bold, italic, struck'  => ['**α** *β* _γ_ ~~δ~~', '<p><strong>α</strong> <em>β</em> <em>γ</em> <del>δ</del></p>'],
+            // Underlined in pairs, as ~~ strikes; a `++` against a letter is C++ and stays text.
+            'underlined'            => ['++α++ και ++β γ++', '<p><u>α</u> και <u>β γ</u></p>'],
+            'not underlined'        => ['C++ και i++ ή ++ α ++ και C++x++', '<p>C++ και i++ ή ++ α ++ και C++x++</p>'],
             'inline code'           => ['τρέξε `rm -rf <x>`', '<p>τρέξε <code>rm -rf &lt;x&gt;</code></p>'],
             'fenced code'           => ["πριν\n```php\n<b>x</b>\n```\nμετά", '<p>πριν</p><pre class="pf-conv-code"><code>&lt;b&gt;x&lt;/b&gt;</code></pre><p>μετά</p>'],
             // Ask's chart: drawn by pf-chat.js over its code; a block that is not one stays code.
@@ -71,5 +76,21 @@ final class MarkdownTest extends TestCase
 
         // Assert
         $this->assertSame($shown, $html);
+    }
+
+    /**
+     * A preview or a notification leaves the marks out: an underline's pair of `++` goes, as
+     * `~~` does, while a `++` that is part of a word — C++ — stays.
+     */
+    public function testAPreviewLeavesTheUnderlineOut(): void
+    {
+        // Arrange
+        $body = '++Σημαντικό++: το C++ και το ~~παλιό~~';
+
+        // Act
+        $text = Messages::plain($body, []);
+
+        // Assert
+        $this->assertSame('Σημαντικό: το C++ και το παλιό', $text);
     }
 }

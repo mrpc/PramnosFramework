@@ -10,7 +10,7 @@ namespace Pramnos\Conversations;
  *
  * | written                         | shown                                   |
  * |---------------------------------|-----------------------------------------|
- * | `**bold**`, `*italic*`, `_italic_`, `~~strike~~` | bold, italic, struck through |
+ * | `**bold**`, `*italic*`, `_italic_`, `~~strike~~`, `++underline++` | bold, italic, struck through, underlined |
  * | `` `code` ``, ```` ``` ```` fenced blocks | code                          |
  * | `[text](https://…)`, a bare `https://…` | a link, opening apart; http(s) and mailto only |
  * | `- item`, `1. item`             | a list                                  |
@@ -185,6 +185,8 @@ final class Markdown
         $html = (string) preg_replace('/(?<![\w#])#([a-z][a-z0-9_]*:\w[\w-]*)/i', '<span class="pf-conv-ref" data-ref="$1">#$1</span>', $html);
         $html = (string) preg_replace('/\*\*(?=\S)(.+?)(?<=\S)\*\*/', '<strong>$1</strong>', $html);
         $html = (string) preg_replace('/~~(?=\S)(.+?)(?<=\S)~~/', '<del>$1</del>', $html);
+        // Not against a letter or another plus, so `C++` and `i++` stay text.
+        $html = (string) preg_replace('/(?<![\w+])\+\+(?=[^\s+])(.+?)(?<=[^\s+])\+\+(?![\w+])/u', '<u>$1</u>', $html);
         $html = (string) preg_replace('/(?<![\w*])\*(?=\S)(.+?)(?<=\S)\*(?![\w*])/', '<em>$1</em>', $html);
         $html = (string) preg_replace('/(?<!\w)_(?=\S)(.+?)(?<=\S)_(?!\w)/', '<em>$1</em>', $html);
         $custom = CustomEmoji::all();
