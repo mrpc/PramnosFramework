@@ -86,7 +86,9 @@ final class ResyncRichEditorTest extends TestCase
         $this->assertSame(\Pramnos\Html\MessageEditor::RICH_CSS . "\n", file_get_contents($src . 'lib/rich-editor/rich-editor.css'));
         $this->assertStringContainsString("import { createRichEditor } from '../lib/rich-editor/core.js';", (string) file_get_contents($src . 'components/RichEditor.svelte'));
         $this->assertSame('3.40.0', $pkg['devDependencies']['@tiptap/core'], 'the project\'s own version was replaced');
-        $this->assertSame('^3.32.0', $pkg['devDependencies']['@tiptap/starter-kit']);
+        // Every package the core imports, at the project's TipTap version: another is ERESOLVE.
+        $this->assertSame(['3.40.0', '3.40.0', '3.40.0'],
+            [$pkg['devDependencies']['@tiptap/starter-kit'], $pkg['devDependencies']['@tiptap/pm'], $pkg['devDependencies']['@tiptap/extension-list']]);
         $this->assertSame('^6', $pkg['devDependencies']['vite'], 'the rest of package.json was lost');
     }
 
@@ -101,9 +103,47 @@ final class ResyncRichEditorTest extends TestCase
         $pkg = json_decode((string) file_get_contents($this->base . '/package.json'), true);
 
         // Assert
-        $this->assertSame('^3.32.0', $pkg['dependencies']['@tiptap/pm'] ?? null, 'put apart from the project\'s own TipTap');
+        $this->assertSame('^3.31.3', $pkg['dependencies']['@tiptap/pm'] ?? null, 'beside the project\'s own TipTap, at its version');
         $this->assertSame('^3.31.3', $pkg['dependencies']['@tiptap/core']);
         $this->assertArrayNotHasKey('@tiptap/pm', $pkg['devDependencies']);
+    }
+
+    /**
+     * A project that took the editor before the core imported `@tiptap/extension-list` gets it from
+     * a plain resync, at its TipTap version — not only from `--rich-editor`. The resync that brought
+     * the new core used to leave the package out, and the build broke on the import.
+     */
+    public function testAPlainResyncAddsAPackageTheNewCoreImports(): void
+    {
+        // Arrange — taken when the core needed three packages: its old core on disk
+        $src = $this->base . '/' . \Pramnos\Console\Commands\Init::spaSourceDirFor(self::svelte());
+        mkdir($src . 'lib/rich-editor', 0777, true);
+        file_put_contents($src . 'lib/rich-editor/core.js', '// last month');
+
+        // Act
+        $this->resync(self::svelte(), [], ['devDependencies' => ['@tiptap/core' => '^3.32.0', '@tiptap/pm' => '^3.32.0', '@tiptap/starter-kit' => '^3.32.0', 'vite' => '^6']]);
+        $pkg = json_decode((string) file_get_contents($this->base . '/package.json'), true);
+
+        // Assert
+        $this->assertSame('^3.32.0', $pkg['devDependencies']['@tiptap/extension-list'] ?? null, 'what the new core imports');
+        $this->assertSame('^6', $pkg['devDependencies']['vite']);
+        $this->assertFileEquals(ROOT . '/resources/js/rich-editor/core.js', $src . 'lib/rich-editor/core.js');
+    }
+
+    /**
+     * Every package the core imports is among the ones `init` names, so the two never disagree.
+     */
+    public function testTheListCoversEveryImportOfTheCore(): void
+    {
+        // Act
+        $imports = [];
+        foreach (['core.js', 'extensions.js'] as $file) {
+            preg_match_all("~from\\s+['\"](@tiptap/[a-z0-9-]+)~", (string) file_get_contents(ROOT . '/resources/js/rich-editor/' . $file), $m);
+            array_push($imports, ...$m[1]);
+        }
+
+        // Assert
+        $this->assertSame([], array_values(array_diff(array_unique($imports), array_keys(\Pramnos\Console\Commands\Init::SPA_RICH_EDITOR_PACKAGES))));
     }
 
     /**

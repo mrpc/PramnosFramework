@@ -173,10 +173,13 @@ php myapp.php project:resync --rich-editor && npm install
 
 That writes `lib/rich-editor/core.js`, `extensions.js` and `rich-editor.css` — the framework's,
 refreshed by every `project:resync` after — and `components/RichEditor.svelte`, which is the
-project's: change it as you like, it is kept. The TipTap packages are added to `package.json`
-beside the ones the project already has — in `dependencies` if it keeps them there, else in
-`devDependencies` — leaving a version the project already chose. The `header` snippet sits in the
-text's column, under the toolbar.
+project's: change it as you like, it is kept. The TipTap packages are the ones the core
+imports (`@tiptap/core`, `pm`, `starter-kit`, `extension-list`), read from its own `import`s.
+Every resync that writes the core adds any that are missing to `package.json`, beside the ones the
+project already has — in `dependencies` if it keeps them there, else in `devDependencies` — and at
+the TipTap version the project already uses, since TipTap's packages require one another's
+version. A version the project already chose is left as it is. Run `npm install` after a resync
+that changed `package.json`. The `header` snippet sits in the text's column, under the toolbar.
 
 ```svelte
 <RichEditor value={article.body} onchange={(html) => (article.body = html)}

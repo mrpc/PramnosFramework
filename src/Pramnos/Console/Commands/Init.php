@@ -157,9 +157,10 @@ class Init extends Command
      * @var array<string, string>
      */
     public const SPA_RICH_EDITOR_PACKAGES = [
-        '@tiptap/core'        => '^3.32.0',
-        '@tiptap/pm'          => '^3.32.0',
-        '@tiptap/starter-kit' => '^3.32.0',
+        '@tiptap/core'           => '^3.32.0',
+        '@tiptap/extension-list' => '^3.32.0',
+        '@tiptap/pm'             => '^3.32.0',
+        '@tiptap/starter-kit'    => '^3.32.0',
     ];
 
     /** Target directory for scaffolding. */

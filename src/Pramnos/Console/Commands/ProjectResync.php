@@ -559,9 +559,14 @@ class ProjectResync extends Command
      * for server pages and SPA screens, so a fix lands in both. The stylesheet is
      * `MessageEditor::RICH_CSS`, the same rules the server pages print.
      *
-     * `--rich-editor` (`$asked`) is how a project takes it: the files are created, the component
-     * `components/RichEditor.svelte` is written — the project's once it exists, kept when changed
-     * — and the TipTap packages are added to package.json, leaving a version the project chose.
+     * `--rich-editor` (`$asked`) is how a project takes it: the files are created, and the component
+     * `components/RichEditor.svelte` is written — the project's once it exists, kept when changed.
+     *
+     * The packages are whatever the core imports, read from its own `import`s — a list kept by hand
+     * fell behind the day the core took `@tiptap/extension-list`, and the build broke. Any missing
+     * is added to package.json on every resync that writes the core, at the TipTap version the
+     * project already has (TipTap's packages require one another's version: a second one is
+     * ERESOLVE), and a version the project chose is left as it is.
      *
      * @return list<array{content: string, dest: string, exec: bool, protect?: bool, create?: bool}>
      */
@@ -594,22 +599,50 @@ class ProjectResync extends Command
             if (is_file($stub)) {
                 $files[] = ['content' => (string) file_get_contents($stub), 'dest' => $sourceDir . 'components/RichEditor.svelte', 'exec' => false, 'protect' => true, 'create' => true];
             }
-            // Beside the project's other TipTap packages — in `dependencies` when it keeps them there —
-            // else in `devDependencies`, where the framework's other SPA packages go.
-            $tiptapIn = static fn (string $list): bool => array_filter(array_keys((array) ($pkg[$list] ?? [])), static fn ($n): bool => str_starts_with((string) $n, '@tiptap/')) !== [];
-            $list = $tiptapIn('dependencies') ? 'dependencies' : 'devDependencies';
-            $into = (array) ($pkg[$list] ?? []);
-            foreach (Init::SPA_RICH_EDITOR_PACKAGES as $name => $version) {
-                if (!isset($pkg['dependencies'][$name]) && !isset($pkg['devDependencies'][$name])) {
-                    $into[$name] = $version;
-                }
+        }
+
+        // Beside the project's other TipTap packages — in `dependencies` when it keeps them there —
+        // else in `devDependencies`, where the framework's other SPA packages go.
+        $tiptapIn = static fn (string $list): array => array_filter((array) ($pkg[$list] ?? []), static fn ($v, $n): bool => str_starts_with((string) $n, '@tiptap/'), ARRAY_FILTER_USE_BOTH);
+        $list     = $tiptapIn('dependencies') !== [] ? 'dependencies' : 'devDependencies';
+        // The project's TipTap version, which every package added takes.
+        $theirs   = $tiptapIn('dependencies') + $tiptapIn('devDependencies');
+        $version  = (string) ($theirs['@tiptap/core'] ?? $theirs['@tiptap/pm'] ?? (reset($theirs) ?: ''));
+        $into     = (array) ($pkg[$list] ?? []);
+        $added    = false;
+        foreach (self::richEditorPackages($core) as $name) {
+            if (!isset($pkg['dependencies'][$name]) && !isset($pkg['devDependencies'][$name])) {
+                $into[$name] = $version !== '' ? $version : (Init::SPA_RICH_EDITOR_PACKAGES[$name] ?? '^3.32.0');
+                $added = true;
             }
+        }
+        if ($added || ($asked && !isset($pkg[$list]))) {
             ksort($into);
             $pkg[$list] = $into;
             $files[] = ['content' => json_encode($pkg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n", 'dest' => 'package.json', 'exec' => false, 'create' => true];
         }
 
         return $files;
+    }
+
+    /**
+     * The npm packages the rich editor's core imports: each `@tiptap/…` it names, a subpath
+     * (`@tiptap/pm/state`) as its package (`@tiptap/pm`).
+     *
+     * @return list<string>
+     */
+    private static function richEditorPackages(string $coreDir): array
+    {
+        $names = [];
+        foreach (['core.js', 'extensions.js'] as $file) {
+            $source = is_file($coreDir . $file) ? (string) file_get_contents($coreDir . $file) : '';
+            preg_match_all("~(?:from\\s+|import\\s*\\(\\s*)['\"](@tiptap/[a-z0-9-]+)(?:/[^'\"]*)?['\"]~", $source, $m);
+            array_push($names, ...$m[1]);
+        }
+        $names = array_values(array_unique($names));
+        sort($names);
+
+        return $names;
     }
 
     /**
