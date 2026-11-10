@@ -317,9 +317,10 @@ as `rating` (1, -1 or null).
 
 A bad answer carries a note of what was wrong, asked for after 👎 is pressed. On the page the first
 press shows the note beside the button, and the next press, or Enter in the note, sends it. The
-note is on view from the start when the page runs without JavaScript. The themes' rule for the
-note leaves a hidden one hidden (`:not([hidden])`). A theme's own rule that gives it a `display`
-must do the same, or the note shows from the start. The SPA asks for it in a
+note is on view from the start when the page runs without JavaScript. Each theme keeps a hidden
+note hidden whatever class the host gives it, with `.pf-rating input[hidden] { display: none
+!important; }`. Bootstrap 3's `.form-control { display: block }` otherwise beats its own `[hidden]`
+reset. The SPA asks for it in a
 prompt.
 
 On the page and in the side panel, `pf-chat.js` sends a rating in the background: the buttons

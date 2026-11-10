@@ -289,7 +289,8 @@ function rating(pressed = false) {
  * The note pf-chat.js hides stays hidden on every theme (FW-399): a stylesheet rule that gives the
  * rating's text field a display of its own wins over the browser's `[hidden]`, so the field showed
  * from the start — cut off in a narrow panel, the line under the answer looking broken. Every such
- * rule must leave a hidden field alone.
+ * rule must leave a hidden field alone, and a hidden field must stay hidden over the host's own
+ * classes too: the Bootstrap template gives it `form-control`, which Bootstrap 3 shows as a block.
  */
 test('no theme shows the rating\'s note while it is hidden', () => {
     // Arrange
@@ -299,11 +300,14 @@ test('no theme shows the rating\'s note while it is hidden', () => {
         // Act — every rule naming the rating's input that sets a display
         const css   = fs.readFileSync(path.join(__dirname, '..', '..', 'scaffolding', 'themes', theme, 'components.css'), 'utf8');
         const rules = [...css.matchAll(/([^{}]*\.pf-rating[^{}]*input[^{}]*)\{([^}]*)\}/g)]
-            .filter((m) => /display\s*:\s*(?!none)/.test(m[2]));
+            .filter((m) => /display\s*:(?!\s*none)/.test(m[2]));
 
         // Assert
         assert.ok(rules.length > 0, theme + ': the rule is there to check');
         rules.forEach((m) => assert.match(m[1], /:not\(\[hidden\]\)/, theme + ': ' + m[1].trim()));
+        // And over the host's own classes: Bootstrap 3's `.form-control { display: block }` on the
+        // field beats a `[hidden]` reset without !important, whatever this stylesheet's own rule says.
+        assert.match(css, /\.pf-rating input\[hidden\]\s*\{\s*display:\s*none\s*!important;\s*\}/, theme + ': hidden over any class');
     }
 });
 

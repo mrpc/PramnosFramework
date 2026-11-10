@@ -2275,7 +2275,10 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-rating button, .pf-rating button:hover, .pf-rating button:focus, .pf-rating button:active { text-decoration: none !important; box-shadow: none !important; background: transparent !important; }
 .pf-rating button:focus-visible { outline: 2px solid var(--pf-accent) !important; outline-offset: 2px; }
 .pf-rating button[aria-pressed="true"] { background: color-mix(in oklab, var(--pf-accent) 14%, transparent) !important; border-radius: var(--pf-radius); }
-/* Not while hidden: a display of its own would win over the browser's [hidden] (pf-chat.js hides the note until 👎). */
+/* Not while hidden: a display of its own would win over the browser's [hidden] (pf-chat.js hides the note until 👎).
+   And hidden whatever the host's own class says: Bootstrap 3's `.form-control { display: block }` beats its own
+   `[hidden]` reset, which has no !important — Bootstrap 5's has, and this is that guarantee. */
+.pf-rating input[hidden] { display: none !important; }
 .pf-rating input[type="text"]:not([hidden]) { display: inline-block; width: 14rem; height: auto; min-height: 0; padding: 0.25rem 0.5rem; font-size: 0.85rem; }
 
 /* ── pf-tour.js: a spotlight product tour ──────────────────────────────────────────────────────
