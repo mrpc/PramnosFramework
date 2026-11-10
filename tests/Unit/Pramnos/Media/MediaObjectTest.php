@@ -892,6 +892,66 @@ class MediaObjectTest extends TestCase
     }
 
     /**
+     * A phone's HEIC, uploaded where Imagick reads it, is stored as the JPEG every browser shows:
+     * its extension, its type and its size those of the JPEG, the HEIC not kept (FW-402).
+     *
+     * @return void
+     */
+    #[Test]
+    public function testAnUploadedHeicIsStoredAsAJpeg(): void
+    {
+        if (!\Pramnos\Media\Imaging::imagickReads('heic')) {
+            $this->markTestSkipped('Imagick with HEIC is not installed here.');
+        }
+        // Arrange — the fixture copied, as an upload's temporary file
+        $tmp = $this->scratchDir() . DS . 'upload_heic_' . uniqid() . '.tmp';
+        copy(ROOT . '/tests/fixtures/images/gps.heic', $tmp);
+        $this->createdFiles[] = $tmp;
+        $fileInput = ['name' => 'IMG_0042.HEIC', 'type' => 'image/heic', 'tmp_name' => $tmp, 'error' => UPLOAD_ERR_OK, 'size' => filesize($tmp)];
+
+        // Act
+        $media = new MediaObject();
+        $media->uploadFile($fileInput, 'test_media_module', 1);
+        $this->createdFiles[] = (string) $media->filename;
+
+        // Assert
+        $this->assertFalse($media->error);
+        $this->assertStringEndsWith('.jpg', $media->filename);
+        $this->assertSame('image/jpeg', $media->mimetype);
+        $this->assertSame([40, 20], [(int) $media->x, (int) $media->y]);
+        $this->assertSame(IMAGETYPE_JPEG, getimagesize($media->filename)[2]);
+        $this->assertSame('img 0042', $media->name, 'its name as any upload\'s: underscores as spaces');
+    }
+
+    /**
+     * A PDF named `.heic` is refused, whatever the browser said it was: its content is no picture,
+     * so Imagick never opens it, and nothing is kept (FW-402).
+     *
+     * @return void
+     */
+    #[Test]
+    public function testAPdfNamedHeicIsRefused(): void
+    {
+        if (!\Pramnos\Media\Imaging::imagickReads('heic')) {
+            $this->markTestSkipped('Imagick with HEIC is not installed here: .heic is not offered at all.');
+        }
+        // Arrange
+        $tmp = $this->scratchDir() . DS . 'upload_pdf_' . uniqid() . '.tmp';
+        file_put_contents($tmp, "%PDF-1.4
+" . str_repeat('x', 64));
+        $this->createdFiles[] = $tmp;
+        $fileInput = ['name' => 'photo.heic', 'type' => 'image/heic', 'tmp_name' => $tmp, 'error' => UPLOAD_ERR_OK, 'size' => filesize($tmp)];
+
+        // Act
+        $media = new MediaObject();
+        $media->uploadFile($fileInput, 'test_media_module', 1);
+
+        // Assert
+        $this->assertStringStartsWith('#6 ', (string) $media->error);
+        $this->assertSame(0, (int) $media->mediaid, 'nothing saved');
+    }
+
+    /**
      * Test uploadFile() rejects a file with a disallowed extension (text/plain).
      *
      * @return void

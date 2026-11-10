@@ -23,6 +23,15 @@ RUN apt-get update && apt-get install -y \
     && pecl install redis xdebug apcu \
     && docker-php-ext-enable redis xdebug apcu
 
+# Imagick, optional to the framework and here so its path is tested: a phone's HEIC (or an AVIF),
+# which GD cannot read, converted at upload (Pramnos\Media\Imaging). The decoders only — libheif
+# with libde265 and dav1d come with ImageMagick; nothing here writes HEIC. A layer of its own, so
+# adding it did not rebuild the one above.
+RUN apt-get update && apt-get install -y --no-install-recommends libmagickwand-dev \
+    && pecl install imagick \
+    && docker-php-ext-enable imagick \
+    && rm -rf /var/lib/apt/lists/*
+
 # Enable Apache mod_rewrite
 RUN a2enmod rewrite
 

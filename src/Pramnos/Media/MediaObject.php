@@ -899,6 +899,14 @@ class MediaObject extends \Pramnos\Framework\Base
                 }
             }
             $this->filename = $path . strtolower(basename($file));
+            // A picture only Imagick reads here (a HEIC) becomes one every browser shows.
+            $converted = Imaging::toWebImage($this->filename);
+            if ($converted !== null) {
+                $this->filename = $converted['file'];
+                $this->_ext     = $converted['ext'];
+            } else {
+                Imaging::normalize($this->filename);
+            }
             // Recorded here as well, so the column is populated whichever way a file arrived. No
             // content *check* is added: this entry point takes a file the application already has,
             // not one a visitor uploaded.
@@ -1694,9 +1702,11 @@ class MediaObject extends \Pramnos\Framework\Base
         $byApplication = $picture
             ? []
             : array_diff(static::moduleExtensions($module), self::FILE_EXTENSIONS, self::NEVER_EXTENSIONS);
+        // A phone's HEIC (or an AVIF) where Imagick reads it here: converted to JPEG once stored.
+        $convertible = in_array($ext, Imaging::convertibleExtensions(), true);
         $allowedExtentions = $picture
-            ? self::IMAGE_EXTENSIONS
-            : array_merge(self::FILE_EXTENSIONS, $byApplication);
+            ? array_merge(self::IMAGE_EXTENSIONS, Imaging::convertibleExtensions())
+            : array_merge(self::FILE_EXTENSIONS, $byApplication, Imaging::convertibleExtensions());
         if (array_search($ext, $allowedExtentions) === false) {
             $this->error = "#1 Invalid File Type: " . $ext;
             return $this;
@@ -1705,7 +1715,7 @@ class MediaObject extends \Pramnos\Framework\Base
         if ($this->mediatype == 0) {
             if ($ext == 'pdf') {
                 $this->mediatype = 3;
-            } elseif (in_array($ext, self::IMAGE_EXTENSIONS, true)) {
+            } elseif (in_array($ext, self::IMAGE_EXTENSIONS, true) || $convertible) {
                 $this->mediatype = 1;
             } else {
                 // A spreadsheet, or a document of a kind the application allowed.
@@ -1713,8 +1723,15 @@ class MediaObject extends \Pramnos\Framework\Base
             }
         }
         // The browser's Content-Type is checked against the types of the framework's own
-        // extensions; a kind the application allowed has no list to check it against.
-        if ($file['type'] != "" && !$applicationsOwn) {
+        // extensions; a kind the application allowed has no list to check it against. A convertible
+        // picture's is its own, or none a browser knows: its content is read below.
+        if ($convertible) {
+            if ($file['type'] != '' && !in_array($file['type'], [...Imaging::CONVERTIBLE_MIMES, 'application/octet-stream'], true)) {
+                $this->error = '#2 Invalid MIME type: ' . $file['type'];
+                return $this;
+            }
+            $this->mediatype = $this->mediatype == 2 ? 2 : 1;
+        } elseif ($file['type'] != "" && !$applicationsOwn) {
             if ($this->mediatype == 1 or $this->mediatype == 2) {
                 switch ($file['type']) {
                     case "image/jpeg":
@@ -1820,6 +1837,22 @@ class MediaObject extends \Pramnos\Framework\Base
         }
         if (isset($_SESSION['uid']) && $this->userid == 0) {
             $this->userid = $_SESSION['uid'];
+        }
+        if ($convertible) {
+            // Read by its content and turned into what every browser shows; refused when it is not
+            // the picture its name says, or cannot be read.
+            $converted = Imaging::toWebImage($uploadfile);
+            if ($converted === null) {
+                @unlink($uploadfile);
+                $this->error = '#6 The picture could not be read: .' . $ext;
+                return $this;
+            }
+            $uploadfile     = $converted['file'];
+            $this->_ext     = $converted['ext'];
+            $this->mimetype = $converted['mime'];
+        } elseif ($this->mediatype == 1 || $this->mediatype == 2) {
+            // A wide-gamut photograph (an iPhone's Display P3) in sRGB, so GD's thumbnails keep its colours.
+            Imaging::normalize($uploadfile);
         }
         $this->filename = $uploadfile;
         if ($this->mediatype == 1 or $this->mediatype == 2) {

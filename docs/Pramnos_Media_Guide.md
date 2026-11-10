@@ -5,6 +5,8 @@ use_cases:
   - Organising stored media, or querying its schema
   - Setting memory_limit for image processing on a constrained host
   - Asking for a thumbnail size and getting different dimensions back
+  - Accepting HEIC photos from iPhones, or knowing which picture formats the server reads
+  - Keeping an iPhone photo's colours (Display P3) in its thumbnails
 ---
 
 # Pramnos Framework - Media System Guide
@@ -280,6 +282,46 @@ It leaves the file exactly as it came in, rather than converting it, when:
 This is a normalization an application opts into explicitly, not something `uploadFile()` does
 unconditionally — an application that already serves WebP on purpose would lose that the moment
 every upload got silently rewritten.
+
+### Pictures GD cannot read: Imagick, where it is installed
+
+The framework never requires Imagick. Without it, every picture is handled by GD, and a format only
+Imagick reads is not offered for upload. With the `imagick` extension installed, and the format
+among `Imagick::queryFormats()`, `Pramnos\Media\Imaging` does two things at upload, in
+`uploadFile()` and `addImage()`:
+
+- **A phone's HEIC or HEIF, or an AVIF, is accepted and stored as a JPEG** (a PNG when it has any
+  transparency). It is turned upright, and its metadata (GPS, camera, date taken) is left out.
+  Extension, type and size become the JPEG's. A file that is not the picture its name says is
+  refused with `#6 The picture could not be read`, and nothing is kept.
+- **A photograph in a colour profile other than sRGB** (an iPhone's Display P3 JPEG) is rewritten
+  in place in sRGB, upright, with its metadata left out. GD drops colour profiles, so without this
+  step the thumbnails it makes would shift the colours. The sRGB profile is built in the framework
+  (`Pramnos\Media\IccProfile`), so the server needs no `sRGB.icc` file. A picture already in sRGB,
+  or with no profile, is left exactly as it came.
+
+Both work with ImageMagick 6 and 7. Thumbnails, resizing and rotation stay GD's: after upload every
+stored picture is a format GD reads, in sRGB, so the results are the same either way.
+
+A user's file reaches Imagick only once its first bytes say it is one of these raster formats.
+Imagick is told which decoder to use, so a PDF, a PostScript, an SVG or an MSL/MVG script named
+`.jpg` or `.heic` never reaches it. Each call is limited to 256 MB of memory, 64 million pixels,
+30 seconds and **one thread**. ImageMagick otherwise takes every core, which under PHP-FPM, with
+many requests at once, starves the server.
+
+What the application can ask:
+
+```php
+use Pramnos\Media\Imaging;
+
+Imaging::uploadExtensions();      // ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'avif'] — heic/heif/avif only where Imagick reads them
+Imaging::convertibleExtensions(); // ['heic', 'heif', 'avif'] here; [] without Imagick
+Imaging::readable($path);         // can this server open it, by GD or Imagick?
+Imaging::format($path);           // 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'avif' — from the bytes; null for anything else
+```
+
+An `accept=` on a file input built from `uploadExtensions()` offers a HEIC only where it will be
+read. `uploadAsJpeg()` (above) still converts a WebP with GD, by the application's choice.
 
 ### Which file types a module takes
 
