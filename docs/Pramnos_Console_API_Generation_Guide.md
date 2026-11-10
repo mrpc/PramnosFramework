@@ -95,7 +95,7 @@ afterwards. A generated screen imports the first five; `Omnibox.svelte` and
 | `components/Omnibox.svelte` | Cross-entity search over `GET /admin/search` (the entities `app/search.php` registers) |
 | `components/HelpPanel.svelte` | The screen's help page over `GET /help/screen`, shown with the `help` feature ([help in a SPA](Pramnos_Admin_Assistant_Guide.md#help-in-a-spa)) |
 | `lib/ui.js` | The classes the shared components draw with, per UI system (`scaffold_theme`): daisyUI, Bootstrap 5 or plain-css |
-| `components/Skeleton.svelte` | Grey shapes where content is about to be, in place of a spinner: `kind` `cards` (a row of cards and a panel) or `list` (rows), `count`. A busy status for a screen reader, still under reduced motion. A generated screen shows it while it loads, and the shell while it does not yet know who is signed in |
+| `components/Skeleton.svelte` | Grey shapes where content is about to be, in place of a spinner: `kind` `cards` (a row of cards and a panel) or `list` (rows), `count`, and `title={false}` under a screen's own heading, so there is no second, false one. A busy status for a screen reader, still under reduced motion. A generated screen shows it while it loads, and the shell while it does not yet know who is signed in |
 | `lib/live.js` | The signed-in user's notifications, live, where the site serves a socket ([a SPA's connection](Pramnos_Realtime_Guide.md#a-single-page-applications-connection)) |
 
 **The first paint is a skeleton too.** The shell (`www/spa.php`) draws the same shapes in plain

@@ -30,4 +30,16 @@ describe('Skeleton', () => {
         expect(cardShapes).toBe(3);
         expect(list.container.querySelectorAll('.h-14').length).toBe(5);
     });
+
+    it('draws a title\'s shape, unless the screen has its own heading', () => {
+        // Arrange / Act
+        const withTitle = render(Skeleton, { kind: 'list', count: 2 });
+        const titled = withTitle.container.querySelectorAll('.h-8').length;
+        withTitle.unmount();
+        const under = render(Skeleton, { kind: 'list', count: 2, title: false });
+
+        // Assert — one by default; none under a screen's own heading, or there would be two
+        expect(titled).toBe(1);
+        expect(under.container.querySelectorAll('.h-8').length).toBe(0);
+    });
 });

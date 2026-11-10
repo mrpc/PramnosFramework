@@ -10,18 +10,22 @@
      * Its shapes are `ui('skeleton')` — daisyUI's `skeleton`, or the theme's `pf-ui-skeleton` —
      * and still where the visitor asked for less motion.
      *
-     * @type {{ kind?: 'cards' | 'list', count?: number, label?: string }}
+     * @type {{ kind?: 'cards' | 'list', count?: number, title?: boolean, label?: string }}
      *   `cards`: a row of small cards and a wide panel under them (a dashboard); `list`: rows.
+     *   `title`: a title's shape above them — `false` under a screen's own heading, or there
+     *   would be a second, false one under the real.
      *
      * Maintained by the framework: `project:resync --spa-components` brings a newer one.
      */
     import { ui } from '../lib/ui.js';
 
-    let { kind = 'cards', count = 4, label = 'Loading' } = $props();
+    let { kind = 'cards', count = 4, title = true, label = 'Loading' } = $props();
 </script>
 
 <div class="flex flex-col gap-4" role="status" aria-label={label} aria-busy="true">
-    <div class="{ui('skeleton')} h-8 w-48"></div>
+    {#if title}
+        <div class="{ui('skeleton')} h-8 w-48"></div>
+    {/if}
     {#if kind === 'list'}
         {#each { length: count } as _, i (i)}
             <div class="{ui('skeleton')} h-14 w-full"></div>

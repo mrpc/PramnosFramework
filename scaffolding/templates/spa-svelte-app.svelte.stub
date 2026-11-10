@@ -420,7 +420,7 @@
                         <h2 class={ui('card.title')}>Backend</h2>
 
                         {#if loading}
-                            <Skeleton kind="list" count={1} />
+                            <Skeleton kind="list" count={1} title={false} />
                         {:else if error}
                             <div role="alert" class={ui('alert.error')}><span>{error}</span></div>
                         {:else}

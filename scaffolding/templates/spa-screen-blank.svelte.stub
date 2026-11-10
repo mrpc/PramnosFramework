@@ -58,7 +58,7 @@
     {#if error}
         <div class={ui('alert.error')} role="alert">{error}</div>
     {:else if loading}
-        <Skeleton kind="list" count={4} />
+        <Skeleton kind="list" count={4} title={false} />
     {:else}
         <div class={ui('card')}>
             <div class={ui('card.body')}>
