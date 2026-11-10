@@ -114,6 +114,49 @@ class TokenCharacterizationTest extends TestCase
     }
 
     /**
+     * A token whose device label is not ASCII survives load → save → load.
+     *
+     * The second save is the path that failed in production: the label went in
+     * as `σ...` escapes, which a `bytea` column rejects, so the whole
+     * UPDATE (lastused, actions) was lost. The stored text must carry the
+     * characters themselves — the same form `User::currentDeviceInfo()` writes.
+     */
+    public function testNonAsciiDeviceLabelIsStoredUnescapedAcrossResave(): void
+    {
+        // Arrange
+        $label = 'Chrome στις Windows';
+        $token = new Token();
+        $token->userid = 1;
+        $token->tokentype = 'auth';
+        $token->token = 'char_token_' . bin2hex(random_bytes(6));
+        $token->created = time();
+        $token->status = 1;
+        $token->notes = 'characterization';
+        $token->deviceinfo = ['label' => $label, 'path' => 'a/b'];
+        $token->save();
+        $tokenId = (int) $token->tokenid;
+        $this->createdTokenIds[] = $tokenId;
+        $this->db->cacheflush('usertokens');
+
+        // Act
+        $loaded = new Token($tokenId);
+        $loaded->actions = 7;
+        $loaded->save();
+        $this->db->cacheflush('usertokens');
+        $reloaded = new Token($tokenId);
+        $raw = $this->db->queryBuilder()->table('usertokens')
+            ->where('tokenid', $tokenId)->value('deviceinfo');
+
+        // Assert
+        $this->assertSame($label, $reloaded->deviceinfo['label']);
+        $this->assertSame(7, (int) $reloaded->actions, 'the re-save took effect');
+        // The characters and the slash are stored as they are, not escaped.
+        $this->assertStringContainsString($label, (string) $raw);
+        $this->assertStringContainsString('a/b', (string) $raw);
+        $this->assertStringNotContainsString('\\u', (string) $raw);
+    }
+
+    /**
      * Ensures getData preserves status-label/date mapping conventions.
      */
     public function testGetDataStatusAndDateMappingContract(): void

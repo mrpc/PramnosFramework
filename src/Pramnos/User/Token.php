@@ -601,7 +601,7 @@ class Token extends \Pramnos\Framework\Base
         if ($this->useSnapshot === null) {
             $this->useSnapshot = [
                 'ip'     => (string) $remoteip,
-                'device' => json_encode($this->deviceinfo),
+                'device' => $this->deviceInfoJson(),
                 // Now, not zero: an epoch timestamp is older than any interval,
                 // so the very next request would decide it was time to write
                 // again — making the first two requests both write.
@@ -612,9 +612,9 @@ class Token extends \Pramnos\Framework\Base
         }
 
         if ((string) $remoteip !== $this->useSnapshot['ip']
-            || json_encode($this->deviceinfo) !== $this->useSnapshot['device']) {
+            || $this->deviceInfoJson() !== $this->useSnapshot['device']) {
             $this->useSnapshot['ip']     = (string) $remoteip;
-            $this->useSnapshot['device'] = json_encode($this->deviceinfo);
+            $this->useSnapshot['device'] = $this->deviceInfoJson();
             $this->useSnapshot['at']     = time();
 
             return true;
@@ -1334,6 +1334,21 @@ class Token extends \Pramnos\Framework\Base
     }
 
     /**
+     * The device info as the JSON stored in `deviceinfo`.
+     *
+     * Unicode and slashes unescaped, the same form `User::currentDeviceInfo()`
+     * writes: a `\uXXXX` escape in the text is read as an invalid escape by a
+     * `bytea` column, so the whole UPDATE fails. One form everywhere also keeps
+     * the use-snapshot comparison from seeing a "new device" that is not.
+     *
+     * @return string|false
+     */
+    private function deviceInfoJson()
+    {
+        return json_encode($this->deviceinfo, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    /**
      * Save token to the database
      * @return Token
      */
@@ -1434,7 +1449,7 @@ class Token extends \Pramnos\Framework\Base
             ),
             array(
                 'fieldName' => 'deviceinfo',
-                'value' => json_encode($this->deviceinfo),
+                'value' => $this->deviceInfoJson(),
                 'type' => 'string'
             ),
             array(

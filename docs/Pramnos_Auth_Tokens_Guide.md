@@ -326,7 +326,8 @@ writes the new row:
   fingerprint inside `deviceinfo`.
 
 `deviceinfo` is JSON — `device` (the fingerprint), `label` (the device in words, in the
-language of the request) and `ip` — written with letters and slashes unescaped, so a Greek label
+language of the request) and `ip` — written with letters and slashes unescaped, both when it is
+issued and every time `Token::save()` writes the token again, so a Greek label
 is stored as its letters and the value holds no backslash a `bytea` column would read as an
 escape.
 
