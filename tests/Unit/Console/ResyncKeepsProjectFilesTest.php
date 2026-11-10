@@ -177,4 +177,35 @@ class ResyncKeepsProjectFilesTest extends TestCase
         $this->assertFileDoesNotExist($this->base . '/frontend/components/DataTable.svelte', 'nothing present imports it');
         $this->assertStringContainsString('skip', $said);
     }
+
+    /**
+     * A screen of the project's own imports a shared component the project lacks: `--spa-components`
+     * alone creates it, and what it imports — not with `--all`, which would bring every other shared
+     * component the project chose not to have. A project that dropped its own Skeleton for the
+     * framework's got it only with `--all`, and HistoryPanel with it.
+     */
+    public function testWhatTheProjectsOwnScreensImportIsCreated(): void
+    {
+        // Arrange — a Svelte project whose own screen imports the framework's Skeleton, which it lacks
+        @mkdir($this->base . '/app');
+        @mkdir($this->base . '/frontend/screens', 0777, true);
+        @mkdir($this->base . '/frontend/node_modules/x', 0777, true);
+        file_put_contents($this->base . '/app/app.php', "<?php return ['name' => 'Shop', 'app_style' => 'spa', 'spa_stack' => 'svelte', 'spa_source_dir' => 'frontend/'];");
+        $this->put('frontend/screens/Releases.svelte', "<script>\n    import Skeleton from '../components/Skeleton.svelte';\n</script>\n<Skeleton kind=\"list\" title={false} />\n");
+        // A dependency's file importing another shared component is not the project's.
+        $this->put('frontend/node_modules/x/index.js', "import HistoryPanel from '../../components/HistoryPanel.svelte';\n");
+        $command = new ProjectResync();
+        $command->targetBaseDir  = $this->base;
+        $command->scaffoldingDir = ROOT . '/scaffolding';
+        $tester = new \Symfony\Component\Console\Tester\CommandTester($command);
+
+        // Act
+        $tester->execute(['--spa-components' => true]);
+
+        // Assert
+        $this->assertFileExists($this->base . '/frontend/components/Skeleton.svelte', 'imported by the project\'s screen, so created');
+        $this->assertFileExists($this->base . '/frontend/lib/ui.js', 'and what it imports');
+        $this->assertFileDoesNotExist($this->base . '/frontend/components/HistoryPanel.svelte', 'nothing of the project imports it');
+        $this->assertFileDoesNotExist($this->base . '/frontend/components/DataTable.svelte');
+    }
 }

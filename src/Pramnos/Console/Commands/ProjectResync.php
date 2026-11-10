@@ -415,6 +415,10 @@ class ProjectResync extends Command
      * project lacks — created without `--all`, because otherwise the update just made breaks the
      * build: a newer `HelpPanel.svelte` importing a `lib/ui.js` nothing wrote.
      *
+     * The project's own sources count too: a screen that imports `components/Skeleton.svelte`,
+     * which the project does not have, gets it from `--spa-components` alone — not with `--all`,
+     * which would bring every other shared component the project chose not to have.
+     *
      * Followed through: what a created file imports is created too.
      *
      * @param list<array{content: string, dest: string}> $files
@@ -425,6 +429,23 @@ class ProjectResync extends Command
         $byDest = array_column($files, 'content', 'dest');
         $needed = [];
         $from   = array_filter(array_keys($byDest), static fn (string $dest): bool => is_file($base . '/' . $dest));
+        // What the project's own sources import, read from disk: they are not in this sync.
+        $own = [];
+        $sourceDir = $byDest !== [] && is_file($base . '/app/app.php') ? $this->spaSourceDir($base) : '';
+        if ($sourceDir !== '' && is_dir($base . '/' . $sourceDir)) {
+            $walk = new \RecursiveIteratorIterator(new \RecursiveCallbackFilterIterator(
+                new \RecursiveDirectoryIterator($base . '/' . $sourceDir, \FilesystemIterator::SKIP_DOTS),
+                static fn (\SplFileInfo $f): bool => $f->getFilename() !== 'node_modules'
+            ));
+            foreach ($walk as $file) {
+                $dest = substr((string) $file->getPathname(), strlen($base) + 1);
+                if (!isset($byDest[$dest]) && preg_match('/\.(svelte|js|mjs)$/', $dest) === 1) {
+                    $own[$dest] = (string) file_get_contents((string) $file->getPathname());
+                }
+            }
+        }
+        $from   = array_merge($from, array_keys($own));
+        $byDest += $own;
 
         while ($from !== []) {
             $next = [];

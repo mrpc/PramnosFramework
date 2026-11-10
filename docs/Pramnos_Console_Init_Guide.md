@@ -402,7 +402,7 @@ The groups:
 | `--debug-panel` | `lib/debug.js` (the SPA debug panel) and `lib/webauthn.js`, in `frontend/lib/` or `www/assets/js/lib/` depending on this project's stack (read from `app_style`/`spa_stack`, or `spa_source_dir` when set) |
 | `--css` | `www/assets/css/components.css`, the framework components' styles, from the theme `scaffold_theme` names — `bootstrap`'s when it names none, for an mvc application that draws the framework's components (with `--all` the first time, as any missing file). Kept when the project changed it (or when it predates the record `init` now keeps), unless `--overwrite` |
 | `--pwa` | The PWA icons (added when missing, never overwritten) and `manifest.json` (merged) |
-| `--spa-components` | The shared Svelte components and their tests — see [The shared components](Pramnos_Console_API_Generation_Guide.md#the-shared-components). Not part of a plain `project:resync` |
+| `--spa-components` | The shared Svelte components and their tests — see [The shared components](Pramnos_Console_API_Generation_Guide.md#the-shared-components). Not part of a plain `project:resync`. One the project does not have is created when something the project has imports it, its own screens included, and what that one imports is created too. Use `--all` to create every one |
 | `--rich-editor` | Adds the rich text editor to a Svelte SPA: `lib/rich-editor/` (the framework's core and stylesheet), `components/RichEditor.svelte` (the project's), and the TipTap packages in `package.json`. From then on a plain `project:resync` refreshes `lib/rich-editor/` — see the [Rich Text Editor guide](Pramnos_Rich_Editor_Guide.md#in-a-svelte-spa) |
 
 `--overwrite` replaces shared components and `components.css` where the project changed them,
