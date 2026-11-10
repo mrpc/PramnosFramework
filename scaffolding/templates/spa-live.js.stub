@@ -14,6 +14,11 @@
  *
  * Without a socket — development, or a site with none — it does nothing, and the bell polls.
  *
+ * **A screen that settles notifications — marks them read when it opens what they are about —
+ * must not read itself again on `pf:notifications:refresh`.** Its settling is told as
+ * `notification.read`, which refreshes, which settles again: a loop through the server. Such a
+ * screen listens to `notification.created` on the channel itself, or to an event of its own.
+ *
  * ```js
  * const stop = listen(user.userid, { headers: () => ({ apiKey, accessToken: getToken() }) });
  * ```

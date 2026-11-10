@@ -852,7 +852,10 @@ site's address. Its scaffolded shell does the same with what it has:
 - **The listening.** `lib/live.js` (a shared component; `project:resync --spa-components`)
   sets those headers from the API client, joins the user's channel and turns `notification.created`
   and `notification.read` into `pf:notifications:refresh` on the window, which the bell reads
-  again on. `App.svelte` calls it once somebody is signed in, and stops on sign-out:
+  again on. `App.svelte` calls it once somebody is signed in, and stops on sign-out. A screen that
+  settles notifications (marks them read on opening what they are about) must not read itself
+  again on that event: its own settling is a `notification.read`, so it would loop through the
+  server. Such a screen listens to `notification.created` alone.
 
 ```js
 import { listen } from './lib/live.js';
