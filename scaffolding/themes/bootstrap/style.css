@@ -85,6 +85,10 @@ main {
 
 .pf-ui-spinner { display: inline-block; width: 1rem; height: 1rem; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: pf-ui-spin .75s linear infinite; }
 .pf-ui-spinner-lg { width: 2.5rem; height: 2.5rem; border-width: 3px; }
+/* A grey shape where content is about to be (Skeleton.svelte, the SPA shell's first paint). */
+.pf-ui-skeleton { display: block; border-radius: .375rem; background: color-mix(in oklab, currentColor 10%, transparent); animation: pf-ui-skeleton 1.6s ease-in-out infinite; }
+@keyframes pf-ui-skeleton { 50% { opacity: .5; } }
+@media (prefers-reduced-motion: reduce) { .pf-ui-skeleton { animation: none; } }
 @keyframes pf-ui-spin { to { transform: rotate(360deg); } }
 
 /* The first thing a keyboard reaches, and it must be visible once it has focus.

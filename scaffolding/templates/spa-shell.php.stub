@@ -55,6 +55,14 @@ $realtime = \Pramnos\Broadcasting\RealtimeConfig::forShell(
     is_array($appConfig) && is_array($appConfig['broadcasting'] ?? null) ? $appConfig['broadcasting'] : []
 );
 
+// The first paint: grey shapes where the page is about to be — a bar, a title, a row of cards and
+// a panel, as components/Skeleton.svelte draws them — before any JavaScript, the stylesheet
+// already loaded. Sized inline, so no build has to find these classes; the shape is the UI
+// system's (daisyUI's `skeleton`, or the theme's `pf-ui-skeleton`). main.js empties #app.
+$bone = static function (string $style) use ($runtime): string {
+    return '<div class="' . ($runtime['ui'] === 'tailwind' ? 'skeleton' : 'pf-ui-skeleton') . '" style="' . $style . '"></div>';
+};
+
 /** Stamp an asset URL with the file's mtime — the build-less cache-buster. */
 $stamp = static function (string $path) use ($root): string {
     $mtime = @filemtime($root . '/' . ltrim($path, '/')) ?: 0;
@@ -113,7 +121,16 @@ header('Cache-Control: no-cache, must-revalidate');
 <?php endforeach; ?>
 </head>
 <body>
-    <div id="app">Loading…</div>
+    <div id="app">
+        <div style="padding:1rem 1.5rem;display:flex;flex-direction:column;gap:1rem" role="status" aria-label="Loading" aria-busy="true">
+            <?php echo $bone('height:2.5rem;width:100%'); ?>
+            <?php echo $bone('height:2rem;width:12rem'); ?>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:1rem">
+                <?php echo $bone('height:6rem') . $bone('height:6rem') . $bone('height:6rem') . $bone('height:6rem'); ?>
+            </div>
+            <?php echo $bone('height:16rem;width:100%'); ?>
+        </div>
+    </div>
     <script>window.__PRAMNOS__ = <?php echo json_encode($runtime, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG); ?>;</script>
 <?php if ($realtime !== null && is_file($root . '/assets/js/pf-utils.js')): ?>
     <script src="<?php echo htmlspecialchars($siteUrl, ENT_QUOTES) . $stamp('assets/js/pf-utils.js'); ?>" defer></script>

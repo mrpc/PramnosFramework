@@ -22,6 +22,7 @@
     import Omnibox from './components/Omnibox.svelte';
     import HelpPanel from './components/HelpPanel.svelte';
     import NotificationBell from './components/NotificationBell.svelte';
+    import Skeleton from './components/Skeleton.svelte';
     import { ui } from './lib/ui.js';
 
     const hasAuth = Boolean(window.__PRAMNOS__?.features?.auth);
@@ -384,6 +385,10 @@
                     {/if}
                 </div>
             </div>
+        {:else if hasAuth && !userReady && PROTECTED.includes(route.name)}
+            <!-- Who is signed in is not known yet: the screen's shape, not the screen, which would
+                 ask the API before the visitor is known and flash before a redirect. -->
+            <Skeleton kind="list" count={3} />
         {:else if screen}
             {@const Screen = screen.component}
             <!--
@@ -415,7 +420,7 @@
                         <h2 class={ui('card.title')}>Backend</h2>
 
                         {#if loading}
-                            <span class="loading loading-spinner loading-md"></span>
+                            <Skeleton kind="list" count={1} />
                         {:else if error}
                             <div role="alert" class={ui('alert.error')}><span>{error}</span></div>
                         {:else}

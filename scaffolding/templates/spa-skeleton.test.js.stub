@@ -1,0 +1,33 @@
+import { render, screen } from '@testing-library/svelte';
+import Skeleton from '../components/Skeleton.svelte';
+
+/**
+ * Tests for the skeleton drawn where content is about to be.
+ *
+ * It stands in for a spinner, so what matters is that a screen reader still hears that something
+ * is loading (a status, busy), and that it holds the shape the content will take: a row of cards
+ * and a wide panel, or rows of a list.
+ */
+
+describe('Skeleton', () => {
+    it('is a busy status a screen reader announces as loading', () => {
+        // Arrange / Act
+        render(Skeleton);
+
+        // Assert — named, and busy, as a spinner was
+        const status = screen.getByRole('status', { name: 'Loading' });
+        expect(status.getAttribute('aria-busy')).toBe('true');
+    });
+
+    it('draws cards and a panel, or rows', () => {
+        // Arrange / Act
+        const cards = render(Skeleton, { kind: 'cards', count: 3 });
+        const cardShapes = cards.container.querySelectorAll('.h-24').length;
+        cards.unmount();
+        const list = render(Skeleton, { kind: 'list', count: 5 });
+
+        // Assert — as many as asked for, of the shape the content takes
+        expect(cardShapes).toBe(3);
+        expect(list.container.querySelectorAll('.h-14').length).toBe(5);
+    });
+});

@@ -1,0 +1,37 @@
+<script>
+    /**
+     * Grey shapes where a screen's content is about to be, instead of a spinner.
+     *
+     * A spinner says "wait", and then the page jumps when the content arrives. A skeleton holds
+     * the content's place, so what arrives replaces it where it stands, and the wait reads as the
+     * page filling in. The shell draws the same shapes in plain HTML, so the first paint, before
+     * any JavaScript, is already this.
+     *
+     * Its shapes are `ui('skeleton')` — daisyUI's `skeleton`, or the theme's `pf-ui-skeleton` —
+     * and still where the visitor asked for less motion.
+     *
+     * @type {{ kind?: 'cards' | 'list', count?: number, label?: string }}
+     *   `cards`: a row of small cards and a wide panel under them (a dashboard); `list`: rows.
+     *
+     * Maintained by the framework: `project:resync --spa-components` brings a newer one.
+     */
+    import { ui } from '../lib/ui.js';
+
+    let { kind = 'cards', count = 4, label = 'Loading' } = $props();
+</script>
+
+<div class="flex flex-col gap-4" role="status" aria-label={label} aria-busy="true">
+    <div class="{ui('skeleton')} h-8 w-48"></div>
+    {#if kind === 'list'}
+        {#each { length: count } as _, i (i)}
+            <div class="{ui('skeleton')} h-14 w-full"></div>
+        {/each}
+    {:else}
+        <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            {#each { length: count } as _, i (i)}
+                <div class="{ui('skeleton')} h-24"></div>
+            {/each}
+        </div>
+        <div class="{ui('skeleton')} h-64 w-full"></div>
+    {/if}
+</div>

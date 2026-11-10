@@ -218,6 +218,14 @@ class InitSpaScaffoldingTest extends TestCase
         $this->assertStringContainsString("import { listen } from './lib/live.js';", $app);
         $this->assertStringContainsString('return listen(id, { headers: () => ({ apiKey: window.__PRAMNOS__?.apiKey, accessToken: getToken() }) });', $app);
         $this->assertStringContainsString('class Broadcasting extends FrameworkBroadcasting', $this->read('src/Controllers/Broadcasting.php'));
+        // The first paint is the page's shape, not the word Loading: a busy status of grey shapes,
+        // sized inline, in the UI system's own class (tailwind here: daisyUI's).
+        $this->assertStringNotContainsString('<div id="app">Loading', $socket);
+        $this->assertStringContainsString('role="status" aria-label="Loading" aria-busy="true"', $socket);
+        $this->assertStringContainsString('<div class="skeleton" style="height:6rem"></div>', $socket);
+        $this->assertStringContainsString('<Skeleton kind="list" count={3} />', $app, 'a protected screen waits for who is signed in');
+        $this->assertStringContainsString('role="status" aria-label={label} aria-busy="true"', $this->read('frontend/components/Skeleton.svelte'));
+        $this->assertStringContainsString("describe('Skeleton'", $this->read('frontend/__tests__/Skeleton.test.js'));
         $this->assertStringContainsString('BroadcastingApi::routes($r)', $this->read('src/Api/routes.php'), 'the API signs the SPA\'s channels');
     }
 
