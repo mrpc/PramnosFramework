@@ -617,7 +617,8 @@ from the apidoc `@api` block of the same method and path, in the controllers' di
   field (`[name]` is optional);
 - `@apiSuccess` gives the 200 response's fields, `@apiError` a 4XX response naming the errors.
 
-A version prefix (`1.0/`) is left out of the match. `describe()` and `#[Route]` win over a block.
+A version prefix (`1.0/`) is left out of the match. `describe()` and `#[Route]` win over a block. A route with no block is tagged by its path (`account`), spelled as the document spells the same
+tag elsewhere (`Account`, an `@apiGroup`'s), so a viewer shows one section for it.
 
 ```
 php pramnos api:docs --routes=src/Api/routes.php --apidoc=src/Api/Controllers

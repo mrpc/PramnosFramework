@@ -326,6 +326,39 @@ class OpenApiGenerator
     }
 
     /**
+     * One tag for one thing: a tag taken from a path (`account`) is written as the document
+     * writes it elsewhere (`Account`, an `@apiGroup` or a `describe()`'s), so a viewer shows one
+     * section, not two. Of the spellings of a tag, the first with a capital wins.
+     *
+     * @param array<string, array<string, mixed>> $paths
+     * @return array<string, array<string, mixed>>
+     */
+    private static function sameTags(array $paths): array
+    {
+        $spelling = [];
+        foreach ($paths as $operations) {
+            foreach ($operations as $operation) {
+                foreach ((array) ($operation['tags'] ?? []) as $tag) {
+                    $key = mb_strtolower((string) $tag);
+                    if (!isset($spelling[$key]) || ($spelling[$key] === $key && $tag !== $key)) {
+                        $spelling[$key] = (string) $tag;
+                    }
+                }
+            }
+        }
+        foreach ($paths as $path => $operations) {
+            foreach ($operations as $verb => $operation) {
+                if (isset($operation['tags']) && is_array($operation['tags'])) {
+                    $paths[$path][$verb]['tags'] = array_values(array_unique(array_map(
+                        static fn ($tag): string => $spelling[mb_strtolower((string) $tag)] ?? (string) $tag, $operation['tags'])));
+                }
+            }
+        }
+
+        return $paths;
+    }
+
+    /**
      * Wrap a set of paths in the document envelope.
      *
      * @param array<string, array<string, mixed>> $paths
@@ -334,6 +367,7 @@ class OpenApiGenerator
     private function assemble(array $paths, bool $secured): array
     {
         ksort($paths);
+        $paths = self::sameTags($paths);
 
         /*
          * Responses every operation shares — a 403 for a missing API key, a 401 for nobody

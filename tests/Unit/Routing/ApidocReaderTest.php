@@ -112,4 +112,24 @@ PHP);
         $this->assertSame([], ApidocReader::read($this->dir . '/none'));
         $this->assertNull(ApidocReader::parse('/** Nothing here. */'));
     }
+
+    /**
+     * A route with no block takes its tag from its path, in lower case; where the document spells
+     * the same tag with a capital — an `@apiGroup` — it is written that way, one section in a
+     * viewer rather than two.
+     */
+    public function testAPathsTagIsSpelledAsTheDocumentSpellsIt(): void
+    {
+        // Arrange
+        $read   = ['get /x/{}' => ApidocReader::parse("/**\n * @api {get} 1.0/x/:id Get X\n * @apiGroup X\n */")['operation']];
+        $routes = ['GET' => ['/1.0/x/{id}' => [], '/1.0/x' => [], '/1.0/other' => []]];
+
+        // Act
+        $doc = (new OpenApiGenerator())->withApidoc($read)->fromRoutes($routes);
+
+        // Assert
+        $this->assertSame(['X'], $doc['paths']['/1.0/x/{id}']['get']['tags']);
+        $this->assertSame(['X'], $doc['paths']['/1.0/x']['get']['tags'], 'the path\'s "x", as the group spells it');
+        $this->assertSame(['other'], $doc['paths']['/1.0/other']['get']['tags'], 'a tag spelled no other way stays');
+    }
 }
