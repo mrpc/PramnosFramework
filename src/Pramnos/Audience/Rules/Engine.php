@@ -340,6 +340,63 @@ final class Engine
     }
 
     /**
+     * One action for one person outside any rule — a bulk action on a list — through the same
+     * checks as a rule's step: for a message, the application's sending hours (`audience.hours`,
+     * `['from' => '09:00', 'to' => '21:00']`), the consent list chosen, the frequency caps. Logged
+     * like a rule's, so the caps count it. `$params` are the action's.
+     *
+     * @param array<string, mixed> $params
+     * @return array{status: string, reason?: string}
+     */
+    public static function perform(string $key, int $person, array $params, ?int $consent, int $by): array
+    {
+        $action = Actions::get($key);
+        if ($action === null) {
+            return ['status' => 'error', 'reason' => 'no action'];
+        }
+        $channel = $action['channel'] ?? null;
+        $run     = ['runid' => 0, 'ruleid' => 0, 'version' => 0, 'personid' => $person];
+        $step    = 'bulk.' . $key;
+        if (($why = self::blocked($person, $channel, $consent)) !== null) {
+            self::log($run, $step, 'skipped', ['reason' => $why, 'by' => $by], $channel);
+
+            return ['status' => 'skipped', 'reason' => $why];
+        }
+        $context = new Context(0, 'Bulk', 0, $step, 0, $person, ['type' => 'bulk', 'by' => $by], null, false, $consent);
+        try {
+            $result = (array) ($action['run'])($person, $params, $context);
+        } catch (\Throwable $e) {
+            $result = ['status' => 'error', 'detail' => ['reason' => $e->getMessage()]];
+        }
+        $status = in_array($result['status'] ?? '', ['sent', 'done', 'skipped', 'error'], true) ? $result['status'] : 'done';
+        $detail = (array) ($result['detail'] ?? []);
+        self::log($run, $step, $status, $detail + ['by' => $by], $status === 'sent' ? $channel : null);
+
+        return ['status' => $status] + (isset($detail['reason']) ? ['reason' => (string) $detail['reason']] : []);
+    }
+
+    /**
+     * Why a message on this channel may not go to this person now — `hours`, `consent`, `cap` —
+     * or null. Nothing stops an action that is not a message.
+     */
+    public static function blocked(int $person, ?string $channel, ?int $consent): ?string
+    {
+        if ($channel === null) {
+            return null;
+        }
+        $app   = \Pramnos\Application\Application::currentInstance();
+        $hours = is_object($app) ? ($app->applicationInfo['audience']['hours'] ?? null) : null;
+        if (is_array($hours) && isset($hours['from'], $hours['to']) && self::untilOpen(['from' => (string) $hours['from'], 'to' => (string) $hours['to']], time()) > 0) {
+            return 'hours';
+        }
+        if ($consent !== null && !ConsentLists::allows($consent, $person)) {
+            return 'consent';
+        }
+
+        return self::capReached($person, $channel, []) !== null ? 'cap' : null;
+    }
+
+    /**
      * Wait for an event, with a timeout — or, when the timeout comes first, go its other way.
      *
      * @param array<string, mixed> $run

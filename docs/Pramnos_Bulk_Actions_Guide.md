@@ -4,6 +4,7 @@ use_cases:
   - Offering an action on the users, devices or orders an AI answer listed
   - Adding a list of people to a user group in one go
   - Running a long bulk operation in the queue instead of the request
+  - Sending an email, SMS or push to a list of people with consent, caps and a preview
 ---
 
 # Bulk actions
@@ -69,6 +70,45 @@ one by name. It is behind the Groups screen's ability (`admin.groups`), and each
 through `Audience\Groups::add()`, so what joining does elsewhere — the changelog, the events a
 rule waits for, the roles a group carries — happens here too. A segment, which is defined by
 criteria rather than by a list, is drafted by the analyst's `audience_draft` tool instead.
+
+## A preview, then a confirmation
+
+An action declared with `preview:` is shown before it runs. The preview is a callable answering
+three things: how many people it reaches, how many it skips and why, and the message one of them
+gets. It may answer a sentence instead, saying why the action cannot run.
+
+`BulkActions::preview($entity, $key, $ids, $params, $by)` gives the same in code, for a screen of
+the application's own. `run()` without a `confirm` param answers that preview as a sentence and
+does nothing. It runs once `confirm` is any word, or, above `BulkActions::CONFIRM` (50) records,
+the number of records.
+
+## The rules' actions on a list of people
+
+With `'audience' => ['bulk_actions' => true]`, every rule action about a person is also a bulk
+action on `user` (`Audience\Rules\BulkBridge`). Their keys are `rule.email`, `rule.push`,
+`rule.bell`, `rule.site_message`, `rule.group_add`, `rule.attribute`, `rule.todo` and any the
+application declares, such as `rule.sms`, and they take the same fields. Actions that are not
+about the person (`notify_admin`, `webhook`, `conversation_post`, `ai`) are not offered.
+
+- **Through the rules' engine** (`Engine::perform()`). Each person passes the checks a rule's
+  message passes, and is logged like one, so the frequency caps count a bulk send:
+  - the application's sending hours (`audience.hours`, `['from' => '09:00', 'to' => '21:00']`);
+  - the consent list chosen in the action's `consent` field, which is required where the channel
+    has lists;
+  - the caps (`audience.caps`).
+- **What happened** is said at the end: *Sent to 45. 12 skipped: not on the consent list.
+  3 skipped: over the frequency cap.*
+- **Who may send a message to many** is the application's to say:
+  `'audience' => ['bulk_messages' => 'admin.newsletters']` takes an ability, or a callable
+  `fn (int $userId): bool`. With neither, only root may. The other actions are behind
+  `admin.audience`.
+- **A message is previewed and confirmed**, as above: one person's message, the counts, then
+  `confirm`.
+- **An email of one's own.** Besides a template, the `email` action takes a `subject` and a
+  `body` in Markdown, with the same placeholders (`{firstname}` and the rest). It is sent in the
+  application's layout.
+- **The assistant proposes, a person sends.** An Ask list offers these actions like any other.
+  The model can only propose one, and an administrator approves it.
 
 ## On a screen of the application's own
 

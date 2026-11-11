@@ -174,6 +174,8 @@ final class Actions
         return [
             'email' => ['label' => t('Send an email'), 'channel' => 'email', 'params' => [
                 'template' => ['label' => t('Mail template'), 'type' => 'select', 'options' => self::templateOptions(...)],
+                'subject'  => $text(t('Or a subject of your own — {firstname} and the rest are filled in')),
+                'body'     => $text(t('And its text, in Markdown'), 'textarea'),
                 'list'     => ['label' => t('Unsubscribe list'), 'type' => 'select', 'options' => self::listOptions(...)],
             ], 'run' => self::email(...)],
             'bell' => ['label' => t('Notify on the site'), 'channel' => 'site', 'params' => [
@@ -252,6 +254,12 @@ final class Actions
         return ['status' => 'done', 'detail' => ['todo' => $id]];
     }
 
+    /** A text written in Markdown, as a mail's HTML. */
+    public static function markdown(string $text): string
+    {
+        return \Pramnos\Llm\Chat\Markdown::toHtml($text);
+    }
+
     /** Whether the application has the conversations, for their action. */
     private static function hasConversations(): bool
     {
@@ -298,7 +306,12 @@ final class Actions
         if ($data === null || $user === null || trim((string) $user->email) === '') {
             return ['status' => 'skipped', 'detail' => ['reason' => 'no address']];
         }
-        if (self::$templateFill !== null) {
+        $own = trim((string) ($params['template'] ?? '')) === '' && trim((string) ($params['body'] ?? '')) !== '';
+        if ($own) {
+            // A text of its own, no template: filled for the person, in the application's layout.
+            $template = ['subject' => self::fill((string) ($params['subject'] ?? ''), $person), 'body' => self::markdown(self::fill((string) $params['body'], $person))];
+            $filled   = $template;
+        } elseif (self::$templateFill !== null) {
             $template = (self::$templateFill)((string) ($params['template'] ?? ''), $data);
             $filled   = $template;
         } else {
@@ -318,7 +331,7 @@ final class Actions
         $email->moduleinfo = $context->origin();
         // An application's fill may say "send it bare" with an empty layout name — its body is
         // already laid out; a framework template's empty one means the installation's default.
-        if (self::$templateFill !== null && array_key_exists('emailtemplate', $template)) {
+        if (!$own && self::$templateFill !== null && array_key_exists('emailtemplate', $template)) {
             $email->setTemplate((string) $template['emailtemplate']);
         } elseif (($template['emailtemplate'] ?? '') !== '') {
             $email->setTemplate($template['emailtemplate']);

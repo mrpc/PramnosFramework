@@ -628,12 +628,16 @@ some days of entering, which ends the run as reached.
 
 ### Actions
 
-The framework's: `email` (a mail template, in the person's language, into the outbox; with a
+The framework's: `email` (a mail template, in the person's language, into the outbox — or a
+`subject` and a Markdown `body` of the step's own, in the application's layout; with a
 `list`, the unsubscribe link, open/click tracking, and nobody who left the list), `bell` and
 `push` (a notification), `site_message` (a banner, popup or card on the site, below), `group_add` / `group_remove`, `attribute` (a column of a declared
 attribute), `notify_admin`, `webhook` (POSTs the person and the origin), and — with the
 `conversations` feature — `conversation_post` (tells the team in a channel, or one administrator;
 see the [Conversations Guide](Pramnos_Conversations_Guide.md#references-and-commands-what-the-application-adds)).
+
+The same actions are offered as bulk actions on a list of people, through the engine, with
+`'audience' => ['bulk_actions' => true]`. See [the Bulk Actions Guide](Pramnos_Bulk_Actions_Guide.md#the-rules-actions-on-a-list-of-people).
 
 With the `llm` feature there is also `ai` — **ask the AI about them**: a question filled for the
 person (`{firstname}`, `{userid}` and the rest), with what started the run beside it, answered by

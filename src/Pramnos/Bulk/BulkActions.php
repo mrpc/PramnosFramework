@@ -43,7 +43,10 @@ final class BulkActions
     /** Records one run may name. */
     public const MAX = 10000;
 
-    /** @var array<string, array<string, array{label: string, params: array<string, array<string, mixed>>, run: callable, ability: ?string, allowed: ?callable, filter: ?callable}>> */
+    /** Above this many, an action with a preview is confirmed by typing how many. */
+    public const CONFIRM = 50;
+
+    /** @var array<string, array<string, array{label: string, params: array<string, array<string, mixed>>, run: callable, ability: ?string, allowed: ?callable, filter: ?callable, preview?: ?callable}>> */
     private static array $actions = [];
 
     /** Whether the framework's own actions are declared yet. */
@@ -60,6 +63,10 @@ final class BulkActions
      * @param callable(list<int|string>, array<string, mixed>, int): (array{done?: int, says?: string}|int) $run
      * @param ?callable(int): bool                                  $allowed Whether this person may
      * @param ?callable(list<int|string>, int): list<int|string>   $filter  The ids this person may act on
+     * @param ?callable(list<int|string>, array<string, mixed>, int): (array{to: int, skipped: array<string, int>, sample: ?array{subject: string, body: string}}|string) $preview
+     *        What a run would do — how many it reaches, how many it skips and why, the message one
+     *        of them gets — or why it may not run. An action with one is shown it first and runs
+     *        only with `confirm` among its params: any word, or how many above {@see CONFIRM}.
      */
     public static function define(
         string $entity,
@@ -69,10 +76,35 @@ final class BulkActions
         callable $run,
         ?string $ability = null,
         ?callable $allowed = null,
-        ?callable $filter = null
+        ?callable $filter = null,
+        ?callable $preview = null
     ): void {
         self::boot();
-        self::$actions[$entity][$key] = ['label' => $label, 'params' => $params, 'run' => $run, 'ability' => $ability, 'allowed' => $allowed, 'filter' => $filter];
+        self::$actions[$entity][$key] = ['label' => $label, 'params' => $params, 'run' => $run, 'ability' => $ability, 'allowed' => $allowed, 'filter' => $filter, 'preview' => $preview];
+    }
+
+    /**
+     * What a run would do, before it does — for an action declared with a preview: how many it
+     * reaches, how many it skips and why, the message one of them gets. Null for an action without
+     * one; a sentence where it may not run.
+     *
+     * @param list<int|string>     $ids
+     * @param array<string, mixed> $params
+     * @return array{to: int, skipped: array<string, int>, sample: ?array{subject: string, body: string}, confirm: string}|string|null
+     */
+    public static function preview(string $entity, string $key, array $ids, array $params, int $by): array|string|null
+    {
+        $checked = self::checked($entity, $key, $ids, $params, $by);
+        if (is_string($checked)) {
+            return $checked;
+        }
+        [$action, $ids] = $checked;
+        if (($action['preview'] ?? null) === null) {
+            return null;
+        }
+        $seen = ($action['preview'])($ids, $params, $by);
+
+        return is_string($seen) ? $seen : $seen + ['confirm' => count($ids) > self::CONFIRM ? (string) count($ids) : 'yes'];
     }
 
     /** Remove an action — the framework's own too, for an application that offers its own instead. */
@@ -139,39 +171,21 @@ final class BulkActions
      */
     public static function run(string $entity, string $key, array $ids, array $params, int $by): array|string
     {
-        self::boot();
-        $action = self::$actions[$entity][$key] ?? null;
-        if ($action === null) {
-            return 'There is no such action.';
+        $checked = self::checked($entity, $key, $ids, $params, $by);
+        if (is_string($checked)) {
+            return $checked;
         }
-        if (!self::allows($action, $by)) {
-            return 'You may not do that.';
-        }
-        foreach ($action['params'] as $name => $param) {
-            $value = trim((string) ($params[$name] ?? ''));
-            if (!empty($param['required']) && $value === '') {
-                return sprintf('%s is required.', (string) ($param['label'] ?? $name));
+        [$action, $ids] = $checked;
+        // Shown first, then confirmed: "yes", or how many above CONFIRM.
+        if (($action['preview'] ?? null) !== null) {
+            $seen    = self::preview($entity, $key, $ids, $params, $by);
+            $confirm = trim((string) ($params['confirm'] ?? ''));
+            if (is_string($seen)) {
+                return $seen;
             }
-            // What was given is what the field takes: a number, or one of a select's options.
-            if ($value !== '' && ($param['type'] ?? '') === 'number' && !is_numeric($value)) {
-                return sprintf('%s must be a number.', (string) ($param['label'] ?? $name));
+            if ($confirm === '' || (count($ids) > self::CONFIRM && $confirm !== (string) count($ids))) {
+                return self::told((array) $seen);
             }
-            if ($value !== '' && ($param['type'] ?? '') === 'select' && isset($param['options'])) {
-                $options = is_callable($param['options']) ? (array) ($param['options'])($by) : (array) $param['options'];
-                if (!in_array($value, array_map('strval', array_keys($options)), true)) {
-                    return sprintf('%s must be one of the choices.', (string) ($param['label'] ?? $name));
-                }
-            }
-        }
-        $ids = array_values(array_unique(array_filter($ids, static fn ($id): bool => is_int($id) || (is_string($id) && $id !== '')), SORT_REGULAR));
-        if ($action['filter'] !== null) {
-            $ids = array_values(($action['filter'])($ids, $by));
-        }
-        if ($ids === []) {
-            return 'There is nothing here to do that to.';
-        }
-        if (count($ids) > self::MAX) {
-            return sprintf('Up to %d at a time.', self::MAX);
         }
 
         if (count($ids) <= self::INLINE) {
@@ -215,6 +229,75 @@ final class BulkActions
         ], 'bulk', $entity . '.' . $key);
 
         return ['done' => $done, 'says' => $says];
+    }
+
+    /**
+     * The action, and the ids it may run on, or why not: may this person, are its params as its
+     * fields take them, is there anything to do it to, and not too many.
+     *
+     * @param list<int|string>     $ids
+     * @param array<string, mixed> $params
+     * @return array{0: array<string, mixed>, 1: list<int|string>}|string
+     */
+    private static function checked(string $entity, string $key, array $ids, array $params, int $by): array|string
+    {
+        self::boot();
+        $action = self::$actions[$entity][$key] ?? null;
+        if ($action === null) {
+            return 'There is no such action.';
+        }
+        if (!self::allows($action, $by)) {
+            return 'You may not do that.';
+        }
+        foreach ($action['params'] as $name => $param) {
+            $value = trim((string) ($params[$name] ?? ''));
+            if (!empty($param['required']) && $value === '') {
+                return sprintf('%s is required.', (string) ($param['label'] ?? $name));
+            }
+            // What was given is what the field takes: a number, or one of a select's options.
+            if ($value !== '' && ($param['type'] ?? '') === 'number' && !is_numeric($value)) {
+                return sprintf('%s must be a number.', (string) ($param['label'] ?? $name));
+            }
+            if ($value !== '' && ($param['type'] ?? '') === 'select' && isset($param['options'])) {
+                $options = is_callable($param['options']) ? (array) ($param['options'])($by) : (array) $param['options'];
+                if (!in_array($value, array_map('strval', array_keys($options)), true)) {
+                    return sprintf('%s must be one of the choices.', (string) ($param['label'] ?? $name));
+                }
+            }
+        }
+        $ids = array_values(array_unique(array_filter($ids, static fn ($id): bool => is_int($id) || (is_string($id) && $id !== '')), SORT_REGULAR));
+        if ($action['filter'] !== null) {
+            $ids = array_values(($action['filter'])($ids, $by));
+        }
+        if ($ids === []) {
+            return 'There is nothing here to do that to.';
+        }
+        if (count($ids) > self::MAX) {
+            return sprintf('Up to %d at a time.', self::MAX);
+        }
+
+        return [$action, $ids];
+    }
+
+    /**
+     * A preview as a sentence to confirm by: who it reaches, who it skips, the message one gets,
+     * and what to type.
+     *
+     * @param array{to: int, skipped: array<string, int>, sample: ?array{subject: string, body: string}, confirm: string} $seen
+     */
+    private static function told(array $seen): string
+    {
+        $skipped = array_filter((array) ($seen['skipped'] ?? []));
+        $parts   = [sprintf('This reaches %d.', (int) ($seen['to'] ?? 0))];
+        if ($skipped !== []) {
+            $parts[] = 'Skipped: ' . implode(', ', array_map(static fn (string $why, int $n): string => $n . ' ' . $why, array_keys($skipped), $skipped)) . '.';
+        }
+        if (is_array($seen['sample'] ?? null)) {
+            $parts[] = 'One of them gets: "' . trim($seen['sample']['subject'] . ' — ' . mb_substr(trim(strip_tags($seen['sample']['body'])), 0, 300), ' —') . '".';
+        }
+        $parts[] = ($seen['confirm'] ?? 'yes') === 'yes' ? 'To go ahead, write yes in Confirm.' : sprintf('To go ahead, write %s in Confirm.', $seen['confirm']);
+
+        return implode(' ', $parts);
     }
 
     /** Back to the framework's own actions only, and the application's queue. For a test. */
@@ -264,6 +347,12 @@ final class BulkActions
             'ability' => 'admin.groups',
             'allowed' => null,
             'filter'  => null,
+            'preview' => null,
         ];
+        // The rules' actions on people, through their engine, where the application turns them on.
+        $app = \Pramnos\Application\Application::currentInstance();
+        if (is_object($app) && !empty($app->applicationInfo['audience']['bulk_actions'])) {
+            \Pramnos\Audience\Rules\BulkBridge::register();
+        }
     }
 }

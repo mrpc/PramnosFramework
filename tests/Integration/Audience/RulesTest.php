@@ -29,6 +29,8 @@ use Pramnos\Event\Event;
 #[CoversClass(Actions::class)]
 #[CoversClass(Definition::class)]
 #[CoversClass(\Pramnos\Audience\Rules\RuleTask::class)]
+#[CoversClass(\Pramnos\Audience\Rules\BulkBridge::class)]
+#[CoversClass(\Pramnos\Bulk\BulkActions::class)]
 class RulesTest extends TestCase
 {
     use AudienceProbe;
@@ -216,6 +218,61 @@ class RulesTest extends TestCase
             $this->db->queryBuilder()->table('pramnos.rule_log')->where('outcome', 'skipped')->orderBy('id')->getAll());
         $this->assertSame(['consent', 'consent', 'cap'], $reasons);
         $this->assertSame('1', (string) $this->runOf($shadow, 'cara')['shadow']);
+    }
+
+    /**
+     * A rule's action as a bulk action on a list of people (FW-475): offered only where the
+     * application turns it on and only to whoever its gate lets send to many; shown first — how
+     * many it reaches, who is skipped and why, the message one gets — and run only once confirmed;
+     * then through the engine, so the consent list and the frequency caps hold as they do for a
+     * rule, the run counting who was skipped and why; an action not about the person is not offered.
+     */
+    #[DataProvider('databases')]
+    public function testARulesActionOnAListGoesThroughTheEngine(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->noteAction('email');
+        $app  = \Pramnos\Application\Application::getInstance();
+        $kept = $app->applicationInfo['audience'] ?? null;
+        $app->applicationInfo['audience'] = ['bulk_actions' => true, 'bulk_messages' => static fn (int $by): bool => true, 'caps' => ['email' => ['max' => 1, 'days' => 1]]];
+        \Pramnos\Bulk\BulkActions::reset();
+        $this->db->queryBuilder()->table('pramnos.emailoptouts')->insert(['email' => 'bob@example.com', 'list' => 'all', 'source' => 'page', 'created_at' => time()]);
+        $mail = ConsentLists::create('Service mail', 'email', 'everyone');
+        $by   = $this->ids['cara'];
+        $list = [$this->ids['bob'], $this->ids['cara']];
+
+        try {
+            // Act
+            $offered   = \Pramnos\Bulk\BulkActions::available('user', $by);
+            $noList    = \Pramnos\Bulk\BulkActions::preview('user', 'rule.note', $list, ['tag' => 'hi'], $by);
+            $seen      = \Pramnos\Bulk\BulkActions::preview('user', 'rule.note', $list, ['tag' => 'hi', 'consent' => (string) $mail], $by);
+            $email     = \Pramnos\Audience\Rules\BulkBridge::preview('email', [$this->ids['cara']], ['subject' => 'Hello', 'body' => 'It is **here**', 'consent' => (string) $mail], $by);
+            $unasked   = \Pramnos\Bulk\BulkActions::run('user', 'rule.note', $list, ['tag' => 'hi', 'consent' => (string) $mail], $by);
+            $sent      = \Pramnos\Bulk\BulkActions::run('user', 'rule.note', $list, ['tag' => 'hi', 'consent' => (string) $mail, 'confirm' => 'yes'], $by);
+            $again     = \Pramnos\Bulk\BulkActions::run('user', 'rule.note', $list, ['tag' => 'again', 'consent' => (string) $mail, 'confirm' => 'yes'], $by);
+            $noText    = \Pramnos\Audience\Rules\BulkBridge::preview('email', [$this->ids['cara']], ['consent' => (string) $mail], $by);
+            $app->applicationInfo['audience']['bulk_messages'] = static fn (int $by): bool => false;
+            $gated     = \Pramnos\Bulk\BulkActions::available('user', $by);
+        } finally {
+            $kept === null ? $app->applicationInfo['audience'] = [] : $app->applicationInfo['audience'] = $kept;
+            \Pramnos\Bulk\BulkActions::reset();
+        }
+
+        // Assert
+        $this->assertArrayHasKey('rule.note', $offered, 'a rule\'s action, offered on people');
+        $this->assertArrayHasKey('consent', $offered['rule.note']['params'], 'with the consent list it goes by');
+        $this->assertArrayNotHasKey('rule.webhook', $offered, 'not one that is not about the person');
+        $this->assertSame('Choose the consent list it goes by.', $noList);
+        $this->assertSame(['to' => 1, 'skipped' => ['not on the consent list' => 1], 'sample' => ['subject' => '', 'body' => ''], 'confirm' => 'yes'], $seen, 'how many, who is skipped and why');
+        $this->assertStringStartsWith('This reaches 1. Skipped: 1 not on the consent list.', (string) $unasked, 'shown first, not sent');
+        $this->assertSame(['done' => 1, 'queued' => 0, 'says' => 'Sent to 1. 1 skipped: not on the consent list.'], $sent);
+        $this->assertSame([[$this->ids['cara'], 'hi', 'rule:0:v0:bulk.note:run0']], array_map(static fn (array $d): array => [$d['person'], $d['tag'], $d['origin']], $this->done), 'through the engine, once');
+        $this->assertSame('1 skipped: not on the consent list. 1 skipped: over the frequency cap.', $again['says'], 'the caps count what a bulk run sent');
+        $this->assertSame('Hello', $email['sample']['subject'] ?? null, 'a mail of one\'s own: ');
+        $this->assertStringContainsString('<strong>here</strong>', (string) ($email['sample']['body'] ?? ''), 'written in Markdown');
+        $this->assertSame('Choose a mail template, or write the message.', $noText);
+        $this->assertArrayNotHasKey('rule.note', $gated, 'a message to many only for whom the application lets');
     }
 
     /**
