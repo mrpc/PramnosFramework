@@ -74,24 +74,40 @@ final class AvatarSets
     /** A set in use for a while instead of app.php's ({@see using()}): a persona's. */
     private static mixed $using = null;
 
+    /** The name its picture is called by meanwhile — the persona's or the character's. */
+    private static ?string $usingName = null;
+
     /**
      * Run with another set in use — a persona's — as if app.php named it: its moods, acts and
      * picture. The set before is back afterwards, whatever `$run` does.
      *
      * @template T
-     * @param string|array<string, mixed> $set A registered name, a character, or a set
-     * @param callable(): T $run
+     * @param string|array<string, mixed>|null $set A registered name, a character, a set — or null for app.php's, under another name
+     * @param callable(): T                $run
+     * @param string|null                  $name What its picture is called (`aria-label`): a character's own name by default
      * @return T
      */
-    public static function using(string|array $set, callable $run): mixed
+    public static function using(string|array|null $set, callable $run, ?string $name = null): mixed
     {
-        $before      = self::$using;
-        self::$using = $set;
+        [$before, $beforeName] = [self::$using, self::$usingName];
+        self::$using     = $set;
+        self::$usingName = $name ?? (is_string($set) && !isset(self::$sets[$set]) ? (Characters::get($set)['name'] ?? null) : null);
         try {
             return $run();
         } finally {
-            self::$using = $before;
+            [self::$using, self::$usingName] = [$before, $beforeName];
         }
+    }
+
+    /**
+     * The gaits the set in use draws — `walk`, `trot`, `sprint`, `zoomies` as `data-gait` — for
+     * a page to offer; [] for a set that does not move.
+     *
+     * @return list<string>
+     */
+    public static function gaits(): array
+    {
+        return array_values(array_map('strval', (array) (self::current()['gaits'] ?? [])));
     }
 
     /**
@@ -134,7 +150,8 @@ final class AvatarSets
         if (is_array($set) && isset($set['markup']) && (is_string($set['markup']) || is_callable($set['markup']))) {
             return ['markup' => $set['markup'], 'css' => isset($set['css']) ? (string) $set['css'] : null, 'states' => (array) ($set['states'] ?? []),
                 'poses' => array_values(array_map('strval', (array) ($set['poses'] ?? []))), 'transitions' => (array) ($set['transitions'] ?? []),
-                'moods' => array_map('strval', (array) ($set['moods'] ?? [])), 'acts' => (array) ($set['acts'] ?? []), 'wear' => (array) ($set['wear'] ?? [])];
+                'moods' => array_map('strval', (array) ($set['moods'] ?? [])), 'acts' => (array) ($set['acts'] ?? []), 'wear' => (array) ($set['wear'] ?? []),
+                'gaits' => (array) ($set['gaits'] ?? [])];
         }
         if (\Pramnos\Llm\Analyst\Analyst::avatar() !== null) {
             return null;
@@ -218,7 +235,7 @@ final class AvatarSets
         $states = $set === null ? self::STATES : self::states();
         $state  = in_array($state, $states, true) ? $state : 'idle';
         $e     = static fn (string $v): string => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
-        $name  = \Pramnos\Llm\Analyst\Analyst::name();
+        $name  = self::$usingName ?? \Pramnos\Llm\Analyst\Analyst::name();
         if ($set === null) {
             $inner     = '<img src="' . $e((string) \Pramnos\Llm\Analyst\Analyst::avatar()) . '" alt="" width="' . $size . '" height="' . $size . '">';
             $durations = self::DURATIONS;

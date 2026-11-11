@@ -354,7 +354,8 @@ class Conversations
         if ($set !== null && !$this->inPersona) {
             $this->inPersona = true;
             try {
-                return \Pramnos\Assist\AvatarSets::using($set, fn (): array => $this->ask($conversationId, $question, $attachment, $extra));
+                return \Pramnos\Assist\AvatarSets::using($set, fn (): array => $this->ask($conversationId, $question, $attachment, $extra),
+                    Personas::get((string) Personas::of($this->scope))['name'] ?? null);
             } finally {
                 $this->inPersona = false;
             }

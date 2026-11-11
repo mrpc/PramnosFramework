@@ -528,6 +528,58 @@ class AiScreenTest extends LlmTestCase
     }
 
     /**
+     * FW-446: with personas, the screen shows one at a time (`?persona=`): Tesla's own picture,
+     * called by her name, her moves and the games to try, a link to each persona with hers
+     * marked, and her moods, acts and wear in tables of their own — in every theme.
+     */
+    public function testTheAvatarScreenForAPersona(): void
+    {
+        // Arrange
+        $this->configure(['analyst' => ['avatar_set' => ['markup' => '<svg data-set="naya"></svg>']], 'chat' => ['personas' => [
+            'naya'  => ['name' => 'Naya', 'default' => true],
+            'tesla' => ['character' => 'tesla'],
+        ]]]);
+        $_GET['persona'] = 'tesla';
+        $controller = $this->controller();
+
+        // Act
+        try {
+            $controller->avatar();
+        } finally {
+            unset($_GET['persona']);
+        }
+        $fed   = $controller->view;
+        $pages = [];
+        foreach (self::THEMES as $theme) {
+            $dir  = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/ai';
+            $view = new \Pramnos\Application\View(new \Pramnos\Application\Controller(), $dir, 'ai');
+            foreach (['picture', 'states', 'poses', 'moods', 'acts', 'wear', 'gaits', 'personas', 'play', 'urls'] as $name) {
+                $view->$name = $fed->$name;
+            }
+            ob_start();
+            \Closure::bind(function () use ($dir): void {
+                include \Pramnos\Tests\Support\ScaffoldView::run($dir . '/avatar.html.php');
+            }, $view, \Pramnos\Application\View::class)();
+            $pages[$theme] = (string) ob_get_clean();
+        }
+
+        // Assert
+        $this->assertStringContainsString('<svg class="pf-tesla"', $fed->picture, 'her own picture, not the analyst\'s');
+        $this->assertStringContainsString('aria-label="Tesla"', $fed->picture, 'called by her name');
+        $this->assertSame(['walk', 'trot', 'sprint', 'zoomies'], $fed->gaits);
+        $this->assertSame('rubbing', $fed->moods['affectionate']);
+        $this->assertStringNotContainsString('data-set="naya"', $fed->picture);
+        foreach ($pages as $theme => $page) {
+            $this->assertStringContainsString('data-pf-avatar-gait="sprint"', $page, $theme . ': her moves');
+            $this->assertStringContainsString('data-pf-avatar-game="laser"', $page, $theme . ': the games');
+            $this->assertMatchesRegularExpression('#href="[^"]*persona=tesla"[^>]*aria-current="page"#', $page, $theme . ': hers marked');
+            $this->assertStringContainsString('persona=naya', $page, $theme);
+            $this->assertStringContainsString('<td>affectionate</td><td>rubbing</td>', $page, $theme . ': her moods');
+            $this->assertStringContainsString('pf-companion-play.js', $page, $theme);
+        }
+    }
+
+    /**
      * Render one view with a stand-in `$this`.
      *
      * @param array<string, mixed> $properties

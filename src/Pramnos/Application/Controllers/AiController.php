@@ -450,12 +450,31 @@ class AiController extends Controller
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = t('The assistant\'s picture');
 
-        $view          = $this->getView('ai');
-        $view->picture = \Pramnos\Assist\AvatarSets::render('idle', 160);
-        $view->states  = \Pramnos\Assist\AvatarSets::states();
-        $view->poses   = \Pramnos\Assist\AvatarSets::poses();
-        $view->moods   = \Pramnos\Assist\AvatarSets::moods();
-        $view->urls    = ['settings' => adminUrl('Ai/settings'), 'chat' => adminUrl('Ai')];
+        $view = $this->getView('ai');
+        // With personas, one of them at a time (?persona=): its own set, name, signals and moves.
+        $personas = \Pramnos\Llm\Chat\Personas::all();
+        $key      = (string) ($_GET['persona'] ?? '');
+        $key      = isset($personas[$key]) ? $key : (string) \Pramnos\Llm\Chat\Personas::default();
+        $fill     = static function () use ($view): void {
+            $view->picture = \Pramnos\Assist\AvatarSets::render('idle', 160);
+            $view->states  = \Pramnos\Assist\AvatarSets::states();
+            $view->poses   = \Pramnos\Assist\AvatarSets::poses();
+            $view->moods   = \Pramnos\Assist\AvatarSets::moods();
+            $view->acts    = array_map(static fn (array $a): string => $a['plays'], \Pramnos\Llm\Chat\Acts::acts());
+            $view->wear    = array_map(static fn (array $w): string => $w['pose'], \Pramnos\Llm\Chat\Acts::wear());
+            $view->gaits   = \Pramnos\Assist\AvatarSets::gaits();
+        };
+        if ($key !== '') {
+            $set = $personas[$key]['avatar_set'];
+            \Pramnos\Assist\AvatarSets::using(is_string($set) || is_array($set) ? $set : null, $fill, $personas[$key]['name']);
+        } else {
+            $fill();
+        }
+        $view->personas = array_values(array_map(static fn (array $p): array => ['key' => $p['key'], 'name' => $p['name'],
+            'url' => adminUrl('Ai/avatar') . '?persona=' . rawurlencode($p['key']), 'current' => $p['key'] === $key], $personas));
+        // The companion's games, tried on the preview (pf-companion-play.js).
+        $view->play = assetUrl('assets/js/pf-companion-play.js');
+        $view->urls = ['settings' => adminUrl('Ai/settings'), 'chat' => adminUrl('Ai')];
 
         return $view->display('avatar');
     }

@@ -73,6 +73,7 @@ final class Characters
                 'states'      => ['curious', 'looking-around', 'wink', 'happy', 'excited', 'drowsy', 'sleeping', 'waking' => 1400,
                     'presenting', 'playing', 'rubbing', 'stretching', 'spooked', 'stalking'],
                 'poses'       => ['sitting', 'classic', 'slender', 'loaf', 'lounging', 'sleeping', 'rubbing', 'stretch', 'spooked', 'sploot', 'stalking', 'belly-up'],
+                'gaits'       => ['walk', 'trot', 'sprint', 'zoomies'],
                 'transitions' => ['idle>listening' => ['is-perking-up', 360], '*>sleeping' => ['is-dozing', 450], 'sleeping>*' => ['is-waking-up', 1400]],
                 'moods'       => ['happy' => 'happy', 'playful' => 'playing', 'curious' => 'curious', 'excited' => 'excited',
                     'affectionate' => 'rubbing', 'sleepy' => 'drowsy', 'calm' => 'loaf', 'proud' => 'presenting', 'startled' => 'spooked',

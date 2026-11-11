@@ -496,6 +496,19 @@ or pose it plays and a button to try it:
 ]]],
 ```
 
+Its acts and wear (`Chat\Acts`) get tables of their own beside the moods. A set that draws gaits
+(`'gaits' => ['walk', 'trot', 'sprint', 'zoomies']`, as Tesla's does) gets a button per move, a
+"Face right" toggle, and the companion's games (laser, ball of yarn, zoomies), tried on the
+preview itself through `PfCompanionPlay.attach()`.
+
+**With personas** (see the Conversations guide), the screen shows one at a time: a link to each,
+and `?persona=tesla` draws that persona's set (or its character's), called by its name, with its
+states, poses, moods, acts, wear and moves. The default persona is shown first. Without personas
+it shows the analyst's set, as before.
+
+A picture drawn for a persona or a character is called by that one's name (`aria-label`), not
+the analyst's: `AvatarSets::using($set, $run, $name)`.
+
 The dock, the debug panel and this screen carry the theme's tokens themselves, so they are
 drawn the same outside a `.pf-ui` element.
 

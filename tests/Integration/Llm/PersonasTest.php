@@ -42,7 +42,7 @@ class PersonasTest extends LlmTestCase
         $this->setting('llm_openai_api_key', 'sk-test');
         \Pramnos\Assist\AvatarSets::reset();
         $this->configure(['chat' => ['mood' => true, 'personas' => [
-            'naya'  => ['name' => 'Naya', 'default' => true, 'avatar_set' => ['markup' => '<svg></svg>', 'moods' => ['happy' => 'success']]],
+            'naya'  => ['name' => 'Naya', 'default' => true, 'avatar_set' => ['markup' => '<svg></svg>', 'css' => '/themes/naya.css', 'moods' => ['happy' => 'success']]],
             'tesla' => ['character' => 'tesla'],
         ]]]);
     }
@@ -171,9 +171,12 @@ class PersonasTest extends LlmTestCase
         $this->users[] = (int) $user->userid;
         ApiFixture::$scope = new Scope((int) $user->userid);
         ApiFixture::$stop  = null;
+        $_SERVER['HTTP_HOST'] = 'api.example.test';
+        $_SERVER['HTTPS']     = 'on';
 
         // Act
         $before = (new ApiFixture())->personas();
+        unset($_SERVER['HTTP_HOST'], $_SERVER['HTTPS']);
         ApiFixture::$input = ['persona' => 'tesla'];
         $chose  = (new ApiFixture())->persona();
         ApiFixture::$input = ['persona' => 'garfield'];
@@ -185,6 +188,9 @@ class PersonasTest extends LlmTestCase
         $this->assertSame('naya', $before['data']['chosen']);
         $this->assertSame(['naya', 'tesla'], array_column($before['data']['personas'], 'key'));
         $this->assertStringContainsString('pf-tesla', $before['data']['personas'][1]['avatar'], 'her own picture');
+        $this->assertStringContainsString('aria-label="Tesla"', $before['data']['personas'][1]['avatar'], 'called by her name, not the analyst\'s');
+        $this->assertStringContainsString('aria-label="Naya"', $before['data']['personas'][0]['avatar']);
+        $this->assertStringContainsString('href="https://api.example.test/themes/naya.css', $before['data']['personas'][0]['avatar'], 'a whole address, for an app on another origin');
         $this->assertSame('tesla', $chose['data']['chosen']);
         $this->assertSame(422, $nope['status']);
         $this->assertSame('tesla', $scope->persona, 'the request follows the choice');

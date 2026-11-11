@@ -443,12 +443,26 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         $list   = array_values(array_map(static fn (array $p): array => ['key' => $p['key'], 'name' => $p['name'], 'gender' => $p['gender'],
             'voice' => $p['voice'], 'size' => $p['size'], 'default' => $p['key'] === \Pramnos\Llm\Chat\Personas::default(), 'chosen' => $p['key'] === $chosen,
             // Its picture, idle, with its stylesheet: a persona without a set of its own has the analyst's.
-            'avatar' => is_string($p['avatar_set']) || is_array($p['avatar_set'])
-                ? \Pramnos\Assist\AvatarSets::using($p['avatar_set'], static fn (): string => \Pramnos\Assist\AvatarSets::render('idle', (int) ($p['size'] ?? 64)))
-                : \Pramnos\Assist\AvatarSets::render('idle', (int) ($p['size'] ?? 64))],
+            'avatar' => self::absolute(\Pramnos\Assist\AvatarSets::using(is_string($p['avatar_set']) || is_array($p['avatar_set']) ? $p['avatar_set'] : null,
+                static fn (): string => \Pramnos\Assist\AvatarSets::render('idle', (int) ($p['size'] ?? 64)), $p['name']))],
             \Pramnos\Llm\Chat\Personas::all()));
 
         return ['status' => 200, 'data' => ['personas' => $list, 'chosen' => $chosen]];
+    }
+
+    /**
+     * HTML with its addresses on this server made whole, for a client on another origin (an app
+     * at its own domain) that would read `/themes/…` against its own.
+     */
+    private static function absolute(string $html): string
+    {
+        $host = (string) ($_SERVER['HTTP_HOST'] ?? '');
+        if ($host === '') {
+            return $html;
+        }
+        $origin = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http') . '://' . $host;
+
+        return (string) preg_replace('#(\s(?:href|src)=")/(?!/)#', '$1' . $origin . '/', $html);
     }
 
     /**
