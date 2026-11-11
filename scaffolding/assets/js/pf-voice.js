@@ -358,6 +358,13 @@
      * the first is heard as soon as it alone is ready. Should a sentence fail (no server set up,
      * the network, a clip that will not play), the browser's own voice reads from it to the end.
      *
+     * `speak(id, text, opts)`, beside `onStart`, `onEnd` and `onError`, takes `onPart({index,
+     * count, text})`, told as each part starts to be heard — subtitles in step with the voice. With
+     * the server the parts are `splitSentences()` of the cleaned text; the browser reads it all at
+     * once, one part. `opts.parts`, a list of the caller's own pieces of the original, is said
+     * piece by piece, each cleaned, and `text` is the piece as given, so a page finds it in its
+     * original without matching a transliteration.
+     *
      * @param {{ server?: function(string): Promise<Blob|{audio: string, type: string}> }} [options]
      * @returns {object}
      */
@@ -650,8 +657,24 @@
 
         /** Read aloud through the speech server, a sentence at a time; see createVoiceState(). */
         function speakOnServer(id, rawText, opts) {
-            var cleaned = stripMarkdownForSpeech(rawText, { gender: opts.gender || assistantGender || 'female', concise: opts.concise });
-            var parts = splitSentences(cleaned);
+            var cleanOpts = { gender: opts.gender || assistantGender || 'female', concise: opts.concise };
+            var cleaned = stripMarkdownForSpeech(rawText, cleanOpts);
+            // The parts said, and the words shown for each: the caller's own (opts.parts, said
+            // cleaned) or the sentences of the cleaned text.
+            var parts = [];
+            var shown = [];
+            if (Array.isArray(opts.parts)) {
+                opts.parts.forEach(function (part) {
+                    var said = stripMarkdownForSpeech(String(part), cleanOpts);
+                    if (said) {
+                        parts.push(said);
+                        shown.push(String(part));
+                    }
+                });
+            } else {
+                parts = splitSentences(cleaned);
+                shown = parts.slice();
+            }
             if (!parts.length) {
                 return false;
             }
@@ -727,6 +750,10 @@
                             opts.onStart();
                         }
                     }
+                    // As each part starts to be heard: for subtitles in step with the voice.
+                    if (opts.onPart) {
+                        opts.onPart({ index: i, count: parts.length, text: shown[i] });
+                    }
                     return audio.play();
                 }).catch(function (err) {
                     if (run !== serverRun) {
@@ -752,7 +779,10 @@
                     // Started once already, with the first sentence.
                     rest.onStart = null;
                 }
-                speakWithBrowser(id, i === 0 ? rawText : parts.slice(i).join(' '), rest);
+                // The browser reads the rest at once: one part, from where the server stopped.
+                rest.parts = null;
+                rest.partShown = { index: i, count: parts.length, text: i === 0 && !Array.isArray(opts.parts) ? cleaned : shown.slice(i).join(' ') };
+                speakWithBrowser(id, i === 0 && !Array.isArray(opts.parts) ? rawText : parts.slice(i).join(' '), rest);
             }
 
             speaking = true;
@@ -795,10 +825,14 @@
             stopSpeech();
 
             var activeGender = opts.gender || assistantGender || 'female';
-            var cleaned = stripMarkdownForSpeech(rawText, { gender: activeGender, concise: opts.concise });
+            var cleaned = Array.isArray(opts.parts)
+                ? opts.parts.map(function (part) { return stripMarkdownForSpeech(String(part), { gender: activeGender, concise: opts.concise }); }).filter(Boolean).join(' ')
+                : stripMarkdownForSpeech(rawText, { gender: activeGender, concise: opts.concise });
             if (!cleaned) {
                 return false;
             }
+            // The browser reads it all at once: one part, the whole of what is shown.
+            var partShown = opts.partShown || { index: 0, count: 1, text: Array.isArray(opts.parts) ? opts.parts.join(' ') : cleaned };
 
             var hasGreek = /[Ͱ-Ͽἀ-῿]/.test(rawText || cleaned);
             var targetLang = (opts.lang && ((opts.lang.indexOf('el') === 0 && hasGreek) || (opts.lang.indexOf('en') === 0 && !hasGreek)))
@@ -845,6 +879,9 @@
                 paused = false;
                 if (opts.onStart) {
                     opts.onStart();
+                }
+                if (opts.onPart) {
+                    opts.onPart(partShown);
                 }
             };
 

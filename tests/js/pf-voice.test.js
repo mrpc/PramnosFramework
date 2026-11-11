@@ -471,3 +471,57 @@ test('the silence that ends dictation is 1200 ms, or the caller\'s silenceMs', (
     assert.equal(stoppedBySilence, true, 'and the dictation stopped');
     assert.deepEqual(delays.slice(-2), [1000, 1000], 'the caller\'s, after a result and after the speech ends');
 });
+
+/**
+ * `onPart` — subtitles in step with the voice. With the server, it is told as each sentence starts
+ * to be heard, with its index, the count and the sentence as `splitSentences()` cut it; with
+ * `opts.parts`, each of the caller's pieces is said cleaned and told as given, so a page finds it
+ * in its original. The browser's voice reads it all at once: one part, at its start. A server that
+ * fails partway hands the browser the rest as one part, from where it stopped.
+ */
+test('onPart tells each part as it starts to be heard, the caller\'s own parts too', async () => {
+    // Arrange
+    const { window } = page({ voices: [{ name: 'Microsoft Athina', lang: 'el-GR', voiceURI: 'athina' }] });
+    const played = [];
+    window.Audio = fakeAudio(played);
+    window.URL = { createObjectURL: (b) => 'blob:' + b.name, revokeObjectURL: () => {} };
+    const said = [];
+    const voice = window.PfVoice.createVoiceState({ server: (text) => { said.push(text); return /Τρίτο/.test(text) ? Promise.reject(new Error('down')) : Promise.resolve({ name: 'x' }); } });
+    const parts = [];
+    const onPart = (p) => parts.push(p);
+
+    // Act — sentences cut by the framework
+    voice.speak(1, 'Η πρώτη πρόταση είναι εδώ. Η δεύτερη πρόταση ακολουθεί.', { onPart });
+    await settle();
+    played[0].onended();
+    await settle();
+    const bySentence = parts.splice(0);
+
+    // Act — the caller's own pieces, with Markdown said cleaned and shown as given
+    voice.speak(2, 'ignored', { onPart, parts: ['**Καλημέρα** Μαρία.', 'Τι κάνεις σήμερα;'] });
+    await settle();
+    const given = parts.splice(0);
+    const saidFirst = said[said.length - 2];
+
+    // Act — the server fails on the third piece: the browser reads the rest
+    voice.speak(3, 'ignored', { onPart, parts: ['Πρώτο κομμάτι εδώ.', 'Δεύτερο κομμάτι.', 'Τρίτο κομμάτι.'] });
+    await settle();
+    played[played.length - 1].onended();
+    await settle();
+    played[played.length - 1].onended();
+    await settle();
+    await settle();
+    const fellBack = parts.splice(0);
+
+    // Act — the browser alone
+    const browserOnly = page({ voices: [{ name: 'Microsoft Athina', lang: 'el-GR', voiceURI: 'athina' }] });
+    const alone = [];
+    browserOnly.window.PfVoice.createVoiceState().speak(4, 'Μία πρόταση. Και άλλη μία εδώ.', { onPart: (p) => alone.push(p) });
+
+    // Assert
+    assert.deepEqual(bySentence.map((p) => [p.index, p.count, p.text]), [[0, 2, 'Η πρώτη πρόταση είναι εδώ.'], [1, 2, 'Η δεύτερη πρόταση ακολουθεί.']]);
+    assert.deepEqual(given.map((p) => [p.index, p.count, p.text]), [[0, 2, '**Καλημέρα** Μαρία.']], 'the piece as given');
+    assert.equal(saidFirst.indexOf('**'), -1, 'said cleaned');
+    assert.deepEqual(fellBack.map((p) => [p.index, p.count, p.text]), [[0, 3, 'Πρώτο κομμάτι εδώ.'], [1, 3, 'Δεύτερο κομμάτι.'], [2, 3, 'Τρίτο κομμάτι.']], 'the rest, from where it stopped');
+    assert.deepEqual(alone.map((p) => [p.index, p.count]), [[0, 1]], 'the browser: one part');
+});

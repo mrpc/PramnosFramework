@@ -274,6 +274,13 @@ shared by the mic and every answer's 🔊 button:
   fails — no server set up, the network, a clip that will not play — the browser's voice reads
   from that sentence to the end, the whole text when none was heard yet.
   `hasServer` says which is in use. See the Screens guide, "Reading answers aloud", for the server.
+- **Subtitles in step with the voice** — `speak(id, text, { onPart })` calls
+  `onPart({index, count, text})` as each part starts to be heard: with a server, each sentence
+  `splitSentences()` cut from the cleaned text; with the browser's voice, which reads it all at
+  once, one part at its start. `opts.parts` gives the pieces instead: a list of pieces of the
+  original, each said cleaned and told back as given, so a page shows the original's words
+  rather than a transliteration it would have to match. A server that fails partway hands the
+  browser the rest as one part, with the index where it stopped.
 - **Asked aloud, answered aloud.** A question dictated on the chat pages is sent with `voice=1`.
   Every way of asking takes it (`TakesQuestions`), and the assistant is told, just before the
   question (`ContextAssembler::SPOKEN`), to open with one or two plain sentences that stand by
