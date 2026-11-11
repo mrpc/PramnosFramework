@@ -642,8 +642,9 @@ a saved one as it is shared) unless the application says otherwise for one:
   each of them for `at` (`2026-11`, `2026-W45`, `2026`), read as the period's first day.
 - **Pinned filters.** Only the period and the application's pinned dimensions are in sight, each
   labelled: `'metrics' => ['pinned_filters' => ['market']]`.
-- **The Filters panel** holds every other picker with its label. Its button counts the filters
-  chosen in it, and its *Apply* sends them.
+- **The Filters panel** holds every other picker, each with its label above it, in a grid as wide
+  as the page allows (one column on a phone). Its button counts the filters chosen in it.
+  *Apply* sends them, and *Clear* takes them all off but the pinned ones.
 - **Chips.** Each filter chosen is a chip above the cards; its × takes that filter off. The
   address stays `?v[…]`.
 - **Columns narrowed to the filter.** A table whose columns are a dimension's values shows only

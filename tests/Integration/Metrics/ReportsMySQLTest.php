@@ -883,6 +883,9 @@ class ReportsMySQLTest extends TestCase
             $this->assertStringContainsString('<span>Customer</span>', $html, $theme . ': each labelled in the panel');
             $this->assertStringContainsString('href="/r/show?report=' . $id . '&amp;at=2026-09-10&amp;v%5Bcustomer%5D=new" aria-label="Remove the filter Region">Region: North', $html, $theme . ': a chip takes its filter off');
             $this->assertStringContainsString('aria-label="More actions"', $html, $theme . ': the actions behind ⋯');
+            // FW-473: the panel a grid as wide as it needs, Clear keeping the pinned filters.
+            $this->assertStringContainsString('grid-template-columns:repeat(auto-fill,minmax(12.5rem,1fr))', $html, $theme . ': a grid, not a column');
+            $this->assertStringContainsString('href="/r/show?report=' . $id . '&amp;at=2026-09-10&amp;v%5Bregion%5D=north">Clear</a>', $html, $theme . ': Clear keeps the pinned');
             $this->assertStringContainsString('Export CSV', $html, $theme);
         }
     }
