@@ -53,6 +53,9 @@ class CatalogSkillsMySQLTest extends TestCase
             \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverAuditLogTable::class], $this->db);
         \Pramnos\Auth\AuditLog::resetTableCache();
         $this->db->queryBuilder()->table(StoredSkills::TABLE)->where('level', CatalogSkills::LEVEL)->delete();
+        // The audit of earlier runs: chat_skills is made again, its ids start over, and an old
+        // row of the same skill id would be read as this test's.
+        $this->db->queryBuilder()->table('authserver.audit_log')->where('object_type', 'chat_skill')->delete();
         $this->info = Application::getInstance()->applicationInfo;
         Application::getInstance()->applicationInfo['llm'] = ['chat' => ['skill_catalogues' => ['acme/skills', 'gone/repo']]];
         foreach (['admin' => 90, 'staff' => 10] as $role => $type) {
