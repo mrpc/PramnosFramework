@@ -541,6 +541,31 @@ class ChatController extends \Pramnos\Application\ApiCrudController
     }
 
     /**
+     * The person's companion settings, this persona's (`Chat\Settings`): `GET {chat}/settings` →
+     * `{persona, voice, style, thought_at, quiet: {from, to}, notify: {thought, diary, reminders},
+     * app: {…}}`; `PUT {chat}/settings` with any of them changes those — all or none, 422 naming
+     * the field that is wrong — and answers them all. `{chat}/voice`, `/style` and `/persona` write
+     * to the same place.
+     */
+    public function settings(): array
+    {
+        $put = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'PUT';
+        if (($stop = $this->refusal($put ? 'ask' : 'read')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        if ($scope === null || $scope->userId < 1) {
+            return self::error(401, 'This needs somebody signed in.');
+        }
+        $user = new \Pramnos\User\User($scope->userId);
+        if ($put && is_string($done = \Pramnos\Llm\Chat\Settings::change($user, $scope->persona, $this->input()))) {
+            return self::error(422, $done);
+        }
+
+        return ['status' => 200, 'data' => \Pramnos\Llm\Chat\Settings::of($put ? new \Pramnos\User\User($scope->userId) : $user, $scope->persona)];
+    }
+
+    /**
      * The day's cards (`Chat\Today`): `GET {chat}/today` → `{day, cards: [{kind, title, text,
      * action}]}` — `kind` one of thought, event, reminder, question, diary; `action` what opening
      * it does, `{type, id}`. On the person's clock.

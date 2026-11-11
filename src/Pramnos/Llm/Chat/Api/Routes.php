@@ -17,7 +17,7 @@ use Pramnos\Routing\Router;
  *
  * Everything sits under `/chat` by default: `/chat`, `/chat/{conversation_id}`,
  * `/chat/asks/{ask_id}`, `/chat/memory`, `/chat/connections`, `/chat/routines`, `/chat/runs`, `/chat/reports`,
- * `/chat/skills`, `/chat/consent`, `/chat/speak`, `/chat/voices`, `/chat/voice`, `/chat/today`, `/chat/push`, `/chat/mood` and `/chat/style` — all but the first two follow `chat`
+ * `/chat/skills`, `/chat/consent`, `/chat/speak`, `/chat/voices`, `/chat/voice`, `/chat/today`, `/chat/settings`, `/chat/push`, `/chat/mood` and `/chat/style` — all but the first two follow `chat`
  * where they are not named, so a second mount at `/assistant` reads aloud at `/assistant/speak`. The fixed paths
  * are registered before `/chat/{conversation_id}`, which would otherwise take "memory" for an id.
  */
@@ -59,6 +59,7 @@ final class Routes
         $p['voices']   ??= $p['chat'] . '/voices';
         $p['voice']    ??= $p['chat'] . '/voice';
         $p['today']    ??= $p['chat'] . '/today';
+        $p['settings'] ??= $p['chat'] . '/settings';
         $make = static fn (): ChatController => new $controller();
 
         $r->post($p['speak'], static fn () => $make()->speak())->describeFrom([$controller, 'speak']);
@@ -67,6 +68,8 @@ final class Routes
         $r->get($p['mood'], static fn () => $make()->mood())->describeFrom([$controller, 'mood']);
         $r->get($p['style'], static fn () => $make()->style())->describeFrom([$controller, 'style']);
         $r->put($p['style'], static fn () => $make()->style())->describeFrom([$controller, 'style']);
+        $r->get($p['settings'], static fn () => $make()->settings())->describeFrom([$controller, 'settings']);
+        $r->put($p['settings'], static fn () => $make()->settings())->describeFrom([$controller, 'settings']);
         $r->get($p['today'], static fn () => $make()->today())->describeFrom([$controller, 'today']);
         $r->get($p['voices'], static fn () => $make()->voices())->describeFrom([$controller, 'voices']);
         $r->put($p['voice'], static fn () => $make()->voices())->describeFrom([$controller, 'voices']);

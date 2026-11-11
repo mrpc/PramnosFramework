@@ -623,7 +623,9 @@ class Conversations
             array_filter(['steps' => $steps, 'stopped' => $stopped, 'source' => $this->console ? 'console' : null,
                 'mode' => Work::in($turn->tags) ? Work::MODE : null]) + ($mood === null ? [] : ['mood' => $feels])
             + ($acts ? ['act' => Acts::act($reply), 'wear' => Acts::worn($reply)] : [])
-            + ($ending && Ending::ends($reply) ? ['ended' => true] : []));
+            + ($ending && Ending::ends($reply) ? ['ended' => true] : [])
+            // What a tool changed of the person's settings, for the application to follow at once.
+            + (($changed = Settings::taken($this->scope->userId)) !== [] ? ['settings' => ['changed' => $changed]] : []));
         if ($ending && Ending::ends($reply)) {
             $this->scope->apply($this->table('assist.chat_conversations'))->where('conversation_id', $conversationId)->update(['ended_at' => $stamp]);
         }
@@ -901,6 +903,66 @@ class Conversations
         $artifacts->create(['kind' => 'text', 'title' => Today::THOUGHT . ' ' . $day, 'text' => $text]);
 
         return $text;
+    }
+
+    /**
+     * The morning's thought, written at its hour on each person's clock and told once — a gift
+     * they open, never its words in the notification (`'today' => ['thought' => true, 'morning' =>
+     * ['at' => '08:30', 'notify' => true, 'url' => …, 'quiet' => ['22:00', '08:00'], 'days' => 14]]`):
+     * for the people who talked to the companion in the last `days`, each persona they talked to.
+     * The person's own settings ({@see Settings}) move the hour, turn it off, set their quiet hours
+     * and say whether they are told. A notice that falls in the quiet hours waits for their end; one
+     * whose day has passed is not sent. `llm:routines` calls it. Answers how many were told.
+     *
+     * @param (callable(int, object): void)|null $deliver A seam: tell a person, by id
+     */
+    public function writeThoughts(int $now, ?callable $deliver = null, int $limit = 200): int
+    {
+        $morning = Settings::morning();
+        $today   = ((array) \Pramnos\Llm\Llm::config('chat', []))['today'] ?? [];
+        if (!Today::thinks() || !Artifacts::available() || !is_array($today) || !is_array($today['morning'] ?? null)) {
+            return 0;
+        }
+        $days   = max(1, (int) ($today['morning']['days'] ?? 14));
+        $result = $this->table('assist.chat_conversations')->select(['organization_id', 'userid', 'space'])->distinct()
+            ->where('updated_at', '>=', CallLog::instant($now - $days * 86400))->whereLike('space', Scope::CHAT . '%')
+            ->orderBy('userid')->limit(max(1, $limit))->get();
+        $told = 0;
+        while ($result && ($row = $result->fetch()) !== null) {
+            if (!People::companion((string) $row['space'])) {
+                continue;
+            }
+            $scope = new Scope((int) $row['userid'], $row['organization_id'] === null ? null : (int) $row['organization_id'], (string) $row['space']);
+            try {
+                $user  = new \Pramnos\User\User($scope->userId);
+                $set   = Settings::of($user, $scope->persona);
+                $at    = $set['thought_at'];
+                $local = (new \DateTimeImmutable('@' . $now))->setTimezone(new \DateTimeZone($this->assistant->timezone($scope)));
+                $day   = $local->format('Y-m-d');
+                if ($at === null || $at === 'off' || $local->format('H:i') < $at) {
+                    continue;
+                }
+                if ($this->thought($scope, $day) === null || !$morning['notify'] || !$set['notify']['thought']) {
+                    continue;
+                }
+                $mark = 'askmorning' . ($scope->persona === null ? '' : '-' . $scope->persona);
+                // Once a day; and not in their quiet hours — it waits for their end, the same day.
+                if ((string) ($user->{$mark} ?? '') === $day || Settings::quietAt($set['quiet'], $local->format('H:i'))) {
+                    continue;
+                }
+                $name   = Personas::get((string) Personas::of($scope))['name'] ?? \Pramnos\Llm\Analyst\Analyst::name();
+                $notice = RoutineReady::tag(new TaskReminder(sprintf(t('%s left you something 💌'), $name), $morning['url']), $scope->space);
+                $deliver !== null ? $deliver($scope->userId, $notice) : $user->notify($notice);
+                $user->{$mark} = $day;
+                $user->save();
+                $told++;
+            } catch (\Throwable $why) {
+                // One person's morning that cannot go does not stop the others'.
+                \Pramnos\Logs\Logger::log('morning thought for ' . $scope->userId . ': ' . $why->getMessage(), 'llm');
+            }
+        }
+
+        return $told;
     }
 
     /**
@@ -1304,6 +1366,8 @@ class Conversations
             + (is_array($extra['speaker'] ?? null) ? ['speaker' => $extra['speaker']] : [])
             // The answer that ended the conversation (Ending).
             + (!empty($extra['ended']) ? ['ended' => true] : [])
+            // The settings the answer changed (Settings).
+            + (is_array($extra['settings'] ?? null) ? ['settings' => $extra['settings']] : [])
             // An answer of a work conversation (Work).
             + (($extra['mode'] ?? null) === Work::MODE ? ['mode' => Work::MODE] : []);
     }
@@ -1506,7 +1570,9 @@ class Conversations
         return $connected
             + (Profile::on($this->scope) ? self::inSkill((new Profile($this->scope))->tools(), 'profile') : [])
             + (Calendar::on($this->scope) ? self::inSkill((new Calendar($this->scope, $zone))->tools(), 'calendar', ['set_busy']) : [])
-            + (Journal::on($this->scope) ? self::inSkill((new Journal($this->scope, $zone))->tools(), 'journal') : []);
+            + (Journal::on($this->scope) ? self::inSkill((new Journal($this->scope, $zone))->tools(), 'journal') : [])
+            // The person's own settings, changed by asking: on the companion's page, for everybody on it.
+            + ($this->scope->space === Scope::CHAT && $this->scope->userId > 0 ? Settings::tools($this->scope) : []);
     }
 
     public static function inSkill(array $tools, string $skill, array $except = []): array

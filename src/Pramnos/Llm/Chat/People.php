@@ -26,7 +26,7 @@ final class People
     public const RESET_DETAIL = 'askreset';
 
     /** The person's companion choices, by the start of their detail's name: each persona's too. */
-    public const CHOICES = [Personas::USER_DETAIL, \Pramnos\Llm\Speech\Speech::VOICE_DETAIL, Acts::STYLE_DETAIL];
+    public const CHOICES = [Personas::USER_DETAIL, \Pramnos\Llm\Speech\Speech::VOICE_DETAIL, Acts::STYLE_DETAIL, Settings::DETAIL];
 
     /** The tables a companion space's rows live in, beside the conversations' messages. */
     private const SPACED = ['assist.chat_conversations', 'assist.chat_asks', 'assist.chat_memory', 'assist.chat_artifacts', 'pramnos.ai_routines'];
@@ -77,6 +77,7 @@ final class People
                 'memories'      => self::quietly(static fn (): array => (new Memory($scope))->all()),
                 'diary'         => ['total' => count($pages), 'unread' => count(array_filter($pages, static fn (array $p): bool => $p['unread']))],
                 'thought'       => $this->thought($scope, $day),
+                'settings'      => Settings::of($user, $persona),
                 'voice'         => \Pramnos\Llm\Speech\Speech::chosen($user, $persona),
                 'style'         => Acts::style($user, $persona),
                 'routines'      => array_map(static fn (array $r): array => ['routine_id' => $r['routine_id'], 'title' => $r['title'], 'kind' => $r['kind'],

@@ -208,6 +208,62 @@ profile, the latest diary page and the day's calendar, and kept as a text artifa
 Y-m-d` of the persona's: asked again, the same line, without another call. A person who does not
 open the page that day costs nothing.
 
+**In the morning, and told.** With `morning`, `llm:routines` writes the thought at its hour on
+each person's clock and tells them once that something is waiting:
+
+```php
+'today' => ['thought' => true, 'morning' => [
+    'at'     => '08:30',                       // on the person's clock
+    'notify' => true,                          // tell them, push and any other channel
+    'url'    => 'https://app.example/?today=1',
+    'quiet'  => ['22:00', '08:00'],            // nothing sent in these hours
+    'days'   => 14,                            // for whoever talked to the companion in them
+]],
+```
+
+- **Who:** every persona a person talked to in the last `days`.
+- **The notice:** titled by the persona's name, *Naya left you something 💌*
+  (`t('%s left you something 💌')`), with the `url`. It never carries the thought's words: they are
+  a gift opened in the application.
+- **The person's own settings** (below) move the hour or turn it off (`thought_at`), set their
+  quiet hours, and turn the notice off (`notify.thought`).
+- **Quiet hours:** a notice that falls in them waits for their end, and one whose day has passed
+  is not sent.
+- **Once a day:** the same persona tells them once a day, however often the command runs
+  (`Conversations::writeThoughts()`). Calendar reminders keep the same quiet hours and
+  `notify.reminders`.
+
+### Settings, in one place
+
+A person's companion settings are read and changed in one place, each persona's own where that
+makes sense (`Chat\Settings`):
+
+| Field | What |
+|---|---|
+| `persona`, `voice`, `style` | whom they talk to, and that persona's voice and pose |
+| `thought_at` | when the morning's thought comes, `H:i`, `off`, or null for the application's |
+| `quiet` | `{from, to}`, nothing sent in between (it may cross midnight), or null for the application's |
+| `notify` | `{thought, diary, reminders}`, each true or false |
+| `app` | the application's own, declared with their values |
+
+```php
+'llm' => ['chat' => ['settings' => [
+    'place' => ['values' => ['hill', 'beach', 'bedroom'], 'default' => 'hill', 'label' => 'Where she is'],
+]]],
+```
+
+The framework stores, checks and returns an application's setting without knowing what it means.
+
+- **The API.** `GET {chat}/settings` answers them all, with the defaults filled in.
+  `PUT {chat}/settings` takes any of them. It is all or none: a wrong one is a 422 naming the
+  field, and nothing is kept. `{chat}/voice`, `/style` and `/persona` write to the same place.
+- **By talking.** The companion has `change_setting` for everybody on its page. *I want you to
+  write to me at 11* changes `thought_at`, she says so in her answer, and the answer's message
+  carries `settings: {changed: {…}}`, as it carries `mood` and `act`, so the application changes
+  at once.
+- **Admin and reset.** The control centre's person panel shows them. *Reset the experience* puts
+  them all back to the defaults.
+
 ### For an administrator: seeing a person, and resetting their experience
 
 The companion's conversations are read on the assistants' control centre, `/admin/Ai/all`, on

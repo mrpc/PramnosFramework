@@ -50,6 +50,12 @@ class LlmRoutines extends Command
             $output->writeln('Wrote ' . $diaries . ' diary page' . ($diaries === 1 ? '' : 's') . '.');
         }
 
+        // The morning's thought, written at its hour and told once (Chat\Today, Chat\Settings).
+        $thoughts = $routines->conversations()->writeThoughts(time());
+        if ($thoughts > 0) {
+            $output->writeln('Told ' . $thoughts . ' morning thought' . ($thoughts === 1 ? '' : 's') . '.');
+        }
+
         $learned = $routines->conversations()->learnQuiet(time());
         if ($learned > 0) {
             $output->writeln('Learned from ' . $learned . ' quiet conversation' . ($learned === 1 ? '' : 's') . '.');

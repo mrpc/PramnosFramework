@@ -133,6 +133,10 @@ $persona = static fn (?string $key): string => $key === null ? '—' : (string) 
                             <dt class="{!! $c['muted'] !!}">{{ t('First meeting') }}</dt><dd>{{ $when($one['first_meeting']) }}</dd>
                             <dt class="{!! $c['muted'] !!}">{{ t('Mood') }}</dt><dd>{{ $one['mood'] === null ? '—' : $said($one['mood']['mood'] ?? $one['mood']) }}</dd>
                             <dt class="{!! $c['muted'] !!}">{{ t('Voice and style') }}</dt><dd>{{ ($one['voice'] ?? t('Default')) . ' · ' . ($one['style'] ?? t('Default')) }}</dd>
+                            @php $set = (array) ($one['settings'] ?? []); @endphp
+                            <dt class="{!! $c['muted'] !!}">{{ t('Morning thought') }}</dt><dd>{{ ($set['thought_at'] ?? null) === 'off' ? t('Off') : ($set['thought_at'] ?? t('Default')) }}@if (is_array($set['quiet'] ?? null)) · {{ t('Quiet') }} {{ $set['quiet']['from'] . '–' . $set['quiet']['to'] }}@endif</dd>
+                            <dt class="{!! $c['muted'] !!}">{{ t('Notifications') }}</dt><dd>{{ implode(', ', array_map(static fn ($k, $on): string => t(ucfirst((string) $k)) . ' ' . ($on ? '✓' : '✗'), array_keys((array) ($set['notify'] ?? [])), (array) ($set['notify'] ?? []))) ?: '—' }}</dd>
+                            @foreach ((array) ($set['app'] ?? []) as $key => $value)<dt class="{!! $c['muted'] !!}">{{ \Pramnos\Llm\Chat\Settings::declared()[$key]['label'] ?? $key }}</dt><dd>{{ $value }}</dd>@endforeach
                             <dt class="{!! $c['muted'] !!}">{{ t('Diary') }}</dt><dd>{{ sprintf(t('%d pages, %d unread'), $one['diary']['total'], $one['diary']['unread']) }}</dd>
                             <dt class="{!! $c['muted'] !!}">{{ t('Today\'s thought') }}</dt><dd>{{ $one['thought'] ?? '—' }}</dd>
                             <dt class="{!! $c['muted'] !!}">{{ t('Memories') }}</dt><dd>@if ($one['memories'] === [])—@else<ul style="margin:0;padding-left:18px">@foreach ($one['memories'] as $memory)<li>{{ $said($memory['content'] ?? $memory) }}</li>@endforeach</ul>@endif</dd>

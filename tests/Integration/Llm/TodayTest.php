@@ -119,6 +119,58 @@ class TodayTest extends LlmTestCase
         $this->assertSame(['event', 'reminder', 'reminder', 'reminder'], array_column($off['data']['cards'], 'kind'), 'only what is on');
     }
 
+    /**
+     * The morning's thought (FW-462): written at its hour and told once, by the persona's name and
+     * the application's address, never its words; not again the same day; not in the person's
+     * quiet hours, where it waits; not where they turned it off.
+     */
+    #[DataProvider('databases')]
+    public function testTheMorningsThoughtIsToldOnce(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => ['memory' => ['learn' => false], 'personas' => ['naya' => ['name' => 'Naya', 'default' => true]],
+            'today' => ['thought' => true, 'morning' => ['at' => '00:00', 'notify' => true, 'url' => 'https://app.test/?today=1']]]]);
+        $user = new \Pramnos\User\User();
+        $user->username = 'morning' . random_int(100000, 999999);
+        $user->email    = $user->username . '@example.test';
+        $user->save();
+        $this->person = (int) $user->userid;
+        $scope        = new Scope($this->person);
+        $this->answer([[200, self::says('Γεια!')], [200, self::says('Καλημέρα, μια όμορφη σκέψη.')]]);
+        $chat = new \Pramnos\Llm\Chat\Conversations(new \Pramnos\Llm\Chat\BaseAssistant());
+        $chat->as($scope)->ask(null, 'Γεια');
+        $told    = [];
+        $deliver = static function (int $id, object $notice) use (&$told): void {
+            $told[] = [$id, $notice->toPush(null)];
+        };
+        // Quiet hours around now, on the person's clock: whatever the hour the test runs at.
+        $zone = new \DateTimeZone((new \Pramnos\Llm\Chat\BaseAssistant())->timezone($scope));
+        \Pramnos\Llm\Chat\Settings::change(new \Pramnos\User\User($this->person), null, ['quiet' => [
+            'from' => (new \DateTimeImmutable('@' . (time() - 120)))->setTimezone($zone)->format('H:i'),
+            'to'   => (new \DateTimeImmutable('@' . (time() + 300)))->setTimezone($zone)->format('H:i')]]);
+
+        // Act
+        $quiet = $chat->writeThoughts(time(), $deliver);
+        \Pramnos\Llm\Chat\Settings::change(new \Pramnos\User\User($this->person), null, ['quiet' => null]);
+        \Pramnos\User\User::clearUserCache();
+        $first = $chat->writeThoughts(time(), $deliver);
+        \Pramnos\User\User::clearUserCache();
+        $again = $chat->writeThoughts(time(), $deliver);
+        \Pramnos\Llm\Chat\Settings::change(new \Pramnos\User\User($this->person), null, ['thought_at' => 'off']);
+        $this->db->queryBuilder()->table('#PREFIX#userdetails')->where('userid', $this->person)->where('fieldname', 'askmorning')->delete();
+        \Pramnos\User\User::clearUserCache();
+        $off = $chat->writeThoughts(time(), $deliver);
+
+        // Assert
+        $this->assertSame([0, 1, 0, 0], [$quiet, $first, $again, $off], 'waits out the quiet hours, then once, never where turned off');
+        $this->assertCount(1, $told);
+        $this->assertSame('Naya left you something 💌', $told[0][1]['title'], 'by the persona\'s name');
+        $this->assertStringContainsString('today=1', $told[0][1]['url']);
+        $this->assertStringNotContainsString('σκέψη', json_encode($told, JSON_UNESCAPED_UNICODE), 'never the thought\'s words');
+        $this->assertCount(2, $this->sent, 'the thought written once, while it waited too');
+    }
+
     /** Nobody signed in has no day. */
     public function testNeedsSomebody(): void
     {

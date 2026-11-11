@@ -115,7 +115,11 @@ final class Calendar
             $id    = (int) $row['item_id'];
             try {
                 $zone = Chat::assistant()->timezone($scope);
-                $go   = self::on($scope) && (!\Pramnos\Llm\Llm::proactive() || \Pramnos\Llm\Llm::proactivity()->when($scope->userId, $zone, $now) === $now);
+                // The person's own word (Settings): reminders off, or their quiet hours, and none goes.
+                $set  = Settings::of(new \Pramnos\User\User($scope->userId), $scope->persona);
+                $go   = self::on($scope) && $set['notify']['reminders']
+                    && !Settings::quietAt($set['quiet'], (new \DateTimeImmutable('@' . $now))->setTimezone(new \DateTimeZone($zone))->format('H:i'))
+                    && (!\Pramnos\Llm\Llm::proactive() || \Pramnos\Llm\Llm::proactivity()->when($scope->userId, $zone, $now) === $now);
                 self::alerted($id, $go);
                 if (!$go) {
                     continue;
