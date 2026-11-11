@@ -41,6 +41,9 @@ class MoodTest extends LlmTestCase
     protected function tearDown(): void
     {
         ApiFixture::$scope = null;
+        ApiFixture::$input = [];
+        ApiFixture::$queue = null;
+        Mood::senseWith(null);
         $this->disconnectDatabase();
         parent::tearDown();
     }
@@ -72,6 +75,72 @@ class MoodTest extends LlmTestCase
         $this->assertSame(['calm', 'cross'], Mood::words());
         $this->configure(['chat' => ['mood' => false]]);
         $this->assertFalse(Mood::on());
+    }
+
+    /**
+     * Sensed before the answer: off without a sensor; a word, a pair or a map from the sensor is
+     * the mood with what it plays — a bare word strong — while a word outside the vocabulary, an
+     * empty message, the analyst's space or a sensor that throws is none.
+     */
+    public function testAMoodSensedFromTheMessage(): void
+    {
+        // Arrange
+        $chat  = new Scope(7, null);
+        $admin = new Scope(7, null, Scope::ADMIN);
+        $off   = Mood::sense($chat, 'I got the job!!');
+
+        // Act
+        Mood::senseWith(static fn (string $m): string|array|null => match (true) {
+            str_contains($m, '!!') => 'happy', str_contains($m, 'zz') => ['sleepy', 30],
+            str_contains($m, 'hmm') => ['mood' => 'thinking', 'intensity' => 500], str_contains($m, 'boom') => throw new \RuntimeException('down'),
+            default => 'furious'});
+
+        // Assert
+        $this->assertNull($off, 'no sensor, nothing sensed');
+        $this->assertFalse(Mood::senses($admin), 'the analyst\'s space');
+        $this->assertSame(['mood' => 'happy', 'intensity' => Mood::STRONG, 'plays' => 'success'], Mood::sense($chat, 'I got the job!!'));
+        $this->assertSame(['mood' => 'sleepy', 'intensity' => 30, 'plays' => 'idle'], Mood::sense($chat, 'zzz'));
+        $this->assertSame(100, Mood::sense($chat, 'hmm')['intensity'], 'held to 100');
+        $this->assertNull(Mood::sense($chat, 'ok'), 'not in the vocabulary');
+        $this->assertNull(Mood::sense($chat, '   '));
+        $this->assertNull(Mood::sense($chat, 'boom'), 'a failing sensor is no mood, not a failed question');
+        $this->assertNull(Mood::sense($admin, 'I got the job!!'));
+    }
+
+    /**
+     * A question queued through the routes answers at once with the mood it calls for, so the
+     * avatar reacts while the worker writes the answer; the key is there, null, when nothing is
+     * sensed, and absent without a sensor.
+     */
+    #[DataProvider('databases')]
+    public function testTheQueuedQuestionAnswersWithTheMoodSensed(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $person = random_int(100000, 999999);
+        ApiFixture::$scope = new Scope($person, null);
+        ApiFixture::$stop  = null;
+        $post = function (string $content): array {
+            ApiFixture::$input = ['content' => $content];
+            $router = new \Pramnos\Routing\Router(null);
+            \Pramnos\Llm\Chat\Api\Routes::register($router, ApiFixture::class);
+
+            return $router->dispatch(\Pramnos\Http\Request::create('/chat', 'POST'));
+        };
+
+        // Act
+        $plain = $post('Hello');
+        Mood::senseWith(static fn (string $m): ?string => str_contains($m, '!!') ? 'happy' : null);
+        $glad  = $post('I got the job!!');
+        $flat  = $post('Hello');
+
+        // Assert
+        $this->assertSame(202, $glad['status']);
+        $this->assertArrayNotHasKey('sensed', $plain['data'], 'no sensor: no key');
+        $this->assertSame(['mood' => 'happy', 'intensity' => Mood::STRONG, 'plays' => 'success'], $glad['data']['sensed']);
+        $this->assertArrayHasKey('sensed', $flat['data']);
+        $this->assertNull($flat['data']['sensed']);
+        $this->db->queryBuilder()->table('assist.chat_asks')->where('userid', $person)->delete();
     }
 
     /**

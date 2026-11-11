@@ -118,7 +118,10 @@ trait TakesQuestions
 
         $askId = $this->asks()->start($scope, $conversationId > 0 ? $conversationId : null, $content, $attachment, $extra);
 
-        return ['status' => 202, 'data' => ['ask_id' => $askId, 'conversation_id' => $conversationId > 0 ? $conversationId : null]];
+        // The mood the question calls for, now, for the avatar to react while the answer is written
+        // (Mood::senseWith()); there, null when nothing is sensed.
+        return ['status' => 202, 'data' => ['ask_id' => $askId, 'conversation_id' => $conversationId > 0 ? $conversationId : null]
+            + (\Pramnos\Llm\Chat\Mood::senses($scope) ? ['sensed' => \Pramnos\Llm\Chat\Mood::sense($scope, $content)] : [])];
     }
 
     /**

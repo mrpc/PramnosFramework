@@ -213,6 +213,23 @@ conversation page's space (`chat`) only, so the administrators' analyst has no m
   the avatar while idle: the person's strongest mood, or one conversation's with
   `?conversation_id=`.
 
+**Before the answer, from the person's message.** The model's tag arrives with the answer. An
+application that wants the avatar to react the moment a question is sent gives a sensor:
+
+```php
+\Pramnos\Llm\Chat\Mood::senseWith(fn (string $message, Scope $scope): ?string
+    => preg_match('/!!|🎉|χαίρομαι/u', $message) ? 'happy' : null);
+```
+
+It reads the message and answers the assistant's mood in reply: a word of the vocabulary,
+`[word, intensity]`, `['mood' => …, 'intensity' => …]`, or null. A bare word counts as strong.
+Keywords cost nothing. A cheap model is more accurate, but adds a call to every question. A
+queued question's `202` then carries `sensed` (`{mood, intensity, plays}`, or null when nothing is
+sensed) for the page to show while the worker writes the answer. The sensed mood is shown, not
+kept: the answer's own tag is the mood. It applies only where moods are on and in their spaces. A
+word outside the vocabulary counts as none, and a sensor that throws is logged and counts as
+none, so the question still goes ahead. Without a sensor, the `202` has no `sensed`.
+
 A scheduled answer, or one others read, neither asks for the tag nor changes the mood. The mood is
 three columns of `assist.chat_conversations` (`mood`, `mood_intensity`, `mood_at`): state, with no
 history kept.

@@ -24,6 +24,10 @@ use Pramnos\Llm\CallLog;
  *   felt; the strongest of those wins. Never global for everybody.
  * - **Fading.** {@see FADE} an hour, read rather than swept: nothing to schedule. Under
  *   {@see FELT} it is not felt, and the prompt says nothing.
+ * - **Sensed before the answer, where the application says how** ({@see senseWith()}): the
+ *   person's message read the moment it is sent — by words, or by a cheap model — for the avatar
+ *   to react while the answer is still being written. Shown, not kept: the answer's own tag is the
+ *   mood. Off unless the application gives a sensor.
  * - **As tone, never said.** The next answer is told the mood to colour its tone, and not to state
  *   or explain it. The application reads it — `mood` on the answer's message, or `GET {chat}/mood`
  *   — to show it on the avatar, idle included.
@@ -45,8 +49,59 @@ final class Mood
     /** The private tag the model ends an answer with. */
     public const TAG = '/\[\[\s*mood\s*:\s*([\p{L}\p{N}_-]+)\s*\|\s*(\d{1,3})\s*\]\]/u';
 
+    /** @var (callable(string, Scope): (string|array|null))|null What reads a person's message for a mood */
+    private static $sensor = null;
+
     public function __construct(private readonly Scope $scope)
     {
+    }
+
+    /**
+     * Read each question for a mood before it is answered: `$sensor($message, $scope)` answers a
+     * word of the vocabulary, `[word, intensity]`, `['mood' => …, 'intensity' => …]`, or null.
+     * It is the assistant's mood in reply — a person's good news, `happy`; their sadness, a word
+     * that cares. Null turns it off.
+     *
+     * ```php
+     * Mood::senseWith(fn (string $message): ?string => preg_match('/!!|🎉|χαίρομαι/u', $message) ? 'happy' : null);
+     * ```
+     */
+    public static function senseWith(?callable $sensor): void
+    {
+        self::$sensor = $sensor;
+    }
+
+    /** Whether a question here is read for a mood before it is answered. */
+    public static function senses(Scope $scope): bool
+    {
+        return self::$sensor !== null && self::on($scope);
+    }
+
+    /**
+     * The mood a question calls for, read before it is answered — for the avatar now, not kept:
+     * the answer's own tag is the mood. Null when nothing is sensed, the word is not in the
+     * vocabulary, or the sensor fails.
+     *
+     * @return array{mood: string, intensity: int, plays: string|null}|null
+     */
+    public static function sense(Scope $scope, string $message): ?array
+    {
+        if (!self::senses($scope) || trim($message) === '') {
+            return null;
+        }
+        try {
+            $said = (self::$sensor)($message, $scope);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('llm mood sensor: ' . $e->getMessage(), 'llm');
+
+            return null;
+        }
+        $word      = mb_strtolower(trim((string) (is_array($said) ? ($said['mood'] ?? $said[0] ?? '') : ($said ?? ''))));
+        $intensity = is_array($said) ? (int) ($said['intensity'] ?? $said[1] ?? self::STRONG) : self::STRONG;
+
+        return in_array($word, self::words(), true)
+            ? ['mood' => $word, 'intensity' => max(0, min(100, $intensity)), 'plays' => self::plays()[$word] ?? null]
+            : null;
     }
 
     /**
