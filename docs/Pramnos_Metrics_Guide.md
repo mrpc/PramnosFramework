@@ -652,8 +652,8 @@ a saved one as it is shared) unless the application says otherwise for one:
   scope. The total column goes when one column is left. The report keeps its definition; only the
   drawing narrows.
 - **A breakdown's values** sit under their row's name, set in and lighter, so that the same
-  values under two rows are never read as rows of their own. Where the row's total closes the group
-  instead, that total names it. A table of one or two columns of values is only as wide as it
+  values under two rows are never read as rows of their own. Where the row has a total, its last
+  row reads *Total*. A table of one or two columns of values is only as wide as it
   needs, so the numbers stay beside their names.
 - **No filter** reads *All values*, a word that suits any dimension.
 

@@ -617,12 +617,13 @@ final class Report
         }
         $out = [];
         foreach ($values as $value) {
-            // A part of its row: drawn under its row's name, set in, unless its total closes the group.
+            // A part of its row: drawn under its row's name, set in — a group of its own, whatever came before.
             $out[] = ['label' => $dimension->labelOf($value), 'metric' => $row['metric'], 'filters' => [$row['breakdown'] => $value] + $row['filters'], 'subtotal' => false,
-                'part' => $label, 'headed' => !$row['total']];
+                'part' => $label, 'headed' => true];
         }
         if ($row['total']) {
-            $out[] = ['label' => $label, 'metric' => $row['metric'], 'filters' => $row['filters'], 'subtotal' => true];
+            // Under the group's heading, its total is the group's: «Total».
+            $out[] = ['label' => function_exists('t') ? (string) t('Total') : 'Total', 'metric' => $row['metric'], 'filters' => $row['filters'], 'subtotal' => true, 'part' => $label];
         }
 
         return $out;

@@ -75,14 +75,30 @@ final class Metrics
         self::$metrics    = [];
         self::$dimensions = [];
         self::$loaded     = false;
+        self::$area       = null;
     }
 
-    /** @return array<string, mixed> What app.php says under `metrics` */
+    /** What the administration's file (`app/admin.php`) says under `metrics`, read once. @var array<string, mixed>|null */
+    private static ?array $area = null;
+
+    /**
+     * What the application says under `metrics`: its own (`app.php`), and what the
+     * administration's (`app/admin.php`) adds — the reports' screens are there, and a setting
+     * written beside them (the Jira address, say) is read wherever the reports are drawn. Where
+     * both say a thing, the application's own wins.
+     *
+     * @return array<string, mixed>
+     */
     public static function config(): array
     {
         $app = \Pramnos\Application\Application::currentInstance();
+        $own = is_object($app) && is_array($app->applicationInfo['metrics'] ?? null) ? $app->applicationInfo['metrics'] : [];
+        if (self::$area === null) {
+            $read       = \Pramnos\Application\Application::readApplicationConfig('admin');
+            self::$area = is_array($read['metrics'] ?? null) ? $read['metrics'] : [];
+        }
 
-        return is_object($app) && is_array($app->applicationInfo['metrics'] ?? null) ? $app->applicationInfo['metrics'] : [];
+        return $own + self::$area;
     }
 
     /**

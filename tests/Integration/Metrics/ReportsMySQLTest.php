@@ -161,8 +161,9 @@ class ReportsMySQLTest extends TestCase
         $this->assertSame([6.0, 3.0, 2.0, 4.0, 1.0], $value($rows['Sales']), 'each cell its own filters and period; Buyers its own metric');
         $this->assertSame([1.0, 5.0], [$rows['Sales']['other'], $rows['Sales']['change']], 'August, and +500%');
         $this->assertSame([3.0, null, null, 3.0, 0.0], $value($rows['North']), 'buyers by region: the customer filter is not kept by a distinct');
-        $this->assertSame(4.0, $value($rows['Buyers'])[0], 'the subtotal is the metric without the breakdown: 4, not 3 + 2');
-        $this->assertTrue($rows['Buyers']['subtotal']);
+        $this->assertSame(4.0, $value($rows['Total'])[0], 'the subtotal is the metric without the breakdown: 4, not 3 + 2');
+        $this->assertTrue($rows['Total']['subtotal']);
+        $this->assertSame('Buyers', $rows['Total']['part'], 'the group\'s total, under the group\'s heading');
         $this->assertStringContainsString('not broken down by customer', (string) $rows['North']['cells'][1]['error'], 'that cell says why; the row stands');
         $this->assertStringContainsString('not broken down by plan', (string) $rows['By plan']['error']);
         $this->assertSame(6.0 + 3.0 + 2.0, $table['sections'][0]['total'][0], 'the section total leaves the subtotal out');
@@ -176,6 +177,7 @@ class ReportsMySQLTest extends TestCase
         // Assert
         $this->assertStringContainsString('href="/admin/MetricReports/rows?metric=test.sales&amp;grain=month&amp;period=2026-09-01&amp;f%5Bregion%5D=north&amp;f%5Bcustomer%5D=new"', $html);
         $this->assertStringContainsString('data-pf-chart-figure', $html);
+        $this->assertStringContainsString('<tr class="pf-report-group"><th scope="rowgroup" colspan="8">Buyers</th></tr>', $html, 'a breakdown with its total is headed too');
         $this->assertStringContainsString('+500.0%', $html);
         $this->assertStringContainsString('1 rows are not shown', $html);
         $this->assertStringContainsString('class="pf-report-total"', $html);
