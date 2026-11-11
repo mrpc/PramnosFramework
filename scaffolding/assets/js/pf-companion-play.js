@@ -303,12 +303,23 @@
         return { x: Math.max(0, Math.min(window.innerWidth - size.w, px - size.w / 2)), y: Math.max(0, Math.min(window.innerHeight - size.h, py - size.h * 0.8)) };
     }
 
+    /** Controls a click on which is the page's, not the laser's: buttons, links, fields. */
+    var CONTROLS = 'button, a, input, select, textarea, label, summary, [role="button"], [data-pf-companion-play-stop]';
+
+    /** Whether a click landed on one of the page's controls. */
+    function onControl(target) {
+        return Boolean(target && typeof target.closest === 'function' && target.closest(CONTROLS));
+    }
+
     /**
      * The laser: a red dot on the pointer and a crosshair; a click sends her after it — a sprint, a
-     * crouch and a swat — and is not a click on the page. Esc, 30 seconds without a click, or
-     * stop() ends it.
+     * crouch and a swat — and is not a click on the page, except on a control (a button, a link, a
+     * field), which works as ever. A badge at the top of the screen stops it, as do Esc, a right
+     * click, a double click, 30 seconds without a click, or stop(). `options.stopLabel` words the
+     * badge; by default in the page's language, Greek or English.
      */
-    function laser() {
+    function laser(options) {
+        var opts = options || {};
         var g = begin('laser');
         var dot = document.createElement('div');
         dot.className = 'pf-companion-laser';
@@ -333,10 +344,30 @@
         }
         resetIdle();
 
+        var greek = String((document.documentElement && document.documentElement.getAttribute('lang')) || '').indexOf('el') === 0;
+        var badge = document.createElement('button');
+        badge.type = 'button';
+        badge.className = 'pf-companion-laser-stop';
+        badge.setAttribute('data-pf-companion-play-stop', '');
+        badge.textContent = opts.stopLabel || (greek ? '✕ Σταμάτα το λέιζερ (Esc)' : '✕ Stop the laser (Esc)');
+        badge.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2147483002;padding:6px 14px;border-radius:999px;'
+            + 'border:0;background:#111827;color:#fff;font:600 13px/1.2 system-ui,sans-serif;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.25)';
+        badge.addEventListener('click', function () { stop(); });
+        put(badge);
+
         listen(document, 'mousemove', function (e) {
             dot.style.transform = 'translate(' + e.clientX + 'px,' + e.clientY + 'px)';
         }, { passive: true });
+        listen(document, 'contextmenu', function (e) {
+            e.preventDefault();
+            stop();
+        });
+        listen(document, 'dblclick', function () { stop(); });
         listen(document, 'click', function (e) {
+            // A control's click is the page's — the badge, a Stop button, a link.
+            if (onControl(e.target)) {
+                return;
+            }
             e.preventDefault();
             e.stopPropagation();
             resetIdle();

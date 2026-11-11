@@ -448,9 +448,11 @@ PfCompanionPlay.playing();      // the game's name, or null
   size. Coming home puts the avatar back in the same place in the dock's markup.
 - **A run** sets `data-gait` (`walk`, `trot`, `sprint`, `zoomies`, at their own speeds) and
   `data-facing="right"` when she goes right. The gait is gone when she arrives.
-- **The laser** takes clicks for itself, so a click is not a click on the page. It ends on Esc,
-  after 30 seconds without a click, or on `stop()`. A click sends her at a sprint, followed by a
-  crouch (`stalking`) and a swat.
+- **The laser** takes clicks for itself, so a click is not a click on the page, except on a
+  control (a button, a link, a field, `[data-pf-companion-play-stop]`), which works as ever. A
+  click sends her at a sprint, followed by a crouch (`stalking`) and a swat. A badge at the top of
+  the screen stops it ("✕ Stop the laser (Esc)", in Greek on a Greek page, or `laser({ stopLabel
+  })`), as do Esc, a right click, a double click, 30 seconds without a click, and `stop()`.
 - **One game at a time:** starting one ends the other. When a question is asked
   (`pf-assistant:state` `listening`, `thinking` or `talking`), any game ends, so the assistant is
   home to answer.

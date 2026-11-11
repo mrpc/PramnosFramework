@@ -284,3 +284,49 @@ test('the yarn ball is drawn, and what plays outside the dock is put on the page
     assert.equal(document.querySelector('.pf-companion-runner').parentNode, document.documentElement);
     assert.ok(document.querySelector('.pf-companion-yarn').innerHTML.includes('<svg'), 'drawn, not an emoji a system may lack');
 });
+
+test('laser: a click on a control is the page\'s; the badge, a right click and a double click stop it', LIMIT, async () => {
+    // Arrange — a Stop button of the page's own
+    const own = document.createElement('button');
+    own.className = 'their-stop';
+    own.closest = (selector) => (selector.includes('button') ? own : null);
+    document.body.appendChild(own);
+    const click = (target) => {
+        const e = new window.Event('click');
+        e.target = target;
+        e.clientX = 600;
+        e.clientY = 300;
+        e.preventDefault = () => { e.prevented = true; };
+        e.stopPropagation = () => {};
+        document.dispatchEvent(e);
+
+        return e;
+    };
+
+    // Act / Assert — the control's click goes through, the laser keeps playing
+    window.PfCompanionPlay.laser();
+    const onButton = click(own);
+    assert.equal(onButton.prevented, undefined, 'not taken by the laser');
+    assert.equal(avatar.hasAttribute('data-gait'), false, 'no pounce');
+    const badge = document.querySelector('.pf-companion-laser-stop');
+    assert.ok(badge, 'a badge to stop it');
+    assert.match(badge.textContent, /Esc/);
+
+    // The badge stops it
+    badge.dispatchEvent(new window.Event('click'));
+    assert.equal(window.PfCompanionPlay.playing(), null);
+    assert.equal(document.querySelector('.pf-companion-laser-stop'), null, 'the badge goes with it');
+
+    // A right click stops it
+    window.PfCompanionPlay.laser();
+    const right = new window.Event('contextmenu');
+    right.preventDefault = () => {};
+    document.dispatchEvent(right);
+    assert.equal(window.PfCompanionPlay.playing(), null);
+
+    // A double click stops it
+    window.PfCompanionPlay.laser();
+    document.dispatchEvent(new window.Event('dblclick'));
+    assert.equal(window.PfCompanionPlay.playing(), null);
+    await tick(10000);
+});
