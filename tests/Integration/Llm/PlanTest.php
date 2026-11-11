@@ -121,6 +121,7 @@ class PlanTest extends LlmTestCase
         $this->assertStringContainsString('that goes to plan_update', (string) ($offered['remember'] ?? ''), 'news is not kept in memory too');
         $this->assertSame([200, ['Garden', 'Novel'], Plan::COLUMNS], [$api['status'], array_column($api['data']['projects'], 'project'), $api['data']['columns']], 'the same plan through the API, from any persona');
         $this->assertIsInt($api['data']['artifact_id']);
+        $this->assertSame(['type' => 'board', 'by' => 'phase'], (new \Pramnos\Llm\Chat\Artifacts(new Scope($userId, null)))->find($api['data']['artifact_id'])['content']['view'] ?? null, 'a board by phase at first');
         $this->assertSame('Closed Novel; it is out of the plan.', $closed);
         $this->assertSame(['Garden'], array_column($after, 'project'), 'nothing of it kept');
     }

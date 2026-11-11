@@ -257,7 +257,8 @@ final class Plan
         $content   = ['columns' => self::COLUMNS, 'rows' => array_map(static fn (array $p): array => array_values(array_merge(array_fill_keys(self::COLUMNS, ''), $p)), $projects)];
         $found     = $this->artifact();
         $done      = $found === null
-            ? $artifacts->create(['kind' => 'table', 'title' => self::TITLE] + $content)
+            // A board by phase at first; the person may show it otherwise, and it stays so.
+            ? $artifacts->create(['kind' => 'table', 'title' => self::TITLE, 'view' => ['type' => 'board', 'by' => 'phase']] + $content)
             : $artifacts->update((int) $found['artifact_id'], 'replace', $content);
 
         return is_string($done) ? 'Error: ' . $done : null;

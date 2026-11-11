@@ -131,6 +131,7 @@ final class Routes
         $r->post($p['artifacts'] . '/{artifact_id}/share', static fn ($artifact_id) => $make()->shareArtifact($artifact_id))->describeFrom([$controller, 'shareArtifact']);
         $r->post($p['artifacts'] . '/{artifact_id}/assign', static fn ($artifact_id) => $make()->assignArtifact($artifact_id))->describeFrom([$controller, 'assignArtifact']);
         $r->post($p['artifacts'] . '/{artifact_id}/run', static fn ($artifact_id) => $make()->runArtifactQuery($artifact_id))->describeFrom([$controller, 'runArtifactQuery']);
+        $r->post($p['artifacts'] . '/{artifact_id}/view', static fn ($artifact_id) => $make()->artifactView($artifact_id))->describeFrom([$controller, 'artifactView']);
         $r->get($p['artifacts'] . '/{artifact_id}/shares', static fn ($artifact_id) => $make()->artifactShares($artifact_id))->describeFrom([$controller, 'artifactShares']);
         $r->get($p['artifacts'] . '/{artifact_id}/actions', static fn ($artifact_id) => $make()->artifactActions($artifact_id))->describeFrom([$controller, 'artifactActions']);
         $r->post($p['artifacts'] . '/{artifact_id}/actions/{action}', static fn ($artifact_id, $action) => $make()->runArtifactAction($artifact_id, $action))->describeFrom([$controller, 'runArtifactAction']);

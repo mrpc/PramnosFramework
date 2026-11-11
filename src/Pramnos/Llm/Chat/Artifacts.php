@@ -137,6 +137,8 @@ final class Artifacts
                 'rows'    => ['type' => 'array', 'items' => ['type' => 'array', 'items' => ['type' => ['string', 'number', 'boolean', 'null']]], 'description' => 'table: the rows, each a list of cells in column order.'],
                 'entity'  => ['type' => 'string', 'description' => 'list: what the ids are, singular and lower case, e.g. "user".'],
                 'subject' => ['type' => 'string', 'description' => 'The one record it is about, as entity:id — "user:123", "ticket:88" — so it shows on that record\'s screen.'],
+                'view'    => ['type' => 'object', 'description' => 'table: how it is shown — type table, board (a column per value of `by`) or calendar (by a date column `by`).',
+                    'properties' => ['type' => ['type' => 'string', 'enum' => self::VIEWS], 'by' => ['type' => 'string']]],
                 'ids'     => ['type' => 'array', 'items' => ['type' => ['integer', 'string']], 'description' => 'list: the records\' ids, exactly as the tools gave them.'],
                 'text'    => ['type' => 'string', 'description' => 'text: the document, in Markdown.'],
                 'chart_type' => ['type' => 'string', 'enum' => self::CHARTS, 'description' => 'chart: how it is drawn.'],
@@ -191,6 +193,8 @@ final class Artifacts
                     'replace'     => ['type' => 'string'],
                     'remove'      => ['type' => 'array', 'items' => ['type' => ['integer', 'string']]],
                     'remove_rows' => ['type' => 'array', 'items' => ['type' => 'integer']],
+                    'view'        => ['type' => 'object', 'description' => 'table, mode patch: how it is shown (type table, board or calendar; by a column).',
+                        'properties' => ['type' => ['type' => 'string', 'enum' => self::VIEWS], 'by' => ['type' => 'string']]],
                 ], 'required' => ['id', 'mode']],
                 'run'         => function (array $a): string {
                     $changed = $this->update((int) ($a['id'] ?? 0), (string) ($a['mode'] ?? ''), $a);
@@ -340,6 +344,18 @@ final class Artifacts
         };
         if (is_string($content)) {
             return $content;
+        }
+        if ($kind === 'table') {
+            // What a table keeps beside its rows — the query it came from, how it is shown — stays.
+            $content += array_intersect_key($old, array_flip(['query', 'view']));
+            if (array_key_exists('view', $input)) {
+                $view = self::viewOf($input['view'], $content['columns']);
+                if (is_string($view)) {
+                    return $view;
+                }
+                unset($content['view']);
+                $content += $view === null ? [] : ['view' => $view];
+            }
         }
 
         // An editor changes the owner's artifact itself: the one row every member reads.
@@ -586,6 +602,10 @@ final class Artifacts
 
             return ['columns' => $old['columns'] ?? [], 'rows' => array_values(array_diff_key((array) ($old['rows'] ?? []), array_flip($drop)))];
         }
+        // Only how it is shown: the content as it was.
+        if ($kind === 'table' && isset($input['view'])) {
+            return $old;
+        }
         if (trim((string) ($input['title'] ?? '')) === '') {
             return 'Nothing to change: give a new title, or what to change in it.';
         }
@@ -611,6 +631,13 @@ final class Artifacts
             return $made;
         }
         [$kind, $title, $content] = $made;
+        if ($kind === 'table' && isset($input['view'])) {
+            $view = self::viewOf($input['view'], $content['columns']);
+            if (is_string($view)) {
+                return $view;
+            }
+            $content += $view === null ? [] : ['view' => $view];
+        }
 
         return $this->keep($kind, $title, $kind === 'list' ? (string) $input['entity'] : null, $content, self::subjectOf($input['subject'] ?? null));
     }
@@ -1122,6 +1149,44 @@ final class Artifacts
         return $out;
     }
 
+    /** How a table may be shown: as rows, as a board in columns by one of its columns, or on a calendar by a date column. */
+    public const VIEWS = ['table', 'board', 'calendar'];
+
+    /**
+     * A table's view as kept — `{type, by}`, `by` one of its columns — null for rows, or why not.
+     *
+     * @param list<string> $columns
+     * @return array{type: string, by: string}|string|null
+     */
+    public static function viewOf(mixed $view, array $columns): array|string|null
+    {
+        $view = is_array($view) ? $view : ['type' => (string) $view];
+        $type = (string) ($view['type'] ?? 'table');
+        if (!in_array($type, self::VIEWS, true)) {
+            return 'A view is one of: ' . implode(', ', self::VIEWS) . '.';
+        }
+        if ($type === 'table') {
+            return null;
+        }
+        $by = (string) ($view['by'] ?? '');
+        if (!in_array($by, $columns, true)) {
+            return 'A ' . $type . ' goes by one of the columns: ' . implode(', ', $columns) . '.';
+        }
+
+        return ['type' => $type, 'by' => $by];
+    }
+
+    /**
+     * How a table is shown, changed: by its owner or an editor.
+     *
+     * @param array<string, mixed> $view
+     * @return array<string, mixed>|string
+     */
+    public function setView(int $artifactId, array $view): array|string
+    {
+        return $this->update($artifactId, 'patch', ['view' => $view]);
+    }
+
     /** How long a saved query's result stands before a pinned one is run again, in seconds. */
     public const QUERY_STALE = 600;
 
@@ -1194,6 +1259,10 @@ final class Artifacts
             return $ran;
         }
         $content = ['columns' => $ran['columns'], 'rows' => $ran['rows'], 'query' => ['sql' => (string) $query['sql'], 'limit' => $ran['limit'], 'ran_at' => time()]];
+        // Shown as it was, where the column it goes by is still there.
+        if (is_array($found['content']['view'] ?? null) && in_array($found['content']['view']['by'] ?? '', $ran['columns'], true)) {
+            $content['view'] = $found['content']['view'];
+        }
         // Its result, kept for everyone who reads it: a reader's run refreshes it as an owner's does.
         $this->table()->where('artifact_id', $artifactId)->update(['content' => (string) json_encode($content, JSON_UNESCAPED_UNICODE), 'updated_at' => CallLog::instant(time())]);
         foreach ($this->audience($artifactId, (int) $found['userid']) as $userId) {

@@ -25,6 +25,8 @@ require_once __DIR__ . '/ChatApiTest.php';
 #[CoversClass(Artifacts::class)]
 #[CoversClass(\Pramnos\Llm\Chat\Assignments::class)]
 #[CoversClass(\Pramnos\Llm\Chat\Web\SubjectPanel::class)]
+#[CoversClass(\Pramnos\Llm\Chat\Web\ArtifactView::class)]
+#[CoversClass(\Pramnos\Llm\Chat\Web\ArtifactTools::class)]
 #[CoversClass(\Pramnos\Todos\Todos::class)]
 #[CoversClass(\Pramnos\Llm\Chat\Api\ChatController::class)]
 #[CoversClass(\Pramnos\Broadcasting\BroadcastingManager::class)]
@@ -578,5 +580,46 @@ class LivingArtifactsTest extends LlmTestCase
         $this->assertSame(['two'], $stale['content']['columns'], 'an old result is run again');
         $this->assertArrayHasKey('save_query', $tools);
         $this->assertStringContainsString('a saved query, run', Artifacts::asText($stale));
+    }
+
+    /**
+     * A table shown otherwise (FW-474): a board, a column for each value of one of its columns,
+     * a card a row; a calendar, its rows under their days and the rest after it; the view kept
+     * through a change of its rows, set by its owner, refused for a column it has not; through the
+     * API; offered under the table on the page.
+     */
+    #[DataProvider('databases')]
+    public function testATableShownAsABoardOrACalendar(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $userId = $this->user();
+        $a      = new Artifacts(new Scope($userId, null));
+        $made   = $a->create(['kind' => 'table', 'title' => 'Tickets', 'columns' => ['Title', 'Status', 'Due'],
+            'rows' => [['Refund', 'open', '2026-11-12'], ['Login', 'done', '2026-11-20'], ['Card', 'open', 'someday']], 'view' => ['type' => 'board', 'by' => 'Status']]);
+
+        // Act
+        $board    = \Pramnos\Llm\Chat\Web\ArtifactView::html($made);
+        $appended = $a->update($made['artifact_id'], 'append', ['rows' => [['New', 'waiting', '']]]);
+        $calendar = $a->setView($made['artifact_id'], ['type' => 'calendar', 'by' => 'Due']);
+        $drawn    = \Pramnos\Llm\Chat\Web\ArtifactView::html($calendar);
+        $wrong    = $a->setView($made['artifact_id'], ['type' => 'board', 'by' => 'Nope']);
+        $rows     = $a->setView($made['artifact_id'], ['type' => 'table']);
+        $badMade  = $a->create(['kind' => 'table', 'title' => 'x', 'columns' => ['A'], 'rows' => [['1']], 'view' => ['type' => 'gallery']]);
+        $api      = $this->route($userId, 'POST', '/chat/artifacts/' . $made['artifact_id'] . '/view', ['type' => 'board', 'by' => 'Status']);
+        $tools    = \Pramnos\Llm\Chat\Web\ArtifactTools::buttons($api['data'], ['view' => '/v/'], [], 0, '');
+
+        // Assert
+        $this->assertStringContainsString('pf-artifact-board', $board);
+        $this->assertMatchesRegularExpression('~<h4[^>]*>open <span[^>]*>2</span></h4>.*?<strong>Refund</strong>.*?<strong>Card</strong>~s', $board, 'a column for each value, a card a row');
+        $this->assertSame(['type' => 'board', 'by' => 'Status'], $appended['content']['view'], 'kept through a change of its rows');
+        $this->assertStringContainsString('<caption style="text-align:left;font-weight:600">November 2026</caption>', $drawn);
+        $this->assertMatchesRegularExpression('~>12</div><div[^>]*title="Refund">Refund</div>~', $drawn, 'under its day');
+        $this->assertMatchesRegularExpression('~<li>Card</li>~', $drawn, 'what has no date, after it');
+        $this->assertSame('A board goes by one of the columns: Title, Status, Due.', $wrong);
+        $this->assertArrayNotHasKey('view', $rows['content'], 'back to rows');
+        $this->assertStringStartsWith('A view is one of', (string) $badMade);
+        $this->assertSame([200, 'board'], [$api['status'], $api['data']['content']['view']['type']]);
+        $this->assertStringContainsString('<option value="board" selected>', $tools, 'offered under the table, as it is');
     }
 }

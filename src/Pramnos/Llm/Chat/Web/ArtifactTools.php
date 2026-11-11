@@ -15,7 +15,7 @@ final class ArtifactTools
 {
     /**
      * @param array<string, mixed>  $artifact As Artifacts::shape() answers
-     * @param array<string, string> $urls     download, print, pin, assign, rerun (each followed by the id)
+     * @param array<string, string> $urls     download, print, pin, assign, rerun, view (each followed by the id)
      * @param list<int>             $pinned   The ids this person has pinned
      * @param array<string, string> $c        The theme's classes: btnGhost
      */
@@ -38,6 +38,23 @@ final class ArtifactTools
                 . '<button type="submit" class="' . $e($c['btnGhost'] ?? '') . '" aria-pressed="' . ($on ? 'true' : 'false') . '">' . ($on ? $t('Unpin from dashboard') : $t('Pin to dashboard')) . '</button></form>';
         }
 
+        // How a table is shown: rows, a board by a column, a calendar by a date column.
+        if (($urls['view'] ?? '') !== '' && ($artifact['kind'] ?? '') === 'table' && !isset($artifact['shared'])) {
+            $now     = (array) ($artifact['content']['view'] ?? []);
+            $options = '';
+            foreach (['table' => 'Table', 'board' => 'Board', 'calendar' => 'Calendar'] as $type => $name) {
+                $options .= '<option value="' . $type . '"' . (($now['type'] ?? 'table') === $type ? ' selected' : '') . '>' . $t($name) . '</option>';
+            }
+            $by = '';
+            foreach ((array) ($artifact['content']['columns'] ?? []) as $column) {
+                $by .= '<option value="' . $e($column) . '"' . (($now['by'] ?? '') === (string) $column ? ' selected' : '') . '>' . $e($column) . '</option>';
+            }
+            $html .= '<form method="post" action="' . $e($urls['view'] . $id) . '" style="display:inline-flex;gap:.25rem;align-items:center">' . $token
+                . '<input type="hidden" name="conversation_id" value="' . $returnTo . '">'
+                . '<select name="type" aria-label="' . $t('Show as') . '">' . $options . '</select>'
+                . '<select name="by" aria-label="' . $t('By') . '">' . $by . '</select>'
+                . '<button type="submit" class="' . $e($c['btnGhost'] ?? '') . '">' . $t('Show') . '</button></form> ';
+        }
         // A saved query: run again, as it was saved.
         if (($urls['rerun'] ?? '') !== '' && is_array($artifact['content']['query'] ?? null)) {
             $html .= '<form method="post" action="' . $e($urls['rerun'] . $id) . '" style="display:inline">' . $token

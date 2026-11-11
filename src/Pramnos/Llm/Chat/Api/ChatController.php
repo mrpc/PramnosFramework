@@ -265,6 +265,20 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return is_string($done) ? self::error($done === 'There is no such saved query.' ? 404 : 422, $done) : ['status' => 200, 'data' => $done];
     }
 
+    /** How a table artifact is shown (`POST {chat}/artifacts/{id}/view`): `type` table, board or calendar, `by` a column. */
+    public function artifactView($artifact_id): array
+    {
+        if (($stop = $this->refusal('share')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        $input = $this->input();
+        $done  = $scope === null ? 'There is no such artifact.'
+            : (new \Pramnos\Llm\Chat\Artifacts($scope))->setView((int) $artifact_id, ['type' => (string) ($input['type'] ?? 'table'), 'by' => (string) ($input['by'] ?? '')]);
+
+        return is_string($done) ? self::error($done === 'There is no such artifact.' ? 404 : 422, $done) : ['status' => 200, 'data' => $done];
+    }
+
     /** Stop one of this person's shares. */
     public function revokeShare($share_id): array
     {

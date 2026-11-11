@@ -58,6 +58,23 @@ trait ActsOnLists
         return null;
     }
 
+    /** Show table artifact `{id}` as `type` (table, board, calendar) by column `by`. */
+    public function view(mixed $id = null): mixed
+    {
+        if ($this->taskDenied()) {
+            return null;
+        }
+        $scope  = $this->taskScope();
+        $result = $scope === null ? 'There is no such artifact.' : (new Artifacts($scope))->setView((int) ($id ?: \Pramnos\Http\Request::staticGetOption()),
+            ['type' => (string) ($_POST['type'] ?? 'table'), 'by' => (string) ($_POST['by'] ?? '')]);
+        if (is_string($result)) {
+            $this->addError($result);
+        }
+        $this->redirect($this->shareReturnUrl((int) ($_POST['conversation_id'] ?? 0)));
+
+        return null;
+    }
+
     /** Run saved query `{id}` again, as it was saved. */
     public function rerun(mixed $id = null): mixed
     {

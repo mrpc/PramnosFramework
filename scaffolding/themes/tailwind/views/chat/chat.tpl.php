@@ -196,7 +196,7 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false); @endphp
                             @php foreach ((array) ($m['artifacts'] ?? []) as $artifact): /* kept results: a table, a list, a text */; @endphp
                                 {!! \Pramnos\Llm\Chat\Web\ArtifactView::html($artifact, $c['card'], 'table table-sm', $c['muted']) !!}
                                 @if ($u['share'] !== ''){!! \Pramnos\Llm\Chat\Web\ShareView::form($u['share'], 'artifact', (int) $artifact['artifact_id'], $openId, $token(), $c) !!}@endif
-                                {!! \Pramnos\Llm\Chat\Web\ArtifactTools::buttons($artifact, ['download' => $u['download'], 'print' => $u['print'], 'pin' => $u['pin'], 'assign' => $u['assign'] ?? '', 'rerun' => $u['rerun'] ?? ''], $pinned, $openId, $token(), $c) !!}
+                                {!! \Pramnos\Llm\Chat\Web\ArtifactTools::buttons($artifact, ['download' => $u['download'], 'print' => $u['print'], 'pin' => $u['pin'], 'assign' => $u['assign'] ?? '', 'rerun' => $u['rerun'] ?? '', 'view' => $u['view'] ?? ''], $pinned, $openId, $token(), $c) !!}
                                 @if ($u['act'] !== '' && $artifact['kind'] === 'list'){!! \Pramnos\Llm\Chat\Web\BulkView::forms($bulk[(string) $artifact['entity']] ?? [], $u['act'], (int) $artifact['artifact_id'], count((array) ($artifact['content']['ids'] ?? [])), $openId, $token(), $c) !!}@endif
                                 @if ($u['approve'] !== ''){!! \Pramnos\Llm\Chat\Web\BulkView::decision($artifact, $u['approve'], $u['reject'], $openId, $token(), $c) !!}@endif
                             @endforeach

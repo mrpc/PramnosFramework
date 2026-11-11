@@ -683,6 +683,21 @@ told (see the [To-dos Guide](Pramnos_Todos_Guide.md#telling)).
 The model does the same with `assign_artifact(id, to, note, due)`, after the person confirms who
 and by when. The API is `POST {chat}/artifacts/{id}/assign` with `to`, `note` and `due`.
 
+### A table as a board or a calendar
+
+A table can be shown other than as rows. Its `view` is `{type, by}`, with `by` one of its columns:
+
+- **`board`**: a column for each value of `by`, a card for each row, its first other cell as the
+  title.
+- **`calendar`**: each month its rows fall in, a row under its day, and rows without a date
+  listed after it.
+
+The model gives a `view` in `save_artifact`, or changes it with `update_artifact` in mode
+`patch`. Under a table on the page, a person picks it by *Show as* and *By*, and the API is
+`POST {chat}/artifacts/{id}/view` with `type` and `by`. In code it is `Artifacts::setView($id,
+['type' => 'board', 'by' => 'Status'])`. A change of the rows keeps the view, and a saved query
+run again keeps it too. A person's plan starts as a board by `phase`.
+
 ### A saved query
 
 A read-only SELECT can be kept to run again. Its result is a table, so it is shown, exported,
