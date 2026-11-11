@@ -26,7 +26,7 @@ class TaskReminder implements NotificationInterface
     /** @return list<string> */
     public function via(mixed $notifiable): array
     {
-        return RoutineReady::channels($notifiable, $this->pushApp($notifiable));
+        return RoutineReady::channels($notifiable, $this->pushApp($notifiable), $this->space);
     }
 
     /** @return array{message: string, url: string} */

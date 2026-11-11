@@ -44,7 +44,7 @@ class RoutineReady implements NotificationInterface
     public function via(mixed $notifiable): array
     {
         // By email too when the reader's subscription asks for it and there is a report to send.
-        return [...self::channels($notifiable, $this->pushApp($notifiable)), ...($this->email && $this->ok && $this->content !== '' ? ['mail'] : [])];
+        return [...self::channels($notifiable, $this->pushApp($notifiable), $this->space), ...($this->email && $this->ok && $this->content !== '' ? ['mail'] : [])];
     }
 
     /**
@@ -74,9 +74,19 @@ class RoutineReady implements NotificationInterface
      *
      * @return list<string>
      */
-    public static function channels(mixed $notifiable, string $app = ''): array
+    public static function channels(mixed $notifiable, string $app = '', string $space = ''): array
     {
-        $chat    = \Pramnos\Llm\Llm::config('chat', []);
+        $chat = \Pramnos\Llm\Llm::config('chat', []);
+        // The companion's (`chat`, `chat:<persona>`) are its app's alone: never the site's bell,
+        // never the site's devices — unless the application asks (`companion_notify_via`). With no
+        // app, nothing goes: what it was about waits in the app's own pages.
+        if (People::companion($space) || $app === Scope::CHAT) {
+            $allowed = is_array($chat['companion_notify_via'] ?? null) ? $chat['companion_notify_via'] : ['push'];
+            $push    = $app !== '' && in_array('push', $allowed, true) && \Pramnos\Notification\Channels\PushChannel::sends()
+                && \Pramnos\Push\Subscriptions::exist((int) ($notifiable->userid ?? 0), $app);
+
+            return array_values(array_filter([in_array('database', $allowed, true) ? 'database' : '', $push ? 'push' : '']));
+        }
         $allowed = is_array($chat['notify_via'] ?? null) ? $chat['notify_via'] : ['database', 'push'];
         $push    = in_array('push', $allowed, true) && \Pramnos\Notification\Channels\PushChannel::sends()
             && \Pramnos\Push\Subscriptions::exist((int) ($notifiable->userid ?? 0), $app === '' ? null : $app);

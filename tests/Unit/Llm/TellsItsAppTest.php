@@ -57,4 +57,40 @@ final class TellsItsAppTest extends LlmTestCase
         $this->assertSame('', $made[0]->pushApp(null), 'no app: the site\'s devices');
         $this->assertSame('https://site.example/chat?c=1', $made[0]->toPush(null)['url']);
     }
+
+    /**
+     * The companion's notifications are its app's alone (FW-465): from `chat` or any persona's
+     * `chat:<persona>`, never the site's bell (`database`) nor the site's devices — the app's
+     * devices only, and with no app, nowhere — unless the application asks for the bell
+     * (`companion_notify_via`). The administration's keep the bell. An application's own class
+     * that names the app but not the space is the companion's too.
+     */
+    public function testTheCompanionsNotificationsNeverReachTheSite(): void
+    {
+        // Arrange
+        $this->configure(['chat' => ['app_url' => 'https://app.example/']]);
+        $tesla = RoutineReady::tag(new TaskReminder('Tesla left you something', ''), 'chat:tesla');
+        $naya  = RoutineReady::tag(new RoutineReady('Daily check-in', true, '', ''), Scope::CHAT);
+        $share = RoutineReady::tag(new SharedWithYou('Shared', ''), 'chat:tesla');
+        $admin = RoutineReady::tag(new TaskReminder('Review', ''), Scope::ADMIN);
+        $person = (object) ['userid' => 0];
+
+        // Act
+        $withApp  = [$tesla->pushApp($person), $tesla->via($person), $naya->via($person), $share->via($person), $admin->via($person)];
+        $ownClass = RoutineReady::channels($person, Scope::CHAT);
+        $this->configure([]);
+        $noApp    = [$tesla->pushApp($person), $tesla->via($person), $naya->via($person)];
+        $this->configure(['chat' => ['app_url' => 'https://app.example/', 'companion_notify_via' => ['database', 'push']]]);
+        $optedIn  = $tesla->via($person);
+
+        // Assert
+        $this->assertSame('chat', $withApp[0], 'every persona\'s goes to the app');
+        $this->assertNotContains('database', $withApp[1], 'never the site\'s bell');
+        $this->assertNotContains('database', $withApp[2]);
+        $this->assertNotContains('database', $withApp[3]);
+        $this->assertContains('database', $withApp[4], 'the administration\'s keep the bell');
+        $this->assertNotContains('database', $ownClass, 'an application\'s class naming the app');
+        $this->assertSame(['', [], []], $noApp, 'no app: nowhere at all, not the site\'s devices');
+        $this->assertSame(['database'], $optedIn, 'the bell only where the application asks for it');
+    }
 }

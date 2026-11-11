@@ -117,14 +117,21 @@ After each run:
 - Both go to the bell, and as a push where the owner has a browser subscribed. `'llm' => ['chat'
   => ['notify_via' => ['database']]]` keeps them to the bell; the list names the channels allowed
   (`database`, `push`).
-- **An assistant with an app of its own.** Where the assistant of the `chat` space lives in its
-  own app — a PWA on another origin, whose devices subscribe through the conversation API — the
-  application names it: `'llm' => ['chat' => ['app_url' => 'https://app.example/']]`. A task of
-  the `chat` space, a calendar reminder and a share made there then push to that app's devices
-  alone (`pushApp()`, see the Push guide), and the push opens the app. The bell keeps its link.
-  `Chat\TellsItsApp` does this for `RoutineReady`, `TaskReminder` and `SharedWithYou`; an
-  application's own class that extends one of them has it too, and one written from scratch
-  uses the trait.
+- **The companion's notifications are its app's alone.** The companion's assistant (the `chat`
+  space and every persona's `chat:<persona>`) lives in its own app, a PWA whose devices subscribe
+  through the conversation API. The application names it:
+  `'llm' => ['chat' => ['app_url' => 'https://app.example/']]`.
+    - **Which notifications:** a task of those spaces, a calendar reminder, a share made there and
+      the morning's thought.
+    - **Where they go:** push to that app's devices alone (`pushApp()`, see the Push guide), and
+      the push opens the app. They never go to the site's bell (`database`) or to the site's
+      devices: the companion's person is not necessarily somebody who uses the site.
+    - **No app:** they go nowhere, and what they were about waits in the app's own pages.
+    - **The bell:** an application that wants it too says so with
+      `'llm' => ['chat' => ['companion_notify_via' => ['database', 'push']]]`.
+    - **Which classes:** `Chat\TellsItsApp` and `RoutineReady::channels($notifiable, $app, $space)` do
+      this for `RoutineReady`, `TaskReminder` and `SharedWithYou`. An application's own class that
+      extends one of them has it too, and one written from scratch uses the trait.
 - A one-off is done once it ran.
 - A notification's link that was built with no site address, as in a cron run with no `APP_URL`,
   starts from the site's root rather than from the page the notification is opened on.

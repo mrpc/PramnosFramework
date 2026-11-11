@@ -5,10 +5,11 @@ declare(strict_types=1);
 namespace Pramnos\Llm\Chat;
 
 /**
- * A notification of the conversations that knows the space it comes from, and goes, by push, to
- * the devices of the assistant's own app where it comes from the `chat` space and the
- * application has an app (`'llm' => ['chat' => ['app_url' => 'https://…/']]`) — its devices
- * alone, the push opening the app. Anywhere else, the site's, as before.
+ * A notification of the conversations that knows the space it comes from. One of the companion's
+ * (`chat`, `chat:<persona>`) goes by push to the devices of its own app alone
+ * (`'llm' => ['chat' => ['app_url' => 'https://…/']]`), the push opening the app — never the
+ * site's bell or devices ({@see RoutineReady::channels()}), and nowhere without an app. Anywhere
+ * else, the site's.
  *
  * {@see RoutineReady}, {@see TaskReminder} and {@see SharedWithYou} use it, and so may an
  * application's own replacement of them: the senders call {@see fromSpace()} where it is there,
@@ -33,10 +34,10 @@ trait TellsItsApp
         return self::appOf($this->space);
     }
 
-    /** The app a space's notifications go to: `chat`, where the application has an app for it. */
+    /** The app a space's notifications go to: `chat` for the companion's, every persona's, where the application has an app for it. */
     public static function appOf(string $space): string
     {
-        return $space === Scope::CHAT && self::appUrl() !== '' ? Scope::CHAT : '';
+        return People::companion($space) && self::appUrl() !== '' ? Scope::CHAT : '';
     }
 
     /** The assistant's own app, where the application has one: `'llm' => ['chat' => ['app_url' => …]]`. */
