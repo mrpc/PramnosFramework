@@ -291,6 +291,11 @@ budget and reasoning switch, set on `/admin/Ai/settings`:
 `new Connection(feature: 'writer')` then applies them. A model or reasoning switch set for one
 provider is not asked of another when an answer moves.
 
+On the screen, a feature's Model is a list: the models of the provider the row names, or of the
+installation's provider when the row names none, and changing the row's provider changes the list.
+"— (the provider's)" leaves it to the provider's own setting, and a saved model that is in no list
+stays offered as it is.
+
 ## Policies
 
 Each defaults to "allow, record nothing", and is a class named in `app.php` (built once per

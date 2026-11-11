@@ -402,7 +402,10 @@ class AiScreenTest extends LlmTestCase
         ]];
         $screen = [
             'providers' => $providers, 'selected' => 'deepseek', 'timeout' => 0, 'logging' => true,
-            'features' => [['name' => 'chat', 'label' => 'Ask <AI>', 'values' => ['provider' => 'deepseek', 'model' => '', 'temperature' => '', 'max_tokens' => '', 'reasoning' => '1']]],
+            'features' => [['name' => 'chat', 'label' => 'Ask <AI>', 'values' => ['provider' => 'deepseek', 'model' => '', 'temperature' => '', 'max_tokens' => '', 'reasoning' => '1']],
+                // FW-416: a model from the installation's provider's list, and one saved that is in no list.
+                ['name' => 'writer', 'label' => 'Writer', 'values' => ['provider' => '', 'model' => 'deepseek-chat', 'temperature' => '', 'max_tokens' => '', 'reasoning' => '']],
+                ['name' => 'naya', 'label' => 'Naya', 'values' => ['provider' => 'deepseek', 'model' => 'custom-x', 'temperature' => '', 'max_tokens' => '', 'reasoning' => '']]],
             'prices' => '{}', 'day' => ['calls' => 2, 'failed' => 1, 'tokens' => 30, 'cost' => 0.5, 'unpriced' => 1, 'ms' => 3],
             'month' => [], 'byModel' => [['model' => 'm', 'calls' => 2, 'cost' => 0.5, 'unpriced' => 1]],
             'calls' => [['call_id' => 9, 'created_at' => 'now', 'purpose' => 'chat', 'provider' => 'deepseek', 'model' => 'm',
@@ -425,6 +428,12 @@ class AiScreenTest extends LlmTestCase
             $this->assertStringContainsString('key:generate', $page, $theme . ': warns when keys cannot be encrypted');
             $this->assertStringContainsString('1 not priced, not in the total', $page, $theme);
             $this->assertStringContainsString('&lt;b&gt;hi&lt;/b&gt;', $one, $theme);
+            // A feature's Model is a list of its provider's models, the installation's when it has none, a saved one outside it kept.
+            $this->assertStringContainsString('name="features[writer][model]" class="', $page, $theme);
+            $this->assertStringContainsString('data-pf-feature-model data-default-provider="deepseek"', $page, $theme);
+            $this->assertMatchesRegularExpression('~<optgroup label="DeepSeek" data-provider="deepseek">\s*<option value="deepseek-chat" selected>Chat</option>~', $page, $theme);
+            $this->assertStringContainsString('<option value="custom-x" selected>custom-x</option>', $page, $theme);
+            $this->assertStringContainsString("<option value=\"\">— (the provider's)</option>", $page, $theme);
         }
     }
 

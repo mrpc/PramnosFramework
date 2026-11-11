@@ -200,7 +200,18 @@ $labels    = array_column($providers, 'label', 'id'); @endphp
                                     <option value="{{ $id }}"{!! $v['provider'] === (string) $id ? ' selected' : '' !!}>{{ $label }}</option>
                                 @endforeach
                             </select></td>
-                            <td><input name="{!! $n !!}[model]" value="{{ $v['model'] }}" class="{!! $c['input'] !!}"></td>
+                            @php $rowProvider = $v['provider'] !== '' ? $v['provider'] : $selected; $rowModels = (array) (array_column($providers, 'models', 'id')[$rowProvider] ?? []); @endphp
+                            <td><select name="{!! $n !!}[model]" class="{!! $c['input'] !!}" data-pf-feature-model data-default-provider="{{ $selected }}">
+                                <option value="">— (the provider's)</option>
+                                @foreach ($providers as $p)
+                                    <optgroup label="{{ $p['label'] }}" data-provider="{{ $p['id'] }}">
+                                        @foreach ((array) $p['models'] as $id => $what)
+                                            <option value="{{ $id }}"{!! $p['id'] === $rowProvider && (string) $id === $v['model'] ? ' selected' : '' !!}>{{ $what }}</option>
+                                        @endforeach
+                                    </optgroup>
+                                @endforeach
+                                @if ($v['model'] !== '' && !isset($rowModels[$v['model']]))<option value="{{ $v['model'] }}" selected>{{ $v['model'] }}</option>@endif
+                            </select></td>
                             <td><input type="number" step="0.1" min="0" max="2" name="{!! $n !!}[temperature]" value="{{ $v['temperature'] }}" class="{!! $c['input'] !!}"></td>
                             <td><input type="number" min="1" name="{!! $n !!}[max_tokens]" value="{{ $v['max_tokens'] }}" class="{!! $c['input'] !!}"></td>
                             <td><select name="{!! $n !!}[reasoning]" class="{!! $c['input'] !!}">
@@ -214,6 +225,23 @@ $labels    = array_column($providers, 'label', 'id'); @endphp
                 </table>
                 <button type="submit" class="{!! $c['btn'] !!}">Save</button>
             </form>
+            <script nonce="{{ defined('PAGE_NONCE') ? PAGE_NONCE : '' }}">
+            // A feature's Model offers its own provider's models — or the installation's, with no provider of its own.
+            (function () {
+                document.querySelectorAll('[data-pf-feature-model]').forEach(function (model) {
+                    var provider = model.closest('tr').querySelector('select[name$="[provider]"]');
+                    var show = function () {
+                        var id = provider.value || model.getAttribute('data-default-provider');
+                        model.querySelectorAll('optgroup').forEach(function (group) {
+                            group.hidden = group.disabled = group.getAttribute('data-provider') !== id;
+                        });
+                        if (model.selectedOptions[0] && model.selectedOptions[0].parentNode.disabled) { model.value = ''; }
+                    };
+                    provider.addEventListener('change', show);
+                    show();
+                });
+            })();
+            </script>
         </section>
     @endif
 
