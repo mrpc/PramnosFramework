@@ -323,7 +323,9 @@ window.PfCompanion.unmount();
 crossing that threshold sets `data-pf-companion-activity="away"` on the dock and dispatches
 `pf-companion:activity`; activity resuming sets it back. With `into: element`, the dock is drawn
 inside that element, in the page's flow, with no fixed corner (`.pf-companion-dock--inline`) — for
-a page of its own inside a shell whose menu and floating buttons would cover a corner. Clicking
+a page of its own inside a shell whose menu and floating buttons would cover a corner. Inline, the
+dock takes the size of the avatar it holds rather than the corner's 56px, and the drawing may
+reach past its own box, so a 64px avatar with an antenna is not cut. Clicking
 the dock dispatches
 `pf-companion:click` and does nothing else — not open the assist panel, not anything — because
 what a click should do is the application's decision, not this file's.
@@ -352,6 +354,13 @@ If the mounted avatar's root element happens to carry `data-poses="sitting,sleep
 plain comma list — entirely optional, read straight from the DOM, nothing enforces it), the panel
 turns it into quick-pick buttons too; absent, the free-text box is all there is. A toggle forces
 `pf-companion:activity` active/away to preview idle visuals without waiting out `idleMs`.
+The buttons are the framework's (`pf-btn pf-btn-sm`), so a theme's reset does not leave them as
+bare text. The one playing now is `aria-pressed="true"` and drawn in the accent: the state the
+dock shows at mount (`idle` when it shows none), then the one clicked, then whichever
+`pf-assistant:state` names when a state ends by itself. The same goes for the pose picked, and
+for the toggle while "away" is previewed. Inside the page (`into`) the panel is still a framed
+card on the surface, without the floating shadow, and its preview, like the inline dock, is as
+large as the avatar.
 
 Not a route: mount it on whatever `/debug` page an application already has, the same way it
 would mount anything else. Nothing here adds a new controller or permission surface.

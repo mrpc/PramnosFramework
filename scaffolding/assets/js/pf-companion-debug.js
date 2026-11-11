@@ -27,6 +27,14 @@
     'use strict';
 
     var panel = null;
+    var following = null;
+
+    /** Mark the one button of a group that is playing now: aria-pressed, which the themes draw. */
+    function press(group, name) {
+        Array.prototype.forEach.call(group.querySelectorAll('button'), function (button) {
+            button.setAttribute('aria-pressed', button.textContent === name ? 'true' : 'false');
+        });
+    }
 
     function el(tag, className) {
         var e = document.createElement(tag);
@@ -69,30 +77,37 @@
 
         var states = el('div', 'pf-companion-debug-states');
         (window.pfAssistant ? window.pfAssistant.states : []).forEach(function (name) {
-            var button = el('button', 'pf-companion-debug-state');
+            var button = el('button', 'pf-btn pf-btn-sm pf-companion-debug-state');
             button.setAttribute('type', 'button');
             button.textContent = name;
             button.addEventListener('click', function () {
                 if (window.pfAssistant) {
                     window.pfAssistant.state(name);
                 }
+                press(states, name);
             });
             states.appendChild(button);
         });
         root.appendChild(states);
+        var shown = avatarOf(currentDock);
+        press(states, (shown && shown.getAttribute('data-state')) || 'idle');
+        // A state that ends by itself (success → idle) moves the mark with it.
+        following = function (event) { press(states, event.detail && event.detail.state); };
+        document.addEventListener('pf-assistant:state', following);
 
         var avatar = avatarOf(currentDock);
         var declaredPoses = avatar ? (avatar.getAttribute('data-poses') || '') : '';
         if (declaredPoses) {
             var poses = el('div', 'pf-companion-debug-poses');
             declaredPoses.split(',').map(function (s) { return s.trim(); }).filter(Boolean).forEach(function (name) {
-                var button = el('button', 'pf-companion-debug-pose');
+                var button = el('button', 'pf-btn pf-btn-sm pf-companion-debug-pose');
                 button.setAttribute('type', 'button');
                 button.textContent = name;
                 button.addEventListener('click', function () {
                     if (window.PfCompanion) {
                         window.PfCompanion.setPose(name);
                     }
+                    press(poses, name);
                 });
                 poses.appendChild(button);
             });
@@ -104,7 +119,7 @@
         input.setAttribute('placeholder', 'Any pose name…');
         root.appendChild(input);
 
-        var apply = el('button', 'pf-companion-debug-apply');
+        var apply = el('button', 'pf-btn pf-btn-sm pf-companion-debug-apply');
         apply.setAttribute('type', 'button');
         apply.textContent = 'Apply';
         apply.addEventListener('click', function () {
@@ -114,8 +129,10 @@
         });
         root.appendChild(apply);
 
-        var activityToggle = el('button', 'pf-companion-debug-activity');
+        var activityToggle = el('button', 'pf-btn pf-btn-sm pf-companion-debug-activity');
         activityToggle.setAttribute('type', 'button');
+        // Pressed while previewing "away".
+        activityToggle.setAttribute('aria-pressed', currentDock && currentDock.getAttribute('data-pf-companion-activity') === 'away' ? 'true' : 'false');
         activityToggle.textContent = 'Toggle active/away';
         activityToggle.addEventListener('click', function () {
             var target = dock();
@@ -123,6 +140,7 @@
             if (target) {
                 target.setAttribute('data-pf-companion-activity', next ? 'active' : 'away');
             }
+            activityToggle.setAttribute('aria-pressed', next ? 'false' : 'true');
             document.dispatchEvent(new CustomEvent('pf-companion:activity', { bubbles: true, detail: { active: next } }));
         });
         root.appendChild(activityToggle);
@@ -134,6 +152,10 @@
     }
 
     function unmount() {
+        if (following) {
+            document.removeEventListener('pf-assistant:state', following);
+            following = null;
+        }
         if (panel && panel.parentNode) {
             panel.parentNode.removeChild(panel);
         }

@@ -2367,11 +2367,21 @@ a.pf-person:hover { background: var(--pf-subtle); }
     background: var(--pf-surface); color: var(--pf-fg); box-shadow: var(--pf-pop-shadow);
     font-size: 0.8rem;
 }
-.pf-companion-debug-preview { width: 96px; height: 96px; margin: 0 auto 10px; }
+.pf-companion-debug-preview { margin: 0 auto 10px; }
 .pf-companion-debug-states, .pf-companion-debug-poses { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .pf-companion-debug-panel button { padding: 4px 10px; font-size: 0.75rem; border-radius: 999px; border: 1px solid var(--pf-line); background: transparent; color: var(--pf-fg); cursor: pointer; }
 .pf-companion-debug-panel button:hover { background: var(--pf-subtle); }
 .pf-companion-debug-panel input[type="text"] { width: 100%; padding: 4px 8px; margin-bottom: 6px; border: 1px solid var(--pf-line); border-radius: var(--pf-radius); background: var(--pf-surface); color: var(--pf-fg); font-size: 0.75rem; }
+/* Inline: as big as the avatar it holds — a 64px one with an antenna is not cut to 56 — and the
+   preview likewise; a drawing may reach past its own box. */
+.pf-companion-dock.pf-companion-dock--inline { display: inline-block; width: auto; height: auto; }
+.pf-companion-dock--inline .pf-assistant-avatar, .pf-companion-debug-preview .pf-assistant-avatar { width: auto; height: auto; max-width: none; }
+.pf-companion-dock--inline svg, .pf-companion-debug-preview svg { overflow: visible; }
+.pf-companion-debug-preview { width: auto; height: auto; min-height: 96px; display: flex; align-items: center; justify-content: center; overflow: visible; }
+/* Inline, in a page's flow: still a card — framed, on the surface, no floating shadow. */
+.pf-companion-debug-panel.pf-companion-debug-panel--inline { display: inline-block; border: 1px solid var(--pf-line); background: var(--pf-surface); box-shadow: none; }
+/* The state, pose or preview playing now. */
+.pf-companion-debug-panel button[aria-pressed="true"] { background: var(--pf-accent); border-color: var(--pf-accent); color: var(--pf-accent-fg); }
 
 /* A group of dashboard cards as tabs. The theme's own tabs draw the strip; these are for a view
    that uses the framework's tab classes instead, as the plain theme does. */

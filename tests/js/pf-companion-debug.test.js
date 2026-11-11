@@ -178,3 +178,36 @@ test('mount({into}) draws the panel inside that element', () => {
     assert.equal(cornered.parentNode, document.body);
     assert.equal(cornered.className, 'pf-companion-debug-panel');
 });
+
+/**
+ * FW-418: the panel's buttons carry the framework's button class — a theme's reset leaves a bare
+ * <button> as plain text — and the one playing now is aria-pressed: the dock's state at mount
+ * (idle when it says none), the clicked one after, and whichever `pf-assistant:state` names when
+ * a state ends by itself. The activity toggle is pressed while previewing "away".
+ */
+test('the panel marks what is playing and draws its buttons as the framework\'s', () => {
+    // Arrange
+    mountDock('wave,sit');
+    window.PfCompanionDebug.mount();
+    const pressed = (selector) => Array.from(document.querySelectorAll(selector))
+        .filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent);
+
+    // Act
+    const atMount = pressed('.pf-companion-debug-state');
+    document.querySelectorAll('.pf-companion-debug-state')[4].click(); // 'success'
+    const clicked = pressed('.pf-companion-debug-state');
+    document.dispatchEvent(new window.CustomEvent('pf-assistant:state', { detail: { state: 'idle' } }));
+    const ended = pressed('.pf-companion-debug-state');
+    document.querySelectorAll('.pf-companion-debug-pose')[1].click();
+    const toggle = document.querySelector('.pf-companion-debug-activity');
+    toggle.click();
+
+    // Assert
+    assert.deepEqual(atMount, ['idle'], 'nothing said: idle');
+    assert.deepEqual(clicked, ['success']);
+    assert.deepEqual(ended, ['idle'], 'followed back when the state ended by itself');
+    assert.deepEqual(pressed('.pf-companion-debug-pose'), ['sit']);
+    assert.equal(toggle.getAttribute('aria-pressed'), 'true', 'away is being previewed');
+    // Every button is the framework's, so a theme's reset does not leave it bare text.
+    document.querySelectorAll('.pf-companion-debug-panel button').forEach((b) => assert.ok(b.classList.contains('pf-btn'), b.textContent));
+});
