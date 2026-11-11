@@ -190,6 +190,13 @@ Start from the cohort, not the campaign. …
   belongs to no skill stays offered all the time, because listing it says what the skill uses, not
   that it should be held back. A name that is not a declared tool is ignored.
 - The body follows `Turned on crm-loyalty: audience_segments, …` in `use_skill`'s answer.
+**A skill stays on in its conversation.** Once turned on, it stays on in the conversation's
+later answers. Its tools are offered from the start of each answer, and its method is in the
+context, until the model turns it off with `close_skill`. At most the latest three
+(`Conversations::OPEN_SKILLS`) stay on. A new conversation starts with none on. A story told
+over many messages, a plan kept up, a summary refreshed each keep their method without being
+turned on again.
+
 - `spaces` (or `space`) is where the skill is offered: `[admin]` for the Ask, `[chat]` for the
   companion (every persona's), or any other space. A skill that says nothing, or says `all`, is
   offered everywhere.

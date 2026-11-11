@@ -213,6 +213,49 @@ class SkillsTest extends LlmTestCase
     }
 
     /**
+     * A skill turned on stays on in the conversation's later answers — its tools offered from the
+     * start, its method in the context — until the model turns it off with close_skill; another
+     * conversation starts with none on.
+     */
+    #[DataProvider('databases')]
+    public function testASkillTurnedOnStaysOnInItsConversation(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $dir = sys_get_temp_dir() . '/pf-open-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        file_put_contents($dir . '/crm.md', "---\nname: crm-loyalty\ndescription: Retention\ntools: [crm_lookup]\n---\nStart from the cohort.");
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => ['skills_path' => $dir]]);
+        $this->answer([
+            [200, self::calls([['use_skill', ['skill' => 'crm-loyalty']]])], [200, self::says('On.')],
+            [200, self::says('Still on.')],
+            [200, self::calls([['close_skill', ['skill' => 'crm-loyalty']]])], [200, self::says('Off.')],
+            [200, self::says('Plain.')],
+            [200, self::says('New.')],
+        ]);
+        $chat = new Conversations(self::assistant());
+
+        try {
+            // Act
+            $id = $chat->as(new Scope(7, null))->ask(null, 'Who drifts?')['conversation_id'];
+            $chat->as(new Scope(7, null))->ask($id, 'And then?');
+            $chat->as(new Scope(7, null))->ask($id, 'Done with that.');
+            $chat->as(new Scope(7, null))->ask($id, 'Something else.');
+            $chat->as(new Scope(7, null))->ask(null, 'Hi');
+        } finally {
+            unlink($dir . '/crm.md');
+            rmdir($dir);
+        }
+
+        // Assert
+        $this->assertContains('crm_lookup', self::offered($this->sent[2]), 'on from the start of the next answer');
+        $this->assertContains('close_skill', self::offered($this->sent[2]));
+        $this->assertStringContainsString("## crm-loyalty\nStart from the cohort.", self::systemOf($this->sent[2]), 'its method in the context');
+        $this->assertNotContains('crm_lookup', self::offered($this->sent[5]), 'turned off, it leaves');
+        $this->assertNotContains('crm_lookup', self::offered($this->sent[6]), 'another conversation starts with none on');
+    }
+
+    /**
      * A skill file says where it is offered (`spaces`): the Ask's methods only in the Ask, the
      * companion's stories only in the companion — `chat` covering every persona — and one that
      * says nothing everywhere.

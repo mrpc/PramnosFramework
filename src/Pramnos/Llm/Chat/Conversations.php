@@ -1406,6 +1406,13 @@ class Conversations
             }
         }
 
+        // The skills still on in this conversation: their method, as when they were turned on.
+        $skillsOn = $this->openSkillsContext($turn);
+        if ($skillsOn !== '') {
+            $lines[] = '';
+            $lines[] = $skillsOn;
+        }
+
         // The person's plan, a line a project, in every persona and the Ask alike (Plan).
         if ($adult && Plan::on($this->scope) && !$turn->shared()) {
             $plan = (new Plan($this->scope, $this->assistant->timezone($this->scope)))->context();
@@ -1638,8 +1645,68 @@ class Conversations
         // its references, read on demand.
         Skills::declare($registry, $files + $stored);
         $context = $this->scope?->context() ?? [];
+        // The skills turned on earlier in this conversation stay on: their tools from the start of
+        // the answer — their method is in the context ({@see openSkillsContext()}) — until closed.
+        $open    = array_values(array_intersect($this->openSkills($turn), array_keys($files + $stored + $notes)));
+        $this->offeredSkills = $files + $stored;
 
-        return $registry->tools($context, []) + $registry->skillTool($context);
+        return $registry->tools($context, $open) + $registry->skillTool($context) + ($open === [] ? [] : ['close_skill' => [
+            'description' => 'Turn off a skill turned on earlier in this conversation, when its work is done: its tools and method leave.',
+            'parameters'  => ['type' => 'object', 'properties' => ['skill' => ['type' => 'string', 'enum' => $open]], 'required' => ['skill']],
+            'run'         => static fn (array $a): string => in_array((string) ($a['skill'] ?? ''), $open, true) ? 'Turned off ' . $a['skill'] . '.' : 'Error: that skill is not on.',
+        ]]);
+    }
+
+    /** How many skills stay on in a conversation at most: the latest turned on. */
+    public const OPEN_SKILLS = 3;
+
+    /** The skills offered in the answer under way, for the method of the ones still on. @var array<string, array<string, mixed>> */
+    private array $offeredSkills = [];
+
+    /**
+     * The skills turned on in this conversation's earlier answers and not turned off since, the
+     * latest first, at most {@see OPEN_SKILLS} — read from the calls the answers made.
+     *
+     * @return list<string>
+     */
+    private function openSkills(?Turn $turn): array
+    {
+        if ($turn === null || $turn->conversationId === null || $turn->shared()) {
+            return [];
+        }
+        $open   = [];
+        $closed = [];
+        $rows   = $this->table('assist.chat_messages')->select(['tools'])->where('conversation_id', $turn->conversationId)->where('role', 'assistant')
+            ->orderBy('message_id', 'desc')->limit(50)->getAllOrFail();
+        foreach ($rows as $row) {
+            foreach (array_reverse((array) json_decode((string) ($row['tools'] ?? ''), true)) as $call) {
+                $skill = (string) (($call['arguments'] ?? [])['skill'] ?? '');
+                if ($skill === '' || isset($open[$skill]) || isset($closed[$skill])) {
+                    continue;
+                }
+                if (($call['name'] ?? '') === 'close_skill') {
+                    $closed[$skill] = true;
+                } elseif (($call['name'] ?? '') === 'use_skill') {
+                    $open[$skill] = true;
+                }
+            }
+        }
+
+        return array_slice(array_keys($open), 0, self::OPEN_SKILLS);
+    }
+
+    /** The method of each skill still on in this conversation, for its context; '' for none. */
+    private function openSkillsContext(Turn $turn): string
+    {
+        $parts = [];
+        foreach ($this->openSkills($turn) as $skill) {
+            $method = trim((string) ($this->offeredSkills[$skill]['instructions'] ?? (Skills::load()[$skill]['instructions'] ?? '')));
+            if ($method !== '') {
+                $parts[] = '## ' . $skill . "\n" . mb_substr($method, 0, 4000);
+            }
+        }
+
+        return $parts === [] ? '' : "Skills on in this conversation — their tools are yours, keep to their method; turn one off with close_skill when its work is done:\n\n" . implode("\n\n", $parts);
     }
 
     /**
