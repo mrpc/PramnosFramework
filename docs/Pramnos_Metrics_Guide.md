@@ -725,6 +725,28 @@ plus any value found in the report's periods. With `total`, a last row follows t
 metric without the breakdown. For a distinct metric that total is counted, not added up.
 A section's `total` adds up its rows but leaves breakdown totals out.
 
+### Formula rows
+
+A row with a `formula` works a number out of other metrics, each read with filters of its own:
+
+```php
+['label' => 'Ratio', 'formula' => '100 * a / b', 'unit' => '%', 'operands' => [
+    'a' => ['metric' => 'demand.count', 'filters' => ['pillar' => 'care']],
+    'b' => ['metric' => 'supply.count'],
+]],
+```
+
+- **In each column,** every operand is read in the column's period with its own filters, the
+  row's and the column's, and the formula is worked out. A missing operand, or a division by
+  nothing, leaves the cell empty.
+- **The formula** takes names, numbers, `+ - * /`, unary minus and parentheses, as a derived
+  metric's does (`Metric::derived()`). A name that no operand gives is refused when the report is
+  read.
+- **Totals and charts:** a section's total leaves formula rows out, since a ratio or a share is
+  not added up. A section's chart leaves them out too.
+- **Comparing:** where the report compares, the formula is worked out for the other period the
+  same way.
+
 ### What each reader sees
 
 - **Rows:** a row reads only a metric its reader may see. The others are left out, and the

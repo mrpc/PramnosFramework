@@ -165,12 +165,14 @@ final class ReportBoard
             if ($section['chart'] !== null && $section['rows'] !== []) {
                 // Untitled: the section's heading is drawn once, by the section above it.
                 $cards[] = ['id' => 'report.chart~c' . $i, 'size' => Widget::FULL, 'settings' => [
-                    'series' => array_map(static fn (array $row): array => ['label' => $row['label'], 'metric' => $row['metric'], 'filters' => $row['filters'], 'breakdown' => (string) $row['breakdown']], $section['rows']),
+                    'series' => array_map(static fn (array $row): array => ['label' => $row['label'], 'metric' => $row['metric'], 'filters' => $row['filters'], 'breakdown' => (string) $row['breakdown']],
+                        array_values(array_filter($section['rows'], static fn (array $row): bool => !isset($row['formula'])))),
                     'chart'  => $section['chart'],
                 ]];
             }
             $cards[] = ['id' => 'report.table~t' . $i, 'size' => Widget::FULL, 'settings' => [
-                'rows'  => array_map(static fn (array $row): array => ['label' => $row['label'], 'metric' => $row['metric'], 'filters' => $row['filters'], 'breakdown' => (string) $row['breakdown'], 'total' => $row['total']], $section['rows']),
+                'rows'  => array_map(static fn (array $row): array => ['label' => $row['label'], 'metric' => $row['metric'], 'filters' => $row['filters'], 'breakdown' => (string) $row['breakdown'], 'total' => $row['total']]
+                    + array_intersect_key($row, array_flip(['formula', 'operands', 'unit'])), $section['rows']),
                 'total' => $section['total'] ? '1' : '',
             ]];
         }

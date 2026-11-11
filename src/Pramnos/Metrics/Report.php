@@ -75,6 +75,12 @@ final class Report
         foreach ((array) ($definition['sections'] ?? []) as $section) {
             $rows = [];
             foreach ((array) ($section['rows'] ?? []) as $row) {
+                // A formula over filtered metrics: its first operand's metric stands for it where one is asked for.
+                $formula = self::formula($row);
+                if ($formula !== null) {
+                    $rows[] = $formula;
+                    continue;
+                }
                 $metric = trim((string) ($row['metric'] ?? ''));
                 if ($metric === '') {
                     continue;
@@ -114,6 +120,52 @@ final class Report
         }
 
         return new self($clean);
+    }
+
+    /**
+     * A formula row as kept — `formula` over named `operands`, each a metric with filters of its
+     * own — or null for a row that is not one. The formula is checked here: a name it uses that
+     * no operand gives, or an expression that cannot be read, is refused.
+     *
+     * ```php
+     * ['label' => 'Ratio', 'formula' => '100 * a / b', 'unit' => '%', 'operands' => [
+     *     'a' => ['metric' => 'demand.count', 'filters' => ['pillar' => 'care']],
+     *     'b' => ['metric' => 'supply.count'],
+     * ]]
+     * ```
+     *
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>|null
+     */
+    private static function formula(array $row): ?array
+    {
+        $expression = trim((string) ($row['formula'] ?? ''));
+        if ($expression === '') {
+            return null;
+        }
+        $operands = [];
+        foreach ((array) ($row['operands'] ?? []) as $name => $operand) {
+            $metric = trim((string) (((array) $operand)['metric'] ?? ''));
+            if (preg_match('/^[a-z][a-z0-9_]*$/', (string) $name) === 1 && $metric !== '') {
+                $operands[(string) $name] = ['metric' => $metric, 'filters' => self::filters(((array) $operand)['filters'] ?? [])];
+            }
+        }
+        $program = Metric::derived('report.formula', $expression);
+        $missing = array_diff($program->operands(), array_keys($operands));
+        if ($operands === [] || $missing !== []) {
+            throw new \InvalidArgumentException('The formula "' . $expression . '" uses ' . ($missing === [] ? 'no operand' : implode(', ', $missing)) . ' it is not given.');
+        }
+
+        return [
+            'label'     => trim((string) ($row['label'] ?? '')) !== '' ? trim((string) $row['label']) : $expression,
+            'metric'    => reset($operands)['metric'],
+            'filters'   => self::filters($row['filters'] ?? []),
+            'breakdown' => null,
+            'total'     => false,
+            'formula'   => $expression,
+            'operands'  => $operands,
+            'unit'      => (string) ($row['unit'] ?? ''),
+        ];
     }
 
     /**
@@ -376,11 +428,12 @@ final class Report
             if ($section['total'] && $rows !== []) {
                 $total = [];
                 foreach (array_keys($columns) as $i) {
-                    $cells     = array_filter(array_map(static fn (array $r): ?float => $r['cells'][$i]['value'] ?? null, array_filter($rows, static fn (array $r): bool => !$r['subtotal'])), static fn ($v): bool => $v !== null);
+                    // A formula — a ratio, a share — is not added into a total.
+                    $cells     = array_filter(array_map(static fn (array $r): ?float => $r['cells'][$i]['value'] ?? null, array_filter($rows, static fn (array $r): bool => !$r['subtotal'] && empty($r['formula']))), static fn ($v): bool => $v !== null);
                     $total[$i] = $cells === [] ? null : array_sum($cells);
                 }
                 // Amounts in more than one currency, or money beside counts, make no total.
-                if (count(array_unique(array_map(static fn (array $r): string => (string) $r['currency'], array_filter($rows, static fn (array $r): bool => !$r['subtotal'] && $r['error'] === null)))) > 1) {
+                if (count(array_unique(array_map(static fn (array $r): string => (string) $r['currency'], array_filter($rows, static fn (array $r): bool => !$r['subtotal'] && $r['error'] === null && empty($r['formula']))))) > 1) {
                     $total = null;
                 }
             }
@@ -450,6 +503,10 @@ final class Report
      */
     private function expandRow(array $row, Window $anchor, array $columns): array
     {
+        if (isset($row['formula'])) {
+            return [['label' => $row['label'], 'metric' => $row['metric'], 'filters' => $row['filters'], 'subtotal' => false,
+                'formula' => $row['formula'], 'operands' => $row['operands'], 'unit' => $row['unit']]];
+        }
         $metric = Metrics::get($row['metric']);
         $label  = $row['label'] !== '' ? $row['label'] : $metric->label();
         if ($row['breakdown'] === null) {
@@ -479,6 +536,53 @@ final class Report
     }
 
     /**
+     * A formula row's cells: in each column, each operand read with its own filters, the row's
+     * and the column's, then the formula worked out — null where an operand is missing or a
+     * division is by nothing. Compared the same way, where the report compares.
+     *
+     * @param array<string, mixed>       $row
+     * @param array<string, Metric>      $visible
+     * @param list<array<string, mixed>> $columns
+     * @return array<string, mixed>
+     */
+    private function buildFormula(array $row, array $visible, array $columns, Window $anchor, ?string $compare, string $grain): array
+    {
+        $built   = ['label' => $row['label'], 'unit' => $row['unit'], 'currency' => null, 'subtotal' => false, 'cells' => [], 'other' => null, 'change' => null,
+            'error' => null, 'part' => null, 'headed' => false, 'formula' => true];
+        $program = Metric::derived('report.formula', $row['formula']);
+        $value   = function (Window $window, array $filters) use ($row, $visible, $grain, $program): ?float {
+            $values = [];
+            foreach ($row['operands'] as $name => $operand) {
+                if (!isset($visible[$operand['metric']])) {
+                    throw new \LogicException(sprintf(t('%s is not yours to read.'), $operand['metric']));
+                }
+                $values[$name] = $this->read($operand['metric'])->grain($grain)->at($window->key())->where($filters + $operand['filters'] + $row['filters'])->value();
+            }
+
+            return $program->evaluate($values);
+        };
+        foreach ($columns as $column) {
+            try {
+                $built['cells'][] = ['value' => $value($column['window'], $column['filters']), 'link' => null, 'error' => null];
+            } catch (\InvalidArgumentException|\LogicException $e) {
+                $built['cells'][] = ['value' => null, 'link' => null, 'error' => $e->getMessage()];
+            }
+        }
+        if ($compare !== null) {
+            try {
+                $other           = $compare === Metrics::YEAR_EARLIER ? $anchor->yearEarlier() : $anchor->previous();
+                $now             = $value($anchor, []);
+                $built['other']  = $value($other, []);
+                $built['change'] = $now === null || $built['other'] === null || $built['other'] == 0.0 ? null : ($now - $built['other']) / abs($built['other']);
+            } catch (\InvalidArgumentException|\LogicException $e) {
+                $built['error'] = $e->getMessage();
+            }
+        }
+
+        return $built;
+    }
+
+    /**
      * One row's cells.
      *
      * ponytail: a cell is one read of the kept values; a report of 60 columns and 100 rows is
@@ -491,6 +595,9 @@ final class Report
      */
     private function buildRow(array $row, array $visible, array $columns, Window $anchor, ?string $compare, string $grain): array
     {
+        if (isset($row['formula'])) {
+            return $this->buildFormula($row, $visible, $columns, $anchor, $compare, $grain);
+        }
         $unit  = $visible[$row['metric']]->getUnit();
         $built = ['label' => $row['label'], 'unit' => $unit, 'currency' => null, 'subtotal' => $row['subtotal'], 'cells' => [], 'other' => null, 'change' => null, 'error' => $row['error'] ?? null,
             'part' => $row['part'] ?? null, 'headed' => $row['headed'] ?? false];

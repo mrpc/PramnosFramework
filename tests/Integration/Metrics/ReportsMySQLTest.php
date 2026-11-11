@@ -825,6 +825,41 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * A formula row over filtered metrics (FW-473): each operand read with its own filters and the
+     * column's, the formula worked out per column — never added into the section's total — and
+     * a formula that names an operand it is not given refused.
+     */
+    public function testAFormulaRowOverFilteredMetrics(): void
+    {
+        // Arrange
+        $report = Report::fromArray(['columns' => ['dimension' => 'region', 'values' => ['north', 'south'], 'total' => true], 'sections' => [['total' => true, 'rows' => [
+            ['label' => 'Sales', 'metric' => 'test.sales'],
+            ['label' => 'New, %', 'formula' => '100 * a / b', 'unit' => '%', 'operands' => [
+                'a' => ['metric' => 'test.sales', 'filters' => ['customer' => 'new']],
+                'b' => ['metric' => 'test.sales'],
+            ]],
+        ]]]]);
+        try {
+            Report::fromArray(['sections' => [['rows' => [['formula' => 'a / c', 'operands' => ['a' => ['metric' => 'test.sales']]]]]]]);
+            $refused = null;
+        } catch (\InvalidArgumentException $e) {
+            $refused = $e->getMessage();
+        }
+
+        // Act
+        $built = $report->build('2026-09-10', self::reader());
+        $rows  = array_column($built['sections'][0]['rows'], null, 'label');
+
+        // Assert
+        $this->assertSame([60.0, 100.0, round(4 / 6 * 100, 10)], array_map(static fn (array $c): ?float => $c['value'] === null ? null : round($c['value'], 10), $rows['New, %']['cells']),
+            'north 3 of 5, south 1 of 1, all 4 of 6');
+        $this->assertSame([5.0, 1.0, 6.0], array_column($rows['Sales']['cells'], 'value'));
+        $this->assertSame([5.0, 1.0, 6.0], $built['sections'][0]['total'], 'the formula is not added into the total');
+        $this->assertSame('%', $rows['New, %']['unit']);
+        $this->assertStringContainsString('c', (string) $refused, 'an operand it is not given');
+    }
+
+    /**
      * A table whose columns are a dimension's values shows only the value the page is filtered to
      * (FW-460) — `?v[region]=north` — and no total beside it; without the filter, every value and
      * the total. The page keeps the pinned filters in sight, the rest behind Filters with a count,
