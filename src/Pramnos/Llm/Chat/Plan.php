@@ -61,7 +61,7 @@ final class Plan
 
     public function __construct(Scope $scope, private readonly string $timezone = 'UTC')
     {
-        // The person's — every persona's and the Ask's alike — and each profile's its own.
+        // The person's — every persona's and the Ask's alike — and each partition's its own.
         $this->scope = $scope->inSpace(Scope::CHAT);
     }
 

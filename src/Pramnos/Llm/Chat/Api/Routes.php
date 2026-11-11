@@ -62,7 +62,6 @@ final class Routes
         $p['settings'] ??= $p['chat'] . '/settings';
         $p['plan']     ??= $p['chat'] . '/plan';
         $p['photos']   ??= $p['chat'] . '/photos';
-        $p['profiles'] ??= $p['chat'] . '/profiles';
         $make = static fn (): ChatController => new $controller();
 
         $r->post($p['speak'], static fn () => $make()->speak())->describeFrom([$controller, 'speak']);
@@ -78,17 +77,6 @@ final class Routes
         $r->delete($p['photos'] . '/{id}', static fn ($id) => $make()->photo($id))->describeFrom([$controller, 'photo']);
         $r->get($p['settings'], static fn () => $make()->settings())->describeFrom([$controller, 'settings']);
         $r->get($p['plan'], static fn () => $make()->plan())->describeFrom([$controller, 'plan']);
-        // The account's profiles (Profiles): before {chat}/{conversation_id}, which would take "profiles" for an id.
-        $r->get($p['profiles'], static fn () => $make()->profiles())->describeFrom([$controller, 'profiles']);
-        $r->post($p['profiles'], static fn () => $make()->profiles())->describeFrom([$controller, 'profiles']);
-        $r->put($p['profiles'] . '/pin', static fn () => $make()->profilePin())->describeFrom([$controller, 'profilePin']);
-        $r->post($p['profiles'] . '/unlock', static fn () => $make()->profileUnlock())->describeFrom([$controller, 'profileUnlock']);
-        $r->patch($p['profiles'] . '/{id}', static fn ($id) => $make()->profile($id))->describeFrom([$controller, 'profile']);
-        $r->delete($p['profiles'] . '/{id}', static fn ($id) => $make()->profile($id))->describeFrom([$controller, 'profile']);
-        $r->post($p['profiles'] . '/{id}/lock', static fn ($id) => $make()->profileLock($id))->describeFrom([$controller, 'profileLock']);
-        $r->get($p['profiles'] . '/{id}/conversations', static fn ($id) => $make()->profileConversations($id))->describeFrom([$controller, 'profileConversations']);
-        $r->get($p['profiles'] . '/{id}/conversations/{conversation_id}', static fn ($id, $conversation_id) => $make()->profileConversation($id, $conversation_id))->describeFrom([$controller, 'profileConversation']);
-        $r->get($p['profiles'] . '/{id}/plan', static fn ($id) => $make()->profilePlan($id))->describeFrom([$controller, 'profilePlan']);
         $r->put($p['settings'], static fn () => $make()->settings())->describeFrom([$controller, 'settings']);
         $r->get($p['today'], static fn () => $make()->today())->describeFrom([$controller, 'today']);
         $r->get($p['voices'], static fn () => $make()->voices())->describeFrom([$controller, 'voices']);

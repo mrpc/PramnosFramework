@@ -3,7 +3,7 @@ use_cases:
   - Giving an assistant a profile of the person, their calendar and a journal, each turned on by itself
   - Keeping a person's projects in a plan the assistant updates from what they say, with a morning briefing
   - Letting someone other than the account holder talk to the assistant, with only their skills, tools and context
-  - Giving each member of a family their own profile, a device held to a child's, a parent reading a child's conversations
+  - Keeping several people's conversations and memories apart under one account
   - Letting the assistant book appointments, find free slots and remind before them
   - Keeping an assistant from messaging people at night, too often or while they are busy
   - Keeping what a person confided with a provider you trust with it
@@ -198,93 +198,53 @@ focus, blockers, updated`. The phase is one of `active`, `paused`, `waiting` or 
 
 ### Whom an answer is for: audiences the application declares
 
-The framework gives the mechanism; what each audience may hear is the application's to say.
-Where somebody other than the account holder speaks (a child, a teenager, a carer), the
-application declares that audience and what follows from it:
+The framework gives the mechanism, and what each audience may hear is the application's to say.
+Where somebody other than the account holder speaks, the application declares that audience and
+what follows from it:
 
 ```php
 'llm' => ['chat' => ['audiences' => [
-    'child' => [
-        'rules'     => 'You are speaking with a child. …',   // added to the prompt
-        'topics'    => ['interests', 'talk'],                // the memories that pass; all when not said
+    'guest' => [
+        'rules'     => 'You are speaking with a guest of the account. …', // added to the prompt
+        'topics'    => ['interests', 'talk'],                          // the memories that pass; all when not said
         'leave_out' => ['plan', 'pinned', 'follow_ups', 'diary', 'profile', 'calendar', 'organisation'],
-        'without'   => ['adult'],                            // tools marked with these audiences, not loaded
+        'without'   => ['adult'],                                      // tools marked with these, not loaded
     ],
 ]]],
 ```
 
 - **Who is speaking** is the request's `speaker` (`{kind, name, age}`), a declared audience by its
-  kind. It can also be the application's word,
-  `'chat' => ['audience' => fn (Scope $scope, ?array $speaker): string]`, which is where a
-  profile says it. Anybody else is `adult`, with nothing left out.
+  kind, or the application's word: `'chat' => ['audience' => fn (Scope $scope, ?array $speaker): string]`.
+  Anybody else is `adult`, with nothing left out. With no audiences declared, nothing is.
 - **Skills** say whom they are for in their frontmatter (`audience: <name> | all`, and
   `age: 3-7`). The catalogue holds only those for this audience and, where an age is known, that
   age.
-- **Tools.** Those a capability marks for adults (the plan, the follow-ups, the work mode, or
-  any tool given `'audience' => 'adult'`, or marked with `Audience::adults($tools)`) are not
-  loaded at all for an audience whose `without` names `adult`. This is code, not a rule in the
-  prompt.
-- **The context.** The sources an audience's `leave_out` names are left out, in the one place
-  the context is put together, and so are memories of topics other than its `topics`. Its
-  `rules` are said in the prompt.
+- **Tools.** Those a capability marks (the plan, the follow-ups, the work mode, or any tool given
+  `'audience' => 'adult'` or marked with `Audience::adults($tools)`) are not loaded at all for an
+  audience whose `without` names the mark. This is code, not a rule in the prompt.
+- **The context.** The sources an audience's `leave_out` names are left out, in the one place the
+  context is put together, as are memories of topics other than its `topics`. Its `rules` are said
+  in the prompt.
 
-An application that declares no audiences keeps what a `child` speaker had before: the
-framework's `Audience::RULES` (or the application's `chat.child_rules`), the topics `interests`
-and `talk`, every source left out, and an adult's tools not loaded.
+### More than one person under an account: partitions
 
-### The people of an account: profiles
-
-A family's children, or the other parent, can talk to the companion under one account, each with
-their own conversations, memories, diary, today's thought, photos, plan and reminders:
+An application that keeps more than one person's things under one account sets a **partition**
+for each request:
 
 ```php
-'llm' => ['chat' => ['profiles' => [
-    'limit' => fn (object $user): int => 4,       // the application's, by its subscription (6 by default)
-    'after' => fn (Scope $scope, array $profile, string $question, string $answer, int $conversationId) => …,
-]]],
+'llm' => ['chat' => ['scope' => fn (Scope $scope): Scope => $scope->withPartition($memberId)]],
 ```
 
-- **Kept apart without changing any table.** A profile writes under its own space
-  (`chat@<id>`, `chat:<persona>@<id>`, `Scope::$profile`), so everything kept by space is its
-  own. The account holder has no profile, and writes as before.
-- **A profile** (`Chat\Profiles`, kept in `assist.chat_profiles`) has a name, a kind (`parent`,
-  `child`, or an audience the application declares), a year of birth and an image. Its kind is
-  whom its answers are for ([audiences](#whom-an-answer-is-for-audiences-the-application-declares)),
-  and its age is what a skill's `age` is matched against.
-- **Which profile speaks** is the request's `X-Profile` header, among the account's own. With no
-  header, the account holder speaks.
-- **A device held to a child.** `POST {chat}/profiles/{id}/lock` holds this session, or this
-  access token, to a profile. Every request on it then speaks as that profile, whatever its
-  headers say, until `POST {chat}/profiles/unlock` with the account's PIN releases it. Without a
-  PIN (`PUT {chat}/profiles/pin`) no lock is made. Five wrong PINs in fifteen minutes, and it
-  waits.
-- **A parent reads a child's.** `GET {chat}/profiles/{id}/conversations` gives the summary and
-  the list, `GET {chat}/profiles/{id}/conversations/{cid}` one conversation whole, and
-  `GET {chat}/profiles/{id}/plan` the plan, its summary first. In conversation, a profile that is
-  not a child's has `profile_activity(name)`. A child's profile reads no one's. What counts as
-  worth telling a parent, and whom to tell, is the application's: its `after` hook hears every
-  answer of a profile.
-- **The application's own as profiles.** `'profiles' => ['from' => fn (int $userId): array =>
-  ['child:123' => ['name' => …, 'kind' => 'child', 'birth_year' => …, 'image' => …]]]` gives
-  the children an application already keeps.
-  - `Profiles::sync($userId)` runs on every `GET {chat}/profiles`, and whenever the application
-    changes one. It makes the missing ones and changes a name, year or image that changed.
-  - Each is linked by its `source`, so it is never made twice. The application's own are not
-    held to the limit, since it decides how many it gives.
-  - One it no longer gives is marked `detached` and never deleted. The holder keeps it as a
-    profile of their own (`PATCH` with `source: null`) or deletes it.
-  - A profile made by hand is never touched.
-- **Photos** of a profile are in its own space. Another profile does not see them.
-- **The account's choices** (persona, voice, quiet hours) are the account's, the same for every
-  profile.
-- `Profiles::clear($userId, $id, $by)` starts a profile's experience again, keeping the profile.
-  `delete()` takes the profile with everything it kept.
-- **The administration** lists a profile's conversations and memories under its persona and its
-  name (*Naya · Niko*).
-- **An account's erasure** takes its profiles, and its data export lists them.
+The hook sees every request's scope, after the persona is chosen, and answers the one to use.
+The same person's only: a scope of another account is ignored. A partition's conversations,
+memories, artifacts (its diary, its photos, its plan), routines, reminders and calendar are kept
+under its own space (`chat@<id>`, `chat:<persona>@<id>`, `Scope::$partition`), apart from the
+account's and from each other's. No table changes shape for it. With no partition, everything is
+as before.
 
-The API is `GET`/`POST {chat}/profiles` and `PATCH`/`DELETE {chat}/profiles/{id}`, for the
-account holder.
+Who the partitions are, how a request names one, whether a device is held to one, and who may read
+another's are the application's, built on this hook.
+An account's erasure takes every partition's rows with the account's.
 
 ### A check a few hours later
 

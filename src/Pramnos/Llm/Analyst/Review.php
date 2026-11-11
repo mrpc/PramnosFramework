@@ -48,9 +48,8 @@ final class Review
             if (\Pramnos\Llm\Chat\People::companion($space)) {
                 $key  = \Pramnos\Llm\Chat\People::personaOf($space);
                 $name = \Pramnos\Llm\Chat\Personas::get($key)['name'] ?? ($key === Scope::CHAT ? t('Companion') : $key);
-                // A profile's, by its name beside the persona's (Profiles).
-                $profile = str_contains($space, '@') ? \Pramnos\Llm\Chat\Profiles::nameOf((int) substr($space, (int) strrpos($space, '@') + 1)) : null;
-                $out[$space] = $profile === null ? $name : $name . ' · ' . $profile;
+                // A partition's, by its number beside the persona's name.
+                $out[$space] = str_contains($space, '@') ? $name . ' · #' . substr($space, (int) strrpos($space, '@') + 1) : $name;
                 continue;
             }
             $out[$space] = $space;

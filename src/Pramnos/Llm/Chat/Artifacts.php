@@ -1330,15 +1330,15 @@ final class Artifacts
         return ['columns' => $columns === [] ? ['—'] : $columns, 'rows' => array_map($cells, $rows), 'limit' => $limit];
     }
 
-    /** The space a pin is kept under: every persona's alike, each profile's its own. */
+    /** The space a pin is kept under: every persona's alike, each partition's its own. */
     private function pinSpace(): string
     {
-        return $this->scope->space . ($this->scope->profile === null ? '' : '@' . $this->scope->profile);
+        return $this->scope->space . ($this->scope->partition === null ? '' : '@' . $this->scope->partition);
     }
 
     /**
      * A pin's parts — its artifact, the space it was pinned in and the organisation — from
-     * `<id>@<space>@<organisation>`, where the space may hold a profile's `@` of its own.
+     * `<id>@<space>@<organisation>`, where the space may hold a partition's `@` of its own.
      *
      * @return array{0: string, 1: string, 2: string}
      */

@@ -37,7 +37,7 @@ final class People
     /** Whether a stored space is the companion's: `chat` or `chat:<persona>`. */
     public static function companion(string $space): bool
     {
-        // A persona's, and a profile's under it (`chat:tesla@12`).
+        // A persona's, and a partition's under it (`chat:tesla@12`).
         return preg_match('/^' . Scope::CHAT . '(:[A-Za-z0-9_-]+)?(@\d+)?$/', $space) === 1;
     }
 

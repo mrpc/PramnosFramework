@@ -2603,4 +2603,5 @@ return [
     '%s has not talked to the assistant in the last %d days.' => '%s δεν έχει μιλήσει με τον βοηθό τις τελευταίες %d μέρες.',
     '%s had %d conversations in the last %d days, %d messages in all.' => '%s είχε %d συζητήσεις τις τελευταίες %d μέρες, %d μηνύματα συνολικά.',
     'The last one\'s mood: %s.' => 'Η διάθεση της τελευταίας: %s.',
+    'Nothing new from %s since you last looked.' => 'Τίποτα καινούργιο από %s από την τελευταία φορά που κοίταξες.',
 ];

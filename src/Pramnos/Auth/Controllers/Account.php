@@ -2774,8 +2774,6 @@ class Account extends Controller
             'mail'             => fn (): array => \Pramnos\Email\MailPersonalData::export((string) ($userData['email'] ?? '')),
             // The to-dos they wrote for themselves.
             'todos'            => fn (): array => \Pramnos\Todos\Todos::exportable(null, $userId),
-            // The people of the account who talk to the companion under it: names, kinds, years of birth.
-            'companion_profiles' => fn (): array => \Pramnos\Llm\Chat\Profiles::of($userId),
             // The picture itself is at the URL: the export says where, and the person downloads it.
             'profile_photo'    => fn (): array => (int) ($userData['photo'] ?? 0) > 0
                 ? ['url' => \Pramnos\User\ProfilePhoto::url((int) $userData['photo'])]
@@ -2836,7 +2834,6 @@ class Account extends Controller
             'Mail sent to you',
             'Profile picture',
             'Your to-dos',
-            'The people of your account who talk to the assistant',
         ];
         if (\Pramnos\Event\Event::hasListeners('account.data_export')) {
             $labels[] = 'Application-specific data';

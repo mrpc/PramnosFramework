@@ -219,7 +219,10 @@ class PlanTest extends LlmTestCase
         file_put_contents($dir . '/riddles.md', "---\nname: riddles\ndescription: Riddles for big kids\naudience: child\nage: 8-12\n---\nAsk a riddle.");
         file_put_contents($dir . '/work.md', "---\nname: office\ndescription: The office\naudience: adult\n---\nWork.");
         file_put_contents($dir . '/goodnight.md', "---\nname: goodnight\ndescription: Goodnight\n---\nSay goodnight.");
-        $this->configure(['chat' => ['plan' => true, 'follow_up' => true, 'skills_path' => $dir, 'memory' => ['learn' => false]]]);
+        // The application's audience, declared as an application would: the framework applies none of its own.
+        $this->configure(['chat' => ['plan' => true, 'follow_up' => true, 'skills_path' => $dir, 'memory' => ['learn' => false], 'audiences' => ['child' => [
+            'rules' => 'You are speaking with a child.', 'topics' => ['interests', 'talk'], 'leave_out' => \Pramnos\Llm\Chat\Audience::SOURCES, 'without' => ['adult'],
+        ]]]]);
         $userId = $this->user();
         (new Plan(new Scope($userId, null)))->add(['project' => 'Garden', 'status' => 'two offers, 8000 euros']);
         $memory = new \Pramnos\Llm\Chat\Memory(new Scope($userId, null));
@@ -312,7 +315,7 @@ class PlanTest extends LlmTestCase
         $this->assertStringNotContainsString('quotes 8000', $teen, 'the source it leaves out');
         $this->assertStringContainsString('Milk and bread', $teen, 'one it does not, kept');
         $this->assertNotContains('plan_update', $tools, 'none of the tools it is without');
-        $this->assertStringNotContainsString('You are speaking with a child.', $other, 'a kind not declared: an adult, the framework saying nothing of children');
+        $this->assertStringNotContainsString('speaking with', $other, 'a kind not declared: an adult, the framework saying nothing of its own');
         $this->assertStringContainsString('quotes 8000', $other);
     }
 }

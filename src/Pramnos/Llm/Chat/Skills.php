@@ -18,7 +18,7 @@ namespace Pramnos\Llm\Chat;
  * name: crm-loyalty
  * description: Retention and loyalty: who is drifting away, and what to do for each
  * tools: [audience_segments, audience_why, retention]
- * audience: adult            # child, adult or all (the default) — see Audience
+ * audience: adult            # an audience the application declares, or all (the default) — see Audience
  * spaces: [admin]            # where it is offered: admin (the Ask), chat (every persona), …; all by default
  * ---
  * # How a CRM and loyalty marketer works
@@ -108,7 +108,7 @@ final class Skills
                 'references'   => $own !== null ? self::references($own) : [],
                 'evals'        => $own !== null && is_dir($own . '/evals') ? $own . '/evals' : null,
                 'enabled'      => $enabled,
-                // Whom it is for: child, adult or all (the default); and for a child, which ages (`3-7`).
+                // Whom it is for: an audience the application declares, or all (the default); and which ages (`3-7`).
                 'audience'     => is_string($meta['audience'] ?? null) && preg_match('/^[a-z][a-z0-9_-]{0,30}$/', (string) $meta['audience']) === 1 ? (string) $meta['audience'] : Audience::EVERYONE,
                 'age'          => is_scalar($meta['age'] ?? null) ? trim((string) $meta['age']) : '',
                 // Where it is offered: `spaces: [admin]`, `[chat]` (every persona's), or `space: admin`; everywhere by default.

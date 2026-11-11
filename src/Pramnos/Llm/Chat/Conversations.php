@@ -688,7 +688,7 @@ class Conversations
         // A reminder asked for in a first question leads back to the conversation it started.
         $routines->linkMade($conversationId);
 
-        // Who asked it, where the account is shared — a parent, a child (FW-442).
+        // Who asked it, where the account is shared (FW-442).
         $this->store($conversationId, 'user', $question, [], null, $stamp, null,
             is_array($turn->extra['speaker'] ?? null) ? ['speaker' => $turn->extra['speaker']] : []);
         // The answer alone, and what the model said while it called tools beside it: those lines
@@ -728,10 +728,6 @@ class Conversations
             $this->scope->apply($this->table('assist.chat_conversations'))->where('conversation_id', $conversationId)->update(['ended_at' => $stamp]);
         }
         $message['artifacts'] = $artifacts->link($conversationId, (int) $message['message_id'], $turn->tags);
-        // A profile's answer: the application's hook, which decides whether anybody hears of it (Profiles).
-        if ($this->scope->profile !== null && !$this->scheduled) {
-            Profiles::after($this->scope, $asked, (string) $message['content'], $conversationId);
-        }
 
         // What the person stated, kept — once several of their messages have gathered. An answer
         // others read, or a scheduled run, is nothing of the person's to learn from.
@@ -1323,6 +1319,27 @@ class Conversations
             ->about(['purpose' => $scope->purpose(), 'trace_id' => $this->trace()] + $scope->context() + $this->about);
     }
 
+    /**
+     * One short call on the cheapest model, as this scope: housekeeping a feature does beside the
+     * conversation — a gist, a summary. The reply, or null where it could not be had.
+     */
+    public function cheaply(string $instructions, string $content): ?string
+    {
+        if ($this->scope === null) {
+            return null;
+        }
+        try {
+            $answer = $this->client($this->scope)->askCheaply($instructions, [['role' => 'user', 'content' => $content]]);
+        } catch (\Throwable $why) {
+            \Pramnos\Logs\Logger::log('llm cheaply: ' . $why->getMessage(), 'llm');
+
+            return null;
+        }
+        $reply = trim((string) ($answer['reply'] ?? ''));
+
+        return ($answer['ok'] ?? false) && $reply !== '' ? $reply : null;
+    }
+
     /** One id for every call of the turn under way, made fresh by {@see newTrace()}. */
     private function trace(): string
     {
@@ -1340,7 +1357,7 @@ class Conversations
      */
     private function context(Turn $turn, Memory $memory): string
     {
-        // A child speaking: only what is the child's to hear (Audience) — every source below asks.
+        // The audience's: what it leaves out, every source below asks (Audience).
         $audience   = $this->audienceOf($turn);
         $remembered = Audience::memories($memory->all(), $audience);
         // What the assistant said about itself goes apart: it is its own word to keep, not the person's.
@@ -1601,7 +1618,7 @@ class Conversations
             }
         }
 
-        // A child is never handed an adult's tools: left out here, not ruled out in the prompt.
+        // An audience is never handed the tools it is without: left out here, not ruled out in the prompt.
         return Audience::forTools($tools, $this->audienceOf($turn));
     }
 
@@ -1634,9 +1651,9 @@ class Conversations
             $skill['tools'] = array_values(array_filter($skill['tools'], static fn (string $tool): bool => isset($tools[$tool])));
             $stored[$name]  = $skill;
         }
-        // Only the skills for whom the answer is: a child's for a child, of their age where it is known.
+        // Only the skills for whom the answer is, and for their age where it is known.
         $audience = $this->audienceOf($turn);
-        $age      = $turn !== null && is_numeric($turn->extra['speaker']['age'] ?? null) ? (int) $turn->extra['speaker']['age'] : Profiles::ageOf($this->scope);
+        $age      = $turn !== null && is_numeric($turn->extra['speaker']['age'] ?? null) ? (int) $turn->extra['speaker']['age'] : null;
         // …and only those offered here: the Ask's methods are not the companion's, nor its stories the Ask's.
         $space    = $this->scope?->space;
         $files    = array_filter($files, static fn (array $skill): bool => Audience::allows($skill, $audience, $age) && Skills::offeredIn($skill, $space));
@@ -1844,8 +1861,6 @@ class Conversations
             + (Plan::on($this->scope) ? Audience::adults(self::inSkill(($plan = new Plan($this->scope, $zone))->tools(), 'plan', $plan->projects() === [] ? [] : ['plan_add', 'plan_update'])) : [])
             // The person's own settings, changed by asking: on the companion's page, for everybody on it.
             + ($this->scope->space === Scope::CHAT && $this->scope->userId > 0 ? Settings::tools($this->scope) : [])
-            // How another of the family's profiles has been, for one that is not a child's (Profiles).
-            + Audience::adults(Profiles::tools($this->scope))
             // The person's photos, their captions and days — never the pictures (Photos).
             + ($this->scope->space === Scope::CHAT && $this->scope->userId > 0 && Photos::on() ? (new Photos($this->scope))->tools() : []);
     }

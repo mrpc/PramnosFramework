@@ -25,10 +25,10 @@ namespace Pramnos\Llm\Chat;
  * journal — is read and written through {@see person()}, the same for every persona. The default
  * persona writes plain `chat`, so conversations from before personas stay its own.
  *
- * And with one **profile** ({@see Profiles}): somebody of the account's family — a child, the
- * other parent — whose conversations, memories, diary, photos, plan and reminders are their own,
- * stored under `chat@<profile>` or `chat:<persona>@<profile>`. The account holder has none, and
- * writes as before.
+ * And within one **partition**, where the application keeps more than one person's things under
+ * one account (`'llm' => ['chat' => ['scope' => fn (Scope $scope): Scope]]` sets it for each
+ * request): its conversations, memories, artifacts, routines and calendar are its own, stored under
+ * `chat@<partition>` or `chat:<persona>@<partition>`. With none, everything is as before.
  */
 final class Scope
 {
@@ -44,24 +44,24 @@ final class Scope
     /** The persona other than the default, or null. */
     public readonly ?string $persona;
 
-    /** The account's profile speaking, or null for the account holder. */
-    public readonly ?int $profile;
+    /** The partition of the account these are kept in, or null for none. */
+    public readonly ?int $partition;
 
     /**
-     * @param string      $space   A space, or a stored one with its persona and profile — `chat:tesla@12` — as a row or a job carries it
-     * @param string|null $persona A persona other than the default; null for the default
-     * @param int|null    $profile A profile of the account other than its holder; null for the holder
+     * @param string      $space     A space, or a stored one with its persona and partition — `chat:tesla@12` — as a row or a job carries it
+     * @param string|null $persona   A persona other than the default; null for the default
+     * @param int|null    $partition A partition of the account; null for none
      */
     public function __construct(
         public readonly int $userId,
         public readonly ?int $organizationId = null,
         string $space = self::CHAT,
         ?string $persona = null,
-        ?int $profile = null,
+        ?int $partition = null,
     ) {
         if (str_contains($space, '@')) {
             [$space, $stored] = explode('@', $space, 2);
-            $profile ??= ctype_digit($stored) ? (int) $stored : null;
+            $partition ??= ctype_digit($stored) ? (int) $stored : null;
         }
         if (str_contains($space, ':')) {
             [$space, $stored] = explode(':', $space, 2);
@@ -69,37 +69,37 @@ final class Scope
         }
         $this->space   = $space;
         $this->persona = $persona === null || $persona === '' ? null : $persona;
-        $this->profile = $profile === null || $profile <= 0 ? null : $profile;
+        $this->partition = $partition === null || $partition <= 0 ? null : $partition;
     }
 
-    /** What the rows of this scope carry in their `space` column: `chat`, `admin`, `chat:<persona>`, `chat@<profile>`… */
+    /** What the rows of this scope carry in their `space` column: `chat`, `admin`, `chat:<persona>`, `chat@<partition>`… */
     public function stored(): string
     {
-        return ($this->persona === null ? $this->space : $this->space . ':' . $this->persona) . ($this->profile === null ? '' : '@' . $this->profile);
+        return ($this->persona === null ? $this->space : $this->space . ':' . $this->persona) . ($this->partition === null ? '' : '@' . $this->partition);
     }
 
-    /** The same person, with no persona: what is theirs whichever character they talk to — their profile kept. */
+    /** The same person, with no persona: what is theirs whichever character they talk to — their partition kept. */
     public function person(): self
     {
-        return $this->persona === null ? $this : new self($this->userId, $this->organizationId, $this->space, null, $this->profile);
+        return $this->persona === null ? $this : new self($this->userId, $this->organizationId, $this->space, null, $this->partition);
     }
 
-    /** The same person, with a persona — null for the default — their profile kept. */
+    /** The same person, with a persona — null for the default — their partition kept. */
     public function withPersona(?string $persona): self
     {
-        return $persona === $this->persona ? $this : new self($this->userId, $this->organizationId, $this->space, $persona, $this->profile);
+        return $persona === $this->persona ? $this : new self($this->userId, $this->organizationId, $this->space, $persona, $this->partition);
     }
 
-    /** The same person in another space — their profile kept, no persona. */
+    /** The same person in another space — their partition kept, no persona. */
     public function inSpace(string $space): self
     {
-        return new self($this->userId, $this->organizationId, $space, null, $this->profile);
+        return new self($this->userId, $this->organizationId, $space, null, $this->partition);
     }
 
-    /** The same account as one of its profiles — null for its holder — the persona kept. */
-    public function withProfile(?int $profile): self
+    /** The same person in a partition of their account — null for none — the persona kept. */
+    public function withPartition(?int $partition): self
     {
-        return new self($this->userId, $this->organizationId, $this->space, $this->persona, $profile);
+        return new self($this->userId, $this->organizationId, $this->space, $this->persona, $partition);
     }
 
     /** What a call in this space is for, as the router and the call log read it. */

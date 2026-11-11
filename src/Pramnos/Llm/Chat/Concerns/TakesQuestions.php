@@ -45,8 +45,20 @@ trait TakesQuestions
         // With the persona the person chose (Personas), where the application has personas.
         $scope = Scope::current();
 
-        // …and as the profile the request speaks for, or its device is held to (Profiles).
-        return $scope === null ? null : \Pramnos\Llm\Chat\Profiles::forRequest(\Pramnos\Llm\Chat\Personas::scopeFor($scope));
+        if ($scope === null) {
+            return null;
+        }
+        $scope = \Pramnos\Llm\Chat\Personas::scopeFor($scope);
+        // The application's word for this request — a partition of the account, and anything else.
+        $hook = ((array) \Pramnos\Llm\Llm::config('chat', []))['scope'] ?? null;
+        if (is_callable($hook)) {
+            $given = $hook($scope);
+            if ($given instanceof Scope && $given->userId === $scope->userId) {
+                $scope = $given;
+            }
+        }
+
+        return $scope;
     }
 
     protected function conversations(): Conversations
@@ -118,7 +130,7 @@ trait TakesQuestions
         // Asked aloud (`voice`): the answer is read aloud, so it opens with what can be said
         // ({@see \Pramnos\Llm\Chat\ContextAssembler::dynamicTail()}).
         $extra = $this->extra($input) + (filter_var($input['voice'] ?? false, FILTER_VALIDATE_BOOLEAN) ? ['voice' => true] : [])
-            // Who is speaking on the account now — the parent, or their child (FW-442).
+            // Who is speaking on the account now, where it is shared (FW-442).
             + (($speaker = self::speaker($input['speaker'] ?? null)) === null ? [] : ['speaker' => $speaker]);
         $chat  = Llm::config('chat', []);
 
@@ -170,7 +182,7 @@ trait TakesQuestions
 
     /** The HTTP status of a conversation's refusal. */
     /**
-     * Who is speaking, as a question says it: `{"kind": "child", "name": "Ελένη"}` — a kind of
+     * Who is speaking, as a question says it: `{"kind": "guest", "name": "Eleni"}` — a kind of
      * letters, a name of at most 60 characters — or null.
      *
      * @return array{kind: string, name: string}|null
