@@ -321,7 +321,10 @@ window.PfCompanion.unmount();
 `mount()` builds a fixed `.pf-companion-dock`, tracks `mousemove`/`keydown`/`scroll`/`click`/
 `touchstart` against `idleMs` (default 60000; `0` turns idle detection off entirely), and on
 crossing that threshold sets `data-pf-companion-activity="away"` on the dock and dispatches
-`pf-companion:activity`; activity resuming sets it back. Clicking the dock dispatches
+`pf-companion:activity`; activity resuming sets it back. With `into: element`, the dock is drawn
+inside that element, in the page's flow, with no fixed corner (`.pf-companion-dock--inline`) — for
+a page of its own inside a shell whose menu and floating buttons would cover a corner. Clicking
+the dock dispatches
 `pf-companion:click` and does nothing else — not open the assist panel, not anything — because
 what a click should do is the application's decision, not this file's.
 
@@ -338,6 +341,7 @@ belongs to the application.
 
 ```js
 window.PfCompanionDebug.mount();   // a small floating panel; .unmount() to remove it
+window.PfCompanionDebug.mount({ into: document.querySelector('#preview') });   // inside the page instead
 ```
 
 `pf-companion-debug.js` reads the currently mounted dock rather than knowing about any character:

@@ -48,14 +48,17 @@
     }
 
     /**
-     * Mount the panel. Calling it again replaces the previous one.
+     * Mount the panel. Calling it again replaces the previous one. With `into`, it is drawn inside
+     * that element, in the page's flow; without, fixed in the bottom-left corner.
      *
+     * @param {{ into?: HTMLElement }} [options]
      * @returns {HTMLElement}
      */
-    function mount() {
+    function mount(options) {
+        var into = options && options.into ? options.into : null;
         unmount();
 
-        var root = el('div', 'pf-companion-debug-panel');
+        var root = el('div', 'pf-companion-debug-panel' + (into ? ' pf-companion-debug-panel--inline' : ''));
 
         var preview = el('div', 'pf-companion-debug-preview');
         var currentDock = dock();
@@ -124,7 +127,7 @@
         });
         root.appendChild(activityToggle);
 
-        document.body.appendChild(root);
+        (into || document.body).appendChild(root);
         panel = root;
 
         return root;

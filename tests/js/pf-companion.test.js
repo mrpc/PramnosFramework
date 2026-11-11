@@ -232,3 +232,21 @@ test('unmount() stops idle detection — no further activity events after', () =
 
     assert.deepEqual(events, []);
 });
+
+/**
+ * With `into`, the dock is drawn inside that element, in the page's flow — no fixed corner class —
+ * so a page of its own (an avatar's preview in an administration shell) is not covered by the
+ * shell's menu or its other floating buttons. Without it, the corner, as before.
+ */
+test('mount({html, into}) draws the dock inside that element, with no corner', () => {
+    // Arrange
+    const holder = document.createElement('div');
+    document.body.appendChild(holder);
+
+    // Act
+    const dock = window.PfCompanion.mount({ html: AVATAR_HTML, into: holder, position: 'top-left' });
+
+    // Assert
+    assert.equal(dock.parentNode, holder);
+    assert.equal(dock.className, 'pf-companion-dock pf-companion-dock--inline', 'the page\'s flow, not a corner');
+});

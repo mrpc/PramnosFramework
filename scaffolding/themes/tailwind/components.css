@@ -2359,6 +2359,8 @@ a.pf-person:hover { background: var(--pf-subtle); }
 @media (prefers-reduced-motion: reduce) { .pf-companion-dock { transition: none; } }
 
 /* pf-companion-debug.js: a generic preview panel for whatever is mounted. */
+/* Mounted with `into`: inside an element of the page, in its flow, with no fixed corner. */
+.pf-companion-dock.pf-companion-dock--inline, .pf-companion-debug-panel.pf-companion-debug-panel--inline { position: relative; inset: auto; z-index: auto; }
 .pf-companion-debug-panel {
     position: fixed; z-index: 95; bottom: 16px; left: 16px; width: min(280px, calc(100vw - 32px));
     padding: 12px; border-radius: var(--pf-radius-lg); border: 1px solid var(--pf-line);

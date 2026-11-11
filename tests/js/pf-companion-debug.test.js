@@ -156,3 +156,25 @@ test('unmount() removes the panel', () => {
 test('unmount() with nothing mounted does not throw', () => {
     assert.doesNotThrow(() => window.PfCompanionDebug.unmount());
 });
+
+/**
+ * With `into`, the panel is drawn inside that element, in the page's flow; without, fixed in the
+ * corner as before.
+ */
+test('mount({into}) draws the panel inside that element', () => {
+    // Arrange
+    const holder = document.createElement('div');
+    document.body.appendChild(holder);
+
+    // Act
+    const inline = window.PfCompanionDebug.mount({ into: holder });
+    const inlineClass = inline.className;
+    const parent = inline.parentNode;
+    const cornered = window.PfCompanionDebug.mount();
+
+    // Assert
+    assert.equal(parent, holder);
+    assert.equal(inlineClass, 'pf-companion-debug-panel pf-companion-debug-panel--inline');
+    assert.equal(cornered.parentNode, document.body);
+    assert.equal(cornered.className, 'pf-companion-debug-panel');
+});

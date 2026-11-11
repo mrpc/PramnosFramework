@@ -80,6 +80,7 @@
      *     position?: 'top-left'|'top-right'|'bottom-left'|'bottom-right',
      *     idleMs?: number,          // default 60000; 0 disables idle detection entirely
      *     container?: HTMLElement,  // default document.body
+     *     into?: HTMLElement,       // drawn inside it, in the page's flow, with no fixed corner
      * }} [options]
      * @returns {HTMLElement|null} The dock element, or null when there was no html to mount.
      */
@@ -102,14 +103,15 @@
         }
 
         var dock = document.createElement('div');
-        dock.className = 'pf-companion-dock pf-companion-dock--' + (CORNERS.indexOf(opts.position) !== -1 ? opts.position : 'bottom-right');
+        dock.className = 'pf-companion-dock ' + (opts.into ? 'pf-companion-dock--inline'
+            : 'pf-companion-dock--' + (CORNERS.indexOf(opts.position) !== -1 ? opts.position : 'bottom-right'));
         dock.innerHTML = html;
         dock.setAttribute('data-pf-companion-activity', 'active');
         dock.addEventListener('click', function () {
             document.dispatchEvent(new CustomEvent('pf-companion:click', { bubbles: true }));
         });
 
-        (opts.container || document.body).appendChild(dock);
+        (opts.into || opts.container || document.body).appendChild(dock);
 
         var idleMs = typeof opts.idleMs === 'number' ? opts.idleMs : 60000;
         current = { dock: dock, idleMs: idleMs, active: true, idleTimer: null, lastActivityAt: Date.now(), listeners: [] };
