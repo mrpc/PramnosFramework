@@ -76,7 +76,7 @@ final class ArtifactTools
     }
 
     /** One artifact on a page of its own, for printing or saving as PDF: the title and the artifact, nothing else. */
-    public static function printable(array $artifact): string
+    public static function printable(array $artifact, ?callable $embed = null): string
     {
         $e = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 
@@ -84,6 +84,6 @@ final class ArtifactTools
             . '<style>body{font-family:system-ui,sans-serif;margin:2rem;color:#111}table{border-collapse:collapse}th,td{border:1px solid #999;padding:4px 8px;text-align:left}'
             . '@media print{.pf-no-print{display:none}}</style></head><body>'
             . '<p class="pf-no-print"><button type="button" onclick="window.print()">' . $e(\Pramnos\Translator\Language::getInstance()->_('Print or save as PDF')) . '</button></p>'
-            . ArtifactView::html($artifact) . '</body></html>';
+            . ArtifactView::html($artifact, '', '', '', $embed) . '</body></html>';
     }
 }

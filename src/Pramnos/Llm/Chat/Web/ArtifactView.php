@@ -24,8 +24,9 @@ final class ArtifactView
      * @param string               $frame    The theme's class for the frame
      * @param string               $table    The theme's class for a table
      * @param string               $muted    The theme's class for secondary text
+     * @param (callable(int): ?array<string, mixed>)|null $embed An artifact a document holds, as its reader may read it
      */
-    public static function html(array $artifact, string $frame = '', string $table = '', string $muted = ''): string
+    public static function html(array $artifact, string $frame = '', string $table = '', string $muted = '', ?callable $embed = null): string
     {
         $e       = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
         $content = (array) ($artifact['content'] ?? []);
@@ -98,7 +99,19 @@ final class ArtifactView
                     : ((string) ($result['says'] ?? '') !== '' ? (string) $result['says'] : sprintf(\Pramnos\Translator\Language::getInstance()->_('Done for %d.'), (int) ($result['done'] ?? 0)))) . '</p>';
             }
         } else {
-            $html .= '<div class="pf-chat-answer">' . Markdown::toHtml((string) ($content['text'] ?? '')) . '</div>';
+            // A document may hold other artifacts, a line `[[artifact:12]]` each: drawn in place where
+            // the page can read them for its reader ($embed), named where it cannot.
+            $parts = preg_split('/^\[\[artifact:(\d+)\]\]\s*$/m', (string) ($content['text'] ?? ''), -1, PREG_SPLIT_DELIM_CAPTURE) ?: [''];
+            foreach ($parts as $i => $part) {
+                if ($i % 2 === 0) {
+                    $html .= trim($part) === '' ? '' : '<div class="pf-chat-answer">' . Markdown::toHtml($part) . '</div>';
+                    continue;
+                }
+                $inner = $embed === null ? null : $embed((int) $part);
+                $html .= is_array($inner) && (int) ($inner['artifact_id'] ?? 0) !== (int) ($artifact['artifact_id'] ?? 0)
+                    ? self::html($inner, $frame, $table, $muted)
+                    : '<p class="' . $e($muted) . '">▦ ' . $e(sprintf(\Pramnos\Translator\Language::getInstance()->_('Artifact #%d'), (int) $part)) . '</p>';
+            }
         }
 
         return $html . '</section>';

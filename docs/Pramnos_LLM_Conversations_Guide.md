@@ -683,6 +683,20 @@ told (see the [To-dos Guide](Pramnos_Todos_Guide.md#telling)).
 The model does the same with `assign_artifact(id, to, note, due)`, after the person confirms who
 and by when. The API is `POST {chat}/artifacts/{id}/assign` with `to`, `note` and `due`.
 
+### A document in sections
+
+A text artifact is a document. Its parts are `## ` sections in Markdown, and it can hold other
+artifacts, a line `[[artifact:12]]` each.
+
+- **A section changed alone.** `update_artifact` in mode `patch` with `section` (its heading) and
+  `text` replaces that section's text and leaves the others as they were. A heading the document
+  does not have adds a new section at the end. In code:
+  `$artifacts->update($id, 'patch', ['section' => 'Money', 'text' => '…'])`.
+- **Artifacts held in place.** On the document's own page, *Print or save as PDF*, each held
+  artifact is drawn in place: a table, a chart, a list. Only the ones its reader may read are
+  drawn (`ArtifactTools::printable($artifact, $embed)`, `ArtifactView::html(…, $embed)`).
+  Elsewhere, and for one they may not read, it is named.
+
 ### A table as a board or a calendar
 
 A table can be shown other than as rows. Its `view` is `{type, by}`, with `by` one of its columns:

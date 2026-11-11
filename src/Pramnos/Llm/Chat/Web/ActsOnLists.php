@@ -123,7 +123,10 @@ trait ActsOnLists
             return null;
         }
 
-        return $this->sendFile('', 'text/html; charset=utf-8', ArtifactTools::printable($artifact));
+        // The artifacts a document holds, each as this person may read it.
+        $artifacts = new Artifacts($scope);
+
+        return $this->sendFile('', 'text/html; charset=utf-8', ArtifactTools::printable($artifact, static fn (int $id): ?array => $artifacts->find($id)));
     }
 
     /** Pin artifact `{id}` to the dashboard, or take it off with `pinned=0`. */

@@ -140,7 +140,7 @@ final class Artifacts
                 'view'    => ['type' => 'object', 'description' => 'table: how it is shown — type table, board (a column per value of `by`) or calendar (by a date column `by`).',
                     'properties' => ['type' => ['type' => 'string', 'enum' => self::VIEWS], 'by' => ['type' => 'string']]],
                 'ids'     => ['type' => 'array', 'items' => ['type' => ['integer', 'string']], 'description' => 'list: the records\' ids, exactly as the tools gave them.'],
-                'text'    => ['type' => 'string', 'description' => 'text: the document, in Markdown.'],
+                'text'    => ['type' => 'string', 'description' => 'text: the document, in Markdown — its parts as ## sections, another artifact held as a line [[artifact:ID]].'],
                 'chart_type' => ['type' => 'string', 'enum' => self::CHARTS, 'description' => 'chart: how it is drawn.'],
                 'labels'  => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'chart: the categories along the axis (or the slices). list: a readable name per id.'],
                 'series'  => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => ['label' => ['type' => 'string'], 'data' => ['type' => 'array', 'items' => ['type' => 'number']]]],
@@ -177,7 +177,8 @@ final class Artifacts
             'update_artifact' => [
                 'description' => 'Change an artifact this person kept. mode replace: give its kind\'s fields anew. '
                     . 'mode append: table rows, list ids (and labels), or text to add at the end. '
-                    . 'mode patch: a new title; for a text, find (exactly once) and replace; for a list, remove ids; for a table, remove_rows by number from 1.',
+                    . 'mode patch: a new title; for a text, find (exactly once) and replace, or a section by its ## heading with its new text (a new one goes at the end); '
+                    . 'for a list, remove ids; for a table, remove_rows by number from 1. A document holds another artifact as a line [[artifact:ID]].',
                 'parameters'  => ['type' => 'object', 'properties' => [
                     'id'          => $id,
                     'mode'        => ['type' => 'string', 'enum' => self::MODES],
@@ -193,6 +194,7 @@ final class Artifacts
                     'replace'     => ['type' => 'string'],
                     'remove'      => ['type' => 'array', 'items' => ['type' => ['integer', 'string']]],
                     'remove_rows' => ['type' => 'array', 'items' => ['type' => 'integer']],
+                    'section'     => ['type' => 'string', 'description' => 'text, mode patch: the ## heading of the section whose text this is.'],
                     'view'        => ['type' => 'object', 'description' => 'table, mode patch: how it is shown (type table, board or calendar; by a column).',
                         'properties' => ['type' => ['type' => 'string', 'enum' => self::VIEWS], 'by' => ['type' => 'string']]],
                 ], 'required' => ['id', 'mode']],
@@ -581,6 +583,20 @@ final class Artifacts
      */
     private static function patched(string $kind, array $old, array $input, string $entity): array|string
     {
+        // A document's section: its body replaced under its `## ` heading, or a new section at the end.
+        if ($kind === 'text' && isset($input['section'])) {
+            $text    = (string) ($old['text'] ?? '');
+            $heading = trim((string) preg_replace('/\s+/u', ' ', (string) $input['section']));
+            $body    = trim((string) ($input['text'] ?? ''));
+            if ($heading === '') {
+                return 'A section is named by its heading.';
+            }
+            $pattern = '/^##[ \t]+' . preg_quote($heading, '/') . '[ \t]*$\n?(.*?)(?=^##[ \t]|\z)/msu';
+            $count   = 0;
+            $changed = preg_replace_callback($pattern, static fn (array $m): string => '## ' . $heading . "\n\n" . $body . "\n\n", $text, 1, $count);
+
+            return ['text' => $count === 1 ? rtrim((string) $changed) : rtrim($text) . "\n\n## " . $heading . "\n\n" . $body];
+        }
         if ($kind === 'text' && isset($input['find'])) {
             $text = (string) ($old['text'] ?? '');
             $find = (string) $input['find'];

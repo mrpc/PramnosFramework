@@ -624,4 +624,39 @@ class LivingArtifactsTest extends LlmTestCase
         $this->assertSame([200, 'board'], [$api['status'], $api['data']['content']['view']['type']]);
         $this->assertStringContainsString('<option value="board" selected>', $tools, 'offered under the table, as it is');
     }
+
+    /**
+     * A document (FW-474): a text in `## ` sections, one changed by its heading — the others left
+     * as they were — or a new one added at the end; another artifact held as a line
+     * `[[artifact:ID]]`, drawn in place on its printable page for a reader who may read it, and
+     * only named for one who may not or where nothing reads it.
+     */
+    #[DataProvider('databases')]
+    public function testADocumentInSectionsHoldingOtherArtifacts(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        [$me, $other] = [$this->user(), $this->user()];
+        $a     = new Artifacts(new Scope($me, null));
+        $table = $a->create(['kind' => 'table', 'title' => 'Payments', 'columns' => ['Month', 'Paid'], 'rows' => [['Oct', '40']]])['artifact_id'];
+        $hers  = (new Artifacts(new Scope($other, null)))->create(['kind' => 'text', 'title' => 'Hers', 'text' => 'secret words'])['artifact_id'];
+        $doc   = $a->create(['kind' => 'text', 'title' => 'Customer 42', 'text' => "## Identity\n\nA parent.\n\n## Money\n\nPays monthly.\n\n[[artifact:{$table}]]\n\n[[artifact:{$hers}]]"])['artifact_id'];
+
+        // Act
+        $money   = $a->update($doc, 'patch', ['section' => 'Money', 'text' => "Pays yearly.\n\n[[artifact:{$table}]]\n\n[[artifact:{$hers}]]"]);
+        $added   = $a->update($doc, 'patch', ['section' => 'Risks', 'text' => 'None seen.']);
+        $noName  = $a->update($doc, 'patch', ['section' => ' ', 'text' => 'x']);
+        $printed = \Pramnos\Llm\Chat\Web\ArtifactTools::printable($added, static fn (int $id): ?array => $a->find($id));
+        $plain   = \Pramnos\Llm\Chat\Web\ArtifactView::html($added);
+
+        // Assert
+        $this->assertStringContainsString("## Identity\n\nA parent.\n\n## Money\n\nPays yearly.", $money['content']['text'], 'one section changed, the others as they were');
+        $this->assertStringNotContainsString('Pays monthly', $money['content']['text']);
+        $this->assertStringEndsWith("## Risks\n\nNone seen.", $added['content']['text'], 'a new section at the end');
+        $this->assertSame('A section is named by its heading.', $noName);
+        $this->assertStringContainsString('<td>Oct</td>', $printed, 'the table drawn in place');
+        $this->assertStringNotContainsString('secret words', $printed, 'never one its reader may not read');
+        $this->assertStringContainsString('▦ Artifact #' . $hers, $printed, 'only named');
+        $this->assertStringContainsString('▦ Artifact #' . $table, $plain, 'named where nothing reads it');
+    }
 }
