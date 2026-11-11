@@ -257,7 +257,8 @@ The framework stores, checks and returns an application's setting without knowin
 - **The API.** `GET {chat}/settings` answers them all, with the defaults filled in.
   `PUT {chat}/settings` takes any of them. It is all or none: a wrong one is a 422 naming the
   field, and nothing is kept. `{chat}/voice`, `/style` and `/persona` write to the same place.
-- **By talking.** The companion has `change_setting` for everybody on its page. *I want you to
+- **By talking.** The companion has `change_setting` for everybody on its page, where there is
+  something to set (`today.morning`, or settings of the application's own). *I want you to
   write to me at 11* changes `thought_at`, she says so in her answer, and the answer's message
   carries `settings: {changed: {…}}`, as it carries `mood` and `act`, so the application changes
   at once.

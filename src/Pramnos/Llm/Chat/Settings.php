@@ -158,6 +158,11 @@ final class Settings
      */
     public static function tools(Scope $scope): array
     {
+        // Only where there is something to set by talking: the application's morning, or its own settings.
+        $morning = ((array) (((array) \Pramnos\Llm\Llm::config('chat', []))['today'] ?? []))['morning'] ?? null;
+        if (!is_array($morning) && self::declared() === []) {
+            return [];
+        }
         $app = [];
         foreach (self::declared() as $key => $declared) {
             $app[$key] = ['type' => 'string', 'enum' => $declared['values'], 'description' => $declared['label']];
