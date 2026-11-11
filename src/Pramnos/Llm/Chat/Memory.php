@@ -596,7 +596,14 @@ class Memory
             unset($titles[$except]);
         }
 
-        if ($words === [] || $titles === []) {
+        if ($titles === []) {
+            return [];
+        }
+        // No words: the period's conversations themselves, for "what did we talk about today?".
+        if (trim($query) === '') {
+            return $this->recent($titles, time() - max(1, $days) * 86400, null);
+        }
+        if ($words === []) {
             return [];
         }
 
@@ -627,6 +634,65 @@ class Memory
         }
 
         return $found;
+    }
+
+    /** How many conversations a period gives, and how many of each one's lines. */
+    public const RECENT = 10;
+    public const RECENT_LINES = 4;
+
+    /**
+     * This person's conversations with something said in a period, newest first: each with its
+     * title, when, and its first and last lines — what a recap of the day reads.
+     *
+     * @param array<int, string> $titles By conversation id
+     * @return list<array{conversation_id: int, title: string, at: string, lines: list<string>}>
+     */
+    private function recent(array $titles, int $from, ?int $until): array
+    {
+        $query = $this->table('assist.chat_messages')->select(['conversation_id', 'role', 'content', 'created_at'])
+            ->whereIn('conversation_id', array_keys($titles))->where('created_at', '>=', CallLog::instant($from));
+        if ($until !== null) {
+            $query->where('created_at', '<', CallLog::instant($until));
+        }
+        $result = $query->orderBy('message_id')->get();
+        $by = [];
+        while ($result && ($row = $result->fetch()) !== null) {
+            $id = (int) $row['conversation_id'];
+            $by[$id]['at']      = (string) $row['created_at'];
+            $by[$id]['lines'][] = ($row['role'] === 'user' ? 'Them: ' : 'You: ') . mb_substr(trim((string) $row['content']), 0, 200);
+        }
+        uasort($by, static fn (array $a, array $b): int => strcmp($b['at'], $a['at']));
+        $out = [];
+        foreach (array_slice($by, 0, self::RECENT, true) as $id => $one) {
+            $lines = $one['lines'];
+            // Its start and its end, where it is long.
+            if (count($lines) > self::RECENT_LINES) {
+                $lines = [...array_slice($lines, 0, 2), '…', ...array_slice($lines, -(self::RECENT_LINES - 2))];
+            }
+            $out[] = ['conversation_id' => $id, 'title' => (string) ($titles[$id] ?? ''), 'at' => $one['at'], 'lines' => $lines];
+        }
+
+        return $out;
+    }
+
+    /**
+     * The conversations of one day (`Y-m-d`, on the server's clock), as {@see search()} gives a
+     * period's for an empty query.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function day(Conversations $chat, string $day, ?int $except = null): array
+    {
+        $start = strtotime($day . ' 00:00');
+        if ($start === false || preg_match('/^\d{4}-\d\d-\d\d$/', $day) !== 1) {
+            return [];
+        }
+        $titles = array_column($chat->list(), 'title', 'conversation_id');
+        if ($except !== null) {
+            unset($titles[$except]);
+        }
+
+        return $titles === [] ? [] : $this->recent($titles, $start, $start + 86400);
     }
 
     /**
@@ -666,13 +732,18 @@ class Memory
             ],
             'search_conversations' => [
                 'description' => 'Search this person\'s earlier conversations for words, newest first — for "yesterday you told '
-                    . 'me…". Returns snippets with the conversation id and date; read one whole with read_conversation.',
+                    . 'me…". Returns snippets with the conversation id and date; read one whole with read_conversation. '
+                    . 'With no words, the conversations themselves — of the last `days`, or of one `day` (Y-m-d) — each with its start '
+                    . 'and end: for a recap of today, or of a day.',
                 'parameters'  => ['type' => 'object', 'properties' => [
-                    'query' => ['type' => 'string', 'description' => 'Words to look for, any of them. Try word stems and both languages.'],
-                    'days'  => ['type' => 'integer', 'description' => 'How far back. Defaults to 90.'],
-                ], 'required' => ['query']],
+                    'query' => ['type' => 'string', 'description' => 'Words to look for, any of them. Try word stems and both languages. Empty: the period\'s conversations.'],
+                    'days'  => ['type' => 'integer', 'description' => 'How far back. Defaults to 90; 1 for today.'],
+                    'day'   => ['type' => 'string', 'description' => 'One day, Y-m-d, with no words: that day\'s conversations.'],
+                ]],
                 'run' => fn (array $a): string => (string) json_encode(
-                    $this->search($chat, (string) ($a['query'] ?? ''), (int) ($a['days'] ?? 90), $conversationId),
+                    trim((string) ($a['query'] ?? '')) === '' && trim((string) ($a['day'] ?? '')) !== ''
+                        ? $this->day($chat, trim((string) $a['day']), $conversationId)
+                        : $this->search($chat, (string) ($a['query'] ?? ''), (int) ($a['days'] ?? (trim((string) ($a['query'] ?? '')) === '' ? 1 : 90)), $conversationId),
                     JSON_UNESCAPED_UNICODE
                 ),
             ],

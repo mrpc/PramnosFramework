@@ -365,12 +365,22 @@ class ConversationsTest extends LlmTestCase
         $this->assertSame([], $memory->search($chat, 'sun', 90, $first), 'the conversation being asked in is left out');
         $this->assertSame([], $memory->search($chat, 'a b'), 'words under three letters are not searched');
 
+        // No words: the period's conversations themselves, for a recap of today (FW-478)
+        $today = $memory->search($chat, '', 1, $second);
+        $this->assertSame([$first], array_column($today, 'conversation_id'), 'today\'s, the one being asked in left out');
+        $this->assertStringContainsString('Tell me about the SUN', implode("\n", $today[0]['lines']));
+        $this->assertSame([$first], array_column($memory->day($chat, date('Y-m-d'), $second), 'conversation_id'), 'one day\'s');
+        $this->assertSame([], $memory->day($chat, '2000-01-01'), 'a day with nothing said');
+        $this->assertSame([], $memory->day($chat, 'yesterday'), 'not a day');
+
         // Its tools
         $tools = $memory->tools($chat, $second);
         $this->assertSame('Forgotten.', ($tools['forget']['run'])(['memory_id' => $all[1]['memory_id']]));
         $this->assertSame('Error: there is no such memory.', ($tools['forget']['run'])(['memory_id' => 999]));
         $this->assertStringStartsWith('Remembered', ($tools['remember']['run'])(['kind' => 'fact', 'content' => 'x']));
         $this->assertStringContainsString('"conversation_id":' . $first, ($tools['search_conversations']['run'])(['query' => 'Sun']));
+        $this->assertStringContainsString('"conversation_id":' . $first, ($tools['search_conversations']['run'])(['day' => date('Y-m-d')]), 'a day, by the tool');
+        $this->assertStringContainsString('"conversation_id":' . $first, ($tools['search_conversations']['run'])([]), 'no words: today\'s');
         $this->assertStringContainsString('Tell me about the SUN', ($tools['read_conversation']['run'])(['conversation_id' => $first]));
         $this->assertSame('Error: there is no such conversation.', ($tools['read_conversation']['run'])(['conversation_id' => 999]));
     }

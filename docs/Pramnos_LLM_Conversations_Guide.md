@@ -358,6 +358,12 @@ The model is given `remember`, `forget`, `search_conversations` and `read_conver
 what it remembers in every prompt, each memory dated. At most `memory.max` entries of
 `memory.chars` characters. `Chat\Memory` lists and forgets them for a screen.
 
+**What was said today.** With no words, `search_conversations` returns the conversations
+themselves instead of searching. That covers the last `days` (1 when not given) or one `day`
+(`Y-m-d`). Results are newest first, at most ten, and each comes with its title, when it was,
+and its first and last lines. This is what a goodnight recap or a morning briefing reads.
+`Memory::day($chat, 'Y-m-d')` gives the same for application code.
+
 **A question is not a fact.** Dictated words carry no question mark, so "I had no meeting today"
 may be asking. Both `remember` and the learning that follows a conversation are told that a
 sentence which may be a question is not a fact, and that a fact contradicting what is known (what
