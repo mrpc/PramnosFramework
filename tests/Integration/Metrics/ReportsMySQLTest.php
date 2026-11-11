@@ -755,6 +755,7 @@ class ReportsMySQLTest extends TestCase
         foreach ($rendered as $theme => $html) {
             $this->assertStringContainsString('<input type="month" name="at" value="2026-09"', $html, $theme . ': one period control, a month for a month');
             $this->assertStringContainsString('All values', $html, $theme . ': a neutral word for no filter');
+            $this->assertStringContainsString('.pf-report .pf-report-part>th{padding-left:1.5em!important}', $html, $theme . ': the page\'s own cell padding does not undo a part\'s indent');
             $this->assertMatchesRegularExpression('~<label class="pf-report-field"><span>Region</span>\s*<select name="v\[region\]"~', $html, $theme . ': the pinned one in sight, labelled');
             $this->assertMatchesRegularExpression('~<details class="pf-report-pop pf-report-filters">\s*<summary[^>]*>Filters<span class="pf-report-count"><span>1</span>~', $html, $theme . ': the rest behind Filters, counted');
             $this->assertStringContainsString('<span>Customer</span>', $html, $theme . ': each labelled in the panel');
