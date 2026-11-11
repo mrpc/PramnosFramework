@@ -393,7 +393,8 @@ class ProfileTest extends LlmTestCase
         // Act
         (new Conversations(new BaseAssistant()))->as($scope)->ask(null, 'Hi');
         $off = $this->sent[0];
-        $this->configure(['chat' => ['profile' => true]]);
+        // Skills off said outright: the profile's tools would take the count past SKILLS_FROM, which turns them on by itself.
+        $this->configure(['chat' => ['profile' => true, 'skills' => false]]);
         (new Conversations(new BaseAssistant()))->as($scope)->ask(null, 'Hi');
         $on = $this->sent[1];
 

@@ -26,6 +26,7 @@ require_once __DIR__ . '/ChatApiTest.php';
 #[CoversClass(Plan::class)]
 #[CoversClass(Routines::class)]
 #[CoversClass(\Pramnos\Llm\Chat\FollowUps::class)]
+#[CoversClass(\Pramnos\Llm\Chat\Audience::class)]
 class PlanTest extends LlmTestCase
 {
     use ChatDatabase;
@@ -199,5 +200,64 @@ class PlanTest extends LlmTestCase
         $this->assertSame([true, false], [\Pramnos\Llm\Chat\FollowUps::on($scope), \Pramnos\Llm\Chat\FollowUps::on(new Scope($userId, null, Scope::ADMIN))]);
         $this->assertSame(['follow_up', 'follow_up_cancel'], array_keys($follow->tools()));
         $this->assertStringContainsString('do not ask whether they want it', $follow->tools()['follow_up']['description']);
+    }
+
+    /**
+     * Whom an answer is for (FW-450): a child speaking is handed none of an adult's tools — the plan,
+     * the follow-ups — in code, and is spoken to by an allowlist; the skill catalogue holds only
+     * the skills for that audience and age; an adult, or nobody said, as before; the application's
+     * own word wins.
+     */
+    #[DataProvider('databases')]
+    public function testAChildIsHandedNoneOfAnAdultsToolsOrSkills(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $dir = sys_get_temp_dir() . '/pf-audience-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        file_put_contents($dir . '/stories.md', "---\nname: stories\ndescription: Bedtime stories\naudience: child\nage: 3-7\n---\nTell a short story.");
+        file_put_contents($dir . '/riddles.md', "---\nname: riddles\ndescription: Riddles for big kids\naudience: child\nage: 8-12\n---\nAsk a riddle.");
+        file_put_contents($dir . '/work.md', "---\nname: office\ndescription: The office\naudience: adult\n---\nWork.");
+        file_put_contents($dir . '/goodnight.md', "---\nname: goodnight\ndescription: Goodnight\n---\nSay goodnight.");
+        $this->configure(['chat' => ['plan' => true, 'follow_up' => true, 'skills_path' => $dir, 'memory' => ['learn' => false]]]);
+        $userId = $this->user();
+        (new Plan(new Scope($userId, null)))->add(['project' => 'Garden']);
+        $this->answer([[200, self::says('Hi!')], [200, self::says('Hi!')]]);
+        $skillsOf = static function (array $request): string {
+            foreach ((array) $request['body']['tools'] as $tool) {
+                if ($tool['function']['name'] === 'use_skill') {
+                    return (string) $tool['function']['description'];
+                }
+            }
+
+            return '';
+        };
+
+        try {
+            // Act
+            (new Conversations(new BaseAssistant()))->as(new Scope($userId, null))->ask(null, 'Hi', null, ['speaker' => ['kind' => 'child', 'name' => 'Niko', 'age' => 5]]);
+            (new Conversations(new BaseAssistant()))->as(new Scope($userId, null))->ask(null, 'Hi', null, ['speaker' => ['kind' => 'parent', 'name' => 'Maria']]);
+        } finally {
+            array_map('unlink', glob($dir . '/*.md') ?: []);
+            rmdir($dir);
+        }
+        $this->configure(['chat' => ['audience' => static fn (Scope $scope, ?array $speaker): string => 'child']]);
+        $hooked = \Pramnos\Llm\Chat\Audience::of(new Scope($userId, null), null);
+
+        // Assert
+        $child = array_map(static fn (array $t): string => $t['function']['name'], (array) $this->sent[0]['body']['tools']);
+        $adult = array_map(static fn (array $t): string => $t['function']['name'], (array) $this->sent[1]['body']['tools']);
+        $this->assertNotContains('plan_update', $child, 'not loaded at all for a child');
+        $this->assertNotContains('follow_up', $child);
+        $this->assertContains('plan_update', $adult, 'an adult as before');
+        $this->assertStringContainsString('stories (Bedtime stories)', $skillsOf($this->sent[0]), 'a child\'s skill of their age');
+        $this->assertStringNotContainsString('riddles', $skillsOf($this->sent[0]), 'not of another age');
+        $this->assertStringNotContainsString('office', $skillsOf($this->sent[0]), 'nor an adult\'s');
+        $this->assertStringContainsString('goodnight', $skillsOf($this->sent[0]), 'one for all, too');
+        $this->assertStringContainsString('office', $skillsOf($this->sent[1]));
+        $this->assertStringNotContainsString('stories', $skillsOf($this->sent[1]), 'a child\'s skill is not an adult\'s');
+        $this->assertStringContainsString('You are speaking with a child.', self::systemOf($this->sent[0]), 'what may be said, an allowlist');
+        $this->assertStringNotContainsString('You are speaking with a child.', self::systemOf($this->sent[1]));
+        $this->assertSame('child', $hooked, 'the application\'s own word');
     }
 }

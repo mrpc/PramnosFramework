@@ -18,6 +18,7 @@ namespace Pramnos\Llm\Chat;
  * name: crm-loyalty
  * description: Retention and loyalty: who is drifting away, and what to do for each
  * tools: [audience_segments, audience_why, retention]
+ * audience: adult            # child, adult or all (the default) — see Audience
  * ---
  * # How a CRM and loyalty marketer works
  * Start from the cohort, not the campaign. …
@@ -90,6 +91,9 @@ final class Skills
                 'references'   => $own !== null ? self::references($own) : [],
                 'evals'        => $own !== null && is_dir($own . '/evals') ? $own . '/evals' : null,
                 'enabled'      => $enabled,
+                // Whom it is for: child, adult or all (the default); and for a child, which ages (`3-7`).
+                'audience'     => in_array($meta['audience'] ?? null, Audience::ALL, true) ? (string) $meta['audience'] : Audience::EVERYONE,
+                'age'          => is_scalar($meta['age'] ?? null) ? trim((string) $meta['age']) : '',
             ];
         }
         ksort($skills);

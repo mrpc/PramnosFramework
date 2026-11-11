@@ -190,6 +190,9 @@ Start from the cohort, not the campaign. …
   belongs to no skill stays offered all the time, because listing it says what the skill uses, not
   that it should be held back. A name that is not a declared tool is ignored.
 - The body follows `Turned on crm-loyalty: audience_segments, …` in `use_skill`'s answer.
+- `audience` is whom the skill is for: `child`, `adult` or `all` (the default). `age` (`3-7`)
+  narrows a child's skill to those ages. The catalogue the model sees holds only the skills for
+  whoever the answer is for (see [whom an answer is for](Pramnos_LLM_Person_Guide.md#whom-an-answer-is-for-a-child-or-an-adult)).
 
 A skill with instructions and no tool is offered too, as a method alone (copywriting, say). A
 skill whose tools the person lacks is still offered for its instructions, with none of those

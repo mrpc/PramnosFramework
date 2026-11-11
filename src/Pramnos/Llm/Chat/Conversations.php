@@ -1457,7 +1457,7 @@ class Conversations
             // The external MCP servers, where the application offers them here: the application's.
             + (self::mcpOn() ? \Pramnos\Llm\Mcp\Servers::tools() : [])
             // A check a few hours later, on what the person said they are doing (FollowUps).
-            + (!$turn->shared() && FollowUps::on($this->scope) ? (new FollowUps($routines, $this->scope, $this->assistant->timezone($this->scope)))->tools() : [])
+            + (!$turn->shared() && FollowUps::on($this->scope) ? Audience::adults((new FollowUps($routines, $this->scope, $this->assistant->timezone($this->scope)))->tools()) : [])
             + ($turn->shared() ? [] : $memory->tools($this, $turn->conversationId)
             // Not from a scheduled run: a task that schedules tasks has no end.
             + ($this->scheduled ? [] : self::inSkill($routines->toolsFor($this->scope, $this->assistant->timezone($this->scope), $turn->conversationId), 'tasks',
@@ -1478,7 +1478,7 @@ class Conversations
             // The person's profile, calendar and journal, where the application turned each on.
             + $this->personalTools()
             // The business's own data, for a person the application lets work here (Work).
-            + (Work::allowed($this->scope) ? Work::tools($turn) : []));
+            + (Work::allowed($this->scope) ? Audience::adults(Work::tools($turn)) : []));
 
         // A change is made only on the person's word: after reading what somebody else wrote, the
         // client holds these back (Client::HELD_WRITE).
@@ -1488,7 +1488,14 @@ class Conversations
             }
         }
 
-        return $tools;
+        // A child is never handed an adult's tools: left out here, not ruled out in the prompt.
+        return Audience::forTools($tools, $this->audienceOf($turn));
+    }
+
+    /** Whom an answer is for, from its speaker or the application (Audience). */
+    private function audienceOf(?Turn $turn): string
+    {
+        return Audience::of($this->scope, $turn !== null && is_array($turn->extra['speaker'] ?? null) ? $turn->extra['speaker'] : null);
     }
 
     /**
@@ -1514,6 +1521,11 @@ class Conversations
             $skill['tools'] = array_values(array_filter($skill['tools'], static fn (string $tool): bool => isset($tools[$tool])));
             $stored[$name]  = $skill;
         }
+        // Only the skills for whom the answer is: a child's for a child, of their age where it is known.
+        $audience = $this->audienceOf($turn);
+        $age      = $turn !== null && is_numeric($turn->extra['speaker']['age'] ?? null) ? (int) $turn->extra['speaker']['age'] : null;
+        $files    = array_filter($files, static fn (array $skill): bool => Audience::allows($skill, $audience, $age));
+        $stored   = array_filter($stored, static fn (array $skill): bool => Audience::allows($skill, $audience, $age));
         // Skill files mean skills: a method is no use if nothing can turn it on.
         $skills = is_array($chat) && array_key_exists('skills', $chat) ? (bool) $chat['skills'] : (count($tools) > self::SKILLS_FROM || $files !== [] || $stored !== []);
         if (!$skills) {
@@ -1616,7 +1628,7 @@ class Conversations
             + (Journal::on($this->scope) ? self::inSkill((new Journal($this->scope, $zone))->tools(), 'journal') : [])
             // With projects in it, adding and changing stay loaded: news about one is the cue, and a
             // tool behind a skill was passed over for remember.
-            + (Plan::on($this->scope) ? self::inSkill(($plan = new Plan($this->scope, $zone))->tools(), 'plan', $plan->projects() === [] ? [] : ['plan_add', 'plan_update']) : [])
+            + (Plan::on($this->scope) ? Audience::adults(self::inSkill(($plan = new Plan($this->scope, $zone))->tools(), 'plan', $plan->projects() === [] ? [] : ['plan_add', 'plan_update'])) : [])
             // The person's own settings, changed by asking: on the companion's page, for everybody on it.
             + ($this->scope->space === Scope::CHAT && $this->scope->userId > 0 ? Settings::tools($this->scope) : [])
             // The person's photos, their captions and days — never the pictures (Photos).
