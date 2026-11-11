@@ -105,6 +105,9 @@ class PlanTest extends LlmTestCase
         $this->assertSame(['rain', 'active', (new \DateTimeImmutable('now', new \DateTimeZone('Europe/Athens')))->format('Y-m-d')], [$fromAsk[0]['blockers'], $fromAsk[0]['phase'], $fromAsk[0]['updated']]);
         $this->assertStringContainsString('- Garden (home) — active; beds dug; blocked by: rain; updated ', $system, 'a line a project in the question');
         $this->assertStringContainsString('When they tell you news about a project listed here, update it with plan_update', $system, 'news is the cue to change it');
+        $offered = array_column(array_column((array) ($this->sent[0]['body']['tools'] ?? []), 'function'), 'description', 'name');
+        $this->assertArrayHasKey('plan_update', $offered, 'with projects in it, changing one is at hand, not behind its skill');
+        $this->assertStringContainsString('that goes to plan_update', (string) ($offered['remember'] ?? ''), 'news is not kept in memory too');
         $this->assertSame('Closed Novel; it is out of the plan.', $closed);
         $this->assertSame(['Garden'], array_column($after, 'project'), 'nothing of it kept');
     }
@@ -161,7 +164,11 @@ class PlanTest extends LlmTestCase
         $second   = $follow->schedule('the shopping', 1, $evening);
         $third    = $follow->schedule('the garden', 1, $evening);
         $pending  = array_column(array_filter($routines->mine($scope), static fn (array $r): bool => str_starts_with($r['title'], 'Follow-up: ')), 'run_at', 'title');
+        $context  = $follow->context();
         $taken    = $follow->heard('I finished the accounts already, by the way');
+        $follow->schedule('την αναφορά', 1, $evening + 86400 * 2);
+        $dropped  = $follow->cancel('ΤΗΝ αναφορά');
+        $none     = $follow->cancel('the car');
         $after    = array_column(array_filter($routines->mine($scope), static fn (array $r): bool => str_starts_with($r['title'], 'Follow-up: ')), 'title');
 
         // Assert
@@ -170,9 +177,13 @@ class PlanTest extends LlmTestCase
         $this->assertSame('I will ask about the shopping at 07:00.', $second);
         $this->assertStringStartsWith('Error: 2 checks a day are enough', $third, 'a few a day, by the day they are asked on');
         $this->assertStringStartsWith($morning, (string) $pending['Follow-up: the accounts'], 'a one-off, the next morning');
+        $this->assertSame("Checks you will make later (if they tell you how one went first, drop it with follow_up_cancel):\n- the accounts (at 07:00)\n- the shopping (at 07:00)", $context, 'the model sees what waits');
         $this->assertSame(1, $taken, 'said first: not asked');
+        $this->assertSame('Dropped; it will not be asked.', $dropped, 'dropped by the model, in any words the person used');
+        $this->assertSame('Error: there is no pending check on that.', $none);
         $this->assertSame(['Follow-up: the shopping'], $after);
         $this->assertSame([true, false], [\Pramnos\Llm\Chat\FollowUps::on($scope), \Pramnos\Llm\Chat\FollowUps::on(new Scope($userId, null, Scope::ADMIN))]);
-        $this->assertArrayHasKey('follow_up', $follow->tools());
+        $this->assertSame(['follow_up', 'follow_up_cancel'], array_keys($follow->tools()));
+        $this->assertStringContainsString('do not ask whether they want it', $follow->tools()['follow_up']['description']);
     }
 }

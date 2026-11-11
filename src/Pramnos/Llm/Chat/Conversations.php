@@ -1302,6 +1302,15 @@ class Conversations
             $lines[] = '';
             $lines[] = $pinned;
         }
+        // The checks still to come: the model drops one the person answered before it was asked.
+        if (FollowUps::on($this->scope) && !$turn->shared()) {
+            $checks = (new FollowUps(new Routines($this), $this->scope, $this->assistant->timezone($this->scope)))->context();
+            if ($checks !== '') {
+                $lines[] = '';
+                $lines[] = $checks;
+            }
+        }
+
         // The person's plan, a line a project, in every persona and the Ask alike (Plan).
         if (Plan::on($this->scope) && !$turn->shared()) {
             $plan = (new Plan($this->scope, $this->assistant->timezone($this->scope)))->context();
@@ -1602,7 +1611,9 @@ class Conversations
             + (Profile::on($this->scope) ? self::inSkill((new Profile($this->scope))->tools(), 'profile') : [])
             + (Calendar::on($this->scope) ? self::inSkill((new Calendar($this->scope, $zone))->tools(), 'calendar', ['set_busy']) : [])
             + (Journal::on($this->scope) ? self::inSkill((new Journal($this->scope, $zone))->tools(), 'journal') : [])
-            + (Plan::on($this->scope) ? self::inSkill((new Plan($this->scope, $zone))->tools(), 'plan') : [])
+            // With projects in it, adding and changing stay loaded: news about one is the cue, and a
+            // tool behind a skill was passed over for remember.
+            + (Plan::on($this->scope) ? self::inSkill(($plan = new Plan($this->scope, $zone))->tools(), 'plan', $plan->projects() === [] ? [] : ['plan_add', 'plan_update']) : [])
             // The person's own settings, changed by asking: on the companion's page, for everybody on it.
             + ($this->scope->space === Scope::CHAT && $this->scope->userId > 0 ? Settings::tools($this->scope) : [])
             // The person's photos, their captions and days — never the pictures (Photos).

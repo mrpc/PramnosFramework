@@ -58,18 +58,54 @@ final class FollowUps
      */
     public function tools(): array
     {
-        return ['follow_up' => [
-            'description' => 'When the person says what they are doing now ("I\'m doing the accounts and then the shopping"), '
-                . 'schedule one check a few hours later to ask how it went. One for a thing; never for something they did '
-                . 'not say they are doing. Do not tell them at length: a word that you will ask later is enough.',
-            'parameters'  => ['type' => 'object', 'properties' => [
-                'about'    => ['type' => 'string', 'description' => 'The thing, in a few of their words: "the accounts".'],
-                'in_hours' => ['type' => 'integer', 'description' => 'Hours from now, 1 to ' . self::MAX_HOURS . '; 2 or 3 usually.'],
-            ], 'required' => ['about', 'in_hours']],
-            'run'         => fn (array $a): string => $this->schedule((string) ($a['about'] ?? ''), (int) ($a['in_hours'] ?? 0), time()),
-            'writes'      => true,
-            'tags'        => ['personal' => true],
-        ]];
+        return [
+            'follow_up' => [
+                'description' => 'When the person says what they are doing now ("I\'m sitting down to do the accounts"), schedule one '
+                    . 'check a few hours later, by yourself: do not ask whether they want it. Mention it in half a sentence. One for '
+                    . 'a thing; never for something they did not say they are doing. Write `about` in their own words and language, '
+                    . 'quoting their phrase.',
+                'parameters'  => ['type' => 'object', 'properties' => [
+                    'about'    => ['type' => 'string', 'description' => 'The thing, in the person\'s own words and language: "την αναφορά", "the accounts".'],
+                    'in_hours' => ['type' => 'integer', 'description' => 'Hours from now, 1 to ' . self::MAX_HOURS . '; 2 or 3 usually.'],
+                ], 'required' => ['about', 'in_hours']],
+                'run'         => fn (array $a): string => $this->schedule((string) ($a['about'] ?? ''), (int) ($a['in_hours'] ?? 0), time()),
+                'writes'      => true,
+                'tags'        => ['personal' => true],
+            ],
+            'follow_up_cancel' => [
+                'description' => 'Drop a pending check, when the person tells you how that thing went before you asked — in any words.',
+                'parameters'  => ['type' => 'object', 'properties' => ['about' => ['type' => 'string', 'description' => 'As the pending check names it.']], 'required' => ['about']],
+                'run'         => fn (array $a): string => $this->cancel((string) ($a['about'] ?? '')),
+                'writes'      => true,
+                'tags'        => ['personal' => true],
+            ],
+        ];
+    }
+
+    /** The checks still to come, for a question's context; empty when there is none. */
+    public function context(): string
+    {
+        $lines = [];
+        foreach ($this->mine() as $one) {
+            if ($one['active'] && $one['next_run_at'] !== null) {
+                $lines[] = '- ' . mb_substr($one['title'], mb_strlen(self::TITLE)) . ' (at ' . $this->local($one['next_run_at']) . ')';
+            }
+        }
+
+        return $lines === [] ? '' : "Checks you will make later (if they tell you how one went first, drop it with follow_up_cancel):\n" . implode("\n", $lines);
+    }
+
+    /** A pending check dropped, by what it is about. */
+    public function cancel(string $about): string
+    {
+        $about = mb_strtolower(trim($about));
+        foreach ($this->mine() as $one) {
+            if ($one['active'] && $one['next_run_at'] !== null && mb_strtolower(mb_substr($one['title'], mb_strlen(self::TITLE))) === $about) {
+                return $this->routines->delete($this->scope, (int) $one['routine_id']) ? 'Dropped; it will not be asked.' : 'Error: it could not be dropped.';
+            }
+        }
+
+        return 'Error: there is no pending check on that.';
     }
 
     /** One check scheduled, or why not. */

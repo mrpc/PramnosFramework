@@ -186,7 +186,9 @@ focus, blockers, updated`. The phase is one of `active`, `paused`, `waiting` or 
   from another only where the application lets it (`channels.reads`).
 
 - **News is the cue.** The plan in each question ends with a line telling the model to update a
-  listed project when the person brings news of it, and to say so in a sentence.
+  listed project when the person brings news of it, and to say so in a sentence. With projects in
+  the plan, `plan_add` and `plan_update` are always loaded, outside the skill. `remember` is told
+  that news about a project goes to the plan, not to memory.
 
 ### A check a few hours later
 
@@ -199,8 +201,12 @@ in_hours)` schedules one question 1 to 12 hours later. It is a one-off routine t
 - **Not in the person's quiet hours** (their companion settings): a check that would fall in them
   is asked when they end.
 - **A few a day**, three unless the application says, counted by the day each check is asked on.
-- **Forgotten when said first.** A question that names the thing, by the first five letters of
-  each longer word, takes the pending check away.
+- **Set by itself.** The model is told to schedule the check without asking, mention it in half a
+  sentence, and write `about` in the person's own words and language.
+- **Forgotten when said first.** The checks still to come are in each question's context, and the
+  model drops one with `follow_up_cancel` when the person tells how it went, in any words. A
+  question that names the thing, by the first five letters of each longer word, also takes it
+  away without the model.
 - **Asked once.** A check that gets no answer is not asked again.
 - The application's `proactivity` applies to it like any scheduled question.
 

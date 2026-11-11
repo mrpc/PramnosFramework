@@ -376,7 +376,7 @@ class Memory
             . 'A sentence that may be a question is not a fact: dictated words carry no question mark, so "I had no meeting today" '
             . 'may be asking. Never keep what contradicts what is remembered: leave it, the assistant asks. '
             . 'Everything is about "me". '
-            . 'Each kept one has the topic it is about: ' . implode('|', self::TOPICS) . ' (work: how they work and the reports they want; plans: their projects — work, hobbies, family, home — and how they run them; talk: how they like to be spoken to). '
+            . 'Each kept one has the topic it is about: ' . implode('|', self::TOPICS) . ' (work: how they work and the reports they want; plans: how they like to run their projects — news about a project in their plan goes to the plan, not here; talk: how they like to be spoken to). '
             . 'Answer JSON only: {"changes": [{"op": "keep", "about": "me", "kind": "fact|preference", "topic": "work", "memory": "one sentence"}, '
             . '{"op": "correct", "id": 3, "memory": "one sentence"}, {"op": "forget", "id": 4}]}.';
         $profile = Profile::on($this->scope) && Profile::available() ? new Profile($this->scope) : null;
@@ -707,7 +707,9 @@ class Memory
             'remember' => [
                 'description' => 'Keep a fact about this person or their work, or a preference about how they want answers, '
                     . 'for future conversations. Use it when they state something durable. One short sentence each. '
-                    . 'Not for numbers the tools can read again. When what they say changes a memory, pass its id as replaces '
+                    . 'Not for numbers the tools can read again. '
+                    . (Plan::on($this->scope) ? 'Not for news about a project in their plan: that goes to plan_update, so the same fact is not kept in two places. ' : '')
+                    . 'When what they say changes a memory, pass its id as replaces '
                     . 'instead of keeping a second one — the latest word wins. Never from a sentence that may be a question: '
                     . 'dictated words carry no question mark ("I had no meeting today" may be asking). Never a fact that contradicts '
                     . 'what you know — what is remembered, their calendar, their tasks — without asking them first.'
