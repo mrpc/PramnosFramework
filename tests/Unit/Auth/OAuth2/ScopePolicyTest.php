@@ -161,6 +161,32 @@ final class ScopePolicyTest extends TestCase
     }
 
     /**
+     * A refused scope's own words: told where every refused scope has them, the general sentence
+     * where any has none — so a closed beta says why, and one scope without words never hides
+     * which were refused.
+     */
+    public function testARefusedScopeSaysWhyInItsOwnWords(): void
+    {
+        // Arrange
+        $this->configure([
+            'beta'   => ['min_role' => 'staff', 'refused' => 'Still in testing.'],
+            'beta:2' => ['min_role' => 'staff', 'refused' => 'Still in testing.'],
+            'mcp:*'  => ['min_role' => 'staff'],
+        ]);
+        $policy = ScopePolicy::current();
+
+        // Act
+        $own     = $policy->refusalText(['beta', 'beta:2']);
+        $general = $policy->refusalText(['beta', 'mcp:db_read']);
+        $none    = $policy->refusalText([]);
+
+        // Assert
+        $this->assertSame('Still in testing.', $own, 'their own words, once');
+        $this->assertNull($general, 'one without words: the general sentence');
+        $this->assertNull($none);
+    }
+
+    /**
      * A rule naming a role nobody defined refuses, and says so in the log; an account that
      * cannot be found is refused every scope with a rule and none without.
      */

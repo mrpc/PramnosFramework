@@ -587,6 +587,7 @@ in `app/app.php`:
     'mcp:*'        => ['min_role' => 'staff'],   // a glob
     'mcp:db_write' => ['min_role' => 'admin'],   // an exact name wins over a glob
     'reports:read' => ['min_usertype' => 20],
+    'beta'         => ['min_role' => 'staff', 'refused' => 'This is still in testing, and not open to your account.'],
 ]],
 ```
 
@@ -596,7 +597,8 @@ in, as before. The rule is checked:
 
 - at `/oauth/authorize`, as soon as the person is signed in and before any consent, new or
   remembered. The answer is the error page *Your account cannot grant mcp:db_read to this
-  application*;
+  application*. Where every refused scope's rule has a `refused` text of its own, as a closed
+  beta or a staff-only scope would, the page says that instead, through `t()`;
 - at `/oauth/token`, for every token issued on a person's behalf, a **refresh** included. A role
   taken away is felt at the next token: `invalid_scope`, with the scopes named in the hint. A
   client acting for itself (`client_credentials`) has no person to judge.

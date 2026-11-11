@@ -212,7 +212,8 @@ class Oauth extends Controller
             }
             if ($refused !== []) {
                 throw new OAuthServerException(
-                    t('Your account cannot grant %s to this application.', implode(', ', $refused)),
+                    // The scopes' own words where each has some, else the general sentence.
+                    $policy->refusalText($refused) ?? t('Your account cannot grant %s to this application.', implode(', ', $refused)),
                     9,
                     'access_denied',
                     403

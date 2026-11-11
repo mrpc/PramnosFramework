@@ -15,6 +15,7 @@ namespace Pramnos\Auth\OAuth2;
  *     'mcp:*'        => ['min_role' => 'staff'],      // a glob
  *     'mcp:db_write' => ['min_role' => 'admin'],      // an exact name wins over a glob
  *     'reports:read' => ['min_usertype' => 20],
+ *     'beta'         => ['min_role' => 'staff', 'refused' => 'This is still in testing, and not open to your account.'],
  * ]],
  * ```
  *
@@ -85,6 +86,32 @@ class ScopePolicy
         }
 
         return $refused;
+    }
+
+    /**
+     * What a person is told for scopes refused them, where every one's rule says it in its own
+     * words (`'refused' => 'In testing, and not open to your account yet.'`, through `t()`); null
+     * where any says nothing, for the general sentence.
+     *
+     * @param list<string> $refused
+     */
+    public function refusalText(array $refused): ?string
+    {
+        $rules = $this->rules();
+        $texts = [];
+        foreach ($refused as $scope) {
+            try {
+                $text = trim((string) (($this->ruleFor($scope, $rules) ?? [])['refused'] ?? ''));
+            } catch (\Throwable) {
+                $text = '';
+            }
+            if ($text === '') {
+                return null;
+            }
+            $texts[] = function_exists('t') ? (string) t($text) : $text;
+        }
+
+        return $texts === [] ? null : implode(' ', array_values(array_unique($texts)));
     }
 
     /**
