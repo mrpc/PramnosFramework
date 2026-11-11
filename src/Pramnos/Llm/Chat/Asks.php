@@ -280,7 +280,9 @@ class Asks
         $out  = is_string($definition['outbound'] ?? null) ? (string) ($arguments[$definition['outbound']] ?? '') : '';
         $host = $out === '' ? null : parse_url($out, PHP_URL_HOST);
 
-        return ['tool' => $tool] + (is_string($host) && $host !== '' ? ['host' => mb_strtolower($host)] : []);
+        return ['tool' => $tool] + (is_string($host) && $host !== '' ? ['host' => mb_strtolower($host)] : [])
+            // A work tool (Work): the business's data, shown so.
+            + (isset(((array) ($definition['tags'] ?? []))[Work::MODE]) ? ['mode' => Work::MODE] : []);
     }
 
     /**

@@ -320,6 +320,30 @@ An application can offer the person more than one character to talk to (`Chat\Pe
   `GET {chat}/mood` and `{chat}/style`, the style being kept for each persona apart.
 - Only the conversation page: the administration's analyst has no personas.
 
+## Work: the business's data on the conversation page
+
+A companion's person who runs the business can ask it what the analyst answers ("how many visits
+today?"), when the application lets them (`Chat\Work`):
+
+```php
+'llm' => ['chat' => ['work' => [
+    'gate' => fn (object $user): bool => MyAccess::canAsk($user),   // nobody without it
+    'mood' => 'focused',                                            // optional: the mood that suits it
+]]],
+```
+
+- **The analyst's tools, as the analyst has them** (`Analyst::tools()`), in the skill `work`: the
+  same check of each tool against the person's rights, the same masking, the same hold on an
+  address after personal data. Somebody the gate refuses has no such skill at all. The analyst's
+  own space is unchanged.
+- **Kept out of what is learned.** Each work tool carries the tag `work`, and a conversation keeps
+  its tags, so once a work tool is used the conversation is a work conversation. From then on
+  nothing in it is learned about the person (no memory, no word of the assistant's about itself),
+  and its answers are told it is work (`Work::instruction()`, with the mood given).
+- **Shown to the client:** `mode: "work"` on each answer of a work conversation and on the
+  conversation, and `doing: {tool, mode: "work"}` while a work tool runs, both on the poll and on
+  the stream.
+
 ## Memory
 
 The model is given `remember`, `forget`, `search_conversations` and `read_conversation`, and told

@@ -81,6 +81,7 @@ class Conversations
         'calendar'  => 'the person\'s appointments and tasks',
         'journal'   => 'the person\'s journal for the day',
         'web'       => 'searching the web and reading a page',
+        Work::MODE  => Work::SKILL,
     ];
 
     private ?Scope $scope = null;
@@ -276,6 +277,8 @@ class Conversations
             'tags'            => self::tagsOf($conversation),
             // Ended by the assistant (Ending): it takes no more questions.
             'ended'           => !empty($conversation['ended_at']),
+            // A work conversation (Work): the business's data, kept out of what is learned.
+            'mode'            => Work::in(self::tagsOf($conversation)) ? Work::MODE : null,
             'messages'        => $this->assistant->present($this->scope, $messages),
         ];
     }
@@ -518,6 +521,7 @@ class Conversations
             . ($mood === null ? '' : "\n\n" . trim($mood->directive($conversationId) . "\n" . Mood::instruction()))
             . ($acts ? "\n\n" . Acts::instruction() : '')
             . ($ending ? "\n\n" . Ending::instruction() : '')
+            . (Work::in($held) ? "\n\n" . Work::instruction() : '')
             . ($this->scope->space === Scope::CHAT && !$this->scheduled && !$turn->shared() && ($soon = $this->upcoming()) !== '' ? "\n\n" . $soon : '')
         )->since($this->scheduled || $turn->shared() ? null : $this->sinceLast());
         $prefix = $zones->staticPrefix($turn);
@@ -614,7 +618,8 @@ class Conversations
             (array) ($answer['calls'] ?? []), $answer['cost'], $stamp, $answer['context'] ?? null,
             // With moods on, `mood` is always there — null when nothing is felt — so a reader tells
             // "no mood" from "a backend without moods".
-            array_filter(['steps' => $steps, 'stopped' => $stopped, 'source' => $this->console ? 'console' : null]) + ($mood === null ? [] : ['mood' => $feels])
+            array_filter(['steps' => $steps, 'stopped' => $stopped, 'source' => $this->console ? 'console' : null,
+                'mode' => Work::in($turn->tags) ? Work::MODE : null]) + ($mood === null ? [] : ['mood' => $feels])
             + ($acts ? ['act' => Acts::act($reply), 'wear' => Acts::worn($reply)] : [])
             + ($ending && Ending::ends($reply) ? ['ended' => true] : []));
         if ($ending && Ending::ends($reply)) {
@@ -624,7 +629,8 @@ class Conversations
 
         // What the person stated, kept — once several of their messages have gathered. An answer
         // others read, or a scheduled run, is nothing of the person's to learn from.
-        if (Memory::learns() && !$turn->shared() && !$this->scheduled && !$this->console) {
+        // A work conversation is the business's data, not the person's life: nothing learned from it (Work).
+        if (Memory::learns() && !$turn->shared() && !$this->scheduled && !$this->console && !Work::in($turn->tags)) {
             $this->tracks() ? $this->learnFrom($conversationId, $memory, $client, false) : $memory->learn($client, $asked);
         } elseif ($this->tracks()) {
             $this->mark($conversationId, ['learned_upto' => (int) $message['message_id']]);
@@ -857,7 +863,12 @@ class Conversations
      */
     private function learnFrom(int $conversationId, Memory $memory, ?Client $client, bool $now): bool
     {
-        $since  = (int) ($this->conversation($conversationId)['learned_upto'] ?? 0);
+        $row    = (array) $this->conversation($conversationId);
+        $since  = (int) ($row['learned_upto'] ?? 0);
+        // A work conversation: read, and nothing learned (Work).
+        if (Work::in(self::tagsOf($row))) {
+            $client = null;
+        }
         $result = $this->table('assist.chat_messages')->select(['message_id', 'role', 'content'])
             ->where('conversation_id', $conversationId)->where('message_id', '>', $since)->orderBy('message_id')->get();
         $said    = [];
@@ -1178,7 +1189,9 @@ class Conversations
             // …and what it did and wore (Acts), where the set has acts or wear.
             array_intersect_key($extra, array_flip(['mood', 'act', 'wear'])))
             // The answer that ended the conversation (Ending).
-            + (!empty($extra['ended']) ? ['ended' => true] : []);
+            + (!empty($extra['ended']) ? ['ended' => true] : [])
+            // An answer of a work conversation (Work).
+            + (($extra['mode'] ?? null) === Work::MODE ? ['mode' => Work::MODE] : []);
     }
 
     /**
@@ -1242,7 +1255,9 @@ class Conversations
                 // A way of working kept as one of the person's skills, on their word.
                 + (new StoredSkills())->tools($this->scope))
             // The person's profile, calendar and journal, where the application turned each on.
-            + $this->personalTools());
+            + $this->personalTools()
+            // The business's own data, for a person the application lets work here (Work).
+            + (Work::allowed($this->scope) ? Work::tools($turn) : []));
 
         // A change is made only on the person's word: after reading what somebody else wrote, the
         // client holds these back (Client::HELD_WRITE).
