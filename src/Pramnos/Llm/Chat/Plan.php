@@ -61,7 +61,8 @@ final class Plan
 
     public function __construct(Scope $scope, private readonly string $timezone = 'UTC')
     {
-        $this->scope = new Scope($scope->userId, $scope->organizationId, Scope::CHAT);
+        // The person's — every persona's and the Ask's alike — and each profile's its own.
+        $this->scope = $scope->inSpace(Scope::CHAT);
     }
 
     /** Whether the application turned it on, for a person's own conversations or the Ask. */
@@ -89,6 +90,30 @@ final class Plan
         }
 
         return $out;
+    }
+
+    /**
+     * The plan in a few words, for whoever looks after the person: how many projects in each
+     * phase, which are blocked, which have not moved for a week.
+     */
+    public function summary(): string
+    {
+        $projects = $this->projects();
+        if ($projects === []) {
+            return 'Nothing in the plan yet.';
+        }
+        $phases = array_count_values(array_column($projects, 'phase'));
+        $parts  = [count($projects) . ' in the plan: ' . implode(', ', array_map(static fn (string $p, int $n): string => $n . ' ' . $p, array_keys($phases), $phases))];
+        $stuck  = array_column(array_filter($projects, static fn (array $p): bool => $p['blockers'] !== ''), 'project');
+        if ($stuck !== []) {
+            $parts[] = 'blocked: ' . implode(', ', $stuck);
+        }
+        $still = array_column(array_filter($projects, fn (array $p): bool => $p['phase'] === 'active' && $p['updated'] !== '' && $p['updated'] < (new \DateTimeImmutable('-7 days', new \DateTimeZone($this->timezone)))->format('Y-m-d')), 'project');
+        if ($still !== []) {
+            $parts[] = 'not moved for a week: ' . implode(', ', $still);
+        }
+
+        return implode('; ', $parts) . '.';
     }
 
     /** The plan for a question's context, a line a project; empty when there is none. */

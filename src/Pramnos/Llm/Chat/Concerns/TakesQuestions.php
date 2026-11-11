@@ -45,7 +45,8 @@ trait TakesQuestions
         // With the persona the person chose (Personas), where the application has personas.
         $scope = Scope::current();
 
-        return $scope === null ? null : \Pramnos\Llm\Chat\Personas::scopeFor($scope);
+        // …and as the profile the request speaks for, or its device is held to (Profiles).
+        return $scope === null ? null : \Pramnos\Llm\Chat\Profiles::forRequest(\Pramnos\Llm\Chat\Personas::scopeFor($scope));
     }
 
     protected function conversations(): Conversations

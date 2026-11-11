@@ -302,7 +302,7 @@ class Memory
                 }
             }
             if (!People::companion($own) && People::companion($space) && Profile::available()) {
-                foreach ((new Profile(new Scope($this->scope->userId, $this->scope->organizationId)))->entries() as $entry) {
+                foreach ((new Profile($this->scope->inSpace(Scope::CHAT)))->entries() as $entry) {
                     if (in_array($entry['area'], $topics, true) && ($entry['content'] ?? null) !== null) {
                         $out[] = ['from' => self::channelName($space), 'topic' => $entry['area'],
                             'content' => ($entry['subject'] !== null ? $entry['subject'] . ': ' : '') . $entry['content'], 'created_at' => $entry['updated_at']];

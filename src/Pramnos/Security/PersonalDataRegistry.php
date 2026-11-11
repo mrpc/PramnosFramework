@@ -324,6 +324,7 @@ class PersonalDataRegistry
             'assist.chat_calendar',
             'assist.chat_artifacts',
             'assist.chat_artifact_members',
+            'assist.chat_profiles',
             'assist.chat_asks',
             // Who was moderated — accounts, visitors, addresses, nicknames — and what they wrote.
             'moderation_restrictions',

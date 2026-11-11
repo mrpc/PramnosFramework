@@ -728,6 +728,10 @@ class Conversations
             $this->scope->apply($this->table('assist.chat_conversations'))->where('conversation_id', $conversationId)->update(['ended_at' => $stamp]);
         }
         $message['artifacts'] = $artifacts->link($conversationId, (int) $message['message_id'], $turn->tags);
+        // A profile's answer: the application's hook, which decides whether anybody hears of it (Profiles).
+        if ($this->scope->profile !== null && !$this->scheduled) {
+            Profiles::after($this->scope, $asked, (string) $message['content'], $conversationId);
+        }
 
         // What the person stated, kept — once several of their messages have gathered. An answer
         // others read, or a scheduled run, is nothing of the person's to learn from.
@@ -1632,7 +1636,7 @@ class Conversations
         }
         // Only the skills for whom the answer is: a child's for a child, of their age where it is known.
         $audience = $this->audienceOf($turn);
-        $age      = $turn !== null && is_numeric($turn->extra['speaker']['age'] ?? null) ? (int) $turn->extra['speaker']['age'] : null;
+        $age      = $turn !== null && is_numeric($turn->extra['speaker']['age'] ?? null) ? (int) $turn->extra['speaker']['age'] : Profiles::ageOf($this->scope);
         // …and only those offered here: the Ask's methods are not the companion's, nor its stories the Ask's.
         $space    = $this->scope?->space;
         $files    = array_filter($files, static fn (array $skill): bool => Audience::allows($skill, $audience, $age) && Skills::offeredIn($skill, $space));
@@ -1840,6 +1844,8 @@ class Conversations
             + (Plan::on($this->scope) ? Audience::adults(self::inSkill(($plan = new Plan($this->scope, $zone))->tools(), 'plan', $plan->projects() === [] ? [] : ['plan_add', 'plan_update'])) : [])
             // The person's own settings, changed by asking: on the companion's page, for everybody on it.
             + ($this->scope->space === Scope::CHAT && $this->scope->userId > 0 ? Settings::tools($this->scope) : [])
+            // How another of the family's profiles has been, for one that is not a child's (Profiles).
+            + Audience::adults(Profiles::tools($this->scope))
             // The person's photos, their captions and days — never the pictures (Photos).
             + ($this->scope->space === Scope::CHAT && $this->scope->userId > 0 && Photos::on() ? (new Photos($this->scope))->tools() : []);
     }

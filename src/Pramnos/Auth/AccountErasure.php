@@ -258,6 +258,13 @@ class AccountErasure
             $qb('assist.chat_calendar')->where('userid', $userId)->delete();
         }
 
+        // The account's profiles and the devices held to one of them; what they said went with the rows above.
+        foreach (['assist.chat_profile_locks', 'assist.chat_profiles'] as $table) {
+            if ($schema->hasTable($table)) {
+                $qb($table)->where('userid', $userId)->delete();
+            }
+        }
+
         // What they shared and what was shared with them; copies others already took are theirs.
         if ($schema->hasTable('assist.chat_shares')) {
             $qb('assist.chat_shares')->where('userid', $userId)->delete();

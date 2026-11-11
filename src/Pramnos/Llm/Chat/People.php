@@ -37,12 +37,15 @@ final class People
     /** Whether a stored space is the companion's: `chat` or `chat:<persona>`. */
     public static function companion(string $space): bool
     {
-        return preg_match('/^' . Scope::CHAT . '(:[A-Za-z0-9_-]+)?$/', $space) === 1;
+        // A persona's, and a profile's under it (`chat:tesla@12`).
+        return preg_match('/^' . Scope::CHAT . '(:[A-Za-z0-9_-]+)?(@\d+)?$/', $space) === 1;
     }
 
     /** The persona a stored space is, by key: the default's for plain `chat` (`chat` without personas). */
     public static function personaOf(string $space): string
     {
+        $space = (string) strtok($space, '@');
+
         return str_contains($space, ':') ? substr($space, (int) strpos($space, ':') + 1) : (Personas::default() ?? Scope::CHAT);
     }
 

@@ -2599,4 +2599,5 @@ return [
     'One of them gets: "%s".' => 'Ένας από αυτούς λαμβάνει: «%s».',
     'To go ahead, write yes in Confirm.' => 'Για να προχωρήσει, γράψε yes στην Επιβεβαίωση.',
     'To go ahead, write %s in Confirm.' => 'Για να προχωρήσει, γράψε %s στην Επιβεβαίωση.',
+    'The people of your account who talk to the assistant' => 'Τα πρόσωπα του λογαριασμού σου που μιλούν με τον βοηθό',
 ];

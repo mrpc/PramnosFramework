@@ -543,10 +543,11 @@ class AccountControllerIntegrationTest extends TestCase
         // + dashboards, the assistant's memory, questions and agreements, report subscriptions
         // + conversations + their artifacts + what they shared and was shared with them (2)
         // + scheduled tasks + the assistant's calendar of them + 2 for invitations + 1 mailing lists
-        // + the to-dos private to the person (handed over, the rest) + users = 30 delete() calls. Notifications read the stored types first, and the mock answers
+        // + the to-dos private to the person (handed over, the rest) + their memberships of artifacts shared live
+        // + the account's companion profiles and the devices held to one (2) + users = 33 delete() calls. Notifications read the stored types first, and the mock answers
         // none, so they delete nothing; nor do messages and runs, with no conversation or task found,
         // nor the profile and its versions, with no entry found.
-        $this->queryBuilderMock->expects($this->exactly(30))
+        $this->queryBuilderMock->expects($this->exactly(33))
             ->method('delete')
             ->willReturn(1);
 

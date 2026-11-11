@@ -429,8 +429,8 @@ final class Artifacts
         $parts = [];
         $left  = self::limit('pinned_all');
         foreach (self::pins($user) as $key) {
-            [$id, $space, $organization] = array_pad(explode('@', $key), 3, '');
-            if ($space !== $this->scope->space || $organization !== (string) ($this->scope->organizationId ?? '')) {
+            [$id, $space, $organization] = self::pinParts((string) $key);
+            if ($space !== $this->pinSpace() || $organization !== (string) ($this->scope->organizationId ?? '')) {
                 continue;
             }
             $found = $this->find((int) $id);
@@ -1052,7 +1052,7 @@ final class Artifacts
             return 'There is nobody to pin it for.';
         }
         $pins = self::pins($user);
-        $key  = $artifactId . '@' . $this->scope->space . '@' . ($this->scope->organizationId ?? '');
+        $key  = $artifactId . '@' . $this->pinSpace() . '@' . ($this->scope->organizationId ?? '');
         if ($pinned) {
             if ($this->find($artifactId) === null) {
                 return 'There is no such artifact.';
@@ -1079,7 +1079,7 @@ final class Artifacts
     {
         $out = [];
         foreach (self::pins($user) as $key) {
-            [$id, $space, $organization] = array_pad(explode('@', $key), 3, '');
+            [$id, $space, $organization] = self::pinParts((string) $key);
             $found = (new self(new Scope((int) $user->userid, $organization === '' ? null : (int) $organization, $space !== '' ? $space : Scope::CHAT)))->find((int) $id);
             if ($found !== null) {
                 $out[] = $found;
@@ -1328,6 +1328,27 @@ final class Artifacts
         $cells   = static fn (array $r): array => array_map(static fn ($v) => is_scalar($v) || $v === null ? $v : json_encode($v, JSON_UNESCAPED_UNICODE), array_slice(array_values($r), 0, self::COLUMNS));
 
         return ['columns' => $columns === [] ? ['—'] : $columns, 'rows' => array_map($cells, $rows), 'limit' => $limit];
+    }
+
+    /** The space a pin is kept under: every persona's alike, each profile's its own. */
+    private function pinSpace(): string
+    {
+        return $this->scope->space . ($this->scope->profile === null ? '' : '@' . $this->scope->profile);
+    }
+
+    /**
+     * A pin's parts — its artifact, the space it was pinned in and the organisation — from
+     * `<id>@<space>@<organisation>`, where the space may hold a profile's `@` of its own.
+     *
+     * @return array{0: string, 1: string, 2: string}
+     */
+    private static function pinParts(string $key): array
+    {
+        $parts = explode('@', $key);
+        $id    = (string) array_shift($parts);
+        $org   = count($parts) > 1 ? (string) array_pop($parts) : '';
+
+        return [$id, implode('@', $parts), $org];
     }
 
     /** Whether artifacts can be shared live here: the members' table exists. */

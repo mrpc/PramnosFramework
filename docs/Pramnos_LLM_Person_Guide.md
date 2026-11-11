@@ -3,6 +3,7 @@ use_cases:
   - Giving an assistant a profile of the person, their calendar and a journal, each turned on by itself
   - Keeping a person's projects in a plan the assistant updates from what they say, with a morning briefing
   - Letting someone other than the account holder talk to the assistant, with only their skills, tools and context
+  - Giving each member of a family their own profile, a device held to a child's, a parent reading a child's conversations
   - Letting the assistant book appointments, find free slots and remind before them
   - Keeping an assistant from messaging people at night, too often or while they are busy
   - Keeping what a person confided with a provider you trust with it
@@ -230,6 +231,50 @@ application declares that audience and what follows from it:
 An application that declares no audiences keeps what a `child` speaker had before: the
 framework's `Audience::RULES` (or the application's `chat.child_rules`), the topics `interests`
 and `talk`, every source left out, and an adult's tools not loaded.
+
+### The people of an account: profiles
+
+A family's children, or the other parent, can talk to the companion under one account, each with
+their own conversations, memories, diary, today's thought, photos, plan and reminders:
+
+```php
+'llm' => ['chat' => ['profiles' => [
+    'limit' => fn (object $user): int => 4,       // the application's, by its subscription (6 by default)
+    'after' => fn (Scope $scope, array $profile, string $question, string $answer, int $conversationId) => …,
+]]],
+```
+
+- **Kept apart without changing any table.** A profile writes under its own space
+  (`chat@<id>`, `chat:<persona>@<id>`, `Scope::$profile`), so everything kept by space is its
+  own. The account holder has no profile, and writes as before.
+- **A profile** (`Chat\Profiles`, kept in `assist.chat_profiles`) has a name, a kind (`parent`,
+  `child`, or an audience the application declares), a year of birth and an image. Its kind is
+  whom its answers are for ([audiences](#whom-an-answer-is-for-audiences-the-application-declares)),
+  and its age is what a skill's `age` is matched against.
+- **Which profile speaks** is the request's `X-Profile` header, among the account's own. With no
+  header, the account holder speaks.
+- **A device held to a child.** `POST {chat}/profiles/{id}/lock` holds this session, or this
+  access token, to a profile. Every request on it then speaks as that profile, whatever its
+  headers say, until `POST {chat}/profiles/unlock` with the account's PIN releases it. Without a
+  PIN (`PUT {chat}/profiles/pin`) no lock is made. Five wrong PINs in fifteen minutes, and it
+  waits.
+- **A parent reads a child's.** `GET {chat}/profiles/{id}/conversations` gives the summary and
+  the list, `GET {chat}/profiles/{id}/conversations/{cid}` one conversation whole, and
+  `GET {chat}/profiles/{id}/plan` the plan, its summary first. In conversation, a profile that is
+  not a child's has `profile_activity(name)`. A child's profile reads no one's. What counts as
+  worth telling a parent, and whom to tell, is the application's: its `after` hook hears every
+  answer of a profile.
+- **Photos** of a profile are in its own space. Another profile does not see them.
+- **The account's choices** (persona, voice, quiet hours) are the account's, the same for every
+  profile.
+- `Profiles::clear($userId, $id, $by)` starts a profile's experience again, keeping the profile.
+  `delete()` takes the profile with everything it kept.
+- **The administration** lists a profile's conversations and memories under its persona and its
+  name (*Naya · Niko*).
+- **An account's erasure** takes its profiles, and its data export lists them.
+
+The API is `GET`/`POST {chat}/profiles` and `PATCH`/`DELETE {chat}/profiles/{id}`, for the
+account holder.
 
 ### A check a few hours later
 

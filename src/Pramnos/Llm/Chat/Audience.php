@@ -80,7 +80,8 @@ final class Audience
 
             return preg_match('/^[a-z][a-z0-9_-]{0,30}$/', $said) === 1 ? $said : self::ADULT;
         }
-        $kind     = (string) ($speaker['kind'] ?? '');
+        // A profile speaking is its kind; a speaker the request names, theirs.
+        $kind     = (string) ($speaker['kind'] ?? (Profiles::kindOf($scope) ?? ''));
         $declared = self::declared();
 
         return $kind !== '' && ($declared !== [] ? isset($declared[$kind]) : $kind === self::CHILD) ? $kind : self::ADULT;
