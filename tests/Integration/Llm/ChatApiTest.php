@@ -399,6 +399,54 @@ class ChatApiTest extends LlmTestCase
             array_map(static fn (string $why): int => $call('statusFor', $why), ['scope', 'consent', 'missing', 'empty', 'limit', 'tags', 'provider']),
         );
     }
+
+    /**
+     * An app that signs in with a token subscribes to push through the conversation API (the
+     * site's own `Push` controller takes a session): the VAPID key, the subscription kept for the
+     * person asking and marked with the conversations' space — the same subscription sent again
+     * refreshed, not added twice — and forgotten by its endpoint. On every mount: `/assistant/push`
+     * follows its `chat` path. One that is not usable is refused, and so is a request the
+     * controller refuses.
+     */
+    #[DataProvider('databases')]
+    public function testAnAppSubscribesToPushWithItsToken(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->db->schema()->dropTableIfExists('pramnos.pushsubscriptions');
+        \Pramnos\Framework\Testing\Schema::ensure([
+            \Pramnos\Framework\Migrations\Notifications\CreatePushSubscriptionsTable::class,
+            \Pramnos\Framework\Migrations\Notifications\AddTrustedDeviceToPushSubscriptions::class,
+            \Pramnos\Framework\Migrations\Notifications\AddClientToPushSubscriptions::class,
+            \Pramnos\Framework\Migrations\Notifications\AddAppToPushSubscriptions::class,
+        ], $this->db);
+        $paths = ['chat' => '/assistant'];
+        $phone = ['endpoint' => 'https://push.test/phone', 'keys' => ['p256dh' => 'k', 'auth' => 'a']];
+
+        // Act
+        $key    = $this->call('GET', '/assistant/push/key', [], $paths);
+        $first  = $this->call('POST', '/assistant/push', $phone, $paths);
+        $again  = $this->call('POST', '/assistant/push', $phone, $paths);
+        $mine   = \Pramnos\Push\Subscriptions::forUser(7);
+        $broken = $this->call('POST', '/assistant/push', ['endpoint' => 'http://push.test/x'], $paths);
+        $gone   = $this->call('DELETE', '/assistant/push', ['endpoint' => $phone['endpoint']], $paths);
+        $none   = $this->call('DELETE', '/assistant/push', [], $paths);
+        ApiFixture::$stop = ['status' => 401, 'error' => 'not_authenticated'];
+        $refused = $this->call('POST', '/assistant/push', $phone, $paths);
+
+        // Assert
+        $this->assertContains($key['status'], [200, 503], 'the key, or why there is none');
+        $this->assertSame(['subscribed' => true, 'app' => 'chat'], $first['data']);
+        $this->assertSame(200, $again['status']);
+        $this->assertCount(1, $mine, 'the same subscription again: refreshed, not added');
+        $this->assertSame('chat', $mine[0]['app'], 'marked with the app it came from');
+        $this->assertSame(422, $broken['status']);
+        $this->assertSame(['unsubscribed' => true], $gone['data']);
+        $this->assertSame([], \Pramnos\Push\Subscriptions::forUser(7));
+        $this->assertSame(422, $none['status']);
+        $this->assertSame(401, $refused['status']);
+        $this->db->schema()->dropTableIfExists('pramnos.pushsubscriptions');
+    }
 }
 
 /** The application's controller, as a test sets it. */

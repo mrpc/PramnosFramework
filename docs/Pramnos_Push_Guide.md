@@ -833,3 +833,34 @@ subscription (`push-notifications.js` sends `window.pfClientId`); `Subscriptions
 $endpoint, $client)` keeps it in `pushsubscriptions.client`. When every subscription belongs to
 another client, nothing is sent and the push log records `Log::ELSEWHERE`.
 
+## A push to an app's own devices
+
+An app that is not the site's pages — an assistant's PWA on another origin, signed in with a
+token — subscribes through the conversation API, not the `Push` controller, which takes the
+site's session:
+
+| | |
+|---|---|
+| `GET {chat}/push/key` | `{publicKey}` for `PushManager.subscribe()`; 503 with no VAPID pair |
+| `POST {chat}/push` | `PushSubscription.toJSON()` as the body; kept, and marked with the app (the conversations' space: `chat`). Sent again, the same subscription is refreshed |
+| `DELETE {chat}/push` | `{endpoint}`: forgotten |
+
+`{chat}` is the mount's own path — `/assistant/push` on a mount at `/assistant`.
+`Subscriptions::tagApp($userId, $endpoint, $app)` keeps the mark in `pushsubscriptions.app`.
+
+A notification goes to the subscriptions of the app it names by a method,
+`pushApp($notifiable)`, and one without the method to the site's own (`app` NULL). So the site's
+notifications never reach the app's devices, nor the app's the site's browsers:
+
+```php
+class CheckIn extends Notification
+{
+    public function via($notifiable): array { return ['push']; }
+    public function pushApp($notifiable): string { return \Pramnos\Llm\Chat\Scope::CHAT; }
+    public function toPush($notifiable): array { return ['title' => '…', 'body' => '…', 'url' => '…']; }
+}
+```
+
+With nothing of that app subscribed, nothing is sent and the push log records
+`Log::NO_SUBSCRIPTION`.
+

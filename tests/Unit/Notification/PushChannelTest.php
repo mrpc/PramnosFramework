@@ -530,6 +530,35 @@ class PushChannelTest extends TestCase
     }
 
     /**
+     * A notification goes to the subscriptions of the app it names (`pushApp()`), and one that
+     * names none to the site's own: an assistant's app on another origin and the site's pages
+     * never receive each other's notifications. With nothing of that app subscribed, nothing is
+     * sent.
+     */
+    public function testAPushGoesToItsOwnAppsDevicesOnly(): void
+    {
+        // Arrange — the site's browser, and the assistant app's phone
+        $keys = ['publicKey' => 'p', 'privateKey' => 'k', 'subject' => 'mailto:a@b.c'];
+        $subs = [
+            ['app' => null] + $this->subscription('https://site.example/1'),
+            ['app' => 'chat'] + $this->subscription('https://app.example/2'),
+        ];
+
+        // Act
+        $site = new SendingPushChannel($subs, $keys);
+        $site->send((object) ['userid' => 1], new PushableNotification());
+        $app = new SendingPushChannel($subs, $keys);
+        $app->send((object) ['userid' => 1], new AppPushNotification('chat'));
+        $none = new SendingPushChannel([$subs[0]], $keys);
+        $none->send((object) ['userid' => 1], new AppPushNotification('chat'));
+
+        // Assert
+        $this->assertSame(['https://site.example/1'], array_column($site->sent, 'endpoint'), 'the site\'s notification: the site\'s browser');
+        $this->assertSame(['https://app.example/2'], array_column($app->sent, 'endpoint'), 'the app\'s: its phone alone');
+        $this->assertSame([], $none->sent, 'the app has no subscription: nothing');
+    }
+
+    /**
      * `silent` and `unlessFocused` reach the worker only when asked for: a notification that does
      * not ask sends neither, so the worker keeps the system's sound and always shows it.
      * `silent: 'ifOpen'` reaches it as it is, for the worker to decide by the pages open.
@@ -715,4 +744,16 @@ class ClientPushNotification extends PushableNotification
 
     /** The client to push to, or null for all. */
     public function pushClient(mixed $notifiable): ?string { return $this->client; }
+}
+
+/** A notification for an app's own devices, as an assistant's app on another origin sends. */
+class AppPushNotification extends PushableNotification
+{
+    public function __construct(private string $app)
+    {
+        parent::__construct();
+    }
+
+    /** The app whose subscriptions it goes to. */
+    public function pushApp(mixed $notifiable): string { return $this->app; }
 }

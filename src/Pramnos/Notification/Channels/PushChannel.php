@@ -87,7 +87,13 @@ class PushChannel implements ChannelInterface
             return;
         }
 
-        $subscriptions = $this->subscriptionsFor($userId);
+        /*
+         * The subscriptions of the app the notification is for (`pushApp()`, an assistant's app
+         * on another origin), or the site's own where it names none — so neither reaches the
+         * other's devices.
+         */
+        $app           = method_exists($notification, 'pushApp') ? (string) $notification->pushApp($notifiable) : '';
+        $subscriptions = array_values(array_filter($this->subscriptionsFor($userId), static fn (array $one): bool => (string) ($one['app'] ?? '') === $app));
 
         if ($subscriptions === []) {
             /*

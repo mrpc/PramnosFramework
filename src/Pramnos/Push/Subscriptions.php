@@ -129,6 +129,30 @@ class Subscriptions
     }
 
     /**
+     * Mark one of the person's subscriptions with the app it was made from, where that is not the
+     * site itself — an assistant's app on another origin, say. A notification goes to the
+     * subscriptions of the app it names ({@see \Pramnos\Notification\Channels\PushChannel}),
+     * so the site's do not reach the app's devices, nor the other way round.
+     */
+    public static function tagApp(int $userId, string $endpoint, string $app): bool
+    {
+        $app = substr((string) preg_replace('/[^a-z0-9_.-]/', '', strtolower($app)), 0, 32);
+        if ($userId < 1 || $endpoint === '' || $app === '') {
+            return false;
+        }
+        try {
+            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('pramnos.pushsubscriptions')
+                ->where('userid', $userId)->where('endpoint_hash', hash('sha256', $endpoint))->update(['app' => $app]);
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log('Could not mark a push subscription with its app: ' . $exception->getMessage(), 'push');
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Mark this browser's subscription as belonging to one of the account's trusted devices.
      *
      * Only a trusted device is asked to approve a sign-in elsewhere, and the subscription is

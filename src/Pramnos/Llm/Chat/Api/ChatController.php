@@ -357,6 +357,62 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             : ['status' => 200, 'data' => ['audio' => base64_encode($spoken['audio']), 'type' => $spoken['type'], 'bytes' => strlen($spoken['audio'])]];
     }
 
+    /**
+     * The VAPID public key, for `PushManager.subscribe()` in an app that signs in with a token —
+     * which the site's own `Push` controller, made for its pages and their session, does not take.
+     * 503 where the installation has no key pair.
+     */
+    public function pushKey(): array
+    {
+        if (($stop = $this->refusal('read')) !== null) {
+            return $stop;
+        }
+        $vapid = \Pramnos\Push\Vapid::load();
+
+        return $vapid === null ? self::error(503, 'This installation has no VAPID key pair. Run `push:vapid-generate`.')
+            : ['status' => 200, 'data' => ['publicKey' => $vapid['publicKey']]];
+    }
+
+    /**
+     * Keep this device's subscription — `PushSubscription.toJSON()` as the body — for the person
+     * asking, marked with the app it came from: the conversations' space (`chat` for an
+     * assistant's own app). Its notifications (`pushApp()`) go to those subscriptions alone, and
+     * the site's do not. Sent again, the same subscription is refreshed, not added twice.
+     */
+    public function pushSubscribe(): array
+    {
+        if (($stop = $this->refusal('ask')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        if ($scope === null) {
+            return self::error(401, 'This needs somebody signed in.');
+        }
+        $subscription = $this->input();
+        if (!\Pramnos\Push\Subscriptions::store($scope->userId, $subscription, (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''))) {
+            return self::error(422, 'That subscription is not usable — it needs an https endpoint and both keys.');
+        }
+        \Pramnos\Push\Subscriptions::tagApp($scope->userId, (string) $subscription['endpoint'], $scope->space);
+
+        return ['status' => 200, 'data' => ['subscribed' => true, 'app' => $scope->space]];
+    }
+
+    /** Forget this device's subscription, by its `endpoint`; nothing to forget is not an error. */
+    public function pushUnsubscribe(): array
+    {
+        if (($stop = $this->refusal('ask')) !== null) {
+            return $stop;
+        }
+        $scope    = $this->scope();
+        $endpoint = trim((string) ($this->input()['endpoint'] ?? ''));
+        if ($scope === null || $endpoint === '') {
+            return self::error($scope === null ? 401 : 422, $scope === null ? 'This needs somebody signed in.' : 'Send the endpoint to forget.');
+        }
+        \Pramnos\Push\Subscriptions::forget($endpoint, $scope->userId);
+
+        return ['status' => 200, 'data' => ['unsubscribed' => true]];
+    }
+
     /** A question while the worker answers it: waiting, answered with its conversation, or failed and why. */
     public function asked($ask_id): array
     {
