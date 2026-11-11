@@ -87,6 +87,12 @@ final class CharactersTest extends TestCase
         $this->assertStringContainsString('is-perking-up', $first, 'her transitions');
         $this->assertStringContainsString(' data-visemes', $first, 'a mouth for each sound, for pf-voice to move');
         $this->assertSame(['walk', 'trot', 'sprint', 'zoomies'], AvatarSets::gaits());
+        // FW-453: what she does when touched — for the page, not the model
+        $this->assertSame(['plays' => 'annoyed', 'buzz' => [60]], AvatarSets::reactions()['tickle']);
+        $this->assertTrue(AvatarSets::reactions()['pet']['repeat']);
+        $this->assertContains('annoyed', AvatarSets::states());
+        $this->assertContains('purr', AvatarSets::states());
+        $this->assertStringContainsString('&quot;annoyed&quot;:1600', $first, 'annoyed passes by itself');
         $this->assertStringContainsString('&quot;waking&quot;:1400', $first, 'waking ends by itself');
         // Each picture its own ids: a gradient referenced across two pictures breaks when one is hidden
         preg_match('/id="pf-tesla-ear-l-(\w+)"/', $first, $a);

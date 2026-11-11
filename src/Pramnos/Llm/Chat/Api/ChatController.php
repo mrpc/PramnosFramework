@@ -443,6 +443,9 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         $list   = array_values(array_map(static fn (array $p): array => ['key' => $p['key'], 'name' => $p['name'], 'gender' => $p['gender'],
             'voice' => $p['voice'], 'size' => $p['size'], 'default' => $p['key'] === \Pramnos\Llm\Chat\Personas::default(), 'chosen' => $p['key'] === $chosen,
             // Its picture, idle, with its stylesheet: a persona without a set of its own has the analyst's.
+            // What its picture does when touched (never told to the model).
+            'reactions' => \Pramnos\Assist\AvatarSets::using(is_string($p['avatar_set']) || is_array($p['avatar_set']) ? $p['avatar_set'] : null,
+                static fn (): array => \Pramnos\Assist\AvatarSets::reactions()),
             'avatar' => self::absolute(\Pramnos\Assist\AvatarSets::using(is_string($p['avatar_set']) || is_array($p['avatar_set']) ? $p['avatar_set'] : null,
                 static fn (): string => \Pramnos\Assist\AvatarSets::render('idle', (int) ($p['size'] ?? 64)), $p['name']))],
             \Pramnos\Llm\Chat\Personas::all()));

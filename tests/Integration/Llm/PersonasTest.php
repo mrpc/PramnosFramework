@@ -122,6 +122,7 @@ class PersonasTest extends LlmTestCase
         $this->assertSame([(int) $toTesla['conversation_id']], array_column($tesla->list(), 'conversation_id'));
         $this->assertStringNotContainsString('you are Tesla', self::system($this->sent[0]));
         $this->assertStringContainsString('In this conversation you are Tesla', self::system($this->sent[1]));
+        $this->assertStringNotContainsString('tickle', json_encode($this->sent[1]['body'], JSON_UNESCAPED_UNICODE), 'a touch is never the model\'s');
         $this->assertNull($toNaya['message']['mood'], 'affectionate is not one of Naya\'s words');
         $this->assertSame('affectionate', $toTesla['message']['mood']['mood'], 'it is one of Tesla\'s');
         $this->assertSame('rubbing', $toTesla['message']['mood']['plays']);
@@ -189,6 +190,8 @@ class PersonasTest extends LlmTestCase
         $this->assertSame(['naya', 'tesla'], array_column($before['data']['personas'], 'key'));
         $this->assertStringContainsString('pf-tesla', $before['data']['personas'][1]['avatar'], 'her own picture');
         $this->assertStringContainsString('aria-label="Tesla"', $before['data']['personas'][1]['avatar'], 'called by her name, not the analyst\'s');
+        $this->assertSame('purr', $before['data']['personas'][1]['reactions']['pet']['plays'], 'her reactions to a touch, for the app');
+        $this->assertSame([], $before['data']['personas'][0]['reactions'], 'a set without any has none');
         $this->assertStringContainsString('aria-label="Naya"', $before['data']['personas'][0]['avatar']);
         $this->assertStringContainsString('href="https://api.example.test/themes/naya.css', $before['data']['personas'][0]['avatar'], 'a whole address, for an app on another origin');
         $this->assertSame('tesla', $chose['data']['chosen']);

@@ -235,6 +235,13 @@ root. A set registered under the same name is the application's and wins.
 | `data-facing="right"` | mirrored; she is drawn facing left |
 | `--pf-look-x`, `--pf-look-y` | where her pupils look, -1.35 to 1.35 |
 
+**When touched.** A set may say what its picture does when touched, for the page that notices the
+touch (a tap, a long press, a drag) to play: `'reactions' => ['tickle' => ['plays' => 'annoyed',
+'buzz' => [60]], 'pet' => ['plays' => 'purr', 'repeat' => true], …]`, read with
+`AvatarSets::reactions()` and given with each persona by `GET {chat}/personas`. A touch is never
+told to the model. Tesla's are `tickle` → `annoyed` (ears back, the tail lashing, passing by
+itself), `pet` → `purr`, `push` → `playing` and `poke` → `curious`.
+
 Her moods (`AvatarSets::moods()`) are the words a [mood](Pramnos_LLM_Conversations_Guide.md#the-assistants-mood)
 may use and what each plays: `affectionate` → `rubbing`, `calm` → the `loaf` pose, `sleepy` →
 `drowsy`, and so on. `analyst.avatar_moods` replaces them with the application's own.

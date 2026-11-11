@@ -71,6 +71,23 @@
 .pf-assistant-avatar[data-state="thinking"] .pf-tesla .t-dots circle:nth-child(2) { animation-delay: .2s; }
 .pf-assistant-avatar[data-state="thinking"] .pf-tesla .t-dots circle:nth-child(3) { animation-delay: .4s; }
 
+/* ---- Touched: annoyed (tickled), purring (petted) --------------------------------------- */
+.pf-assistant-avatar[data-state="annoyed"] .pf-tesla [data-eyes="open"],
+.pf-assistant-avatar[data-state="annoyed"] .pf-tesla [data-mouth="smile"],
+.pf-assistant-avatar[data-state="purr"] .pf-tesla [data-eyes="open"] { display: none; }
+.pf-assistant-avatar[data-state="annoyed"] .pf-tesla [data-eyes="drowsy"],
+.pf-assistant-avatar[data-state="annoyed"] .pf-tesla [data-mouth="error"],
+.pf-assistant-avatar[data-state="purr"] .pf-tesla [data-eyes="happy"],
+.pf-assistant-avatar[data-state="purr"] .pf-tesla > [data-pose-art="rubbing"] { display: inline; }
+.pf-assistant-avatar[data-state="purr"] .pf-tesla .t-blush { opacity: .7; }
+.pf-assistant-avatar[data-state="annoyed"] .pf-tesla .t-ear-l { transform-origin: 10px 9px; transform: rotate(-28deg) translateY(1.5px); }
+.pf-assistant-avatar[data-state="annoyed"] .pf-tesla .t-ear-r { transform-origin: 22px 9px; transform: rotate(28deg) translateY(1.5px); }
+.pf-assistant-avatar[data-state="annoyed"] .pf-tesla .t-swish { animation: pf-tesla-tail-lash .22s ease-in-out infinite alternate; }
+.pf-assistant-avatar[data-state="annoyed"] .pf-tesla .t-character { animation: pf-tesla-shake .4s ease-in-out 2; }
+.pf-assistant-avatar[data-state="purr"] .pf-tesla .t-character { animation: pf-tesla-purr-body .12s linear infinite alternate; }
+@keyframes pf-tesla-tail-lash { 0% { transform: rotate(-14deg); } 100% { transform: rotate(16deg); } }
+@keyframes pf-tesla-purr-body { 0% { transform: translateY(0); } 100% { transform: translateY(-.25px) scale(1.004, .996); } }
+
 /* ---- The mouth with the voice (pf-voice): its level, and a shape for each sound ---------- */
 .pf-assistant-avatar[data-viseme]:not([data-viseme="rest"]) .pf-tesla [data-mouth="talk"] { display: inline; }
 .pf-assistant-avatar[data-viseme]:not([data-viseme="rest"]) .pf-tesla [data-mouth="smile"] { display: none; }

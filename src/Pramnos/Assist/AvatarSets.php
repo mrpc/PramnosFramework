@@ -100,6 +100,26 @@ final class AvatarSets
     }
 
     /**
+     * What the picture does when touched — `tickle`, `pet`, `push`, `poke` → `{plays, buzz?, repeat?,
+     * sound?}` — for the page that notices the touch to play. Never told to a model: a touch is the
+     * picture's, not the conversation's.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public static function reactions(): array
+    {
+        $out = [];
+        foreach ((array) (self::current()['reactions'] ?? []) as $touch => $reaction) {
+            $reaction = is_array($reaction) ? $reaction : ['plays' => (string) $reaction];
+            if (is_string($touch) && trim((string) ($reaction['plays'] ?? '')) !== '') {
+                $out[$touch] = $reaction;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * The gaits the set in use draws — `walk`, `trot`, `sprint`, `zoomies` as `data-gait` — for
      * a page to offer; [] for a set that does not move.
      *
@@ -151,7 +171,7 @@ final class AvatarSets
             return ['markup' => $set['markup'], 'css' => isset($set['css']) ? (string) $set['css'] : null, 'states' => (array) ($set['states'] ?? []),
                 'poses' => array_values(array_map('strval', (array) ($set['poses'] ?? []))), 'transitions' => (array) ($set['transitions'] ?? []),
                 'moods' => array_map('strval', (array) ($set['moods'] ?? [])), 'acts' => (array) ($set['acts'] ?? []), 'wear' => (array) ($set['wear'] ?? []),
-                'gaits' => (array) ($set['gaits'] ?? []), 'visemes' => !empty($set['visemes'])];
+                'gaits' => (array) ($set['gaits'] ?? []), 'visemes' => !empty($set['visemes']), 'reactions' => (array) ($set['reactions'] ?? [])];
         }
         if (\Pramnos\Llm\Analyst\Analyst::avatar() !== null) {
             return null;
