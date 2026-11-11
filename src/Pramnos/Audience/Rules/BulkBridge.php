@@ -91,16 +91,16 @@ final class BulkBridge
         }
         $parts = [];
         if ($count['sent'] > 0) {
-            $parts[] = sprintf('Sent to %d.', $count['sent']);
+            $parts[] = sprintf(t('Sent to %d.'), $count['sent']);
         }
         if ($count['done'] > 0) {
-            $parts[] = sprintf('Done for %d.', $count['done']);
+            $parts[] = sprintf(t('Done for %d.'), $count['done']);
         }
         foreach ($count['skipped'] as $why => $n) {
-            $parts[] = sprintf('%d skipped: %s.', $n, self::why((string) $why));
+            $parts[] = sprintf(t('%d skipped: %s.'), $n, self::why((string) $why));
         }
         if ($count['error'] > 0) {
-            $parts[] = sprintf('%d failed.', $count['error']);
+            $parts[] = sprintf(t('%d failed.'), $count['error']);
         }
 
         return ['done' => $count['sent'] + $count['done'], 'says' => implode(' ', $parts)];
@@ -121,11 +121,11 @@ final class BulkBridge
         $consent = (int) ($params['consent'] ?? 0) ?: null;
         // A channel with consent lists is sent to one of them: the person chooses which.
         if ($consent === null && $channel !== null && self::lists($channel) !== []) {
-            return 'Choose the consent list it goes by.';
+            return t('Choose the consent list it goes by.');
         }
         $listName = $consent === null ? '' : (self::lists((string) $channel)[$consent] ?? '');
         if ($key === 'email' && trim((string) ($params['template'] ?? '')) === '' && trim((string) ($params['body'] ?? '')) === '') {
-            return 'Choose a mail template, or write the message.';
+            return t('Choose a mail template, or write the message.');
         }
         $to      = 0;
         $skipped = [];
@@ -210,10 +210,10 @@ final class BulkBridge
     private static function why(string $reason): string
     {
         return match ($reason) {
-            'consent' => 'not on the consent list',
-            'cap'     => 'over the frequency cap',
-            'hours'   => 'outside the sending hours',
-            default   => $reason,
+            'consent' => t('not on the consent list'),
+            'cap'     => t('over the frequency cap'),
+            'hours'   => t('outside the sending hours'),
+            default   => t($reason),
         };
     }
 }

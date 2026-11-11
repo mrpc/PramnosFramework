@@ -287,15 +287,16 @@ final class BulkActions
      */
     private static function told(array $seen): string
     {
+        $t       = static fn (string $words): string => function_exists('t') ? (string) t($words) : $words;
         $skipped = array_filter((array) ($seen['skipped'] ?? []));
-        $parts   = [sprintf('This reaches %d.', (int) ($seen['to'] ?? 0))];
+        $parts   = [sprintf($t('This reaches %d.'), (int) ($seen['to'] ?? 0))];
         if ($skipped !== []) {
-            $parts[] = 'Skipped: ' . implode(', ', array_map(static fn (string $why, int $n): string => $n . ' ' . $why, array_keys($skipped), $skipped)) . '.';
+            $parts[] = sprintf($t('Skipped: %s.'), implode(', ', array_map(static fn (string $why, int $n): string => $n . ' ' . $why, array_keys($skipped), $skipped)));
         }
         if (is_array($seen['sample'] ?? null)) {
-            $parts[] = 'One of them gets: "' . trim($seen['sample']['subject'] . ' — ' . mb_substr(trim(strip_tags($seen['sample']['body'])), 0, 300), ' —') . '".';
+            $parts[] = sprintf($t('One of them gets: "%s".'), trim($seen['sample']['subject'] . ' — ' . mb_substr(trim(strip_tags($seen['sample']['body'])), 0, 300), ' —'));
         }
-        $parts[] = ($seen['confirm'] ?? 'yes') === 'yes' ? 'To go ahead, write yes in Confirm.' : sprintf('To go ahead, write %s in Confirm.', $seen['confirm']);
+        $parts[] = ($seen['confirm'] ?? 'yes') === 'yes' ? $t('To go ahead, write yes in Confirm.') : sprintf($t('To go ahead, write %s in Confirm.'), $seen['confirm']);
 
         return implode(' ', $parts);
     }
