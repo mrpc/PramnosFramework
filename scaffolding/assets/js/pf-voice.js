@@ -348,6 +348,63 @@
     }
 
     /**
+     * The mouth for each sound — `A E I O U M F L S`, and `rest` between words — Greek first, its
+     * two-letter sounds before single letters; Latin letters by the nearest. A table of a page's
+     * own (`addVisemes(map)`) is read before these.
+     */
+    var VISEME_PAIRS = { 'ου': 'U', 'αι': 'E', 'ει': 'I', 'οι': 'I', 'υι': 'I', 'μπ': 'M', 'ντ': 'L', 'τσ': 'S', 'τζ': 'S', 'γκ': 'E', 'th': 'L', 'sh': 'S', 'ch': 'S' };
+    var VISEME_ONE = {
+        'α': 'A', 'ε': 'E', 'κ': 'E', 'γ': 'E', 'χ': 'E', 'ι': 'I', 'η': 'I', 'υ': 'I', 'ο': 'O', 'ω': 'O',
+        'μ': 'M', 'π': 'M', 'φ': 'F', 'β': 'F', 'λ': 'L', 'ν': 'L', 'τ': 'L', 'δ': 'L', 'θ': 'L', 'ρ': 'L',
+        'σ': 'S', 'ς': 'S', 'ζ': 'S', 'ξ': 'S', 'ψ': 'S',
+        'a': 'A', 'e': 'E', 'i': 'I', 'y': 'I', 'o': 'O', 'u': 'U', 'w': 'U', 'm': 'M', 'b': 'M', 'p': 'M', 'f': 'F', 'v': 'F',
+        'l': 'L', 'n': 'L', 't': 'L', 'd': 'L', 'r': 'L', 's': 'S', 'z': 'S', 'c': 'S', 'x': 'S', 'j': 'S',
+        'k': 'E', 'g': 'E', 'h': 'E', 'q': 'E'
+    };
+    var VISEME_OWN = {};
+
+    /** A page's own sounds and their mouths, read before the built-in ones: `{ 'gh': 'E' }`. */
+    function addVisemes(map) {
+        Object.keys(map || {}).forEach(function (k) { VISEME_OWN[String(k).toLowerCase()] = String(map[k]); });
+    }
+
+    /** A text's mouths, sound by sound, accents ignored; `rest` for a space or a mark. */
+    function toVisemes(text) {
+        var t = String(text || '').toLowerCase();
+        if (typeof t.normalize === 'function') {
+            t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        }
+        var out = [];
+        var own = Object.keys(VISEME_OWN).sort(function (a, b) { return b.length - a.length; });
+        for (var i = 0; i < t.length;) {
+            var found = null;
+            for (var k = 0; k < own.length && !found; k++) {
+                if (t.substr(i, own[k].length) === own[k]) {
+                    found = [VISEME_OWN[own[k]], own[k].length];
+                }
+            }
+            if (!found && VISEME_PAIRS[t.substr(i, 2)]) {
+                found = [VISEME_PAIRS[t.substr(i, 2)], 2];
+            }
+            if (!found) {
+                found = [VISEME_ONE[t.charAt(i)] || (/\s|[.,;:!?…·()"«»\-—]/.test(t.charAt(i)) ? 'rest' : null), 1];
+            }
+            if (found[0]) {
+                out.push(found[0]);
+            }
+            i += found[1];
+        }
+        return out;
+    }
+
+    /** The mouths of the word that starts at `charIndex` of a text. */
+    function wordVisemes(text, charIndex) {
+        var rest = String(text || '').slice(Math.max(0, charIndex || 0));
+        var word = (rest.match(/^\S+/) || [''])[0];
+        return toVisemes(word).filter(function (v) { return v !== 'rest'; });
+    }
+
+    /**
      * One voice controller: dictation, read-aloud, voice picking, barge-in. Plain object with
      * getters/setters — no reactivity framework assumed, so it works equally from a vanilla
      * `pf-chat.js` wiring or a Svelte/React component that reads its properties itself.
@@ -379,6 +436,13 @@
     function createVoiceState(options) {
         var server = options && typeof options.server === 'function' ? options.server : null;
         var listen = options && typeof options.listen === 'function' ? options.listen : null;
+        // The picture whose mouth follows the voice, unless a speak() names another.
+        var defaultAvatar = options && options.avatar ? options.avatar : null;
+
+        /** The avatar a speak() moves: its own, or the voice's. */
+        function avatarOf(opts) {
+            return opts.avatar || defaultAvatar;
+        }
         var activeServer = null; // the recording for the server, while it is made
         var barge = null;        // the microphone open for barge-in, while the voice speaks
         var level = null;        // what tells onLevel, while the voice speaks
@@ -476,13 +540,16 @@
         }
 
         /**
-         * `onLevel(0..1)` while the voice speaks, for a mouth that moves with it: from the audio
-         * itself where it plays through an element (the speech server's), and as a pulse at each
-         * word where the browser speaks, whose sound a page cannot read.
+         * The voice's level and mouth while it speaks: `onLevel(0..1)`, and on `avatar` — an
+         * element, `.pf-assistant-avatar` — `--pf-voice-level` and, where its set draws a mouth for
+         * each sound (`data-visemes`), `data-viseme`, both taken off at the end. Through the speech
+         * server they follow the audio itself; the browser's voice gives a page no sound to read,
+         * so there they follow its words.
          */
-        function startLevel(onLevel, audio) {
+        function startLevel(onLevel, audio, text, avatar) {
             endLevel();
-            var mine = { onLevel: onLevel, timer: null };
+            var visemes = avatar && avatar.hasAttribute && avatar.hasAttribute('data-visemes') ? toVisemes(text || '') : null;
+            var mine = { onLevel: onLevel, avatar: avatar || null, visemes: visemes, text: text || '', timer: null };
             level = mine;
             var ctx = audio ? audioContext() : null;
             if (ctx && typeof ctx.createMediaElementSource === 'function') {
@@ -494,7 +561,10 @@
                     analyser.connect(ctx.destination);
                     var samples = new Float32Array(analyser.fftSize);
                     mine.timer = setInterval(function () {
-                        onLevel(Math.min(1, loudness(analyser, samples) * 4));
+                        var now = Math.min(1, loudness(analyser, samples) * 4);
+                        // Where in the sentence the audio is: the mouth for the sound there.
+                        var part = audio.duration > 0 ? audio.currentTime / audio.duration : 0;
+                        tellLevel(mine, now, visemes && visemes.length ? visemes[Math.min(visemes.length - 1, Math.floor(part * visemes.length))] : null);
                     }, 50);
                 } catch (e) {
                     mine.timer = null;
@@ -502,22 +572,53 @@
             }
         }
 
-        /** A word heard from the browser's voice: the level up, then down. */
-        function pulseLevel() {
+        /** The level and the mouth, told: to the page's listener and on the avatar. */
+        function tellLevel(mine, value, viseme) {
+            if (mine.onLevel) {
+                mine.onLevel(value);
+            }
+            if (!mine.avatar) {
+                return;
+            }
+            if (mine.avatar.style && typeof mine.avatar.style.setProperty === 'function') {
+                mine.avatar.style.setProperty('--pf-voice-level', value.toFixed(2));
+            }
+            if (mine.visemes) {
+                // Quiet between words: the mouth at rest, whatever the sound would be.
+                mine.avatar.setAttribute('data-viseme', value < 0.05 || !viseme ? 'rest' : viseme);
+            }
+        }
+
+        /** A word heard from the browser's voice, at `charIndex` of its text: the level up, the mouth through it, then down. */
+        function pulseLevel(charIndex) {
             var mine = level;
             if (!mine) {
                 return;
             }
-            mine.onLevel(0.8);
+            var shapes = mine.visemes ? wordVisemes(mine.text || '', charIndex) : [];
             clearTimeout(mine.decay);
+            clearInterval(mine.word);
+            var step = 0;
+            tellLevel(mine, 0.8, shapes[0] || null);
+            if (shapes.length > 1) {
+                mine.word = setInterval(function () {
+                    step++;
+                    if (step >= shapes.length) {
+                        clearInterval(mine.word);
+                        return;
+                    }
+                    tellLevel(mine, 0.8, shapes[step]);
+                }, 80);
+            }
             mine.decay = setTimeout(function () {
                 if (level === mine) {
-                    mine.onLevel(0);
+                    clearInterval(mine.word);
+                    tellLevel(mine, 0, null);
                 }
-            }, 160);
+            }, Math.max(160, shapes.length * 80));
         }
 
-        /** The level told for the last time: 0, as the voice is quiet. */
+        /** The level told for the last time — 0, the voice quiet — and the avatar as it was. */
         function endLevel() {
             var mine = level;
             if (!mine) {
@@ -528,11 +629,21 @@
                 clearInterval(mine.timer);
             }
             clearTimeout(mine.decay);
+            clearInterval(mine.word);
             if (mine.source && typeof mine.source.disconnect === 'function') {
                 mine.source.disconnect();
             }
-            mine.onLevel(0);
+            if (mine.onLevel) {
+                mine.onLevel(0);
+            }
+            if (mine.avatar) {
+                if (mine.avatar.style && typeof mine.avatar.style.removeProperty === 'function') {
+                    mine.avatar.style.removeProperty('--pf-voice-level');
+                }
+                mine.avatar.removeAttribute('data-viseme');
+            }
         }
+
         var serverRun = 0;
         var currentAudio = null;
         var dictating = false;
@@ -1057,8 +1168,8 @@
                     fetchPart(i + 1);
                     var audio = new window.Audio(src);
                     currentAudio = audio;
-                    if (opts.onLevel) {
-                        startLevel(opts.onLevel, audio);
+                    if (opts.onLevel || avatarOf(opts)) {
+                        startLevel(opts.onLevel, audio, parts[i], avatarOf(opts));
                     }
                     audio.onended = function () { release(src); play(i + 1); };
                     audio.onerror = function (err) {
@@ -1201,10 +1312,10 @@
             utterance.pitch = pitch;
             utterance.rate = effectiveRate;
 
-            if (opts.onLevel) {
-                startLevel(opts.onLevel, null);
+            if (opts.onLevel || avatarOf(opts)) {
+                startLevel(opts.onLevel, null, cleaned, avatarOf(opts));
             }
-            utterance.onboundary = function () { pulseLevel(); };
+            utterance.onboundary = function (e) { pulseLevel(e && typeof e.charIndex === 'number' ? e.charIndex : 0); };
 
             utterance.onstart = function () {
                 speaking = true;
@@ -1327,6 +1438,8 @@
     }
 
     window.PfVoice = {
+        toVisemes: toVisemes,
+        addVisemes: addVisemes,
         isSpeechRecognitionSupported: isSpeechRecognitionSupported,
         isSpeechSynthesisSupported: isSpeechSynthesisSupported,
         isChromeBrowser: isChromeBrowser,

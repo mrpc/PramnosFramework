@@ -85,6 +85,8 @@ final class CharactersTest extends TestCase
         $this->assertStringContainsString('data-state="sleeping"', $second, 'a state of her own is taken');
         $this->assertStringContainsString('data-poses="sitting,classic,slender,loaf,lounging,sleeping,rubbing,stretch,spooked,sploot,stalking,belly-up"', $first);
         $this->assertStringContainsString('is-perking-up', $first, 'her transitions');
+        $this->assertStringContainsString(' data-visemes', $first, 'a mouth for each sound, for pf-voice to move');
+        $this->assertSame(['walk', 'trot', 'sprint', 'zoomies'], AvatarSets::gaits());
         $this->assertStringContainsString('&quot;waking&quot;:1400', $first, 'waking ends by itself');
         // Each picture its own ids: a gradient referenced across two pictures breaks when one is hidden
         preg_match('/id="pf-tesla-ear-l-(\w+)"/', $first, $a);

@@ -332,6 +332,14 @@ shared by the mic and every answer's 🔊 button:
   `onBargeIn({ byLevel: true, … })`, and with `dictate` it starts dictation with those options.
   A cough does not stop it. The microphone is let go whenever the voice ends. This works beside
   the interrupt words, and on browsers that have none of their own recognition.
+- **The avatar's mouth with the voice** — `createVoiceState({ avatar })`, or `speak(…, { avatar })`
+  for one answer: while the voice speaks it writes `--pf-voice-level` (0 to 1) on the avatar and,
+  where the avatar's set draws a mouth for each sound (`'visemes' => true`, which renders
+  `data-visemes`; Tesla's does), `data-viseme`: `A E I O U M F L S`, or `rest` between words.
+  Both are taken off at the end. The sounds come from the text (`PfVoice.toVisemes()`), Greek
+  first and its two-letter sounds (μπ, ντ, ου, αι, ει, οι, τσ, τζ) before single letters.
+  `PfVoice.addVisemes({…})` adds a page's own. Through the speech server they follow where the
+  audio is; with the browser's voice they follow each word as it is spoken.
 - **The voice's level, for a mouth** — `speak(id, text, { onLevel })` calls `onLevel(0..1)` while
   it speaks. Through the speech server, the level is read from the audio itself (an analyser on
   the element) every 50 ms. The browser's voice gives a page no access to its sound, so the level

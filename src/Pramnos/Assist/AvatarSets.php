@@ -151,7 +151,7 @@ final class AvatarSets
             return ['markup' => $set['markup'], 'css' => isset($set['css']) ? (string) $set['css'] : null, 'states' => (array) ($set['states'] ?? []),
                 'poses' => array_values(array_map('strval', (array) ($set['poses'] ?? []))), 'transitions' => (array) ($set['transitions'] ?? []),
                 'moods' => array_map('strval', (array) ($set['moods'] ?? [])), 'acts' => (array) ($set['acts'] ?? []), 'wear' => (array) ($set['wear'] ?? []),
-                'gaits' => (array) ($set['gaits'] ?? [])];
+                'gaits' => (array) ($set['gaits'] ?? []), 'visemes' => !empty($set['visemes'])];
         }
         if (\Pramnos\Llm\Analyst\Analyst::avatar() !== null) {
             return null;
@@ -252,6 +252,8 @@ final class AvatarSets
             . (count($states) > count(self::STATES) ? ' data-states="' . $e(implode(',', array_slice($states, count(self::STATES)))) . '"' : '')
             . ($set !== null && $set['poses'] !== [] ? ' data-poses="' . $e(implode(',', $set['poses'])) . '"' : '')
             . ($set !== null && self::transitions() !== [] ? ' data-transitions="' . $e((string) json_encode(self::transitions())) . '"' : '')
+            // A mouth for each sound: pf-voice sets data-viseme while it speaks (A E I O U M F L S rest).
+            . ($set !== null && !empty($set['visemes']) ? ' data-visemes' : '')
             // Offline is the server's word: the page's own states do not wake it.
             . ($state === 'offline' ? ' data-offline' : '')
             // Its size inline, so a page without the theme's components.css does not draw it the

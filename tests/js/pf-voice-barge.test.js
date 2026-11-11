@@ -176,3 +176,68 @@ test('onLevel through the speech server follows the audio itself', LIMIT, async 
     assert.ok(levels.includes(1), 'held to 1');
     assert.equal(levels[levels.length - 1], 0, 'quiet when it stops');
 });
+
+test('visemes: Greek two-letter sounds before letters, accents ignored, a page\'s own first', LIMIT, () => {
+    // Arrange
+    const { window } = page();
+
+    // Act / Assert
+    assert.equal(window.PfVoice.toVisemes('μπαμπά').join(' '), 'M A M A', 'μπ is one sound');
+    assert.equal(window.PfVoice.toVisemes('Ουρανός').join(' '), 'U L A L O S', 'ου is one sound, accents ignored');
+    assert.equal(window.PfVoice.toVisemes('ντάκι, ναι').join(' '), 'L A E I rest rest L E', 'ντ and αι');
+    window.PfVoice.addVisemes({ 'ρα': 'O' });
+    assert.equal(window.PfVoice.toVisemes('ρα').join(' '), 'O', 'a page\'s own table first');
+});
+
+test('the avatar\'s mouth follows the browser\'s voice word by word, and is left as it was', LIMIT, async () => {
+    // Arrange
+    const { window, synth } = page();
+    const avatar = window.document.createElement('span');
+    avatar.setAttribute('data-visemes', '');
+    const voice = window.PfVoice.createVoiceState({ avatar });
+
+    // Act
+    voice.speak('m1', 'μπα μου');
+    synth.current.onboundary({ charIndex: 0 });
+    const first = [avatar.getAttribute('data-viseme'), avatar.style.getPropertyValue('--pf-voice-level')];
+    await tick(100);
+    const second = avatar.getAttribute('data-viseme');
+    await tick(200);
+    const between = avatar.getAttribute('data-viseme');
+    synth.current.onend();
+
+    // Assert
+    assert.deepEqual(first, ['M', '0.80'], 'μπ: lips closed, the level up');
+    assert.equal(second, 'A');
+    assert.equal(between, 'rest', 'quiet between words');
+    assert.equal(avatar.hasAttribute('data-viseme'), false, 'taken off at the end');
+    assert.equal(avatar.style.getPropertyValue('--pf-voice-level'), '');
+});
+
+test('through the speech server the mouth follows where the audio is, on an avatar given to speak()', LIMIT, async () => {
+    // Arrange
+    const { window } = page({ server: () => Promise.resolve({ audio: 'AAAA', type: 'audio/mpeg' }) });
+    const voice = window.PfVoice.createVoiceState({ server: () => Promise.resolve({ audio: 'AAAA', type: 'audio/mpeg' }) });
+    const avatar = window.document.createElement('span');
+    avatar.setAttribute('data-visemes', '');
+    let audio = null;
+    const Audio = window.Audio;
+    window.Audio = class extends Audio { constructor(src) { super(src); audio = this; this.duration = 2; this.currentTime = 0; } };
+
+    // Act
+    voice.speak('m1', 'Μα.', { avatar });
+    await settle();
+    outLevel = 0.3;
+    audio.currentTime = 0.1;
+    await tick(50);
+    const start = avatar.getAttribute('data-viseme');
+    audio.currentTime = 0.9;
+    await tick(50);
+    const middle = avatar.getAttribute('data-viseme');
+    voice.stopSpeech();
+
+    // Assert
+    assert.equal(start, 'M');
+    assert.equal(middle, 'A');
+    assert.equal(avatar.hasAttribute('data-viseme'), false);
+});
