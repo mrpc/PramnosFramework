@@ -536,6 +536,10 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             return ['status' => 200, 'data' => ['pages' => $pages, 'unread' => count(array_filter($pages, static fn (array $p): bool => $p['unread']))]];
         }
         $page = $diary->read($user, (int) $id);
+        if ($page !== null && \Pramnos\Llm\Chat\Photos::on()) {
+            // The day's photos with its page, the persona's.
+            $page['photos'] = (new \Pramnos\Llm\Chat\Photos($scope))->list(['day' => $page['day']]);
+        }
 
         return $page === null ? self::error(404, 'There is no such page.') : ['status' => 200, 'data' => $page];
     }
@@ -563,6 +567,81 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         }
 
         return ['status' => 200, 'data' => \Pramnos\Llm\Chat\Settings::of($put ? new \Pramnos\User\User($scope->userId) : $user, $scope->persona)];
+    }
+
+    /**
+     * The person's photos (`Chat\Photos`), this persona's: `GET {chat}/photos?conversation_id=&day=&before=`
+     * → `{photos: [{artifact_id, caption, day, taken_at, conversation_id, width, height, url, thumb_url}]}`,
+     * newest first; `POST {chat}/photos` — a multipart file `photo`, or `{data: base64, name}` — with
+     * `conversation_id`, `day`, `caption` → the photo, 201. `url` and `thumb_url` are relative to
+     * `{chat}/` and signed: an `<img>` reads them with no token, for an hour. 501 where the
+     * application keeps no photos; 422 for what cannot be kept.
+     */
+    public function photos(): array
+    {
+        $post = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
+        if (($stop = $this->refusal($post ? 'ask' : 'read')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        if ($scope === null || $scope->userId < 1) {
+            return self::error(401, 'This needs somebody signed in.');
+        }
+        if (!\Pramnos\Llm\Chat\Photos::on()) {
+            return self::error(501, 'There are no photos here.');
+        }
+        $photos = new \Pramnos\Llm\Chat\Photos($scope);
+        $input  = $this->input() + $_GET;
+        if (!$post) {
+            return ['status' => 200, 'data' => ['photos' => $photos->list(['conversation_id' => (int) ($input['conversation_id'] ?? 0),
+                'day' => (string) ($input['day'] ?? ''), 'before' => (int) ($input['before'] ?? 0)])]];
+        }
+        $file  = $_FILES['photo'] ?? null;
+        $bytes = is_array($file) && is_string($file['tmp_name'] ?? null) && is_uploaded_file($file['tmp_name'])
+            ? (string) file_get_contents($file['tmp_name']) : (string) base64_decode((string) ($input['data'] ?? ''), true);
+        $kept  = $photos->add($bytes, ['name' => (string) ($input['name'] ?? ($file['name'] ?? '')), 'caption' => (string) ($input['caption'] ?? ''),
+            'conversation_id' => isset($input['conversation_id']) && (int) $input['conversation_id'] > 0 ? (int) $input['conversation_id'] : null,
+            'day' => isset($input['day']) ? (string) $input['day'] : null]);
+
+        return is_string($kept) ? self::error(422, $kept) : ['status' => 201, 'data' => $kept];
+    }
+
+    /**
+     * One photo: `PATCH {chat}/photos/{id}` with `caption`, `conversation_id` or `day`;
+     * `DELETE {chat}/photos/{id}`, its files too. 404 for one not the person's.
+     */
+    public function photo($id): array
+    {
+        $delete = ($_SERVER['REQUEST_METHOD'] ?? '') === 'DELETE';
+        if (($stop = $this->refusal($delete ? 'delete' : 'ask')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        if ($scope === null || $scope->userId < 1) {
+            return self::error(401, 'This needs somebody signed in.');
+        }
+        $photos = new \Pramnos\Llm\Chat\Photos($scope);
+        if ($delete) {
+            return $photos->delete((int) $id) ? ['status' => 200, 'data' => ['deleted' => true]] : self::error(404, 'There is no such photo.');
+        }
+        $done = $photos->update((int) $id, array_intersect_key($this->input(), array_flip(['caption', 'conversation_id', 'day'])));
+
+        return $done === null ? self::error(404, 'There is no such photo.') : (is_string($done) ? self::error(422, $done) : ['status' => 200, 'data' => $done]);
+    }
+
+    /**
+     * A photo's bytes, by its signed address — `GET {chat}/photos/{id}/file?size=full|thumb&e=&s=`
+     * — with no token: an `<img>` sends none. 404 for a signature that is wrong or old.
+     */
+    public function photoFile($id): mixed
+    {
+        $read = \Pramnos\Llm\Chat\Photos::signed((int) $id, (string) ($_GET['size'] ?? 'full'), (int) ($_GET['e'] ?? 0), (string) ($_GET['s'] ?? ''));
+        if ($read === null) {
+            return self::error(404, 'There is no such photo.');
+        }
+
+        return \Pramnos\Http\Response::make($read[0])->withHeader('Content-Type', $read[1])
+            ->withHeader('Cache-Control', 'private, max-age=' . \Pramnos\Llm\Chat\Photos::TTL);
     }
 
     /**

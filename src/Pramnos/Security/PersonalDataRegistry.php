@@ -251,8 +251,9 @@ class PersonalDataRegistry
         }
         static::$defaultsLoaded = true;
 
+        // Kept as they are looked up: `chat.conversations` is `conversations`, as a lookup normalises it.
         foreach (static::frameworkTables() as $table) {
-            static::$tables[$table] = true;
+            static::$tables[static::normalise($table)] = true;
         }
 
         foreach (static::frameworkColumns() as $column) {
@@ -314,6 +315,15 @@ class PersonalDataRegistry
             'chat.conversation_saved',
             'chat.conversation_scheduled',
             'chat.conversation_drafts',
+            // What people told the assistants, and what the assistants keep about them: their
+            // conversations, memories, profile, calendar, the artifacts — photos among them.
+            'assist.chat_conversations',
+            'assist.chat_messages',
+            'assist.chat_memory',
+            'assist.chat_dossier',
+            'assist.chat_calendar',
+            'assist.chat_artifacts',
+            'assist.chat_asks',
             // Who was moderated — accounts, visitors, addresses, nicknames — and what they wrote.
             'moderation_restrictions',
             'moderation_reports',

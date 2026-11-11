@@ -206,4 +206,21 @@ class PersonalDataRegistryTest extends TestCase
         $this->assertTrue(PersonalDataRegistry::isPersonalTable('customers'));
         $this->assertTrue(PersonalDataRegistry::isPersonalColumn('tax_number'));
     }
+
+    /**
+     * The framework's own tables in a schema of their own — the conversations', the assistants' —
+     * are personal by the name they are looked up by: a lookup drops the schema, so the defaults
+     * are kept without it too. They were kept with it, and matched nothing.
+     */
+    public function testTheFrameworksSchemaQualifiedTablesAreFound(): void
+    {
+        // Arrange
+        PersonalDataRegistry::reset();
+
+        // Act
+        $found = array_map([PersonalDataRegistry::class, 'isPersonalTable'], ['chat.conversation_messages', 'assist.chat_memory', 'assist.chat_artifacts', 'pramnos.event_log']);
+
+        // Assert
+        $this->assertSame([true, true, true, true], $found);
+    }
 }

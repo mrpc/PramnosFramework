@@ -1584,7 +1584,9 @@ class Conversations
             + (Calendar::on($this->scope) ? self::inSkill((new Calendar($this->scope, $zone))->tools(), 'calendar', ['set_busy']) : [])
             + (Journal::on($this->scope) ? self::inSkill((new Journal($this->scope, $zone))->tools(), 'journal') : [])
             // The person's own settings, changed by asking: on the companion's page, for everybody on it.
-            + ($this->scope->space === Scope::CHAT && $this->scope->userId > 0 ? Settings::tools($this->scope) : []);
+            + ($this->scope->space === Scope::CHAT && $this->scope->userId > 0 ? Settings::tools($this->scope) : [])
+            // The person's photos, their captions and days — never the pictures (Photos).
+            + ($this->scope->space === Scope::CHAT && $this->scope->userId > 0 && Photos::on() ? (new Photos($this->scope))->tools() : []);
     }
 
     public static function inSkill(array $tools, string $skill, array $except = []): array

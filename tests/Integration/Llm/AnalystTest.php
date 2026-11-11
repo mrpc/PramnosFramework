@@ -105,6 +105,8 @@ class AnalystTest extends LlmTestCase
         $this->db = $this->openProbe($admin, self::PROBE, static fn (string $name): Database => self::connection($type, $host, $port, $user, $name), [
             \Pramnos\Framework\Migrations\Core\CreateFrameworkPoliciesTable::class,
             \Pramnos\Framework\Migrations\Auth\CreateUsersTable::class,
+            // Loading an account reads its details beside it: the companion's settings and choices.
+            \Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class,
             \Pramnos\Framework\Migrations\Core\CreateSessionsTable::class,
             \Pramnos\Framework\Migrations\AuthServer\CreateOrganizationsTable::class,
             \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverSchema::class,

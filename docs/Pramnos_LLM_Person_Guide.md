@@ -265,6 +265,39 @@ The framework stores, checks and returns an application's setting without knowin
 - **Admin and reset.** The control centre's person panel shows them. *Reset the experience* puts
   them all back to the defaults.
 
+### Photos, kept and never looked at
+
+A person keeps photos with the companion (`Chat\Photos`), each persona's own, tied to a
+conversation and a day. The model never sees them: it knows a photo is there and its caption.
+
+```php
+'llm' => ['chat' => ['photos' => true]],   // or ['disk' => 'photos', 'max' => 500, 'bytes' => 8388608]
+```
+
+- **Cleaned on the way in.** A photo is read as a picture or refused (HEIC and the like are
+  converted first, where Imagick is there). It is turned upright and written again as JPEG, at most
+  2560 on its longest side, so every piece of metadata, the place it was taken among it, stays
+  behind. A thumbnail of 480 is kept beside it.
+- **Kept out of reach.** The files go on a storage disk: the default one, outside the web root, or
+  `disk`. They are read only through an address signed for one photo and one size, which lasts an
+  hour, because an `<img>` sends no token: `{chat}/photos/{id}/file?size=full|thumb&e=…&s=…`. A
+  wrong or old signature reads nothing.
+- **The API:**
+    - `GET {chat}/photos?conversation_id=&day=&before=` lists them, newest first.
+    - `POST {chat}/photos` takes a multipart `photo`, or `{data: base64, name}`, with
+      `conversation_id`, `day` and `caption`.
+    - `PATCH {chat}/photos/{id}` changes `caption`, `conversation_id` or `day`, and
+      `DELETE {chat}/photos/{id}` deletes it, its files too.
+    - Each photo has `url` and `thumb_url`, relative to `{chat}/`.
+- **Limits.** 8 MB a photo and 500 a person and persona, unless `bytes` and `max` say
+  otherwise; past them, a 422.
+- **What the model knows.** A photo given to a conversation is a line in it, `[photo: caption]`.
+  `list_photos` gives the captions and days by day or conversation, so the assistant can offer to
+  look at Sunday's.
+- **The day's page.** `GET {chat}/diary/{id}` carries the day's `photos`.
+- **With the account.** Erasing an account deletes the photos' files with their rows
+  (`Photos::eraseFiles()`).
+
 ### For an administrator: seeing a person, and resetting their experience
 
 The companion's conversations are read on the assistants' control centre, `/admin/Ai/all`, on
