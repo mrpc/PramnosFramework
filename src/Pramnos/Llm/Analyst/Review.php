@@ -32,6 +32,12 @@ final class Review
     public static function channels(): array
     {
         $spaces = array_map('strval', array_column(self::table('assist.chat_conversations')->select(['space'])->groupBy('space')->getAllOrFail(), 'space'));
+        // Every persona the application has, with conversations or not yet.
+        $default = \Pramnos\Llm\Chat\Personas::default();
+        foreach (array_keys(\Pramnos\Llm\Chat\Personas::all()) as $key) {
+            $spaces[] = $key === $default ? Scope::CHAT : Scope::CHAT . ':' . $key;
+        }
+        $spaces = array_values(array_unique($spaces));
         // Named by what it is — not t('Ask'), which an application may read as the verb on its button.
         $out    = [Scope::ADMIN => Analyst::name() . ' — ' . t('administration')];
         sort($spaces);

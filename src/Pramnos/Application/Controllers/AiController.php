@@ -188,10 +188,17 @@ class AiController extends Controller
         }
         $request = new \Pramnos\Http\Request();
         $channels = \Pramnos\Llm\Analyst\Review::channels();
+        $openId  = (int) $request->get('c', 0, 'get', 'int');
+        $who     = (int) $request->get('person', 0, 'get', 'int');
+        $urls    = ['all' => adminUrl('Ai/all'), 'call' => adminUrl('Ai/call/'), 'ask' => $this->assistantsInMenu() ? '' : adminUrl('Ai'), 'reset' => adminUrl('Ai/companionreset'),
+            'reviews' => adminUrl('Ai/reviews'), 'memories' => adminUrl('Ai/memories'), 'settings' => adminUrl('Ai/settings'), 'scheduled' => adminUrl('Ai/scheduled')];
+        // Without a conversation: the dashboard — every channel's figures and people — or one person's card.
+        if ($openId === 0) {
+            return $who > 0 ? $this->assistantPerson($me, $who, $channels, $urls) : $this->assistantsDashboard($request, $channels, $urls);
+        }
         $channel  = (string) $request->get('channel', \Pramnos\Llm\Chat\Scope::ADMIN, 'get');
         $channel  = isset($channels[$channel]) ? $channel : \Pramnos\Llm\Chat\Scope::ADMIN;
-        $filters  = ['channel' => $channel, 'person' => (int) $request->get('person', 0, 'get', 'int'), 'q' => (string) $request->get('q', '', 'get')];
-        $openId  = (int) $request->get('c', 0, 'get', 'int');
+        $filters  = ['channel' => $channel, 'person' => 0, 'q' => (string) $request->get('q', '', 'get')];
         $open    = $openId > 0 ? \Pramnos\Llm\Analyst\Review::open($openId) : null;
         if ($openId > 0 && $open === null) {
             ($this->application ?? \Pramnos\Application\Application::currentInstance())?->notFound();
@@ -224,10 +231,63 @@ class AiController extends Controller
         $view->resets   = $companion && $this->resetsCompanion($me);
         $view->me       = (int) $me->userid;
         // Back to the Ask only where it is reached from there, not from the application's own menu.
-        $view->urls     = ['all' => adminUrl('Ai/all'), 'call' => adminUrl('Ai/call/'), 'ask' => $this->assistantsInMenu() ? '' : adminUrl('Ai'), 'reset' => adminUrl('Ai/companionreset'),
-            'reviews' => adminUrl('Ai/reviews'), 'memories' => adminUrl('Ai/memories'), 'settings' => adminUrl('Ai/settings'), 'scheduled' => adminUrl('Ai/scheduled')];
+        $view->urls     = $urls;
 
         return $view->display('review');
+    }
+
+    /**
+     * The control centre's front: a channel's figures — or every channel's — with a chart of its
+     * days, and the people who talked to it, searched and sorted (`Analyst\Overview`).
+     *
+     * @param array<string, string> $channels
+     * @param array<string, string> $urls
+     */
+    private function assistantsDashboard(\Pramnos\Http\Request $request, array $channels, array $urls): mixed
+    {
+        $channel  = (string) $request->get('channel', '', 'get');
+        $channel  = isset($channels[$channel]) ? $channel : '';
+        $sort     = (string) $request->get('sort', 'last', 'get');
+        $search   = (string) $request->get('q', '', 'get');
+        $overview = new \Pramnos\Llm\Analyst\Overview();
+        \Pramnos\Framework\Factory::getDocument()->title = t('The assistants');
+        $view           = $this->getView('ai');
+        $view->channels = $channels;
+        $view->filters  = ['channel' => $channel, 'q' => $search, 'sort' => in_array($sort, \Pramnos\Llm\Analyst\Overview::SORTS, true) ? $sort : 'last'];
+        $view->stats    = $overview->stats($channel);
+        $view->people   = $overview->people($channel, $search, $sort);
+        $view->urls     = $urls;
+
+        return $view->display('assistants');
+    }
+
+    /**
+     * One person's card: what the companion knows of them, their conversations by channel to read,
+     * their memories by topic, and the experience reset where the reader may. A 404 for nobody.
+     *
+     * @param array<string, string> $channels
+     * @param array<string, string> $urls
+     */
+    private function assistantPerson(object $me, int $who, array $channels, array $urls): mixed
+    {
+        $person = (new \Pramnos\Llm\Chat\People())->person($who);
+        if ($person === null) {
+            ($this->application ?? \Pramnos\Application\Application::currentInstance())?->notFound();
+
+            return null;
+        }
+        \Pramnos\Auth\AuditLog::record('ai.person_viewed', (int) $me->userid, $who, [], 'user', $who);
+        $overview = new \Pramnos\Llm\Analyst\Overview();
+        \Pramnos\Framework\Factory::getDocument()->title = \Pramnos\Conversations\People::names([$who])[$who] ?? '#' . $who;
+        $view                = $this->getView('ai');
+        $view->channels      = $channels;
+        $view->card          = $person + ['name' => \Pramnos\Conversations\People::names([$who])[$who] ?? '#' . $who];
+        $view->conversations = $overview->conversationsOf($who);
+        $view->memories      = $overview->memoriesOf($who);
+        $view->resets        = $this->resetsCompanion($me);
+        $view->urls          = $urls;
+
+        return $view->display('assistant');
     }
 
     /**

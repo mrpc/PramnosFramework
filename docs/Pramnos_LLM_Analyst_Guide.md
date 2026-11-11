@@ -124,9 +124,21 @@ gear.
   *administration*, then each companion persona's
   (`chat`, `chat:<persona>`, named after the persona), then any other space the application keeps
   conversations in (`Review::channels()`). A channel that is none is the Ask's.
-- **The list** gives each conversation's owner, title, last change, how many messages and what
-  they cost. It filters by owner or a word in the title (`Review::list(['channel' => …, 'person'
-  => …, 'q' => …])`, `Review::owners($except, $channel)`).
+- **The front** is a dashboard of a channel, or of every channel (`Analyst\Overview`):
+    - **Figures:** people who talked (ever, 30 and 7 days, today), new people, conversations,
+      messages and cost (today, 7 and 30 days). For the companion they also include the app's
+      subscribers, morning thoughts and diary pages written, and the moods it was left in.
+    - **A chart** of the last 30 days' messages.
+    - **The people,** not the conversations: each with their chosen persona, last activity,
+      conversations and messages by channel, memories and cost. Searched by name or email, and
+      sorted by latest, name, messages or cost.
+    - **Every persona** is in the channel filter, whether or not it has conversations yet.
+- **A person's card** (`?person=<id>`) gives what the companion knows of them
+  (`Chat\People::person()`), their conversations by channel to read, their memories by channel
+  and topic, and *Reset the experience*, with no conversation needed. Each view is
+  `ai.person_viewed` in the audit log.
+- **A conversation** (`?c=<id>`) opens as before, beside its channel's conversations
+  (`Review::list(['channel' => …, 'q' => …])`), with a link to its owner's card.
 - **One opened** reads as its owner sees it, under a banner saying whose it is. It shows the
   questions, the answers, the tools each answer used with their input, and the model calls made
   while it was answered. The calls are the call log's rows, `/admin/Ai/call/{id}`, where what each

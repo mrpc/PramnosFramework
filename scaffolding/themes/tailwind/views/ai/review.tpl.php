@@ -81,7 +81,7 @@ $persona = static fn (?string $key): string => $key === null ? '—' : (string) 
                 <h1 class="text-2xl font-semibold mb-3">{{ t('The assistants') }}</h1>
                 <p class="{!! $c['muted'] !!}">{{ t('Pick a conversation to read it as its owner sees it. Opening somebody else\'s is recorded in the audit log.') }}</p>
             @else
-                <p class="{!! $c['banner'] !!}" role="note" style="padding:8px 12px">{{ sprintf(t('%s\'s conversation — read only'), $open['owner_name']) }}</p>
+                <p class="{!! $c['banner'] !!}" role="note" style="padding:8px 12px">{{ sprintf(t('%s\'s conversation — read only'), $open['owner_name']) }} · <a href="{{ $u['all'] . '?person=' . (int) $open['owner'] }}">{{ t('Their card') }}</a></p>
                 <h1 class="text-2xl font-semibold mb-3">{{ $open['conversation']['title'] }}</h1>
                 @foreach ($open['conversation']['messages'] as $m)
                     @php $mine = $m['role'] === 'user'; @endphp

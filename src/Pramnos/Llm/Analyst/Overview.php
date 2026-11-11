@@ -1,0 +1,250 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Pramnos\Llm\Analyst;
+
+use Pramnos\Database\Expression;
+use Pramnos\Llm\CallLog;
+use Pramnos\Llm\Chat\People;
+use Pramnos\Llm\Chat\Scope;
+
+/**
+ * The assistants' control centre at a glance ({@see Review}): how much each channel is used, and
+ * by whom — the figures, the people, one person in full. Read only.
+ *
+ * A channel is a stored space (`admin` for the Ask, `chat` and `chat:<persona>` for the
+ * companion's personas, any other the application has); `''` is every channel.
+ */
+final class Overview
+{
+    /** The most people the list gives. */
+    public const PEOPLE = 200;
+
+    /** How the list can be sorted. */
+    public const SORTS = ['last', 'name', 'messages', 'cost'];
+
+    /**
+     * A channel's figures: people, conversations, messages and cost over today, 7 and 30 days; for
+     * the companion's, first meetings, app subscribers, morning thoughts and diary pages too; and
+     * the messages of each of the last 30 days, for a chart.
+     *
+     * @return array<string, mixed>
+     */
+    public function stats(string $channel = '', ?int $now = null): array
+    {
+        $now   = $now ?? time();
+        $since = ['today' => strtotime('today', $now), '7' => $now - 7 * 86400, '30' => $now - 30 * 86400];
+        $out   = ['people' => [], 'new' => 0, 'conversations' => [], 'messages' => [], 'cost' => []];
+        foreach ($since as $key => $from) {
+            $conversations = $this->conversations($channel)->where('updated_at', '>=', CallLog::instant($from));
+            $out['people'][$key]        = count(array_unique(array_column($conversations->select(['userid'])->getAllOrFail(), 'userid')));
+            $out['conversations'][$key] = $this->conversations($channel)->where('created_at', '>=', CallLog::instant($from))->count();
+            [$messages, $cost]          = $this->messages($channel, $from);
+            $out['messages'][$key]      = $messages;
+            $out['cost'][$key]          = $cost;
+        }
+        $out['people']['all'] = count(array_unique(array_column($this->conversations($channel)->select(['userid'])->getAllOrFail(), 'userid')));
+        // New: whose first conversation here is in the last 30 days.
+        $firsts = $this->conversations($channel)->select(['userid', new Expression('MIN(created_at) AS first')])->groupBy('userid')->getAllOrFail();
+        $out['new'] = count(array_filter($firsts, static fn (array $r): bool => (\Pramnos\Llm\Chat\Routines::utc((string) $r['first']) ?? 0) >= $since['30']));
+        if ($channel === '' || People::companion($channel)) {
+            $out['companion'] = [
+                'subscribers' => $this->count('pramnos.pushsubscriptions', static fn ($q) => $q->where('app', Scope::CHAT), 'userid'),
+                'thoughts'    => $this->artifacts($channel, \Pramnos\Llm\Chat\Today::THOUGHT, $since['30']),
+                'diaries'     => $this->artifacts($channel, \Pramnos\Llm\Chat\Diary::TITLE, $since['30']),
+                'moods'       => $this->moods($channel, $since['30']),
+            ];
+        }
+        $out['daily'] = $this->daily($channel, $now);
+
+        return $out;
+    }
+
+    /**
+     * The people who talked to the assistants, on a channel or every one: each with their chosen
+     * persona, last activity, conversations and messages by channel, memories and cost.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function people(string $channel = '', string $search = '', string $sort = 'last'): array
+    {
+        $query = $this->conversations($channel)->select(['conversation_id', 'userid', 'space', 'updated_at']);
+        if (trim($search) !== '') {
+            $like  = '%' . addcslashes(trim($search), '%_\\') . '%';
+            $found = array_map('intval', array_column($this->db()->queryBuilder()->table('#PREFIX#users')->select(['userid'])
+                ->where(static function ($q) use ($like): void {
+                    $q->whereLike('username', $like)->orWhereLike('email', $like)->orWhereLike('firstname', $like)->orWhereLike('lastname', $like);
+                })->limit(500)->getAllOrFail(), 'userid'));
+            if ($found === []) {
+                return [];
+            }
+            $query->whereIn('userid', $found);
+        }
+        $people = [];
+        $owner  = [];
+        foreach ($query->getAllOrFail() as $row) {
+            $id    = (int) $row['userid'];
+            $space = (string) $row['space'];
+            $owner[(int) $row['conversation_id']] = [$id, $space];
+            $people[$id] ??= ['userid' => $id, 'last' => '', 'channels' => [], 'conversations' => 0, 'messages' => 0, 'cost' => 0.0, 'memories' => 0];
+            $people[$id]['channels'][$space] ??= ['conversations' => 0, 'messages' => 0];
+            $people[$id]['channels'][$space]['conversations']++;
+            $people[$id]['conversations']++;
+            $people[$id]['last'] = max($people[$id]['last'], (string) $row['updated_at']);
+        }
+        if ($people === []) {
+            return [];
+        }
+        foreach (array_chunk(array_keys($owner), 1000) as $ids) {
+            foreach ($this->db()->queryBuilder()->table('assist.chat_messages')->select(['conversation_id', new Expression('COUNT(*) AS n'), new Expression('SUM(cost) AS cost')])
+                ->whereIn('conversation_id', $ids)->groupBy('conversation_id')->getAllOrFail() as $row) {
+                [$id, $space] = $owner[(int) $row['conversation_id']];
+                $people[$id]['channels'][$space]['messages'] += (int) $row['n'];
+                $people[$id]['messages'] += (int) $row['n'];
+                $people[$id]['cost']     += (float) ($row['cost'] ?? 0);
+            }
+        }
+        foreach ($this->db()->queryBuilder()->table('assist.chat_memory')->select(['userid', new Expression('COUNT(*) AS n')])
+            ->whereIn('userid', array_keys($people))->groupBy('userid')->getAllOrFail() as $row) {
+            $people[(int) $row['userid']]['memories'] = (int) $row['n'];
+        }
+        $names = \Pramnos\Conversations\People::names(array_keys($people));
+        $personas = \Pramnos\Llm\Chat\Personas::on();
+        foreach ($people as $id => $one) {
+            $people[$id]['name']    = $names[$id] ?? '#' . $id;
+            $people[$id]['persona'] = $personas ? \Pramnos\Llm\Chat\Personas::chosen(new \Pramnos\User\User($id)) : null;
+        }
+        $list = array_values($people);
+        usort($list, match (in_array($sort, self::SORTS, true) ? $sort : 'last') {
+            'name'     => static fn (array $a, array $b): int => strcasecmp($a['name'], $b['name']),
+            'messages' => static fn (array $a, array $b): int => $b['messages'] <=> $a['messages'],
+            'cost'     => static fn (array $a, array $b): int => $b['cost'] <=> $a['cost'],
+            default    => static fn (array $a, array $b): int => strcmp($b['last'], $a['last']),
+        });
+
+        return array_slice($list, 0, self::PEOPLE);
+    }
+
+    /**
+     * One person's conversations, by channel, newest first.
+     *
+     * @return array<string, list<array{conversation_id: int, title: string, updated_at: string}>>
+     */
+    public function conversationsOf(int $userId): array
+    {
+        $out = [];
+        foreach ($this->db()->queryBuilder()->table('assist.chat_conversations')->select(['conversation_id', 'space', 'title', 'updated_at'])
+            ->where('userid', $userId)->orderBy('updated_at', 'desc')->limit(500)->getAllOrFail() as $row) {
+            $out[(string) $row['space']][] = ['conversation_id' => (int) $row['conversation_id'], 'title' => (string) $row['title'], 'updated_at' => (string) $row['updated_at']];
+        }
+
+        return $out;
+    }
+
+    /**
+     * One person's memories, by channel and then topic.
+     *
+     * @return array<string, array<string, list<array<string, mixed>>>>
+     */
+    public function memoriesOf(int $userId): array
+    {
+        $out = [];
+        foreach (array_keys($this->conversationsOf($userId)) as $space) {
+            foreach ((new \Pramnos\Llm\Chat\Memory(new Scope($userId, null, $space)))->all() as $memory) {
+                $out[$space][$memory['topic'] ?? 'other'][] = $memory;
+            }
+        }
+
+        return $out;
+    }
+
+    /** The conversations of a channel, or of every one. */
+    private function conversations(string $channel): \Pramnos\Database\QueryBuilder
+    {
+        $query = $this->db()->queryBuilder()->table('assist.chat_conversations');
+
+        return $channel === '' ? $query : $query->where('space', $channel);
+    }
+
+    /** @return array{0: int, 1: float} The messages since a moment, and what they cost */
+    private function messages(string $channel, int $from): array
+    {
+        $query = $this->db()->queryBuilder()->table('assist.chat_messages AS m')->select([new Expression('COUNT(*) AS n'), new Expression('SUM(m.cost) AS cost')])
+            ->where('m.created_at', '>=', CallLog::instant($from));
+        if ($channel !== '') {
+            $query->join('assist.chat_conversations AS c', 'c.conversation_id', '=', 'm.conversation_id')->where('c.space', $channel);
+        }
+        $row = $query->getAllOrFail()[0] ?? [];
+
+        return [(int) ($row['n'] ?? 0), (float) ($row['cost'] ?? 0)];
+    }
+
+    /** @return array{labels: list<string>, values: list<int>} Messages on each of the last 30 days */
+    private function daily(string $channel, int $now): array
+    {
+        $from  = strtotime('today', $now) - 29 * 86400;
+        $days  = [];
+        for ($i = 0; $i < 30; $i++) {
+            $days[gmdate('Y-m-d', $from + $i * 86400)] = 0;
+        }
+        $query = $this->db()->queryBuilder()->table('assist.chat_messages AS m')->select(['m.created_at'])->where('m.created_at', '>=', CallLog::instant($from));
+        if ($channel !== '') {
+            $query->join('assist.chat_conversations AS c', 'c.conversation_id', '=', 'm.conversation_id')->where('c.space', $channel);
+        }
+        // ponytail: counted in PHP, one row per message — a GROUP BY on a day expression when a channel reaches millions a month.
+        foreach ($query->getAllOrFail() as $row) {
+            $day = substr((string) $row['created_at'], 0, 10);
+            if (isset($days[$day])) {
+                $days[$day]++;
+            }
+        }
+
+        return ['labels' => array_keys($days), 'values' => array_values($days)];
+    }
+
+    /** Artifacts titled "<prefix> Y-m-d" of a channel since a moment: diaries, thoughts. */
+    private function artifacts(string $channel, string $prefix, int $from): int
+    {
+        try {
+            $query = $this->db()->queryBuilder()->table('assist.chat_artifacts')->whereLike('title', $prefix . ' %')->where('created_at', '>=', CallLog::instant($from));
+
+            return ($channel === '' ? $query->whereLike('space', Scope::CHAT . '%') : $query->where('space', $channel))->count();
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+
+    /** @return array<string, int> The moods the conversations were left in, how many of each */
+    private function moods(string $channel, int $from): array
+    {
+        try {
+            $query = $this->conversations($channel)->select(['mood', new Expression('COUNT(*) AS n')])->whereNotNull('mood')
+                ->where('updated_at', '>=', CallLog::instant($from))->groupBy('mood');
+            $out = array_column($query->getAllOrFail(), 'n', 'mood');
+            arsort($out);
+
+            return array_map('intval', $out);
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /** How many distinct values of a column a table has, narrowed. */
+    private function count(string $table, callable $narrow, string $column): int
+    {
+        try {
+            $query = $this->db()->queryBuilder()->table($table)->select([$column]);
+            $narrow($query);
+
+            return count(array_unique(array_column($query->getAllOrFail(), $column)));
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+
+    private function db(): \Pramnos\Database\Database
+    {
+        return \Pramnos\Framework\Factory::getDatabase();
+    }
+}

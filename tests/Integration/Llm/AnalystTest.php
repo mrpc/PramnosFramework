@@ -512,7 +512,8 @@ class AnalystTest extends LlmTestCase
         $before = [$this->rowsIn('assist.chat_messages'), $this->rowsIn('assist.chat_memory'), $this->rowsIn('assist.chat_conversations')];
 
         // Act
-        $_GET = [];
+        // The list of the Ask's conversations, beside one opened (the front is the dashboard, FW-468).
+        $_GET = ['c' => (string) $theirs];
         \Pramnos\Http\Request::resetInstance();
         $list = (string) (new AnalystScreen())->all();
         $_GET = ['person' => '8', 'q' => 'NAN'];
@@ -556,7 +557,7 @@ class AnalystTest extends LlmTestCase
             $this->assertMatchesRegularExpression('/<div[^>]*data-pf-chat>/', $page, $theme . ': which runs over the page');
             $this->assertStringContainsString('assets/js/pf-chat.js', $page, $theme);
         }
-        $this->assertCount(3, $audit, 'each view of theirs, in each theme; not root\'s own');
+        $this->assertCount(4, $audit, 'each view of theirs: the list beside one, then each theme; not root\'s own');
         $this->assertSame(['7', '8', (string) $theirs], [(string) $audit[0]['actor_userid'], (string) $audit[0]['target_id'], (string) $audit[0]['object_id']]);
         $this->assertSame($before, [$this->rowsIn('assist.chat_messages'), $this->rowsIn('assist.chat_memory'), $this->rowsIn('assist.chat_conversations')], 'nothing else written');
         $this->assertNull(\Pramnos\Llm\Analyst\Review::open(999999));
@@ -602,6 +603,9 @@ class AnalystTest extends LlmTestCase
         [$opened]     = $get(['channel' => Scope::CHAT, 'c' => (string) $companion]);
         [, $ownChat]  = $get(['channel' => Scope::CHAT, 'c' => (string) $roots]);
         [$unknown]    = $get(['channel' => 'no-such-space']);
+        [$card]       = $get(['person' => '8']);
+        $stats        = (new \Pramnos\Llm\Analyst\Overview())->stats(Scope::CHAT);
+        $everyone     = (new \Pramnos\Llm\Analyst\Overview())->people('', '', 'messages');
         $_POST        = ['userid' => '8', 'back' => '?channel=chat'];
         $refused      = new AnalystScreen();
         $refused->reading = (object) ['userid' => 9, 'usertype' => 10, 'active' => 1];
@@ -619,10 +623,30 @@ class AnalystTest extends LlmTestCase
         // Assert
         $this->assertSame([Scope::ADMIN, Scope::CHAT], array_keys($channels), 'the Ask first, then the companion');
         $this->assertSame(Analyst::name() . ' — administration', $channels[Scope::ADMIN], 'named by what it is, not by the verb on Ask\'s button');
-        $this->assertStringContainsString('Talking with the companion', $listed);
-        $this->assertStringContainsString('Root talks too', $listed, 'root\'s own companion conversations are listed here: only the Ask\'s open in Ask');
-        $this->assertStringNotContainsString('An Ask question', $listed, 'one channel at a time');
+        // The front: the channel's figures and its people, each to their card (FW-468).
+        $this->assertStringContainsString('Nikos Papadakis', $listed, 'people, not conversations');
+        $this->assertStringContainsString('person=8', $listed, 'each to their card');
         $this->assertStringContainsString('<option value="chat" selected>', $listed);
+        $this->assertStringContainsString('data-pf-chart', $listed, 'the channel\'s days, drawn');
+        $this->assertSame(2, $stats['people']['all'], 'the companion\'s people: Nikos and root');
+        $this->assertSame(2, $stats['messages']['30']);
+        $this->assertGreaterThanOrEqual(1, $stats['new'], 'new people counted');
+        $this->assertArrayHasKey('companion', $stats);
+        $this->assertSame(8, $everyone[0]['userid'], 'sorted by messages: Nikos first');
+        $this->assertEqualsCanonicalizing([Scope::CHAT, Scope::ADMIN], array_keys($everyone[0]['channels']), 'by channel');
+        foreach (['tailwind', 'bootstrap'] as $theme) {
+            foreach ([[], ['person' => '8']] as $query) {
+                $_GET = $query;
+                \Pramnos\Http\Request::resetInstance();
+                $page = (string) (new AnalystScreen($theme))->all();
+                $this->assertStringContainsString($query === [] ? 'Nikos Papadakis' : 'Likes green tea', $page, $theme . ': drawn in every theme');
+            }
+        }
+        // The person's card: what the companion knows, their conversations to read, the reset there.
+        $this->assertStringContainsString('Likes green tea', $card);
+        $this->assertStringContainsString('c=' . $companion, $card, 'their conversation, to read');
+        $this->assertStringContainsString('Ai/companionreset', $card, 'the reset on the card, no conversation needed');
+        $this->assertStringContainsString('?person=8', $opened, 'a conversation links back to their card');
         $this->assertStringContainsString('Answers to review', $listed, 'everything about the assistants on one page');
         $this->assertStringContainsString('Ai/memories?space=chat', $listed, 'the memories of the channel it shows (FW-466)');
         $this->assertStringContainsString('Γεια σου', $opened);
@@ -632,7 +656,7 @@ class AnalystTest extends LlmTestCase
         $this->assertDoesNotMatchRegularExpression('~\d{4}-\d\d-\d\dT\d\d:\d\d~', strip_tags(substr($opened, (int) strpos($opened, '<aside'))), 'no raw ISO moments in the panel');
         $this->assertStringContainsString('Ai/companionreset', $opened, 'root may start them over');
         $this->assertSame([], $ownChat->redirectedTo, 'root\'s own companion conversation reads here');
-        $this->assertStringContainsString('An Ask question', $unknown, 'a channel that is none is the Ask\'s');
+        $this->assertStringContainsString('Every channel', $unknown, 'a channel that is none: every channel');
         $this->assertTrue($closed, 'a 404 to whoever may not');
         $this->assertSame(3, $left, 'and nothing deleted');
         $this->assertSame([adminUrl('Ai/all') . '?channel=chat'], $reset->redirectedTo);
