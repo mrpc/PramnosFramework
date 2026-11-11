@@ -21,6 +21,10 @@ use Pramnos\Logs\Logger;
  * ]],
  * ```
  *
+ * `google` is Google Cloud Text-to-Speech, signed in with a `token` callable (a service account's
+ * access token) or an `api_key` — given here, or kept encrypted in the setting
+ * {@see settingKey()}; without either it is not set up.
+ *
  * Every call writes one line to the `speech` log — characters, milliseconds, bytes — so what the
  * server is asked for can be measured before it is scaled.
  */
@@ -31,8 +35,16 @@ final class Speech
 
     /** @var array<string, array<string, mixed>> */
     public const BUILT_IN = [
-        'piper' => ['label' => 'Piper', 'transport' => Piper::class, 'base_url' => '', 'voice' => '', 'options' => [], 'timeout' => 30],
+        'piper'  => ['label' => 'Piper', 'transport' => Piper::class, 'base_url' => '', 'voice' => '', 'options' => [], 'timeout' => 30],
+        'google' => ['label' => 'Google Cloud', 'transport' => GoogleCloud::class, 'base_url' => 'https://texttospeech.googleapis.com',
+            'voice' => '', 'options' => [], 'timeout' => 30, 'needs_key' => true],
     ];
+
+    /** Where a provider's API key is kept, encrypted. */
+    public static function settingKey(string $provider): string
+    {
+        return 'llm_speech_' . $provider . '_api_key';
+    }
 
     /**
      * The provider in use, merged over its built-in entry; null where none has a server.
@@ -45,6 +57,20 @@ final class Speech
         $section  = is_array($section) ? $section : [];
         $provider = $provider ?? (string) ($section['provider'] ?? 'piper');
         $entry    = array_replace(self::BUILT_IN[$provider] ?? [], (array) ($section['providers'][$provider] ?? []));
+        if (!empty($entry['needs_key'])) {
+            if (!is_callable($entry['api_key'] ?? null) && trim((string) ($entry['api_key'] ?? '')) === '') {
+                try {
+                    $entry['api_key'] = \Pramnos\Security\Encrypter::maybeDecrypt(trim((string) \Pramnos\Application\Settings::getSetting(self::settingKey($provider), '')));
+                } catch (\Throwable) {
+                    $entry['api_key'] = '';
+                }
+            }
+            // A callable is a credential: what it answers is asked for when the text is read.
+            $keyed = static fn (mixed $given): bool => is_callable($given) || trim((string) $given) !== '';
+            if (!$keyed($entry['token'] ?? null) && !$keyed($entry['api_key'])) {
+                return null;
+            }
+        }
 
         return trim((string) ($entry['base_url'] ?? '')) === '' || !is_a((string) ($entry['transport'] ?? ''), Transport::class, true)
             ? null : ['provider' => $provider] + $entry;
@@ -74,6 +100,7 @@ final class Speech
             'ms' => (int) ((hrtime(true) - $started) / 1e6), 'bytes' => $ok ? strlen($audio) : 0, 'status' => $status], 'speech');
 
         return $ok ? ['ok' => true, 'status' => 200, 'audio' => $audio, 'type' => $type]
-            : ['ok' => false, 'status' => 502, 'says' => 'The speech server did not answer' . ($status > 0 ? ' (' . $status . ').' : ': ' . mb_substr($audio, 0, 200))];
+            : ['ok' => false, 'status' => 502, 'says' => 'The speech server did not answer'
+                . ($status > 0 ? ' (' . $status . ')' . (str_starts_with($type, 'audio/') || trim($audio) === '' ? '.' : ': ' . mb_substr(trim($audio), 0, 200)) : ': ' . mb_substr($audio, 0, 200))];
     }
 }

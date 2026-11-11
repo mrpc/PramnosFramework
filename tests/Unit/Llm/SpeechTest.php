@@ -17,8 +17,8 @@ use Pramnos\Routing\Router;
 
 /**
  * Text read aloud through the application's speech server (FW-406): `POST {chat}/speak` on every
- * mount of the conversation API, Piper's HTTP server as the built-in provider, and one line in
- * the `speech` log per call.
+ * mount of the conversation API, Piper's HTTP server and Google Cloud Text-to-Speech (FW-408) as
+ * the built-in providers, and one line in the `speech` log per call.
  *
  * An assistant read aloud where the browser has no voice in the reader's language needs a
  * server; the application names it, the framework knows how to ask it, and the log is what an
@@ -26,6 +26,7 @@ use Pramnos\Routing\Router;
  */
 #[CoversClass(Speech::class)]
 #[CoversClass(Piper::class)]
+#[CoversClass(\Pramnos\Llm\Speech\GoogleCloud::class)]
 #[CoversClass(ChatController::class)]
 #[CoversClass(Routes::class)]
 final class SpeechTest extends LlmTestCase
@@ -143,6 +144,87 @@ final class SpeechTest extends LlmTestCase
         $this->assertSame(401, $refused['status']);
         $this->assertStringContainsString('"bytes":0', $log);
         $this->assertNull(Speech::config('unknown'), 'a provider with no entry');
+    }
+
+    /**
+     * Google Cloud, signed in with the application's service account: the token callable's
+     * answer as the bearer, the voice's language from its name, the options in `audioConfig`
+     * with MP3 by default and the project as a header — and the audio decoded from
+     * `audioContent`, under its encoding's type. An API key, given or kept encrypted in its
+     * setting, signs in where there is no token.
+     */
+    public function testGoogleCloudWithATokenOrAKey(): void
+    {
+        // Arrange
+        $asked = 0;
+        $this->configure(['speech' => ['provider' => 'google', 'providers' => ['google' => [
+            'token'   => static function () use (&$asked): string { $asked++; return 'ya29.token'; },
+            'voice'   => 'el-GR-Chirp3-HD-Achernar',
+            'options' => ['speakingRate' => 1.1, 'project' => 'my-project'],
+        ]]]]);
+        Http::fake(['*' => function (Http $request): ClientResponse {
+            $this->sent[] = ['url' => $request->url(), 'body' => (array) json_decode((string) $request->requestBody(), true), 'headers' => $request->requestHeaders()];
+
+            return ClientResponse::make(['audioContent' => base64_encode('ID3mp3')]);
+        }]);
+
+        // Act
+        $withToken = Speech::speak('Καλημέρα');
+        $this->configure(['speech' => ['provider' => 'google', 'providers' => ['google' => ['options' => ['audioEncoding' => 'OGG_OPUS', 'languageCode' => 'el-GR']]]]]);
+        $this->setting(Speech::settingKey('google'), 'AIza-stored');
+        $withKey = Speech::speak('Γεια');
+
+        // Assert — the token
+        $this->assertSame(['ok' => true, 'status' => 200, 'audio' => 'ID3mp3', 'type' => 'audio/mpeg'], $withToken);
+        $this->assertSame(1, $asked, 'the token asked for once, when the text is read');
+        $this->assertSame('https://texttospeech.googleapis.com/v1/text:synthesize', $this->sent[0]['url']);
+        $this->assertSame('Bearer ya29.token', $this->sent[0]['headers']['Authorization'] ?? null);
+        $this->assertSame('my-project', $this->sent[0]['headers']['x-goog-user-project'] ?? null);
+        $this->assertArrayNotHasKey('x-goog-api-key', $this->sent[0]['headers']);
+        $this->assertSame(['input' => ['text' => 'Καλημέρα'], 'voice' => ['languageCode' => 'el-GR', 'name' => 'el-GR-Chirp3-HD-Achernar'],
+            'audioConfig' => ['speakingRate' => 1.1, 'audioEncoding' => 'MP3']], $this->sent[0]['body']);
+        // The stored key, and an encoding of its own
+        $this->assertSame('audio/ogg', $withKey['type']);
+        $this->assertSame('AIza-stored', $this->sent[1]['headers']['x-goog-api-key'] ?? null);
+        $this->assertArrayNotHasKey('Authorization', $this->sent[1]['headers']);
+        $this->assertSame(['languageCode' => 'el-GR'], $this->sent[1]['body']['voice'], 'no voice named: the language alone');
+        $this->assertContains(Speech::settingKey('google'), \Pramnos\Llm\Providers::allSettingKeys(), 'never printed with the settings');
+    }
+
+    /**
+     * Google Cloud with neither a token nor a key — or a stored key that cannot be decrypted — is
+     * not set up (501) and asks nobody; Google's
+     * own error comes back with its message (502); a token that cannot be had is a 502 with why,
+     * never a fatal.
+     */
+    public function testGoogleCloudWithoutCredentialsOrFailing(): void
+    {
+        // Arrange
+        Http::fake(['*' => function (): ClientResponse {
+            $this->sent[] = true;
+
+            return ClientResponse::make(['error' => ['code' => 400, 'message' => 'Voice el-GR-Nope does not exist.']], 400);
+        }]);
+
+        // Act
+        $this->configure(['speech' => ['provider' => 'google']]);
+        $none = Speech::speak('x');
+        $this->setting(Speech::settingKey('google'), 'enc:v1:not-really');
+        $undecryptable = Speech::speak('x');
+        $askedNobody = count($this->sent);
+        $this->configure(['speech' => ['provider' => 'google', 'providers' => ['google' => ['api_key' => static fn (): string => 'AIza', 'voice' => 'el-GR-Nope']]]]);
+        $refused = Speech::speak('x');
+        $this->configure(['speech' => ['provider' => 'google', 'providers' => ['google' => ['token' => static function (): string {
+            throw new \RuntimeException('The service account is not set up.');
+        }]]]]);
+        $noToken = Speech::speak('x');
+
+        // Assert
+        $this->assertSame([501, 'Speech is not set up.'], [$none['status'], $none['says']]);
+        $this->assertSame(501, $undecryptable['status'], 'a stored key that cannot be decrypted is no key');
+        $this->assertSame(0, $askedNobody);
+        $this->assertSame([502, 'The speech server did not answer (400): Voice el-GR-Nope does not exist.'], [$refused['status'], $refused['says']]);
+        $this->assertSame([502, 'The speech server did not answer: The service account is not set up.'], [$noToken['status'], $noToken['says']]);
     }
 }
 

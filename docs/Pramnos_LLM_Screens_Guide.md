@@ -84,6 +84,28 @@ server and the voice:
 ]],
 ```
 
+**Google Cloud Text-to-Speech** is the `google` provider. It signs in with the application's
+service account — a `token` callable answering an access token with the `cloud-platform` scope,
+asked for each time a text is read, so its caching is the application's — or with an API key:
+`api_key` (a string or a callable), or kept encrypted in the setting
+`Speech::settingKey('google')` (`llm_speech_google_api_key`). With neither it is not set up (501).
+
+```php
+'speech' => [
+    'provider'  => 'google',
+    'providers' => ['google' => [
+        'token'   => fn () => \App\Google::accessToken('cloud-platform'),
+        'voice'   => 'el-GR-Chirp3-HD-Achernar',   // the language is the name's first two parts
+        'options' => ['speakingRate' => 1.1],       // into audioConfig; MP3 unless audioEncoding says
+    ]],
+],
+```
+
+`options.languageCode` overrides the language taken from the voice's name, and `options.project`
+is sent as the billed project (`x-goog-user-project`). Google's own error comes back as the 502's
+message — a voice that does not exist, an option it refuses. Google bills by the character, which
+is what the `speech` log's `chars` counts.
+
 A provider of the application's own is an entry with `transport`, a `Speech\Transport` class.
 Each call writes one line to the `speech` log: provider, voice, `chars`, `ms`, `bytes` and the
 server's `status` — enough to size the server from before scaling it. `Speech::speak($text)` reads

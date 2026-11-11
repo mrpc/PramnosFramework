@@ -306,6 +306,9 @@ final class Providers
         foreach (self::all() as $provider) {
             $keys = [...$keys, ...array_values($provider['settings'])];
         }
+        foreach (array_keys(Speech\Speech::BUILT_IN) as $speech) {
+            $keys[] = Speech\Speech::settingKey($speech);
+        }
 
         foreach (array_keys(Connection::features()) as $feature) {
             foreach (Connection::FEATURE_FIELDS as $field) {
