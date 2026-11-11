@@ -74,6 +74,7 @@ class MetricReports extends Controller
         $view->entry     = $entry;
         $view->at        = $at;
         $view->period    = $window->label();
+        $view->grain     = $window->grain;
         $view->previous  = $window->previous()->key();
         $view->next      = $window->next()->key();
         // The report's cards, as a board: its owner arranges them with Customise.
@@ -342,7 +343,20 @@ class MetricReports extends Controller
     private static function day(string $day): string
     {
         $at = \DateTime::createFromFormat('!Y-m-d', $day);
+        if ($at !== false && $at->format('Y-m-d') === $day) {
+            return $day;
+        }
+        // The period picker's own: a month (`2026-11`) or an ISO week (`2026-W45`), as its first day.
+        if (preg_match('/^(\d{4})-(\d{2})$/', $day, $m) === 1 && checkdate((int) $m[2], 1, (int) $m[1])) {
+            return $day . '-01';
+        }
+        if (preg_match('/^(\d{4})-W(\d{2})$/', $day, $m) === 1 && (int) $m[2] >= 1 && (int) $m[2] <= 53) {
+            return (new \DateTimeImmutable())->setISODate((int) $m[1], (int) $m[2])->format('Y-m-d');
+        }
+        if (preg_match('/^\d{4}$/', $day) === 1) {
+            return $day . '-01-01';
+        }
 
-        return $at !== false && $at->format('Y-m-d') === $day ? $day : date('Y-m-d');
+        return date('Y-m-d');
     }
 }

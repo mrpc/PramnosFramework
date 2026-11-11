@@ -729,9 +729,14 @@ class ReportsMySQLTest extends TestCase
                 'customer' => ['label' => 'Customer', 'values' => ['new' => 'New', 'returning' => 'Returning'], 'search' => false]],
             'urls' => ['show' => '/r/show', 'csv' => '/r/csv', 'xlsx' => '/r/xlsx', 'edit' => '/r/edit', 'list' => '/r']];
 
+        $parts = Report::fromArray(['columns' => ['periods' => 1], 'sections' => [['rows' => [['metric' => 'test.sales', 'breakdown' => 'region']]]]]);
+        $day   = new \ReflectionMethod(MetricReports::class, 'day');
+
         // Act
         $all      = $draw([]);
         $north    = $draw(['region' => 'north']);
+        $grouped  = Report::html($parts->build('2026-09-01', self::reader()));
+        $days     = array_map(static fn (string $given): string => $day->invoke(null, $given), ['2026-09-10', '2026-09', '2026-W37', '2026', 'nonsense']);
         $rendered = [];
         foreach (['tailwind', 'bootstrap', 'plain-css'] as $theme) {
             $rendered[$theme] = $this->renderTemplate($theme, 'metricreports/report.tpl.php', $page);
@@ -742,7 +747,14 @@ class ReportsMySQLTest extends TestCase
         $this->assertStringContainsString('>North</th>', $north);
         $this->assertStringNotContainsString('>South</th>', $north, 'only the chosen value');
         $this->assertStringNotContainsString('>Total</th>', $north, 'and no total beside one column');
+        $this->assertMatchesRegularExpression('~<tr class="pf-report-group"><th scope="rowgroup" colspan="2">Sales</th></tr><tr class="pf-report-part"><th scope="row" style="padding-left:1.5em[^"]*">North</th>~', $grouped,
+            'a breakdown\'s values under their row\'s name, set in');
+        $this->assertStringContainsString('style="width:auto;min-width:50%"', $grouped, 'one column: the table as wide as it needs');
+        $this->assertStringNotContainsString('width:auto', $all, 'three columns: the full width');
+        $this->assertSame(['2026-09-10', '2026-09-01', '2026-09-07', '2026-01-01', date('Y-m-d')], $days, 'a day, a month, an ISO week, a year; anything else today');
         foreach ($rendered as $theme => $html) {
+            $this->assertStringContainsString('<input type="month" name="at" value="2026-09"', $html, $theme . ': one period control, a month for a month');
+            $this->assertStringContainsString('All values', $html, $theme . ': a neutral word for no filter');
             $this->assertMatchesRegularExpression('~<label class="pf-report-field"><span>Region</span>\s*<select name="v\[region\]"~', $html, $theme . ': the pinned one in sight, labelled');
             $this->assertMatchesRegularExpression('~<details class="pf-report-pop pf-report-filters">\s*<summary[^>]*>Filters<span class="pf-report-count"><span>1</span>~', $html, $theme . ': the rest behind Filters, counted');
             $this->assertStringContainsString('<span>Customer</span>', $html, $theme . ': each labelled in the panel');

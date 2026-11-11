@@ -610,8 +610,11 @@ for a Content-Security-Policy to refuse.
 
 **The report page**, so it opens on its numbers:
 
-- **The head** is the title and the period with ‹ ›. The actions (Customise, Settings or Copy,
-  Export CSV and XLSX, Print, All reports) sit behind a ⋯ menu.
+- **The head** is the title and the period. The actions (Customise, Settings or Copy, Export CSV
+  and XLSX, Print, All reports) sit behind a ⋯ menu.
+- **One period control**, by the report's grain, with ‹ › on either side: a month picker for a
+  month or quarter, a week picker for a week, a year for a year, a day otherwise. The address takes
+  each of them for `at` (`2026-11`, `2026-W45`, `2026`), read as the period's first day.
 - **Pinned filters.** Only the period and the application's pinned dimensions are in sight, each
   labelled: `'metrics' => ['pinned_filters' => ['market']]`.
 - **The Filters panel** holds every other picker with its label. Its button counts the filters
@@ -622,6 +625,11 @@ for a Content-Security-Policy to refuse.
   the values the page is narrowed to: the board's variable on that dimension, and the viewer's
   scope. The total column goes when one column is left. The report keeps its definition; only the
   drawing narrows.
+- **A breakdown's values** sit under their row's name, set in and lighter, so that the same
+  values under two rows are never read as rows of their own. Where the row's total closes the group
+  instead, that total names it. A table of one or two columns of values is only as wide as it
+  needs, so the numbers stay beside their names.
+- **No filter** reads *All values*, a word that suits any dimension.
 
 A card is headed by the heading set in its form, or by nothing: the name of its kind is shown only
 in the catalogue. The report's page is denser than a dashboard: less room inside a card, and

@@ -463,7 +463,9 @@ final class Report
         }
         $out = [];
         foreach ($values as $value) {
-            $out[] = ['label' => $dimension->labelOf($value), 'metric' => $row['metric'], 'filters' => [$row['breakdown'] => $value] + $row['filters'], 'subtotal' => false];
+            // A part of its row: drawn under its row's name, set in, unless its total closes the group.
+            $out[] = ['label' => $dimension->labelOf($value), 'metric' => $row['metric'], 'filters' => [$row['breakdown'] => $value] + $row['filters'], 'subtotal' => false,
+                'part' => $label, 'headed' => !$row['total']];
         }
         if ($row['total']) {
             $out[] = ['label' => $label, 'metric' => $row['metric'], 'filters' => $row['filters'], 'subtotal' => true];
@@ -486,7 +488,8 @@ final class Report
     private function buildRow(array $row, array $visible, array $columns, Window $anchor, ?string $compare, string $grain): array
     {
         $unit  = $visible[$row['metric']]->getUnit();
-        $built = ['label' => $row['label'], 'unit' => $unit, 'currency' => null, 'subtotal' => $row['subtotal'], 'cells' => [], 'other' => null, 'change' => null, 'error' => $row['error'] ?? null];
+        $built = ['label' => $row['label'], 'unit' => $unit, 'currency' => null, 'subtotal' => $row['subtotal'], 'cells' => [], 'other' => null, 'change' => null, 'error' => $row['error'] ?? null,
+            'part' => $row['part'] ?? null, 'headed' => $row['headed'] ?? false];
         if ($built['error'] !== null) {
             return $built;
         }
@@ -576,9 +579,19 @@ final class Report
                 }
                 $html .= \Pramnos\Html\Chart::render($section['chart'], $table['columns'], $sets, ['title' => $section['title'] !== '' ? $section['title'] : $table['name'], 'height' => 240]);
             }
-            $body = '';
+            $body  = '';
+            $group = null;
             foreach ($section['rows'] as $row) {
-                $body .= '<tr' . ($row['subtotal'] ? ' class="pf-report-total"' : '') . '><th scope="row">' . $e($row['label']) . '</th>';
+                $part = $row['part'] ?? null;
+                // A breakdown's values under their row's name, set in and lighter, so three of them
+                // in a section are never read as rows of their own.
+                if ($part !== null && $part !== $group && !empty($row['headed'])) {
+                    $body .= '<tr class="pf-report-group"><th scope="rowgroup" colspan="' . ($span + 1) . '">' . $e($part) . '</th></tr>';
+                }
+                $group = $part;
+                $class = $row['subtotal'] ? 'pf-report-total' : ($part !== null ? 'pf-report-part' : '');
+                $body .= '<tr' . ($class !== '' ? ' class="' . $class . '"' : '') . '><th scope="row"'
+                    . ($part !== null ? ' style="padding-left:1.5em;font-weight:normal;opacity:.8"' : '') . '>' . $e($row['label']) . '</th>';
                 if ($row['error'] !== null) {
                     $body .= '<td colspan="' . $span . '" class="pf-muted">' . $e($row['error']) . '</td></tr>';
                     continue;
@@ -610,7 +623,9 @@ final class Report
                 }
                 $body .= ($table['compare'] !== null ? '<td></td><td></td>' : '') . '</tr>';
             }
-            $html .= '<div class="pf-report-scroll"><table class="pf-report table table-sm"><thead><tr>' . $head . '</tr></thead><tbody>' . $body . '</tbody></table></div>';
+            // One or two columns of values: the table as wide as it needs, the numbers beside their names.
+            $html .= '<div class="pf-report-scroll"><table class="pf-report table table-sm"' . ($span <= 2 ? ' style="width:auto;min-width:50%"' : '')
+                . '><thead><tr>' . $head . '</tr></thead><tbody>' . $body . '</tbody></table></div>';
         }
         if ($table['hidden'] > 0) {
             $html .= '<p class="pf-muted">' . $e(sprintf($t('%d rows are not shown: their metrics are not available to you.'), $table['hidden'])) . '</p>';

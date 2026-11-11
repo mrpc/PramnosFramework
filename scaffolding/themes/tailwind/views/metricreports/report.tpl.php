@@ -8,17 +8,21 @@ $query     = fn (string $at, ?array $v = null): string => '?report=' . rawurlenc
 $folded    = array_diff_key($pickers, $pinned);
 $active    = count(array_filter(array_intersect_key($variables, $folded), static fn ($v): bool => (string) $v !== ''));
 $chips     = array_filter($variables, static fn ($v): bool => (string) $v !== '');
+// One period control, by the report's grain: a month picker for a month, a week for a week.
+$day       = strtotime($this->at) ?: time();
+[$periodKind, $periodValue] = match ($this->grain ?? 'month') {
+    'month', 'quarter' => ['month', date('Y-m', $day)],
+    'week'             => ['week', date('o-\\WW', $day)],
+    'year'             => ['number', date('Y', $day)],
+    default            => ['date', date('Y-m-d', $day)],
+};
 @endphp
-<style data-pf-report>.pf-report-page .pf-dashboard{gap:.5rem}.pf-report-page [data-pf-widget]>.card-body{padding:.5rem .75rem!important;gap:.35rem!important}.pf-report-page .pf-dashboard-head{margin-bottom:.25rem!important}.pf-report-page .pf-report th,.pf-report-page .pf-report td{padding:.15rem .5rem!important;line-height:1.35}.pf-report-page .pf-report{margin-bottom:0}[data-pf-widget-tools][hidden],[data-pf-widget-size-handle][hidden]{display:none!important}.pf-report-section-card{padding:.75rem 0 .15rem;border-bottom:1px solid rgba(127,127,127,.35)}.pf-report-section-card .pf-dashboard-head{margin:0!important}.pf-report-section-toggle{display:flex;align-items:center;gap:.4rem;width:100%;padding:0;border:0;background:none;color:inherit;font:inherit;font-size:1.05rem;font-weight:600;text-align:left;cursor:pointer}.pf-report-section-toggle::before{content:"\25BE";display:inline-block;transition:transform .15s}.pf-report-section-toggle[aria-expanded=false]::before{transform:rotate(-90deg)}.pf-report-head{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:.75rem;margin-bottom:.5rem}.pf-report-period{display:flex;align-items:center;gap:.25rem;margin-top:.15rem}.pf-report-tools{display:flex;flex-wrap:wrap;align-items:flex-end;gap:.5rem}.pf-report-field{display:flex;flex-direction:column;gap:.15rem;font-size:.8rem;opacity:.95}.pf-report-field>span{opacity:.75}.pf-report-pop{position:relative}.pf-report-pop>summary{list-style:none;cursor:pointer}.pf-report-pop>summary::-webkit-details-marker{display:none}.pf-report-pop>div{position:absolute;right:0;z-index:30;margin-top:.25rem;min-width:16rem;max-height:70vh;overflow:auto;padding:.75rem;border:1px solid rgba(127,127,127,.35);border-radius:.5rem;background:var(--pf-surface,#fff);color:inherit;box-shadow:0 8px 24px rgba(0,0,0,.15);display:flex;flex-direction:column;gap:.5rem}.pf-report-menu>div a,.pf-report-menu>div button{text-align:left;justify-content:flex-start}.pf-report-count{display:inline-block;min-width:1.25rem;margin-left:.25rem;padding:0 .35rem;border-radius:999px;background:currentColor;font-size:.75rem;line-height:1.25rem;text-align:center}.pf-report-count>span{color:var(--pf-surface,#fff)}.pf-report-chips{display:flex;flex-wrap:wrap;gap:.35rem;margin:0 0 .5rem}.pf-report-chip{display:inline-flex;align-items:center;gap:.35rem;padding:.1rem .6rem;border:1px solid rgba(127,127,127,.4);border-radius:999px;font-size:.85rem;text-decoration:none;color:inherit}.pf-report-chip:hover{background:rgba(127,127,127,.12)}@media print{.pf-report-page .pf-no-print,[data-pf-widget-tools]{display:none!important}}</style>
+<style data-pf-report>.pf-report-page .pf-dashboard{gap:.5rem}.pf-report-page [data-pf-widget]>.card-body{padding:.5rem .75rem!important;gap:.35rem!important}.pf-report-page .pf-dashboard-head{margin-bottom:.25rem!important}.pf-report-page .pf-report th,.pf-report-page .pf-report td{padding:.15rem .5rem!important;line-height:1.35}.pf-report-page .pf-report{margin-bottom:0}[data-pf-widget-tools][hidden],[data-pf-widget-size-handle][hidden]{display:none!important}.pf-report-section-card{padding:.75rem 0 .15rem;border-bottom:1px solid rgba(127,127,127,.35)}.pf-report-section-card .pf-dashboard-head{margin:0!important}.pf-report-section-toggle{display:flex;align-items:center;gap:.4rem;width:100%;padding:0;border:0;background:none;color:inherit;font:inherit;font-size:17px;font-weight:600;text-align:left;cursor:pointer}.pf-report-section-toggle::before{content:"\25BE";display:inline-block;transition:transform .15s}.pf-report-section-toggle[aria-expanded=false]::before{transform:rotate(-90deg)}.pf-report-head{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:.75rem;margin-bottom:.5rem}.pf-report-period{display:flex;align-items:center;gap:4px}.pf-report-page .pf-report-group th{padding-top:.4rem!important;font-weight:600}.pf-report-tools{display:flex;flex-wrap:wrap;align-items:flex-end;gap:.5rem}.pf-report-field{display:flex;flex-direction:column;gap:2px;font-size:13px;opacity:.95}.pf-report-field>span{opacity:.75}.pf-report-pop{position:relative}.pf-report-pop>summary{list-style:none;cursor:pointer}.pf-report-pop>summary::-webkit-details-marker{display:none}.pf-report-pop>div{position:absolute;right:0;z-index:30;margin-top:.25rem;min-width:16rem;max-height:70vh;overflow:auto;padding:.75rem;border:1px solid rgba(127,127,127,.35);border-radius:.5rem;background:var(--pf-surface,#fff);color:inherit;box-shadow:0 8px 24px rgba(0,0,0,.15);display:flex;flex-direction:column;gap:.5rem}.pf-report-menu>div a,.pf-report-menu>div button{text-align:left;justify-content:flex-start}.pf-report-count{display:inline-block;min-width:1.25rem;margin-left:.25rem;padding:0 .35rem;border-radius:999px;background:currentColor;font-size:.75rem;line-height:1.25rem;text-align:center}.pf-report-count>span{color:var(--pf-surface,#fff)}.pf-report-chips{display:flex;flex-wrap:wrap;gap:.35rem;margin:0 0 .5rem}.pf-report-chip{display:inline-flex;align-items:center;gap:.35rem;padding:.1rem .6rem;border:1px solid rgba(127,127,127,.4);border-radius:999px;font-size:.85rem;text-decoration:none;color:inherit}.pf-report-chip:hover{background:rgba(127,127,127,.12)}@media print{.pf-report-page .pf-no-print,[data-pf-widget-tools]{display:none!important}}</style>
 <div class="pf-ui pf-report-page">
     <div class="pf-report-head">
         <div>
             <h1 class="pf-page-title">{{ $this->entry['name'] }}</h1>
-            <div class="pf-report-period">
-                <a class="pf-btn pf-btn-ghost pf-btn-sm pf-no-print" href="{{ $this->urls['show'] . $query($this->previous) }}" aria-label="{{ t('Previous period') }}">‹</a>
-                <span class="pf-page-sub">{{ $this->period }}</span>
-                <a class="pf-btn pf-btn-ghost pf-btn-sm pf-no-print" href="{{ $this->urls['show'] . $query($this->next) }}" aria-label="{{ t('Next period') }}">›</a>
-            </div>
+            <p class="pf-page-sub">{{ $this->period }}</p>
         </div>
         <div class="pf-report-tools pf-no-print">
             <form method="get" action="{{ $this->urls['show'] }}" class="pf-report-tools">
@@ -27,18 +31,24 @@ $chips     = array_filter($variables, static fn ($v): bool => (string) $v !== ''
                 @if (isset($pinned[$dimension]))
                 <label class="pf-report-field"><span>{{ $picker['label'] }}</span>
                     @if (!empty($picker['search']))
-                    <input type="search" name="v[{{ $dimension }}]" list="pf-dimension-{{ $dimension }}" value="{{ $variables[$dimension] ?? '' }}" class="pf-input" placeholder="{{ t('All') }}">
+                    <input type="search" name="v[{{ $dimension }}]" list="pf-dimension-{{ $dimension }}" value="{{ $variables[$dimension] ?? '' }}" class="pf-input" placeholder="{{ t('All values') }}">
                     <datalist id="pf-dimension-{{ $dimension }}">@foreach ($picker['values'] as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</datalist>
                     @else
                     <select name="v[{{ $dimension }}]" class="pf-select" data-pf-autosubmit>
-                        <option value="">{{ t('All') }}</option>
+                        <option value="">{{ t('All values') }}</option>
                         @foreach ($picker['values'] as $value => $label)<option value="{{ $value }}"{{ ($variables[$dimension] ?? '') === (string) $value ? ' selected' : '' }}>{{ $label }}</option>@endforeach
                     </select>
                     @endif
                 </label>
                 @endif
                 @endforeach
-                <label class="pf-report-field"><span>{{ t('Period') }}</span><input type="date" name="at" value="{{ $this->at }}" class="pf-input" data-pf-autosubmit></label>
+                <div class="pf-report-field"><span id="pf-report-period">{{ t('Period') }}</span>
+                    <div class="pf-report-period">
+                        <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['show'] . $query($this->previous) }}" aria-label="{{ t('Previous period') }}">‹</a>
+                        <input type="{!! $periodKind !!}" name="at" value="{{ $periodValue }}"@if ($periodKind === 'number') min="2000" max="2100" style="width:6em"@endif class="pf-input" aria-labelledby="pf-report-period" data-pf-autosubmit>
+                        <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['show'] . $query($this->next) }}" aria-label="{{ t('Next period') }}">›</a>
+                    </div>
+                </div>
                 @if ($folded !== [])
                 <details class="pf-report-pop pf-report-filters">
                     <summary class="pf-btn pf-btn-sm">{{ t('Filters') }}@if ($active > 0)<span class="pf-report-count"><span>{!! (int) $active !!}</span></span>@endif</summary>
@@ -46,11 +56,11 @@ $chips     = array_filter($variables, static fn ($v): bool => (string) $v !== ''
                         @foreach ($folded as $dimension => $picker)
                         <label class="pf-report-field"><span>{{ $picker['label'] }}</span>
                             @if (!empty($picker['search']))
-                            <input type="search" name="v[{{ $dimension }}]" list="pf-dimension-{{ $dimension }}" value="{{ $variables[$dimension] ?? '' }}" class="pf-input" placeholder="{{ t('All') }}">
+                            <input type="search" name="v[{{ $dimension }}]" list="pf-dimension-{{ $dimension }}" value="{{ $variables[$dimension] ?? '' }}" class="pf-input" placeholder="{{ t('All values') }}">
                             <datalist id="pf-dimension-{{ $dimension }}">@foreach ($picker['values'] as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</datalist>
                             @else
                             <select name="v[{{ $dimension }}]" class="pf-select">
-                                <option value="">{{ t('All') }}</option>
+                                <option value="">{{ t('All values') }}</option>
                                 @foreach ($picker['values'] as $value => $label)<option value="{{ $value }}"{{ ($variables[$dimension] ?? '') === (string) $value ? ' selected' : '' }}>{{ $label }}</option>@endforeach
                             </select>
                             @endif
