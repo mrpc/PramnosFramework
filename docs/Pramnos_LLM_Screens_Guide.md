@@ -448,7 +448,7 @@ provider in use asks for it; its `consent` is bindable. `kind` names the feature
 `Scheduled` does for a SPA what `/chat/scheduled` does for a page:
 
 - It lists, creates (from a template or by hand), pauses, runs and deletes questions, reminders
-  and reports, with every cadence: once, daily, weekly, monthly, and a weekday of the month.
+  and reports, with every cadence: once, daily, Monday to Friday, weekly, monthly, and a weekday of the month.
 - A report offers whom it is for, from the `owners` the API says this person may use, and when
   readers are told.
 - It shows a task's runs, and opens a report's run as a conversation of the reader's own through

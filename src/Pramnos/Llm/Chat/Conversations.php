@@ -80,6 +80,7 @@ class Conversations
         'profile'   => 'what the person confirmed about themselves and the people in their life',
         'calendar'  => 'the person\'s appointments and tasks',
         'journal'   => 'the person\'s journal for the day',
+        'plan'      => 'the person\'s plan: their projects, one a row',
         'web'       => 'searching the web and reading a page',
         Work::MODE  => Work::SKILL,
     ];
@@ -1293,6 +1294,14 @@ class Conversations
             $lines[] = '';
             $lines[] = $pinned;
         }
+        // The person's plan, a line a project, in every persona and the Ask alike (Plan).
+        if (Plan::on($this->scope) && !$turn->shared()) {
+            $plan = (new Plan($this->scope, $this->assistant->timezone($this->scope)))->context();
+            if ($plan !== '') {
+                $lines[] = '';
+                $lines[] = $plan;
+            }
+        }
 
         // The person's own, where the application turned them on: what they confirmed about
         // themselves and what waits for their word, and today in their calendar.
@@ -1583,6 +1592,7 @@ class Conversations
             + (Profile::on($this->scope) ? self::inSkill((new Profile($this->scope))->tools(), 'profile') : [])
             + (Calendar::on($this->scope) ? self::inSkill((new Calendar($this->scope, $zone))->tools(), 'calendar', ['set_busy']) : [])
             + (Journal::on($this->scope) ? self::inSkill((new Journal($this->scope, $zone))->tools(), 'journal') : [])
+            + (Plan::on($this->scope) ? self::inSkill((new Plan($this->scope, $zone))->tools(), 'plan') : [])
             // The person's own settings, changed by asking: on the companion's page, for everybody on it.
             + ($this->scope->space === Scope::CHAT && $this->scope->userId > 0 ? Settings::tools($this->scope) : [])
             // The person's photos, their captions and days — never the pictures (Photos).

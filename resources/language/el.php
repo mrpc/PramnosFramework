@@ -2572,4 +2572,8 @@ return [
     'Taken off the menu.' => 'Η αναφορά βγήκε από το μενού.',
     'A copy of your own to arrange; the original stays as it is.' => 'Ένα δικό σας αντίγραφο για να το διαμορφώσετε· το αρχικό μένει ως έχει.',
     'Back to the original.' => 'Επιστροφή στο αρχικό.',
+    'Monday to Friday' => 'Δευτέρα με Παρασκευή',
+    'Monday to Friday at %s' => 'Δευτέρα με Παρασκευή στις %s',
+    'The plan, this morning' => 'Το σχέδιο, σήμερα το πρωί',
+    'The week\'s review' => 'Η ανασκόπηση της εβδομάδας',
 ];

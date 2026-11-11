@@ -63,7 +63,7 @@ class Memory
      * from another only the topics the application lets it ({@see borrowed()}); `other` never, and
      * `mood` only where the application opens feelings (`share_feelings`).
      */
-    public const TOPICS = ['identity', 'values', 'goals', 'relationships', 'mood', 'interests', 'work', 'talk', 'other'];
+    public const TOPICS = ['identity', 'values', 'goals', 'relationships', 'mood', 'interests', 'work', 'plans', 'talk', 'other'];
 
     /** The topic of a memory kept without one. */
     public const OTHER = 'other';
@@ -376,7 +376,7 @@ class Memory
             . 'A sentence that may be a question is not a fact: dictated words carry no question mark, so "I had no meeting today" '
             . 'may be asking. Never keep what contradicts what is remembered: leave it, the assistant asks. '
             . 'Everything is about "me". '
-            . 'Each kept one has the topic it is about: ' . implode('|', self::TOPICS) . ' (work: how they work and the reports they want; talk: how they like to be spoken to). '
+            . 'Each kept one has the topic it is about: ' . implode('|', self::TOPICS) . ' (work: how they work and the reports they want; plans: their projects — work, hobbies, family, home — and how they run them; talk: how they like to be spoken to). '
             . 'Answer JSON only: {"changes": [{"op": "keep", "about": "me", "kind": "fact|preference", "topic": "work", "memory": "one sentence"}, '
             . '{"op": "correct", "id": 3, "memory": "one sentence"}, {"op": "forget", "id": 4}]}.';
         $profile = Profile::on($this->scope) && Profile::available() ? new Profile($this->scope) : null;

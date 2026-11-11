@@ -1,12 +1,13 @@
 ---
 use_cases:
   - Giving an assistant a profile of the person, their calendar and a journal, each turned on by itself
+  - Keeping a person's projects in a plan the assistant updates from what they say, with a morning briefing
   - Letting the assistant book appointments, find free slots and remind before them
   - Keeping an assistant from messaging people at night, too often or while they are busy
   - Keeping what a person confided with a provider you trust with it
 ---
 
-# The person's own: a profile, a calendar, a journal
+# The person's own: a profile, a calendar, a journal, a plan
 
 Part of the [language-model guide](Pramnos_LLM_Guide.md).
 
@@ -22,6 +23,7 @@ never in the administrators' analyst, never in an answer others read too.
         'profile'  => true,   // who the person is and the people in their life, on their word
         'calendar' => true,   // their appointments and tasks, today in every prompt
         'journal'  => true,   // a page a day, in their words
+        'plan'     => true,   // their projects, a row each, kept from what they say
     ],
     // When the assistant may reach out on its own: quiet hours, a few pings a day, not while busy.
     'proactivity' => ['quiet' => '22:30-07:30', 'daily' => 3],
@@ -33,9 +35,10 @@ never in the administrators' analyst, never in an answer others read too.
 | [Profile](#a-profile-that-changes-only-on-the-persons-word) | `chat.profile` | Answers that know who the person is and who "Eleni" is, without the model ever deciding that on its own |
 | [Calendar](#appointments-and-tasks) | `chat.calendar` | "Book Giorgos at 16:00" that checks for clashes and offers free times; "what do I have this afternoon" with no tool call; reminders before appointments |
 | [Journal](#a-journal-a-day) | `chat.journal` | A record of the person's days, kept as they talk |
+| [Plan](#a-plan-a-project-a-row) | `chat.plan` | The person's projects in every answer, changed only by name and on their word, with a weekday morning briefing and a Sunday review |
 | [Manners](#reaching-out-on-its-own-with-manners) | `proactivity` | Scheduled questions and reminders that never arrive at night, too often, or in a meeting |
 
-Their tools are in the `profile`, `calendar` and `journal` [skills](Pramnos_LLM_Tools_Guide.md#skills-in-a-conversation), so
+Their tools are in the `profile`, `calendar`, `journal` and `plan` [skills](Pramnos_LLM_Tools_Guide.md#skills-in-a-conversation), so
 with skills on they cost nothing until the model needs them.
 
 ### A profile that changes only on the person's word
@@ -156,7 +159,31 @@ time. It is pinned, shared and exported like any artifact, and tagged `personal`
 `Journal::TEMPLATES` offers `evening_review` (21:30): what got done and how the day went, written
 down, and the morning's plan unpinned.
 
-Both templates are offered beside the application's own `routine_templates`, which win by key.
+### A plan, a project a row
+
+`Chat\Plan` keeps the person's projects: work, hobbies, the family, the house. It is a table
+artifact titled `Plan`, with one row per project and the columns `project, kind, phase, status,
+focus, blockers, updated`. The phase is one of `active`, `paused`, `waiting` or `done`.
+
+- **The person's own, everywhere.** It is kept in the person's conversations' space, so every
+  persona and the administration's Ask read and change the same plan.
+- **By name, never by guess.** `plan_add` adds a project, `plan_update(project, field, value)`
+  changes one field, and `plan_close` takes a project out with nothing kept. The code finds the
+  project by its name, whatever the case. For a name the plan does not have it changes nothing
+  and lists the ones it has. `updated` is set by the plan itself.
+- **The rules the model is given**, in every tool's description:
+  - change only on the person's word;
+  - one field at a time, confirmed in a sentence;
+  - ask before closing a project, setting it done or paused, or guessing which one;
+  - deadlines and next steps are to-dos with a date, and a deadline past is closed or moved.
+- **In every question**, a line per project (`Plan::context()`).
+- **Its routines.** `Plan::TEMPLATES` offers `plan_morning`, Monday to Friday at 10:00
+  (`cadence: weekdays`). It covers, in about a minute, only what needs a decision today:
+  deadlines, blockers, what has not moved. It also offers `plan_week`, Sunday at 20:00.
+- **Memory.** A memory about the person's projects takes the topic `plans`. A channel reads it
+  from another only where the application lets it (`channels.reads`).
+
+All these templates are offered beside the application's own `routine_templates`, which win by key.
 
 ### The assistant's own diary
 

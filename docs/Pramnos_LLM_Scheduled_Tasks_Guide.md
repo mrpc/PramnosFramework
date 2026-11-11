@@ -31,6 +31,7 @@ $tasks->create($scope, ['title' => 'Board pack', 'prompt' => '…', 'cadence' =>
 | Cadence | When |
 |---|---|
 | `daily` | Every day at `at` |
+| `weekdays` | Monday to Friday at `at` |
 | `weekly` | Every week, on `day` 1 (Monday) to 7 (Sunday) |
 | `monthly` | Every month, on `day` 1 to 28 |
 | `monthly_weekday` | The `nth` (1–4, or 5 for the last) `day` of the month: the second Tuesday, the last Friday |

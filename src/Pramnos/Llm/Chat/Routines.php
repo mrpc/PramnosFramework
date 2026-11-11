@@ -21,7 +21,7 @@ use Pramnos\Llm\CallLog;
  */
 class Routines
 {
-    public const CADENCES = ['daily', 'weekly', 'monthly', 'once', 'monthly_weekday'];
+    public const CADENCES = ['daily', 'weekdays', 'weekly', 'monthly', 'once', 'monthly_weekday'];
 
     /** A question asked again, into its owner's conversation — what every routine was at first. */
     public const ASK = 'ask';
@@ -94,7 +94,8 @@ class Routines
         // The calendar's morning and the journal's evening, under the application's own.
         return (is_array($chat['routine_templates'] ?? null) ? $chat['routine_templates'] : [])
             + (is_array($chat) && !empty($chat['calendar']) ? Calendar::TEMPLATES : [])
-            + (is_array($chat) && !empty($chat['journal']) ? Journal::TEMPLATES : []);
+            + (is_array($chat) && !empty($chat['journal']) ? Journal::TEMPLATES : [])
+            + (is_array($chat) && !empty($chat['plan']) ? Plan::TEMPLATES : []);
     }
 
     /**
@@ -163,7 +164,7 @@ class Routines
         }
 
         if (!in_array($cadence, self::CADENCES, true)) {
-            return 'There is no such cadence. How often: daily, weekly, monthly, monthly_weekday (the 2nd Tuesday, the last Friday) or once.';
+            return 'There is no such cadence. How often: daily, weekdays (Monday to Friday), weekly, monthly, monthly_weekday (the 2nd Tuesday, the last Friday) or once.';
         }
 
         $schedule = self::schedule($cadence, (string) ($wanted['at'] ?? '08:00'), $wanted['day'] ?? null, (string) ($wanted['timezone'] ?? ''), $wanted);
@@ -251,7 +252,7 @@ class Routines
         if ($found === null) {
             return 'There is no such scheduled task.';
         }
-        $grain = ['daily' => \Pramnos\Metrics\Window::DAY, 'weekly' => \Pramnos\Metrics\Window::WEEK,
+        $grain = ['daily' => \Pramnos\Metrics\Window::DAY, 'weekdays' => \Pramnos\Metrics\Window::DAY, 'weekly' => \Pramnos\Metrics\Window::WEEK,
             'monthly' => \Pramnos\Metrics\Window::MONTH, 'monthly_weekday' => \Pramnos\Metrics\Window::MONTH][$found['cadence']] ?? null;
         if ($grain === null || $found['kind'] === self::REMINDER) {
             return 'Only a daily, weekly or monthly question or report is sent as a report.';
@@ -1060,8 +1061,9 @@ class Routines
 
         for ($i = 0; $i < 400; $i++) {
             $fits = match ($cadence) {
-                'weekly'  => (int) $candidate->format('N') === (int) $day,
-                'monthly' => (int) $candidate->format('j') === (int) $day,
+                'weekly'   => (int) $candidate->format('N') === (int) $day,
+                'weekdays' => (int) $candidate->format('N') <= 5,
+                'monthly'  => (int) $candidate->format('j') === (int) $day,
                 default   => true,
             };
 
@@ -1148,7 +1150,7 @@ class Routines
         }
 
         $when = [
-            'cadence'    => ['type' => 'string', 'enum' => self::CADENCES, 'description' => 'once for a single time; monthly_weekday for "the second Tuesday", "the last Friday".'],
+            'cadence'    => ['type' => 'string', 'enum' => self::CADENCES, 'description' => 'once for a single time; weekdays for Monday to Friday; monthly_weekday for "the second Tuesday", "the last Friday".'],
             'at'         => ['type' => 'string', 'description' => 'Time of day, HH:MM, 24-hour. Morning means 08:00 unless they say.'],
             'day'        => ['type' => 'integer', 'description' => 'weekly and monthly_weekday: 1 Monday … 7 Sunday. monthly: 1 to 28.'],
             'nth'        => ['type' => 'integer', 'description' => 'monthly_weekday: 1–4, or 5 for the last.'],
@@ -1327,7 +1329,7 @@ class Routines
         if ($scheduling !== []) {
             $cadence = (string) ($changes['cadence'] ?? $found['cadence']);
             if (!in_array($cadence, self::CADENCES, true)) {
-                return 'There is no such cadence. How often: daily, weekly, monthly, monthly_weekday (the 2nd Tuesday, the last Friday) or once.';
+                return 'There is no such cadence. How often: daily, weekdays (Monday to Friday), weekly, monthly, monthly_weekday (the 2nd Tuesday, the last Friday) or once.';
             }
             $zone     = (string) ($changes['timezone'] ?? $found['timezone']);
             $schedule = self::schedule($cadence, (string) ($changes['at'] ?? $found['at']), $changes['day'] ?? $found['day'], $zone,

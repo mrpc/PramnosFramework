@@ -41,6 +41,7 @@ $when  = static function (array $task) use ($t, $days, $nths): string {
     $at = (string) ($task['at'] ?? '');
     return match ((string) ($task['cadence'] ?? '')) {
         'once'            => $t('Once, %s', (string) ($task['next_run_local'] ?? $task['run_at'] ?? '')),
+        'weekdays'        => $t('Monday to Friday at %s', $at),
         'weekly'          => $t('Every %s at %s', $t($days[(int) ($task['day'] ?? 1)] ?? ''), $at),
         'monthly'         => $t('Monthly on day %s at %s', (string) ($task['day'] ?? ''), $at),
         'monthly_weekday' => $t('The %s %s of each month at %s', $t($nths[(int) ($task['nth'] ?? 1)] ?? ''), $t($days[(int) ($task['day'] ?? 1)] ?? ''), $at),
@@ -200,10 +201,10 @@ $readers = static function (?array $audience, array $names) use ($c, $e, $t, $ro
         <div class="{!! $c['row'] !!}">
             <label class="{!! $c['field'] !!}">{{ $t('How often') }}
                 <select class="{!! $c['select'] !!}" name="cadence">
-                    @foreach ((array) ($this->cadences ?? []) as $cadence)<option value="{{ $cadence }}"{!! $cadence === 'daily' ? ' selected' : '' !!}>{{ $t(['daily' => 'Every day', 'weekly' => 'Every week', 'monthly' => 'Every month', 'once' => 'Once', 'monthly_weekday' => 'A weekday of each month'][$cadence] ?? $cadence) }}</option>@endforeach
+                    @foreach ((array) ($this->cadences ?? []) as $cadence)<option value="{{ $cadence }}"{!! $cadence === 'daily' ? ' selected' : '' !!}>{{ $t(['daily' => 'Every day', 'weekdays' => 'Monday to Friday', 'weekly' => 'Every week', 'monthly' => 'Every month', 'once' => 'Once', 'monthly_weekday' => 'A weekday of each month'][$cadence] ?? $cadence) }}</option>@endforeach
                 </select>
             </label>
-            <label class="{!! $c['field'] !!}" data-pf-show-when="cadence:daily weekly monthly monthly_weekday">{{ $t('At') }}
+            <label class="{!! $c['field'] !!}" data-pf-show-when="cadence:daily weekdays weekly monthly monthly_weekday">{{ $t('At') }}
                 <input class="{!! $c['input'] !!}" type="time" name="at" value="08:00">
             </label>
             <label class="{!! $c['field'] !!}" data-pf-show-when="cadence:weekly monthly_weekday">{{ $t('Weekday') }}
