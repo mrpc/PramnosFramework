@@ -1249,6 +1249,16 @@ class Conversations
             $lines[] = '- [' . $one['memory_id'] . ', ' . $one['kind'] . ', ' . substr($one['created_at'], 0, 10) . '] ' . $one['content'];
         }
 
+        // What the person's other channels know, the topics this one may read (Memory::borrowed()), each by where it was learned.
+        $borrowed = $turn->shared() ? [] : $memory->borrowed();
+        if ($borrowed !== []) {
+            $lines[] = '';
+            $lines[] = 'What you know of this person from their other conversations, by where it was learned (from, topic, as of):';
+            foreach ($borrowed as $one) {
+                $lines[] = '- [from ' . $one['from'] . ', ' . $one['topic'] . ', ' . substr($one['created_at'], 0, 10) . '] ' . $one['content'];
+            }
+        }
+
         if ($itself !== []) {
             $lines[] = '';
             $lines[] = 'What you have said about yourself to this person — keep to it, never contradict it:';

@@ -58,6 +58,16 @@ class Memory
     /** How a memory came to be: the `remember` tool in a conversation, or learned after one. */
     public const SOURCES = ['model', 'learned'];
 
+    /**
+     * What a memory is about — the profile's areas ({@see Profile::AREAS}) and more. A channel reads
+     * from another only the topics the application lets it ({@see borrowed()}); `other` never, and
+     * `mood` only where the application opens feelings (`share_feelings`).
+     */
+    public const TOPICS = ['identity', 'values', 'goals', 'relationships', 'mood', 'interests', 'work', 'talk', 'other'];
+
+    /** The topic of a memory kept without one. */
+    public const OTHER = 'other';
+
     /** The `userid` of what an organisation shares. */
     public const SHARED = 0;
 
@@ -85,6 +95,9 @@ class Memory
     public const REVIEW_BATCH = 40;
 
     private ?bool $mayShare = null;
+
+    /** The topic {@see keepOn()} keeps with, while it keeps. */
+    private ?string $topic = null;
 
     public function __construct(private readonly Scope $scope)
     {
@@ -212,7 +225,8 @@ class Memory
             'kind'       => in_array($kind, [...self::KINDS, self::SELF], true) ? $kind : 'fact',
             'content'    => mb_substr($content, 0, self::chars()),
             'updated_at' => $stamp,
-        ] + ($this->hasSource() ? ['source' => in_array($source, self::SOURCES, true) ? $source : 'model'] : []);
+        ] + ($this->hasSource() ? ['source' => in_array($source, self::SOURCES, true) ? $source : 'model'] : [])
+            + ($this->topic !== null && $this->hasColumn('topic') ? ['topic' => $this->topic] : []);
 
         if ($replaces !== null) {
             if ((clone $query)->where('memory_id', $replaces)->count() === 0) {
@@ -228,6 +242,91 @@ class Memory
         $this->table('assist.chat_memory')->insert(($shared ? ['userid' => self::SHARED] + $this->scope->columns() : $this->scope->columns()) + $row + ['created_at' => $stamp]);
 
         return 'Remembered as memory ' . (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId() . '.';
+    }
+
+    /**
+     * {@see keep()}, with what it is about — one of {@see TOPICS}, `other` for what is none.
+     */
+    public function keepOn(string $topic, string $kind, string $content, ?int $replaces = null, string $about = 'me', string $source = 'model'): string
+    {
+        $this->topic = self::topicOf($topic);
+        try {
+            return $this->keep($kind, $content, $replaces, $about, $source);
+        } finally {
+            $this->topic = null;
+        }
+    }
+
+    /** A topic as kept: one of {@see TOPICS}, `other` for anything else. */
+    public static function topicOf(?string $topic): string
+    {
+        $topic = strtolower(trim((string) $topic));
+
+        return in_array($topic, self::TOPICS, true) ? $topic : self::OTHER;
+    }
+
+    /**
+     * What this channel may read of the person from their other channels, by the application's
+     * word — `'llm' => ['chat' => ['channels' => ['admin' => ['reads' => ['chat' => ['identity',
+     * 'work']]]]]]`, each channel by its stored space, a persona's falling back to `chat`'s: only
+     * the topics named, never `other`, never `mood` unless `share_feelings`. A persona reads
+     * another persona's only where it is named itself — falling back gives it `chat`'s reads of
+     * other channels, never `chat`'s own memories. From the profile too ({@see Profile}), where the
+     * channel reading is not one of the companion's, which reads the profile already.
+     *
+     * @return list<array{from: string, topic: string, content: string, created_at: string}>
+     */
+    public function borrowed(): array
+    {
+        $chat     = (array) \Pramnos\Llm\Llm::config('chat', []);
+        $channels = is_array($chat['channels'] ?? null) ? $chat['channels'] : [];
+        $own      = $this->scope->stored();
+        $declared = $channels[$own] ?? null;
+        $fallback = $declared === null && $this->scope->persona !== null;
+        $reads    = (array) (($declared ?? $channels[$this->scope->space] ?? [])['reads'] ?? []);
+        $feelings = !empty($chat['share_feelings']);
+        $out      = [];
+        foreach ($reads as $space => $topics) {
+            $space  = (string) $space;
+            $topics = array_values(array_diff(array_map([self::class, 'topicOf'], (array) $topics), [self::OTHER], $feelings ? [] : ['mood']));
+            // Its own, read in full already; and a persona's fallback is never `chat`'s own.
+            if ($topics === [] || $space === $own || ($fallback && $space === $this->scope->space)) {
+                continue;
+            }
+            if ($this->hasColumn('topic')) {
+                $query = $this->table('assist.chat_memory')->where('userid', $this->scope->userId)->where('space', $space)->whereIn('topic', $topics)
+                    ->where('kind', '!=', self::SELF);
+                $this->scope->organizationId === null ? $query->whereNull('organization_id') : $query->where('organization_id', $this->scope->organizationId);
+                foreach ($this->read($query) as $one) {
+                    $out[] = ['from' => self::channelName($space), 'topic' => (string) $one['topic'], 'content' => $one['content'], 'created_at' => $one['created_at']];
+                }
+            }
+            if (!People::companion($own) && People::companion($space) && Profile::available()) {
+                foreach ((new Profile(new Scope($this->scope->userId, $this->scope->organizationId)))->entries() as $entry) {
+                    if (in_array($entry['area'], $topics, true) && ($entry['content'] ?? null) !== null) {
+                        $out[] = ['from' => self::channelName($space), 'topic' => $entry['area'],
+                            'content' => ($entry['subject'] !== null ? $entry['subject'] . ': ' : '') . $entry['content'], 'created_at' => $entry['updated_at']];
+                    }
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /** A channel by the name the person knows it by: the analyst's, or the persona's. */
+    public static function channelName(string $space): string
+    {
+        if ($space === Scope::ADMIN) {
+            return \Pramnos\Llm\Analyst\Analyst::name();
+        }
+        if (People::companion($space)) {
+            $key = People::personaOf($space);
+
+            return Personas::get($key)['name'] ?? ($key === Scope::CHAT ? 'the companion' : $key);
+        }
+
+        return $space;
     }
 
     /**
@@ -277,7 +376,8 @@ class Memory
             . 'A sentence that may be a question is not a fact: dictated words carry no question mark, so "I had no meeting today" '
             . 'may be asking. Never keep what contradicts what is remembered: leave it, the assistant asks. '
             . 'Everything is about "me". '
-            . 'Answer JSON only: {"changes": [{"op": "keep", "about": "me", "kind": "fact|preference", "memory": "one sentence"}, '
+            . 'Each kept one has the topic it is about: ' . implode('|', self::TOPICS) . ' (work: how they work and the reports they want; talk: how they like to be spoken to). '
+            . 'Answer JSON only: {"changes": [{"op": "keep", "about": "me", "kind": "fact|preference", "topic": "work", "memory": "one sentence"}, '
             . '{"op": "correct", "id": 3, "memory": "one sentence"}, {"op": "forget", "id": 4}]}.';
         $profile = Profile::on($this->scope) && Profile::available() ? new Profile($this->scope) : null;
         $input   = ['remembered' => $known, 'said' => mb_substr($said, 0, 4000)];
@@ -315,7 +415,7 @@ class Memory
                     $done['self'] += $replied !== '' && str_starts_with($this->keep(self::SELF, (string) ($change['memory'] ?? ''), null, 'me', 'learned'), 'Remembered') ? 1 : 0;
                     continue;
                 }
-                if ($op === 'keep' && str_starts_with($this->keep((string) ($change['kind'] ?? 'fact'), (string) ($change['memory'] ?? ''), null, 'me', 'learned'), 'Remembered')) {
+                if ($op === 'keep' && str_starts_with($this->keepOn((string) ($change['topic'] ?? self::OTHER), (string) ($change['kind'] ?? 'fact'), (string) ($change['memory'] ?? ''), null, 'me', 'learned'), 'Remembered')) {
                     $done['kept']++;
                 } elseif ($op === 'correct' && isset($ids[$id]) && str_starts_with($this->keep('fact', (string) ($change['memory'] ?? ''), $id, $ids[$id], 'learned'), 'Corrected')) {
                     $done['corrected']++;
@@ -411,12 +511,12 @@ class Memory
     /**
      * Rows of a query on chat_memory, as the screens read them.
      *
-     * @return list<array{memory_id: int, kind: string, content: string, created_at: string, source: ?string}>
+     * @return list<array{memory_id: int, kind: string, content: string, created_at: string, source: ?string, topic: string}>
      */
     private function read(\Pramnos\Database\QueryBuilder $query): array
     {
         try {
-            $result = $query->select(array_merge(['memory_id', 'kind', 'content', 'created_at', 'updated_at'], $this->hasSource() ? ['source'] : []))
+            $result = $query->select(array_merge(['memory_id', 'kind', 'content', 'created_at', 'updated_at'], $this->hasSource() ? ['source'] : [], $this->hasColumn('topic') ? ['topic'] : []))
                 ->orderBy('memory_id')->get();
         } catch (\Throwable) {
             return [];
@@ -432,7 +532,7 @@ class Memory
         while (($row = $result->fetch()) !== null) {
             $list[] = ['memory_id' => (int) $row['memory_id'], 'kind' => (string) $row['kind'],
                 'content' => (string) $row['content'], 'created_at' => (string) ($row['updated_at'] ?? $row['created_at']),
-                'source' => ($row['source'] ?? null) === null ? null : (string) $row['source']];
+                'source' => ($row['source'] ?? null) === null ? null : (string) $row['source'], 'topic' => self::topicOf($row['topic'] ?? null)];
         }
 
         return $list;
@@ -454,6 +554,26 @@ class Memory
         }
 
         $query->delete();
+
+        return true;
+    }
+
+    /**
+     * The person's own correction of one of their memories: its words, what it is about, or both
+     * (null leaves one). Whether it was theirs to correct.
+     */
+    public function amend(int $memoryId, ?string $content, ?string $topic): bool
+    {
+        $query = $this->scope->apply($this->table('assist.chat_memory'))->where('memory_id', $memoryId);
+        if ((clone $query)->count() === 0) {
+            return false;
+        }
+        $content = $content === null ? null : trim((string) preg_replace('/\s+/u', ' ', $content));
+        $changes = ($content !== null && $content !== '' ? ['content' => mb_substr($content, 0, self::chars())] : [])
+            + ($topic !== null && $this->hasColumn('topic') ? ['topic' => self::topicOf($topic)] : []);
+        if ($changes !== []) {
+            $query->update($changes + ['updated_at' => CallLog::instant(time())]);
+        }
 
         return true;
     }
@@ -528,11 +648,14 @@ class Memory
                     . (self::shares() && $this->scope->organizationId !== null && $this->mayShare() ? ' A fact about the whole team or company, only when this person asks for it to be kept for everybody: about = organization.' : ''),
                 'parameters'  => ['type' => 'object', 'properties' => [
                     'kind'     => ['type' => 'string', 'enum' => self::KINDS],
+                    'topic'    => ['type' => 'string', 'enum' => self::TOPICS, 'description' => 'What it is about: who they are (identity), values, goals, '
+                        . 'the people in their life (relationships), how they feel (mood), interests, how they work and the reports they want (work), '
+                        . 'how they like to be spoken to (talk), or other.'],
                     'content'  => ['type' => 'string', 'description' => 'One sentence, under ' . self::chars() . ' characters.'],
                     'replaces' => ['type' => 'integer', 'description' => 'The id of the memory this corrects. Optional.'],
                 ] + (self::shares() && $this->scope->organizationId !== null && $this->mayShare() ? ['about' => ['type' => 'string', 'enum' => ['me', 'organization']]] : []),
                     'required' => ['kind', 'content']],
-                'run' => fn (array $a): string => $this->keep((string) ($a['kind'] ?? 'fact'), (string) ($a['content'] ?? ''),
+                'run' => fn (array $a): string => $this->keepOn((string) ($a['topic'] ?? self::OTHER), (string) ($a['kind'] ?? 'fact'), (string) ($a['content'] ?? ''),
                     isset($a['replaces']) ? (int) $a['replaces'] : null, (string) ($a['about'] ?? 'me')),
             ],
             'forget' => [
@@ -580,8 +703,14 @@ class Memory
     /** Whether chat_memory has `source` yet. */
     private function hasSource(): bool
     {
+        return $this->hasColumn('source');
+    }
+
+    /** Whether chat_memory has a column yet: `source`, `topic`. */
+    private function hasColumn(string $column): bool
+    {
         try {
-            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('assist.chat_memory', 'source');
+            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('assist.chat_memory', $column);
         } catch (\Throwable) {
             return false;
         }

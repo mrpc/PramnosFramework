@@ -420,10 +420,40 @@ every prompt in the organisation. Outside an organisation there is nobody to sha
 option has no effect. Searching is case-insensitive; on
 MySQL it also ignores accents, as its collation does, and on PostgreSQL it does not.
 
-**Everybody's memory, for whoever reads everybody's conversations.** `Ai/memories` lists who has
-memories, with how many and the latest. Each organisation's shared memory is listed apart. Opening a
-person shows their memories, each with its kind and where it came from (`learned`, or asked to be
-remembered). Each one can be corrected or deleted there (`Pramnos\Llm\Chat\MemoryAdmin`). Only
+**Topics, and what a channel reads from the others.** Each memory has what it is about
+(`Memory::TOPICS`: identity, values, goals, relationships, mood, interests, work, talk, other).
+The `remember` tool and learning set it, and the framework checks it; a memory with none is
+`other`. `Memory::keepOn($topic, …)` keeps one with its topic. A channel, by its stored space,
+always reads its own memories in full. From the person's other channels it reads only the topics
+the application names:
+
+```php
+'llm' => ['chat' => ['channels' => [
+    'chat'       => ['reads' => ['admin' => ['identity', 'interests', 'relationships']]],  // the companion, from the Ask
+    'admin'      => ['reads' => ['chat' => ['identity', 'work']]],                         // the Ask, from the companion
+    'chat:tesla' => ['reads' => ['chat' => ['identity', 'interests', 'talk']]],             // a persona, from another
+]]],
+```
+
+- **What never crosses:** `other`, and `mood` unless the application opens feelings
+  (`'share_feelings' => true`). A feeling stays with the channel that heard it.
+- **Personas:** a persona not named falls back to `chat`'s reads of other channels, never to
+  `chat`'s own memories. Personas share nothing between them unless one is named to.
+- **The profile:** the profile's entries are read by their area, where the reader is not the
+  companion, which reads the profile already.
+- **In the prompt:** what is borrowed sits in a block of its own, each line marked by where it was
+  learned, `[from Naya, identity, …]` (`Memory::borrowed()`).
+- **With no `channels`:** nothing crosses.
+- **Correcting:** the person corrects a memory's words or topic with
+  `PATCH {chat}/memory/{memory_id}` (`content`, `topic`).
+
+**Everybody's memory, for whoever reads everybody's conversations.** `Ai/memories` shows one
+channel at a time, said in its title, with a select to change it. It defaults to the Ask's, the
+page it is linked from, and the control centre opens it on a conversation's own. It lists who has
+memories there, with how many and the latest. Each organisation's shared memory is listed apart.
+Opening a person shows their memories, each with its kind, its topic and where it came from
+(`learned`, or asked to be remembered). Each one's words and topic can be corrected there, or it can
+be deleted (`Pramnos\Llm\Chat\MemoryAdmin::correctOn()`). Only
 somebody who reads everybody's Ask conversations reaches the page (`Review::readsAll()`:
 `admin.ai.all`, or root in usertype mode). It is linked from the gear of the analyst's page.
 Memory is personal data read on somebody else's behalf, so each opening, correction and deletion

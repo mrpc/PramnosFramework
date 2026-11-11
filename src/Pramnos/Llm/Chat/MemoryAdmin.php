@@ -58,7 +58,7 @@ final class MemoryAdmin
      * One person's memories — or with `$userId` 0 what the organisation shares — in a space, the
      * reading recorded as done by `$reader`.
      *
-     * @return list<array{memory_id: int, kind: string, content: string, source: ?string, at: string}>
+     * @return list<array{memory_id: int, kind: string, content: string, source: ?string, topic: string, at: string}>
      */
     public function of(object $reader, int $userId, ?int $organizationId, string $space = Scope::CHAT): array
     {
@@ -77,12 +77,22 @@ final class MemoryAdmin
         return array_map(static fn (array $row): array => [
             'memory_id' => (int) $row['memory_id'], 'kind' => (string) $row['kind'], 'content' => (string) $row['content'],
             'source' => ($row['source'] ?? null) === null ? null : (string) $row['source'],
+            'topic' => Memory::topicOf($row['topic'] ?? null),
             'at' => (string) ($row['updated_at'] ?? $row['created_at'] ?? ''),
         ], array_values($rows));
     }
 
     /** Correct one memory's words, up to {@see Memory::chars()}; whether it was there to correct. */
     public function correct(object $reader, int $memoryId, string $content): bool
+    {
+        return $this->correctOn($reader, $memoryId, $content, null);
+    }
+
+    /**
+     * Correct one memory's words and what it is about — `$topic`, one of {@see Memory::TOPICS},
+     * null to leave it; whether it was there to correct.
+     */
+    public function correctOn(object $reader, int $memoryId, string $content, ?string $topic): bool
     {
         $content = trim($content);
         $row     = $this->row($memoryId);
@@ -91,7 +101,8 @@ final class MemoryAdmin
         }
         try {
             $this->db()->queryBuilder()->table('assist.chat_memory')->where('memory_id', $memoryId)
-                ->update(['content' => mb_substr($content, 0, Memory::chars()), 'updated_at' => \Pramnos\Llm\CallLog::instant(time())]);
+                ->update(['content' => mb_substr($content, 0, Memory::chars()), 'updated_at' => \Pramnos\Llm\CallLog::instant(time())]
+                    + ($topic !== null && $this->db()->schema()->hasColumn('assist.chat_memory', 'topic') ? ['topic' => Memory::topicOf($topic)] : []));
         } catch (\Throwable $e) {
             \Pramnos\Logs\Logger::log('Ask memory not corrected: ' . $e->getMessage(), 'llm');
 

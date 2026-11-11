@@ -7,7 +7,8 @@
  * Variables:
  *   $this->people   — userid, username, organization_id, space, count, latest; newest first
  *   $this->person   — the person open, or null; $this->org, $this->space — whose and where
- *   $this->memories — theirs: memory_id, kind (fact|preference), content, source (model|learned|null), at
+ *   $this->memories — theirs: memory_id, kind (fact|preference), content, source (model|learned|null), topic, at
+ *   $this->channels — the channels: stored space => name; $this->topics — Memory::TOPICS
  *   $this->urls     — page, correct, delete, chat
  */
 $c     = ['page' => 'container', 'card' => 'card card-body', 'muted' => 'pf-muted', 'bad' => 'pf-bad', 'btn' => 'btn btn-primary btn-sm', 'btnGhost' => 'btn btn-outline-secondary btn-sm', 'danger' => 'btn btn-outline-secondary btn-sm', 'input' => 'form-control pf-ui-input-sm', 'select' => 'form-control pf-ui-input-sm', 'textarea' => 'form-control', 'badge' => 'badge', 'row' => 'pf-ui-row', 'field' => 'small', 'answer' => '', 'h1' => '', 'h2' => ''];
@@ -28,7 +29,14 @@ foreach ((array) ($this->people ?? []) as $who) {
 $split = 'display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:12px'; @endphp
 <div class="{!! $c['page'] !!}" data-pf-memories>
     <div style="{!! $split !!};align-items:center">
-        <h1 class="{!! $c['h1'] !!}" style="margin:0">{{ $t('Everybody\'s memory') }}</h1>
+        <h1 class="{!! $c['h1'] !!}" style="margin:0">{{ $t('Everybody\'s memory') }} · {{ ((array) ($this->channels ?? []))[$this->space] ?? $this->space }}</h1>
+        <form method="get" action="{{ $u['page'] ?? '' }}" class="{!! $c['row'] !!}">
+            <label class="{!! $c['muted'] !!}" for="memories-channel">{{ $t('Channel') }}</label>
+            <select id="memories-channel" name="space" class="{!! $c['select'] !!}" data-pf-autosubmit>
+                @foreach ((array) ($this->channels ?? []) as $space => $name)<option value="{{ $space }}"{!! (string) $space === (string) $this->space ? ' selected' : '' !!}>{{ $name }}</option>@endforeach
+            </select>
+            <noscript><button class="{!! $c['btnGhost'] !!}">{{ $t('Show') }}</button></noscript>
+        </form>
         <a href="{{ $u['chat'] ?? '' }}" class="{!! $c['btnGhost'] !!}">&larr; {{ $t('Back to the conversations') }}</a>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
@@ -50,6 +58,7 @@ $split = 'display:flex;flex-wrap:wrap;justify-content:space-between;align-items:
             @foreach ((array) ($this->memories ?? []) as $memory)
             <div class="{!! $c['card'] !!}" data-pf-memory="{!! (int) $memory['memory_id'] !!}">
                 <div class="{!! $c['row'] !!}"><span class="{!! $c['badge'] !!}">{{ $t($memory['kind'] === 'preference' ? 'Preference' : 'Fact') }}</span>
+                    <span class="{!! $c['badge'] !!}">{{ $t(ucfirst((string) ($memory['topic'] ?? 'other'))) }}</span>
                     <span class="{!! $c['muted'] !!}">{{ $memory['source'] === 'learned' ? $t('Learned') : $t('Kept on request') }} · {{ $memory['at'] }}</span></div>
                 <form method="post" action="{{ $u['correct'] ?? '' }}" style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
                     {!! $token() !!}
@@ -57,6 +66,9 @@ $split = 'display:flex;flex-wrap:wrap;justify-content:space-between;align-items:
                     <input type="hidden" name="back" value="{{ $query($open) }}">
                     <textarea name="content" rows="2" class="{!! $c['textarea'] !!}" style="width:100%" aria-label="{{ $t('What it remembers') }}">{{ $memory['content'] }}</textarea>
                     <div class="{!! $c['row'] !!}">
+                        <select name="topic" class="{!! $c['select'] !!}" aria-label="{{ $t('What it is about') }}">
+                            @foreach ((array) ($this->topics ?? []) as $topic)<option value="{{ $topic }}"{!! $topic === ($memory['topic'] ?? 'other') ? ' selected' : '' !!}>{{ $t(ucfirst($topic)) }}</option>@endforeach
+                        </select>
                         <button class="{!! $c['btn'] !!}">{{ $t('Save') }}</button>
                         <button class="{!! $c['danger'] !!}" formaction="{{ $u['delete'] ?? '' }}">{{ $t('Delete') }}</button>
                     </div>

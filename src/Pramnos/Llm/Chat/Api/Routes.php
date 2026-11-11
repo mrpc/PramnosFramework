@@ -94,6 +94,7 @@ final class Routes
         $r->post($p['skills'] . '/{skill_id}/reject', static fn ($skill_id) => $make()->skillReject($skill_id))->describeFrom([$controller, 'skillReject']);
         $r->get($p['memory'], static fn () => $make()->memory())->describeFrom([$controller, 'memory']);
         $r->delete($p['memory'] . '/{memory_id}', static fn ($memory_id) => $make()->forgetMemory($memory_id))->describeFrom([$controller, 'forgetMemory']);
+        $r->patch($p['memory'] . '/{memory_id}', static fn ($memory_id) => $make()->amendMemory($memory_id))->describeFrom([$controller, 'amendMemory']);
         $r->get($p['connections'], static fn () => $make()->connections())->describeFrom([$controller, 'connections']);
         $r->post($p['connections'], static fn () => $make()->connect())->describeFrom([$controller, 'connect']);
         $r->delete($p['connections'] . '/{name}', static fn ($name) => $make()->disconnect($name))->describeFrom([$controller, 'disconnect']);

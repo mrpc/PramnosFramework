@@ -394,12 +394,15 @@ class AiController extends Controller
         $admin  = new \Pramnos\Llm\Chat\MemoryAdmin();
         $person = isset($_GET['person']) ? (int) $_GET['person'] : null;
         $org    = isset($_GET['org']) && $_GET['org'] !== '' ? (int) $_GET['org'] : null;
-        $space  = (string) ($_GET['space'] ?? \Pramnos\Llm\Chat\Scope::CHAT);
+        // The channel it shows: the one it is opened from — the Ask's, from Ask — said on the page.
+        $space  = (string) ($_GET['space'] ?? \Pramnos\Llm\Chat\Scope::ADMIN);
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = t('Everybody\'s memory');
         $view           = $this->getView('ai');
-        $view->people   = $admin->people();
+        $view->people   = array_values(array_filter($admin->people(), static fn (array $who): bool => $who['space'] === $space));
+        $view->channels = \Pramnos\Llm\Analyst\Review::channels() + [$space => \Pramnos\Llm\Chat\Memory::channelName($space)];
+        $view->topics   = \Pramnos\Llm\Chat\Memory::TOPICS;
         $view->person   = $person;
         $view->org      = $org;
         $view->space    = $space;
@@ -412,7 +415,8 @@ class AiController extends Controller
     /** Correct one memory's words: `memory_id` and `content` in the form. */
     public function memorycorrect(): mixed
     {
-        return $this->memoryDone(fn (object $me, int $id): bool => (new \Pramnos\Llm\Chat\MemoryAdmin())->correct($me, $id, (string) ($_POST['content'] ?? '')), 'Saved.');
+        return $this->memoryDone(fn (object $me, int $id): bool => (new \Pramnos\Llm\Chat\MemoryAdmin())->correctOn($me, $id, (string) ($_POST['content'] ?? ''),
+            isset($_POST['topic']) ? (string) $_POST['topic'] : null), 'Saved.');
     }
 
     /** Delete one memory: `memory_id` in the form. */
@@ -437,7 +441,7 @@ class AiController extends Controller
         }
         $do($me, (int) ($_POST['memory_id'] ?? 0)) ? $this->addMessage(t($done)) : $this->addError(t('There is no such memory.'));
         $back = (string) ($_POST['back'] ?? '');
-        $this->redirect(adminUrl('Ai/memories') . (preg_match('/^\?[A-Za-z0-9=&_-]*$/', $back) === 1 ? $back : ''));
+        $this->redirect(adminUrl('Ai/memories') . (preg_match('/^\?[A-Za-z0-9=&_:%-]*$/', $back) === 1 ? $back : ''));
 
         return null;
     }

@@ -765,6 +765,23 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return ['status' => 200, 'data' => ['memories' => $this->conversations()->memory()?->all() ?? []]];
     }
 
+    /**
+     * Correct one of the person's memories: `PATCH {chat}/memory/{memory_id}` with `content`
+     * and/or `topic` (one of `Memory::TOPICS`). 404 for one not theirs.
+     */
+    public function amendMemory($memory_id): array
+    {
+        if (($stop = $this->refusal('ask')) !== null) {
+            return $stop;
+        }
+        $input = $this->input();
+
+        return $this->conversations()->memory()?->amend((int) $memory_id, isset($input['content']) ? (string) $input['content'] : null,
+            isset($input['topic']) ? (string) $input['topic'] : null)
+            ? ['status' => 200, 'data' => ['memories' => $this->conversations()->memory()?->all() ?? []]]
+            : self::error(404, 'There is no such memory.');
+    }
+
     /** Forget one memory. */
     public function forgetMemory($memory_id): array
     {

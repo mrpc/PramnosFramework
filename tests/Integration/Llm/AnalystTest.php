@@ -624,6 +624,7 @@ class AnalystTest extends LlmTestCase
         $this->assertStringNotContainsString('An Ask question', $listed, 'one channel at a time');
         $this->assertStringContainsString('<option value="chat" selected>', $listed);
         $this->assertStringContainsString('Answers to review', $listed, 'everything about the assistants on one page');
+        $this->assertStringContainsString('Ai/memories?space=chat', $listed, 'the memories of the channel it shows (FW-466)');
         $this->assertStringContainsString('Γεια σου', $opened);
         $this->assertStringContainsString('Likes green tea', $opened, 'what the companion knows of them, beside');
         $this->assertStringContainsString('<span style="white-space:pre-wrap">Γεια σου</span>', $opened, 'the question on its own line, nothing of the template around it');
@@ -660,9 +661,11 @@ class AnalystTest extends LlmTestCase
         $super->reading = (object) ['userid' => 8, 'usertype' => 98, 'active' => 1];
 
         // Act
-        $_GET  = [];
-        $list  = (string) (new AnalystScreen())->memories();
-        $pages = [];
+        $_GET     = [];
+        $fromAsk  = (string) (new AnalystScreen())->memories();
+        $_GET     = ['space' => Scope::CHAT];
+        $list     = (string) (new AnalystScreen())->memories();
+        $pages    = [];
         foreach (['plain-css', 'tailwind', 'bootstrap'] as $theme) {
             $_GET = ['person' => '8', 'org' => '', 'space' => Scope::CHAT];
             $pages[$theme] = (string) (new AnalystScreen($theme))->memories();
@@ -687,6 +690,10 @@ class AnalystTest extends LlmTestCase
         // Assert
         $this->assertStringContainsString('Shared by organisation 1', $list, 'what an organisation shares, apart');
         $this->assertStringContainsString('person=8', $list);
+        $this->assertStringNotContainsString('person=8', $fromAsk, 'opened from Ask: the Ask\'s memories, not the companion\'s (FW-466)');
+        $this->assertStringContainsString('<option value="admin" selected>', $fromAsk, 'and it says which channel it shows');
+        $this->assertStringContainsString('<option value="chat" selected>', $list);
+        $this->assertStringContainsString('name="topic"', $pages['plain-css'] ?? '', 'each memory\'s topic, to correct');
         foreach ($pages as $theme => $page) {
             $this->assertStringContainsString('Amounts &lt;without&gt; VAT', $page, $theme . ': escaped');
             $this->assertStringContainsString('Learned', $page, $theme . ': where it came from');

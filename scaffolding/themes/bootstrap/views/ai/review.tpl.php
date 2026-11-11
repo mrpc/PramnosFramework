@@ -42,7 +42,7 @@ $persona = static fn (?string $key): string => $key === null ? '—' : (string) 
             <a href="{{ $u['ask'] }}" class="{!! $c['btnGhost'] !!}">‹ {{ $channels['admin'] ?? t('Ask') }}</a>
             <p style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0">
                 <a href="{{ $u['reviews'] }}">{{ t('Answers to review') }}</a>
-                <a href="{{ $u['memories'] }}">{{ t('Memories') }}</a>
+                <a href="{{ $u['memories'] . '?space=' . rawurlencode((string) $filters['channel']) }}">{{ t('Memories') }}</a>
                 <a href="{{ $u['scheduled'] }}">{{ t('Scheduled') }}</a>
                 <a href="{{ $u['settings'] }}">{{ t('Costs and settings') }}</a>
             </p>
