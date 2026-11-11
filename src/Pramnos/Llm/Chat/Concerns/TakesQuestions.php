@@ -116,7 +116,9 @@ trait TakesQuestions
 
         // Asked aloud (`voice`): the answer is read aloud, so it opens with what can be said
         // ({@see \Pramnos\Llm\Chat\ContextAssembler::dynamicTail()}).
-        $extra = $this->extra($input) + (filter_var($input['voice'] ?? false, FILTER_VALIDATE_BOOLEAN) ? ['voice' => true] : []);
+        $extra = $this->extra($input) + (filter_var($input['voice'] ?? false, FILTER_VALIDATE_BOOLEAN) ? ['voice' => true] : [])
+            // Who is speaking on the account now — the parent, or their child (FW-442).
+            + (($speaker = self::speaker($input['speaker'] ?? null)) === null ? [] : ['speaker' => $speaker]);
         $chat  = Llm::config('chat', []);
 
         if (is_array($chat) && !empty($chat['answer_in_request'])) {
@@ -166,6 +168,23 @@ trait TakesQuestions
     }
 
     /** The HTTP status of a conversation's refusal. */
+    /**
+     * Who is speaking, as a question says it: `{"kind": "child", "name": "Ελένη"}` — a kind of
+     * letters, a name of at most 60 characters — or null.
+     *
+     * @return array{kind: string, name: string}|null
+     */
+    private static function speaker(mixed $given): ?array
+    {
+        if (!is_array($given)) {
+            return null;
+        }
+        $kind = strtolower(trim((string) ($given['kind'] ?? '')));
+
+        return preg_match('/^[a-z][a-z_-]{0,30}$/', $kind) === 1
+            ? ['kind' => $kind, 'name' => mb_substr(trim(strip_tags((string) ($given['name'] ?? ''))), 0, 60)] : null;
+    }
+
     private static function statusFor(string $why): int
     {
         return match ($why) {

@@ -429,6 +429,29 @@ class ChatController extends \Pramnos\Application\ApiCrudController
     }
 
     /**
+     * Who the person is to the assistant: `GET {chat}/me` → `{name, usertype, persona,
+     * first_meeting}` — `first_meeting` the start of their first conversation with this persona,
+     * null before any.
+     */
+    public function me(): array
+    {
+        if (($stop = $this->refusal('read')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        if ($scope === null || $scope->userId < 1) {
+            return self::error(401, 'This needs somebody signed in.');
+        }
+        $user  = new \Pramnos\User\User($scope->userId);
+        $first = $scope->apply(\Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('assist.chat_conversations'))
+            ->orderBy('created_at')->limit(1)->value('created_at');
+        $name  = trim((string) ($user->firstname ?? ''));
+
+        return ['status' => 200, 'data' => ['name' => $name !== '' ? $name : (string) ($user->username ?? ''), 'usertype' => (int) ($user->usertype ?? 0),
+            'persona' => \Pramnos\Llm\Chat\Personas::of($scope), 'first_meeting' => $first === null || $first === false ? null : (string) $first]];
+    }
+
+    /**
      * The assistant's diary (`Chat\Diary`), the current persona's: `GET {chat}/diary` →
      * `{pages: [{artifact_id, day, unread}], unread}`, newest first; `GET {chat}/diary/{id}` →
      * `{artifact_id, day, text}`, which marks it and the pages before it read. 404 for a page not

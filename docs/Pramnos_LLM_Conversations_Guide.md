@@ -344,6 +344,14 @@ today?"), when the application lets them (`Chat\Work`):
   conversation, and `doing: {tool, mode: "work"}` while a work tool runs, both on the poll and on
   the stream.
 
+## Who is speaking on a shared account
+
+A family shares one account, and the question can say who is speaking: `POST {chat}` with
+`"speaker": {"kind": "child", "name": "Ελένη"}` (a `kind` of letters, a name of up to 60
+characters). The model is told in zone 3 that this person may not be the account's owner, and to
+speak to them. The question keeps the `speaker` in the history. A `speaker` that is not one is
+ignored.
+
 ## Memory
 
 The model is given `remember`, `forget`, `search_conversations` and `read_conversation`, and told

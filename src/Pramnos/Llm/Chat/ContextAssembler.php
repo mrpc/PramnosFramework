@@ -92,6 +92,15 @@ final class ContextAssembler
         return trim(trim($this->assistant->systemPrompt($turn)) . ($identity === '' ? '' : "\n\n" . $identity));
     }
 
+    /** Who is speaking on the account now, as zone 3 says it (FW-442). */
+    public static function speaking(array $speaker): string
+    {
+        $name = trim((string) ($speaker['name'] ?? ''));
+
+        return 'Speaking now on this account: ' . ($speaker['kind'] ?? 'someone') . ($name !== '' ? ' (' . $name . ')' : '')
+            . ' — who may not be the account\'s owner. Speak to them, and keep to what suits them.';
+    }
+
     /**
      * Said for a question asked aloud: the answer is read aloud — its opening alone, when it is
      * long — so the opening must stand by itself, said rather than read.
@@ -121,6 +130,7 @@ final class ContextAssembler
         return 'Now: ' . $when . ' (' . $zone . ').'
             . ($note === '' ? '' : "\n\n" . $note)
             . (empty($turn->extra['voice']) ? '' : "\n\n" . self::SPOKEN)
+            . (is_array($turn->extra['speaker'] ?? null) ? "\n\n" . self::speaking($turn->extra['speaker']) : '')
             . ($own !== '' ? "\n\n" . $own : '')
             . ($turn->documents === [] ? '' : "\n\n" . Client::DATA_NOTICE);
     }

@@ -590,7 +590,9 @@ class Conversations
         // A reminder asked for in a first question leads back to the conversation it started.
         $routines->linkMade($conversationId);
 
-        $this->store($conversationId, 'user', $question, [], null, $stamp);
+        // Who asked it, where the account is shared — a parent, a child (FW-442).
+        $this->store($conversationId, 'user', $question, [], null, $stamp, null,
+            is_array($turn->extra['speaker'] ?? null) ? ['speaker' => $turn->extra['speaker']] : []);
         // The answer alone, and what the model said while it called tools beside it: those lines
         // ("Let me check…") are steps, not the start of the answer — kept, folded away, and left out
         // of the copy and of the history the next question replays.
@@ -1265,6 +1267,8 @@ class Conversations
         ] + array_map(static fn ($v): ?array => is_array($v) ? $v : null,
             // …and what it did and wore (Acts), where the set has acts or wear.
             array_intersect_key($extra, array_flip(['mood', 'act', 'wear'])))
+            // Who asked, where the account is shared (FW-442).
+            + (is_array($extra['speaker'] ?? null) ? ['speaker' => $extra['speaker']] : [])
             // The answer that ended the conversation (Ending).
             + (!empty($extra['ended']) ? ['ended' => true] : [])
             // An answer of a work conversation (Work).

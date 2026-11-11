@@ -54,6 +54,7 @@ final class Routes
         $p['style'] ??= $p['chat'] . '/style';
         $p['personas'] ??= $p['chat'] . '/personas';
         $p['diary']    ??= $p['chat'] . '/diary';
+        $p['me']       ??= $p['chat'] . '/me';
         $p['persona']  ??= $p['chat'] . '/persona';
         $make = static fn (): ChatController => new $controller();
 
@@ -65,6 +66,7 @@ final class Routes
         $r->put($p['style'], static fn () => $make()->style())->describeFrom([$controller, 'style']);
         $r->get($p['personas'], static fn () => $make()->personas())->describeFrom([$controller, 'personas']);
         $r->get($p['diary'], static fn () => $make()->diary())->describeFrom([$controller, 'diary']);
+        $r->get($p['me'], static fn () => $make()->me())->describeFrom([$controller, 'me']);
         $r->get($p['diary'] . '/{id}', static fn ($id) => $make()->diary($id))->describeFrom([$controller, 'diary']);
         $r->put($p['persona'], static fn () => $make()->persona())->describeFrom([$controller, 'persona']);
         $r->get($p['push'] . '/key', static fn () => $make()->pushKey())->describeFrom([$controller, 'pushKey']);
