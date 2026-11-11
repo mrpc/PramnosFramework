@@ -426,6 +426,28 @@ class ProjectResyncTest extends TestCase
     }
 
     /**
+     * The chat pages' voice (`'llm' => ['voice' => true]`) needs its two scripts, and a resync adds
+     * them where missing, without --all; with the voice off they are skipped as before.
+     */
+    public function testTheVoicesScriptsAreAddedWhereVoiceIsOn(): void
+    {
+        // Arrange
+        file_put_contents($this->scaffoldDir . '/assets/js/pf-voice.js', 'VOICE');
+        file_put_contents($this->scaffoldDir . '/assets/js/pf-speech-sanitizer.js', 'SANITIZER');
+        file_put_contents($this->projectDir . '/app/app.php', "<?php\nreturn ['name' => 'App', 'features' => ['llm'], 'llm' => ['voice' => true]];\n");
+
+        // Act
+        $tester = $this->tester();
+        $exit = $tester->execute(['--js' => true]);
+
+        // Assert
+        $this->assertSame(Command::SUCCESS, $exit, $tester->getDisplay());
+        $this->assertSame('VOICE', $this->read('www/assets/js/pf-voice.js'));
+        $this->assertSame('SANITIZER', $this->read('www/assets/js/pf-speech-sanitizer.js'));
+        $this->assertSame(['llm'], \Pramnos\Application\FrameworkScripts::featuresOf(['features' => ['llm'], 'llm' => ['voice' => false]]), 'voice off: no llm.voice');
+    }
+
+    /**
      * Without the feature, its script is one more framework file: skipped unless --all.
      */
     public function testAFeaturesScriptIsSkippedWithoutTheFeature(): void

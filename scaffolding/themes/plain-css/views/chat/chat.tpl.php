@@ -104,7 +104,7 @@ $empty   = $open === null && !$waiting;
 $greeting = (string) ($this->greeting ?? '') !== '' ? (string) $this->greeting : t('How can I help?');
 $accent  = \Pramnos\Llm\Chat\Web\ChatLook::accent((string) ($this->accent ?? ''));
 $commands = \Pramnos\Llm\Chat\Web\ChatLook::commands($u, is_array($this->commands ?? null) ? $this->commands : []);
-// Dictation + read-aloud (pf-voice.js), no server side — behind this setting (Pramnos_LLM_Analyst_Guide.md "## Voice").
+// Dictation + read-aloud (pf-voice.js), with the speech server where one is set up — behind this setting (Pramnos_LLM_Analyst_Guide.md "## Voice").
 $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false); @endphp
 @if ($waiting)<noscript><meta http-equiv="refresh" content="4"></noscript>@endif
 <div class="pf-chat{!! $empty ? ' pf-chat-empty' : '' !!} px-4 py-6"{!! $accent !== '' ? ' style="--pf-chat-accent:' . $e($accent) . '"' : '' !!} data-commands="{{ json_encode($commands, JSON_UNESCAPED_UNICODE) }}"{!! (string) ($this->peopleUrl ?? '') !== '' ? ' data-pf-people-url="' . $e($this->peopleUrl) . '"' : '' !!} data-pf-chat data-page="{{ $u['page'] }}" data-asked="{{ $u['asked'] }}"{!! $sayAttr !!} data-waiting-lines="{{ json_encode($lines, JSON_UNESCAPED_UNICODE) }}" data-question-class="{{ $c['question'] }}"{!! $voiceOn ? ' data-pf-chat-voice' : '' !!}{!! $voiceOn && $u['speak'] !== '' ? ' data-pf-chat-speak-server="' . $e($u['speak']) . '" data-pf-chat-csrf="' . $e(\Pramnos\Http\Session::getInstance()->getCsrfToken()) . '"' : '' !!}>

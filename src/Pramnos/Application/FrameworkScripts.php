@@ -54,7 +54,25 @@ final class FrameworkScripts
         'pf-conversations-basic.js' => ['conversations'],
         'pf-chat.js'                => ['llm'],
         'pf-assist.js'              => ['help', 'llm'],
+        // Read aloud and dictation on the chat pages: `'llm' => ['voice' => true]`, which
+        // featuresOf() names `llm.voice`.
+        'pf-speech-sanitizer.js'    => ['llm.voice'],
+        'pf-voice.js'               => ['llm.voice'],
     ];
+
+    /**
+     * An application's features as the scripts see them: its `features`, and `llm.voice` where
+     * `'llm' => ['voice' => true]` turns the chat pages' voice on.
+     *
+     * @param array<string, mixed> $applicationInfo
+     * @return list<string>
+     */
+    public static function featuresOf(array $applicationInfo): array
+    {
+        $features = array_values(array_map('strval', is_array($applicationInfo['features'] ?? null) ? $applicationInfo['features'] : []));
+
+        return !empty($applicationInfo['llm']['voice']) ? [...$features, 'llm.voice'] : $features;
+    }
 
     /**
      * Whether an application with these features loads a script: every script but a feature's own,

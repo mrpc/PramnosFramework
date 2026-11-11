@@ -136,7 +136,7 @@ class ProjectResync extends Command
         // can undo.
         $doPwa       = $onlyPwa || $allGroups;
 
-        $files = $this->collectFiles($scaffoldingDir, $doJs, $doScripts, (array) ($this->appConfig($base)['features'] ?? []));
+        $files = $this->collectFiles($scaffoldingDir, $doJs, $doScripts, \Pramnos\Application\FrameworkScripts::featuresOf($this->appConfig($base)));
         if ($doPanel) {
             $files = array_merge($files, $this->collectPanelFiles($scaffoldingDir, $base));
         }

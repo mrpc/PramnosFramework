@@ -123,6 +123,8 @@ class FrameworkScriptsTest extends TestCase
         $this->assertContains('pf-conversations.js', $conversations);
         $this->assertNotContains('pf-assist.js', $conversations, 'neither help nor llm is on');
         $this->assertTrue(FrameworkScripts::wanted('pf-assist.js', ['help']), 'either of its features');
+        $this->assertNotContains('pf-voice.js', FrameworkScripts::missing($root, ['llm']), 'voice off: not missing');
+        $this->assertContains('pf-voice.js', FrameworkScripts::missing($root, FrameworkScripts::featuresOf(['features' => ['llm'], 'llm' => ['voice' => true]])));
         $this->assertSame(FrameworkScripts::shipped(), $all);
     }
 

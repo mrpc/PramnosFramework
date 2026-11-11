@@ -222,7 +222,8 @@ Phase 1 of the Roadmap's voice design: a microphone and a "🔊 Listen" button, 
 transcription and speech both run in the browser, over the native Web Speech API. Chrome carries
 recognition through Google's speech service; Firefox has none. Off by default; turning it on adds
 both buttons to the chat page in every theme and loads two scripts: `pf-speech-sanitizer.js`,
-then `pf-voice.js`.
+then `pf-voice.js` — which `project:resync --js` adds to the web root where they are missing,
+without `--all`, once the voice is on.
 
 **`pf-voice.js`** — `window.PfVoice.createVoiceState()` returns one controller per page,
 shared by the mic and every answer's 🔊 button:
