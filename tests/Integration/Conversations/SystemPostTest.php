@@ -56,6 +56,9 @@ class SystemPostTest extends TestCase
         $retry  = SystemPost::post('#administration-log', 'δύο', [['title' => 'α'], ['title' => 'β', 'color' => 'good']], ['source' => 'webhook', 'externalid' => 'x1']);
         $plain  = SystemPost::post('#administration-log', 'μόνο κείμενο');
         $other  = SystemPost::post('Πληρωμές', 'σε άλλο', [], ['topic' => 'Ό,τι πληρώνεται']);
+        // FW-426: a picture beside the name; a script address is no picture.
+        $signed = SystemPost::post('#administration-log', 'Τι νέο υπάρχει', [], ['username' => 'Naya', 'avatar' => '/img/naya.svg']);
+        $script = SystemPost::post('#administration-log', 'κάτι', [], ['username' => 'Naya', 'avatar' => 'javascript:alert(1)']);
         $channel  = Conversations::bySlug('administration-log');
         $messages = Messages::list($channel['id']);
 
@@ -63,13 +66,15 @@ class SystemPostTest extends TestCase
         $this->assertSame('system', $channel['kind'], 'made as a system channel');
         $this->assertSame($first, $again, 'the same post in the same request: once');
         $this->assertSame($two, $retry, 'a retry with the same external id: once');
-        $this->assertSame([$first, $two, $two + 1, $plain], array_column($messages, 'id'), 'a second attachment is a second message');
+        $this->assertSame([$first, $two, $two + 1, $plain, $signed, $script], array_column($messages, 'id'), 'a second attachment is a second message');
         $byId = array_column($messages, null, 'id');
         $this->assertSame("Θέμα: **Επιστροφή**\n[Ελένη](https://admin.example/u/5)", $byId[$first]['body'], 'the Markdown as it was written');
         $this->assertSame(['title' => 'Τιμολόγιο 2291', 'url' => 'https://admin.example/invoice/2291', 'text' => "29,90 €\nPremium",
             'image' => 'https://cdn.example/a.png', 'color' => 'error', 'from' => 'Nannuka Bot'], $byId[$first]['card']);
         $this->assertSame(['title' => 'β', 'color' => 'success'], $byId[$two + 1]['card']);
         $this->assertNull($byId[$plain]['card'], 'nobody signs it: no card');
+        $this->assertSame(['from' => 'Naya', 'fromAvatar' => '/img/naya.svg'], $byId[$signed]['card'], 'the picture kept with the name');
+        $this->assertSame(['from' => 'Naya'], $byId[$script]['card'], 'only an http(s) address or a path of this site');
         $this->assertSame(['system', 'πληρωμές', 'Ό,τι πληρώνεται'], [Conversations::get((int) Messages::get($other)['conversationId'])['kind'],
             Conversations::get((int) Messages::get($other)['conversationId'])['slug'], Conversations::get((int) Messages::get($other)['conversationId'])['topic']]);
     }

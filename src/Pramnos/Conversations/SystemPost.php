@@ -30,6 +30,8 @@ namespace Pramnos\Conversations;
  *   tones. A second attachment is a second message.
  * - `username` signs it — "Nannuka Bot"; `source` and `externalid` make a repeat the same message,
  *   for a sender that retries; the same post twice in one request is written once.
+ * - `avatar`, an http(s) address or a path of this site, is the picture beside the post in place of
+ *   the system's icon, kept on the card as `fromAvatar`.
  */
 final class SystemPost
 {
@@ -63,7 +65,7 @@ final class SystemPost
      * Post to a channel or a person.
      *
      * @param list<array<string, mixed>> $attachments Each a card — see {@see card()}
-     * @param array{username?: string, source?: string, externalid?: string, thread?: int, topic?: string} $options
+     * @param array{username?: string, avatar?: string, source?: string, externalid?: string, thread?: int, topic?: string} $options
      * @return int|null The (first) message, or null where there is nobody to post to
      */
     public static function post(int|string $channel, string $text = '', array $attachments = [], array $options = []): ?int
@@ -76,12 +78,16 @@ final class SystemPost
         if ($conversation === null) {
             return null;
         }
-        $from  = trim((string) ($options['username'] ?? ''));
+        $from   = trim((string) ($options['username'] ?? ''));
+        $avatar = self::url((string) ($options['avatar'] ?? ''));
         $cards = array_values(array_filter(array_map(static fn ($a): ?array => is_array($a) ? self::card($a) : null, $attachments)));
         $first = null;
         foreach ($cards === [] ? [null] : $cards as $i => $card) {
             if ($from !== '') {
                 $card = ($card ?? []) + ['from' => $from];
+            }
+            if ($avatar !== '') {
+                $card = ($card ?? []) + ['fromAvatar' => $avatar];
             }
             $id = Messages::post($conversation, null, $i === 0 ? $text : '', array_filter([
                 'card'       => $card,

@@ -145,6 +145,8 @@
             <Avatar id={message.authorId} name={writer} online={online[message.authorId] ?? null} src={avatars[message.authorId]} />
         {:else if message.card?.from === 'Ask' && assistant().html}
             <span class="pf-conv-avatar pf-conv-avatar-assistant" aria-hidden="true">{@html assistant().html}</span>
+        {:else if message.card?.fromAvatar}
+            <img class="pf-conv-avatar pf-conv-avatar-system" src={message.card.fromAvatar} alt="" aria-hidden="true">
         {:else if message.card?.former}
             <span class="pf-conv-avatar pf-conv-avatar-former" title={t('Deleted profile')} aria-hidden="true">{initials(writer)}</span>
         {:else}

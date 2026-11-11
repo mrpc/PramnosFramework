@@ -335,6 +335,10 @@ SystemPost::post($userId, 'Σου ανατέθηκε το TICKET-6212', [], ['us
   ```
 
   Nobody, or somebody who may not use the conversations, gets nothing: `post()` returns null.
+- **Who signs it**: `username` is the name over the message, and `avatar` — an http(s) address or
+  a path of this site — the picture beside it in place of the system's ⚙
+  (`['username' => 'Naya', 'avatar' => '/img/naya.svg']`). Kept on the card as `from` and
+  `fromAvatar`.
 - **The text** is a message's Markdown, as anywhere else; a line break stays one.
 - **An attachment** is a card: `title`, `title_link`, `text` (or `fallback`, after `pretext`),
   `image_url`, `fields` as label and value, `color` as a tone. A second attachment is a second
