@@ -148,6 +148,8 @@ final class Web
                 'untrusted' => true,
                 'parallel'  => true,
                 'skills'    => ['web'],
+                // Its address leaves: once personal data is in the answer, only one the person gave.
+                'outbound'  => 'url',
             ],
         ];
     }
