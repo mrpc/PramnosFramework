@@ -104,6 +104,9 @@ class Conversations
     /** @var (callable(string): void)|null Told the answer's text so far, as it is written */
     private $onText = null;
 
+    /** @var (callable(string, array<string, mixed>, array<string, mixed>): void)|null */
+    private $onTool = null;
+
     /** @var (callable(): bool)|null Whether the answer being written has been stopped */
     private $stopWhen = null;
 
@@ -151,6 +154,20 @@ class Conversations
     {
         $chat          = clone $this;
         $chat->console = true;
+
+        return $chat;
+    }
+
+    /**
+     * These conversations, telling `$listener` each tool an answer is about to run: its name, its
+     * arguments and its definition — see `Client::onTool()`.
+     *
+     * @param callable(string, array<string, mixed>, array<string, mixed>): void $listener
+     */
+    public function doing(callable $listener): static
+    {
+        $chat         = clone $this;
+        $chat->onTool = $listener;
 
         return $chat;
     }
@@ -493,7 +510,7 @@ class Conversations
         $sent = $zones->messages($turn, $semi, $messages);
         $onText = !$tagged || $this->onText === null ? $this->onText : fn (string $soFar) => ($this->onText)(Ending::strip(Acts::strip(Mood::strip($soFar))));
         $run  = function (\Pramnos\Llm\Client $client, array $sent) use ($prefix, $tools, $turn, $parallel, $onText): array {
-            $answer = $client->onText($onText)->cancelWhen($this->stopWhen)->inParallel($parallel)->answering($this->answerKey)->askWithTools(
+            $answer = $client->onText($onText)->onTool($this->onTool)->cancelWhen($this->stopWhen)->inParallel($parallel)->answering($this->answerKey)->askWithTools(
                 $prefix,
                 $sent,
                 $tools,
@@ -501,7 +518,7 @@ class Conversations
                 $this->assistant->due($turn),
                 $this->verifier($turn, $tools)
             );
-            $client->onText(null)->cancelWhen(null)->inParallel(null)->answering(null);
+            $client->onText(null)->onTool(null)->cancelWhen(null)->inParallel(null)->answering(null);
 
             return $answer;
         };

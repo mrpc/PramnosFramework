@@ -44,7 +44,7 @@ One line in the application's API routes mounts every endpoint:
 | `GET /chat/shared` | what others shared with this person |
 | `GET /chat/people?q=` | who matches what is typed in a name field, `{people: [{value, label}]}`: in the analyst's space, active accounts at or above its floor; nobody in a person's own Ask (`SharePolicy::candidates()`) |
 | `POST /chat/shared/{id}/open` | open it: the `conversation_id` of this person's own copy |
-| `GET /chat/asks/{id}` | a queued question: `waiting`, `answered` with its `conversation_id`, `failed` with `says`, or `cancelled` |
+| `GET /chat/asks/{id}` | a queued question: `waiting`, `answered` with its `conversation_id`, `failed` with `says`, or `cancelled`. While it is written, `partial` is the answer's text so far. `doing` is the tool about to run, `{tool, host?}`, or null: a page's site only, never its address, and never another argument, which may be personal. It is emptied when text arrives and when the ask ends |
 | `POST /chat/asks/{id}/cancel` | stop a question still `waiting`; 404 when there is none |
 | `GET /chat/memory`, `DELETE /chat/memory/{id}` | what it remembers; forget one |
 | `GET /chat/skills`, `POST /chat/skills`, `PUT`/`DELETE /chat/skills/{id}` | one's skills, and the roles' for who manages them; keep one (`name`, `description`, `tools`, `body`, `for`), change it, delete it |

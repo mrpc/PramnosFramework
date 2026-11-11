@@ -142,6 +142,9 @@ class Client
     /** @var (callable(string): void)|null Told the answer's text so far, as it is written */
     private $onText = null;
 
+    /** @var (callable(string, array<string, mixed>, array<string, mixed>): void)|null Told each tool before it runs */
+    private $onTool = null;
+
     /** What an answer cut off and continued has said already: the streamed text goes on from it. */
     private string $shown = '';
 
@@ -190,6 +193,20 @@ class Client
     public function onText(?callable $listener): static
     {
         $this->onText = $listener;
+
+        return $this;
+    }
+
+    /**
+     * Be told each tool before it runs: its name, its arguments and its definition — for a screen
+     * that says what the answer is doing ("searching the web"). Calls run together are told
+     * together, before they start. Null stops it.
+     *
+     * @param (callable(string, array<string, mixed>, array<string, mixed>): void)|null $listener
+     */
+    public function onTool(?callable $listener): static
+    {
+        $this->onTool = $listener;
 
         return $this;
     }
@@ -591,6 +608,12 @@ class Client
                 $grown = false;
                 // Before anything runs, the gate: a refused call is told why in place of its result.
                 $refused = $this->refusedCalls($requested, $tools, $context);
+                // What the answer is about to do, for a screen following it: the first call now,
+                // as those run together start with it; each other just before it runs.
+                $toRun = array_diff_key($requested, $refused);
+                if ($toRun !== []) {
+                    $this->tellTool(reset($toRun), $tools);
+                }
                 // Two or more reads asked for at once, and no write among them: run together.
                 $early = $this->together(array_diff_key($requested, $refused), $tools);
 
@@ -603,6 +626,9 @@ class Client
                     $arguments = json_decode((string) ($call['function']['arguments'] ?? '{}'), true);
                     $arguments = is_array($arguments) ? $arguments : [];
                     $calls[]   = ['name' => $name, 'arguments' => $arguments];
+                    if (!isset($refused[$at]) && !isset($early[$at]) && $call !== reset($toRun)) {
+                        $this->tellTool($call, $tools);
+                    }
 
                     $result = $refused[$at] ?? $early[$at] ?? match (true) {
                         $read !== null && !empty($tools[$name]['writes']) => sprintf(self::HELD_WRITE, $read),
@@ -775,6 +801,22 @@ class Client
      * @param array<string, mixed>                $context
      * @return array<int, string>
      */
+    /**
+     * Tell the listener, if any, the tool a call is about to run.
+     *
+     * @param array<string, mixed>                $call
+     * @param array<string, array<string, mixed>> $tools
+     */
+    private function tellTool(array $call, array $tools): void
+    {
+        if ($this->onTool === null) {
+            return;
+        }
+        $name      = (string) ($call['function']['name'] ?? '');
+        $arguments = json_decode((string) ($call['function']['arguments'] ?? '{}'), true);
+        ($this->onTool)($name, is_array($arguments) ? $arguments : [], $tools[$name] ?? []);
+    }
+
     /**
      * Whether an outbound call waits for the person: personal data is in the answer, and the value
      * it sends out is in none of the person's own messages.

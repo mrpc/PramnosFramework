@@ -87,14 +87,25 @@ class Asks
         // Without the column (its migration not run yet) nothing is written, and the answer still comes whole.
         $streamed = false;
         $last     = 0.0;
-        $partial  = function (string $text) use ($scope, $job, &$streamed, &$last): void {
-            if (microtime(true) - $last >= self::PARTIAL_EVERY) {
-                $scope->apply($this->table())->where('ask_id', (int) ($job['ask_id'] ?? 0))->update(['partial' => $text]);
-                [$streamed, $last] = [true, microtime(true)];
+        $schema   = \Pramnos\Framework\Factory::getDatabase()->schema();
+        // What the answer is doing, for the same screen: the tool about to run, emptied when text arrives.
+        $doing    = $schema->hasColumn('assist.chat_asks', 'doing');
+        $busy     = false;
+        $partial  = function (string $text) use ($scope, $job, &$streamed, &$last, $doing, &$busy): void {
+            if (microtime(true) - $last >= self::PARTIAL_EVERY || $busy) {
+                $scope->apply($this->table())->where('ask_id', (int) ($job['ask_id'] ?? 0))->update(['partial' => $text] + ($doing ? ['doing' => null] : []));
+                [$streamed, $last, $busy] = [true, microtime(true), false];
             }
         };
-        $chat  = \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('assist.chat_asks', 'partial')
+        $chat  = $schema->hasColumn('assist.chat_asks', 'partial')
             ? $this->chat->as($scope)->streaming($partial) : $this->chat->as($scope);
+        if ($doing) {
+            $chat = $chat->doing(function (string $tool, array $arguments, array $definition) use ($scope, $job, &$busy): void {
+                $scope->apply($this->table())->where('ask_id', (int) ($job['ask_id'] ?? 0))
+                    ->update(['doing' => (string) json_encode(self::doingOf($tool, $arguments, $definition), JSON_UNESCAPED_UNICODE)]);
+                $busy = true;
+            });
+        }
         // Named by the ask: answered again, it does not make the changes it already made.
         $chat  = $chat->stoppable($stopped)->answering('ask:' . $askId);
         // An ask from the conversations: the people there are told the analyst is on it.
@@ -123,7 +134,7 @@ class Asks
                 'says' => (string) ($answer['says'] ?? '') ?: 'The AI could not answer.'];
 
         $scope->apply($this->table())->where('ask_id', (int) ($job['ask_id'] ?? 0))
-            ->update($outcome + ($streamed ? ['partial' => null] : []) + ['updated_at' => CallLog::instant(time())]);
+            ->update($outcome + ($streamed ? ['partial' => null] : []) + ($doing ? ['doing' => null] : []) + ['updated_at' => CallLog::instant(time())]);
 
         // An ask from the conversations is posted back from here, not by a listener a provider
         // registers: the worker answering it may be an application that boots no providers.
@@ -145,7 +156,7 @@ class Asks
      * One of this person's asks: its status, the answer's text so far while it is written, and the
      * conversation once answered.
      *
-     * @return array{ask_id: int, status: string, conversation_id: int|null, why: string|null, says: string|null, partial: string|null}|null
+     * @return array{ask_id: int, status: string, conversation_id: int|null, why: string|null, says: string|null, partial: string|null, doing: array{tool: string, host?: string}|null}|null
      */
     public function find(Scope $scope, int $askId): ?array
     {
@@ -164,7 +175,26 @@ class Asks
             'why'             => $f['why'] === null ? null : (string) $f['why'],
             'says'            => $f['says'] === null ? null : (string) $f['says'],
             'partial'         => ($f['partial'] ?? null) === null ? null : (string) $f['partial'],
+            // What it is doing right now: {tool, host?}, or null.
+            'doing'           => is_array($d = json_decode((string) ($f['doing'] ?? ''), true)) ? $d : null,
         ];
+    }
+
+    /**
+     * What a screen is told a tool call is doing: its name, and for one that sends an address out
+     * (`outbound`) only that address's host — never the whole address, never other arguments,
+     * which may be personal.
+     *
+     * @param array<string, mixed> $arguments
+     * @param array<string, mixed> $definition
+     * @return array{tool: string, host?: string}
+     */
+    public static function doingOf(string $tool, array $arguments, array $definition): array
+    {
+        $out  = is_string($definition['outbound'] ?? null) ? (string) ($arguments[$definition['outbound']] ?? '') : '';
+        $host = $out === '' ? null : parse_url($out, PHP_URL_HOST);
+
+        return ['tool' => $tool] + (is_string($host) && $host !== '' ? ['host' => mb_strtolower($host)] : []);
     }
 
     /**
