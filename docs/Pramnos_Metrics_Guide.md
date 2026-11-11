@@ -561,8 +561,12 @@ report. The report gets the cards the task's words describe and an analysis card
 those words ask. It is mailed on the task's cadence to its owner and to whoever read the task by
 mail. The task is paused, so the report, with its charts, is what goes out.
 
-**The board's variables.** A report's bar has a picker for each dimension with listed values. A
-choice narrows every card on the board (`?v[region]=north`, and `?v[tenant]=7` for one
+**The board's variables.** A report's bar has a picker for each dimension the report reads —
+what its rows, columns and cards filter on or break down by (`Report::dimensions()`) — or that the
+address sets, when the dimension has listed values. A dimension of more than
+`MetricReports::PICKER_LIST` (50) values is a search field over them, the browser's own
+(`datalist`), rather than a list. A dimension's values given as a closure are read once and kept
+for a minute (`Dimension::KEEP`), however many cards ask. A choice narrows every card on the board (`?v[region]=north`, and `?v[tenant]=7` for one
 organisation), and is kept in the address as the reader moves between periods or downloads the
 CSV or XLSX. A card's own filter on the same dimension keeps its own. What is not a declared
 dimension is ignored (`ReportBoard::variables()`). The pickers send their form themselves through

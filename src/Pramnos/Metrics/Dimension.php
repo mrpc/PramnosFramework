@@ -54,17 +54,37 @@ final class Dimension
      */
     public function values(array|\Closure $values): self
     {
+        $this->read = null;
         $this->values = $values;
 
         return $this;
     }
 
-    /** @return array<string, string> The values, `[value => label]` */
+    /** Seconds a closure's values are kept before it is asked again. */
+    public const KEEP = 60;
+
+    /** @var array{at: int, values: array<string, string>}|null A closure's values, as last read */
+    private ?array $read = null;
+
+    /**
+     * The values, `[value => label]`. A closure's are read once and kept for {@see KEEP} seconds:
+     * a report page asks for them once per card, and a dimension of thousands read from the
+     * database each time cost a query per card.
+     *
+     * @return array<string, string>
+     */
     public function all(): array
     {
-        $values = $this->values instanceof \Closure ? ($this->values)() : $this->values;
+        if (!$this->values instanceof \Closure) {
+            return array_map('strval', $this->values);
+        }
+        // ponytail: kept per object for KEEP seconds; a long-running worker sees a new value at most a minute late.
+        if ($this->read === null || time() - $this->read['at'] >= self::KEEP) {
+            $values     = ($this->values)();
+            $this->read = ['at' => time(), 'values' => array_map('strval', is_array($values) ? $values : [])];
+        }
 
-        return array_map('strval', is_array($values) ? $values : []);
+        return $this->read['values'];
     }
 
     /**

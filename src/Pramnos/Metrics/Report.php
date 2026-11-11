@@ -113,6 +113,33 @@ final class Report
     }
 
     /**
+     * The dimensions the report reads: what its rows, columns and cards filter on or break down
+     * by — the only ones its page offers a picker for, so a dimension of thousands of values is
+     * not listed for a report that never uses it.
+     *
+     * @return list<string>
+     */
+    public function dimensions(): array
+    {
+        $found = [];
+        $walk  = static function (array $node) use (&$walk, &$found): void {
+            foreach ($node as $key => $value) {
+                if (($key === 'breakdown' || $key === 'dimension') && is_string($value) && $value !== '') {
+                    $found[$value] = true;
+                } elseif ($key === 'filters' && is_array($value)) {
+                    $found += array_fill_keys(array_map('strval', array_keys($value)), true);
+                }
+                if (is_array($value)) {
+                    $walk($value);
+                }
+            }
+        };
+        $walk($this->definition);
+
+        return array_keys($found);
+    }
+
+    /**
      * Columns as given: a list of specs, or a shorthand kept as it is (expanded when built,
      * since a dimension's values may change).
      *

@@ -409,7 +409,7 @@ class ReportsMySQLTest extends TestCase
         $this->assertSame(['2026-08-01', '2026-10-01'], [$pages['report']['previous'], $pages['report']['next']]);
         $this->assertTrue($pages['report']['mine']);
         $this->assertFalse($pages['report']['customise'], 'a report with cards opens to be read');
-        $this->assertSame(['North', 'South'], array_values($pages['report']['pickers']['region']['values']), 'a picker for each dimension with listed values');
+        $this->assertSame([], $pages['report']['pickers'], 'FW-428: a report that reads no dimension offers no picker');
         $this->assertTrue($pages['blank']['customise'], 'a new report of one\'s own, with no cards, opens in Customise');
         unset($pages['blank']);
         $this->assertStringContainsString('MetricReports/rows?metric=test.sales', $pages['report']['body']);
@@ -496,7 +496,7 @@ class ReportsMySQLTest extends TestCase
             $empty = $this->renderTemplate($theme, 'metricreports/report.tpl.php', ['customise' => true] + $pages['report']);
             $this->assertStringContainsString('data-pf-dashboard-open', $empty, $theme . ': an empty report opens to be arranged');
             $this->assertStringNotContainsString('data-pf-dashboard-open', $this->renderTemplate($theme, 'metricreports/report.tpl.php', $pages['report']), $theme);
-            $this->assertStringContainsString('name="v[region]"', $this->renderTemplate($theme, 'metricreports/report.tpl.php', ['variables' => ['region' => 'north']] + $pages['report']), $theme . ': the board\'s pickers');
+            $this->assertStringContainsString('name="v[region]"', $this->renderTemplate($theme, 'metricreports/report.tpl.php', ['variables' => ['region' => 'north'], 'pickers' => ['region' => ['label' => 'Region', 'values' => ['north' => 'North'], 'search' => false]]] + $pages['report']), $theme . ': the board\'s pickers');
         }
 
         // Act — below the floor, every action stops; a delete of nothing says so
@@ -525,6 +525,60 @@ class ReportsMySQLTest extends TestCase
 
         // Assert
         $this->assertSame([['error', 'No metrics are declared here, so there are no reports.']], $screen->flash);
+    }
+
+    /**
+     * FW-428: the pickers reach the page through a real View — whose own property answers a copy,
+     * so a picker written into it one element at a time was lost — and only for the dimensions
+     * the report reads, or the address sets. A closure's values are read once a page, not once a
+     * card. A long list is a search field, in every theme.
+     */
+    public function testThePickersReachThePageForTheDimensionsTheReportReads(): void
+    {
+        // Arrange
+        $this->signIn(98, 2);
+        $read = 0;
+        Metrics::dimension(Dimension::of('coupon', 'Coupon')->values(static function () use (&$read): array {
+            $read++;
+
+            return array_combine(array_map(static fn (int $i): string => 'c' . $i, range(1, 60)), array_map(static fn (int $i): string => 'Coupon ' . $i, range(1, 60)));
+        }));
+        $id     = (new Reports())->save(self::reader(98, 2), ['name' => 'Test pickers', 'sections' => [['title' => 'S', 'rows' => [['metric' => 'test.sales', 'breakdown' => 'region']]]]]);
+        $screen = eval('return new class (\Pramnos\Application\Application::getInstance()) extends \Pramnos\Application\Controllers\MetricReports {
+            public ?object $view = null;
+            public function &getView($name = "", $type = "", $args = []) {
+                $this->view = new class (new \Pramnos\Application\Controller(), ROOT . "/scaffolding/themes/plain-css/views/metricreports", "metricreports") extends \Pramnos\Application\View {
+                    public function display($tpl = "", $render = false) { return ""; }
+                };
+                $view = $this->view;
+                return $view;
+            }
+        };');
+
+        // Act — the report alone, then with a coupon set from the address
+        $this->request('GET', null, ['report' => (string) $id, 'at' => '2026-09-10']);
+        $screen->show();
+        $first = $screen->view->pickers;
+        $readFirst = $read;
+        $this->request('GET', null, ['report' => (string) $id, 'at' => '2026-09-10', 'v' => ['coupon' => 'c7']]);
+        $screen->show();
+        $second = $screen->view->pickers;
+        (new Reports())->delete($id, self::reader(98, 2));
+
+        // Assert
+        $this->assertSame(['region'], array_keys($first), 'the dimension the report breaks down by');
+        $this->assertSame(['North', 'South'], array_values($first['region']['values']));
+        $this->assertFalse($first['region']['search'], 'a short list: a list');
+        $this->assertLessThanOrEqual(1, $readFirst, 'a closure\'s values read once a page at most — the cards\' editor reads them too — not once a card');
+        $this->assertSame(['region', 'coupon'], array_keys($second), 'set from the address: offered too');
+        $this->assertTrue($second['coupon']['search'], 'more than ' . MetricReports::PICKER_LIST . ' values: a search field');
+        foreach (['tailwind', 'bootstrap', 'plain-css'] as $theme) {
+            $html = $this->renderTemplate($theme, 'metricreports/report.tpl.php', ['entry' => ['id' => 'x', 'name' => 'R', 'app' => false], 'period' => 'p',
+                'previous' => 'a', 'next' => 'b', 'at' => '2026-09-10', 'body' => '', 'mine' => false, 'customise' => false,
+                'variables' => ['coupon' => 'c7'], 'pickers' => $second, 'urls' => $screen->view->urls]);
+            $this->assertStringContainsString('<input type="search" name="v[coupon]" list="pf-dimension-coupon" value="c7"', $html, $theme);
+            $this->assertStringContainsString('<select name="v[region]"', $html, $theme);
+        }
     }
 
     /**

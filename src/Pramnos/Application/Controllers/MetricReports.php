@@ -84,23 +84,35 @@ class MetricReports extends Controller
             ReportBoard::leave();
         }
         $view->mine      = !$entry['app'] && (int) $entry['row']['ownerid'] === (int) $this->user()->userid;
-        // The board's variables: a picker for each dimension with listed values, set from the address.
-        $view->variables = ReportBoard::variables()['filters'];
-        $view->pickers   = [];
+        // The board's variables: a picker for each dimension the report reads (or the address sets)
+        // that has listed values — a search field over a long list. Only those dimensions' values
+        // are read: one of thousands is not listed for a report that never uses it.
+        $variables       = ReportBoard::variables()['filters'];
+        $view->variables = $variables;
+        $used    = array_flip([...$entry['report']->dimensions(), ...array_map('strval', array_keys($variables))]);
+        $pickers = [];
         // Only what the reader may choose: a dimension they may use, the values of their scope.
         $scope = Metrics::scopeOf($this->user()) ?? [];
         foreach (Metrics::dimensions() as $name => $dimension) {
+            if (!isset($used[(string) $name]) || !$dimension->allows($this->user())) {
+                continue;
+            }
             $values = isset($scope[$name]) ? array_intersect_key($dimension->all(), array_flip($scope[$name])) : $dimension->all();
-            if ($values !== [] && (!isset($scope[$name]) || count($values) > 1) && $dimension->allows($this->user())) {
-                $view->pickers[(string) $name] = ['label' => t($dimension->label), 'values' => $values];
+            if ($values !== [] && (!isset($scope[$name]) || count($values) > 1)) {
+                $pickers[(string) $name] = ['label' => t($dimension->label), 'values' => $values, 'search' => count($values) > self::PICKER_LIST];
             }
         }
+        // One assignment: an element written into the View's own property is lost (it answers a copy).
+        $view->pickers = $pickers;
         // A report of one's own with no cards yet — a new one — opens to be arranged.
         $view->customise = $view->mine && ReportBoard::layout($entry['report']) === [];
         $view->urls      = $this->urls();
 
         return $view->display('report');
     }
+
+    /** Above this many values a dimension's picker is a search field rather than a list. */
+    public const PICKER_LIST = 50;
 
     /** The report as a CSV download. */
     public function csv(): mixed

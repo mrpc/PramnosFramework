@@ -15,10 +15,16 @@ $query = fn (string $at): string => '?report=' . rawurlencode($this->entry['id']
             <form method="get" action="{{ $this->urls['show'] }}" style="display:inline-flex;gap:.25rem">
                 <input type="hidden" name="report" value="{{ $this->entry['id'] }}">
                 @foreach (($this->pickers ?? []) as $dimension => $picker)
+                @if (!empty($picker['search']))
+                {{-- A long list: a search field over it, the browser's own. --}}
+                <input type="search" name="v[{{ $dimension }}]" list="pf-dimension-{{ $dimension }}" value="{{ $this->variables[$dimension] ?? '' }}" class="pf-input" placeholder="{{ $picker['label'] }}: {{ t('All') }}" aria-label="{{ $picker['label'] }}">
+                <datalist id="pf-dimension-{{ $dimension }}">@foreach ($picker['values'] as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</datalist>
+                @else
                 <select name="v[{{ $dimension }}]" class="pf-select" aria-label="{{ $picker['label'] }}" data-pf-autosubmit>
                     <option value="">{{ $picker['label'] }}: {{ t('All') }}</option>
                     @foreach ($picker['values'] as $value => $label)<option value="{{ $value }}"{{ ($this->variables[$dimension] ?? '') === (string) $value ? ' selected' : '' }}>{{ $label }}</option>@endforeach
                 </select>
+                @endif
                 @endforeach
                 <input type="date" name="at" value="{{ $this->at }}" class="pf-input" aria-label="{{ t('Period') }}">
                 <button type="submit" class="pf-btn pf-btn-sm">{{ t('Show') }}</button>
