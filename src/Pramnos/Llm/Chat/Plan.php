@@ -105,6 +105,10 @@ final class Plan
                 . ($p['blockers'] !== '' ? '; blocked by: ' . $p['blockers'] : '') . ($p['updated'] !== '' ? '; updated ' . $p['updated'] : '');
         }
 
+        // The tools wait behind the skill: the news itself is the cue to load it and use them.
+        $lines[] = 'When they tell you news about a project listed here, update it with plan_update (one field, usually status) '
+            . 'and say so in one sentence; ask first only to close it, set it done or paused, or when it is unclear which project.';
+
         return implode("\n", $lines);
     }
 

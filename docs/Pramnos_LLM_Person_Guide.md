@@ -24,6 +24,7 @@ never in the administrators' analyst, never in an answer others read too.
         'calendar' => true,   // their appointments and tasks, today in every prompt
         'journal'  => true,   // a page a day, in their words
         'plan'     => true,   // their projects, a row each, kept from what they say
+        'follow_up' => true,  // "how did the accounts go?" a few hours after they said they were on it
     ],
     // When the assistant may reach out on its own: quiet hours, a few pings a day, not while busy.
     'proactivity' => ['quiet' => '22:30-07:30', 'daily' => 3],
@@ -36,6 +37,7 @@ never in the administrators' analyst, never in an answer others read too.
 | [Calendar](#appointments-and-tasks) | `chat.calendar` | "Book Giorgos at 16:00" that checks for clashes and offers free times; "what do I have this afternoon" with no tool call; reminders before appointments |
 | [Journal](#a-journal-a-day) | `chat.journal` | A record of the person's days, kept as they talk |
 | [Plan](#a-plan-a-project-a-row) | `chat.plan` | The person's projects in every answer, changed only by name and on their word, with a weekday morning briefing and a Sunday review |
+| [Follow-ups](#a-check-a-few-hours-later) | `chat.follow_up` | One question a few hours after the person says what they are doing, never in their quiet hours, forgotten if they speak of it first |
 | [Manners](#reaching-out-on-its-own-with-manners) | `proactivity` | Scheduled questions and reminders that never arrive at night, too often, or in a meeting |
 
 Their tools are in the `profile`, `calendar`, `journal` and `plan` [skills](Pramnos_LLM_Tools_Guide.md#skills-in-a-conversation), so
@@ -182,6 +184,25 @@ focus, blockers, updated`. The phase is one of `active`, `paused`, `waiting` or 
   deadlines, blockers, what has not moved. It also offers `plan_week`, Sunday at 20:00.
 - **Memory.** A memory about the person's projects takes the topic `plans`. A channel reads it
   from another only where the application lets it (`channels.reads`).
+
+- **News is the cue.** The plan in each question ends with a line telling the model to update a
+  listed project when the person brings news of it, and to say so in a sentence.
+
+### A check a few hours later
+
+`Chat\FollowUps`, on with `'llm' => ['chat' => ['follow_up' => true]]` (or `['daily' => 3]`), in
+a person's own conversations. When the person says what they are doing now, `follow_up(about,
+in_hours)` schedules one question 1 to 12 hours later. It is a one-off routine titled
+`Follow-up: <about>`.
+
+- **One for a thing.** A second check for the same thing is refused, with the time of the first.
+- **Not in the person's quiet hours** (their companion settings): a check that would fall in them
+  is asked when they end.
+- **A few a day**, three unless the application says, counted by the day each check is asked on.
+- **Forgotten when said first.** A question that names the thing, by the first five letters of
+  each longer word, takes the pending check away.
+- **Asked once.** A check that gets no answer is not asked again.
+- The application's `proactivity` applies to it like any scheduled question.
 
 All these templates are offered beside the application's own `routine_templates`, which win by key.
 

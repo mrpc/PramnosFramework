@@ -23,6 +23,7 @@ use Pramnos\Tests\Unit\Llm\LlmTestCase;
  */
 #[CoversClass(Plan::class)]
 #[CoversClass(Routines::class)]
+#[CoversClass(\Pramnos\Llm\Chat\FollowUps::class)]
 class PlanTest extends LlmTestCase
 {
     use ChatDatabase;
@@ -41,6 +42,8 @@ class PlanTest extends LlmTestCase
     {
         if ($this->users !== []) {
             $this->db->queryBuilder()->table('assist.chat_artifacts')->whereIn('userid', $this->users)->delete();
+            $this->db->queryBuilder()->table('pramnos.ai_routines')->whereIn('userid', $this->users)->delete();
+            $this->db->queryBuilder()->table('#PREFIX#userdetails')->whereIn('userid', $this->users)->delete();
             $this->db->queryBuilder()->table('#PREFIX#usersettings')->whereIn('userid', $this->users)->delete();
             $this->db->queryBuilder()->table('#PREFIX#users')->whereIn('userid', $this->users)->delete();
         }
@@ -101,6 +104,7 @@ class PlanTest extends LlmTestCase
         $this->assertSame(['Garden', 'Novel'], array_column($fromAsk, 'project'), 'the Ask reads the same plan as every persona');
         $this->assertSame(['rain', 'active', (new \DateTimeImmutable('now', new \DateTimeZone('Europe/Athens')))->format('Y-m-d')], [$fromAsk[0]['blockers'], $fromAsk[0]['phase'], $fromAsk[0]['updated']]);
         $this->assertStringContainsString('- Garden (home) — active; beds dug; blocked by: rain; updated ', $system, 'a line a project in the question');
+        $this->assertStringContainsString('When they tell you news about a project listed here, update it with plan_update', $system, 'news is the cue to change it');
         $this->assertSame('Closed Novel; it is out of the plan.', $closed);
         $this->assertSame(['Garden'], array_column($after, 'project'), 'nothing of it kept');
     }
@@ -128,5 +132,47 @@ class PlanTest extends LlmTestCase
         $this->assertSame(['weekly', 7, '20:00'], [$templates['plan_week']['cadence'], $templates['plan_week']['day'], $templates['plan_week']['at']]);
         $this->assertSame([false, []], [$off[0], array_intersect_key($off[1], Plan::TEMPLATES)], 'off: nothing');
         $this->assertSame('2026-11-16 10:00', gmdate('Y-m-d H:i', $next), 'after Friday\'s, Monday\'s: the weekend skipped');
+    }
+
+    /**
+     * A check a few hours later (FW-471): one for a thing, never in the person's quiet hours —
+     * moved to when they end — a few a day at most, counted by the day each is asked on, and taken
+     * away when the person speaks of it first; on only in a person's own conversations.
+     */
+    #[DataProvider('databases')]
+    public function testAFollowUpIsOneAThingOutOfQuietHoursAndForgottenWhenSaidFirst(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => ['follow_up' => ['daily' => 2], 'memory' => ['learn' => false]]]);
+        $userId = $this->user();
+        \Pramnos\Llm\Chat\Settings::change(new \Pramnos\User\User($userId), null, ['quiet' => ['from' => '22:00', 'to' => '07:00']]);
+        \Pramnos\User\User::clearUserCache();
+        $scope    = new Scope($userId, null, Scope::CHAT);
+        $routines = new Routines(new Conversations(new BaseAssistant()));
+        $follow   = new \Pramnos\Llm\Chat\FollowUps($routines, $scope, 'UTC');
+        // Tomorrow at 21:00: two hours on is in the quiet hours.
+        $evening  = (new \DateTimeImmutable('tomorrow 21:00', new \DateTimeZone('UTC')))->getTimestamp();
+        $morning  = gmdate('Y-m-d', $evening + 86400) . ' 07:00';
+
+        // Act
+        $first    = $follow->schedule('the accounts', 2, $evening);
+        $again    = $follow->schedule('The Accounts', 3, $evening);
+        $second   = $follow->schedule('the shopping', 1, $evening);
+        $third    = $follow->schedule('the garden', 1, $evening);
+        $pending  = array_column(array_filter($routines->mine($scope), static fn (array $r): bool => str_starts_with($r['title'], 'Follow-up: ')), 'run_at', 'title');
+        $taken    = $follow->heard('I finished the accounts already, by the way');
+        $after    = array_column(array_filter($routines->mine($scope), static fn (array $r): bool => str_starts_with($r['title'], 'Follow-up: ')), 'title');
+
+        // Assert
+        $this->assertSame('I will ask about the accounts at 07:00.', $first, 'quiet at 23:00: asked when the quiet hours end');
+        $this->assertStringStartsWith('Error: a check on The Accounts is already set, for 07:00', $again, 'one for a thing');
+        $this->assertSame('I will ask about the shopping at 07:00.', $second);
+        $this->assertStringStartsWith('Error: 2 checks a day are enough', $third, 'a few a day, by the day they are asked on');
+        $this->assertStringStartsWith($morning, (string) $pending['Follow-up: the accounts'], 'a one-off, the next morning');
+        $this->assertSame(1, $taken, 'said first: not asked');
+        $this->assertSame(['Follow-up: the shopping'], $after);
+        $this->assertSame([true, false], [\Pramnos\Llm\Chat\FollowUps::on($scope), \Pramnos\Llm\Chat\FollowUps::on(new Scope($userId, null, Scope::ADMIN))]);
+        $this->assertArrayHasKey('follow_up', $follow->tools());
     }
 }

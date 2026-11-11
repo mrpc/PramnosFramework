@@ -367,6 +367,14 @@ class Conversations
 
         $this->traceId = self::newTrace();
         $question      = mb_substr(trim($question), 0, self::CHARS);
+        // Said first by the person: a check waiting on it is not asked.
+        if (FollowUps::on($this->scope) && $question !== '') {
+            try {
+                (new FollowUps(new Routines($this), $this->scope, $this->assistant->timezone($this->scope)))->heard($question);
+            } catch (\Throwable $why) {
+                \Pramnos\Logs\Logger::log('llm follow-ups: ' . $why->getMessage(), 'llm');
+            }
+        }
         $attached = trim((string) ($attachment['text'] ?? ''));
 
         // A document alone is a question too: "make this an article" is what it usually means.
@@ -1439,6 +1447,8 @@ class Conversations
             + (\Pramnos\Llm\Web\Web::on($this->scope) ? (new \Pramnos\Llm\Web\Web())->tools() : [])
             // The external MCP servers, where the application offers them here: the application's.
             + (self::mcpOn() ? \Pramnos\Llm\Mcp\Servers::tools() : [])
+            // A check a few hours later, on what the person said they are doing (FollowUps).
+            + (!$turn->shared() && FollowUps::on($this->scope) ? (new FollowUps($routines, $this->scope, $this->assistant->timezone($this->scope)))->tools() : [])
             + ($turn->shared() ? [] : $memory->tools($this, $turn->conversationId)
             // Not from a scheduled run: a task that schedules tasks has no end.
             + ($this->scheduled ? [] : self::inSkill($routines->toolsFor($this->scope, $this->assistant->timezone($this->scope), $turn->conversationId), 'tasks',
