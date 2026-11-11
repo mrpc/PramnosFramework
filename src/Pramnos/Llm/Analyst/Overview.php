@@ -183,10 +183,13 @@ final class Overview
     /** @return array{labels: list<string>, values: list<int>} Messages on each of the last 30 days */
     private function daily(string $channel, int $now): array
     {
-        $from  = strtotime('today', $now) - 29 * 86400;
-        $days  = [];
+        // The 30 days up to and including today, on the page's clock — its days, and each message's.
+        $day  = (new \DateTimeImmutable('@' . $now))->setTimezone(new \DateTimeZone(date_default_timezone_get()))->setTime(0, 0)->modify('-29 days');
+        $from = $day->getTimestamp();
+        $days = [];
         for ($i = 0; $i < 30; $i++) {
-            $days[gmdate('Y-m-d', $from + $i * 86400)] = 0;
+            $days[$day->format('Y-m-d')] = 0;
+            $day = $day->modify('+1 day');
         }
         $query = $this->db()->queryBuilder()->table('assist.chat_messages AS m')->select(['m.created_at'])->where('m.created_at', '>=', CallLog::instant($from));
         if ($channel !== '') {
@@ -194,9 +197,10 @@ final class Overview
         }
         // ponytail: counted in PHP, one row per message — a GROUP BY on a day expression when a channel reaches millions a month.
         foreach ($query->getAllOrFail() as $row) {
-            $day = substr((string) $row['created_at'], 0, 10);
-            if (isset($days[$day])) {
-                $days[$day]++;
+            $at  = \Pramnos\Llm\Chat\Routines::utc((string) $row['created_at']);
+            $key = $at === null ? '' : date('Y-m-d', $at);
+            if (isset($days[$key])) {
+                $days[$key]++;
             }
         }
 

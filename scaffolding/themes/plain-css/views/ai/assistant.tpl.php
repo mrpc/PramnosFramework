@@ -22,6 +22,18 @@ $id       = (int) ($card['userid'] ?? 0); @endphp
     <p><a href="{{ $u['all'] }}">‹ {{ t('The assistants') }}</a></p>
     <h1 class="{!! $c['h1'] !!}">{{ $card['name'] ?? '' }}</h1>
     <p class="{!! $c['muted'] !!}">{{ t('Persona') }}: {{ $persona($card['persona'] ?? null) }}@if (($card['reset_at'] ?? null) !== null) · {{ t('Experience reset') }}: {{ $when($card['reset_at']) }}@endif · {{ sprintf(t('%d push subscriptions'), count((array) ($card['push'] ?? []))) }}</p>
+    @if (!empty($this->resets))
+                <details style="margin:0 0 12px">
+                    <summary>{{ t('Reset the experience') }}</summary>
+                    <p class="{!! $c['muted'] !!}">{{ t('Their persona, voice and style go back to the defaults, and each persona meets them again for the first time. Their conversations, memories, profile, diary and routines are kept.') }}</p>
+                    <form method="post" action="{{ $u['reset'] }}">
+                        {!! \Pramnos\Http\Session::getInstance()->getTokenField() !!}
+                        <input type="hidden" name="userid" value="{!! $id !!}">
+                        <input type="hidden" name="back" value="{{ '?person=' . $id }}">
+                        <button type="submit" class="{!! $c['btn'] !!}">{{ sprintf(t('Yes, reset %s\'s experience'), (string) ($card['name'] ?? '')) }}</button>
+                    </form>
+                </details>
+            @endif
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <section class="{!! $c['card'] !!}" style="flex:1 1 320px;padding:12px">
             <h2 style="font-size:1.1rem;margin:0 0 8px">{{ t('Conversations') }}</h2>
@@ -53,18 +65,6 @@ $id       = (int) ($card['userid'] ?? 0); @endphp
             @if (!empty($card['profile']))
                 <h3 style="font-size:1rem;margin:10px 0 4px">{{ t('Profile') }}</h3>
                 <ul style="margin:0;padding-left:18px">@foreach ($card['profile'] as $entry)<li>{{ ($entry['subject'] ?? $entry['area']) . ': ' . ($entry['content'] ?? $entry['pending'] . ' (' . t('waiting for their word') . ')') }}</li>@endforeach</ul>
-            @endif
-            @if (!empty($this->resets))
-                <details style="margin-top:12px">
-                    <summary>{{ t('Reset the experience') }}</summary>
-                    <p class="{!! $c['muted'] !!}">{{ t('Their persona, voice and style go back to the defaults, and each persona meets them again for the first time. Their conversations, memories, profile, diary and routines are kept.') }}</p>
-                    <form method="post" action="{{ $u['reset'] }}">
-                        {!! \Pramnos\Http\Session::getInstance()->getTokenField() !!}
-                        <input type="hidden" name="userid" value="{!! $id !!}">
-                        <input type="hidden" name="back" value="{{ '?person=' . $id }}">
-                        <button type="submit" class="{!! $c['btn'] !!}">{{ sprintf(t('Yes, reset %s\'s experience'), (string) ($card['name'] ?? '')) }}</button>
-                    </form>
-                </details>
             @endif
         </section>
         <section class="{!! $c['card'] !!}" style="flex:1 1 320px;padding:12px">

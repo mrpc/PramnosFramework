@@ -646,6 +646,19 @@ class AnalystTest extends LlmTestCase
         $this->assertStringContainsString('Likes green tea', $card);
         $this->assertStringContainsString('c=' . $companion, $card, 'their conversation, to read');
         $this->assertStringContainsString('Ai/companionreset', $card, 'the reset on the card, no conversation needed');
+        $this->assertLessThan(strpos($card, 'What the companion knows of them'), strpos($card, 'Reset the experience'), 'at the top, beside their name');
+        // East of UTC, where midnight is yesterday in UTC: the chart still ends today.
+        $zone = date_default_timezone_get();
+        date_default_timezone_set('Europe/Athens');
+        try {
+            $daily = (new \Pramnos\Llm\Analyst\Overview())->stats(Scope::CHAT)['daily'];
+            $today = date('Y-m-d');
+        } finally {
+            date_default_timezone_set($zone);
+        }
+        $this->assertSame($today, end($daily['labels']), 'the chart\'s last day is today, on the page\'s clock');
+        $this->assertCount(30, $daily['labels']);
+        $this->assertSame(2, array_sum($daily['values']), 'every message on a day of its own');
         $this->assertStringContainsString('?person=8', $opened, 'a conversation links back to their card');
         $this->assertStringContainsString('Answers to review', $listed, 'everything about the assistants on one page');
         $this->assertStringContainsString('Ai/memories?space=chat', $listed, 'the memories of the channel it shows (FW-466)');
