@@ -787,8 +787,12 @@ class DashboardController extends Controller
     {
         $draw     = ($item['draw'] ?? true) !== false && (func_num_args() < 3 || func_get_arg(2) !== false);
         $settings = (array) ($item['settings'] ?? []);
-        // Its own settings before anything is read from it: one widget serves every card of its kind.
-        $widget->configure($settings);
+        // Its own settings before anything is read from it — one widget serves every card of its
+        // kind: drawn now, the drawing takes them; a tab drawn later is only named, from them as given.
+        $html = $draw ? $this->drawWidget($widget->configure($settings)) : null;
+        if (!$draw) {
+            $widget->given($settings);
+        }
         $options  = [];
         $fields   = [];
         foreach ($widget->options() as $name => $allowed) {
@@ -825,7 +829,7 @@ class DashboardController extends Controller
             // name => {input: select|text|date|number, label, values, when}
             'fields'   => $fields,
             // Null for a tab not shown yet: drawn when it is first opened.
-            'html'     => $draw ? $this->drawWidget($widget->configure($settings)) : null,
+            'html'     => $html,
             // When a shared card's figures were worked out; null for a card drawn now.
             'at'       => $draw && $widget->shared() ? $this->drawnAt : null,
         ];

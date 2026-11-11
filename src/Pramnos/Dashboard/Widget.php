@@ -248,6 +248,19 @@ abstract class Widget
         return $this;
     }
 
+    /**
+     * Settings as given, not cleaned against {@see options()} — which may read the database — for
+     * naming a card not drawn yet. {@see configure()} before drawing it.
+     *
+     * @param array<string, mixed> $settings
+     */
+    public function given(array $settings): static
+    {
+        $this->dashboardSettings = $settings;
+
+        return $this;
+    }
+
     /** One setting as chosen, or its default. */
     public function setting(string $name): mixed
     {
