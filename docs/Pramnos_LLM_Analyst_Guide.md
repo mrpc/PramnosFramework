@@ -306,6 +306,25 @@ shared by the mic and every answer's 🔊 button:
   fails — no server set up, the network, a clip that will not play — the browser's voice reads
   from that sentence to the end, the whole text when none was heard yet.
   `hasServer` says which is in use. See the Screens guide, "Reading answers aloud", for the server.
+- **Dictation by a server, where the browser has none** (Firefox, an installed app on an iPhone):
+  `createVoiceState({ listen: fn })`, where `fn(blob, {seconds})` returns a Promise of the words,
+  a string or `{text}`, from `POST {chat}/listen`. `startDictation()` then records with
+  `MediaRecorder` and asks for the microphone with echo cancellation and noise suppression. A
+  silence after speech ends the recording (`silenceMs`, 1200 by default; `silenceLevel`, the RMS
+  under which it is quiet, 0.02; `maxMs`, 60 s). The words come back through the same
+  `onTranscript`, `onSilence` and `onEnd`. A recording with no speech in it is not sent;
+  `stopDictation()` by hand sends what was said. `startDictation({ viaServer: true })` uses the
+  server even where the browser recognises speech itself. `canDictate` says whether dictation
+  works here at all.
+- **The server side**, `Speech\Listening`, follows `Speech`: `'llm' => ['listen' => ['provider' =>
+  'google', 'providers' => [...]]]`. `google` is Google Cloud Speech-to-Text (`el-GR`, WebM/Ogg
+  Opus at 48 kHz, WAV and FLAC from their header), signed in with the voice's own
+  `speech.providers.google` credentials unless given here. `whisper` is an OpenAI-compatible
+  `/v1/audio/transcriptions`: OpenAI's own with the language models' OpenAI key, or a server of
+  the application's (`base_url`). `POST {chat}/listen` takes `{audio: base64, type, seconds}` or
+  a multipart file `audio`, and answers `{text}`, or 501 (not set up), 422 (empty or over 10 MB)
+  or 502. Each call writes a `listen` line to the `speech` log, with its bytes, milliseconds, the
+  seconds the client reported and their cost at the provider's `per_minute`.
 - **Subtitles in step with the voice** — `speak(id, text, { onPart })` calls
   `onPart({index, count, text})` as each part starts to be heard: with a server, each sentence
   `splitSentences()` cut from the cleaned text; with the browser's voice, which reads it all at
@@ -356,10 +375,8 @@ natural rather than spelled out or mis-gendered:
 34 delayed natural Greek phrases ("Μισό λεπτό να το κοιτάξω...") for a voice conversation to say
 while an answer is still being worked out, never immediately repeating itself.
 
-**Still to come** (Roadmap phases 2–3, not built): transcription and speech run on the server as
-a provider setting (`browser`/`api`/`local`), with size limits, consent and call-log entries; a
-continuous voice-conversation mode with end-of-speech detection and sentence-by-sentence
-streamed speech.
+**Still to come** (not built): the framework's own chat pages handing the voice a `listen` of
+their own, as they hand it a speech `server`; a continuous voice-conversation mode.
 
 ## The floating companion
 

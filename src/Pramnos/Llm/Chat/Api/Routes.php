@@ -48,6 +48,7 @@ final class Routes
     {
         $p    = array_replace(self::PATHS, $paths);
         $p['speak'] ??= $p['chat'] . '/speak';
+        $p['listen'] ??= $p['chat'] . '/listen';
         $p['push']  ??= $p['chat'] . '/push';
         $p['mood']  ??= $p['chat'] . '/mood';
         $p['style'] ??= $p['chat'] . '/style';
@@ -56,6 +57,7 @@ final class Routes
         $make = static fn (): ChatController => new $controller();
 
         $r->post($p['speak'], static fn () => $make()->speak())->describeFrom([$controller, 'speak']);
+        $r->post($p['listen'], static fn () => $make()->listen())->describeFrom([$controller, 'listen']);
         // Ahead of {chat}/{conversation_id}, which would take "push" or "mood" for an id.
         $r->get($p['mood'], static fn () => $make()->mood())->describeFrom([$controller, 'mood']);
         $r->get($p['style'], static fn () => $make()->style())->describeFrom([$controller, 'style']);

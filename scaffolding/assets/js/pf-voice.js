@@ -365,11 +365,21 @@
      * piece by piece, each cleaned, and `text` is the piece as given, so a page finds it in its
      * original without matching a transliteration.
      *
-     * @param {{ server?: function(string): Promise<Blob|{audio: string, type: string}> }} [options]
+     * With `options.listen` — a function from a recording (`Blob`) and `{seconds}` to a Promise of
+     * the words, a string or the listen API's `{text}` (`POST {chat}/listen`) — dictation works
+     * where the browser recognises no speech of its own (Firefox, an installed app on an iPhone):
+     * `startDictation()` records with `MediaRecorder`, a silence after speech ends the recording
+     * (`silenceMs`, `silenceLevel`), and the words come back through the same `onTranscript`,
+     * `onSilence`, `onEnd` and `onError`. `startDictation({ viaServer: true })` uses the server even
+     * where the browser has its own.
+     *
+     * @param {{ server?: function(string): Promise<Blob|{audio: string, type: string}>, listen?: function(Blob, {seconds: number}): Promise<string|{text: string}> }} [options]
      * @returns {object}
      */
     function createVoiceState(options) {
         var server = options && typeof options.server === 'function' ? options.server : null;
+        var listen = options && typeof options.listen === 'function' ? options.listen : null;
+        var activeServer = null; // the recording for the server, while it is made
         var serverRun = 0;
         var currentAudio = null;
         var dictating = false;
@@ -464,8 +474,159 @@
             storageSet(STORAGE_PREFERRED, selectedVoiceURI);
         }
 
+        /** Whether this browser can record for the server. */
+        function canRecord() {
+            return listen !== null && typeof window !== 'undefined' && typeof window.MediaRecorder === 'function'
+                && window.navigator && window.navigator.mediaDevices && typeof window.navigator.mediaDevices.getUserMedia === 'function';
+        }
+
+        /** End a recording for the server: its words asked for, unless it is dropped. */
+        function stopServer(rec, drop) {
+            if (rec.done) {
+                return;
+            }
+            rec.drop = rec.drop || drop;
+            if (rec.timer) {
+                clearInterval(rec.timer);
+                clearTimeout(rec.timer);
+                rec.timer = null;
+            }
+            if (rec.recorder && rec.recorder.state !== 'inactive') {
+                rec.recorder.stop();   // its onstop finishes
+            } else {
+                finishServer(rec);
+            }
+        }
+
+        /** The microphone let go, and the recording's words told — or why not. */
+        function finishServer(rec) {
+            if (rec.done) {
+                return;
+            }
+            rec.done = true;
+            if (rec.stream) {
+                rec.stream.getTracks().forEach(function (t) { t.stop(); });
+            }
+            if (rec.ctx && typeof rec.ctx.close === 'function') {
+                rec.ctx.close();
+            }
+            if (activeServer === rec) {
+                activeServer = null;
+            }
+            var opts = rec.opts;
+            var ended = function () {
+                dictating = false;
+                interim = '';
+                if (opts.onEnd) {
+                    opts.onEnd();
+                }
+            };
+            if (rec.drop || !rec.heard || rec.chunks.length === 0) {
+                ended();
+                return;
+            }
+            var type = (rec.recorder && rec.recorder.mimeType) || 'audio/webm';
+            var blob = new window.Blob(rec.chunks, { type: type });
+            Promise.resolve().then(function () {
+                return listen(blob, { seconds: Math.round((Date.now() - rec.started) / 100) / 10 });
+            }).then(function (got) {
+                var text = String((got && typeof got === 'object' ? got.text : got) || '').trim();
+                if (text && opts.onTranscript) {
+                    opts.onTranscript({ fullFinal: text, interimPart: '', text: text });
+                }
+                ended();
+                if (text && opts.onSilence) {
+                    opts.onSilence();
+                }
+            }, function (err) {
+                dictationError = 'Speech recognition error: ' + ((err && err.message) || 'the server did not answer');
+                if (opts.onError) {
+                    opts.onError({ error: 'server' });
+                }
+                ended();
+            });
+        }
+
+        /** Dictation by the server: recorded here, recognised there. */
+        function serverDictation(opts) {
+            stopDictation();
+            var SILENCE_MS = opts.silenceMs > 0 ? opts.silenceMs : 1200;
+            var LEVEL = opts.silenceLevel > 0 ? opts.silenceLevel : 0.02;
+            var MAX_MS = opts.maxMs > 0 ? opts.maxMs : 60000;
+            var rec = { opts: opts, chunks: [], started: Date.now(), heard: false, quietSince: 0, timer: null, drop: false, done: false };
+            activeServer = rec;
+            dictating = true;
+            dictationError = null;
+            interim = '';
+            window.navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }).then(function (stream) {
+                rec.stream = stream;
+                if (activeServer !== rec) {
+                    finishServer(rec);
+                    return;
+                }
+                var recorder = new window.MediaRecorder(stream);
+                rec.recorder = recorder;
+                recorder.ondataavailable = function (e) {
+                    if (e.data && e.data.size > 0) {
+                        rec.chunks.push(e.data);
+                    }
+                };
+                recorder.onstop = function () { finishServer(rec); };
+                recorder.start(250);
+                var Ctx = window.AudioContext || window.webkitAudioContext;
+                if (typeof Ctx !== 'function') {
+                    // Nothing to hear the silence with: it ends at its longest, or when stopped.
+                    rec.heard = true;
+                    rec.timer = setTimeout(function () { stopServer(rec, false); }, MAX_MS);
+                    return;
+                }
+                rec.ctx = new Ctx();
+                var analyser = rec.ctx.createAnalyser();
+                analyser.fftSize = 1024;
+                rec.ctx.createMediaStreamSource(stream).connect(analyser);
+                var samples = new Float32Array(analyser.fftSize);
+                rec.timer = setInterval(function () {
+                    analyser.getFloatTimeDomainData(samples);
+                    var sum = 0;
+                    for (var i = 0; i < samples.length; i++) {
+                        sum += samples[i] * samples[i];
+                    }
+                    var now = Date.now();
+                    if (Math.sqrt(sum / samples.length) > LEVEL) {
+                        rec.heard = true;
+                        rec.quietSince = 0;
+                    } else if (rec.heard) {
+                        rec.quietSince = rec.quietSince || now;
+                        if (now - rec.quietSince >= SILENCE_MS) {
+                            stopServer(rec, false);
+                            return;
+                        }
+                    }
+                    if (now - rec.started >= MAX_MS) {
+                        stopServer(rec, false);
+                    }
+                }, 100);
+            }, function () {
+                dictationError = 'Microphone permission was denied. Please allow microphone access.';
+                if (opts.onError) {
+                    opts.onError({ error: 'not-allowed' });
+                }
+                rec.drop = true;
+                finishServer(rec);
+            });
+
+            return true;
+        }
+
         function startDictation(options) {
             var opts = options || {};
+
+            if ((!hasRecognition || opts.viaServer) && canRecord()) {
+                if (speaking && !opts.onBargeIn && !opts.allowWhileSpeaking) {
+                    return false;
+                }
+                return serverDictation(opts);
+            }
 
             if (!hasRecognition) {
                 dictationError = isFirefox
@@ -623,6 +784,10 @@
         }
 
         function stopDictation() {
+            // Stopped by hand: what was recorded for the server is still recognised.
+            if (activeServer) {
+                stopServer(activeServer, false);
+            }
             if (activeSilenceTimer) {
                 clearTimeout(activeSilenceTimer);
                 activeSilenceTimer = null;
@@ -972,6 +1137,8 @@
             hasRecognition: hasRecognition,
             hasSynthesis: hasSynthesis,
             hasServer: server !== null,
+            // Dictation works here: the browser's own recognition, or recording for the server.
+            canDictate: hasRecognition || canRecord(),
             isChrome: isChrome,
             isFirefox: isFirefox,
             startDictation: startDictation,

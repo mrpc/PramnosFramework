@@ -358,6 +358,33 @@ class ChatController extends \Pramnos\Application\ApiCrudController
     }
 
     /**
+     * The words in a recording, by the application's speech-recognition server
+     * (`Speech\Listening`) — dictation where the browser has none: `POST {chat}/listen` with
+     * `{"audio": "<base64>", "type": "audio/webm", "seconds": 4.2}`, or a multipart file `audio`.
+     * → `{text}`. 501 where no server is set up, 422 for an empty or overlong recording, 502 when
+     * the server fails.
+     */
+    public function listen(): array
+    {
+        if (($stop = $this->refusal('ask')) !== null) {
+            return $stop;
+        }
+        $input = $this->input();
+        $file  = $_FILES['audio'] ?? null;
+        if (is_array($file) && is_string($file['tmp_name'] ?? null) && is_uploaded_file($file['tmp_name'])) {
+            $audio = (string) file_get_contents($file['tmp_name']);
+            $type  = (string) ($file['type'] ?? 'audio/webm');
+        } else {
+            $audio = (string) base64_decode((string) ($input['audio'] ?? ''), true);
+            $type  = (string) ($input['type'] ?? 'audio/webm');
+        }
+        $seconds = is_numeric($input['seconds'] ?? null) ? (float) $input['seconds'] : null;
+        $heard   = \Pramnos\Llm\Speech\Listening::hear($audio, $type, $seconds);
+
+        return $heard['ok'] ? ['status' => 200, 'data' => ['text' => $heard['text']]] : self::error($heard['status'], $heard['says']);
+    }
+
+    /**
      * The assistant's mood with the person asking (`Chat\Mood`), for the avatar to show — idle
      * included: `GET {chat}/mood`, or `?conversation_id=` for one conversation's. `mood` is null when
      * nothing is felt or moods are off; `plays` is what the avatar set says the word plays.
