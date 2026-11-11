@@ -365,6 +365,26 @@ large as the avatar.
 Not a route: mount it on whatever `/debug` page an application already has, the same way it
 would mount anything else. Nothing here adds a new controller or permission surface.
 
+### The picture in every state, on the AI screen
+
+`/admin/Ai/avatar` (opened as the settings are, and linked from them) shows the set in use,
+large (`AvatarSets::render('idle', 160)`), with a button per state. The one playing is marked
+and follows `data-state`, so `success`, `greeting` and `notify` hand the mark back to `idle` when
+they end. Below the states are a box for a pose of any name (`data-pose`) and an Away toggle,
+which sets `data-pf-companion-activity="away"` on an inline dock around the picture, as idle
+does in a corner. A set that declares its own signals gets a table of them, each with the state
+or pose it plays and a button to try it:
+
+```php
+'llm' => ['analyst' => ['avatar_set' => [
+    'markup' => APP_PATH . '/themes/admin/assets/aria/aria.svg',
+    'moods'  => ['calm' => 'idle', 'curious' => 'sniff'],   // or 'avatar_moods' beside a registered set's name
+]]],
+```
+
+The dock, the debug panel and this screen carry the theme's tokens themselves, so they are
+drawn the same outside a `.pf-ui` element.
+
 ### Two different companions, one floor
 
 An application with its own frontend (a Svelte app, say) is not required to write

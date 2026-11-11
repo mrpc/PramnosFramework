@@ -475,6 +475,54 @@ class AiScreenTest extends LlmTestCase
     }
 
     /**
+     * FW-419: the assistant's picture in every state, an admin screen of its own opened as the
+     * settings are. The action feeds the set in use drawn large, the nine states and the set's
+     * signals; every theme draws them through a real View — a button per state with idle marked,
+     * the inline dock the "away" preview reacts to, the pose box and the signals table — and below
+     * the floor nothing is drawn.
+     */
+    public function testTheAvatarScreen(): void
+    {
+        // Arrange
+        $this->configure(['analyst' => ['avatar_set' => ['markup' => '<svg data-set="mine"></svg>', 'moods' => ['calm' => 'idle', 'curious' => 'sniff']]]]);
+        $controller = $this->controller();
+        $refused    = $this->controller(true);
+
+        // Act
+        $controller->avatar();
+        $refused->avatar();
+        $fed   = $controller->view;
+        $pages = [];
+        foreach (self::THEMES as $theme) {
+            $dir  = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/ai';
+            $view = new \Pramnos\Application\View(new \Pramnos\Application\Controller(), $dir, 'ai');
+            foreach (['picture', 'states', 'moods', 'urls'] as $name) {
+                $view->$name = $fed->$name;
+            }
+            ob_start();
+            \Closure::bind(function () use ($dir): void {
+                include \Pramnos\Tests\Support\ScaffoldView::run($dir . '/avatar.html.php');
+            }, $view, \Pramnos\Application\View::class)();
+            $pages[$theme] = (string) ob_get_clean();
+        }
+
+        // Assert
+        $this->assertSame('avatar', $fed->shown);
+        $this->assertStringContainsString('data-set="mine"', $fed->picture, 'the set in use');
+        $this->assertStringContainsString('--pf-assistant-size:160px', $fed->picture, 'drawn large');
+        $this->assertSame(['calm' => 'idle', 'curious' => 'sniff'], $fed->moods);
+        $this->assertNull($refused->view, 'below the floor: nothing drawn');
+        foreach ($pages as $theme => $page) {
+            $this->assertSame(9, substr_count($page, 'data-pf-avatar-state="'), $theme . ': a button per state');
+            $this->assertStringContainsString('data-pf-avatar-state="idle" aria-pressed="true"', $page, $theme . ': idle playing at first');
+            $this->assertStringContainsString('class="pf-companion-dock pf-companion-dock--inline" data-pf-avatar-preview data-pf-companion-activity="active"', $page, $theme);
+            $this->assertStringContainsString('data-pf-avatar-pose-apply', $page, $theme);
+            $this->assertStringContainsString('<td>curious</td><td>sniff</td>', $page, $theme . ': the set\'s signals');
+            $this->assertStringContainsString('pf-btn pf-btn-sm', $page, $theme);
+        }
+    }
+
+    /**
      * Render one view with a stand-in `$this`.
      *
      * @param array<string, mixed> $properties
@@ -532,6 +580,7 @@ class AiScreenTest extends LlmTestCase
         $this->assertSame('mistral', $seam('connection', 'mistral')->provider());
         $this->assertNull($seam('openAiCosts'), 'no Admin key, no billing call');
         $this->assertContains('save', $controller->actions_auth);
+        $this->assertContains('avatar', $controller->actions_auth, 'the picture screen is signed-in only');
         $this->assertContains('save', (new \ReflectionProperty($controller, 'writeActions'))->getValue($controller));
     }
 

@@ -748,7 +748,7 @@ a.pf-stat-tile:hover { border-color: var(--color-primary, #2563eb); }
    sets its own type scale (titles 20/600, sections 16/600, labels 13/500, body 14), spacing
    (8/12/16/24) and 36px controls. The tokens are set on each of its roots, so a dark theme's
    colours reach them by inheritance. */
-.pf-ui, .pf-audience, .pf-rule-editor, .pf-rule-canvas, .pf-site-message, .pf-audience-panel-title, .pf-audience-panel-list, .pf-combo, .pf-menu, .pf-conv-dock, .pf-conv-basic, .pf-chat, .pf-rating {
+.pf-ui, .pf-audience, .pf-rule-editor, .pf-rule-canvas, .pf-site-message, .pf-audience-panel-title, .pf-audience-panel-list, .pf-combo, .pf-menu, .pf-conv-dock, .pf-conv-basic, .pf-chat, .pf-rating, .pf-companion-dock, .pf-companion-debug-panel, [data-pf-avatar-page] {
     --pf-assistant-size: 24px;
     --pf-assistant-color: var(--pf-accent);
     --pf-fg: var(--color-base-content, var(--bs-body-color, var(--text-main, #1f2937)));

@@ -63,7 +63,7 @@ class AiController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'all', 'settings', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'cancel', 'delete', 'forget', 'consent', 'api', 'export',
+        $this->addAuthAction(['display', 'all', 'settings', 'avatar', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'cancel', 'delete', 'forget', 'consent', 'api', 'export',
             'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'report',
             'skills', 'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject', 'memories', 'memorycorrect', 'memorydelete',
             'skillcatalog', 'skillinstall', 'skillcatalogturn', 'skillcatalogrole', 'skillcatalogupdate', 'skillcatalogdelete',
@@ -433,6 +433,33 @@ class AiController extends Controller
         $view->canEncrypt = \Pramnos\Security\Encrypter::isAvailable();
 
         return $view->display();
+    }
+
+    /**
+     * The assistant's picture in every state: the set in use, large, a button per state (the one
+     * playing marked; those that end by themselves going back to idle), a pose of any name, the
+     * active/away preview, and — where the set declares them — its signals and the state each
+     * plays. Opened as the settings are.
+     */
+    public function avatar(): mixed
+    {
+        if ($this->requireMinUserType($this->adminFloor())) {
+            return null;
+        }
+
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = t('The assistant\'s picture');
+        $analyst    = Llm::config('analyst', []);
+        $set        = is_array($analyst) ? ($analyst['avatar_set'] ?? null) : null;
+        $moods      = is_array($set) && is_array($set['moods'] ?? null) ? $set['moods'] : (is_array($analyst['avatar_moods'] ?? null) ? $analyst['avatar_moods'] : []);
+
+        $view          = $this->getView('ai');
+        $view->picture = \Pramnos\Assist\AvatarSets::render('idle', 160);
+        $view->states  = \Pramnos\Assist\AvatarSets::STATES;
+        $view->moods   = array_map('strval', $moods);
+        $view->urls    = ['settings' => adminUrl('Ai/settings'), 'chat' => adminUrl('Ai')];
+
+        return $view->display('avatar');
     }
 
     /**

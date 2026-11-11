@@ -44,6 +44,8 @@ $labels    = array_column($providers, 'label', 'id'); @endphp
 
     <h1 class="h3">AI settings</h1>
 
+    <p><a href="{{ adminUrl('Ai/avatar') }}">The assistant's picture, in every state &rarr;</a></p>
+
     <p><a href="{{ adminUrl('Ai') }}">← Ask</a>@if (\Pramnos\Llm\Chat\CatalogSkills::canManage(\Pramnos\User\User::current())) · <a href="{{ adminUrl('Ai/skillcatalog') }}">Skills</a>@endif</p>
     <p class="{!! $c['muted'] !!}">
         The language models this installation calls, what each of its features uses, and what it has cost.
