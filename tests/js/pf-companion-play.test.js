@@ -64,7 +64,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-    window.PfCompanionPlay.follow(false);
+    window.PfCompanionPlay.detach();
     window.PfCompanion.unmount();
     mock.timers.reset();
 });
@@ -199,4 +199,62 @@ test('the eyes follow the pointer, within ±1.35, and stop when told', LIMIT, ()
 
     // Assert
     assert.equal(avatar.style.getPropertyValue('--pf-look-x'), '');
+});
+
+test('attach: an element of the application\'s own, not the framework\'s dock; detach puts her back at once', LIMIT, () => {
+    // Arrange — a component's own element, no PfCompanion dock in use
+    window.PfCompanion.unmount();
+    const own = document.createElement('div');
+    document.body.appendChild(own);
+    const pet = document.createElement('span');
+    pet.className = 'pf-assistant-avatar';
+    own.appendChild(pet);
+    window.PfCompanionPlay.attach(own);
+
+    // Act
+    window.PfCompanionPlay.zoomies();
+    const outside = pet.parentNode.className;
+    window.PfCompanionPlay.detach();
+
+    // Assert
+    assert.equal(outside, 'pf-companion-runner', 'she left the component\'s element');
+    assert.equal(pet.parentNode, own, 'back in her place, without the walk home');
+    assert.equal(own.hasAttribute('data-pf-companion-away'), false);
+    assert.equal(window.PfCompanionPlay.playing(), null);
+    assert.equal(document.querySelector('.pf-companion-runner'), null, 'nothing left on the page');
+});
+
+test('detach when her place is gone: the runner is removed, nothing orphaned on the page', LIMIT, () => {
+    // Arrange — the component unmounts while she plays
+    window.PfCompanion.unmount();
+    const own = document.createElement('div');
+    document.body.appendChild(own);
+    const pet = document.createElement('span');
+    pet.className = 'pf-assistant-avatar';
+    own.appendChild(pet);
+    window.PfCompanionPlay.attach(own);
+    window.PfCompanionPlay.zoomies();
+    document.body.removeChild(own);
+
+    // Act
+    window.PfCompanionPlay.detach();
+
+    // Assert
+    assert.equal(document.querySelector('.pf-companion-runner'), null);
+    assert.equal(window.PfCompanionPlay.isOut(), false);
+});
+
+test('state: on the avatar without pfAssistant, and a question asked ends the game', LIMIT, async () => {
+    // Arrange
+    window.PfCompanionPlay.laser();
+
+    // Act
+    window.PfCompanionPlay.state('thinking');
+    await tick(10000);
+
+    // Assert
+    assert.equal(avatar.getAttribute('data-state'), 'thinking');
+    assert.equal(avatar.classList.contains('pf-assistant--thinking'), true);
+    assert.equal(window.PfCompanionPlay.playing(), null, 'the question ended the game');
+    assert.equal(avatar.parentNode, dock);
 });

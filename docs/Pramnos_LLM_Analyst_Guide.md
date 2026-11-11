@@ -429,6 +429,11 @@ PfCompanionPlay.playing();      // the game's name, or null
 - With `prefers-reduced-motion` she goes where she is going at once, without running.
 - Dispatches `pf-companion-play:start` and `pf-companion-play:stop` with `{ game }`. What starts a
   game is the application's choice: a button, a menu, a word in the chat.
+- **Without the framework's dock**, in a component of the application's own (a Svelte SPA):
+  `attach(element)` plays with the avatar inside that element, and `state(name)` sets its state
+  without pfAssistant. A question asked still ends any game. `detach()` on unmount ends the game
+  and puts the avatar back in its place at once. When that place is no longer on the page, the
+  avatar is removed together with its runner, so nothing is left on the `<body>`.
 
 ### A debug window for whatever is mounted
 

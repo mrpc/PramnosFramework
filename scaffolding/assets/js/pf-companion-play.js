@@ -21,6 +21,15 @@
  *
  * `pf-companion-play:start` and `pf-companion-play:stop` are dispatched on the document with
  * `{ game }`.
+ *
+ * **Without the framework's dock** — a component of the application's own (a Svelte SPA):
+ *
+ * ```js
+ * PfCompanionPlay.attach(element);   // the element holding the avatar, instead of PfCompanion's dock
+ * PfCompanionPlay.state('thinking'); // the avatar's state, from the component; a question ends any game
+ * PfCompanionPlay.detach();          // on unmount: the game ends, the avatar is back in its place at
+ *                                    // once — or removed, when its place is no longer on the page
+ * ```
  */
 (function () {
     'use strict';
@@ -41,8 +50,13 @@
     var game = null;      // { name, timers: [], undo: [] }
     var following = null; // the pointer listener, while the eyes follow
     var loose = [];       // timers outside a game — the way home — which a new game cancels
+    var attached = null;  // an element of the application's own, in place of PfCompanion's dock
 
     function dock() {
+        if (attached) {
+            return attached;
+        }
+
         return window.PfCompanion && typeof window.PfCompanion.dock === 'function' ? window.PfCompanion.dock() : null;
     }
 
@@ -403,7 +417,67 @@
         }
     });
 
+    /** Play with the avatar inside an element of the application's own, instead of PfCompanion's dock. */
+    function attach(element) {
+        detach();
+        attached = element || null;
+
+        return window.PfCompanionPlay;
+    }
+
+    /**
+     * Stop at once, with nothing left behind: the game's listeners and what it put on the page
+     * gone, the eyes no longer following, and the avatar back in its place — or removed with its
+     * runner, when that place is no longer on the page (a component unmounted while she played).
+     */
+    function detach() {
+        end();
+        loose.forEach(function (t) { window.clearTimeout(t); });
+        loose = [];
+        follow(false);
+        if (out) {
+            if (out.placeholder.parentNode && document.documentElement.contains(out.placeholder)) {
+                arrive();
+            } else {
+                if (out.runner.parentNode) {
+                    out.runner.parentNode.removeChild(out.runner);
+                }
+                out = null;
+            }
+        }
+        attached = null;
+    }
+
+    /**
+     * The avatar's state, from a component that does not use pfAssistant: through pfAssistant
+     * where it is on the page, else on the avatar itself. A question asked ends any game, as it
+     * does through pfAssistant.
+     */
+    function state(name) {
+        if (game && BUSY.indexOf(name) !== -1) {
+            stop();
+        }
+        var a = avatar();
+        if (!a) {
+            return;
+        }
+        if (window.pfAssistant && typeof window.pfAssistant.state === 'function') {
+            window.pfAssistant.state(name, out ? out.runner : (a.parentNode || undefined));
+
+            return;
+        }
+        var previous = a.getAttribute('data-state');
+        if (previous) {
+            a.classList.remove('pf-assistant--' + previous);
+        }
+        a.classList.add('pf-assistant--' + name);
+        a.setAttribute('data-state', name);
+    }
+
     window.PfCompanionPlay = {
+        attach: attach,
+        detach: detach,
+        state: state,
         laser: laser,
         yarn: yarn,
         zoomies: zoomies,
