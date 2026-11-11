@@ -77,7 +77,8 @@ class SkillsTest extends LlmTestCase
 
         // Act
         (new Conversations(self::assistant()))->as(new Scope(7, null))->ask(null, 'Hi');
-        $this->configure(['chat' => ['web' => true]]);
+        // Off said outright: the web's two tools would take the count past SKILLS_FROM, which turns skills on by itself.
+        $this->configure(['chat' => ['web' => true, 'skills' => false]]);
         (new Conversations(self::assistant()))->as(new Scope(7, null))->ask(null, 'Hi');
 
         // Assert
@@ -121,7 +122,7 @@ class SkillsTest extends LlmTestCase
         $this->assertNotContains('cancel_scheduled_task', $first, 'the framework\'s tasks skill');
         $description = $this->sent[0]['body']['tools'][array_search('use_skill', $first, true)]['function']['description'];
         $this->assertStringContainsString('crm (customers and their orders)', $description);
-        $this->assertStringContainsString('artifacts (reading, changing, finding and pinning artifacts kept earlier)', $description);
+        $this->assertStringContainsString('artifacts (reading, changing, finding, pinning, sharing and assigning artifacts kept earlier — tables, lists, texts, saved queries)', $description);
         $this->assertContains('crm_lookup', self::offered($this->sent[1]), 'from the next step');
         $this->assertTrue($answer['ok']);
         $this->assertSame('Acme has been a customer since 2019.', $answer['message']['content']);

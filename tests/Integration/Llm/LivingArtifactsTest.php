@@ -579,6 +579,8 @@ class LivingArtifactsTest extends LlmTestCase
         $this->assertSame('There is no such saved query.', $notOne);
         $this->assertSame(['two'], $stale['content']['columns'], 'an old result is run again');
         $this->assertArrayHasKey('save_query', $tools);
+        $loaded = \Pramnos\Llm\Chat\Conversations::inSkill($tools, 'artifacts', ['save_artifact', 'save_query', 'run_query']);
+        $this->assertArrayNotHasKey('skills', $loaded['save_query'], 'beside sql, not behind a skill');
         $this->assertStringContainsString('a saved query, run', Artifacts::asText($stale));
     }
 
