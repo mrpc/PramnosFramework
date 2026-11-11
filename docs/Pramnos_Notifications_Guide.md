@@ -259,6 +259,10 @@ Two consequences:
 
 - **Do not translate at construction time.** `new InvoicePaid(t('paid'))` resolves in
   the sender's language, before the switch. Pass the data, call `t()` inside `toMail()`.
+  Where the words have to be made first, as a class that takes finished words does, build
+  it in their language: `Notifier::inLanguageOf($user, fn () => new TaskReminder(sprintf(t('%s left
+  you something'), $name), $url))`. Every notice the assistants send from `llm:routines` (the
+  morning's thought, calendar reminders) and every share is built this way.
 - **A mail composed by hand does not get this**, because it never goes through the
   Notifier. See the [Internationalization guide](Pramnos_Internationalization_Guide.md).
 

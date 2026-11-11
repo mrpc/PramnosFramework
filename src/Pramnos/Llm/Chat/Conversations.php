@@ -951,7 +951,9 @@ class Conversations
                     continue;
                 }
                 $name   = Personas::get((string) Personas::of($scope))['name'] ?? \Pramnos\Llm\Analyst\Analyst::name();
-                $notice = RoutineReady::tag(new TaskReminder(sprintf(t('%s left you something 💌'), $name), $morning['url']), $scope->space);
+                // Its words in the person's language, not the console's.
+                $notice = \Pramnos\Notification\Notifier::inLanguageOf($user,
+                    static fn (): object => RoutineReady::tag(new TaskReminder(sprintf(t('%s left you something 💌'), $name), $morning['url']), $scope->space));
                 $deliver !== null ? $deliver($scope->userId, $notice) : $user->notify($notice);
                 $user->{$mark} = $day;
                 $user->save();

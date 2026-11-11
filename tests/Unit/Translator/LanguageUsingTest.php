@@ -190,4 +190,24 @@ class LanguageUsingTest extends TestCase
         // Assert
         $this->assertSame('Hello', $translated);
     }
+
+    /**
+     * A notification built by a cron job (FW-464): `Notifier::inLanguageOf()` builds it in its
+     * recipient's language — what `t()` says inside is theirs — and one with no language of their
+     * own gets the installation's, as it was.
+     */
+    public function testANotificationIsBuiltInItsRecipientsLanguage(): void
+    {
+        // Arrange
+        $language = $this->language();
+
+        // Act
+        $greek   = \Pramnos\Notification\Notifier::inLanguageOf((object) ['language' => 'greek'], static fn (): string => $language->_('Hello'));
+        $nobody  = \Pramnos\Notification\Notifier::inLanguageOf((object) [], static fn (): string => $language->_('Hello'));
+        $byArray = \Pramnos\Notification\Notifier::inLanguageOf(['language' => 'greek'], static fn (): string => $language->_('Hello'));
+
+        // Assert
+        $this->assertSame(['Γεια', 'Hello', 'Γεια'], [$greek, $nobody, $byArray]);
+        $this->assertSame('english', $language->currentlang(), 'and the language is back afterwards');
+    }
 }

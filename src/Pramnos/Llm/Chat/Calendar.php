@@ -126,8 +126,10 @@ final class Calendar
                 }
                 $starts  = (new \DateTimeImmutable((string) $row['starts_at'], new \DateTimeZone('UTC')))->getTimestamp();
                 $minutes = max(1, (int) round(($starts - $now) / 60));
-                $words   = 'In ' . $minutes . ' minute' . ($minutes === 1 ? '' : 's') . ': ' . $row['title'] . '.';
-                $notice  = RoutineReady::tag(new TaskReminder($words, ''), $scope->space);
+                // In the person's language: the reminder is built by a cron job, which has none.
+                $person  = new \Pramnos\User\User($scope->userId);
+                $notice  = \Pramnos\Notification\Notifier::inLanguageOf($person, static fn (): object => RoutineReady::tag(new TaskReminder(
+                    sprintf(t($minutes === 1 ? 'In %d minute: %s.' : 'In %d minutes: %s.'), $minutes, (string) $row['title']), ''), $scope->space));
                 $deliver !== null ? $deliver($scope->userId, $notice) : (new \Pramnos\User\User($scope->userId))->notify($notice);
                 $sent++;
             } catch (\Throwable $why) {

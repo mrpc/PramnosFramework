@@ -146,6 +146,24 @@ class Notifier
      * an address and nothing else, and an account that never chose a language should be
      * told in whatever the installation's language is rather than in a guess.
      */
+    /**
+     * Build a notification in its recipient's language: what `$build` translates with `t()` —
+     * words made before {@see sendNow()} renders, as a cron job makes them — is in theirs, not in
+     * the language of whoever, or whatever, is building it.
+     *
+     * ```php
+     * $user->notify(Notifier::inLanguageOf($user, fn () => new TaskReminder(sprintf(t('%s left you something'), $name), $url)));
+     * ```
+     *
+     * @template T
+     * @param callable(): T $build
+     * @return T
+     */
+    public static function inLanguageOf(mixed $notifiable, callable $build): mixed
+    {
+        return \Pramnos\Translator\Language::using((new static())->languageOf($notifiable), $build);
+    }
+
     protected function languageOf(mixed $notifiable): string
     {
         if (is_object($notifiable) && isset($notifiable->language)) {

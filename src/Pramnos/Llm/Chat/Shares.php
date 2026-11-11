@@ -405,10 +405,12 @@ final class Shares
         $chat  = \Pramnos\Llm\Llm::config('chat', []);
         $class = is_array($chat) && is_string($chat['share_notification'] ?? null) && class_exists($chat['share_notification'])
             ? $chat['share_notification'] : SharedWithYou::class;
-        $words = sprintf(\Pramnos\Translator\Language::getInstance()->_('%s shared “%s” with you'), self::nameOf($by->userId), (string) $share['title']);
         try {
             $user = new \Pramnos\User\User($recipient);
             if ((int) ($user->userid ?? 0) === $recipient) {
+                // The recipient's language, not the sharer's.
+                $words = \Pramnos\Notification\Notifier::inLanguageOf($user, static fn (): string => sprintf(
+                    \Pramnos\Translator\Language::getInstance()->_('%s shared “%s” with you'), self::nameOf($by->userId), (string) $share['title']));
                 $user->notify(RoutineReady::tag(new $class($words, $this->policy()->link($share)), $by->space));
             }
         } catch (\Throwable $why) {
