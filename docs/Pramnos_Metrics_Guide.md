@@ -171,6 +171,41 @@ Metric::flow('visits.count')->since('2026-10-16')                               
 array $filters): string)` sends the number to the application's own list instead, with the period
 and the filters: a report's cell links there.
 
+A declared query (`from()`…) lists its own records from the columns it is given, by heading where
+the key is a string:
+
+```php
+Metric::flow('payments.amount', 'Revenue')->from('invoices')->at('date', unix: true)->sum('total')
+    ->where('status', 1)->dimension('market', 'countryid')
+    ->rows(['userid' => 'userid', 'Amount' => 'total', 'When' => 'date']);
+```
+
+They are read from its table in the period, with its conditions and the filters asked, the newest
+first, at most `Metric::RECORDS` (500). A filter is applied through its dimension's column or
+expression. A filter on a dimension the metric has no column for is refused rather than ignored,
+so a viewer held to one region never lists another's. The columns are named, never `*`, so a
+table's other columns stay out of the list.
+
+The framework's own metrics list theirs:
+
+| Metrics | Each record |
+|---|---|
+| `visits.views`, `visits.visits`, `visits.visitors`, `visits.bots`, `visits.no_js` | a hit: `at`, `userid`, `visitor`, `visit`, `kind`, `source`, `country`, `device` |
+| `visits.signed_in`, `visits.single_page`, `visits.duration` | a visit: `started`, `userid`, `visit`, `pages`, `seconds` and its landing page's breakdown |
+| `event.*`, `event.*.people` | an event: `userid`, `at` |
+| `audience.segment.members`, `.entered`, `.left` | a stay: `userid`, `segment`, `entered`, `left` |
+
+A record's value opens where the application says, by its column:
+
+```php
+'metrics' => ['links' => [
+    'userid' => fn ($value, array $row): ?string => '/admin/Users/edit/' . $value,
+]],
+```
+
+The records page links each such value. `Metrics::link($column, $value, $row)` gives the address
+to any other screen too: null for a column without a link, or an empty value.
+
 `allowed(fn (?object $user): bool)` decides who may see the metric. By default that is the
 dashboard's role, `manager`.
 

@@ -937,6 +937,62 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * A declared query lists its own records (FW-457): the columns asked, by heading, in the
+     * period, with its conditions and a filter by a dimension's column or expression, the newest
+     * first; a filter on a dimension it has not is refused, so a viewer held to one region never
+     * lists another's; and rows() with no column, or before from(), is refused.
+     */
+    public function testADeclaredQueryListsItsRecords(): void
+    {
+        // Arrange
+        $schema = $this->db->schema();
+        $schema->dropTableIfExists('metrics_test_invoices');
+        $schema->createTable('metrics_test_invoices', function ($table) {
+            $table->integer('date');
+            $table->decimal('total', 10, 2);
+            $table->smallInteger('status');
+            $table->string('country', 4);
+            $table->integer('userid');
+        });
+        foreach ([['gr', 10, 1, 1, '2026-09-03 10:00'], ['gr', 20, 1, 2, '2026-09-04 10:00'], ['uk', 5, 1, 3, '2026-09-05 10:00'], ['gr', 99, 0, 4, '2026-09-06 10:00'],
+            ['gr', 7, 1, 5, '2026-10-01 10:00']] as [$country, $total, $status, $user, $at]) {
+            $this->db->queryBuilder()->table('metrics_test_invoices')->insert(['date' => self::at($at), 'total' => $total, 'status' => $status, 'country' => $country, 'userid' => $user]);
+        }
+        $metric = Metric::flow('test.revenue', 'Revenue')->from('metrics_test_invoices')->at('date', unix: true)->sum('total')->where('status', 1)
+            ->dimension('market', 'country')->dimension('upper', 'UPPER(country)')->rows(['Person' => 'userid', 'total']);
+        $window = Window::of('month', '2026-09-01');
+        $refused = [];
+        foreach ([
+            static fn () => $metric->records($window, ['region' => 'north'], Factory::getDatabase()),
+            static fn () => Metric::flow('test.x')->from('t')->rows([]),
+            static fn () => Metric::flow('test.x')->rows(['a']),
+        ] as $attempt) {
+            try {
+                $attempt();
+            } catch (\DomainException|\InvalidArgumentException|\LogicException $e) {
+                $refused[] = $e::class;
+            }
+        }
+
+        try {
+            // Act
+            $all   = $metric->records($window, [], $this->db);
+            $gr    = $metric->records($window, ['market' => 'gr'], $this->db);
+            $upper = $metric->records($window, ['upper' => ['UK']], $this->db);
+
+            // Assert
+            $this->assertSame([3, 2, 1], array_map('intval', array_column($all, 'Person')), 'the paid ones of September, the newest first');
+            $this->assertSame(['Person', 'total'], array_keys($all[0]), 'by heading, or by the column itself');
+            $this->assertSame([2, 1], array_map('intval', array_column($gr, 'Person')));
+            $this->assertSame([3], array_map('intval', array_column($upper, 'Person')), 'a dimension by an expression');
+            $this->assertTrue($metric->hasRows());
+            $this->assertSame([\DomainException::class, \InvalidArgumentException::class, \LogicException::class], $refused);
+        } finally {
+            $schema->dropTableIfExists('metrics_test_invoices');
+        }
+    }
+
+    /**
      * Gaps: a period before the source's data begins (`since()`), or one the metric says it
      * cannot answer (`missing()`), is not computed — no nought written — and says why, to a query
      * and in a report's cell; `expect()` is kept, and a length that is none refused.

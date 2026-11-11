@@ -86,6 +86,25 @@ final class Metrics
     }
 
     /**
+     * Where a record's value opens, by its column — `'metrics' => ['links' => ['userid' =>
+     * fn ($value, array $row): ?string => url('admin/users/' . $value)]]`: the address, or null for
+     * none. A column without one, or an empty value, has none.
+     *
+     * @param array<string, mixed> $row
+     */
+    public static function link(string $column, mixed $value, array $row): ?string
+    {
+        $links = self::config()['links'] ?? [];
+        $make  = is_array($links) ? ($links[$column] ?? null) : null;
+        if (!is_callable($make) || $value === null || $value === '') {
+            return null;
+        }
+        $url = $make($value, $row);
+
+        return is_string($url) && $url !== '' ? $url : null;
+    }
+
+    /**
      * Every metric, by name — or those this person may see.
      *
      * @return array<string, Metric>

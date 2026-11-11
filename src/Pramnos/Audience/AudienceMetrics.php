@@ -41,19 +41,24 @@ final class AudienceMetrics implements Catalogue
             yield Dimension::of('segment', t('Segment'))->values(static fn (): array => array_column(array_map(
                 static fn (array $s): array => ['id' => (string) $s['id'], 'name' => $s['name']], Segments::all()), 'name', 'id'));
             yield Metric::level('audience.segment.members', t('People in a segment'))->aggregate(Metric::DISTINCT)->dimensions(['segment'])
-                ->keeps([['segment']])->knowsThePast()->describe(t('The people in each segment at the end of the period'))->source(self::members(...));
+                ->keeps([['segment']])->knowsThePast()->describe(t('The people in each segment at the end of the period'))->source(self::members(...))
+                ->rows(static fn (Window $w, array $filters, Database $db): array => self::people(null, $w, $filters, $db));
             yield Metric::flow('audience.segment.entered', t('Entered a segment'))->dimensions(['segment'])
-                ->describe(t('The people who entered each segment in the period, its first working out not counted'))->source(static fn (Window $w, array $by, Database $db) => self::moved('entered_at', $w, $by, $db));
+                ->describe(t('The people who entered each segment in the period, its first working out not counted'))->source(static fn (Window $w, array $by, Database $db) => self::moved('entered_at', $w, $by, $db))
+                ->rows(static fn (Window $w, array $filters, Database $db): array => self::people('entered_at', $w, $filters, $db));
             yield Metric::flow('audience.segment.left', t('Left a segment'))->dimensions(['segment'])
-                ->describe(t('The people who left each segment in the period'))->source(static fn (Window $w, array $by, Database $db) => self::moved('left_at', $w, $by, $db));
+                ->describe(t('The people who left each segment in the period'))->source(static fn (Window $w, array $by, Database $db) => self::moved('left_at', $w, $by, $db))
+                ->rows(static fn (Window $w, array $filters, Database $db): array => self::people('left_at', $w, $filters, $db));
         }
         if ($schema->hasTable(PersonEvents::LOG)) {
             foreach (PersonEvents::all() as $key => $event) {
                 $name = 'event.' . $key;
                 yield Metric::flow($name, $event['label'])->from(PersonEvents::LOG)->at('created_at')->count()
-                    ->where('entity', 'user')->where('event', $key)->describe(sprintf(t('How many times: %s'), $event['label']));
+                    ->where('entity', 'user')->where('event', $key)->describe(sprintf(t('How many times: %s'), $event['label']))
+                    ->rows(['userid' => 'itemid', 'at' => 'created_at']);
                 yield Metric::flow($name . '.people', sprintf(t('People: %s'), $event['label']))->from(PersonEvents::LOG)->at('created_at')
-                    ->countDistinct('itemid')->where('entity', 'user')->where('event', $key)->describe(sprintf(t('How many people: %s'), $event['label']));
+                    ->countDistinct('itemid')->where('entity', 'user')->where('event', $key)->describe(sprintf(t('How many people: %s'), $event['label']))
+                    ->rows(['userid' => 'itemid', 'at' => 'created_at']);
             }
         }
     }
@@ -76,6 +81,40 @@ final class AudienceMetrics implements Catalogue
         }
 
         return $query->select([$query->raw('segmentid AS segment'), $query->raw('COUNT(DISTINCT userid) AS value')])->groupBy(['segmentid'])->getAllOrFail();
+    }
+
+    /**
+     * The people behind a segment's number: its members as the period ends (`$column` null), or
+     * who entered or left it in the period — each with the segment and when they came in and went.
+     * A `segment` filter narrows it to one; the movements of a segment's first working out are
+     * listed too, though not counted.
+     *
+     * @param array<string, string|list<string>> $filters
+     * @return list<array<string, mixed>>
+     */
+    private static function people(?string $column, Window $window, array $filters, Database $db): array
+    {
+        $query = $db->queryBuilder()->table(self::STAYS)->select(['userid', 'segmentid', 'entered_at', 'left_at']);
+        if ($column === null) {
+            $end = $window->endsAt();
+            $query->where('entered_at', '<', $end)->where(static function ($q) use ($end): void {
+                $q->whereNull('left_at')->orWhere('left_at', '>=', $end);
+            });
+        } else {
+            $query->where($column, '>=', $window->startsAt())->where($column, '<', $window->endsAt());
+        }
+        if (isset($filters['segment'])) {
+            $query->whereIn('segmentid', array_map('intval', (array) $filters['segment']));
+        }
+        $names = array_column(Segments::all(), 'name', 'id');
+        $out   = [];
+        foreach ($query->orderBy($column ?? 'entered_at', 'desc')->limit(Metric::RECORDS)->getAllOrFail() as $row) {
+            $out[] = ['userid' => (int) $row['userid'], 'segment' => (string) ($names[(int) $row['segmentid']] ?? $row['segmentid']),
+                'entered' => $row['entered_at'] === null ? null : gmdate('Y-m-d H:i', (int) $row['entered_at']),
+                'left' => $row['left_at'] === null ? null : gmdate('Y-m-d H:i', (int) $row['left_at'])];
+        }
+
+        return $out;
     }
 
     /**

@@ -309,6 +309,16 @@ class HitsTest extends TestCase
         $desktop = \Pramnos\Metrics\Metrics::value('visits.views', 'day', $day, ['visit_device' => 'desktop']);
         $uk      = \Pramnos\Metrics\Metrics::value('visits.visits', 'day', $day, ['market' => 'uk']);
         $search  = \Pramnos\Metrics\Metrics::value('visits.visits', 'day', $day, ['visit_source' => 'search']);
+        // The hits and visits behind the numbers (FW-457).
+        $hitRows   = \Pramnos\Metrics\Metrics::records('visits.views', 'day', $day, ['visit_device' => 'desktop']);
+        $signedIn  = \Pramnos\Metrics\Metrics::records('visits.signed_in', 'day', $day);
+        $singles   = \Pramnos\Metrics\Metrics::records('visits.single_page', 'day', $day, ['visit_source' => 'search']);
+        try {
+            \Pramnos\Metrics\Metrics::records('visits.duration', 'day', $day, ['nothing' => 'x']);
+            $unknown = null;
+        } catch (\DomainException $e) {
+            $unknown = $e::class;
+        }
         $tool    = new \Pramnos\Llm\Analyst\Tools\VisitsTool(2);
         $read    = $tool->execute(['from' => $day, 'to' => $day, 'compare' => true, 'breakdown' => 'sources']);
         $jobs    = $tool->execute(['from' => $day, 'to' => $day, 'page' => 'jobs', 'breakdown' => 'pages']);
@@ -320,6 +330,12 @@ class HitsTest extends TestCase
         $this->assertSame([4.0, 2.0, 2.0, 1.0, 1.0, 60.0, 1.0, 1.0], $values,
             'four pages by people; two visits by two visitors, one signed in, one of a page; 120 s and 0 s; a robot and a page without JavaScript apart');
         $this->assertSame(1.0, $desktop);
+        $this->assertCount(1, $hitRows, 'the desktop page');
+        $this->assertSame('desktop', $hitRows[0]['device']);
+        $this->assertSame([42], array_map('intval', array_column($signedIn, 'userid')), 'the signed-in visit, with its person');
+        $this->assertSame(3, (int) $signedIn[0]['pages']);
+        $this->assertCount(1, $singles, 'the visit from a search, of one page');
+        $this->assertSame(\DomainException::class, $unknown, 'a breakdown visits have not, refused');
         $this->assertSame(1.0, $uk, 'the application\'s own dimension, under the name it chose');
         $this->assertSame(1.0, $search, 'a visit\'s source is its landing page\'s');
         $this->assertArrayHasKey('market', \Pramnos\Metrics\Metrics::dimensions());

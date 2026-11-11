@@ -1138,12 +1138,82 @@ final class Metric
         return $this->tenantColumn;
     }
 
-    /** @param \Closure(Window, array<string, string>, \Pramnos\Database\Database): iterable<array<string, mixed>> $rows The records behind a number */
-    public function rows(\Closure $rows): self
+    /** The most records listed behind a number of a declared query. */
+    public const RECORDS = 500;
+
+    /** The columns a declared query's records are listed with, by their heading. @var array<string, string> */
+    private array $rowColumns = [];
+
+    /**
+     * The records behind a number: a closure that lists them, or — for a declared query
+     * (`from()`…) — the columns to list them with, by heading where the key is a string:
+     * `->rows(['Person' => 'userid', 'Amount' => 'total', 'When' => 'date'])`. Those are read from
+     * its table, in the period and with its conditions and the filters asked, the newest first, at
+     * most {@see RECORDS}.
+     *
+     * @param \Closure(Window, array<string, string>, \Pramnos\Database\Database): iterable<array<string, mixed>>|array<int|string, string> $rows
+     */
+    public function rows(\Closure|array $rows): self
     {
+        if (is_array($rows)) {
+            $this->needsTable('rows');
+            if ($rows === []) {
+                throw new \InvalidArgumentException('rows() lists at least one column.');
+            }
+            $this->rowColumns = [];
+            foreach ($rows as $heading => $column) {
+                $this->rowColumns[is_string($heading) ? $heading : (string) $column] = (string) $column;
+            }
+            $this->rows = fn (Window $w, array $filters, \Pramnos\Database\Database $db): array => $this->declaredRecords($w, $filters, $db);
+
+            return $this;
+        }
         $this->rows = $rows;
 
         return $this;
+    }
+
+    /**
+     * A declared query's records in a period: its columns, by heading, with its conditions and the
+     * filters asked — each by its dimension's column; one it has no column for is refused, so a
+     * viewer held to a region never lists another's.
+     *
+     * @param array<string, string|list<string>> $filters
+     * @return list<array<string, mixed>>
+     */
+    private function declaredRecords(Window $window, array $filters, \Pramnos\Database\Database $db): array
+    {
+        $q       = (array) $this->query;
+        $query   = $db->queryBuilder()->table($q['table']);
+        $select  = [];
+        $aliases = [];
+        foreach (array_values($this->rowColumns) as $i => $column) {
+            $select[]  = $query->raw($column . ' AS c' . $i);
+            $aliases[] = 'c' . $i;
+        }
+        $query->select($select);
+        [$from, $to] = $q['unix'] ? [$window->startsAt(), $window->endsAt()]
+            : [\Pramnos\Database\Instant::utc($window->startsAt(), $db), \Pramnos\Database\Instant::utc($window->endsAt(), $db)];
+        $query->where($q['time'], '>=', $from)->where($q['time'], '<', $to);
+        foreach ($q['where'] as [$column, $value]) {
+            is_array($value) ? $query->whereIn($column, array_values($value)) : $query->where($column, $value);
+        }
+        foreach ($filters as $name => $value) {
+            $column = $q['columns'][$name] ?? null;
+            if ($column === null) {
+                throw new \DomainException(sprintf(t('%s cannot be listed by %s.'), $this->label(), $name));
+            }
+            $values = array_values(array_map('strval', (array) $value));
+            if ($values !== []) {
+                $query->whereRaw('(' . $column . ') IN (' . implode(', ', array_fill(0, count($values), '?')) . ')', $values);
+            }
+        }
+        $out = [];
+        foreach ($query->orderBy($q['time'], 'desc')->limit(self::RECORDS)->getAllOrFail() as $row) {
+            $out[] = array_combine(array_keys($this->rowColumns), array_map(static fn (string $a): mixed => $row[$a] ?? null, $aliases));
+        }
+
+        return $out;
     }
 
     /** @param \Closure(?object): bool $allowed Who may see it; the dashboard's role, `manager`, by default */

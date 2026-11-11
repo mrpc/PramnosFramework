@@ -20,7 +20,7 @@ $columns = array_keys($columns);
         <thead><tr>@foreach ($columns as $column)<th>{{ $column }}</th>@endforeach</tr></thead>
         <tbody>
         @foreach ($this->rows as $one)
-        <tr>@foreach ($columns as $column)<td>{{ is_scalar($one[$column] ?? null) ? $one[$column] : json_encode($one[$column] ?? null) }}</td>@endforeach</tr>
+        <tr>@foreach ($columns as $column)@php $text = is_scalar($one[$column] ?? null) ? (string) $one[$column] : (string) json_encode($one[$column] ?? null); $href = \Pramnos\Metrics\Metrics::link((string) $column, $one[$column] ?? null, $one); @endphp<td>@if ($href !== null)<a href="{{ $href }}">{{ $text }}</a>@else{{ $text }}@endif</td>@endforeach</tr>
         @endforeach
         </tbody>
     </table></div>

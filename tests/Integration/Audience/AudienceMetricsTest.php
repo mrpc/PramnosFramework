@@ -76,6 +76,11 @@ class AudienceMetricsTest extends TestCase
             'entered' => $read('audience.segment.entered', '2026-09-01'), 'left' => $read('audience.segment.left', '2026-09-01'),
             'paid' => $read('event.test.paid', '2026-09-01'), 'payers' => $read('event.test.paid.people', '2026-09-01'),
         ];
+        // The people behind each number (FW-457): the members, who entered, who paid.
+        $members = Metrics::records('audience.segment.members', 'month', '2026-09-01', ['segment' => (string) $id]);
+        $entered = Metrics::records('audience.segment.entered', 'month', '2026-09-01');
+        $left    = Metrics::records('audience.segment.left', 'month', '2026-09-01');
+        $payers  = Metrics::records('event.test.paid.people', 'month', '2026-09-01');
         Application::getInstance()->applicationInfo['metrics']['audience'] = false;
         Metrics::reset();
         $without = array_filter(array_keys(Metrics::all()), static fn (string $n): bool => str_starts_with($n, 'audience.') || str_starts_with($n, 'event.'));
@@ -91,6 +96,12 @@ class AudienceMetricsTest extends TestCase
         $this->assertSame(1.0, $values['left']);
         $this->assertSame([3.0, 2.0], [$values['paid'], $values['payers']], 'three payments, two people');
         $this->assertSame('Greek speakers', $label);
+        $this->assertEqualsCanonicalizing([$this->ids['cara'], $this->ids['bob']], array_column($members, 'userid'), 'the members as the month ends');
+        $this->assertSame('Greek speakers', $members[0]['segment']);
+        $this->assertEqualsCanonicalizing([$this->ids['anna'], $this->ids['cara'], $this->ids['bob']], array_column($entered, 'userid'), 'listed, its start too');
+        $this->assertSame([$this->ids['anna']], array_column($left, 'userid'));
+        $this->assertSame('2026-09-20 10:00', $left[0]['left']);
+        $this->assertSame([$this->ids['bob'], $this->ids['anna'], $this->ids['anna']], array_map('intval', array_column($payers, 'userid')), 'each payment, the newest first');
         $this->assertSame([], array_values($without), 'left out where app.php says so');
     }
 }

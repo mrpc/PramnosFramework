@@ -83,7 +83,9 @@ final class VisitsMetrics implements Catalogue
                 $metric->dimension($dimension, $column);
             }
 
-            return $metric;
+            // The hits behind the number: when, who where known, and from where.
+            return $metric->rows(['at' => 'at', 'userid' => 'userid', 'visitor' => 'visitor', 'visit' => 'visit', 'kind' => 'kind', 'source' => 'source',
+                'country' => 'country', 'device' => 'device']);
         };
         $dims = array_keys(self::columns());
 
@@ -100,15 +102,18 @@ final class VisitsMetrics implements Catalogue
         yield Metric::flow('visits.signed_in', t('Signed-in visits'))->refresh($every)
             ->sourceSets(static fn (Window $w, array $sets, Database $db): ?array => self::perVisitSets($w->startsAt(), $w->endsAt(), $sets, $db, 'signed'))->dimensions(array_values(array_diff($dims, ['signed_in'])))
             ->describe(t('Visits in which the person was signed in at some page'))
-            ->source(static fn (Window $w, array $by, Database $db): int|array => self::perVisit($w->startsAt(), $w->endsAt(), $by, $db, 'signed'));
+            ->source(static fn (Window $w, array $by, Database $db): int|array => self::perVisit($w->startsAt(), $w->endsAt(), $by, $db, 'signed'))
+            ->rows(static fn (Window $w, array $filters, Database $db): array => self::visitRows($w->startsAt(), $w->endsAt(), $filters, $db, 'signed'));
         yield Metric::flow('visits.single_page', t('Single-page visits'))->refresh($every)
             ->sourceSets(static fn (Window $w, array $sets, Database $db): ?array => self::perVisitSets($w->startsAt(), $w->endsAt(), $sets, $db, 'single'))->dimensions($dims)
             ->describe(t('Visits of one page'))
-            ->source(static fn (Window $w, array $by, Database $db): int|array => self::perVisit($w->startsAt(), $w->endsAt(), $by, $db, 'single'));
+            ->source(static fn (Window $w, array $by, Database $db): int|array => self::perVisit($w->startsAt(), $w->endsAt(), $by, $db, 'single'))
+            ->rows(static fn (Window $w, array $filters, Database $db): array => self::visitRows($w->startsAt(), $w->endsAt(), $filters, $db, 'single'));
         yield Metric::flow('visits.duration', t('Visit length'))->refresh($every)
             ->sourceSets(static fn (Window $w, array $sets, Database $db): ?array => self::perVisitSets($w->startsAt(), $w->endsAt(), $sets, $db, 'duration'))->aggregate(Metric::AVG)->dimensions($dims)->unit('s')->format('duration')
             ->describe(t('The mean visit, in seconds, from its first page to its last; visits longer than 4 hours (a tab left open) are left out'))
-            ->source(static fn (Window $w, array $by, Database $db): int|array => self::perVisit($w->startsAt(), $w->endsAt(), $by, $db, 'duration'));
+            ->source(static fn (Window $w, array $by, Database $db): int|array => self::perVisit($w->startsAt(), $w->endsAt(), $by, $db, 'duration'))
+            ->rows(static fn (Window $w, array $filters, Database $db): array => self::visitRows($w->startsAt(), $w->endsAt(), $filters, $db, 'duration'));
     }
 
     /**
@@ -136,6 +141,31 @@ final class VisitsMetrics implements Catalogue
         $row = $outer->getAllOrFail()[0] ?? [];
 
         return $what === 'duration' ? [['value' => (float) ($row['value'] ?? 0), 'count' => (int) ($row['count'] ?? 0)]] : (int) ($row['value'] ?? 0);
+    }
+
+    /**
+     * The visits behind a per-visit number: each with its first page's time, the person where
+     * known, its pages and length, and its landing page's breakdown — filtered by any dimension.
+     *
+     * @param array<string, string|list<string>> $filters
+     * @return list<array<string, mixed>>
+     */
+    public static function visitRows(int $from, int $to, array $filters, Database $db, string $what): array
+    {
+        $names = array_keys(self::columns());
+        $inner = self::visits($from, $to, $names, $db, null);
+        $outer = $db->queryBuilder()->fromSub($inner, 'v');
+        $outer->select(array_map(static fn (string $c) => $outer->raw($c), ['started', 'userid', 'visit', 'pages', 'seconds',
+            ...array_map(static fn (string $n): string => (string) preg_replace('/[^a-z0-9_]/', '', $n), $names)]));
+        self::which($outer, $what);
+        foreach ($filters as $name => $value) {
+            if (!in_array($name, $names, true)) {
+                throw new \DomainException(sprintf(t('Visits cannot be listed by %s.'), $name));
+            }
+            $outer->whereIn((string) preg_replace('/[^a-z0-9_]/', '', $name), array_values(array_map('strval', (array) $value)));
+        }
+
+        return $outer->orderBy('started', 'desc')->limit(Metric::RECORDS)->getAllOrFail();
     }
 
     /**
@@ -202,7 +232,7 @@ final class VisitsMetrics implements Catalogue
         $inner  = $db->queryBuilder()->table(self::TABLE);
         $select = [$inner->raw('visit'), $inner->raw('COUNT(*) AS pages'),
             $inner->raw($db->type === 'postgresql' ? 'CAST(EXTRACT(EPOCH FROM MAX(at) - MIN(at)) AS BIGINT) AS seconds' : 'TIMESTAMPDIFF(SECOND, MIN(at), MAX(at)) AS seconds'),
-            $inner->raw('MAX(CASE WHEN userid IS NULL THEN 0 ELSE 1 END) AS signed')];
+            $inner->raw('MAX(CASE WHEN userid IS NULL THEN 0 ELSE 1 END) AS signed'), $inner->raw('MIN(at) AS started'), $inner->raw('MAX(userid) AS userid')];
         $columns = self::columns();
         foreach ($names as $name) {
             // The landing page's: where it came from is only on it, the rest is the visit's own.

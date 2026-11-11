@@ -472,8 +472,12 @@ class ReportsMySQLTest extends TestCase
         $this->assertStringEndsWith('MetricReports/show?report=' . $id, $screen->redirects[0]);
         $this->assertStringEndsWith('MetricReports/edit', $screen->redirects[1]);
 
-        // Act — every template, every theme, through the engine
+        // Act — every template, every theme, through the engine; a record's value opens where the application says (FW-457)
+        Application::getInstance()->applicationInfo['metrics']['links'] = ['order' => static fn ($value): string => '/admin/Orders/' . $value];
         foreach (['tailwind', 'bootstrap', 'plain-css'] as $theme) {
+            $records = $this->renderTemplate($theme, 'metricreports/rows.tpl.php', $pages['rows']);
+            $this->assertStringContainsString('<a href="/admin/Orders/1">1</a>', $records, $theme . ': the order opens');
+            $this->assertStringContainsString('<td>north</td>', $records, $theme . ': a column without a link is text');
             foreach ($pages as $file => $vars) {
                 $html = $this->renderTemplate($theme, 'metricreports/' . $file . '.tpl.php', $vars);
 
