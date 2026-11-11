@@ -211,7 +211,9 @@ answer is there.
 A question is a bubble on the right and an answer is text on the left, each under a line with
 whose it is — "You", or the assistant's name (`'chat' => ['name' => …]`, `'analyst' => ['name' =>
 …]`) — and when, in the reader's own zone: "today 22:50", or the date for another day. Under each
-answer, ⧉ Copy puts its Markdown on the clipboard, not its HTML. Over each table in an answer,
+answer, ⧉ Copy puts the answer on the clipboard both as drawn (HTML) and as its Markdown (plain
+text). A mail or a document then pastes the headings, lists and tables, and a plain field pastes
+the text. Where the browser cannot write HTML, the Markdown is copied alone. Over each table in an answer,
 ⧉ Copy table puts its rows on the clipboard tab-separated, which a spreadsheet pastes as cells. On
 Bootstrap the question's bubble also carries its colour inline, for an admin theme still on
 Bootstrap 3, which has no `bg-body-tertiary`. A question asked in place is drawn

@@ -618,18 +618,48 @@
             }
         });
 
-        /** Put text on the clipboard, and say so on the button for a moment. */
-        function copy(button, text) {
+        /**
+         * Put text on the clipboard, and say so on the button for a moment. With `html` too, both:
+         * an editor or a mail pastes the formatted answer, a plain field the text.
+         */
+        function copy(button, text, html) {
             var clipboard = window.navigator && window.navigator.clipboard;
+            var done = function () {
+                var was = button.textContent;
+                button.textContent = '✓ ' + words('copied', 'Copied');
+                window.setTimeout(function () { button.textContent = was; }, 2000);
+            };
 
             if (!clipboard) {
                 return;
             }
-            clipboard.writeText(text).then(function () {
-                var was = button.textContent;
-                button.textContent = '✓ ' + words('copied', 'Copied');
-                window.setTimeout(function () { button.textContent = was; }, 2000);
-            });
+            if (html && clipboard.write && window.ClipboardItem && window.Blob) {
+                clipboard.write([new window.ClipboardItem({
+                    'text/html': new window.Blob([html], { type: 'text/html' }),
+                    'text/plain': new window.Blob([text], { type: 'text/plain' })
+                })]).then(done, function () { clipboard.writeText(text).then(done); });
+                return;
+            }
+            clipboard.writeText(text).then(done);
+        }
+
+        /** The drawn answer a copy button stands under: the nearest `.pf-chat-answer` before it. */
+        function answerOf(button) {
+            var siblings = button.parentNode ? button.parentNode.children : [];
+            var i;
+            var inner;
+
+            for (i = Array.prototype.indexOf.call(siblings, button) - 1; i >= 0; i--) {
+                inner = siblings[i].querySelectorAll ? siblings[i].querySelectorAll('.pf-chat-answer')[0] : null;
+                if (inner) {
+                    return inner;
+                }
+                if ((' ' + (siblings[i].className || '') + ' ').indexOf(' pf-chat-answer ') !== -1) {
+                    return siblings[i];
+                }
+            }
+
+            return null;
         }
 
         /** A rating's outcome beside its buttons, for a moment, as a copy says ✓. */
@@ -731,7 +761,11 @@
         });
 
         Array.prototype.forEach.call(root.querySelectorAll('[data-pf-chat-copy]'), function (button) {
-            button.addEventListener('click', function () { copy(button, button.getAttribute('data-pf-chat-copy') || ''); });
+            button.addEventListener('click', function () {
+                var answer = answerOf(button);
+
+                copy(button, button.getAttribute('data-pf-chat-copy') || '', answer ? answer.innerHTML : '');
+            });
         });
 
         // A question asked aloud is answered aloud, where the person has not turned that off: the

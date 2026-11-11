@@ -126,7 +126,7 @@ const file = (name, size = 10, type = 'text/plain') => ({ name, size, type });
  *
  * @param {{waiting?: string, answers: Array<object|string|Error>, attributes?: object, parser?: boolean, now?: () => number}} options
  */
-function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, examples = [], before = [], clipboard = null, pfChat = undefined, states = null, pageClass = '', pfVoice = undefined, mic = false, speak = null, sanitizer = undefined, model = false }) {
+function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, examples = [], before = [], clipboard = null, pfChat = undefined, states = null, pageClass = '', pfVoice = undefined, mic = false, speak = null, sanitizer = undefined, model = false, clipboardItem = undefined }) {
     const page = element('div', { 'data-pf-chat': '', 'data-asked': '/chat/asked/', 'data-question-class': 'bubble', ...attributes });
     page.className = pageClass;
     examples.forEach((text) => page.appendChild(element('button', { type: 'button', 'data-pf-chat-suggestion': text })));
@@ -162,6 +162,8 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
         PfVoice: pfVoice,
         PfSpeechSanitizer: sanitizer,
         navigator: clipboard ? { clipboard } : {},
+        ClipboardItem: clipboardItem,
+        Blob: clipboardItem ? Blob : undefined,
         location: { href: '/chat' },
         setTimeout: (fn, ms) => { delays.push(ms); return timers.push(fn); },
         setInterval: (fn) => { intervals.push(fn); return intervals.length; },
@@ -775,6 +777,45 @@ test('copy puts the answer\'s Markdown on the clipboard, and says so', async () 
     assert.deepEqual(copied, ['**Total**: 12'], 'the Markdown, not the HTML');
     assert.equal(said, '✓ Copied');
     assert.equal(copy.textContent, 'Copy', 'and back after a moment');
+});
+
+/**
+ * The answer copied as it is drawn (FW-477): its HTML and its Markdown, both, where the browser
+ * can write more than text — so a mail or a document pastes headings, lists and tables, and a
+ * plain field the text. Where it cannot, or writing both fails, the text alone.
+ */
+test('copy puts the drawn answer on the clipboard as HTML, with its text beside it', async () => {
+    // Arrange
+    const items = [];
+    const message = element('div');
+    const box = message.appendChild(element('div'));
+    const answer = box.appendChild(element('div'));
+    answer.className = 'pf-chat-answer';
+    answer.innerHTML = '<p><strong>Total</strong>: 12</p>';
+    const copy = message.appendChild(element('button', { 'data-pf-chat-copy': '**Total**: 12' }));
+    copy.textContent = 'Copy';
+    class Item { constructor(parts) { this.parts = parts; } }
+    let fail = false;
+    const plain = [];
+    run({ answers: [], before: [message], clipboardItem: Item, clipboard: {
+        write: (list) => { items.push(...list); return fail ? Promise.reject(new Error('denied')) : Promise.resolve(); },
+        writeText: (text) => { plain.push(text); return Promise.resolve(); },
+    } });
+
+    // Act
+    copy.click();
+    await settle();
+    const said = copy.textContent;
+    fail = true;
+    copy.click();
+    await settle();
+
+    // Assert
+    assert.deepEqual(Object.keys(items[0].parts), ['text/html', 'text/plain'], 'both kinds');
+    assert.equal(await items[0].parts['text/html'].text(), '<p><strong>Total</strong>: 12</p>', 'the answer as drawn');
+    assert.equal(await items[0].parts['text/plain'].text(), '**Total**: 12', 'its Markdown for a plain field');
+    assert.equal(said, '✓ Copied');
+    assert.deepEqual(plain, ['**Total**: 12'], 'where writing both is refused, the text alone');
 });
 
 test('a table in an answer is copied as tab-separated rows, which a spreadsheet pastes as cells', async () => {
