@@ -825,6 +825,39 @@ test('copy puts the drawn answer on the clipboard as HTML, with its text beside 
     assert.deepEqual(plain, ['**Total**: 12'], 'where writing both is refused, the text alone');
 });
 
+/**
+ * The copied HTML has a table bare (FW-477): the box that scrolls it on the page is left behind,
+ * since a word processor in the browser may drop a table it finds inside one.
+ */
+test('a copied table is bare, without the box that scrolls it', async () => {
+    // Arrange
+    const items = [];
+    const serialise = (node) => node.tagName === 'TEXT' ? node.text : '<' + node.tagName.toLowerCase() + '>' + node.children.map(serialise).join('') + '</' + node.tagName.toLowerCase() + '>';
+    const message = element('div');
+    const answer = message.appendChild(element('div'));
+    answer.className = 'pf-chat-answer';
+    answer.innerHTML = 'drawn';
+    answer.cloneNode = () => {
+        const clone = element('div');
+        const box = clone.appendChild(element('div'));
+        const table = box.appendChild(element('table'));
+        table.appendChild(element('tr'));
+        clone.replaceChild = (child, old) => { clone.children[clone.children.indexOf(old)] = child; child.parentNode = clone; };
+        Object.defineProperty(clone, 'innerHTML', { get: () => clone.children.map(serialise).join('') });
+        return clone;
+    };
+    const copy = message.appendChild(element('button', { 'data-pf-chat-copy': 'md' }));
+    class Item { constructor(parts) { this.parts = parts; } }
+    run({ answers: [], before: [message], clipboardItem: Item, clipboard: { write: (list) => { items.push(...list); return Promise.resolve(); }, writeText: () => Promise.resolve() } });
+
+    // Act
+    copy.click();
+    await settle();
+
+    // Assert
+    assert.equal(await items[0].parts['text/html'].text(), '<table><tr></tr></table>', 'the table, not its box');
+});
+
 test('a table in an answer is copied as tab-separated rows, which a spreadsheet pastes as cells', async () => {
     // Arrange
     const copied = [];

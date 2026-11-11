@@ -653,6 +653,15 @@
             Array.prototype.forEach.call(clone.querySelectorAll('button'), function (one) {
                 one.parentNode.removeChild(one);
             });
+            // A table bare, without the box that scrolls it on the page: an editor that pastes
+            // HTML (a word processor in the browser) may drop a table it finds inside one.
+            Array.prototype.forEach.call(clone.querySelectorAll('table'), function (table) {
+                var box = table.parentNode;
+
+                if (box && box !== clone && box.tagName === 'DIV' && box.children.length === 1 && box.parentNode && box.parentNode.replaceChild) {
+                    box.parentNode.replaceChild(table, box);
+                }
+            });
 
             return clone.innerHTML;
         }
