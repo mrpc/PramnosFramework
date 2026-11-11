@@ -106,7 +106,7 @@ Messages::post($general, $maria, 'Έγινε', ['thread' => $id, 'broadcast' => 
 Messages::post($alerts, null, '', ['card' => ['title' => 'Payment', 'fields' => ['Amount' => '29,90 €']]]);
 Messages::edit($id, $me, 'Ο <@48211> ζητά επιστροφή');                   // its writer only; what it said goes to the changelog
 Messages::edits($id);                                                     // what it said before each edit, while the changelog keeps it
-Messages::delete($id, $user);                                            // its writer, an owner, or root
+Messages::delete($id, $user);                                            // its writer, a moderator (owner, admin, admin.chat.moderate), or root
 Messages::react($id, $nikos, ':eyes:');                                  // and false to take it off
 Messages::pin($id, $me);
 

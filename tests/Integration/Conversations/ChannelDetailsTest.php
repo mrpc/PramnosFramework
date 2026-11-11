@@ -177,6 +177,34 @@ class ChannelDetailsTest extends TestCase
     }
 
     /**
+     * Who deletes a message of somebody else's: whoever moderates the conversation — its owner,
+     * one of its admins — and not a plain member; a bot's post, written by nobody, taken down by an
+     * admin. The writer deletes their own.
+     */
+    #[DataProvider('databases')]
+    public function testAModeratorDeletesAnybodysMessage(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->ready($type, $host, $port, $user);
+        [$maria, $nikos, $tasos] = [$this->ids['maria'], $this->ids['nikos'], $this->ids['tasos']];
+        $launch = Conversations::create('channel', 'launch', [$nikos, $tasos], $maria);
+        Details::setRole($launch, $nikos, 'admin', $maria);
+        $members = Messages::post($launch, $tasos, 'a member\'s');
+        $bots    = Messages::post($launch, null, 'a system post');
+        $owners  = Messages::post($launch, $maria, 'the owner\'s');
+
+        // Act
+        Messages::delete($members, $this->user('nikos'));              // an admin
+        Messages::delete($bots, $this->user('nikos'));                 // nobody's
+        $refused = self::refused(fn () => Messages::delete($owners, $this->user('tasos')));
+
+        // Assert
+        $this->assertNotNull(Messages::get($members)['deletedAt'] ?? null, 'an admin deletes a member\'s');
+        $this->assertNotNull(Messages::get($bots)['deletedAt'] ?? null, 'and a system post');
+        $this->assertSame('Only its writer deletes a message.', $refused, 'a plain member does not');
+    }
+
+    /**
      * Links and files a page at a time: every address said, newest first, a deleted message's
      * left out, found by a word of the address, the next page before a message; files as media or
      * the rest, by name, before a file. Deleted for good: a superuser's alone, never a system

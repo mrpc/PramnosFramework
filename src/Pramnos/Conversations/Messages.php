@@ -363,12 +363,12 @@ final class Messages
         return $filtered['text'];
     }
 
-    /** Delete a message — its writer, an owner of the conversation, or whoever reads them all. */
+    /** Delete a message — its writer, a moderator of the conversation ({@see Access::moderates()}: its owner or admins, or `admin.chat.moderate`), or whoever reads them all. */
     public static function delete(int $id, object $by): void
     {
         $message = self::get($id) ?? throw new \InvalidArgumentException(t('That message no longer exists.'));
         $who     = (int) $by->userid;
-        if ($message['authorId'] !== $who && (Conversations::member($message['conversationId'], $who)['role'] ?? null) !== 'owner' && !Access::readsAll($by)) {
+        if ($message['authorId'] !== $who && !Access::moderates($by, $message['conversationId']) && !Access::readsAll($by)) {
             throw new \InvalidArgumentException(t('Only its writer deletes a message.'));
         }
         $db = Conversations::db();
