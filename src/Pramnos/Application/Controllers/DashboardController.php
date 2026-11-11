@@ -785,6 +785,8 @@ class DashboardController extends Controller
     {
         $draw     = ($item['draw'] ?? true) !== false && (func_num_args() < 3 || func_get_arg(2) !== false);
         $settings = (array) ($item['settings'] ?? []);
+        // Its own settings before anything is read from it: one widget serves every card of its kind.
+        $widget->configure($settings);
         $options  = [];
         $fields   = [];
         foreach ($widget->options() as $name => $allowed) {

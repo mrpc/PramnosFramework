@@ -850,6 +850,21 @@ class ReportsMySQLTest extends TestCase
         $this->assertSame('General', $layout[0]['title']);
         $this->assertSame(['Overall', 'By region'], array_map(static fn (array $t): string => $t['settings']['title'], $layout[0]['tabs']));
         $this->assertSame('report.section~s2', $layout[1]['id'], 'the next section as before');
+        $controller = new class extends \Pramnos\Application\Controllers\DashboardController {
+            /** Construction skipped: only cardFor() is called. */
+            public function __construct()
+            {
+            }
+
+            /** cardFor() as a group's tabs call it. */
+            public function tabCard(\Pramnos\Dashboard\Widget $widget, array $item): array
+            {
+                return $this->cardFor($widget, $item + ['draw' => false]);
+            }
+        };
+        $widget = new \Pramnos\Metrics\Widgets\TableWidget();
+        $titles = array_map(static fn (array $tab): string => $controller->tabCard($widget, $tab + ['size' => 'full'])['title'], $layout[0]['tabs']);
+        $this->assertSame(['Overall', 'By region'], $titles, 'each tab headed by its own title, though one widget serves both');
         $this->assertNotContains('Buyers', array_column($august['sections'], 'title'), 'nothing but noughts in August: left out');
         $this->assertContains('Buyers', array_column($september['sections'], 'title'), 'in September it has numbers');
         // Some of a breakdown's values, its total every value's (FW-473, 11).
