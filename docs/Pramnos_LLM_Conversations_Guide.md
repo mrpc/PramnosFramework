@@ -710,7 +710,8 @@ The model gives a `view` in `save_artifact`, or changes it with `update_artifact
 `patch`. Under a table on the page, a person picks it by *Show as* and *By*, and the API is
 `POST {chat}/artifacts/{id}/view` with `type` and `by`. In code it is `Artifacts::setView($id,
 ['type' => 'board', 'by' => 'Status'])`. A change of the rows keeps the view, and a saved query
-run again keeps it too. A person's plan starts as a board by `phase`.
+run again keeps it too. A person's plan is a board by `phase` unless it has a view of its own.
+Choosing rows keeps `{type: table}`, so that choice stays.
 
 ### A saved query
 

@@ -619,7 +619,12 @@ class LivingArtifactsTest extends LlmTestCase
         $this->assertMatchesRegularExpression('~>12</div><div[^>]*title="Refund">Refund</div>~', $drawn, 'under its day');
         $this->assertMatchesRegularExpression('~<li>Card</li>~', $drawn, 'what has no date, after it');
         $this->assertSame('A board goes by one of the columns: Title, Status, Due.', $wrong);
-        $this->assertArrayNotHasKey('view', $rows['content'], 'back to rows');
+        $this->assertSame(['type' => 'table', 'by' => ''], $rows['content']['view'], 'back to rows, said outright');
+        $this->assertStringContainsString('<table', \Pramnos\Llm\Chat\Web\ArtifactView::html($rows));
+        // A plan made before views: a board by phase all the same; shown as rows once asked.
+        $plan = ['artifact_id' => 1, 'kind' => 'table', 'title' => 'Plan', 'content' => ['columns' => \Pramnos\Llm\Chat\Plan::COLUMNS, 'rows' => [['Garden', 'home', 'active', '', '', '', '']]]];
+        $this->assertStringContainsString('pf-artifact-board', \Pramnos\Llm\Chat\Web\ArtifactView::html($plan));
+        $this->assertStringNotContainsString('pf-artifact-board', \Pramnos\Llm\Chat\Web\ArtifactView::html(['content' => $plan['content'] + ['view' => ['type' => 'table', 'by' => '']]] + $plan));
         $this->assertStringStartsWith('A view is one of', (string) $badMade);
         $this->assertSame([200, 'board'], [$api['status'], $api['data']['content']['view']['type']]);
         $this->assertStringContainsString('<option value="board" selected>', $tools, 'offered under the table, as it is');

@@ -47,7 +47,11 @@ final class ArtifactView
             . '<header><strong>' . $e($artifact['title'] ?? '') . '</strong> <span class="' . $e($muted) . '">' . $e($label) . '</span></header>';
 
         $view = $kind === 'table' && is_array($content['view'] ?? null) ? $content['view'] : null;
-        if ($view !== null && in_array($view['by'] ?? '', (array) ($content['columns'] ?? []), true)) {
+        // A person's plan with no view of its own — one made before views were — is a board by phase.
+        if ($kind === 'table' && $view === null && ($artifact['title'] ?? '') === \Pramnos\Llm\Chat\Plan::TITLE && (array) ($content['columns'] ?? []) === \Pramnos\Llm\Chat\Plan::COLUMNS) {
+            $view = ['type' => 'board', 'by' => 'phase'];
+        }
+        if ($view !== null && ($view['type'] ?? '') !== 'table' && in_array($view['by'] ?? '', (array) ($content['columns'] ?? []), true)) {
             $html .= $view['type'] === 'calendar' ? self::calendar($content, (string) $view['by'], $muted) : self::board($content, (string) $view['by'], $muted);
         } elseif ($kind === 'table') {
             $html .= '<div style="overflow:auto;max-height:24rem"><table class="' . $e($table) . '"><thead><tr>';

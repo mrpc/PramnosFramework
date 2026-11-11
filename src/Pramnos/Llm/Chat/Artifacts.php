@@ -355,8 +355,7 @@ final class Artifacts
                 if (is_string($view)) {
                     return $view;
                 }
-                unset($content['view']);
-                $content += $view === null ? [] : ['view' => $view];
+                $content['view'] = $view;
             }
         }
 
@@ -652,7 +651,7 @@ final class Artifacts
             if (is_string($view)) {
                 return $view;
             }
-            $content += $view === null ? [] : ['view' => $view];
+            $content['view'] = $view;
         }
 
         return $this->keep($kind, $title, $kind === 'list' ? (string) $input['entity'] : null, $content, self::subjectOf($input['subject'] ?? null));
@@ -1169,12 +1168,13 @@ final class Artifacts
     public const VIEWS = ['table', 'board', 'calendar'];
 
     /**
-     * A table's view as kept — `{type, by}`, `by` one of its columns — null for rows, or why not.
+     * A table's view as kept — `{type, by}`, `by` one of its columns; `{type: table}` for rows, said
+     * outright so a table with a default view of its own (the plan) stays as rows — or why not.
      *
      * @param list<string> $columns
-     * @return array{type: string, by: string}|string|null
+     * @return array{type: string, by: string}|string
      */
-    public static function viewOf(mixed $view, array $columns): array|string|null
+    public static function viewOf(mixed $view, array $columns): array|string
     {
         $view = is_array($view) ? $view : ['type' => (string) $view];
         $type = (string) ($view['type'] ?? 'table');
@@ -1182,7 +1182,7 @@ final class Artifacts
             return 'A view is one of: ' . implode(', ', self::VIEWS) . '.';
         }
         if ($type === 'table') {
-            return null;
+            return ['type' => 'table', 'by' => ''];
         }
         $by = (string) ($view['by'] ?? '');
         if (!in_array($by, $columns, true)) {
