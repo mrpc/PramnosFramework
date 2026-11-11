@@ -261,11 +261,11 @@ class RulesTest extends TestCase
 
         // Assert
         $this->assertArrayHasKey('rule.note', $offered, 'a rule\'s action, offered on people');
-        $this->assertArrayHasKey('consent', $offered['rule.note']['params'], 'with the consent list it goes by');
+        $this->assertSame([$mail => 'Service mail'], $offered['rule.note']['params']['consent']['options'], 'the audience\'s consent lists of its channel');
         $this->assertArrayNotHasKey('rule.webhook', $offered, 'not one that is not about the person');
         $this->assertSame('Choose the consent list it goes by.', $noList);
-        $this->assertSame(['to' => 1, 'skipped' => ['not on the consent list' => 1], 'sample' => ['subject' => '', 'body' => ''], 'confirm' => 'yes'], $seen, 'how many, who is skipped and why');
-        $this->assertStringStartsWith('This reaches 1. Skipped: 1 not on the consent list.', (string) $unasked, 'shown first, not sent');
+        $this->assertSame(['to' => 1, 'skipped' => ['not on the consent list «Service mail»' => 1], 'sample' => ['subject' => '', 'body' => ''], 'confirm' => 'yes'], $seen, 'how many, who is skipped and why');
+        $this->assertStringStartsWith('This reaches 1. Skipped: 1 not on the consent list «Service mail».', (string) $unasked, 'shown first, not sent');
         $this->assertSame(['done' => 1, 'queued' => 0, 'says' => 'Sent to 1. 1 skipped: not on the consent list.'], $sent);
         $this->assertSame([[$this->ids['cara'], 'hi', 'rule:0:v0:bulk.note:run0']], array_map(static fn (array $d): array => [$d['person'], $d['tag'], $d['origin']], $this->done), 'through the engine, once');
         $this->assertSame('1 skipped: not on the consent list. 1 skipped: over the frequency cap.', $again['says'], 'the caps count what a bulk run sent');

@@ -120,9 +120,10 @@ final class BulkBridge
         $channel = $action['channel'] ?? null;
         $consent = (int) ($params['consent'] ?? 0) ?: null;
         // A channel with consent lists is sent to one of them: the person chooses which.
-        if ($consent === null && $channel !== null && \Pramnos\Audience\Installed::has('consent_lists') && \Pramnos\Audience\ConsentLists::all($channel) !== []) {
+        if ($consent === null && $channel !== null && self::lists($channel) !== []) {
             return 'Choose the consent list it goes by.';
         }
+        $listName = $consent === null ? '' : (self::lists((string) $channel)[$consent] ?? '');
         if ($key === 'email' && trim((string) ($params['template'] ?? '')) === '' && trim((string) ($params['body'] ?? '')) === '') {
             return 'Choose a mail template, or write the message.';
         }
@@ -132,7 +133,9 @@ final class BulkBridge
         foreach ($ids as $id) {
             $why = Engine::blocked((int) $id, $channel, $consent);
             if ($why !== null) {
-                $skipped[self::why($why)] = ($skipped[self::why($why)] ?? 0) + 1;
+                // Which list narrowed it, by its name.
+                $said = self::why($why) . ($why === 'consent' && $listName !== '' ? ' «' . $listName . '»' : '');
+                $skipped[$said] = ($skipped[$said] ?? 0) + 1;
                 continue;
             }
             $to++;
@@ -183,10 +186,24 @@ final class BulkBridge
         }
 
         return $params + [
-            'consent' => ['label' => t('Consent list it goes by'), 'type' => 'select', 'options' => static fn (): array => array_column(
-                \Pramnos\Audience\Installed::has('consent_lists') ? \Pramnos\Audience\ConsentLists::all($channel) : [], 'name', 'id')],
+            // The audience's consent lists of this channel — not a mail type's unsubscribe list, which is the email's own `list`.
+            'consent' => ['label' => t('Consent list it goes by'), 'type' => 'select', 'options' => static fn (): array => self::lists($channel)],
             'confirm' => ['label' => t('Confirm (after the preview)'), 'type' => 'text'],
         ];
+    }
+
+    /**
+     * A channel's consent lists, id => name; none where they are not installed.
+     *
+     * @return array<int, string>
+     */
+    public static function lists(string $channel): array
+    {
+        try {
+            return array_column(\Pramnos\Audience\ConsentLists::all($channel), 'name', 'id');
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     /** A reason as the person reads it. */
