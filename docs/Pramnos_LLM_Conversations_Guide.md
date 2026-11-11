@@ -528,8 +528,22 @@ kinds, such as a proposal, are not changed here. `->update($id, $mode, $input)`,
 
 **A pinned artifact is in front of the model in every question.** What this person pinned in
 this space goes into the context of each question as it stands at that moment, after what is
-remembered about them. Each pinned artifact gets up to `Artifacts::PINNED_EACH` characters and
-all of them together up to `PINNED_ALL`, each with its id, so the model can read one whole. A
+remembered about them. It works as an index in which nothing is left out without saying so:
+
+- **Each artifact** is shown whole where it fits its share.
+- **A table that does not fit** shows one line per row, its first three columns, with how many
+  rows are left.
+- **Other text that does not fit** is cut, with a line naming `read_artifact <id>`.
+- **Once the total is spent**, each remaining artifact is a single line: id, kind, title, size, and
+  how to read it.
+
+The shares are the application's to set:
+
+```php
+'llm' => ['chat' => ['artifacts' => ['pinned_each' => 2000, 'pinned_all' => 8000, 'read' => 20000]]]
+```
+
+`read` is how much one `read_artifact` returns. The values shown are the defaults. A
 change made during an answer reaches the model as that tool's result, and is in the context from
 the next question on. Changing the context in the middle of an answer would break the cached
 prompt, so the next question is when it shows. An open page hears of it at once: a change or a pin

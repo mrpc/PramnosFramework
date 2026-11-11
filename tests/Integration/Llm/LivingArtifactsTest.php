@@ -259,4 +259,40 @@ class LivingArtifactsTest extends LlmTestCase
         $this->assertSame('Error: There is no such artifact.', self::call($a, 'pin_artifact', ['id' => 999999]));
         $this->assertSame('', (new Artifacts(new Scope(999999, null)))->pinnedContext(), 'nobody to have pins');
     }
+
+    /**
+     * The pinned index (FW-469): nothing is left out without a word. A table that does not fit is
+     * a line a row of its key columns, saying how many more; a long text is cut, saying so; once
+     * the whole share is spent, the rest are named in a line each. The limits are the
+     * application's, and read_artifact reads up to its own.
+     */
+    #[DataProvider('databases')]
+    public function testPinnedArtifactsAreAnIndexWithNothingLeftOutSilently(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => ['artifacts' => ['pinned_each' => 400, 'pinned_all' => 700, 'read' => 50]]]);
+        $userId = $this->user();
+        $a      = new Artifacts(new Scope($userId, null));
+        $rows   = array_map(static fn (int $i): array => ['Project ' . $i, 'active', 'focus ' . $i, str_repeat('detail ', 20)], range(1, 30));
+        $table  = $a->create(['kind' => 'table', 'title' => 'Plan', 'columns' => ['Project', 'Phase', 'Focus', 'Notes'], 'rows' => $rows])['artifact_id'];
+        $text   = $a->create(['kind' => 'text', 'title' => 'Notes', 'text' => str_repeat('word ', 200)])['artifact_id'];
+        $third  = $a->create(['kind' => 'text', 'title' => 'Late', 'text' => 'never shown whole'])['artifact_id'];
+        foreach ([$table, $text, $third] as $id) {
+            $a->pin($id);
+        }
+
+        // Act
+        $context = $a->pinnedContext();
+        $read    = self::call($a, 'read_artifact', ['id' => $text]);
+
+        // Assert
+        $this->assertStringContainsString("#{$table} table: Plan (30 rows, its first 3 columns; read_artifact {$table} for the whole)\nProject\tPhase\tFocus\nProject 1\tactive\tfocus 1", $context, 'one line a row, its key columns');
+        $this->assertStringNotContainsString('detail', $context, 'not the long column');
+        $this->assertMatchesRegularExpression('/\[… \d+ more rows; read_artifact ' . $table . '\]/', $context, 'how many more, and how to read them');
+        $this->assertStringContainsString("[… cut here; read_artifact {$text} for the whole]", $context, 'a text cut, saying so');
+        $this->assertStringContainsString("#{$third} text: Late (", $context, 'past the share: still named');
+        $this->assertStringContainsString("not shown here: read_artifact {$third})", $context);
+        $this->assertLessThanOrEqual(50, mb_strlen($read), 'read_artifact reads up to the application\'s own limit');
+    }
 }

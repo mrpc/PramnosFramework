@@ -36,6 +36,22 @@ final class Artifacts
     /** How much of all the pinned artifacts goes into every question's context. */
     public const PINNED_ALL = 8000;
 
+    /** How many of a table's columns each of its rows shows in the pinned index. */
+    public const KEY_COLUMNS = 3;
+
+    /**
+     * A limit as the application sets it — `'llm' => ['chat' => ['artifacts' => ['pinned_each' =>
+     * …, 'pinned_all' => …, 'read' => …]]]` — or the default: {@see PINNED_EACH}, {@see PINNED_ALL},
+     * {@see READ}.
+     */
+    public static function limit(string $name): int
+    {
+        $defaults = ['pinned_each' => self::PINNED_EACH, 'pinned_all' => self::PINNED_ALL, 'read' => self::READ];
+        $given    = ((array) (((array) \Pramnos\Llm\Llm::config('chat', []))['artifacts'] ?? []))[$name] ?? null;
+
+        return is_numeric($given) && (int) $given > 0 ? (int) $given : $defaults[$name];
+    }
+
     /** How an artifact can be changed ({@see update()}). */
     public const MODES = ['replace', 'append', 'patch'];
 
@@ -146,7 +162,7 @@ final class Artifacts
                 'run'         => function (array $a): string {
                     $found = $this->lookUp($a);
 
-                    return $found === null ? 'Error: there is no such artifact.' : self::asText($found, self::READ);
+                    return $found === null ? 'Error: there is no such artifact.' : self::asText($found, self::limit('read'));
                 },
             ],
             'update_artifact' => [
@@ -296,9 +312,11 @@ final class Artifacts
     }
 
     /**
-     * What this person pinned in this space, as text for the context of every question — each
-     * cut to {@see PINNED_EACH} and all of them to {@see PINNED_ALL}, with their ids, so the model
-     * can read one whole. Empty when nothing is pinned here.
+     * What this person pinned in this space, as text for the context of every question: an index,
+     * nothing left out without saying so. Each artifact is whole where it fits its share
+     * (`pinned_each`, {@see limit()}); a table that does not is one line a row, its first
+     * {@see KEY_COLUMNS} columns; other text is cut. Once all of them (`pinned_all`) are spent, the
+     * rest are a line each. Every cut says how to read the whole. Empty when nothing is pinned here.
      */
     public function pinnedContext(): string
     {
@@ -310,21 +328,69 @@ final class Artifacts
             return '';
         }
         $parts = [];
-        $left  = self::PINNED_ALL;
+        $left  = self::limit('pinned_all');
         foreach (self::pins($user) as $key) {
             [$id, $space, $organization] = array_pad(explode('@', $key), 3, '');
-            if ($space !== $this->scope->space || $organization !== (string) ($this->scope->organizationId ?? '') || $left <= 0) {
+            if ($space !== $this->scope->space || $organization !== (string) ($this->scope->organizationId ?? '')) {
                 continue;
             }
             $found = $this->find((int) $id);
-            if ($found !== null) {
-                $text    = self::asText($found, min(self::PINNED_EACH, $left));
-                $left   -= mb_strlen($text);
-                $parts[] = $text;
+            if ($found === null) {
+                continue;
             }
+            $share = min(self::limit('pinned_each'), $left);
+            // No room left: still named, so the model knows it is there.
+            $text    = $share < 200 ? self::indexLine($found) : self::pinnedText($found, $share);
+            $left   -= mb_strlen($text);
+            $parts[] = $text;
         }
 
         return $parts === [] ? '' : "What this person pinned, as it stands now (read_artifact for the whole of one):\n\n" . implode("\n\n", $parts);
+    }
+
+    /** An artifact in a line: its id, kind, title and size, and how to read it. */
+    private static function indexLine(array $artifact): string
+    {
+        $c    = (array) ($artifact['content'] ?? []);
+        $size = match ((string) $artifact['kind']) {
+            'table' => count((array) ($c['rows'] ?? [])) . ' rows',
+            'list'  => count((array) ($c['ids'] ?? [])) . ' items',
+            default => mb_strlen(self::asText($artifact, PHP_INT_MAX)) . ' characters',
+        };
+
+        return '#' . (int) $artifact['artifact_id'] . ' ' . $artifact['kind'] . ': ' . $artifact['title'] . ' (' . $size
+            . '; not shown here: read_artifact ' . (int) $artifact['artifact_id'] . ')';
+    }
+
+    /**
+     * A pinned artifact in its share: whole where it fits; a table one line a row, its key columns,
+     * as many rows as fit; anything else cut, saying so.
+     */
+    private static function pinnedText(array $artifact, int $share): string
+    {
+        $whole = self::asText($artifact, PHP_INT_MAX);
+        if (mb_strlen($whole) <= $share || (string) $artifact['kind'] !== 'table') {
+            return mb_strlen($whole) <= $share ? $whole : self::asText($artifact, $share);
+        }
+        $c     = (array) ($artifact['content'] ?? []);
+        $rows  = array_values((array) ($c['rows'] ?? []));
+        $cell  = static fn ($v): string => $v === null ? '' : mb_substr(is_string($v) ? $v : (string) json_encode($v, JSON_UNESCAPED_UNICODE), 0, 80);
+        $line  = static fn (array $row): string => implode("\t", array_map($cell, array_slice(array_values($row), 0, self::KEY_COLUMNS)));
+        $id    = (int) $artifact['artifact_id'];
+        $text  = '#' . $id . ' table: ' . $artifact['title'] . ' (' . count($rows) . ' rows, its first ' . self::KEY_COLUMNS
+            . ' columns; read_artifact ' . $id . " for the whole)\n" . $line((array) ($c['columns'] ?? []));
+        $shown = 0;
+        foreach ($rows as $row) {
+            $next = "\n" . $line((array) $row);
+            // Room kept for the line that says what is left.
+            if (mb_strlen($text) + mb_strlen($next) > $share - 60) {
+                break;
+            }
+            $text .= $next;
+            $shown++;
+        }
+
+        return $shown < count($rows) ? $text . "\n[… " . (count($rows) - $shown) . ' more rows; read_artifact ' . $id . ']' : $text;
     }
 
     /**
