@@ -220,6 +220,43 @@ class MoodTest extends LlmTestCase
     }
 
     /**
+     * FW-435: a mood from another conversation is told as the past, and optional, and a model that
+     * only says it back does not make it the new conversation's — or it would reach the next one in
+     * turn and never fade. "I passed my exams!!" made it happy; a new conversation is told so as
+     * the past, says happy back and keeps no mood of its own; a third, about a lost job, says it
+     * is sleepy and keeps that. With `bleed` off, a new conversation is told nothing.
+     */
+    #[DataProvider('databases')]
+    public function testAMoodFromElsewhereIsThePastAndIsNotSaidBack(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $person = random_int(100000, 999999);
+        $this->answer([[200, self::says('Congratulations! [[mood:happy|85]]')], [200, self::says('Sunny today. [[mood:happy|70]]')],
+            [200, self::says('I am so sorry. [[mood:sleepy|60]]')], [200, self::says('Hello.')]]);
+        $chat = (new Conversations(new BaseAssistant()))->as(new Scope($person, null));
+        $rowOf = fn (int $id): array => (array) $this->db->queryBuilder()->table('assist.chat_conversations')->where('conversation_id', $id)->first()->fields;
+
+        // Act
+        $exams   = $chat->ask(null, 'I passed my exams!!');
+        $weather = $chat->ask(null, 'What is the weather?');
+        $job     = $chat->ask(null, 'I am angry, the nanny did not come and I lost my job');
+        $this->configure(['chat' => ['mood' => ['words' => ['happy', 'sleepy'], 'bleed' => false]], 'analyst' => ['avatar_set' => ['markup' => '<svg></svg>']]]);
+        $alone   = $chat->ask(null, 'Hi');
+
+        // Assert
+        $this->assertStringContainsString('Earlier, in another conversation with this person, you felt happy, noticeably. It need not carry over', self::tail($this->sent[1]));
+        $this->assertStringNotContainsString('Your mood right now', self::tail($this->sent[1]), 'not told as the present');
+        $this->assertStringContainsString('how THIS conversation makes you feel', self::tail($this->sent[1]));
+        $this->assertNull($rowOf((int) $weather['conversation_id'])['mood'], 'said back: not kept as its own');
+        $this->assertSame('sleepy', $rowOf((int) $job['conversation_id'])['mood'], 'a mood of its own is kept');
+        $this->assertStringNotContainsString('you felt', self::tail($this->sent[3]), 'bleed off: nothing from elsewhere');
+        $this->assertSame('happy', $rowOf((int) $exams['conversation_id'])['mood']);
+        $this->assertNotNull($alone['message']);
+        $this->db->queryBuilder()->table('assist.chat_conversations')->where('userid', $person)->delete();
+    }
+
+    /**
      * A strong mood reaches the person's other conversations at four fifths of its strength; a
      * weak one stays where it was felt; another person feels nothing of it. It fades by the hour,
      * and under the floor it is not felt — no directive, nothing to show. Idle, the person's

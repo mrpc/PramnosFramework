@@ -200,7 +200,15 @@ conversation page's space (`chat`) only, so the administrators' analyst has no m
 - **Per conversation and per person, never for everybody.** In a conversation, the model's latest
   word is the mood: it has read the whole conversation, so "good night" after good news is sleepy.
   A strong mood (`Mood::STRONG`, 60 and up) also colours the person's other conversations, at four
-  fifths of its strength, where none of their own is felt; the strongest of those wins.
+  fifths of its strength, where none of their own is felt; the strongest of those wins. A new
+  conversation has none of its own yet, so what it is told comes from the others.
+- **From elsewhere, the past and optional.** A mood that reached a conversation from another is
+  told as `Earlier, in another conversation with this person, you felt happy, noticeably. It need
+  not carry over…`, and the model is asked for the mood *this* conversation gives it. If it only
+  says that same word back, the answer does not make it the conversation's own (`Mood::bled()`).
+  Otherwise a mood would pass from conversation to conversation and never fade: someone telling
+  of a lost job would be answered excited because of exam results in another conversation.
+  `['mood' => ['bleed' => false]]` keeps each conversation to its own mood.
 - **It fades** by 25 an hour, read rather than swept, so nothing has to be scheduled. Under 15 it
   is not felt.
 - **Tone, not a statement.** While it is felt, zone 3 tells the next answer `Your mood right now:

@@ -491,6 +491,8 @@ class Conversations
         // The assistant's own mood, where the application turned it on: said by the model in a tag,
         // kept with the conversation, given back as tone (Mood).
         $mood   = Mood::on($this->scope) && !$this->scheduled && !$turn->shared() ? new Mood($this->scope) : null;
+        // The mood that reached this conversation from the person's others, as the model is told it.
+        $bled   = $mood?->bled($conversationId ?? 0);
         // What the answer does and wears, picked the same way (Acts).
         $acts   = Acts::on($this->scope) && !$this->scheduled && !$turn->shared();
         // …and whether it may end the conversation of somebody who keeps insulting it (Ending).
@@ -578,8 +580,10 @@ class Conversations
         $stopped = !empty($answer['over_budget']) ? 'budget' : (!empty($answer['out_of_rounds']) ? 'rounds' : null);
         $reply   = (string) ($answer['final'] ?? $answer['reply']);
         $felt    = $mood === null ? null : Mood::parse($reply);
-        // Felt before the answer is stored, so the answer keeps the mood it was given in.
-        if ($mood !== null && $felt !== null) {
+        // Felt before the answer is stored, so the answer keeps the mood it was given in — unless
+        // the model only said back the mood that reached it from another conversation: kept, it
+        // would reach the next one in turn, and never fade.
+        if ($mood !== null && $felt !== null && $felt['mood'] !== $bled) {
             $mood->feel($conversationId, $felt['mood'], $felt['intensity']);
         }
         $feels   = $mood?->now($conversationId);

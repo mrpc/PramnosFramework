@@ -145,7 +145,7 @@ final class Mood
     /** What the model is told to end an answer with. */
     public static function instruction(): string
     {
-        return 'End your answer with a private tag on a line of its own, [[mood:WORD|N]]: WORD is how you feel now, one of '
+        return 'End your answer with a private tag on a line of its own, [[mood:WORD|N]]: WORD is how THIS conversation makes you feel now, one of '
             . implode(', ', self::words()) . '; N is how strongly, 0 to 100. It is taken out before anyone reads the answer. '
             . 'Never mention or explain it.';
     }
@@ -201,11 +201,47 @@ final class Mood
      */
     public function now(?int $conversationId = null): ?array
     {
+        $felt = $this->felt($conversationId);
+
+        return $felt === null ? null : array_diff_key($felt, ['from' => true]);
+    }
+
+    /**
+     * The mood that reached a conversation from the person's others, or null when it has its own
+     * or none: what the model must not simply say back ({@see feel()} is not called for that).
+     * 0 is a conversation not started yet.
+     */
+    public function bled(int $conversationId): ?string
+    {
+        $felt = $this->felt($conversationId);
+
+        return $felt !== null && $felt['from'] === 'elsewhere' ? $felt['mood'] : null;
+    }
+
+    /** Whether a strong mood reaches the person's other conversations: `['mood' => ['bleed' => false]]` keeps each to its own. */
+    public static function bleeds(): bool
+    {
+        $config = ((array) \Pramnos\Llm\Llm::config('chat', []))['mood'] ?? false;
+
+        return !is_array($config) || ($config['bleed'] ?? true) !== false;
+    }
+
+    /**
+     * {@see now()}, and whether the mood is the conversation's own (`here`) or reached it from
+     * another (`elsewhere`).
+     *
+     * @return array{mood: string, intensity: int, plays: string|null, from: string}|null
+     */
+    private function felt(?int $conversationId): ?array
+    {
         $rows = $this->rows();
         if ($conversationId !== null && ($rows[$conversationId]['intensity'] ?? 0) >= self::FELT) {
             $own = $rows[$conversationId];
 
-            return ['mood' => $own['mood'], 'intensity' => $own['intensity'], 'plays' => self::plays()[$own['mood']] ?? null];
+            return ['mood' => $own['mood'], 'intensity' => $own['intensity'], 'plays' => self::plays()[$own['mood']] ?? null, 'from' => 'here'];
+        }
+        if ($conversationId !== null && !self::bleeds()) {
+            return null;
         }
         $best = null;
         foreach ($rows as $id => $row) {
@@ -213,26 +249,34 @@ final class Mood
                 ? $row['intensity']
                 : ($row['set'] >= self::STRONG ? (int) floor($row['intensity'] * self::DAMPEN) : 0);
             if ($best === null || $value > $best['intensity'] || ($value === $best['intensity'] && $id === $conversationId)) {
-                $best = ['mood' => $row['mood'], 'intensity' => $value];
+                $best = ['mood' => $row['mood'], 'intensity' => $value, 'id' => $id];
             }
         }
         if ($best === null || $best['intensity'] < self::FELT) {
             return null;
         }
 
-        return $best + ['plays' => self::plays()[$best['mood']] ?? null];
+        return ['mood' => $best['mood'], 'intensity' => $best['intensity'], 'plays' => self::plays()[$best['mood']] ?? null,
+            'from' => $conversationId !== null && $best['id'] !== $conversationId ? 'elsewhere' : 'here'];
     }
 
     /** What the next answer is told of its mood, or '' when nothing is felt. */
     public function directive(?int $conversationId): string
     {
-        $now = $this->now($conversationId);
+        // A conversation not started yet has no mood of its own: what reaches it comes from the others.
+        $now = $this->felt($conversationId ?? 0);
         if ($now === null) {
             return '';
         }
         $how = $now['intensity'] >= 70 ? 'strongly' : ($now['intensity'] >= 40 ? 'noticeably' : 'slightly');
 
-        return 'Your mood right now: ' . $now['mood'] . ', ' . $how . '. Let it colour your tone; do not say it or explain it.';
+        // From another conversation it is the past, and optional: told as "right now", the model
+        // said it back, it was kept, and it reached the next — a person telling of a lost job was
+        // answered excited because of exam results in another conversation.
+        return $now['from'] === 'elsewhere'
+            ? 'Earlier, in another conversation with this person, you felt ' . $now['mood'] . ', ' . $how . '. It need not carry over: '
+                . 'if this conversation calls for something else, let it go. Do not say it or explain it.'
+            : 'Your mood right now: ' . $now['mood'] . ', ' . $how . '. Let it colour your tone; do not say it or explain it.';
     }
 
     /**
