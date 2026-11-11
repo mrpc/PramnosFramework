@@ -114,14 +114,48 @@ class TableWidget extends ReportWidget
     /** The columns chosen, as {@see Report::fromArray()} takes them. @return array<string, mixed>|list<array<string, mixed>> */
     protected function columns(): array
     {
-        return match ((string) $this->setting('columns')) {
+        return $this->onlyChosen(match ((string) $this->setting('columns')) {
             'periods'   => ['periods' => (int) ($this->setting('periods') ?? 12)],
             'dimension' => (string) $this->setting('dimension') !== ''
                 ? ['dimension' => (string) $this->setting('dimension'), 'values' => array_values(array_filter(array_map('trim', explode(',', (string) $this->setting('values'))), 'strlen')), 'total' => (string) $this->setting('column_total') === '1']
                 : $this->report()['columns'],
             'custom'    => (array) ($this->setting('custom') ?? []) ?: $this->report()['columns'],
             default     => $this->report()['columns'],
-        };
+        });
+    }
+
+    /**
+     * A dimension's columns, only those of the values the page is narrowed to — a board's
+     * variable (`?v[market]=el`), the viewer's scope — and no total beside a single one.
+     *
+     * @param array<string, mixed>|list<array<string, mixed>> $columns
+     * @return array<string, mixed>|list<array<string, mixed>>
+     */
+    private function onlyChosen(array $columns): array
+    {
+        if (!isset($columns['dimension'])) {
+            return $columns;
+        }
+        $name   = (string) $columns['dimension'];
+        $report = $this->report();
+        $chosen = null;
+        foreach ([$report['filters'][$name] ?? null, (Metrics::scopeOf($report['user'] ?? null) ?? [])[$name] ?? null] as $narrow) {
+            if ($narrow !== null && $narrow !== '' && $narrow !== []) {
+                $narrow = array_map('strval', (array) $narrow);
+                $chosen = $chosen === null ? $narrow : array_values(array_intersect($chosen, $narrow));
+            }
+        }
+        if ($chosen === null) {
+            return $columns;
+        }
+        $given  = array_map('strval', (array) ($columns['values'] ?? []));
+        // None of the report's own among them: the chosen ones, never an empty list, which is every value.
+        $values = $given === [] ? $chosen : (array_values(array_intersect($given, $chosen)) ?: $chosen);
+        if ($values === []) {
+            return $columns;
+        }
+
+        return ['values' => $values, 'total' => count($values) > 1 && !empty($columns['total'])] + $columns;
     }
 
     /** The rows' report: one section of this card's rows, in the report's grain and comparison. */

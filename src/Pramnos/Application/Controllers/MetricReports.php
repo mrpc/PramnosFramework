@@ -104,6 +104,8 @@ class MetricReports extends Controller
         }
         // One assignment: an element written into the View's own property is lost (it answers a copy).
         $view->pickers = $pickers;
+        // Always in sight: the application's `metrics.pinned_filters`; the rest behind Filters.
+        $view->pinned  = array_values(array_intersect(array_map('strval', (array) (Metrics::config()['pinned_filters'] ?? [])), array_keys($pickers)));
         // A report of one's own with no cards yet — a new one — opens to be arranged.
         $view->customise = $view->mine && ReportBoard::layout($entry['report']) === [];
         $view->urls      = $this->urls();

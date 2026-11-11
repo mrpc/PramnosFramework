@@ -703,6 +703,56 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * A table whose columns are a dimension's values shows only the value the page is filtered to
+     * (FW-460) — `?v[region]=north` — and no total beside it; without the filter, every value and
+     * the total. The page keeps the pinned filters in sight, the rest behind Filters with a count,
+     * each chosen one a chip that takes it off, and its actions behind ⋯.
+     */
+    public function testAFilteredDimensionKeepsItsOwnColumns(): void
+    {
+        // Arrange
+        $layout = [['id' => 'report.table~f1', 'settings' => ['rows' => [['metric' => 'test.sales']], 'columns' => 'dimension', 'dimension' => 'region', 'column_total' => '1']]];
+        $id     = (new Reports())->save(self::reader(), ['name' => 'Test filtered', 'layout' => $layout]);
+        $entry  = (new Reports())->find((string) $id, self::reader());
+        $draw   = static function (array $v) use ($entry): string {
+            $_GET['v'] = $v;
+            try {
+                return \Pramnos\Metrics\ReportBoard::html($entry, '2026-09-10', self::reader(), '/rows', false);
+            } finally {
+                \Pramnos\Metrics\ReportBoard::leave();
+                unset($_GET['v']);
+            }
+        };
+        $page = ['entry' => $entry + ['id' => (string) $id], 'at' => '2026-09-10', 'period' => '2026-09', 'previous' => '2026-08-01', 'next' => '2026-10-01', 'body' => '',
+            'mine' => true, 'customise' => false, 'variables' => ['region' => 'north', 'customer' => 'new'], 'pinned' => ['region'],
+            'pickers' => ['region' => ['label' => 'Region', 'values' => ['north' => 'North', 'south' => 'South'], 'search' => false],
+                'customer' => ['label' => 'Customer', 'values' => ['new' => 'New', 'returning' => 'Returning'], 'search' => false]],
+            'urls' => ['show' => '/r/show', 'csv' => '/r/csv', 'xlsx' => '/r/xlsx', 'edit' => '/r/edit', 'list' => '/r']];
+
+        // Act
+        $all      = $draw([]);
+        $north    = $draw(['region' => 'north']);
+        $rendered = [];
+        foreach (['tailwind', 'bootstrap', 'plain-css'] as $theme) {
+            $rendered[$theme] = $this->renderTemplate($theme, 'metricreports/report.tpl.php', $page);
+        }
+
+        // Assert
+        $this->assertStringContainsString('>North</th><th scope="col" style="text-align:right">South</th><th scope="col" style="text-align:right">Total</th>', $all);
+        $this->assertStringContainsString('>North</th>', $north);
+        $this->assertStringNotContainsString('>South</th>', $north, 'only the chosen value');
+        $this->assertStringNotContainsString('>Total</th>', $north, 'and no total beside one column');
+        foreach ($rendered as $theme => $html) {
+            $this->assertMatchesRegularExpression('~<label class="pf-report-field"><span>Region</span>\s*<select name="v\[region\]"~', $html, $theme . ': the pinned one in sight, labelled');
+            $this->assertMatchesRegularExpression('~<details class="pf-report-pop pf-report-filters">\s*<summary[^>]*>Filters<span class="pf-report-count"><span>1</span>~', $html, $theme . ': the rest behind Filters, counted');
+            $this->assertStringContainsString('<span>Customer</span>', $html, $theme . ': each labelled in the panel');
+            $this->assertStringContainsString('href="/r/show?report=' . $id . '&amp;at=2026-09-10&amp;v%5Bcustomer%5D=new" aria-label="Remove the filter Region">Region: North', $html, $theme . ': a chip takes its filter off');
+            $this->assertStringContainsString('aria-label="More actions"', $html, $theme . ': the actions behind ⋯');
+            $this->assertStringContainsString('Export CSV', $html, $theme);
+        }
+    }
+
+    /**
      * The cards a report gains: the top values of a breakdown, ranked with bars; a goal — which
      * says so where there is no curve to judge by, or no target; and a cohort grid, each period's
      * size and the share that reached the event within each span.

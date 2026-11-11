@@ -604,9 +604,24 @@ address sets, when the dimension has listed values. A dimension of more than
 for a minute (`Dimension::KEEP`), however many cards ask. A choice narrows every card on the board (`?v[region]=north`, and `?v[tenant]=7` for one
 organisation), and is kept in the address as the reader moves between periods or downloads the
 CSV or XLSX. A card's own filter on the same dimension keeps its own. What is not a declared
-dimension is ignored (`ReportBoard::variables()`). The pickers send their form themselves through
-`data-pf-autosubmit`, which pf-utils handles, so there is no inline script for a
-Content-Security-Policy to refuse.
+dimension is ignored (`ReportBoard::variables()`). The pinned pickers and the period send their
+form themselves through `data-pf-autosubmit`, which pf-utils handles, so there is no inline script
+for a Content-Security-Policy to refuse.
+
+**The report page**, so it opens on its numbers:
+
+- **The head** is the title and the period with ‹ ›. The actions (Customise, Settings or Copy,
+  Export CSV and XLSX, Print, All reports) sit behind a ⋯ menu.
+- **Pinned filters.** Only the period and the application's pinned dimensions are in sight, each
+  labelled: `'metrics' => ['pinned_filters' => ['market']]`.
+- **The Filters panel** holds every other picker with its label. Its button counts the filters
+  chosen in it, and its *Apply* sends them.
+- **Chips.** Each filter chosen is a chip above the cards; its × takes that filter off. The
+  address stays `?v[…]`.
+- **Columns narrowed to the filter.** A table whose columns are a dimension's values shows only
+  the values the page is narrowed to: the board's variable on that dimension, and the viewer's
+  scope. The total column goes when one column is left. The report keeps its definition; only the
+  drawing narrows.
 
 A card is headed by the heading set in its form, or by nothing: the name of its kind is shown only
 in the catalogue. The report's page is denser than a dashboard: less room inside a card, and
