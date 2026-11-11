@@ -36,6 +36,10 @@ class MetricsReportsSend extends Command
             $row = $entry['row'];
             try {
                 $owner = new \Pramnos\User\User((int) $row['ownerid']);
+                // Not mailed where the application keeps the report from its owner now.
+                if (Reports::access($owner, $entry) === false) {
+                    continue;
+                }
                 $title = $entry['name'] . ' — ' . Window::of($entry['report']->definition['grain'], $entry['period'])->label();
                 // Its cards drawn for a mail: charts as images carried inline, or their numbers.
                 try {

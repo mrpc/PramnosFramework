@@ -25,6 +25,8 @@ use Pramnos\Metrics\Window;
  *   - edit()    — a new report, one of the person's own (`?report=<id>`), or a copy (`?copy=<id>`)
  *   - save()    — POST: create or update
  *   - delete()  — POST: the owner's, or anybody's for an administrator
+ *   - menu()    — POST: show a report in the menu, or not (`Reports::editsMenu()`)
+ *   - customise() / uncustomise() — POST: a person's own copy of a report in its place, or the original again
  *
  * Every number is read through the metric's own `allowed()`, so a shared report shows each person
  * only the rows they may see.
@@ -40,8 +42,8 @@ class MetricReports extends Controller
     /** Registers the actions: all behind sign-in, the writes POSTs with the session's token. */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'show', 'csv', 'xlsx', 'rows', 'edit', 'save', 'delete']);
-        $this->addWriteAction(['save', 'delete']);
+        $this->addAuthAction(['display', 'show', 'csv', 'xlsx', 'rows', 'edit', 'save', 'delete', 'menu', 'customise', 'uncustomise']);
+        $this->addWriteAction(['save', 'delete', 'menu', 'customise', 'uncustomise']);
         parent::__construct($application);
     }
 
@@ -107,8 +109,14 @@ class MetricReports extends Controller
         $view->pickers = $pickers;
         // Always in sight: the application's `metrics.pinned_filters`; the rest behind Filters.
         $view->pinned  = array_values(array_intersect(array_map('strval', (array) (Metrics::config()['pinned_filters'] ?? [])), array_keys($pickers)));
-        // A report of one's own with no cards yet — a new one — opens to be arranged.
-        $view->customise = $view->mine && ReportBoard::layout($entry['report']) === [];
+        // A report of one's own with no cards yet — a new one — or a copy just made, opens to be arranged.
+        $view->customise = $view->mine && (ReportBoard::layout($entry['report']) === [] || !empty($_GET['customise']));
+        // The address stays the original's while its customised copy is shown in its place.
+        $view->reportId  = (string) ($entry['customises'] ?? $entry['id']);
+        $view->original  = $entry['customises'] ?? null;
+        $view->inMenu    = $this->store()->shownInMenu($entry);
+        $view->editsMenu = Reports::editsMenu($this->user());
+        $view->csrfField = \Pramnos\Http\Middleware\CsrfMiddleware::tokenField();
         $view->urls      = $this->urls();
 
         return $view->display('report');
@@ -291,6 +299,50 @@ class MetricReports extends Controller
         $this->redirect($this->urls()['list']);
     }
 
+    /** Show a report in the menu, or take it off: `report` and `on` in the form. */
+    public function menu(): void
+    {
+        if ($this->refused()) {
+            return;
+        }
+        $id = (string) ($_POST['report'] ?? '');
+        $this->store()->setMenu($id, !empty($_POST['on']), $this->user())
+            ? $this->addMessage(!empty($_POST['on']) ? t('Shown in the menu.') : t('Taken off the menu.'))
+            : $this->addError(t('You may not change the menu.'));
+        $this->redirect($this->urls()['show'] . '?report=' . rawurlencode($id));
+    }
+
+    /** A report of one's own in place of this one, to arrange: `report` in the form. */
+    public function customise(): void
+    {
+        if ($this->refused()) {
+            return;
+        }
+        $id = (string) ($_POST['report'] ?? '');
+        try {
+            $this->store()->customise($id, $this->user());
+        } catch (\InvalidArgumentException $e) {
+            $this->addError(t('There is no such report.'));
+            $this->redirect($this->urls()['list']);
+
+            return;
+        }
+        $this->redirect($this->urls()['show'] . '?report=' . rawurlencode($id) . '&customise=1');
+    }
+
+    /** Back to the original report: one's own copy of it deleted. `report` in the form. */
+    public function uncustomise(): void
+    {
+        if ($this->refused()) {
+            return;
+        }
+        $id = (string) ($_POST['report'] ?? '');
+        if ($this->store()->uncustomise($id, $this->user())) {
+            $this->addMessage(t('Back to the original.'));
+        }
+        $this->redirect($this->urls()['show'] . '?report=' . rawurlencode($id));
+    }
+
     /** Below the administration floor, or no metrics declared: the request stops here. */
     protected function refused(): bool
     {
@@ -336,7 +388,7 @@ class MetricReports extends Controller
     {
         $base = adminUrl('MetricReports');
 
-        return ['list' => $base, 'show' => $base . '/show', 'csv' => $base . '/csv', 'xlsx' => $base . '/xlsx', 'rows' => $base . '/rows', 'edit' => $base . '/edit', 'save' => $base . '/save', 'delete' => $base . '/delete'];
+        return ['list' => $base, 'show' => $base . '/show', 'csv' => $base . '/csv', 'xlsx' => $base . '/xlsx', 'rows' => $base . '/rows', 'edit' => $base . '/edit', 'save' => $base . '/save', 'delete' => $base . '/delete', 'menu' => $base . '/menu', 'customise' => $base . '/customise', 'uncustomise' => $base . '/uncustomise'];
     }
 
     /** A day as given, or today. */

@@ -4,7 +4,11 @@ $variables = $this->variables ?? [];
 $pickers   = $this->pickers ?? [];
 $pinned    = array_flip($this->pinned ?? []);
 $keep      = static fn (array $v): string => $v !== [] ? '&' . http_build_query(['v' => $v]) : '';
-$query     = fn (string $at, ?array $v = null): string => '?report=' . rawurlencode($this->entry['id']) . '&at=' . $at . $keep($v ?? $variables);
+$rid       = (string) ($this->reportId ?? $this->entry['id']);
+$query     = fn (string $at, ?array $v = null): string => '?report=' . rawurlencode($rid) . '&at=' . $at . $keep($v ?? $variables);
+$post      = fn (string $url, array $fields, string $label): string => '<form method="post" action="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '">' . ($this->csrfField ?? '')
+    . implode('', array_map(static fn ($k, $v): string => '<input type="hidden" name="' . htmlspecialchars((string) $k, ENT_QUOTES, 'UTF-8') . '" value="' . htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8') . '">', array_keys($fields), $fields))
+    . '<button type="submit" class="pf-btn pf-btn-ghost pf-btn-sm">' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</button></form>';
 $folded    = array_diff_key($pickers, $pinned);
 $active    = count(array_filter(array_intersect_key($variables, $folded), static fn ($v): bool => (string) $v !== ''));
 $chips     = array_filter($variables, static fn ($v): bool => (string) $v !== '');
@@ -22,11 +26,12 @@ $day       = strtotime($this->at) ?: time();
     <div class="pf-report-head">
         <div>
             <h1 class="pf-page-title">{{ $this->entry['name'] }}</h1>
+            @if (!empty($this->original))<p class="pf-page-sub pf-no-print">{{ t('Your own arrangement of this report') }}</p>@endif
             <p class="pf-page-sub">{{ $this->period }}</p>
         </div>
         <div class="pf-report-tools pf-no-print">
             <form method="get" action="{{ $this->urls['show'] }}" class="pf-report-tools">
-                <input type="hidden" name="report" value="{{ $this->entry['id'] }}">
+                <input type="hidden" name="report" value="{{ $rid }}">
                 @foreach ($pickers as $dimension => $picker)
                 @if (isset($pinned[$dimension]))
                 <label class="pf-report-field"><span>{{ $picker['label'] }}</span>
@@ -78,8 +83,15 @@ $day       = strtotime($this->at) ?: time();
                     @if ($this->mine)
                     <button type="button" class="pf-btn pf-btn-ghost pf-btn-sm" data-pf-dashboard-edit{!! $this->customise ? " data-pf-dashboard-open" : "" !!} aria-pressed="false">{{ t('Customise') }}</button>
                     <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['edit'] . '?report=' . rawurlencode($this->entry['id']) }}">{{ t('Settings') }}</a>
+                    @if (!empty($this->original))
+                    {!! $post($this->urls['uncustomise'] ?? '', ['report' => $rid], t('Reset to the original')) !!}
+                    @endif
                     @else
-                    <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['edit'] . '?copy=' . rawurlencode($this->entry['id']) }}">{{ t('Copy') }}</a>
+                    {!! $post($this->urls['customise'] ?? '', ['report' => $rid], t('Customise')) !!}
+                    <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['edit'] . '?copy=' . rawurlencode($rid) }}">{{ t('Copy') }}</a>
+                    @endif
+                    @if (!empty($this->editsMenu))
+                    {!! $post($this->urls['menu'] ?? '', ['report' => $rid, 'on' => empty($this->inMenu) ? '1' : ''], empty($this->inMenu) ? t('Show in the menu') : t('Take off the menu')) !!}
                     @endif
                     <a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['csv'] . $query($this->at) }}">{{ t('Export') }} CSV</a>
                     @if (isset($this->urls['xlsx']))<a class="pf-btn pf-btn-ghost pf-btn-sm" href="{{ $this->urls['xlsx'] . $query($this->at) }}">{{ t('Export') }} XLSX</a>@endif

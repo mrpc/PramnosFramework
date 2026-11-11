@@ -25,6 +25,15 @@ use Pramnos\Database\Database;
  * Shared as dashboard presets are — {@see Presets::VISIBILITIES} — and changed or deleted by
  * their owner, or deleted by an administrator. A mailed report is sent once for each period
  * that closes ({@see due()}), as its owner would see it. Kept in `stats.reports`.
+ *
+ * - **Who opens which** is the framework's rule, unless the application says otherwise for one:
+ *   `'metrics' => ['reports_access' => fn (object $user, array $entry): ?bool]` — null keeps the
+ *   rule ({@see access()}). Listing, opening, exporting and mailing all ask it.
+ * - **In the menu**: a report is shown in the application's menu where somebody who may
+ *   (`'metrics' => ['menu_editors' => fn (object $user): bool]`, root by default) turned it on —
+ *   an `app:` one by its definition's `menu` until then ({@see inMenu()}, {@see setMenu()}).
+ * - **Customised**: a person's own copy of a report they may not change, bound to it — opened in
+ *   its place for them, until they go back to the original ({@see customise()}, {@see uncustomise()}).
  */
 final class Reports
 {
@@ -41,8 +50,25 @@ final class Reports
     /** How often a report may be mailed: after each closed day, week or month. */
     public const SCHEDULES = [self::NEVER, self::DAILY, self::WEEKLY, self::MONTHLY];
 
+    /** Where the menu's choices are kept: report id => shown or not. */
+    public const MENU_SETTING = 'metrics_reports_menu';
+
     public function __construct(private readonly ?Database $db = null)
     {
+    }
+
+    /**
+     * What the application says of a person and a report — true to let them open it, false to
+     * keep it from them — or null where it says nothing (`metrics.reports_access`).
+     *
+     * @param array<string, mixed> $entry
+     */
+    public static function access(object $user, array $entry): ?bool
+    {
+        $hook = Metrics::config()['reports_access'] ?? null;
+        $said = is_callable($hook) ? $hook($user, $entry) : null;
+
+        return is_bool($said) ? $said : null;
     }
 
     /**
@@ -62,15 +88,120 @@ final class Reports
                 \Pramnos\Logs\Logger::log('Report ' . $key . ' in app.php is left out: ' . $e->getMessage(), 'metrics');
                 continue;
             }
-            $out[] = ['id' => self::APP . $key, 'name' => $report->definition['name'] !== '' ? $report->definition['name'] : (string) $key, 'report' => $report, 'app' => true];
+            $entry = ['id' => self::APP . $key, 'name' => $report->definition['name'] !== '' ? $report->definition['name'] : (string) $key, 'report' => $report, 'app' => true,
+                'menu' => !empty(((array) $definition)['menu'])];
+            if (self::access($user, $entry) !== false) {
+                $out[] = $entry;
+            }
         }
         foreach ($this->rows() as $row) {
-            if (Presets::canSee($row, $user)) {
-                $out[] = $this->entry($row);
+            $entry = $this->entry($row);
+            // A person's customised copy stands in for its original, never beside it in the list.
+            if (isset($entry['report']->definition['customises'])) {
+                continue;
+            }
+            if (self::access($user, $entry) ?? Presets::canSee($row, $user)) {
+                $out[] = $entry;
             }
         }
 
         return $out;
+    }
+
+    /**
+     * The reports shown in the application's menu for this person: those they may open that
+     * somebody turned on — an `app:` one by its definition's `menu` until then.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function inMenu(object $user): array
+    {
+        $chosen = self::menuChoices();
+
+        return array_values(array_filter($this->visibleTo($user), static fn (array $e): bool => $chosen[$e['id']] ?? !empty($e['menu'])));
+    }
+
+    /** Whether a report is shown in the menu. */
+    public function shownInMenu(array $entry): bool
+    {
+        return self::menuChoices()[(string) ($entry['customises'] ?? $entry['id'])] ?? !empty($entry['menu']);
+    }
+
+    /** Whether this person turns reports on and off in the menu (`metrics.menu_editors`, root by default). */
+    public static function editsMenu(object $user): bool
+    {
+        $hook = Metrics::config()['menu_editors'] ?? null;
+
+        return is_callable($hook) ? (bool) $hook($user) : \Pramnos\User\Roles::atLeast($user, \Pramnos\User\Roles::ROOT);
+    }
+
+    /**
+     * Show a report in the menu, or not — for whoever {@see editsMenu()}, and a report they may
+     * open. Whether it was kept.
+     */
+    public function setMenu(string $id, bool $on, object $user): bool
+    {
+        if (!self::editsMenu($user) || $this->find($id, $user) === null) {
+            return false;
+        }
+        $chosen      = self::menuChoices();
+        $chosen[$id] = $on;
+        \Pramnos\Application\Settings::setSetting(self::MENU_SETTING, (string) json_encode($chosen, JSON_UNESCAPED_UNICODE));
+
+        return true;
+    }
+
+    /** @return array<string, bool> */
+    private static function menuChoices(): array
+    {
+        $kept = json_decode((string) \Pramnos\Application\Settings::getSetting(self::MENU_SETTING, '{}'), true);
+
+        return is_array($kept) ? array_map('boolval', $kept) : [];
+    }
+
+    /**
+     * A person's own copy of a report they may open, bound to it — made the first time, the same
+     * one after — to arrange as they like; opened in its place for them ({@see find()}). Its id.
+     *
+     * @throws \InvalidArgumentException For a report they may not open
+     */
+    public function customise(string $id, object $user): int
+    {
+        $original = $this->find($id, $user);
+        if ($original === null) {
+            throw new \InvalidArgumentException('There is no such report.');
+        }
+        $id = (string) ($original['customises'] ?? $original['id']);
+        if (($copy = $this->copyOf($id, $user)) !== null) {
+            return (int) $copy['reportid'];
+        }
+        $definition               = $original['report']->definition;
+        $definition['customises'] = $id;
+        if (!is_array($definition['layout'] ?? null)) {
+            $definition['layout'] = ReportBoard::layout($original['report']);
+        }
+
+        return $this->save($user, $definition);
+    }
+
+    /** Go back to the original: the person's customised copy of it deleted. Whether there was one. */
+    public function uncustomise(string $id, object $user): bool
+    {
+        $copy = $this->copyOf($id, $user);
+
+        return $copy !== null && $this->delete((int) $copy['reportid'], $user);
+    }
+
+    /** A person's customised copy of a report, its row, or null. @return array<string, mixed>|null */
+    private function copyOf(string $id, object $user): ?array
+    {
+        foreach ($this->rows(['ownerid' => (int) ($user->userid ?? 0)]) as $row) {
+            if ((((array) json_decode((string) $row['definition'], true))['customises'] ?? null) === $id) {
+                return $row;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -82,7 +213,18 @@ final class Reports
     {
         foreach ($this->visibleTo($user) as $entry) {
             if ($entry['id'] === $id) {
-                return $entry;
+                // Their own copy, where they customised it: with `customises`, the original's id.
+                $copy = $this->copyOf($id, $user);
+
+                return $copy === null ? $entry : $this->entry($copy) + ['customises' => $id, 'original' => $entry];
+            }
+        }
+        // A person's own copy, by its own id — its board, as the page draws and saves it — while
+        // they may still open the original.
+        if (ctype_digit($id) && ($row = $this->rows(['reportid' => (int) $id, 'ownerid' => (int) ($user->userid ?? 0)])[0] ?? null) !== null) {
+            $original = ((array) json_decode((string) $row['definition'], true))['customises'] ?? null;
+            if (is_string($original) && ($of = $this->find($original, $user)) !== null) {
+                return $this->entry($row) + ['customises' => $original, 'original' => $of['original'] ?? $of];
             }
         }
 

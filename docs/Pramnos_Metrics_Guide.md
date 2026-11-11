@@ -608,6 +608,31 @@ dimension is ignored (`ReportBoard::variables()`). The pinned pickers and the pe
 form themselves through `data-pf-autosubmit`, which pf-utils handles, so there is no inline script
 for a Content-Security-Policy to refuse.
 
+**Who opens which report** follows the framework's rule (an application report for everybody,
+a saved one as it is shared) unless the application says otherwise for one:
+
+```php
+'metrics' => [
+    'reports_access' => fn (object $user, array $entry): ?bool => $entry['id'] === 'app:monthly' ? $user->may('monthStats') : null,
+    'menu_editors'   => fn (object $user): bool => $user->usertype >= 99,
+],
+```
+
+- **`reports_access`**: true lets a person open a report the rule would not, false keeps it from
+  them, and null keeps the rule. The list, opening, CSV and XLSX all go through `Reports::find()`
+  and `visibleTo()`, which ask it, and a scheduled mail is not sent where it keeps the report
+  from its owner (`Reports::access()`).
+- **In the menu.** Whoever `menu_editors` allows (root by default) turns a report on or off in the
+  menu from the ⋯ of its page. That overrides an `app:` report's own `'menu' => true`.
+  `Reports::inMenu($user)` gives the ones to put in the application's menu, each one the person may
+  open.
+- **Customise.** On a report they may not change, a person makes their own copy, bound to it
+  (`Reports::customise()`). From then on it opens in the original's place for them, under the
+  original's address, to arrange with the dashboard's Customise. It is never listed beside the
+  original, and *Reset to the original* deletes it (`Reports::uncustomise()`). There is one copy
+  for each person and report. The button is on the Tailwind page, where cards are arranged.
+- **The analyst's records** carry each value that has a link as a markdown link.
+
 **The report page**, so it opens on its numbers:
 
 - **The head** is the title and the period. The actions (Customise, Settings or Copy, Export CSV

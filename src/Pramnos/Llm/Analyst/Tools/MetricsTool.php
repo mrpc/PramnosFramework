@@ -152,7 +152,22 @@ final class MetricsTool implements McpToolInterface
         }
         $rows = Metrics::records($metric->name, $grain, $period, $only);
 
-        return ['metric' => $metric->name, 'period' => Window::of($grain, $period)->label(), 'count' => count($rows), 'rows' => array_slice($rows, 0, self::ROWS)];
+        // Where a value opens (`metrics.links`): given as a markdown link, for the answer to keep.
+        $count  = count($rows);
+        $rows   = array_slice($rows, 0, self::ROWS);
+        $linked = false;
+        foreach ($rows as $i => $row) {
+            foreach ($row as $column => $value) {
+                $url = is_scalar($value) ? Metrics::link((string) $column, $value, $row) : null;
+                if ($url !== null) {
+                    $rows[$i][$column] = '[' . str_replace(['[', ']'], ['(', ')'], (string) $value) . '](' . $url . ')';
+                    $linked            = true;
+                }
+            }
+        }
+
+        return ['metric' => $metric->name, 'period' => Window::of($grain, $period)->label(), 'count' => $count, 'rows' => $rows]
+            + ($linked ? ['links' => 'Values written as markdown links open the record: keep them as links in the answer.'] : []);
     }
 
     /** Who is asking, or null for nobody. */

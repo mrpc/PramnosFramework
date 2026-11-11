@@ -703,6 +703,128 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * The application decides who opens which report (FW-459): `reports_access` keeps one from a
+     * person, or gives them one the framework's rule would not, and null keeps the rule — for the
+     * list, opening and mailing alike. A report is shown in the menu where somebody who may turned
+     * it on, an `app:` one by its own `menu` until then. A person customises a report they may
+     * not change: their own copy, bound to it, opened in its place and never listed beside it,
+     * until they go back to the original.
+     */
+    public function testAccessMenuAndACustomisedCopy(): void
+    {
+        // Arrange
+        $theirs = (new Reports())->save(self::reader(98, 7), ['name' => 'Test shared', 'sections' => [['rows' => [['metric' => 'test.sales']]]]], Presets::EVERYONE);
+        $hidden = (new Reports())->save(self::reader(98, 7), ['name' => 'Test private', 'sections' => []]);
+        Application::getInstance()->applicationInfo['metrics']['reports'] = ['monthly' => ['name' => 'Monthly', 'menu' => true, 'sections' => []],
+            'other' => ['name' => 'Other', 'sections' => []]];
+        Application::getInstance()->applicationInfo['metrics']['reports_access'] = static fn (object $user, array $entry): ?bool => match ($entry['id']) {
+            'app:other' => false,
+            (string) $hidden => (int) $user->userid === 2 ? true : null,
+            default => null,
+        };
+        $me      = self::reader(90, 2);
+        $reports = new Reports();
+        \Pramnos\Application\Settings::setSetting(Reports::MENU_SETTING, '{}', false);
+
+        // Act
+        $listed      = array_column($reports->visibleTo($me), 'id');
+        $menuBefore  = array_column($reports->inMenu($me), 'id');
+        $refused     = $reports->setMenu((string) $theirs, true, $me);
+        $root        = self::reader(99, 9);
+        $turned      = [$reports->setMenu((string) $theirs, true, $root), $reports->setMenu('app:monthly', false, $root)];
+        $menuAfter   = array_column($reports->inMenu($me), 'id');
+        $copy        = $reports->customise((string) $theirs, $me);
+        $again       = $reports->customise((string) $theirs, $me);
+        $opened      = $reports->find((string) $theirs, $me);
+        $listedAfter = array_column($reports->visibleTo($me), 'id');
+        $back        = $reports->uncustomise((string) $theirs, $me);
+        $original    = $reports->find((string) $theirs, $me);
+        try {
+            $reports->customise('app:other', $me);
+            $nope = false;
+        } catch (\InvalidArgumentException $e) {
+            $nope = true;
+        }
+        unset(Application::getInstance()->applicationInfo['metrics']['reports'], Application::getInstance()->applicationInfo['metrics']['reports_access']);
+        \Pramnos\Application\Settings::setSetting(Reports::MENU_SETTING, '{}', false);
+        (new Reports())->delete($theirs, $root, true);
+        (new Reports())->delete($hidden, $root, true);
+
+        // Assert
+        $this->assertContains('app:monthly', $listed);
+        $this->assertNotContains('app:other', $listed, 'kept from them by the application');
+        $this->assertContains((string) $hidden, $listed, 'given to them by the application, though private');
+        $this->assertContains((string) $theirs, $listed, 'null: the framework\'s rule');
+        $this->assertSame(['app:monthly'], $menuBefore, 'an app report by its own menu');
+        $this->assertFalse($refused, 'only who may edit the menu');
+        $this->assertSame([true, true], $turned);
+        $this->assertSame([(string) $theirs], $menuAfter, 'turned on, and the app one turned off');
+        $this->assertSame($copy, $again, 'one copy for each person');
+        $this->assertSame((string) $copy, $opened['id'], 'their copy, opened in its place');
+        $this->assertSame((string) $theirs, $opened['customises']);
+        $this->assertNotContains((string) $copy, $listedAfter, 'never listed beside the original');
+        $this->assertTrue($back);
+        $this->assertSame((string) $theirs, $original['id'], 'back to the original');
+        $this->assertTrue($nope, 'nothing to customise that they may not open');
+    }
+
+    /**
+     * The page's side of FW-459: Customise makes the copy and opens it to be arranged under the
+     * original's address, Reset to the original takes it away, the menu toggle is for who may and
+     * refused to anybody else; the ⋯ menu offers each where it applies. The analyst's records carry
+     * each linked value as a markdown link.
+     */
+    public function testCustomiseAndTheMenuFromThePage(): void
+    {
+        // Arrange
+        $this->signIn(98, 2);
+        $theirs = (new Reports())->save(self::reader(98, 7), ['name' => 'Test page shared', 'sections' => [['rows' => [['metric' => 'test.sales']]]]], Presets::EVERYONE);
+        $screen = $this->screen(MetricReports::class);
+        Application::getInstance()->applicationInfo['metrics']['links'] = ['order' => static fn ($value): string => '/admin/Orders/' . $value];
+
+        // Act
+        $this->request('POST', null, [], ['report' => (string) $theirs]);
+        $screen->customise();
+        $this->request('GET', null, ['report' => (string) $theirs, 'customise' => '1', 'at' => '2026-09-10']);
+        $screen->show();
+        $page = (array) $screen->view;
+        $this->request('POST', null, [], ['report' => (string) $theirs, 'on' => '1']);
+        $screen->menu();
+        $this->request('POST', null, [], ['report' => (string) $theirs]);
+        $screen->uncustomise();
+        $this->request('POST', null, [], ['report' => 'no-such']);
+        $screen->customise();
+        $this->request('GET', null, ['report' => (string) $theirs, 'at' => '2026-09-10']);
+        $screen->show();
+        $original = (array) $screen->view;
+        // The tool's own reading of a metric's records, past whose account it asks as.
+        $records  = (new \ReflectionMethod(\Pramnos\Llm\Analyst\Tools\MetricsTool::class, 'rows'))
+            ->invoke(new \Pramnos\Llm\Analyst\Tools\MetricsTool(2), Metrics::get('test.sales'), 'month', '2026-09-10', ['region' => 'north']);
+        $html     = $this->renderTemplate('tailwind', 'metricreports/report.tpl.php', $page);
+        $plain    = $this->renderTemplate('plain-css', 'metricreports/report.tpl.php', $original);
+        unset(Application::getInstance()->applicationInfo['metrics']['links']);
+        (new Reports())->delete($theirs, self::reader(99, 9), true);
+
+        // Assert
+        $this->assertStringEndsWith('/show?report=' . $theirs . '&customise=1', $screen->redirects[0], 'the copy, opened to be arranged');
+        $this->assertSame((string) $theirs, $page['reportId'], 'under the original\'s address');
+        $this->assertSame((string) $theirs, $page['original']);
+        $this->assertTrue($page['mine'] && $page['customise'], 'their own, to arrange');
+        $this->assertContains(['error', 'You may not change the menu.'], $screen->flash);
+        $this->assertContains(['message', 'Back to the original.'], $screen->flash);
+        $this->assertContains(['error', 'There is no such report.'], $screen->flash);
+        $this->assertNull($original['original'], 'the original again');
+        $this->assertStringContainsString('Reset to the original', $html);
+        $this->assertStringContainsString('Your own arrangement of this report', $html);
+        $this->assertStringContainsString('value="' . $theirs . '"', $html);
+        $this->assertStringNotContainsString('Show in the menu', $html, 'not for who may not');
+        $this->assertStringContainsString('>Copy<', $plain);
+        $this->assertStringNotContainsString('/customise"', $plain, 'customising is the Tailwind page\'s');
+        $this->assertSame('[1](/admin/Orders/1)', $records['rows'][0]['order'], 'a linked value, as a markdown link');
+        $this->assertArrayHasKey('links', $records);
+    }
+
+    /**
      * A table whose columns are a dimension's values shows only the value the page is filtered to
      * (FW-460) — `?v[region]=north` — and no total beside it; without the filter, every value and
      * the total. The page keeps the pinned filters in sight, the rest behind Filters with a count,

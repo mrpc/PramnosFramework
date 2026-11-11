@@ -103,6 +103,10 @@ final class Report
             'compare'  => $compare === '' ? null : $compare,
             'sections' => $sections,
         ];
+        // A person's own copy of another report keeps which one it stands for (Reports::customise()).
+        if (is_string($definition['customises'] ?? null) && $definition['customises'] !== '') {
+            $clean['customises'] = mb_substr($definition['customises'], 0, 120);
+        }
         // Its cards, as the dashboard keeps a layout ({@see ReportBoard}); without them, the
         // sections are read as cards.
         if (is_array($definition['layout'] ?? null)) {
