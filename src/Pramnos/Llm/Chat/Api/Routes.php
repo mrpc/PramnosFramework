@@ -154,6 +154,9 @@ final class Routes
         $r->get($p['chat'] . '/{conversation_id}', static fn ($conversation_id) => $make()->read($conversation_id))->describeFrom([$controller, 'read']);
         $r->delete($p['chat'] . '/{conversation_id}', static fn ($conversation_id) => $make()->forget($conversation_id))->describeFrom([$controller, 'forget']);
         $r->post($p['chat'] . '/{conversation_id}/share', static fn ($conversation_id) => $make()->shareConversation($conversation_id))->describeFrom([$controller, 'shareConversation']);
+        $r->post($p['chat'] . '/{conversation_id}/compact', static fn ($conversation_id) => $make()->compact($conversation_id))->describeFrom([$controller, 'compact']);
+        $r->post($p['chat'] . '/{conversation_id}/continue', static fn ($conversation_id) => $make()->continueConversation($conversation_id))->describeFrom([$controller, 'continueConversation']);
+        $r->put($p['chat'] . '/{conversation_id}/summary', static fn ($conversation_id) => $make()->correctSummary($conversation_id))->describeFrom([$controller, 'correctSummary']);
         $r->get($p['chat'] . '/{conversation_id}/shares', static fn ($conversation_id) => $make()->conversationShares($conversation_id))->describeFrom([$controller, 'conversationShares']);
     }
 }

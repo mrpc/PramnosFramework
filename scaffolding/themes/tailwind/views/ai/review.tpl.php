@@ -83,6 +83,10 @@ $persona = static fn (?string $key): string => $key === null ? '—' : (string) 
             @else
                 <p class="{!! $c['banner'] !!}" role="note" style="padding:8px 12px">{{ sprintf(t('%s\'s conversation — read only'), $open['owner_name']) }} · <a href="{{ $u['all'] . '?person=' . (int) $open['owner'] }}">{{ t('Their card') }}</a></p>
                 <h1 class="text-2xl font-semibold mb-3">{{ $open['conversation']['title'] }}</h1>
+                @if (!empty($open['conversation']['summary']))
+                    {{-- What the older messages became: the summary the assistant goes on from, to read. --}}
+                    <details class="pf-chat-summary {!! $c['muted'] ?? '' !!}" style="margin:0 0 .75rem"><summary>{{ sprintf(t('The older %d messages are summarised'), (int) ($open['conversation']['folded'] ?? 0)) }}</summary><div style="white-space:pre-wrap">{{ $open['conversation']['summary'] }}</div></details>
+                @endif
                 @foreach ($open['conversation']['messages'] as $m)
                     @php $mine = $m['role'] === 'user'; @endphp
                     <article style="display:flex;flex-direction:column;align-items:{!! $mine ? 'flex-end' : 'flex-start' !!};margin-bottom:16px">

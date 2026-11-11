@@ -105,6 +105,19 @@ because a handful of long ones fill it as surely as many short ones. A summary t
 `turns()` only, and the next one tries again. `'llm' => ['chat' => ['summarize' => false]]` sends
 the last `turns()` and leaves the start out.
 
+**Compacted on the person's word.** Before a change of topic, a person can fold the older
+messages, all but the last exchange, into the summary at once:
+
+- `/compact`, optionally with what to keep (`/compact keep October's figures`), as a question;
+- or `Conversations::compact($id, $keep)`, which the API exposes as `POST {chat}/{id}/compact`.
+
+`continueAnew($id)` (`POST {chat}/{id}/continue`) starts a new conversation seeded with the old
+one in short, naming where it came from, and leaves the old one as it is. `find()` gives the
+`summary` and how many messages it holds (`folded`). The conversation page and the control
+centre's reading show it as *The older N messages are summarised*. A person corrects it with
+`correctSummary()` (`PUT {chat}/{id}/summary`). Compacting does not lower the cost of each call
+by much, since most of that is the rules, the tools and the tools' results, not the history.
+
 **Housekeeping runs on the cheapest model.** The summary and memory learning go through
 `Client::askCheaply()`: the cheapest model in the provider's list that has prices
 ([the call log and costs](Pramnos_LLM_Guide.md#the-call-log-and-costs)), on the same provider and key; where that model fails, the call is asked again

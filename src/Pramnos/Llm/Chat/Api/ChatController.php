@@ -82,6 +82,46 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             : self::error(404, 'There is no such conversation.');
     }
 
+    /**
+     * Fold a conversation's older messages into its summary now (`POST {chat}/{id}/compact`), with
+     * `keep`, what to be sure to keep; all but the last exchange.
+     */
+    public function compact($conversation_id): array
+    {
+        if (($stop = $this->refusal('ask')) !== null) {
+            return $stop;
+        }
+        $done = $this->conversations()->compact((int) $conversation_id, (string) ($this->input()['keep'] ?? ''));
+
+        return is_string($done) ? self::error($done === 'There is no such conversation.' ? 404 : 422, $done) : ['status' => 200, 'data' => $done];
+    }
+
+    /**
+     * A new conversation going on from this one, seeded with it in short (`POST {chat}/{id}/continue`):
+     * `{conversation_id, continued_from}`.
+     */
+    public function continueConversation($conversation_id): array
+    {
+        if (($stop = $this->refusal('ask')) !== null) {
+            return $stop;
+        }
+        $done = $this->conversations()->continueAnew((int) $conversation_id, (string) ($this->input()['keep'] ?? ''));
+
+        return is_string($done) ? self::error($done === 'There is no such conversation.' ? 404 : 422, $done) : ['status' => 201, 'data' => $done];
+    }
+
+    /** A conversation's summary corrected by the person (`PUT {chat}/{id}/summary` with `summary`). */
+    public function correctSummary($conversation_id): array
+    {
+        if (($stop = $this->refusal('ask')) !== null) {
+            return $stop;
+        }
+
+        return $this->conversations()->correctSummary((int) $conversation_id, (string) ($this->input()['summary'] ?? ''))
+            ? ['status' => 200, 'data' => ['summary' => trim((string) ($this->input()['summary'] ?? ''))]]
+            : self::error(404, 'There is no such conversation.');
+    }
+
     /** This person's artifacts — the tables, lists and texts kept from their conversations — without their content. */
     public function artifacts(): array
     {

@@ -435,7 +435,56 @@ class ConversationsTest extends LlmTestCase
         $this->assertStringEndsWith('chat?c=5', $base->conversationUrl(5));
         $this->assertSame(42, $base->acting(new Scope(1), static fn (): int => 42));
     }
+
+    /**
+     * Compacting on the person's word (FW-480): the older messages — all but the last exchange —
+     * folded into the summary at once, with what to keep, by `/compact` or by the call, the
+     * summary shown with how many it holds; corrected by the person; a conversation continued in
+     * a new one, seeded with the old one in short, naming it, and the old one left as it is.
+     */
+    #[DataProvider('databases')]
+    public function testACompactedConversationAndOneContinuedAnew(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $chat = $this->chat(new Scope(7, null));
+        $this->answer([[200, self::says('One')], [200, self::says('Two')], [200, self::says('Three')],
+            [200, self::says('Summary: sales, October 40.')], [200, self::says('All of it: sales.')], [200, self::says('Go on.')], [200, self::says('Asked.')]]);
+        $id = $chat->ask(null, 'First')['conversation_id'];
+        $chat->ask($id, 'Second');
+        $chat->ask($id, 'Third');
+
+        // Act
+        $command   = $chat->ask($id, '/compact keep the October figures');
+        $asked     = $this->sent[3]['body']['messages'];
+        $found     = $chat->find($id);
+        $again     = $chat->compact($id);
+        $corrected = $chat->correctSummary($id, 'Sales; October was 41.');
+        $after     = $chat->find($id)['summary'];
+        $anew      = $chat->continueAnew($id);
+        $next      = $chat->find($anew['conversation_id']);
+        $chat->ask($anew['conversation_id'], 'And November?');
+        $system    = self::systemOf(end($this->sent));
+        $notHers   = $this->chat(new Scope(8, null))->compact($id);
+        $nothing   = $this->chat(new Scope(7, null))->ask(null, '/compact')['ok'] ?? null;
+
+        // Assert
+        $this->assertSame(['compacted', 'The older 4 messages are now a summary.'], [$command['why'], $command['says']], 'all but the last exchange');
+        $this->assertStringContainsString('Keep in it, whatever else goes: keep the October figures', (string) json_encode($asked, JSON_UNESCAPED_UNICODE), 'what to keep, asked of the summary');
+        $this->assertSame(['Summary: sales, October 40.', 4], [$found['summary'], $found['folded']], 'shown, with how many it holds');
+        $this->assertSame('There is nothing older to fold yet.', $again);
+        $this->assertTrue($corrected);
+        $this->assertSame('Sales; October was 41.', $after, 'corrected by the person');
+        $this->assertSame(0, $next['folded']);
+        $this->assertStringStartsWith('Continued from conversation #' . $id . ' («First»). All of it: sales.', (string) $next['summary'], 'the old one in short, named');
+        $this->assertSame([], $next['messages'], 'a new conversation');
+        $this->assertStringContainsString('All of it: sales.', $system, 'what it goes on from');
+        $this->assertSame('Sales; October was 41.', $chat->find($id)['summary'], 'the old one as it was');
+        $this->assertSame('There is no such conversation.', $notHers);
+        $this->assertTrue($nothing, 'a /compact with no conversation is a question like any other');
+    }
 }
+
 
 /** An assistant that records what it was asked, and marks what it decorated. */
 final class RecordingAssistant extends BaseAssistant

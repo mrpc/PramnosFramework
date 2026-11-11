@@ -2577,4 +2577,5 @@ return [
     'The plan, this morning' => 'Το σχέδιο, σήμερα το πρωί',
     'The week\'s review' => 'Η ανασκόπηση της εβδομάδας',
     'Contents' => 'Περιεχόμενα',
+    'The older %d messages are summarised' => 'Τα %d παλιότερα μηνύματα έχουν συνοψιστεί',
 ];

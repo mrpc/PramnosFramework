@@ -180,6 +180,10 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false); @endphp
             @endif
 
             <div class="pf-chat-messages" data-pf-chat-messages>
+                @if (!empty($open['summary']))
+                    {{-- What the older messages became: the summary the assistant goes on from, to read. --}}
+                    <details class="pf-chat-summary {!! $c['muted'] ?? '' !!}" style="margin:0 0 .75rem"><summary>{{ sprintf(t('The older %d messages are summarised'), (int) ($open['folded'] ?? 0)) }}</summary><div style="white-space:pre-wrap">{{ $open['summary'] }}</div></details>
+                @endif
                 @foreach ($open['messages'] ?? [] as $m)
                     @php $mine = $m['role'] === 'user'; $at = \Pramnos\Llm\Chat\Web\Stamp::iso((string) ($m['created_at'] ?? '')); @endphp
                     <article class="pf-chat-message" data-pf-chat-role="{!! $mine ? 'user' : 'assistant' !!}" style="display:flex;flex-direction:column;align-items:{!! $mine ? 'flex-end' : 'flex-start' !!};margin-bottom:16px">

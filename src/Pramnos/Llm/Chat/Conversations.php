@@ -280,8 +280,89 @@ class Conversations
             'ended'           => !empty($conversation['ended_at']),
             // A work conversation (Work): the business's data, kept out of what is learned.
             'mode'            => Work::in(self::tagsOf($conversation)) ? Work::MODE : null,
+            // What the older messages became (fold, compact): the summary sent in their place, and how many it holds.
+            'summary'         => trim((string) ($conversation['summary'] ?? '')) !== '' ? (string) $conversation['summary'] : null,
+            'folded'          => count(array_filter($messages, static fn (array $m): bool => (int) $m['message_id'] <= (int) ($conversation['summary_upto'] ?? 0))),
             'messages'        => $this->assistant->present($this->scope, $messages),
         ];
+    }
+
+    /**
+     * The conversation's older messages folded into its summary now, on the person's word — before
+     * a change of topic — all but the last exchange; with what to be sure to keep ("October's
+     * figures"). Answers the summary and how many messages it holds, or why not.
+     *
+     * @return array{summary: string, folded: int}|string
+     */
+    public function compact(int $conversationId, string $keep = ''): array|string
+    {
+        $found = $this->find($conversationId);
+        if ($found === null) {
+            return 'There is no such conversation.';
+        }
+        if (!$this->tracks()) {
+            return 'This installation keeps no summaries yet: run migrate.';
+        }
+        $row      = (array) $this->conversation($conversationId);
+        $messages = array_values(array_filter($found['messages'], static fn (array $m): bool => (int) $m['message_id'] > (int) ($row['summary_upto'] ?? 0)));
+        $older    = array_slice($messages, 0, max(0, count($messages) - 2));
+        if ($older === []) {
+            return 'There is nothing older to fold yet.';
+        }
+        $summary = $this->fold($conversationId, $this->client($this->scope), trim((string) ($row['summary'] ?? '')),
+            array_map(static fn (array $m): array => ['role' => (string) $m['role'], 'content' => (string) $m['content']], $older), (int) end($older)['message_id'], trim($keep));
+
+        return $summary === null ? 'The summary could not be written now; nothing was folded.' : ['summary' => $summary, 'folded' => count(array_filter($found['messages'], static fn (array $m): bool => (int) $m['message_id'] <= (int) end($older)['message_id']))];
+    }
+
+    /**
+     * A conversation's summary corrected by the person: what the assistant goes on from.
+     */
+    public function correctSummary(int $conversationId, string $summary): bool
+    {
+        if ($this->conversation($conversationId) === null || !$this->tracks()) {
+            return false;
+        }
+        $this->mark($conversationId, ['summary' => mb_substr(trim($summary), 0, 4000)]);
+
+        return true;
+    }
+
+    /**
+     * A new conversation that goes on from this one: the old one's whole, in short, as its
+     * summary, naming where it came from. The old one stays as it is. Answers the new one's id.
+     *
+     * @return array{conversation_id: int, continued_from: int}|string
+     */
+    public function continueAnew(int $conversationId, string $keep = ''): array|string
+    {
+        $found = $this->find($conversationId);
+        if ($found === null) {
+            return 'There is no such conversation.';
+        }
+        if (!$this->tracks()) {
+            return 'This installation keeps no summaries yet: run migrate.';
+        }
+        $row     = (array) $this->conversation($conversationId);
+        $newer   = array_values(array_filter($found['messages'], static fn (array $m): bool => (int) $m['message_id'] > (int) ($row['summary_upto'] ?? 0)));
+        $summary = trim((string) ($row['summary'] ?? ''));
+        if ($newer !== []) {
+            $summary = $this->fold($conversationId, $this->client($this->scope), $summary,
+                array_map(static fn (array $m): array => ['role' => (string) $m['role'], 'content' => (string) $m['content']], $newer), 0, trim($keep), false);
+            if ($summary === null) {
+                return 'The summary could not be written now; try again.';
+            }
+        }
+        $stamp = CallLog::instant(time());
+        $this->table('assist.chat_conversations')->insert($this->scope->columns() + [
+            'title'      => self::titleFor((string) $found['title']),
+            'tags'       => $found['tags'] === [] ? null : json_encode($found['tags']),
+            'summary'    => 'Continued from conversation #' . $conversationId . ' («' . $found['title'] . '»). ' . $summary,
+            'created_at' => $stamp,
+            'updated_at' => $stamp,
+        ]);
+
+        return ['conversation_id' => (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId(), 'continued_from' => $conversationId];
     }
 
     /** Forget a conversation and its messages. False when there was none of this person's. */
@@ -367,6 +448,14 @@ class Conversations
 
         $this->traceId = self::newTrace();
         $question      = mb_substr(trim($question), 0, self::CHARS);
+        // `/compact [what to keep]`: the older messages folded now, nothing asked of the model.
+        if ($conversationId !== null && preg_match('#^/compact\b\s*(.*)$#su', $question, $m) === 1) {
+            $done = $this->compact($conversationId, $m[1]);
+
+            return is_string($done) ? self::refusal('compact', $done)
+                : ['ok' => true, 'says' => sprintf('The older %d messages are now a summary.', $done['folded']), 'why' => 'compacted',
+                    'conversation_id' => $conversationId, 'message' => null, 'summary' => $done['summary']];
+        }
         // Said first by the person: a check waiting on it is not asked.
         if (FollowUps::on($this->scope) && $question !== '') {
             try {
@@ -1081,7 +1170,7 @@ class Conversations
      *
      * @param list<array{role: string, content: string}> $older
      */
-    private function fold(int $conversationId, Client $client, string $summary, array $older, int $upto): ?string
+    private function fold(int $conversationId, Client $client, string $summary, array $older, int $upto, string $keep = '', bool $mark = true): ?string
     {
         // ponytail: the newest 40 only, each cut to 2000 characters — a conversation from before
         // summaries, folded for the first time, would otherwise be one enormous call.
@@ -1091,7 +1180,8 @@ class Conversations
             $answer = $client->askCheaply('You keep the running summary of a conversation between a person and an assistant, so that it can go on '
                 . 'without its older messages. Rewrite the summary to take in the messages given: what was asked, what was found or decided, '
                 . 'names, figures and ids that may be referred to again, and what is still open. Plain sentences in the conversation\'s '
-                . 'language, at most 300 words. Answer with the summary only.', [['role' => 'user', 'content' =>
+                . 'language, at most 300 words. Answer with the summary only.'
+                . ($keep !== '' ? ' Keep in it, whatever else goes: ' . mb_substr($keep, 0, 500) . '.' : ''), [['role' => 'user', 'content' =>
                     ($summary === '' ? '' : "Summary so far:\n" . $summary . "\n\n") . "Messages to take in:\n\n" . implode("\n\n", $lines)]]);
         } catch (\Throwable $why) {
             \Pramnos\Logs\Logger::log('llm conversation summary: ' . $why->getMessage(), 'llm');
@@ -1103,7 +1193,9 @@ class Conversations
         if (!($answer['ok'] ?? false) || $folded === '') {
             return null;
         }
-        $this->mark($conversationId, ['summary' => $folded, 'summary_upto' => $upto]);
+        if ($mark) {
+            $this->mark($conversationId, ['summary' => $folded, 'summary_upto' => $upto]);
+        }
 
         return $folded;
     }
