@@ -258,3 +258,29 @@ test('state: on the avatar without pfAssistant, and a question asked ends the ga
     assert.equal(window.PfCompanionPlay.playing(), null, 'the question ended the game');
     assert.equal(avatar.parentNode, dock);
 });
+
+test('stopped in the middle of playing, she has her own pose back, not the game\'s', LIMIT, async () => {
+    // Arrange
+    avatar.setAttribute('data-pose', 'loaf');
+    window.PfCompanionPlay.yarn();
+    await tick(2500);
+    const playing = avatar.getAttribute('data-pose');
+
+    // Act
+    window.PfCompanionPlay.stop();
+    await tick(10000);
+
+    // Assert
+    assert.equal(playing, 'belly-up');
+    assert.equal(avatar.getAttribute('data-pose'), 'loaf');
+});
+
+test('the yarn ball is drawn, and what plays outside the dock is put on the page\'s root', LIMIT, () => {
+    // Act
+    window.PfCompanionPlay.yarn();
+
+    // Assert — a body with a transform would make position: fixed its own
+    assert.equal(document.querySelector('.pf-companion-yarn').parentNode, document.documentElement);
+    assert.equal(document.querySelector('.pf-companion-runner').parentNode, document.documentElement);
+    assert.ok(document.querySelector('.pf-companion-yarn').innerHTML.includes('<svg'), 'drawn, not an emoji a system may lack');
+});

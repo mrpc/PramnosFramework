@@ -84,6 +84,15 @@
         return new Promise(function (done) { later(done, ms); });
     }
 
+    /**
+     * Where what plays outside the dock is put: the page's root, not its body — a body with a
+     * `transform`, a `filter` or a `zoom` (an older administration's theme) makes `position: fixed`
+     * relative to itself, and what is put there lands off the screen or clipped.
+     */
+    function stage() {
+        return document.documentElement || document.body;
+    }
+
     function rect(el) {
         var r = el.getBoundingClientRect();
 
@@ -113,7 +122,7 @@
         d.style.minHeight = (d.offsetHeight || r.h) + 'px';
         a.parentNode.insertBefore(placeholder, a);
         runner.appendChild(a);
-        document.body.appendChild(runner);
+        stage().appendChild(runner);
         d.setAttribute('data-pf-companion-away', '');
         out = { runner: runner, placeholder: placeholder, home: { x: r.x, y: r.y }, pos: { x: r.x, y: r.y }, size: { w: r.w, h: r.h } };
 
@@ -199,14 +208,14 @@
             return Promise.resolve();
         }
         var before = a.getAttribute('data-pose');
-        if (poseName) {
-            a.setAttribute('data-pose', poseName);
-        }
-        if (stateName && window.pfAssistant && out) {
-            window.pfAssistant.state(stateName, out.runner);
-        }
-
-        return wait(ms).then(function () {
+        var runner = out ? out.runner : null;
+        var undone = false;
+        // Back to what she had — when it is over, or when the game is stopped in the middle.
+        var undo = function () {
+            if (undone) {
+                return;
+            }
+            undone = true;
             if (poseName) {
                 if (before === null) {
                     a.removeAttribute('data-pose');
@@ -214,10 +223,21 @@
                     a.setAttribute('data-pose', before);
                 }
             }
-            if (stateName && window.pfAssistant && out) {
-                window.pfAssistant.state('idle', out.runner);
+            if (stateName && window.pfAssistant && runner) {
+                window.pfAssistant.state('idle', runner);
             }
-        });
+        };
+        if (game) {
+            game.undo.push(undo);
+        }
+        if (poseName) {
+            a.setAttribute('data-pose', poseName);
+        }
+        if (stateName && window.pfAssistant && runner) {
+            window.pfAssistant.state(stateName, runner);
+        }
+
+        return wait(ms).then(undo);
     }
 
     /** A game begins: any other ends where it is, without going home first. */
@@ -263,7 +283,7 @@
     }
 
     function put(el) {
-        document.body.appendChild(el);
+        stage().appendChild(el);
         game.undo.push(function () {
             if (el.parentNode) {
                 el.parentNode.removeChild(el);
@@ -275,7 +295,10 @@
 
     /** Where she stands so as to reach a point with her front paws: her centre on it, on the floor of it. */
     function standAt(px, py) {
-        var size = out ? out.size : { w: 64, h: 64 };
+        // Out of the dock first: her own size, not a guess — a large picture placed by a small
+        // one's size ends below the edge of the screen.
+        var o = leave();
+        var size = o ? o.size : { w: 64, h: 64 };
 
         return { x: Math.max(0, Math.min(window.innerWidth - size.w, px - size.w / 2)), y: Math.max(0, Math.min(window.innerHeight - size.h, py - size.h * 0.8)) };
     }
@@ -342,8 +365,10 @@
         var ball = document.createElement('div');
         ball.className = 'pf-companion-yarn';
         ball.setAttribute('aria-hidden', 'true');
-        ball.textContent = '🧶';
-        ball.style.cssText = 'position:fixed;left:0;top:0;font-size:' + size + 'px;line-height:1;pointer-events:none;z-index:2147483001;'
+        // Drawn, not an emoji: a system without the emoji font shows an empty box.
+        ball.innerHTML = '<svg viewBox="0 0 32 32" width="' + size + '" height="' + size + '"><circle cx="16" cy="16" r="14" fill="#e85d75"/>'
+            + '<path d="M5 12q11 6 22-2M4 19q12 5 24-4M9 27q6-10 3-23M18 29q4-12-2-26" fill="none" stroke="#b83a52" stroke-width="1.6" stroke-linecap="round"/></svg>';
+        ball.style.cssText = 'position:fixed;left:0;top:0;width:' + size + 'px;height:' + size + 'px;line-height:0;pointer-events:none;z-index:2147483001;'
             + 'transition:transform .6s cubic-bezier(.2,.8,.3,1);transform:translate(' + x + 'px,' + y + 'px)';
         put(ball);
         var to = standAt(x + size / 2, y + size);
