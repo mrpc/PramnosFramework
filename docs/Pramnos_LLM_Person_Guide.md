@@ -2,7 +2,7 @@
 use_cases:
   - Giving an assistant a profile of the person, their calendar and a journal, each turned on by itself
   - Keeping a person's projects in a plan the assistant updates from what they say, with a morning briefing
-  - Letting a child talk to the assistant with only a child's skills and tools, and safe topics
+  - Letting someone other than the account holder talk to the assistant, with only their skills, tools and context
   - Letting the assistant book appointments, find free slots and remind before them
   - Keeping an assistant from messaging people at night, too often or while they are busy
   - Keeping what a person confided with a provider you trust with it
@@ -195,36 +195,41 @@ focus, blockers, updated`. The phase is one of `active`, `paused`, `waiting` or 
   the plan, `plan_add` and `plan_update` are always loaded, outside the skill. `remember` is told
   that news about a project goes to the plan, not to memory.
 
-### Whom an answer is for: a child, or an adult
+### Whom an answer is for: audiences the application declares
 
-Where a child speaks on an account, what the assistant can do follows from it, in code:
+The framework gives the mechanism; what each audience may hear is the application's to say.
+Where somebody other than the account holder speaks (a child, a teenager, a carer), the
+application declares that audience and what follows from it:
 
-- **Who is speaking** is the request's `speaker` (`{kind: child | parent | …, name, age}`), or
-  the application's word, which is where a profile says it:
-  `'llm' => ['chat' => ['audience' => fn (Scope $scope, ?array $speaker): string]]`.
-- **Skills** say whom they are for in their frontmatter (`audience: child | adult | all`, and
-  `age: 3-7`). The catalogue holds only those for this audience and, for a child whose age is
-  known, that age.
-- **An adult's tools are not loaded at all** for a child: the plan, the follow-ups, the work mode,
-  and any tool whose metadata says `'audience' => 'adult'`. `Audience::adults($tools)` marks an
-  application's own.
-- **What is said to a child** keeps to an allowlist (`Audience::RULES`, or the application's
-  `chat.child_rules`):
-  - what may be brought up: name, age, brothers and sisters, pets, favourite things, good things
-    that happened lately, places;
-  - never: fears that are not overcome, illness, quarrels, the parents' money or work, anything
-    marked sensitive;
-  - asked about a grown-up's things, decline kindly and send the child to the grown-up, without
-    saying the things do not exist or making anything up;
-  - never guess at how a grown-up feels;
-  - no moralising.
-- **What the prompt carries for a child** is the child's to hear, left out in the one place the
-  context is put together:
-  - memories only of `Audience::CHILD_TOPICS` (interests, talk). Never identity or relationships,
-    where something sensitive about a grown-up can be kept, nor plans, work, moods, values or
-    goals;
-  - none of the grown-up's plan, pinned artifacts (today's thought among them), pending
-    follow-ups, the assistant's diary, the profile, the calendar, or the organisation's memory.
+```php
+'llm' => ['chat' => ['audiences' => [
+    'child' => [
+        'rules'     => 'You are speaking with a child. …',   // added to the prompt
+        'topics'    => ['interests', 'talk'],                // the memories that pass; all when not said
+        'leave_out' => ['plan', 'pinned', 'follow_ups', 'diary', 'profile', 'calendar', 'organisation'],
+        'without'   => ['adult'],                            // tools marked with these audiences, not loaded
+    ],
+]]],
+```
+
+- **Who is speaking** is the request's `speaker` (`{kind, name, age}`), a declared audience by its
+  kind. It can also be the application's word,
+  `'chat' => ['audience' => fn (Scope $scope, ?array $speaker): string]`, which is where a
+  profile says it. Anybody else is `adult`, with nothing left out.
+- **Skills** say whom they are for in their frontmatter (`audience: <name> | all`, and
+  `age: 3-7`). The catalogue holds only those for this audience and, where an age is known, that
+  age.
+- **Tools.** Those a capability marks for adults (the plan, the follow-ups, the work mode, or
+  any tool given `'audience' => 'adult'`, or marked with `Audience::adults($tools)`) are not
+  loaded at all for an audience whose `without` names `adult`. This is code, not a rule in the
+  prompt.
+- **The context.** The sources an audience's `leave_out` names are left out, in the one place
+  the context is put together, and so are memories of topics other than its `topics`. Its
+  `rules` are said in the prompt.
+
+An application that declares no audiences keeps what a `child` speaker had before: the
+framework's `Audience::RULES` (or the application's `chat.child_rules`), the topics `interests`
+and `talk`, every source left out, and an adult's tools not loaded.
 
 ### A check a few hours later
 

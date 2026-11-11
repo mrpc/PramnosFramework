@@ -109,7 +109,7 @@ final class Skills
                 'evals'        => $own !== null && is_dir($own . '/evals') ? $own . '/evals' : null,
                 'enabled'      => $enabled,
                 // Whom it is for: child, adult or all (the default); and for a child, which ages (`3-7`).
-                'audience'     => in_array($meta['audience'] ?? null, Audience::ALL, true) ? (string) $meta['audience'] : Audience::EVERYONE,
+                'audience'     => is_string($meta['audience'] ?? null) && preg_match('/^[a-z][a-z0-9_-]{0,30}$/', (string) $meta['audience']) === 1 ? (string) $meta['audience'] : Audience::EVERYONE,
                 'age'          => is_scalar($meta['age'] ?? null) ? trim((string) $meta['age']) : '',
                 // Where it is offered: `spaces: [admin]`, `[chat]` (every persona's), or `space: admin`; everywhere by default.
                 'spaces'       => \Pramnos\Support\FrontMatter::names($meta['spaces'] ?? $meta['space'] ?? []),

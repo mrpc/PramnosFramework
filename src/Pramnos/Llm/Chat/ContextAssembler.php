@@ -132,7 +132,7 @@ final class ContextAssembler
             . (empty($turn->extra['voice']) ? '' : "\n\n" . self::SPOKEN)
             . (is_array($turn->extra['speaker'] ?? null) ? "\n\n" . self::speaking($turn->extra['speaker']) : '')
             // Speaking with a child: what may be said, an allowlist (Audience).
-            . (Audience::of($turn->scope, is_array($turn->extra['speaker'] ?? null) ? $turn->extra['speaker'] : null) === Audience::CHILD ? "\n\n" . Audience::rules() : '')
+            . (($said = Audience::rules(Audience::of($turn->scope, is_array($turn->extra['speaker'] ?? null) ? $turn->extra['speaker'] : null))) !== '' ? "\n\n" . $said : '')
             . ($own !== '' ? "\n\n" . $own : '')
             . ($turn->documents === [] ? '' : "\n\n" . Client::DATA_NOTICE);
     }

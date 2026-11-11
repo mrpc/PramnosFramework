@@ -5,22 +5,35 @@ declare(strict_types=1);
 namespace Pramnos\Llm\Chat;
 
 /**
- * Whom an answer is for — a child, or an adult — and what follows from it, in code, not as a rule
- * in the prompt:
+ * Whom an answer is for, and what follows from it — the mechanism only; what each audience may
+ * hear is the application's to say:
  *
- * - **skills** say whom they are for in their frontmatter (`audience: child | adult | all`, and
- *   `age: 3-7` for a child's); the catalogue the model sees holds only those for this audience
- *   and age ({@see allows()});
- * - **tools** for adults (`'audience' => 'adult'` in a tool's metadata — the plan, follow-ups, the
- *   work mode's) are not loaded at all for a child ({@see forTools()});
- * - **what is said to a child** keeps to an allowlist ({@see rules()});
- * - **what the prompt carries** for a child is the child's to hear: memories of {@see CHILD_TOPICS}
- *   only, and none of the grown-up's plan, pinned artifacts, follow-ups, diary, profile, calendar
- *   or organisation's memory — left out where the context is put together, in one place.
+ * ```php
+ * 'llm' => ['chat' => ['audiences' => [
+ *     'child' => [
+ *         'rules'     => 'You are speaking with a child. …',          // added to the prompt
+ *         'topics'    => ['interests', 'talk'],                       // the memories that pass; all when not said
+ *         'leave_out' => ['plan', 'pinned', 'follow_ups', 'diary', 'profile', 'calendar', 'organisation'],
+ *         'without'   => ['adult'],                                   // tools marked with these audiences, not loaded
+ *     ],
+ * ]]],
+ * ```
  *
- * Who is speaking comes from the request (`speaker`, `{kind: child|parent|…, name, age}`), or from
- * the application: `'llm' => ['chat' => ['audience' => fn (Scope $scope, ?array $speaker): string]]`
- * — which is where a profile, once there are profiles, says it.
+ * - **Who is speaking** comes from the request (`speaker`, `{kind, name, age}`) — a declared
+ *   audience by its kind — or from the application,
+ *   `'chat' => ['audience' => fn (Scope $scope, ?array $speaker): string]`, which is where a
+ *   profile says it. Anybody else is {@see ADULT}, with nothing left out.
+ * - **Skills** say whom they are for (`audience: <name> | all`, and `age: 3-7`); the catalogue holds
+ *   only those for this audience and age ({@see allows()}).
+ * - **Tools** a capability marks (`'audience' => 'adult'`, {@see adults()}) are not loaded for an
+ *   audience whose `without` names it ({@see forTools()}).
+ * - **The context** leaves out the sources an audience's `leave_out` names, and memories of other
+ *   topics than its `topics` ({@see leavesOut()}, {@see memories()}); its `rules` are said in the
+ *   prompt ({@see rules()}).
+ *
+ * An application that declares no audiences keeps what a `child` speaker had before: the
+ * {@see RULES} (or its `chat.child_rules`), {@see CHILD_TOPICS}, every source left out and an
+ * adult's tools not loaded.
  */
 final class Audience
 {
@@ -30,17 +43,13 @@ final class Audience
 
     public const EVERYONE = 'all';
 
-    /** What a skill may say it is for. */
-    public const ALL = [self::CHILD, self::ADULT, self::EVERYONE];
+    /** The context sources an audience may leave out. */
+    public const SOURCES = ['plan', 'pinned', 'follow_ups', 'diary', 'profile', 'calendar', 'organisation'];
 
-    /**
-     * The memories a child's answer may be told: interests, and how they like to talk. Never who
-     * the grown-ups are and how they are — an illness, a separation can be kept under either —
-     * nor their plans, work, moods, values or goals.
-     */
+    /** A `child` speaker's memory topics, where the application declares no audiences. */
     public const CHILD_TOPICS = ['interests', 'talk'];
 
-    /** What may be said to a child, unless the application words it otherwise (`chat.child_rules`). */
+    /** A `child` speaker's rules, where the application declares no audiences nor `chat.child_rules`. */
     public const RULES = 'You are speaking with a child. Whatever you say keeps to what is safe to bring up with them: their name, '
         . 'age, brothers and sisters, pets, favourite things, good things that happened lately, and places. Never bring up fears '
         . '(unless they are overcome and the child is proud of it), illness, quarrels, the parents\' money or work, or anything '
@@ -49,9 +58,17 @@ final class Audience
         . '("that is something to ask your mum"). Never guess at how a grown-up feels or what they are going through; bring it back '
         . 'to the grown-up and to the child\'s own day. No moralising: be warm, short and playful.';
 
+    /** @return array<string, array<string, mixed>> The application's audiences, by name */
+    private static function declared(): array
+    {
+        $given = ((array) \Pramnos\Llm\Llm::config('chat', []))['audiences'] ?? null;
+
+        return is_array($given) ? array_filter($given, 'is_array') : [];
+    }
+
     /**
-     * Whom an answer is for: the application's word, else the speaker's kind — a child is a child,
-     * anybody else an adult.
+     * Whom an answer is for: the application's word, else the speaker's kind where it is an
+     * audience — a declared one, or `child` where none is declared — else {@see ADULT}.
      *
      * @param array<string, mixed>|null $speaker
      */
@@ -59,16 +76,48 @@ final class Audience
     {
         $hook = ((array) \Pramnos\Llm\Llm::config('chat', []))['audience'] ?? null;
         if (is_callable($hook) && $scope !== null) {
-            $said = (string) $hook($scope, $speaker);
+            $said = trim((string) $hook($scope, $speaker));
 
-            return $said === self::CHILD ? self::CHILD : self::ADULT;
+            return preg_match('/^[a-z][a-z0-9_-]{0,30}$/', $said) === 1 ? $said : self::ADULT;
         }
+        $kind     = (string) ($speaker['kind'] ?? '');
+        $declared = self::declared();
 
-        return ($speaker['kind'] ?? null) === self::CHILD ? self::CHILD : self::ADULT;
+        return $kind !== '' && ($declared !== [] ? isset($declared[$kind]) : $kind === self::CHILD) ? $kind : self::ADULT;
     }
 
     /**
-     * Whether a skill is for this audience — and, for a child with an age known, for that age.
+     * What an audience hears and has: its rules, the memory topics that pass (null for every one),
+     * the context sources left out and the tools' audiences not loaded.
+     *
+     * @return array{rules: string, topics: ?list<string>, leave_out: list<string>, without: list<string>}
+     */
+    public static function policy(string $audience): array
+    {
+        $declared = self::declared();
+        if (isset($declared[$audience])) {
+            $one = $declared[$audience];
+
+            return [
+                'rules'     => trim((string) ($one['rules'] ?? '')),
+                'topics'    => is_array($one['topics'] ?? null) ? array_values(array_map('strval', $one['topics'])) : null,
+                'leave_out' => array_values(array_intersect(array_map('strval', (array) ($one['leave_out'] ?? [])), self::SOURCES)),
+                'without'   => array_values(array_map('strval', (array) ($one['without'] ?? []))),
+            ];
+        }
+        if ($declared === [] && $audience === self::CHILD) {
+            $own = ((array) \Pramnos\Llm\Llm::config('chat', []))['child_rules'] ?? null;
+
+            return ['rules' => is_string($own) && trim($own) !== '' ? trim($own) : self::RULES, 'topics' => self::CHILD_TOPICS,
+                'leave_out' => self::SOURCES, 'without' => [self::ADULT]];
+        }
+
+        return ['rules' => '', 'topics' => null, 'leave_out' => [], 'without' => []];
+    }
+
+    /**
+     * Whether a skill is for this audience — `all`, or its name — and, with an age known and a
+     * range given, for that age.
      *
      * @param array<string, mixed> $skill As {@see Skills::load()} answers
      */
@@ -79,7 +128,7 @@ final class Audience
             return false;
         }
         $range = (string) ($skill['age'] ?? '');
-        if ($audience !== self::CHILD || $age === null || preg_match('/^(\d+)\s*-\s*(\d+)$/', $range, $m) !== 1) {
+        if ($age === null || preg_match('/^(\d+)\s*-\s*(\d+)$/', $range, $m) !== 1) {
             return true;
         }
 
@@ -87,14 +136,16 @@ final class Audience
     }
 
     /**
-     * The tools for this audience: for a child, none of those marked for adults.
+     * The tools for this audience: none marked with an audience its `without` names.
      *
      * @param array<string, array<string, mixed>> $tools
      * @return array<string, array<string, mixed>>
      */
     public static function forTools(array $tools, string $audience): array
     {
-        return $audience === self::CHILD ? array_filter($tools, static fn (array $tool): bool => ($tool['audience'] ?? null) !== self::ADULT) : $tools;
+        $without = self::policy($audience)['without'];
+
+        return $without === [] ? $tools : array_filter($tools, static fn (array $tool): bool => !in_array($tool['audience'] ?? null, $without, true));
     }
 
     /** The tools of a capability marked as an adult's. @param array<string, array<string, mixed>> $tools @return array<string, array<string, mixed>> */
@@ -103,23 +154,30 @@ final class Audience
         return array_map(static fn (array $tool): array => ['audience' => self::ADULT] + $tool, $tools);
     }
 
+    /** Whether an audience's context leaves a source out ({@see SOURCES}). */
+    public static function leavesOut(string $audience, string $source): bool
+    {
+        return in_array($source, self::policy($audience)['leave_out'], true);
+    }
+
     /**
-     * The memories a child's answer may carry: those of {@see CHILD_TOPICS}; every one for an adult.
+     * The memories an answer for this audience may carry: those of its topics, every one where it
+     * names none.
      *
      * @param list<array<string, mixed>> $memories
      * @return list<array<string, mixed>>
      */
     public static function memories(array $memories, string $audience): array
     {
-        return $audience !== self::CHILD ? $memories
-            : array_values(array_filter($memories, static fn (array $m): bool => in_array($m['topic'] ?? null, self::CHILD_TOPICS, true)));
+        $topics = self::policy($audience)['topics'];
+
+        return $topics === null ? $memories
+            : array_values(array_filter($memories, static fn (array $m): bool => in_array($m['topic'] ?? null, $topics, true)));
     }
 
-    /** What may be said to a child: the application's words, or {@see RULES}. */
-    public static function rules(): string
+    /** What an audience is told in the prompt; '' for nothing. */
+    public static function rules(string $audience = self::CHILD): string
     {
-        $own = ((array) \Pramnos\Llm\Llm::config('chat', []))['child_rules'] ?? null;
-
-        return is_string($own) && trim($own) !== '' ? trim($own) : self::RULES;
+        return self::policy($audience)['rules'];
     }
 }

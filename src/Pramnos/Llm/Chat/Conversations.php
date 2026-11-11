@@ -1338,7 +1338,6 @@ class Conversations
     {
         // A child speaking: only what is the child's to hear (Audience) — every source below asks.
         $audience   = $this->audienceOf($turn);
-        $adult      = $audience !== Audience::CHILD;
         $remembered = Audience::memories($memory->all(), $audience);
         // What the assistant said about itself goes apart: it is its own word to keep, not the person's.
         $itself     = array_values(array_filter($remembered, static fn (array $m): bool => $m['kind'] === Memory::SELF));
@@ -1371,7 +1370,7 @@ class Conversations
             }
         }
 
-        $shared = $adult ? $memory->shared() : [];
+        $shared = Audience::leavesOut($audience, 'organisation') ? [] : $memory->shared();
         if ($shared !== []) {
             $lines[] = '';
             $lines[] = 'What this organisation keeps about its shared work, for everybody in it (id, kind, as of):';
@@ -1381,7 +1380,7 @@ class Conversations
         }
 
         // The assistant's own diary, its latest page (Diary): what it wrote, it remembers.
-        if ($adult && Diary::on($this->scope) && !$turn->shared()) {
+        if (!Audience::leavesOut($audience, 'diary') && Diary::on($this->scope) && !$turn->shared()) {
             $today  = (new \DateTimeImmutable('now', new \DateTimeZone($this->assistant->timezone($this->scope))))->format('Y-m-d');
             $recall = (new Diary($this->scope))->recall($today);
             if ($recall !== '') {
@@ -1392,13 +1391,13 @@ class Conversations
 
         // What the person pinned, as it stands at the start of this question: a change made during
         // the answer is in its tool result now, and here from the next question on.
-        $pinned = $adult ? (new Artifacts($this->scope))->pinnedContext() : '';
+        $pinned = Audience::leavesOut($audience, 'pinned') ? '' : (new Artifacts($this->scope))->pinnedContext();
         if ($pinned !== '') {
             $lines[] = '';
             $lines[] = $pinned;
         }
         // The checks still to come: the model drops one the person answered before it was asked.
-        if ($adult && FollowUps::on($this->scope) && !$turn->shared()) {
+        if (!Audience::leavesOut($audience, 'follow_ups') && FollowUps::on($this->scope) && !$turn->shared()) {
             $checks = (new FollowUps(new Routines($this), $this->scope, $this->assistant->timezone($this->scope)))->context();
             if ($checks !== '') {
                 $lines[] = '';
@@ -1422,7 +1421,7 @@ class Conversations
         }
 
         // The person's plan, a line a project, in every persona and the Ask alike (Plan).
-        if ($adult && Plan::on($this->scope) && !$turn->shared()) {
+        if (!Audience::leavesOut($audience, 'plan') && Plan::on($this->scope) && !$turn->shared()) {
             $plan = (new Plan($this->scope, $this->assistant->timezone($this->scope)))->context();
             if ($plan !== '') {
                 $lines[] = '';
@@ -1432,10 +1431,10 @@ class Conversations
 
         // The person's own, where the application turned them on: what they confirmed about
         // themselves and what waits for their word, and today in their calendar.
-        if ($adult && $this->scope !== null && !$turn->shared()) {
+        if ($this->scope !== null && !$turn->shared()) {
             $own = [
-                Profile::on($this->scope) && Profile::available() ? (new Profile($this->scope))->context() : '',
-                Calendar::on($this->scope) ? (new Calendar($this->scope, $this->assistant->timezone($this->scope)))->context() : '',
+                !Audience::leavesOut($audience, 'profile') && Profile::on($this->scope) && Profile::available() ? (new Profile($this->scope))->context() : '',
+                !Audience::leavesOut($audience, 'calendar') && Calendar::on($this->scope) ? (new Calendar($this->scope, $this->assistant->timezone($this->scope)))->context() : '',
             ];
             foreach (array_filter($own) as $part) {
                 $lines[] = '';

@@ -274,4 +274,45 @@ class PlanTest extends LlmTestCase
         $this->assertStringContainsString('8000 euros', $adultPrompt, 'an adult as before');
         $this->assertStringContainsString('Salary and loans', $adultPrompt);
     }
+
+    /**
+     * The audiences are the application's (FW-450): a declared one — by the speaker's kind — is told
+     * its own rules, keeps only its own topics, leaves out only the sources it names and loads none
+     * of the tools it is without; one it leaves something in keeps it; a kind not declared is an
+     * adult; and the framework's own child rules are not said once audiences are declared.
+     */
+    #[DataProvider('databases')]
+    public function testTheAudiencesAreTheApplicationsToDeclare(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => ['plan' => true, 'memory' => ['learn' => false], 'audiences' => [
+            'teen' => ['rules' => 'Speak as to a teenager.', 'topics' => ['interests'], 'leave_out' => ['plan'], 'without' => ['adult']],
+        ]]]);
+        $userId = $this->user();
+        (new Plan(new Scope($userId, null)))->add(['project' => 'Garden', 'status' => 'quotes 8000']);
+        $memory = new \Pramnos\Llm\Chat\Memory(new Scope($userId, null));
+        $memory->keepOn('interests', 'fact', 'Likes football');
+        $memory->keepOn('mood', 'fact', 'Tired lately');
+        $a = new \Pramnos\Llm\Chat\Artifacts(new Scope($userId, null));
+        $a->pin($a->create(['kind' => 'text', 'title' => 'Shopping list', 'text' => 'Milk and bread'])['artifact_id']);
+        $this->answer([[200, self::says('Hey')], [200, self::says('Hi')]]);
+
+        // Act
+        (new Conversations(new BaseAssistant()))->as(new Scope($userId, null))->ask(null, 'Hi', null, ['speaker' => ['kind' => 'teen', 'name' => 'Niko']]);
+        (new Conversations(new BaseAssistant()))->as(new Scope($userId, null))->ask(null, 'Hi', null, ['speaker' => ['kind' => 'child', 'name' => 'Eleni']]);
+
+        // Assert
+        $teen  = (string) json_encode($this->sent[0]['body']['messages'], JSON_UNESCAPED_UNICODE);
+        $other = (string) json_encode($this->sent[1]['body']['messages'], JSON_UNESCAPED_UNICODE);
+        $tools = array_map(static fn (array $t): string => $t['function']['name'], (array) $this->sent[0]['body']['tools']);
+        $this->assertStringContainsString('Speak as to a teenager.', $teen, 'its own rules');
+        $this->assertStringContainsString('Likes football', $teen, 'its topics');
+        $this->assertStringNotContainsString('Tired lately', $teen, 'not another topic');
+        $this->assertStringNotContainsString('quotes 8000', $teen, 'the source it leaves out');
+        $this->assertStringContainsString('Milk and bread', $teen, 'one it does not, kept');
+        $this->assertNotContains('plan_update', $tools, 'none of the tools it is without');
+        $this->assertStringNotContainsString('You are speaking with a child.', $other, 'a kind not declared: an adult, the framework saying nothing of children');
+        $this->assertStringContainsString('quotes 8000', $other);
+    }
 }
