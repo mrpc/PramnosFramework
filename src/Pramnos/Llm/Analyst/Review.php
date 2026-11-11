@@ -32,7 +32,8 @@ final class Review
     public static function channels(): array
     {
         $spaces = array_map('strval', array_column(self::table('assist.chat_conversations')->select(['space'])->groupBy('space')->getAllOrFail(), 'space'));
-        $out    = [Scope::ADMIN => t('Ask')];
+        // Named by what it is — not t('Ask'), which an application may read as the verb on its button.
+        $out    = [Scope::ADMIN => Analyst::name() . ' — ' . t('administration')];
         sort($spaces);
         foreach ($spaces as $space) {
             if ($space === Scope::ADMIN) {

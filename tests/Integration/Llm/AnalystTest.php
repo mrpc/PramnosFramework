@@ -618,7 +618,7 @@ class AnalystTest extends LlmTestCase
 
         // Assert
         $this->assertSame([Scope::ADMIN, Scope::CHAT], array_keys($channels), 'the Ask first, then the companion');
-        $this->assertSame('Ask', $channels[Scope::ADMIN]);
+        $this->assertSame(Analyst::name() . ' — administration', $channels[Scope::ADMIN], 'named by what it is, not by the verb on Ask\'s button');
         $this->assertStringContainsString('Talking with the companion', $listed);
         $this->assertStringContainsString('Root talks too', $listed, 'root\'s own companion conversations are listed here: only the Ask\'s open in Ask');
         $this->assertStringNotContainsString('An Ask question', $listed, 'one channel at a time');
@@ -626,6 +626,9 @@ class AnalystTest extends LlmTestCase
         $this->assertStringContainsString('Answers to review', $listed, 'everything about the assistants on one page');
         $this->assertStringContainsString('Γεια σου', $opened);
         $this->assertStringContainsString('Likes green tea', $opened, 'what the companion knows of them, beside');
+        $this->assertStringContainsString('<span style="white-space:pre-wrap">Γεια σου</span>', $opened, 'the question on its own line, nothing of the template around it');
+        $this->assertStringContainsString('Default · Default', $opened, 'no voice or style chosen: the default, said');
+        $this->assertDoesNotMatchRegularExpression('~\d{4}-\d\d-\d\dT\d\d:\d\d~', strip_tags(substr($opened, (int) strpos($opened, '<aside'))), 'no raw ISO moments in the panel');
         $this->assertStringContainsString('Ai/companionreset', $opened, 'root may start them over');
         $this->assertSame([], $ownChat->redirectedTo, 'root\'s own companion conversation reads here');
         $this->assertStringContainsString('An Ask question', $unknown, 'a channel that is none is the Ask\'s');

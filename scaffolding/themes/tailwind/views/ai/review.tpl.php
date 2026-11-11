@@ -30,12 +30,15 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + ['all' => '', 'c
 $openId  = (int) ($open['conversation']['conversation_id'] ?? 0);
 $money   = static fn ($v): string => $v === null ? '' : '$' . number_format((float) $v, 4);
 $keep    = static fn (array $extra): string => http_build_query(array_filter(['channel' => $filters['channel'] === 'admin' ? '' : (string) $filters['channel'], 'person' => (int) $filters['person'], 'q' => (string) $filters['q']] + $extra));
-$said    = static fn ($v): string => is_scalar($v) ? (string) $v : (string) json_encode($v, JSON_UNESCAPED_UNICODE); @endphp
+$said    = static fn ($v): string => is_scalar($v) ? (string) $v : (string) json_encode($v, JSON_UNESCAPED_UNICODE);
+// A moment on the page's clock, as the list shows them; a persona by its name.
+$when    = static fn (?string $iso): string => $iso === null || $iso === '' || ($t = strtotime($iso)) === false ? '—' : date('Y-m-d H:i:s', $t);
+$persona = static fn (?string $key): string => $key === null ? '—' : (string) (\Pramnos\Llm\Chat\Personas::get($key)['name'] ?? ($key === 'chat' ? t('Companion') : $key)); @endphp
 @php // pf-chat.js draws the answers' charts and tables' copy buttons, as on Ask's page; with no form here it asks nothing.; @endphp
 <div class="px-4 py-6" data-pf-chat>
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <nav class="{!! $c['card'] !!}" style="flex:0 0 300px;padding:12px" aria-label="{{ t('The assistants') }}">
-            <a href="{{ $u['ask'] }}" class="{!! $c['btnGhost'] !!}">‹ {{ t('Ask') }}</a>
+            <a href="{{ $u['ask'] }}" class="{!! $c['btnGhost'] !!}">‹ {{ $channels['admin'] ?? t('Ask') }}</a>
             <p style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0">
                 <a href="{{ $u['reviews'] }}">{{ t('Answers to review') }}</a>
                 <a href="{{ $u['memories'] }}">{{ t('Memories') }}</a>
@@ -84,9 +87,10 @@ $said    = static fn ($v): string => is_scalar($v) ? (string) $v : (string) json
                     @php $mine = $m['role'] === 'user'; @endphp
                     <article style="display:flex;flex-direction:column;align-items:{!! $mine ? 'flex-end' : 'flex-start' !!};margin-bottom:16px">
                         <header class="{!! $c['muted'] !!}" style="margin-bottom:4px"><strong>{{ $mine ? $open['owner_name'] : ($channels[$open['channel'] ?? 'admin'] ?? t('Analyst')) }}</strong> · {{ $m['created_at'] }}@if (($m['cost'] ?? null) !== null) · {{ $money($m['cost']) }}@endif</header>
-                        <div class="{!! $mine ? $c['question'] : '' !!}" style="{!! $mine ? 'padding:10px 14px;max-width:80%;white-space:pre-wrap' : 'width:100%' !!}">
+                        <div class="{!! $mine ? $c['question'] : '' !!}" style="{!! $mine ? 'padding:10px 14px;max-width:80%' : 'width:100%' !!}">
                             @if ($mine)
-                                {{ $m['content'] }}
+                                {{-- On one line: pre-wrap keeps the template's own breaks and indent too. --}}
+                                <span style="white-space:pre-wrap">{{ trim((string) $m['content']) }}</span>
                             @else
                                 <div class="pf-chat-answer">{!! \Pramnos\Llm\Chat\Markdown::toHtml((string) $m['content']) !!}</div>
                                 @php $steps = array_values(array_filter((array) (($m['extra'] ?? [])['steps'] ?? []), 'is_string')); @endphp
@@ -120,14 +124,14 @@ $said    = static fn ($v): string => is_scalar($v) ? (string) $v : (string) json
         @if ($person !== null)
             <aside class="{!! $c['card'] !!}" style="flex:0 0 300px;padding:12px" aria-label="{{ t('What the companion knows of them') }}">
                 <h2 style="font-size:1.1rem;margin:0 0 8px">{{ $open['owner_name'] }}</h2>
-                <p class="{!! $c['muted'] !!}">{{ t('Persona') }}: {{ $person['persona'] ?? '—' }}@if ($person['reset_at'] !== null) · {{ t('Experience reset') }}: {{ $person['reset_at'] }}@endif</p>
+                <p class="{!! $c['muted'] !!}">{{ t('Persona') }}: {{ $persona($person['persona']) }}@if ($person['reset_at'] !== null) · {{ t('Experience reset') }}: {{ $when($person['reset_at']) }}@endif</p>
                 @foreach ($person['personas'] as $key => $one)
                     <details open>
-                        <summary><strong>{{ $channels[$key === 'chat' ? 'chat' : 'chat:' . $key] ?? $key }}</strong> · {{ sprintf(t('%d conversations'), count($one['conversations'])) }}</summary>
+                        <summary><strong>{{ $persona((string) $key) }}</strong> · {{ sprintf(t('%d conversations'), count($one['conversations'])) }}</summary>
                         <dl style="margin:6px 0">
-                            <dt class="{!! $c['muted'] !!}">{{ t('First meeting') }}</dt><dd>{{ $one['first_meeting'] ?? '—' }}</dd>
+                            <dt class="{!! $c['muted'] !!}">{{ t('First meeting') }}</dt><dd>{{ $when($one['first_meeting']) }}</dd>
                             <dt class="{!! $c['muted'] !!}">{{ t('Mood') }}</dt><dd>{{ $one['mood'] === null ? '—' : $said($one['mood']['mood'] ?? $one['mood']) }}</dd>
-                            <dt class="{!! $c['muted'] !!}">{{ t('Voice and style') }}</dt><dd>{{ ($one['voice'] ?? '—') . ' · ' . ($one['style'] ?? '—') }}</dd>
+                            <dt class="{!! $c['muted'] !!}">{{ t('Voice and style') }}</dt><dd>{{ ($one['voice'] ?? t('Default')) . ' · ' . ($one['style'] ?? t('Default')) }}</dd>
                             <dt class="{!! $c['muted'] !!}">{{ t('Diary') }}</dt><dd>{{ sprintf(t('%d pages, %d unread'), $one['diary']['total'], $one['diary']['unread']) }}</dd>
                             <dt class="{!! $c['muted'] !!}">{{ t('Today\'s thought') }}</dt><dd>{{ $one['thought'] ?? '—' }}</dd>
                             <dt class="{!! $c['muted'] !!}">{{ t('Memories') }}</dt><dd>@if ($one['memories'] === [])—@else<ul style="margin:0;padding-left:18px">@foreach ($one['memories'] as $memory)<li>{{ $said($memory['content'] ?? $memory) }}</li>@endforeach</ul>@endif</dd>

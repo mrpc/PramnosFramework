@@ -120,7 +120,8 @@ whoever has `admin.ai.all`, which in usertype mode is root alone, as `admin.chat
 links to it from the ⚙ under its title, beside the settings. A reader with neither link sees no
 gear.
 
-- **Channels.** A select picks the channel: the Ask's first, then each companion persona's
+- **Channels.** A select picks the channel: the Ask's first, named by the analyst's name and
+  *administration*, then each companion persona's
   (`chat`, `chat:<persona>`, named after the persona), then any other space the application keeps
   conversations in (`Review::channels()`). A channel that is none is the Ask's.
 - **The list** gives each conversation's owner, title, last change, how many messages and what
