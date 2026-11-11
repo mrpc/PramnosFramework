@@ -248,6 +248,12 @@ shared by the mic and every answer's 🔊 button:
   alone is synthesised. `stopSpeech()` and barge-in silence it the same way; if the first
   sentence fails — no server set up, the network — the browser's voice reads the text instead.
   `hasServer` says which is in use. See the Screens guide, "Reading answers aloud", for the server.
+- **The chat pages read through it on their own.** Where a speech server is set up
+  (`Speech::config()`), the conversations page and the analyst's draw
+  `data-pf-chat-speak-server` and the session's token, and `pf-chat.js` hands the voice a
+  `server` that posts each sentence to the page's `speak` action (`chat/speak`, `Ai/speak`) with
+  the token in `X-CSRF-Token`. `speak` is a write action of both controllers, from the
+  `Chat\Web\ReadsAloud` trait, and answers the audio itself or the JSON of its 501/422/502.
 
 **`pf-speech-sanitizer.js`** — `window.PfSpeechSanitizer`, what makes the spoken text sound
 natural rather than spelled out or mis-gendered:

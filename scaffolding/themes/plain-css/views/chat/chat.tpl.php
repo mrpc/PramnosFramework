@@ -94,6 +94,8 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
     'download' => is_array($this->urls ?? null) ? '' : $url('chat/download/'),
     'print' => is_array($this->urls ?? null) ? '' : $url('chat/printable/'),
     'pin' => is_array($this->urls ?? null) ? '' : $url('chat/pin/'),
+    // Answers read aloud by the speech server, where there is one; the browser's voice where not.
+    'speak' => is_array($this->urls ?? null) || !\Pramnos\Llm\Chat\Web\ChatPageController::readsAloudOnServer() ? '' : $url('chat/speak'),
 ];
 $pinned  = is_array($this->pinned ?? null) ? $this->pinned : [];
 $bulk    = is_array($this->bulkActions ?? null) ? $this->bulkActions : [];
@@ -105,7 +107,7 @@ $commands = \Pramnos\Llm\Chat\Web\ChatLook::commands($u, is_array($this->command
 // Dictation + read-aloud (pf-voice.js), no server side — behind this setting (Pramnos_LLM_Analyst_Guide.md "## Voice").
 $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false); @endphp
 @if ($waiting)<noscript><meta http-equiv="refresh" content="4"></noscript>@endif
-<div class="pf-chat{!! $empty ? ' pf-chat-empty' : '' !!} px-4 py-6"{!! $accent !== '' ? ' style="--pf-chat-accent:' . $e($accent) . '"' : '' !!} data-commands="{{ json_encode($commands, JSON_UNESCAPED_UNICODE) }}"{!! (string) ($this->peopleUrl ?? '') !== '' ? ' data-pf-people-url="' . $e($this->peopleUrl) . '"' : '' !!} data-pf-chat data-page="{{ $u['page'] }}" data-asked="{{ $u['asked'] }}"{!! $sayAttr !!} data-waiting-lines="{{ json_encode($lines, JSON_UNESCAPED_UNICODE) }}" data-question-class="{{ $c['question'] }}"{!! $voiceOn ? ' data-pf-chat-voice' : '' !!}>
+<div class="pf-chat{!! $empty ? ' pf-chat-empty' : '' !!} px-4 py-6"{!! $accent !== '' ? ' style="--pf-chat-accent:' . $e($accent) . '"' : '' !!} data-commands="{{ json_encode($commands, JSON_UNESCAPED_UNICODE) }}"{!! (string) ($this->peopleUrl ?? '') !== '' ? ' data-pf-people-url="' . $e($this->peopleUrl) . '"' : '' !!} data-pf-chat data-page="{{ $u['page'] }}" data-asked="{{ $u['asked'] }}"{!! $sayAttr !!} data-waiting-lines="{{ json_encode($lines, JSON_UNESCAPED_UNICODE) }}" data-question-class="{{ $c['question'] }}"{!! $voiceOn ? ' data-pf-chat-voice' : '' !!}{!! $voiceOn && $u['speak'] !== '' ? ' data-pf-chat-speak-server="' . $e($u['speak']) . '" data-pf-chat-csrf="' . $e(\Pramnos\Http\Session::getInstance()->getCsrfToken()) . '"' : '' !!}>
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <nav class="{!! $c['card'] !!}" style="flex:0 0 240px;padding:12px" aria-label="{{ t('Conversations') }}">
             <a href="{{ $u['page'] }}" class="{!! $c['btn'] !!}">{{ t('New conversation') }}</a>

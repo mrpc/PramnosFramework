@@ -185,12 +185,21 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
         document: { querySelector: (s) => (s === '[data-pf-chat]' ? page : null), createElement: (t) => element(t), createElementNS: (ns, t) => element(t) },
         FormData: function FormData(f) { this.form = f; this.append = (k, v, n) => { sent.push(n); }; this.delete = () => {}; },
         fetch: (url, init = {}) => {
-            requests.push({ url, method: init.method || 'GET', body: init.body });
+            requests.push({ url, method: init.method || 'GET', body: init.body, headers: init.headers });
             const next = queue.shift();
             if (next instanceof Error) {
                 return Promise.reject(next);
             }
-            return Promise.resolve({ json: () => Promise.resolve(next), text: () => Promise.resolve(next) });
+            // An answer with `audio` is the speech server's: OK, under its type, read as a Blob.
+            const audio = next && typeof next === 'object' && 'audio' in next;
+            return Promise.resolve({
+                ok: !audio || next.status === undefined || next.status === 200,
+                status: audio && next.status !== undefined ? next.status : 200,
+                headers: { get: () => (audio ? next.type : 'application/json') },
+                blob: () => Promise.resolve(audio ? next.audio : null),
+                json: () => Promise.resolve(next),
+                text: () => Promise.resolve(next),
+            });
         },
     };
     vm.runInNewContext(SOURCE, context);
@@ -1030,6 +1039,38 @@ test('an answer\'s speak button reads it aloud through PfVoice, by its own id', 
     // Assert
     assert.deepEqual(calls, [['42', 'Η απάντηση σου.']]);
     assert.equal(ui.speakButton.getAttribute('aria-pressed'), 'true');
+});
+
+/**
+ * Where the page names a speech server (data-pf-chat-speak-server), the voice reads through it:
+ * each sentence is POSTed as `text` with the session's token in X-CSRF-Token, and audio comes back
+ * as a Blob; an answer that is not audio — the JSON of a 501 — is a failure, so pf-voice.js falls
+ * back to the browser's voice. Without the attribute, the voice is the browser's, as before.
+ */
+test('with a speech server named, the voice reads through it with the session\'s token', async () => {
+    // Arrange
+    const given = [];
+    const pfVoice = { createVoiceState: (options) => { given.push(options); return { speaking: false }; } };
+    const ui = run({
+        answers: [{ audio: 'MP3', type: 'audio/mpeg' }, { audio: '', type: 'application/json', status: 501 }],
+        attributes: { 'data-pf-chat-voice': '', 'data-pf-chat-speak-server': '/chat/speak', 'data-pf-chat-csrf': 'tok' },
+        pfVoice,
+    });
+    const plain = run({ answers: [], attributes: { 'data-pf-chat-voice': '' }, pfVoice });
+
+    // Act
+    const heard = await given[0].server('Μια πρόταση.');
+    const refused = await given[0].server('Άλλη μία.').then(() => 'played', (err) => err.message);
+
+    // Assert
+    assert.equal(heard, 'MP3', 'the audio, as a Blob');
+    assert.equal(ui.requests[0].url, '/chat/speak');
+    assert.equal(ui.requests[0].method, 'POST');
+    assert.equal(ui.requests[0].headers['X-CSRF-Token'], 'tok');
+    assert.ok(ui.requests[0].body, 'the sentence posted as a form');
+    assert.equal(refused, 'speak 501', 'not audio: a failure, for the browser\'s voice to take over');
+    assert.equal(given[1], undefined, 'no server named: the browser\'s voice');
+    assert.equal(plain.requests.length, 0);
 });
 
 /**

@@ -35,6 +35,8 @@
  *   data-pf-chat-memory          — the <details> the `/memory` command opens
  *   data-pf-rating               — an answer's 👍 and 👎 (RatingView): the note 👎 carries is shown
  *                                  on its first press, and sent with the next
+ *   data-pf-chat-speak-server="…" — on the page: where the speech server reads answers aloud
+ *   data-pf-chat-csrf="…"          (POST `text`, the token in X-CSRF-Token), when one is set up
  *   data-pf-chat-voice           — on the page: voice is on (the llm.voice setting); the mic
  *                                  and 🔊 buttons only do anything when this is present AND
  *                                  pf-voice.js (with pf-speech-sanitizer.js) is also loaded
@@ -349,8 +351,23 @@
         // every answer's 🔊 button. Declared here, ahead of the composer-only block below,
         // because 🔊 also has to work on a page with no composer — a shared, read-only
         // conversation still has answers to listen to.
+        // Where the page names a speech server (data-pf-chat-speak-server), 🔊 reads through it a
+        // sentence at a time, the session's token in a header; a sentence that fails falls back to
+        // the browser's own voice (pf-voice.js).
+        var speakServer = root.getAttribute('data-pf-chat-speak-server');
         var voice = (window.PfVoice && root.getAttribute('data-pf-chat-voice') !== null)
-            ? window.PfVoice.createVoiceState()
+            ? window.PfVoice.createVoiceState(speakServer ? { server: function (sentence) {
+                var body = new FormData();
+                body.append('text', sentence);
+                return fetch(speakServer, {
+                    method: 'POST',
+                    body: body,
+                    headers: { 'X-CSRF-Token': root.getAttribute('data-pf-chat-csrf') || '' },
+                    credentials: 'same-origin'
+                }).then(function (r) {
+                    return r.ok && /^audio\//.test(r.headers.get('Content-Type') || '') ? r.blob() : Promise.reject(new Error('speak ' + r.status));
+                });
+            } } : undefined)
             : null;
 
         function words(name, fallback) {

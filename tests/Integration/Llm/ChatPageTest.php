@@ -192,6 +192,47 @@ class ChatPageTest extends LlmTestCase
             $this->assertStringContainsString('data-pf-chat-speak="Done." data-pf-chat-speak-id="', $page, $theme . ': the answer can be read aloud, by its own id');
             $this->assertStringContainsString('pf-speech-sanitizer.js', $page, $theme);
             $this->assertStringContainsString('pf-voice.js', $page, $theme);
+            $this->assertStringNotContainsString('data-pf-chat-speak-server', $page, $theme . ': no speech server, the browser\'s voice');
+        }
+
+        // Act — a speech server set up (FW-409)
+        $this->configure(['voice' => true, 'speech' => ['providers' => ['piper' => ['base_url' => 'http://piper:5000']]]]);
+        foreach (self::THEMES as $theme) {
+            $page = (string) $this->page(theme: $theme)->display();
+
+            // Assert — the page reads its answers through it, with the session's token
+            $this->assertMatchesRegularExpression('~data-pf-chat-speak-server="[^"]*chat/speak" data-pf-chat-csrf="[0-9a-f]{64}"~', $page, $theme);
+        }
+    }
+
+    /**
+     * `speak` on the page (FW-409): the posted text read aloud by the speech server, answered as
+     * the audio itself under the server's type; with no server, the JSON 501 `pf-chat.js` falls
+     * back on. It is a write action — a POST with the session's token — on the page and on the
+     * analyst's, since every call is synthesised.
+     */
+    public function testReadAloudFromThePage(): void
+    {
+        // Arrange
+        $page = new ChatPageController();
+        $_POST = ['text' => 'Καλημέρα.'];
+
+        // Act — no speech server
+        $none = $page->speak();
+        $noneStatus = http_response_code();
+        $this->configure(['speech' => ['providers' => ['piper' => ['base_url' => 'http://piper:5000']]]]);
+        \Pramnos\Http\Client::fake(['*' => static fn (): \Pramnos\Http\ClientResponse => \Pramnos\Http\ClientResponse::make('ID3', 200, ['content-type' => 'audio/mpeg'])]);
+        $audio = $page->speak();
+        $_POST = [];
+        http_response_code(200);
+
+        // Assert
+        $this->assertSame('{"status":501,"error":"Speech is not set up."}', $none);
+        $this->assertSame(501, $noneStatus);
+        $this->assertSame('ID3', $audio);
+        $write = new \ReflectionProperty(\Pramnos\Application\Controller::class, 'writeActions');
+        foreach ([$page, new \Pramnos\Application\Controllers\AiController()] as $controller) {
+            $this->assertContains('speak', $write->getValue($controller), $controller::class . ': a POST with the session\'s token');
         }
     }
 
