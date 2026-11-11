@@ -780,11 +780,15 @@ class Conversations
         $since  = (int) ($this->conversation($conversationId)['learned_upto'] ?? 0);
         $result = $this->table('assist.chat_messages')->select(['message_id', 'role', 'content'])
             ->where('conversation_id', $conversationId)->where('message_id', '>', $since)->orderBy('message_id')->get();
-        $said = [];
-        $last = $since;
+        $said    = [];
+        $replied = [];
+        $last    = $since;
 
         while ($result && ($row = $result->fetch()) !== null) {
             $last = (int) $row['message_id'];
+            if ($row['role'] === 'assistant' && Memory::selfOn()) {
+                $replied[] = mb_substr((string) $row['content'], 0, 800);
+            }
             if ($row['role'] === 'user') {
                 // An attached document is not what the person said — and somebody else's words
                 // must not become this person's memory.
@@ -797,7 +801,7 @@ class Conversations
         }
 
         if ($client !== null) {
-            $memory->learn($client, implode("\n\n", $said));
+            $memory->learnConversation($client, implode("\n\n", $said), implode("\n\n", $replied));
         }
         $this->mark($conversationId, ['learned_upto' => $last]);
 
@@ -927,6 +931,9 @@ class Conversations
     private function context(Turn $turn, Memory $memory): string
     {
         $remembered = $memory->all();
+        // What the assistant said about itself goes apart: it is its own word to keep, not the person's.
+        $itself     = array_values(array_filter($remembered, static fn (array $m): bool => $m['kind'] === Memory::SELF));
+        $remembered = array_values(array_filter($remembered, static fn (array $m): bool => $m['kind'] !== Memory::SELF));
         $lines      = [trim($this->assistant->context($turn)), ''];
         $lines[]    = $remembered === []
             ? 'You remember nothing about this person yet.'
@@ -935,6 +942,14 @@ class Conversations
         // Dated, so a newer word is known to be newer: the latest wins.
         foreach ($remembered as $one) {
             $lines[] = '- [' . $one['memory_id'] . ', ' . $one['kind'] . ', ' . substr($one['created_at'], 0, 10) . '] ' . $one['content'];
+        }
+
+        if ($itself !== []) {
+            $lines[] = '';
+            $lines[] = 'What you have said about yourself to this person — keep to it, never contradict it:';
+            foreach ($itself as $one) {
+                $lines[] = '- ' . $one['content'];
+            }
         }
 
         $shared = $memory->shared();

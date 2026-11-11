@@ -218,6 +218,18 @@ learned ones. Memories a person asked to be kept are not reviewed. With the [pro
 proposes to it what the person plainly said about who they are and the people in their life: a
 proposal, which the next answer asks them to confirm.
 
+**What the assistant said about itself** — off by default; `'llm' => ['chat' => ['memory' =>
+['self' => true]]]` turns it on, for a companion that makes up details about itself. The same
+learning call then also reads the assistant's replies, and keeps what it made up about itself that
+must stay the same: how it looks, small personal details, names, numbers. Opinions, what it said
+about the person, and the subject of the talk are not kept. These are memories of kind `self`
+(`Memory::SELF`), per person, and the first word stands: a later reply never changes one. They go
+into the prompt apart from what is remembered about the person, under *What you have said about
+yourself to this person — keep to it, never contradict it*. The person sees and forgets them on
+the memory list like any other, and `llm:memory-review` leaves them out. In code,
+`Memory::learnConversation($client, $said, $replied)`; `learn($client, $said)` is the same without
+replies.
+
 **What the person asks to be remembered is remembered at once.** "Remember that I moved to
 Athens", "forget that": the model calls `remember` or `forget` in the same answer, with no batch to
 wait for and no second call.

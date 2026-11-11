@@ -218,6 +218,53 @@ class MemoryLearningTest extends LlmTestCase
     }
 
     /**
+     * FW-421: with `memory.self` on, the same learning call reads what the assistant replied and
+     * keeps what it made up about itself — kept apart, as `self`, and put in the next prompt as its
+     * own word to keep, not among what is remembered about the person. Off, the learning call is
+     * not shown the replies at all, and `learn()` still answers its four counts.
+     */
+    #[DataProvider('databases')]
+    public function testWhatTheAssistantSaidAboutItselfIsKept(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        Llm::use('rules', [new AcceptsEverything()]);
+        $person = random_int(100000, 999999);
+        $this->configure(['chat' => ['memory' => ['learn' => true, 'learn_every' => 1, 'self' => true]]]);
+        $this->answer([
+            [200, self::says('Me? I have green eyes and a red scarf.')],
+            [200, self::says('{"changes": [{"op": "self", "memory": "Has green eyes and wears a red scarf."}]}')],
+            [200, self::says('Still green.')],
+            [200, self::says('{"changes": []}')],
+        ]);
+        $chat = (new Conversations(new RecordingAssistant()))->as(new Scope($person, null));
+
+        // Act
+        $first = $chat->ask(null, 'What do you look like?');
+        $chat->ask((int) $first['conversation_id'], 'And your eyes?');
+        $learnInput = json_decode((string) end($this->sent[1]['body']['messages'])['content'], true);
+        $system     = self::systemOf($this->sent[2]);
+        $this->configure(['chat' => ['memory' => ['learn' => true, 'self' => false]]]);
+        $this->sent = [];
+        $this->answer([[200, self::says('{"changes": []}')]]);
+        $counts = (new Memory(new Scope($person, null)))->learnConversation(new Client(), 'Hi', 'I am tall.');
+        $offInput = json_decode((string) end($this->sent[0]['body']['messages'])['content'], true);
+
+        // Assert
+        $this->assertSame('Me? I have green eyes and a red scarf.', $learnInput['replied'], 'the reply read in the same call');
+        $this->assertSame([], $learnInput['assistant_said_about_itself']);
+        $this->assertSame([['kind' => 'self', 'content' => 'Has green eyes and wears a red scarf.']],
+            array_map(static fn (array $m): array => ['kind' => $m['kind'], 'content' => $m['content']], (new Memory(new Scope($person, null)))->all()));
+        $this->assertStringContainsString("What you have said about yourself to this person — keep to it, never contradict it:\n- Has green eyes and wears a red scarf.", $system);
+        $this->assertStringContainsString('You remember nothing about this person yet.', $system, 'not among the person\'s memories');
+        $this->assertArrayNotHasKey('replied', $offInput, 'off: the replies are not shown');
+        $this->assertSame(0, $counts['self']);
+        $this->answer([[200, self::says('{"changes": []}')]]);
+        $this->assertSame(['kept', 'corrected', 'forgotten', 'proposed'], array_keys((new Memory(new Scope($person, null)))->learn(new Client(), 'Hi')));
+        $this->db->queryBuilder()->table('assist.chat_memory')->where('userid', $person)->delete();
+    }
+
+    /**
      * The answer and the memory it is learned from, in the same `ask()`, are one turn: the same
      * `trace_id` in `llm_calls` ({@see \Pramnos\Llm\CallLog::trace()}). A second, unrelated `ask()`
      * is a different turn, and gets a different one.

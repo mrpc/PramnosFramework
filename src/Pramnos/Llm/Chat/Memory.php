@@ -49,6 +49,12 @@ class Memory
 {
     public const KINDS = ['fact', 'preference'];
 
+    /**
+     * The kind of what the assistant said about itself to this person — kept so it says the same
+     * from one conversation to the next ({@see selfOn()}); learned, never kept by the `remember` tool.
+     */
+    public const SELF = 'self';
+
     /** How a memory came to be: the `remember` tool in a conversation, or learned after one. */
     public const SOURCES = ['model', 'learned'];
 
@@ -137,6 +143,16 @@ class Memory
         return max(60, (int) (self::config()['learn_idle'] ?? 900));
     }
 
+    /**
+     * Whether learning also keeps what the assistant made up about itself — its looks, small
+     * details, names — so it never contradicts itself with this person: `'llm' => ['chat' =>
+     * ['memory' => ['self' => true]]]`, off by default. A companion wants it; an analyst does not.
+     */
+    public static function selfOn(): bool
+    {
+        return (bool) (self::config()['self'] ?? false);
+    }
+
     /** Whether the application keeps memories an organisation shares. */
     public static function shares(): bool
     {
@@ -189,7 +205,7 @@ class Memory
         $query = $shared ? $this->sharedQuery() : $this->scope->apply($this->table('assist.chat_memory'));
         $stamp = CallLog::instant(time());
         $row   = [
-            'kind'       => in_array($kind, self::KINDS, true) ? $kind : 'fact',
+            'kind'       => in_array($kind, [...self::KINDS, self::SELF], true) ? $kind : 'fact',
             'content'    => mb_substr($content, 0, self::chars()),
             'updated_at' => $stamp,
         ] + ($this->hasSource() ? ['source' => in_array($source, self::SOURCES, true) ? $source : 'model'] : []);
@@ -223,12 +239,30 @@ class Memory
      */
     public function learn(\Pramnos\Llm\Client $client, string $said): array
     {
-        $done = ['kept' => 0, 'corrected' => 0, 'forgotten' => 0, 'proposed' => 0];
-        if (trim($said) === '') {
+        return array_diff_key($this->learnConversation($client, $said, ''), ['self' => true]);
+    }
+
+    /**
+     * {@see learn()}, and in the same call — where {@see selfOn()} — what the assistant said about
+     * itself in `$replied` that must stay the same in later conversations: kept as {@see SELF},
+     * the first word kept, never corrected by a later one.
+     *
+     * @return array{kept: int, corrected: int, forgotten: int, proposed: int, self: int}
+     */
+    public function learnConversation(\Pramnos\Llm\Client $client, string $said, string $replied): array
+    {
+        $done = ['kept' => 0, 'corrected' => 0, 'forgotten' => 0, 'proposed' => 0, 'self' => 0];
+        $replied = self::selfOn() ? trim($replied) : '';
+        if (trim($said) === '' && $replied === '') {
             return $done;
         }
         $known = [];
+        $own   = [];
         foreach ($this->all() as $one) {
+            if ($one['kind'] === self::SELF) {
+                $own[] = $one['content'];
+                continue;
+            }
             $known[] = ['id' => $one['memory_id'], 'about' => 'me', 'kind' => $one['kind'], 'memory' => $one['content'], 'since' => $one['created_at']];
         }
         // What the organisation shares is not learned into, corrected or forgotten here: see mayShare().
@@ -241,6 +275,14 @@ class Memory
             . '{"op": "correct", "id": 3, "memory": "one sentence"}, {"op": "forget", "id": 4}]}.';
         $profile = Profile::on($this->scope) && Profile::available() ? new Profile($this->scope) : null;
         $input   = ['remembered' => $known, 'said' => mb_substr($said, 0, 4000)];
+        if ($replied !== '') {
+            $prompt .= ' Also read what the assistant replied ("replied"): keep what it made up about ITSELF that must stay the same in later '
+                . 'conversations — how it looks, small personal details, names, numbers — and is not already in "assistant_said_about_itself". '
+                . 'Not what it said about the person, not opinions, not the subject of the talk. The first word stands: never change one. '
+                . 'Usually there is nothing: {"op": "self", "memory": "one sentence"}.';
+            $input['replied'] = mb_substr($replied, 0, 4000);
+            $input['assistant_said_about_itself'] = $own;
+        }
         if ($profile !== null) {
             $prompt .= ' Also ' . (Profile::confirms() ? 'propose' : 'keep') . ', only from what they plainly said and is not already in "profile": who they are (identity), '
                 . 'what they value (values), what they work towards (goals), a person in their life (relationships, with subject naming them) '
@@ -261,6 +303,10 @@ class Memory
                 $id = (int) ($change['id'] ?? 0);
                 // Something about everybody is not one person's to keep, nor learning's to share.
                 if (($change['about'] ?? 'me') !== 'me') {
+                    continue;
+                }
+                if ($op === 'self') {
+                    $done['self'] += $replied !== '' && str_starts_with($this->keep(self::SELF, (string) ($change['memory'] ?? ''), null, 'me', 'learned'), 'Remembered') ? 1 : 0;
                     continue;
                 }
                 if ($op === 'keep' && str_starts_with($this->keep((string) ($change['kind'] ?? 'fact'), (string) ($change['memory'] ?? ''), null, 'me', 'learned'), 'Remembered')) {

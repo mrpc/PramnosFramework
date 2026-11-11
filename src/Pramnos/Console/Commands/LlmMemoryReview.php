@@ -38,7 +38,9 @@ class LlmMemoryReview extends Command
             return $this->forget($db, array_map('intval', explode(',', $forget)), $output);
         }
         try {
-            $query = $db->queryBuilder()->table('assist.chat_memory')->where('source', 'learned')->where('userid', '>', 0);
+            $query = $db->queryBuilder()->table('assist.chat_memory')->where('source', 'learned')->where('userid', '>', 0)
+                // What the assistant said about itself is its own word, not a fact about the person to judge.
+                ->where('kind', '!=', Memory::SELF);
             if ($input->getOption('user') !== null) {
                 $query->where('userid', (int) $input->getOption('user'));
             }
