@@ -229,8 +229,10 @@ without `--all`, once the voice is on.
 shared by the mic and every answer's 🔊 button:
 
 - `startDictation(options)` / `stopDictation()` / `toggleDictation(options)` — `options.onTranscript`
-  gets `{text, fullFinal, interimPart}` as the reader speaks; a silence of 750ms stops it on its
-  own.
+  gets `{text, fullFinal, interimPart}` as the reader speaks; a silence stops it on its own and
+  tells `options.onSilence` — 1200 ms, long enough for a breath mid-question, or
+  `options.silenceMs`. On the chat pages the silence sends what was said, as Enter does; the mic
+  pressed again before it stops without sending.
 - `speak(id, text, options)` / `stopSpeech()` / `toggleSpeech(id, text, options)` — `id` tells one
   answer's button from another's, so pressing a second answer's 🔊 stops the first rather than
   reading both at once.

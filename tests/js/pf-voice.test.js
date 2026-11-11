@@ -439,3 +439,35 @@ test('with a server, a sentence failing midway is read on by the browser\'s voic
     assert.ok(!spoken[0].text.includes('πρώτη') && spoken[0].text.includes('δεύτερη') && spoken[0].text.includes('τρίτη'), spoken[0].text);
     assert.equal(starts, 1, 'onStart once');
 });
+
+/**
+ * A silence ends the dictation after 1200 ms by default — 750 cut a question at a breath — or
+ * after the caller's `silenceMs`; when it ends, onSilence is told.
+ */
+test('the silence that ends dictation is 1200 ms, or the caller\'s silenceMs', () => {
+    // Arrange — the context's timers recorded instead of run
+    const { window, captured } = page();
+    const delays = [];
+    const timers = [];
+    window.setTimeout = (fn, ms) => { delays.push(ms); timers.push(fn); return timers.length; };
+    window.clearTimeout = () => {};
+    const voice = window.PfVoice.createVoiceState();
+    let silent = 0;
+    const said = { results: [Object.assign([{ transcript: 'πόσες εγγραφές' }], { isFinal: true })] };
+
+    // Act — the default, then the caller's own
+    voice.startDictation({ onSilence: () => { silent++; } });
+    captured.instance.onresult(said);
+    const byDefault = delays[delays.length - 1];
+    timers[timers.length - 1]();
+    const stoppedBySilence = !voice.dictating;
+    voice.startDictation({ silenceMs: 1000 });
+    captured.instance.onresult(said);
+    captured.instance.onspeechend();
+
+    // Assert
+    assert.equal(byDefault, 1200);
+    assert.equal(silent, 1, 'told of the silence');
+    assert.equal(stoppedBySilence, true, 'and the dictation stopped');
+    assert.deepEqual(delays.slice(-2), [1000, 1000], 'the caller\'s, after a result and after the speech ends');
+});

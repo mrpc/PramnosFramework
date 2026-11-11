@@ -1001,7 +1001,14 @@
                             box.value = result.text;
                         }
                     },
-                    onSilence: function () { setMicState(false); },
+                    // A silence after something was said sends it, as Enter does; the mic pressed
+                    // again before then stops without sending.
+                    onSilence: function () {
+                        setMicState(false);
+                        if (box && box.value.trim() !== '') {
+                            form.requestSubmit ? form.requestSubmit() : form.submit();
+                        }
+                    },
                     onEnd: function () { setMicState(false); },
                     onError: function () {
                         setMicState(false);

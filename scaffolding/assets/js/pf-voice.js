@@ -480,7 +480,9 @@
             recognition.interimResults = true;
             recognition.lang = opts.lang || lang || 'el-GR';
 
-            var SILENCE_MS = 750;
+            // How long a silence ends the dictation: long enough for a breath or a pause to think
+            // in the middle of a question, which 750 ms was not.
+            var SILENCE_MS = opts.silenceMs > 0 ? opts.silenceMs : 1200;
 
             function resetSilenceTimer() {
                 if (activeSilenceTimer) {
@@ -512,7 +514,7 @@
                     if (opts.onSilence) {
                         opts.onSilence();
                     }
-                }, 500);
+                }, SILENCE_MS);
             };
 
             recognition.onresult = function (event) {

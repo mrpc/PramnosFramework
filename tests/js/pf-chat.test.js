@@ -1013,6 +1013,48 @@ test('the mic button dictates into the box, through PfVoice', () => {
 });
 
 /**
+ * Dictation sends the question by itself when the speaker falls silent (FW-411) — once, as Enter
+ * would; a silence with nothing said sends nothing, and the mic pressed again before the silence
+ * stops without sending.
+ */
+test('a silence after dictating sends the question; nothing said or the mic pressed sends nothing', () => {
+    // Arrange
+    let options;
+    const voice = {
+        dictating: false,
+        startDictation(o) { options = o; this.dictating = true; return true; },
+        stopDictation() { this.dictating = false; },
+    };
+    const ui = run({ answers: [], attributes: { 'data-pf-chat-voice': '' }, mic: true, pfVoice: { createVoiceState: () => voice } });
+    let submitted = 0;
+    ui.form.requestSubmit = () => { submitted++; };
+
+    // Act — said something, then silence
+    ui.micButton.click();
+    options.onTranscript({ text: 'πόσες εγγραφές χθες' });
+    voice.dictating = false;
+    options.onSilence();
+    const afterSilence = submitted;
+    // Act — silence with nothing said
+    ui.box.value = '';
+    ui.micButton.click();
+    voice.dictating = false;
+    options.onSilence();
+    const afterEmpty = submitted;
+    // Act — said something, then the mic pressed again
+    ui.micButton.click();
+    options.onTranscript({ text: 'άλλη ερώτηση' });
+    ui.micButton.click();
+
+    // Assert
+    assert.equal(afterSilence, 1, 'sent once, as Enter does');
+    assert.equal(ui.micButton.getAttribute('aria-pressed'), 'false');
+    assert.equal(afterEmpty, 1, 'nothing said: nothing sent');
+    assert.equal(submitted, 1, 'stopped by hand: not sent');
+    assert.equal(ui.box.value, 'άλλη ερώτηση', 'left in the box to send or change');
+});
+
+/**
  * An answer's 🔊 button (data-pf-chat-speak) speaks that answer's text through PfVoice, by its
  * own id — so one page can have several answers, each read independently.
  */
