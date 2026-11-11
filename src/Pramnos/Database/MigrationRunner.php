@@ -358,7 +358,10 @@ class MigrationRunner
                 `result`         SMALLINT      NOT NULL DEFAULT 1,
                 `error_message`  TEXT          NULL
             )");
-            // MySQL lacks ADD COLUMN IF NOT EXISTS; check via schema introspection.
+            // MySQL lacks ADD COLUMN IF NOT EXISTS; check via schema introspection — asked
+            // afresh: a ledger dropped and made again outside the builder (an older installer, a
+            // restore) must not be answered from what was found of the one before it.
+            \Pramnos\Database\SchemaBuilder::forgetWhatExists($db);
             $schema  = $db->schema();
             // `when` and `extra` too, as above: the legacy ledger has `key` only.
             $newCols = [
@@ -1296,9 +1299,18 @@ class MigrationRunner
         $db = $this->requireDb();
 
         $quote = $db->type === 'postgresql' ? '"' : '`';
-        $result = $db->query(
-            "SELECT {$quote}key{$quote} FROM {$quote}{$historyTable}{$quote} WHERE {$quote}result{$quote} = 1"
-        );
+        try {
+            $result = $db->query(
+                "SELECT {$quote}key{$quote} FROM {$quote}{$historyTable}{$quote} WHERE {$quote}result{$quote} = 1"
+            );
+        } catch (\Throwable $why) {
+            // A ledger of the older shape has no `result` — it is brought up to date when the
+            // runner writes, not when it pretends — and every row in it is a migration that ran.
+            if (stripos($why->getMessage(), 'result') === false) {
+                throw $why;
+            }
+            $result = $db->query("SELECT {$quote}key{$quote} FROM {$quote}{$historyTable}{$quote}");
+        }
 
         $slugs = [];
         while ($result->fetch()) {
@@ -1669,10 +1681,18 @@ class MigrationRunner
         $db    = $this->requireDb();
         $quote = $db->type === 'postgresql' ? '"' : '`';
 
-        $result = $db->query(
-            "SELECT {$quote}key{$quote} FROM {$quote}{$historyTable}{$quote}
-             WHERE {$quote}version{$quote} IS NULL OR {$quote}version{$quote} = ''"
-        );
+        try {
+            $result = $db->query(
+                "SELECT {$quote}key{$quote} FROM {$quote}{$historyTable}{$quote}
+                 WHERE {$quote}version{$quote} IS NULL OR {$quote}version{$quote} = ''"
+            );
+        } catch (\Throwable $why) {
+            // A ledger of the older shape — pretending leaves it so — has no `version`: no row has one.
+            if (stripos($why->getMessage(), 'version') === false) {
+                throw $why;
+            }
+            $result = $db->query("SELECT {$quote}key{$quote} FROM {$quote}{$historyTable}{$quote}");
+        }
 
         $keys = [];
         while ($result && $result->fetch()) {

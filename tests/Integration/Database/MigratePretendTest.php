@@ -205,6 +205,48 @@ class MigratePretendTest extends BaseTestCase
     }
 
     /**
+     * Pretending on a ledger of the older shape — `key` and nothing else, as a legacy installer
+     * made it: the runner reads it as it is, every row a migration that ran, without the columns
+     * it adds only when it writes — so nothing fails, and the ledger is left as it was.
+     */
+    public function testPretendingReadsALedgerOfTheOlderShape(): void
+    {
+        // Arrange
+        $runner  = new MigrationRunner($this->db);
+        $ledger  = (new \ReflectionMethod(MigrationRunner::class, 'historyTableName'))->invoke($runner);
+        $aside   = $ledger . '_aside_' . bin2hex(random_bytes(3));
+        $had     = $this->db->schema()->hasTable($ledger);
+        $rename  = fn (string $from, string $to): mixed => $this->db->query($this->db->type === 'postgresql'
+            ? 'ALTER TABLE ' . $this->q($from) . ' RENAME TO ' . $this->q($to, false) : 'RENAME TABLE ' . $this->q($from) . ' TO ' . $this->q($to));
+        if ($had) {
+            $rename($ledger, $aside);
+        }
+        $this->db->query('CREATE TABLE ' . $this->q($ledger) . ' (' . $this->q('key', false) . ' VARCHAR(255) NOT NULL)');
+        $this->db->query('INSERT INTO ' . $this->q($ledger) . " VALUES ('old_migration')");
+        \Pramnos\Database\SchemaBuilder::forgetWhatExists($this->db);
+        $creates = $this->migration(function (): void {
+            $this->db->query('CREATE TABLE ' . $this->q($this->created) . ' (' . $this->q('id', false) . ' INT)');
+        });
+
+        // Act
+        try {
+            $result  = $runner->pretend([$creates]);
+            $columns = $this->db->schema()->hasColumn($ledger, 'result');
+        } finally {
+            $this->db->query('DROP TABLE IF EXISTS ' . $this->q($ledger));
+            if ($had) {
+                $rename($aside, $ledger);
+            }
+            \Pramnos\Database\SchemaBuilder::forgetWhatExists($this->db);
+        }
+
+        // Assert
+        $this->assertSame([], $result['failed']);
+        $this->assertArrayHasKey($creates->getSlug(), $result['planned'], 'pretended');
+        $this->assertFalse($columns, 'the ledger left in its older shape: pretending writes nothing');
+    }
+
+    /**
      * A migration that throws is reported as one that would fail, with the statements it had
      * reached; the next migration is still pretended.
      */

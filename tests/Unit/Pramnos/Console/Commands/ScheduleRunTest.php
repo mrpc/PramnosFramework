@@ -28,6 +28,9 @@ class ScheduleRunTest extends TestCase
     private string $logFile;
     private ?string $originalPhpSelf = null;
 
+    /** The logger's mode before this test. */
+    private string $previousMode = Logger::OUTPUT_FILE;
+
     protected function setUp(): void
     {
         $this->originalPhpSelf = $_SERVER['PHP_SELF'] ?? null;
@@ -41,12 +44,16 @@ class ScheduleRunTest extends TestCase
         \Pramnos\Scheduling\FrameworkSchedule::disableAll();
         $this->logFile = Logger::getLogPath('schedule', 'log');
         @unlink($this->logFile);
+        // Read from the file: whatever mode an earlier test left the logger in.
+        $this->previousMode = Logger::getOutputMode();
+        Logger::setOutputMode(Logger::OUTPUT_FILE);
     }
 
     protected function tearDown(): void
     {
         Scheduler::reset();
         @unlink($this->logFile);
+        Logger::setOutputMode($this->previousMode);
         if ($this->originalPhpSelf === null) {
             unset($_SERVER['PHP_SELF']);
         }
