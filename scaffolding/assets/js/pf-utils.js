@@ -2530,6 +2530,35 @@
     }());
     window.pfStructured = structured;
 
+    // A chart chosen under a report's table (data-pf-chart-choice): that card alone fetched again
+    // from the board's card address (`part=body`) and put in place — not the whole report — and
+    // the address kept, so the link still says what is shown. Without the board's address, the
+    // link goes as a link.
+    document.addEventListener('click', function (e) {
+        var link = e.target && e.target.closest ? e.target.closest('a[data-pf-chart-choice]') : null;
+        if (!link || typeof fetch === 'undefined') { return; }
+        var holder = link.closest('[data-pf-chart-holder]');
+        var card = link.closest('[data-pf-widget]');
+        var board = document.querySelector('[data-pf-dashboard][data-card]');
+        var base = board ? board.getAttribute('data-card') : '';
+        if (!holder || !card || !base) { return; }
+        e.preventDefault();
+        var href = link.getAttribute('href') || '';
+        var query = href.indexOf('?') === -1 ? '' : href.split('?')[1].split('#')[0];
+        var url = base + (base.indexOf('?') === -1 ? '?' : '&') + 'id=' + encodeURIComponent(card.getAttribute('data-pf-widget')) + '&part=body' + (query ? '&' + query : '');
+        fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(function (r) {
+            return r.ok ? r.text() : Promise.reject(new Error(String(r.status)));
+        }).then(function (html) {
+            var box = document.createElement('div');
+            box.innerHTML = html;
+            var fresh = box.querySelector('[data-pf-chart-holder]') || box;
+            holder.parentNode.insertBefore(fresh, holder);
+            holder.parentNode.removeChild(holder);
+            if (window.pfCharts && window.pfCharts.draw) { window.pfCharts.draw(fresh); }
+            try { history.replaceState(history.state, '', href); } catch (err) { /* the address stays; the chart is drawn */ }
+        }).catch(function () { window.location.href = href; });
+    });
+
     // A report's section heading (data-pf-report-section, SectionWidget) folds away the cards
     // under it, up to the next section, and shows them again. What is folded is remembered in this
     // browser, for each report: the page opens as it was left.

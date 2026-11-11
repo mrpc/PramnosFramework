@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Pramnos\Metrics\Widgets;
 
+use Pramnos\Metrics\Window;
+
 use Pramnos\Dashboard\Widgets\Figures;
 use Pramnos\Metrics\Metrics;
 use Pramnos\Metrics\Report;
@@ -240,7 +242,14 @@ class TableWidget extends ReportWidget
         $static = (bool) $this->report()['static'];
 
         // The place the chart's links come back to: the reader lands on this table, not the top of the page.
-        return ($static ? '' : '<span id="pf-chart-' . $this->chartKey() . '"></span>' . $this->chartAsked()) . Report::html($table, $static ? null : $this->report()['rowsUrl']) . ($static ? '' : $this->chartChoices());
+        if ($static) {
+            return Report::html($table, null);
+        }
+
+        // In a frame of its own, by its key: a chart chosen is drawn here by the page's script,
+        // this card alone fetched again (part=body), not the whole report.
+        return '<div data-pf-chart-holder="' . $this->chartKey() . '"><span id="pf-chart-' . $this->chartKey() . '"></span>' . $this->chartAsked()
+            . Report::html($table, $this->report()['rowsUrl']) . $this->chartChoices() . '</div>';
     }
 
     /** This table among the page's, for the address that charts it: its settings, hashed. */
@@ -250,13 +259,24 @@ class TableWidget extends ReportWidget
     }
 
     /**
-     * The chart a viewer asked for over this table — `?chart[<key>]=line:12` — its rows over the
-     * last periods up to the report's; '' for none. The report's definition does not change: an
-     * owner keeps one with a chart card in Customise.
+     * The chart a viewer asked for over this table — `?chart[<key>]=line:12`, `bar:6`, or `pie` — its
+     * rows over the last periods up to the report's, or, as a pie, its rows in the report's period;
+     * '' for none. The report's definition does not change: an owner keeps one with a chart card
+     * in Customise.
      */
     private function chartAsked(): string
     {
         $asked = (string) (((array) ($_GET['chart'] ?? []))[$this->chartKey()] ?? '');
+        if ($asked === 'pie') {
+            // A breakdown, or a table of measures, in one period: its rows as slices of the first column.
+            $built = $this->built($this->columns(), null);
+            $rows  = $built === null || $built['sections'] === [] ? [] : array_values(array_filter($built['sections'][0]['rows'],
+                static fn (array $r): bool => $r['error'] === null && empty($r['subtotal']) && empty($r['heading']) && ($r['cells'][0]['value'] ?? null) !== null));
+
+            return $rows === [] ? '' : \Pramnos\Html\Chart::render('pie', array_column($rows, 'label'),
+                [['label' => $built['columns'][0] ?? $this->heading(), 'data' => array_map(static fn (array $r): float => (float) $r['cells'][0]['value'], $rows)]],
+                ['title' => $this->heading(), 'height' => 240]);
+        }
         if (preg_match('/^(line|bar):(\d{1,2})$/', $asked, $m) !== 1 || !in_array((int) $m[2], self::CHART_PERIODS, true)) {
             return '';
         }
@@ -266,7 +286,7 @@ class TableWidget extends ReportWidget
         }
         $sets = [];
         foreach ($built['sections'][0]['rows'] as $row) {
-            if ($row['error'] === null && empty($row['subtotal'])) {
+            if ($row['error'] === null && empty($row['subtotal']) && empty($row['heading'])) {
                 $sets[] = ['label' => $row['label'], 'data' => array_column($row['cells'], 'value')];
             }
         }
@@ -274,44 +294,68 @@ class TableWidget extends ReportWidget
         return $sets === [] ? '' : \Pramnos\Html\Chart::render($m[1], $built['columns'], $sets, ['title' => $this->heading(), 'height' => 240]);
     }
 
+    /** How many periods of the report's grain read: "6 months", "12 weeks". */
+    private function spanWords(int $n): string
+    {
+        $unit = match ((string) ($this->report()['grain'] ?? Window::MONTH)) {
+            Window::DAY     => 'days',
+            Window::WEEK    => 'weeks',
+            Window::QUARTER => 'quarters',
+            Window::YEAR    => 'years',
+            default         => 'months',
+        };
+
+        return sprintf(Figures::words('%d ' . $unit), $n);
+    }
+
     /**
-     * The viewer's choice of a chart over this table: lines or bars, over 6, 12 or 24 periods, or
-     * none — links, no script, each back at this table (`#pf-chart-<key>`), the one shown marked.
+     * The viewer's choice of a chart over this table, in two: its kind — lines, bars, a pie — and
+     * for lines and bars, how far back, in the report's periods ("6 months · 12 months · 24
+     * months"); and none. Links that work without a script, each back at this table
+     * (`#pf-chart-<key>`), the one shown marked; with the page's script, drawn in place.
      */
     private function chartChoices(): string
     {
-        if (((array) ($this->setting('measures') ?? [])) !== []) {
-            return '';
-        }
-        $e      = static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
-        $path   = (string) strtok((string) ($_SERVER['REQUEST_URI'] ?? ''), '?');
-        $key    = $this->chartKey();
-        $asked  = (string) (((array) ($_GET['chart'] ?? []))[$key] ?? '');
-        $anchor = '#pf-chart-' . $key;
-        $link   = static function (array $query, string $text, bool $current) use ($e, $path, $anchor): string {
-            return $current ? '<strong aria-current="true">' . $e($text) . '</strong>'
-                : '<a href="' . $e($path . ($query === [] ? '' : '?' . http_build_query($query)) . $anchor) . '">' . $e($text) . '</a>';
-        };
-        $groups = [];
-        foreach (['line' => Figures::words('Line'), 'bar' => Figures::words('Bars')] as $type => $label) {
-            $links = [];
-            foreach (self::CHART_PERIODS as $n) {
-                $query = $_GET;
-                $query['chart'][$key] = $type . ':' . $n;
-                $links[] = $link($query, (string) $n, $asked === $type . ':' . $n);
+        $measures = ((array) ($this->setting('measures') ?? [])) !== [];
+        $e        = static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
+        $path     = (string) strtok((string) ($_SERVER['REQUEST_URI'] ?? ''), '?');
+        $key      = $this->chartKey();
+        $asked    = (string) (((array) ($_GET['chart'] ?? []))[$key] ?? '');
+        [$kind, $span] = $asked === 'pie' ? ['pie', 12] : (preg_match('/^(line|bar):(\d{1,2})$/', $asked, $m) === 1 ? [$m[1], (int) $m[2]] : ['', 12]);
+        $anchor   = '#pf-chart-' . $key;
+        $link     = static function (?string $value, string $text, bool $current) use ($e, $path, $anchor, $key): string {
+            $query = $_GET;
+            if ($value === null) {
+                unset($query['chart'][$key]);
+                if (($query['chart'] ?? []) === []) {
+                    unset($query['chart']);
+                }
+            } else {
+                $query['chart'][$key] = $value;
             }
-            $groups[] = '<span>' . $e($label) . ': ' . implode(' · ', $links) . '</span>';
+
+            return $current ? '<strong aria-current="true">' . $e($text) . '</strong>'
+                : '<a data-pf-chart-choice href="' . $e($path . ($query === [] ? '' : '?' . http_build_query($query)) . $anchor) . '">' . $e($text) . '</a>';
+        };
+        // A table of measures is one period: only a pie fits it.
+        $kinds = $measures ? ['pie' => 'Pie'] : ['line' => 'Lines', 'bar' => 'Bars', 'pie' => 'Pie'];
+        $links = [];
+        foreach ($kinds as $type => $label) {
+            $links[] = $link($type === 'pie' ? 'pie' : $type . ':' . $span, Figures::words($label), $kind === $type);
+        }
+        $parts = ['<span>' . $e(Figures::words('Kind')) . ': ' . implode(' · ', $links) . '</span>'];
+        if (in_array($kind, ['line', 'bar'], true) || ($kind === '' && !$measures)) {
+            $spans = [];
+            foreach (self::CHART_PERIODS as $n) {
+                $spans[] = $link(($kind !== '' ? $kind : 'line') . ':' . $n, $this->spanWords($n), $kind !== '' && $span === $n);
+            }
+            $parts[] = '<span>' . $e(Figures::words('Span')) . ': ' . implode(' · ', $spans) . '</span>';
         }
         if ($asked !== '') {
-            $query = $_GET;
-            unset($query['chart'][$key]);
-            if (($query['chart'] ?? []) === []) {
-                unset($query['chart']);
-            }
-            $groups[] = '<span>' . $link($query, Figures::words('No chart'), false) . '</span>';
+            $parts[] = '<span>' . $link(null, Figures::words('No chart'), false) . '</span>';
         }
 
         return '<details class="pf-report-chartit pf-no-print"' . ($asked !== '' ? ' open' : '') . '><summary>' . $e(Figures::words('Chart')) . '</summary>'
-            . '<p style="display:flex;flex-wrap:wrap;gap:.25rem 1rem;margin:.25rem 0">' . implode('<span aria-hidden="true">|</span>', $groups) . '</p></details>';
+            . '<p style="display:flex;flex-wrap:wrap;gap:.25rem 1rem;margin:.25rem 0">' . implode('<span aria-hidden="true">|</span>', $parts) . '</p></details>';
     }
 }

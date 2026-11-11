@@ -1097,6 +1097,32 @@ test('a board asked to open for arranging starts in Customise', () => {
 });
 
 /**
+ * A chart chosen under a report's table is drawn in place: that card alone fetched from the
+ * board's card address (part=body, with the link's query), its frame replaced and drawn, the
+ * address kept — not the whole report loaded again.
+ */
+test('a chart chosen under a table is fetched for that card alone and drawn in place', async () => {
+    // Arrange
+    const p = page(true, '/admin/MetricReports/card?board=report%3A7', null, 'https://app.test/admin/MetricReports/show?report=7');
+    const holder = p.el('div', { 'data-pf-chart-holder': 'k1' }, p.cards.a);
+    const link = p.el('a', { 'data-pf-chart-choice': '', href: '/admin/MetricReports/show?report=7&chart%5Bk1%5D=pie#pf-chart-k1' }, holder);
+    const asked = [];
+    p.window.fetch = (url) => { asked.push(url); return Promise.resolve({ ok: true, text: () => Promise.resolve('<div data-pf-chart-holder="k1">pie</div>') }); };
+
+    // Act
+    const event = new Event('click', { bubbles: true, cancelable: true });
+    link.dispatchEvent(event);
+    await settle();
+
+    // Assert
+    assert.equal(asked[0], '/admin/MetricReports/card?board=report%3A7&id=a&part=body&report=7&chart%5Bk1%5D=pie', 'this card alone, with the choice');
+    assert.equal(event.defaultPrevented, true, 'not a page load');
+    assert.equal(p.cards.a.children.includes(holder), false, 'its frame replaced');
+    assert.equal(p.charted.length > 0, true, 'and drawn');
+    assert.match(p.window.location.href, /chart%5Bk1%5D=pie/, 'the address says what is shown');
+});
+
+/**
  * What is folded is remembered in this browser, for each report: the page opens as it was left,
  * another report's folds are its own, and unfolding forgets it.
  */

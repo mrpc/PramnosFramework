@@ -771,8 +771,16 @@ over its column's, and with neither a value is written as the metric's unit says
 Under each table on a report's page, *Chart* offers lines or bars over the last 6, 12 or 24
 periods up to the report's. The one chosen is drawn over the table, from its rows. It is an
 address (`?chart[<table>]=line:12`), so it is kept in the link and changes nothing in the
-report's definition. The choices read `Line: 6 · 12 · 24 | Bars: 6 · 12 · 24`, with the one shown
-marked and *No chart* beside them. Every link lands back on its table (`#pf-chart-<key>`). An
+report's definition. The choices are in two parts:
+
+- *Kind*: Lines · Bars · Pie;
+- *Span*, for lines and bars: 6 · 12 · 24 in the report's periods (months, days, weeks…).
+
+The ones shown are marked, with *No chart* beside them. A pie shows the table's rows in the
+report's period, which suits a breakdown, and is the only kind a table of measures offers. With
+the page's script, a choice fetches that card alone (`card?id=…&part=body`) and draws it in place.
+The address is kept with `history.replaceState`, so the rest of the report is not loaded again.
+Without a script, every link lands back on its table (`#pf-chart-<key>`). An
 owner who wants it always adds a chart card in Customise. A printout and a mail leave the choice
 out.
 

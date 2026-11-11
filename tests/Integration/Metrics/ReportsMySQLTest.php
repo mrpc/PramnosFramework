@@ -1098,10 +1098,13 @@ class ReportsMySQLTest extends TestCase
 
         // Act
         $plain = $draw(false);
-        preg_match('~Line: <a href="[^"]+">6</a> · <a href="([^"]+)">12</a>~', $plain, $m);
+        preg_match('~Span: <a data-pf-chart-choice href="[^"]+">6 months</a> · <a data-pf-chart-choice href="([^"]+)">12 months</a>~', $plain, $m);
         parse_str((string) parse_url(html_entity_decode($m[1] ?? ''), PHP_URL_QUERY), $query);
         $_GET    = $query;
         $charted = $draw(false);
+        $key     = (string) array_key_first((array) ($_GET['chart'] ?? []));
+        $_GET    = ['report' => (string) $id, 'chart' => [$key => 'pie']];
+        $pie     = $draw(false);
         $mail    = $draw(true);
         $_GET    = [];
         unset($_SERVER['REQUEST_URI']);
@@ -1111,7 +1114,11 @@ class ReportsMySQLTest extends TestCase
         $this->assertNotSame('', $m[1] ?? '', 'the choice, a link: "Line: 6 · 12 · 24"');
         $this->assertStringEndsWith('#pf-chart-', preg_replace('/[0-9a-f]+$/', '', $m[1]), 'back at this table, not the top of the page');
         $this->assertStringContainsString('<span id="pf-chart-', $plain, 'the place it comes back to');
-        $this->assertStringContainsString('<strong aria-current="true">12</strong>', $charted, 'the one shown, marked');
+        $this->assertStringContainsString('<strong aria-current="true">12 months</strong>', $charted, 'the span shown, marked, in the report\'s periods');
+        $this->assertStringContainsString('Kind: <strong aria-current="true">Lines</strong>', $charted, 'and the kind');
+        $this->assertStringContainsString('data-pf-chart-holder="' . $key . '"', $plain, 'a frame the page\'s script redraws alone');
+        $this->assertMatchesRegularExpression('~data-pf-chart-config>\{"type":"pie"~', $pie, 'a pie: the rows in the report\'s period');
+        $this->assertStringNotContainsString('Span:', $pie, 'a pie has no span');
         $this->assertStringContainsString('No chart</a>', $charted, 'and a way to take it away');
         $this->assertStringNotContainsString('No chart', $plain, 'nothing to take away before');
         $this->assertStringNotContainsString('data-pf-chart-config', $plain, 'no chart until asked');

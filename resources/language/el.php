@@ -2578,4 +2578,12 @@ return [
     'The week\'s review' => 'Η ανασκόπηση της εβδομάδας',
     'Contents' => 'Περιεχόμενα',
     'The older %d messages are summarised' => 'Τα %d παλιότερα μηνύματα έχουν συνοψιστεί',
+    'Span' => 'Διάστημα',
+    'Lines' => 'Γραμμές',
+    'Pie' => 'Πίτα',
+    '%d months' => '%d μήνες',
+    '%d days' => '%d μέρες',
+    '%d weeks' => '%d εβδομάδες',
+    '%d quarters' => '%d τρίμηνα',
+    '%d years' => '%d χρόνια',
 ];
