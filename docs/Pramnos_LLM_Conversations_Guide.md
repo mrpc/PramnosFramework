@@ -69,6 +69,7 @@ Extend `Chat\BaseAssistant`, which answers every hook with a default:
 | `connection(Scope)` | the connection answers go out on — the `chat` feature's by default |
 | `systemPrompt(Turn)`, `context(Turn)` | the instructions, the same for every question; and what the model is told about the person, with what it remembers added after |
 | `volatileContext(Turn)` | what is true only for this question, such as the page the person is on, sent just before it |
+| `clock(Scope)` | optional: `'minute'` (without the method) says the time to the minute, `'part-of-day'` only the day and morning, midday, afternoon, evening or night — for a companion that should not remark on the exact time |
 | `tools(Turn)` | this answer's tools; the memory's and the schedule's are added by the framework |
 | `due(Turn)`, `verify(Turn)` | what an answer must end with, and what it is checked against — see `askWithTools()` |
 | `writes()` | the tools that change something: a later answer is told which an earlier one called |
@@ -131,7 +132,9 @@ row share everything up to the one before. With them in the system prompt they w
 nothing, and every question would pay for its whole context again. So an assistant's
 `systemPrompt()` holds nothing that changes between questions: no date, no time, no page, no
 count. Those belong in `volatileContext()`. The time is added for every assistant, on its
-`timezone()`.
+`timezone()`. An assistant with a `clock()` that answers `'part-of-day'` is told
+`Now: Wednesday 11 November 2026, night (Europe/Athens).` instead: morning is 5–11, midday 12–13,
+afternoon 14–17, evening 18–21, night 22–4 (`ContextAssembler::partOfDay()`).
 
 ```php
 final class SupportAssistant extends \Pramnos\Llm\Chat\BaseAssistant

@@ -151,6 +151,36 @@ class ContextAssemblerTest extends LlmTestCase
         ContextAssembler::cacheReport($deepseek, true, 42);
         $this->assertStringContainsString('Cache hit ratio 20% on 10000 prompt tokens in conversation 42', $this->logged());
     }
+
+    /**
+     * An assistant whose `clock()` answers 'part-of-day' is told the day and the part of it, not
+     * the minute — so a companion has no exact time to remark on in every conversation — while one
+     * without the method keeps the minute.
+     */
+    public function testAPartOfDayClockSaysNoMinute(): void
+    {
+        // Arrange
+        $chat = new Conversations(new BaseAssistant());
+        $turn = new Turn(new Scope(7, null), null, false, [], [], [], $chat);
+
+        // Act
+        $coarse = (new ContextAssembler(new CoarseAssistant()))->dynamicTail($turn);
+        $fine   = (new ContextAssembler(new BaseAssistant()))->dynamicTail($turn);
+
+        // Assert — a weekday, a date and one of the five parts, no HH:MM
+        $this->assertMatchesRegularExpression('/^Now: \w+ \d+ \w+ \d{4}, (morning|midday|afternoon|evening|night) \(Asia\/Tokyo\)\.$/', $coarse);
+        $this->assertMatchesRegularExpression('/^Now: \w+ \d+ \w+ \d{4}, \d\d:\d\d \(/', $fine, 'the default stays at the minute');
+    }
+
+    /** The five parts and their edges: 5 is morning, 12 midday, 14 afternoon, 18 evening, 22 and 4 night. */
+    public function testThePartsOfTheDay(): void
+    {
+        // Act
+        $parts = array_map(ContextAssembler::partOfDay(...), [4, 5, 11, 12, 13, 14, 17, 18, 21, 22, 0]);
+
+        // Assert
+        $this->assertSame(['night', 'morning', 'morning', 'midday', 'midday', 'afternoon', 'afternoon', 'evening', 'evening', 'night', 'night'], $parts);
+    }
 }
 
 /** An assistant whose prompt never changes and whose page does. */
@@ -166,6 +196,22 @@ final class PagedAssistant extends BaseAssistant
         return 'The page: /orders';
     }
 
+    public function timezone(Scope $scope): string
+    {
+        return 'Asia/Tokyo';
+    }
+}
+
+/** An assistant told only the part of the day. */
+final class CoarseAssistant extends BaseAssistant
+{
+    /** The part of the day, not the minute. */
+    public function clock(Scope $scope): string
+    {
+        return 'part-of-day';
+    }
+
+    /** A fixed zone, so the test does not depend on the server's. */
     public function timezone(Scope $scope): string
     {
         return 'Asia/Tokyo';

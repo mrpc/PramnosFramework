@@ -15,7 +15,7 @@ use Pramnos\Llm\Pricing;
  * |---|---|---|---|
  * | 1, static prefix | the system prompt | the assistant's role and rules ({@see Assistant::systemPrompt()}) | with the code, never between two questions |
  * | 2, semi-static | a system message ahead of the history | what is remembered, what is pinned, the summary of earlier messages | when one of those changes |
- * | 3, dynamic tail | a system message just before the question | the time, the assistant's `volatileContext()` — the page the person is on — and the notice for an attached document | every question |
+ * | 3, dynamic tail | a system message just before the question | the time (or only the part of the day, when the assistant's optional `clock(Scope)` answers 'part-of-day'), the assistant's `volatileContext()` — the page the person is on — and the notice for an attached document | every question |
  *
  * A cache matches a request from its start. With the time and the page at the end rather than in
  * the system prompt, two questions in a row share everything up to the last question but one; with
@@ -78,10 +78,30 @@ final class ContextAssembler
         $own  = trim((method_exists($this->assistant, 'volatileContext') ? (string) $this->assistant->volatileContext($turn) : '')
             . ($this->alsoNow === '' ? '' : "\n\n" . $this->alsoNow));
 
-        return 'Now: ' . $now->format('l j F Y, H:i') . ' (' . $zone . ').'
+        $when = (method_exists($this->assistant, 'clock') ? (string) $this->assistant->clock($turn->scope) : 'minute') === 'part-of-day'
+            ? $now->format('l j F Y') . ', ' . self::partOfDay((int) $now->format('G'))
+            : $now->format('l j F Y, H:i');
+
+        return 'Now: ' . $when . ' (' . $zone . ').'
             . (empty($turn->extra['voice']) ? '' : "\n\n" . self::SPOKEN)
             . ($own !== '' ? "\n\n" . $own : '')
             . ($turn->documents === [] ? '' : "\n\n" . Client::DATA_NOTICE);
+    }
+
+    /**
+     * The part of the day an hour falls in, said in place of the time by an assistant whose
+     * `clock()` answers 'part-of-day': morning 5–11, midday 12–13, afternoon 14–17, evening 18–21,
+     * night 22–4.
+     */
+    public static function partOfDay(int $hour): string
+    {
+        return match (true) {
+            $hour >= 5 && $hour < 12  => 'morning',
+            $hour >= 12 && $hour < 14 => 'midday',
+            $hour >= 14 && $hour < 18 => 'afternoon',
+            $hour >= 18 && $hour < 22 => 'evening',
+            default                   => 'night',
+        };
     }
 
     /**
