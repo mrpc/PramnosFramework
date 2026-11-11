@@ -1055,6 +1055,68 @@ test('a silence after dictating sends the question; nothing said or the mic pres
 });
 
 /**
+ * A question dictated is sent with `voice=1` — the assistant then opens its answer with what can
+ * be said — and, the person's "answer aloud" choice on, the page marks the answer to be read.
+ * With the choice off, it is sent the same way and nothing is marked.
+ */
+test('a dictated question is sent as asked aloud, its answer marked to be read', () => {
+    // Arrange
+    let options;
+    const voice = { dictating: false, startDictation(o) { options = o; this.dictating = true; return true; }, stopDictation() {} };
+    const ui = run({ answers: [], attributes: { 'data-pf-chat-voice': '' }, mic: true, pfVoice: { createVoiceState: () => voice } });
+    const toggle = ui.form.appendChild(element('input', { type: 'checkbox', 'data-pf-chat-voice-reply': '' }));
+    toggle.checked = true;
+    const sentFields = [];
+    const voiceFields = () => ui.form.children.filter((c) => c.getAttribute('name') === 'voice' && c.getAttribute('value') === '1').length;
+    ui.form.requestSubmit = () => { sentFields.push(voiceFields()); };
+
+    // Act — on, then off
+    ui.micButton.click();
+    options.onTranscript({ text: 'πόσες εγγραφές χθες' });
+    options.onSilence();
+    const marked = ui.page.getAttribute('data-pf-chat-reply-aloud');
+    ui.page.removeAttribute('data-pf-chat-reply-aloud');
+    toggle.checked = false;
+    ui.micButton.click();
+    options.onTranscript({ text: 'και σήμερα' });
+    options.onSilence();
+
+    // Assert
+    assert.deepEqual(sentFields, [1, 1], 'sent with voice=1 both times');
+    assert.equal(voiceFields(), 0, 'and gone after: a typed question is not one asked aloud');
+    assert.equal(marked, '', 'the choice on: the answer is to be read');
+    assert.equal(ui.page.getAttribute('data-pf-chat-reply-aloud'), null, 'off: not');
+});
+
+/**
+ * The answer to a question asked aloud is read aloud: a short one whole; a long one, its opening
+ * paragraph and that the rest is on the screen — or, with a report made, to see the report.
+ */
+test('the answer to a question asked aloud is read: whole, or its opening and where the rest is', () => {
+    // Arrange — three pages drawn after an answer asked aloud
+    const read = [];
+    const pfVoice = { createVoiceState: () => ({ speaking: false, speak: (id, text) => { read.push([id, text]); return true; } }) };
+    const long = 'Χθες γράφτηκαν 212 γονείς.\n\n' + 'Ανά περιοχή: '.repeat(60);
+    const draw = (text, artifacts) => {
+        const answer = element('button', { 'data-pf-chat-speak': text, 'data-pf-chat-speak-id': '9', 'data-pf-chat-speak-artifacts': String(artifacts) });
+        run({ answers: [], attributes: { 'data-pf-chat-voice': '', 'data-pf-chat-reply-aloud': '', 'data-say-spoken-rest': 'Τα υπόλοιπα στην οθόνη.', 'data-say-spoken-report': 'Δες την αναφορά.' }, before: [answer], pfVoice });
+    };
+
+    // Act
+    draw('Χθες γράφτηκαν 212 γονείς.', 0);
+    draw(long, 0);
+    draw('Η λίστα είναι έτοιμη.', 1);
+    run({ answers: [], attributes: { 'data-pf-chat-voice': '' }, before: [element('button', { 'data-pf-chat-speak': 'x', 'data-pf-chat-speak-id': '1' })], pfVoice });
+
+    // Assert
+    assert.deepEqual(read, [
+        ['9', 'Χθες γράφτηκαν 212 γονείς.'],
+        ['9', 'Χθες γράφτηκαν 212 γονείς. Τα υπόλοιπα στην οθόνη.'],
+        ['9', 'Η λίστα είναι έτοιμη. Δες την αναφορά.'],
+    ], 'and nothing read where the question was not asked aloud');
+});
+
+/**
  * An answer's 🔊 button (data-pf-chat-speak) speaks that answer's text through PfVoice, by its
  * own id — so one page can have several answers, each read independently.
  */

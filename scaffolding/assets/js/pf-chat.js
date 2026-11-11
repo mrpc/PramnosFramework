@@ -40,6 +40,10 @@
  *   data-pf-chat-pronounce="{…}" — on the page: the application's words as they are said
  *                                  (`speech.pronounce`), given to pf-speech-sanitizer.js so the
  *                                  browser's voice says them as the speech server does
+ *   data-pf-chat-voice-reply-url — on the page: where the person's "answer aloud" choice is kept;
+ *                                  the composer's [data-pf-chat-voice-reply] checkbox is it. A
+ *                                  question dictated is sent with `voice=1` and, the choice on,
+ *                                  its answer read aloud — the opening of a long one
  *   data-pf-chat-voice           — on the page: voice is on (the llm.voice setting); the mic
  *                                  and 🔊 buttons only do anything when this is present AND
  *                                  pf-voice.js (with pf-speech-sanitizer.js) is also loaded
@@ -89,6 +93,8 @@
     var TYPES = ['.docx', '.odt', '.txt', '.md', '.eml', '.jpg', '.jpeg', '.png', '.gif', '.webp'];
     var FILES = 10;
     var BYTES = 5000000;
+    /** An answer read aloud whole up to this many characters; a longer one, its opening. */
+    var SPOKEN_WHOLE = 400;
     /** Nothing for the first seconds, which most answers take; then a line every few. */
     var QUIET_MS = 8000;
     var PHRASE_MS = 4000;
@@ -725,6 +731,49 @@
             button.addEventListener('click', function () { copy(button, button.getAttribute('data-pf-chat-copy') || ''); });
         });
 
+        // A question asked aloud is answered aloud, where the person has not turned that off: the
+        // newest answer, or its opening and a word about the rest when it is long.
+        if (voice && root.getAttribute('data-pf-chat-reply-aloud') !== null) {
+            root.removeAttribute('data-pf-chat-reply-aloud');
+            var answers = root.querySelectorAll('[data-pf-chat-speak]');
+            var newest = answers.length ? answers[answers.length - 1] : null;
+            if (newest) {
+                voice.speak(newest.getAttribute('data-pf-chat-speak-id') || 'reply', spoken(
+                    newest.getAttribute('data-pf-chat-speak') || '',
+                    parseInt(newest.getAttribute('data-pf-chat-speak-artifacts') || '0', 10) > 0
+                ));
+            }
+        }
+
+        /**
+         * What of an answer is read aloud: all of a short one; of a long one, its opening paragraph —
+         * which the assistant, told the question was asked aloud, writes to stand by itself — and
+         * where the rest is: the report it made, or the screen.
+         */
+        function spoken(text, hasReport) {
+            var whole = String(text).trim();
+            var first = whole.split(/\n\s*\n/)[0].trim();
+            if (whole.length <= SPOKEN_WHOLE && !hasReport) {
+                return whole;
+            }
+            return first + ' ' + (hasReport ? words('spoken-report', 'See the report I prepared for you.') : words('spoken-rest', 'The rest is written on the screen.'));
+        }
+
+        // Whether a question asked aloud is answered aloud: kept with the person's account.
+        var replyToggle = form ? form.querySelector('[data-pf-chat-voice-reply]') : null;
+        var replyUrl = root.getAttribute('data-pf-chat-voice-reply-url');
+        if (replyToggle && replyUrl) {
+            replyToggle.addEventListener('change', function () {
+                var body = new FormData();
+                Array.prototype.forEach.call(form.querySelectorAll('input[type="hidden"]'), function (field) {
+                    body.append(field.name, field.value);
+                });
+                body.append('on', replyToggle.checked ? '1' : '0');
+                fetch(replyUrl, { method: 'POST', body: body, headers: { Accept: 'application/json' }, credentials: 'same-origin' })
+                    .catch(function () {});
+            });
+        }
+
         // 🔊 reads one answer aloud; pressing it again, or another answer's button, stops it —
         // voice.toggleSpeech() already treats "speaking this id again" as stop.
         if (voice) {
@@ -1006,7 +1055,21 @@
                     onSilence: function () {
                         setMicState(false);
                         if (box && box.value.trim() !== '') {
+                            // Asked aloud: the assistant opens its answer with what can be said,
+                            // and the answer is read aloud unless the person turned that off.
+                            var aloud = document.createElement('input');
+                            aloud.setAttribute('type', 'hidden');
+                            aloud.setAttribute('name', 'voice');
+                            aloud.setAttribute('value', '1');
+                            form.appendChild(aloud);
+                            var toggle = form.querySelector('[data-pf-chat-voice-reply]');
+                            if (!toggle || toggle.checked) {
+                                root.setAttribute('data-pf-chat-reply-aloud', '');
+                            }
                             form.requestSubmit ? form.requestSubmit() : form.submit();
+                            if (aloud.parentNode) {
+                                aloud.parentNode.removeChild(aloud);
+                            }
                         }
                     },
                     onEnd: function () { setMicState(false); },

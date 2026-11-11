@@ -116,6 +116,30 @@ class ChatApiTest extends LlmTestCase
     }
 
     /**
+     * A question asked aloud (`voice`) is answered to be said: the model is told, just before the
+     * question, to open with one or two plain sentences that stand by themselves — what is read
+     * aloud of a long answer. A question typed is not told so.
+     */
+    #[DataProvider('databases')]
+    public function testAQuestionAskedAloudIsAnsweredToBeSaid(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => ['answer_in_request' => true]]);
+        $this->answer([[200, self::says('212.')]]);
+        $told = fn (int $call): bool => str_contains((string) json_encode($this->sent[$call]['body']['messages'], JSON_UNESCAPED_UNICODE), 'asked aloud');
+
+        // Act
+        $this->call('POST', '/chat', ['content' => 'How many?', 'voice' => '1']);
+        $this->call('POST', '/chat', ['content' => 'And today?']);
+
+        // Assert
+        $this->assertTrue($told(0), 'asked aloud: told to open with what can be said');
+        $this->assertFalse($told(1), 'typed: not');
+        $this->assertStringContainsString(\Pramnos\Llm\Chat\ContextAssembler::SPOKEN, (string) json_encode($this->sent[0]['body']['messages'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
      * What stops a question before anything is queued: the hook, nobody signed in, no
      * connection, nothing asked, a conversation that is not theirs, consent, the application's
      * own limit.

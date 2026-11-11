@@ -252,6 +252,14 @@ shared by the mic and every answer's 🔊 button:
   fails — no server set up, the network, a clip that will not play — the browser's voice reads
   from that sentence to the end, the whole text when none was heard yet.
   `hasServer` says which is in use. See the Screens guide, "Reading answers aloud", for the server.
+- **Asked aloud, answered aloud.** A question dictated on the chat pages is sent with `voice=1`.
+  Every way of asking takes it (`TakesQuestions`), and the assistant is told, just before the
+  question (`ContextAssembler::SPOKEN`), to open with one or two plain sentences that stand by
+  themselves, then a blank line before any detail. The answer is then read aloud: whole up to 400
+  characters, otherwise its opening paragraph followed by "See the report I prepared for you" when
+  it made one, or "The rest is written on the screen". The person turns this off with the 🔊 box
+  beside the mic. The choice is kept with their account (`answers_aloud`, on by default) by the
+  pages' `voicereply` action, and `ReadsAloud::repliesAloud($user)` reads it.
 - **The chat pages read through it on their own.** Where a speech server is set up
   (`Speech::config()`), the conversations page and the analyst's draw
   `data-pf-chat-speak-server` and the session's token, and `pf-chat.js` hands the voice a

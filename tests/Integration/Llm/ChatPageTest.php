@@ -208,6 +208,52 @@ class ChatPageTest extends LlmTestCase
     }
 
     /**
+     * Whether a question asked aloud is answered aloud is the person's, kept with their account:
+     * on until they turn it off, from the composer's 🔊 box, which the page draws with the choice
+     * and where it is kept. Nobody signed in keeps nothing.
+     */
+    #[DataProvider('databases')]
+    public function testTheAnswerAloudChoiceIsThePersons(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['voice' => true]);
+        $user = new \Pramnos\User\User();
+        $user->username = 'aloud' . random_int(1000, 9999);
+        $user->email    = $user->username . '@example.test';
+        $user->save();
+        $before = ChatPageController::repliesAloud($user);
+        \Pramnos\Http\RequestIdentity::seal($user, 'test');
+
+        // Act — turned off, then on again
+        $_POST = ['on' => '0'];
+        $off   = (new ChatPageController())->voicereply();
+        $kept  = ChatPageController::repliesAloud(new \Pramnos\User\User((int) $user->userid));
+        $page  = (string) $this->page(theme: 'tailwind')->display();
+        $_POST = ['on' => '1'];
+        (new ChatPageController())->voicereply();
+        $again = ChatPageController::repliesAloud(new \Pramnos\User\User((int) $user->userid));
+        \Pramnos\Http\RequestIdentity::reset();
+        \Pramnos\Http\RequestIdentity::seal(null, 'test');
+        $nobody = (new ChatPageController())->voicereply();
+        \Pramnos\Http\RequestIdentity::reset();
+        $_POST = [];
+        http_response_code(200);
+
+        // Assert
+        $this->assertTrue($before, 'on by default');
+        $this->assertSame('{"status":200,"data":{"voiceReply":false}}', $off);
+        $this->assertFalse($kept, 'kept with the account');
+        $this->assertTrue($again);
+        $this->assertStringContainsString('data-pf-chat-voice-reply-url="', $page);
+        $this->assertMatchesRegularExpression('~<input type="checkbox" data-pf-chat-voice-reply>~', $page, 'drawn unchecked: the choice is off');
+        $this->assertStringContainsString('"status":401', (string) $nobody);
+        $this->assertTrue(ChatPageController::repliesAloud(null), 'nobody known: on');
+        $this->db->queryBuilder()->table('#PREFIX#userdetails')->where('userid', (int) $user->userid)->delete();
+        $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', (int) $user->userid)->delete();
+    }
+
+    /**
      * `speak` on the page (FW-409): the posted text read aloud by the speech server, answered as
      * the audio itself under the server's type; with no server, the JSON 501 `pf-chat.js` falls
      * back on. It is a write action — a POST with the session's token — on the page and on the

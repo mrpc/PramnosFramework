@@ -48,6 +48,8 @@ $say     = [
     'too-many' => t('Up to 10 files with one question.'), 'too-large' => t('That is too large — up to 5 MB, all the files together.'),
     'you' => t('You'), 'today' => t('today'), 'copied' => t('Copied'), 'copy-table' => t('Copy table'),
     'stop' => t('Stop'), 'stopped' => t('Stopped.'),
+    // Said after the opening of a long answer read aloud.
+    'spoken-report' => t('See the report I prepared for you.'), 'spoken-rest' => t('The rest is written on the screen.'),
 ];
 $name    = (string) ($this->assistantName ?? '') !== '' ? (string) $this->assistantName : t('Assistant');
 $sayAttr = '';
@@ -96,6 +98,8 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
     'pin' => is_array($this->urls ?? null) ? '' : $url('chat/pin/'),
     // Answers read aloud by the speech server, where there is one; the browser's voice where not.
     'speak' => is_array($this->urls ?? null) || !\Pramnos\Llm\Chat\Web\ChatPageController::readsAloudOnServer() ? '' : $url('chat/speak'),
+    // Keeping whether a question asked aloud is answered aloud.
+    'voicereply' => is_array($this->urls ?? null) ? '' : $url('chat/voicereply'),
 ];
 $pinned  = is_array($this->pinned ?? null) ? $this->pinned : [];
 $bulk    = is_array($this->bulkActions ?? null) ? $this->bulkActions : [];
@@ -107,7 +111,7 @@ $commands = \Pramnos\Llm\Chat\Web\ChatLook::commands($u, is_array($this->command
 // Dictation + read-aloud (pf-voice.js), with the speech server where one is set up — behind this setting (Pramnos_LLM_Analyst_Guide.md "## Voice").
 $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false); @endphp
 @if ($waiting)<noscript><meta http-equiv="refresh" content="4"></noscript>@endif
-<div class="pf-chat{!! $empty ? ' pf-chat-empty' : '' !!} px-4 py-6"{!! $accent !== '' ? ' style="--pf-chat-accent:' . $e($accent) . '"' : '' !!} data-commands="{{ json_encode($commands, JSON_UNESCAPED_UNICODE) }}"{!! (string) ($this->peopleUrl ?? '') !== '' ? ' data-pf-people-url="' . $e($this->peopleUrl) . '"' : '' !!} data-pf-chat data-page="{{ $u['page'] }}" data-asked="{{ $u['asked'] }}"{!! $sayAttr !!} data-waiting-lines="{{ json_encode($lines, JSON_UNESCAPED_UNICODE) }}" data-question-class="{{ $c['question'] }}"{!! $voiceOn ? ' data-pf-chat-voice' : '' !!}{!! $voiceOn && \Pramnos\Llm\Speech\Speech::pronunciations() !== [] ? ' data-pf-chat-pronounce="' . $e(json_encode(\Pramnos\Llm\Speech\Speech::pronunciations(), JSON_UNESCAPED_UNICODE)) . '"' : '' !!}{!! $voiceOn && $u['speak'] !== '' ? ' data-pf-chat-speak-server="' . $e($u['speak']) . '" data-pf-chat-csrf="' . $e(\Pramnos\Http\Session::getInstance()->getCsrfToken()) . '"' : '' !!}>
+<div class="pf-chat{!! $empty ? ' pf-chat-empty' : '' !!} px-4 py-6"{!! $accent !== '' ? ' style="--pf-chat-accent:' . $e($accent) . '"' : '' !!} data-commands="{{ json_encode($commands, JSON_UNESCAPED_UNICODE) }}"{!! (string) ($this->peopleUrl ?? '') !== '' ? ' data-pf-people-url="' . $e($this->peopleUrl) . '"' : '' !!} data-pf-chat data-page="{{ $u['page'] }}" data-asked="{{ $u['asked'] }}"{!! $sayAttr !!} data-waiting-lines="{{ json_encode($lines, JSON_UNESCAPED_UNICODE) }}" data-question-class="{{ $c['question'] }}"{!! $voiceOn ? ' data-pf-chat-voice' : '' !!}{!! $voiceOn && $u['voicereply'] !== '' ? ' data-pf-chat-voice-reply-url="' . $e($u['voicereply']) . '"' : '' !!}{!! $voiceOn && \Pramnos\Llm\Speech\Speech::pronunciations() !== [] ? ' data-pf-chat-pronounce="' . $e(json_encode(\Pramnos\Llm\Speech\Speech::pronunciations(), JSON_UNESCAPED_UNICODE)) . '"' : '' !!}{!! $voiceOn && $u['speak'] !== '' ? ' data-pf-chat-speak-server="' . $e($u['speak']) . '" data-pf-chat-csrf="' . $e(\Pramnos\Http\Session::getInstance()->getCsrfToken()) . '"' : '' !!}>
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <nav class="{!! $c['card'] !!}" style="flex:0 0 240px;padding:12px" aria-label="{{ t('Conversations') }}">
             <a href="{{ $u['page'] }}" class="{!! $c['btn'] !!}">{{ t('New conversation') }}</a>
@@ -223,7 +227,7 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false); @endphp
                         @if (!$mine)
                             <button type="button" class="{!! $c['btnGhost'] !!}" data-pf-chat-copy="{{ $m['content'] }}" aria-label="{{ t('Copy the answer') }}">⧉ {{ t('Copy') }}</button>
                             @if ($voiceOn)
-                                <button type="button" class="{!! $c['btnGhost'] !!}" aria-pressed="false" data-pf-chat-speak="{{ $m['content'] }}" data-pf-chat-speak-id="{{ (string) ($m['message_id'] ?? '') }}" aria-label="{{ t('Read the answer aloud') }}">🔊 {{ t('Listen') }}</button>
+                                <button type="button" class="{!! $c['btnGhost'] !!}" aria-pressed="false" data-pf-chat-speak="{{ $m['content'] }}" data-pf-chat-speak-id="{{ (string) ($m['message_id'] ?? '') }}" data-pf-chat-speak-artifacts="{{ count((array) ($m['artifacts'] ?? [])) }}" aria-label="{{ t('Read the answer aloud') }}">🔊 {{ t('Listen') }}</button>
                             @endif
                             @if ($u['rate'] !== '' && !empty($m['message_id'])){!! \Pramnos\Llm\Chat\Web\RatingView::buttons($m, $u['rate'], $openId, $token(), $c) !!}@endif
                         @endif
@@ -245,6 +249,7 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false); @endphp
                 <div class="pf-chat-bar">
                     @if ($voiceOn)
                         <button type="button" class="pf-chat-mic" data-pf-chat-mic aria-pressed="false" title="{{ t('Dictate your question') }}">🎤<span class="pf-sr-only">{{ t('Dictate your question') }}</span></button>
+                        @if ($u['voicereply'] !== '')<label class="pf-chat-voice-reply" title="{{ t('Answer aloud a question asked aloud') }}"><input type="checkbox" data-pf-chat-voice-reply{!! \Pramnos\Llm\Chat\Web\ChatPageController::repliesAloud(\Pramnos\User\User::getCurrentUser() ?: null) ? ' checked' : '' !!}> 🔊<span class="pf-sr-only">{{ t('Answer aloud a question asked aloud') }}</span></label>@endif
                     @endif
                     <label class="pf-chat-attach" title="{{ t('Attach a document') }}">📎<span class="pf-sr-only">{{ t('Attach a document') }}</span>
                         <input type="file" name="files[]" multiple accept=".docx,.odt,.txt,.md,.eml,image/*" class="pf-sr-only" data-pf-chat-files>

@@ -103,7 +103,9 @@ trait TakesQuestions
             return $stop;
         }
 
-        $extra = $this->extra($input);
+        // Asked aloud (`voice`): the answer is read aloud, so it opens with what can be said
+        // ({@see \Pramnos\Llm\Chat\ContextAssembler::dynamicTail()}).
+        $extra = $this->extra($input) + (filter_var($input['voice'] ?? false, FILTER_VALIDATE_BOOLEAN) ? ['voice' => true] : []);
         $chat  = Llm::config('chat', []);
 
         if (is_array($chat) && !empty($chat['answer_in_request'])) {

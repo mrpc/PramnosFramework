@@ -60,6 +60,14 @@ final class ContextAssembler
     }
 
     /**
+     * Said for a question asked aloud: the answer is read aloud — its opening alone, when it is
+     * long — so the opening must stand by itself, said rather than read.
+     */
+    public const SPOKEN = 'This question was asked aloud, and the answer will be read aloud. Open it with one or two '
+        . 'plain sentences that answer the question by themselves — no table, list, heading or Markdown in them — then '
+        . 'a blank line before any detail, which the reader sees but is not read out.';
+
+    /**
      * Zone 3: what is true only now — the time in the assistant's zone, what the assistant adds
      * for this question, and the notice for an attached document.
      */
@@ -71,6 +79,7 @@ final class ContextAssembler
             . ($this->alsoNow === '' ? '' : "\n\n" . $this->alsoNow));
 
         return 'Now: ' . $now->format('l j F Y, H:i') . ' (' . $zone . ').'
+            . (empty($turn->extra['voice']) ? '' : "\n\n" . self::SPOKEN)
             . ($own !== '' ? "\n\n" . $own : '')
             . ($turn->documents === [] ? '' : "\n\n" . Client::DATA_NOTICE);
     }

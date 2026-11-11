@@ -66,11 +66,11 @@ class AiController extends Controller
             'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'report',
             'skills', 'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject', 'memories', 'memorycorrect', 'memorydelete',
             'skillcatalog', 'skillinstall', 'skillcatalogturn', 'skillcatalogrole', 'skillcatalogupdate', 'skillcatalogdelete',
-            'share', 'unshare', 'shared', 'people', 'act', 'approve', 'reject', 'rate', 'reviews', 'reviewed', 'download', 'printable', 'pin', 'speak']);
+            'share', 'unshare', 'shared', 'people', 'act', 'approve', 'reject', 'rate', 'reviews', 'reviewed', 'download', 'printable', 'pin', 'speak', 'voicereply']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
         // `api` checks its own token, from the X-CSRF-Token header, since it also answers GET and DELETE.
         $this->addWriteAction(['save', 'check', 'ask', 'cancel', 'delete', 'forget', 'consent',
-            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'reviewed', 'pin', 'speak',
+            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'reviewed', 'pin', 'speak', 'voicereply',
             'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject', 'memorycorrect', 'memorydelete',
             'skillinstall', 'skillcatalogturn', 'skillcatalogrole', 'skillcatalogupdate', 'skillcatalogdelete']);
         parent::__construct($application);
@@ -151,6 +151,7 @@ class AiController extends Controller
             'pin'       => adminUrl('Ai/pin/'),
             // Answers read aloud by the speech server, where there is one.
             'speak'     => self::readsAloudOnServer() ? adminUrl('Ai/speak') : '',
+            'voicereply' => adminUrl('Ai/voicereply'),
             // The bad answers to look at, for whoever reads everybody's.
             'reviews'   => $this->readsAll($this->reader()) ? adminUrl('Ai/reviews') : '',
         ];
