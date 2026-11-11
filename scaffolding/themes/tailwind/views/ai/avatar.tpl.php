@@ -13,7 +13,7 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
 $u = (array) ($this->urls ?? []);
 $states = (array) ($this->states ?? []);
 $moods  = (array) ($this->moods ?? []);
-$btn = $c['btn'] . ' pf-btn pf-btn-sm'; @endphp
+$btn = $c['btn']; @endphp
 <div class="{!! $c['page'] !!}" data-pf-avatar-page>
     <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px">
         <h1 class="{!! $c['h1'] !!}" style="margin:0">{{ $t('The assistant\'s picture') }}</h1>
@@ -21,12 +21,12 @@ $btn = $c['btn'] . ' pf-btn pf-btn-sm'; @endphp
     </div>
     <section class="{!! $c['card'] !!}" style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start">
         {{-- The dock's own element, inline: the set's CSS for "away" reacts to it as it does in a corner. --}}
-        <div class="pf-companion-dock pf-companion-dock--inline" data-pf-avatar-preview data-pf-companion-activity="active" style="padding:16px">{!! (string) ($this->picture ?? '') !!}</div>
+        <div class="pf-companion-dock pf-companion-dock--inline" data-pf-avatar-preview data-pf-companion-activity="active" style="position:relative;inset:auto;flex:none;width:auto;height:auto;padding:16px">{!! (string) ($this->picture ?? '') !!}</div>
         <div style="flex:1 1 18rem;display:flex;flex-direction:column;gap:12px">
             <div>
                 <h2 class="{!! $c['h2'] !!}">{{ $t('States') }}</h2>
                 <p class="{!! $c['muted'] !!}">{{ $t('Success, greeting and notify go back to idle by themselves.') }}</p>
-                <div style="display:flex;flex-wrap:wrap;gap:6px" role="group" aria-label="{{ $t('States') }}">
+                <div style="display:flex;flex-wrap:wrap;gap:6px" role="group" aria-label="{{ $t('The picture\'s states') }}">
                     @foreach ($states as $state)<button type="button" class="{!! $btn !!}" data-pf-avatar-state="{{ $state }}" aria-pressed="{!! $state === 'idle' ? 'true' : 'false' !!}">{{ $state }}</button>@endforeach
                 </div>
             </div>
@@ -35,20 +35,20 @@ $btn = $c['btn'] . ' pf-btn pf-btn-sm'; @endphp
                 <div style="display:flex;flex-wrap:wrap;gap:6px">
                     <label class="pf-sr-only" for="pf-avatar-pose">{{ $t('Any pose name') }}</label>
                     <input id="pf-avatar-pose" type="text" class="{!! $c['input'] !!}" placeholder="{{ $t('Any pose name') }}" data-pf-avatar-pose>
-                    <button type="button" class="{!! $btn !!}" data-pf-avatar-pose-apply>{{ $t('Apply') }}</button>
-                    <button type="button" class="{!! $btn !!}" data-pf-avatar-away aria-pressed="false">{{ $t('Away') }}</button>
+                    <button type="button" class="{!! $btn !!}" data-pf-avatar-pose-apply>{{ $t('Apply the pose') }}</button>
+                    <button type="button" class="{!! $btn !!}" data-pf-avatar-away aria-pressed="false">{{ $t('Preview away') }}</button>
                 </div>
             </div>
         </div>
     </section>
     @if ($moods !== [])
         <section class="{!! $c['card'] !!}">
-            <h2 class="{!! $c['h2'] !!}">{{ $t('Signals') }}</h2>
+            <h2 class="{!! $c['h2'] !!}">{{ $t('Signals and what they play') }}</h2>
             <table class="{!! $c['table'] !!}">
                 <thead><tr><th>{{ $t('Signal') }}</th><th>{{ $t('Plays') }}</th><th></th></tr></thead>
                 <tbody>
                 @foreach ($moods as $signal => $plays)
-                    <tr><td>{{ $signal }}</td><td>{{ $plays }}</td><td><button type="button" class="{!! $btn !!}" data-pf-avatar-try="{{ $plays }}">{{ $t('Try') }}</button></td></tr>
+                    <tr><td>{{ $signal }}</td><td>{{ $plays }}</td><td><button type="button" class="{!! $btn !!}" data-pf-avatar-try="{{ $plays }}">{{ $t('Try it') }}</button></td></tr>
                 @endforeach
                 </tbody>
             </table>

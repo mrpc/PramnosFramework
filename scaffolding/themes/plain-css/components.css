@@ -2370,6 +2370,8 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-companion-debug-preview { width: auto; height: auto; min-height: 96px; display: flex; align-items: center; justify-content: center; overflow: visible; }
 /* Inline, in a page's flow: still a card — framed, on the surface, no floating shadow. */
 .pf-companion-debug-panel.pf-companion-debug-panel--inline { display: inline-block; border: 1px solid var(--pf-line); background: var(--pf-surface); box-shadow: none; }
+/* The avatar screen (Ai/avatar) draws its buttons in the theme's own classes; the one playing is marked here. */
+[data-pf-avatar-page] button[aria-pressed="true"] { background: var(--pf-accent); border-color: var(--pf-accent); color: var(--pf-accent-fg); }
 /* The state, pose or preview playing now. */
 .pf-companion-debug-panel button[aria-pressed="true"] { background: var(--pf-accent); border-color: var(--pf-accent); color: var(--pf-accent-fg); }
 

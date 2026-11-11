@@ -518,7 +518,9 @@ class AiScreenTest extends LlmTestCase
             $this->assertStringContainsString('class="pf-companion-dock pf-companion-dock--inline" data-pf-avatar-preview data-pf-companion-activity="active"', $page, $theme);
             $this->assertStringContainsString('data-pf-avatar-pose-apply', $page, $theme);
             $this->assertStringContainsString('<td>curious</td><td>sniff</td>', $page, $theme . ': the set\'s signals');
-            $this->assertStringContainsString('pf-btn pf-btn-sm', $page, $theme);
+            $this->assertStringNotContainsString('pf-btn', $page, $theme . ': the theme\'s own buttons, which a stale stylesheet cannot blank');
+            $this->assertStringContainsString('data-pf-avatar-preview data-pf-companion-activity="active" style="position:relative', $page, $theme . ': in the flow even without the inline rule');
+            $this->assertStringContainsString('Apply the pose', $page, $theme . ': a key no application\'s "Apply" collides with');
         }
     }
 
