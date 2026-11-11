@@ -137,11 +137,29 @@ export function openImage(href, name, options = {}) {
     out.setAttribute('aria-label', labels.zoomOut || 'Zoom out');
     into.setAttribute('aria-label', labels.zoomIn || 'Zoom in');
     percent.setAttribute('aria-label', labels.fit || 'Fit to the window');
-    const download = el('a', { href, download: name || '' }, labels.download || 'Download');
-    const tab = el('a', { href, target: '_blank', rel: 'noopener' }, labels.tab || 'Open in a new tab');
+    // An icon button: the label is its title, its aria-label and a visually hidden text.
+    const icon = (attrs, label, path) => {
+        const link = el('a', { ...attrs, className: 'pf-conv-lightbox-action', title: label, 'aria-label': label });
+        const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('aria-hidden', 'true');
+        const line = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
+        line.setAttribute('d', path);
+        svg.appendChild(line);
+        link.append(svg, el('span', { className: 'pf-conv-lightbox-label' }, label));
+
+        return link;
+    };
+    const download = icon({ href, download: name || '' }, labels.download || 'Download', 'M12 4v11m-5-5 5 5 5-5M5 20h14');
+    const tab = icon({ href, target: '_blank', rel: 'noopener' }, labels.tab || 'Open in a new tab', 'M14 4h6v6m0-6-9 9M18 14v6H4V6h6');
     const shut = el('button', { type: 'button', className: 'pf-conv-lightbox-close' }, '×');
     shut.setAttribute('aria-label', labels.close || 'Close');
-    bar.append(title, out, percent, into, download, tab, shut);
+    shut.setAttribute('title', labels.close || 'Close');
+    const group = el('span', { className: 'pf-conv-lightbox-zoomgroup' });
+    group.append(out, percent, into);
+    const actions = el('span', { className: 'pf-conv-lightbox-actions' });
+    actions.append(group, download, tab, shut);
+    bar.append(title, actions);
     const stage = el('div', { className: 'pf-conv-lightbox-stage' });
     const img = el('img', { src: options.src || href, alt: name || '', draggable: 'false' });
     stage.append(img);

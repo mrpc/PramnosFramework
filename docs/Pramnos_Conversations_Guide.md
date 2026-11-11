@@ -540,7 +540,8 @@ Messages::react($id, $maria, ':our-heart:');
   `rememberEmoji()` are in `emoji-data.js`, an ES module that a chat page of the application's
   own imports from `vendor/` too.
 - **The picture viewer** (`lightbox.js`). A message's picture opens large over the page, with a
-  blurred backdrop, its name, Download and New tab. It closes with ×, Escape or a click outside,
+  blurred backdrop and a dark bar: its name on the left, then the zoom group, Download and New tab
+  as icon buttons, and ×. In a narrow window the name is cut before the actions wrap. It closes with ×, Escape or a click outside,
   and a Ctrl, ⌘ or middle click still opens a tab. It zooms with the wheel around the pointer,
   with a double click or double tap (fitted ↔ 1:1, or 200% for a small picture), with two fingers,
   with the bar's − / percentage / + and with the keys + − 0, from fitted to 800%. A zoomed picture
