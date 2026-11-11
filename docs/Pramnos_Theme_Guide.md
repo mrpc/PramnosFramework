@@ -53,6 +53,12 @@ before or after the number. It comes from `app.php`'s `'numbers' => ['fr' => ['t
 neither is written with a comma, a dot and the symbol after. A currency with no symbol of its own
 is written with its code. A number a machine reads, in a CSV, an `<input>` or JSON, stays plain.
 
+An amount that may be a fraction of a cent, such as what a model call costs, is
+`NumberFormat::smallMoney($v, 'USD')`. A total gets two decimals; a smaller amount gets as many as
+it takes not to read as nought, up to six (`0,0034 $` in Greek, `$0.0034` in English). The
+assistants' pages (`Ai`, `Ai/all`, `Ai/call`, the spend and task-cost cards) write every amount
+and token count this way.
+
 ## Architecture Overview
 
 The theme system is built around the `\Pramnos\Theme\Theme` class and integrates seamlessly with the document and view systems. Themes live under `app/themes/` (`APP_PATH/themes`):

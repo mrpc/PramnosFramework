@@ -27,8 +27,8 @@ $json = static fn ($v): string => htmlspecialchars((string) json_encode($v, JSON
             @if (($row['error'] ?? null) !== null)
                 <tr><th>Error</th><td class="{!! $c['bad'] !!}">{{ $row['error'] }}</td></tr>
             @endif
-            <tr><th>Tokens</th><td>{!! ($row['tokens'] ?? null) === null ? '—' : number_format((int) $row['tokens']) !!}</td></tr>
-            <tr><th>Cost</th><td>{!! ($row['cost'] ?? null) === null ? 'not priced' : '$' . number_format((float) $row['cost'], 6) !!}</td></tr>
+            <tr><th>{{ t('Tokens') }}</th><td>{{ ($row['tokens'] ?? null) === null ? '—' : \Pramnos\General\NumberFormat::number((float) $row['tokens']) }}</td></tr>
+            <tr><th>{{ t('Cost') }}</th><td>{{ ($row['cost'] ?? null) === null ? t('not priced') : \Pramnos\General\NumberFormat::smallMoney((float) $row['cost'], 'USD') }}</td></tr>
             <tr><th>Took</th><td>{!! (int) ($row['duration_ms'] ?? 0) !!} ms</td></tr>
         </tbody>
     </table>

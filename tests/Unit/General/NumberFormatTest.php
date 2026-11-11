@@ -63,4 +63,18 @@ class NumberFormatTest extends TestCase
         // Assert
         $this->assertSame('1 234,50 €', $french);
     }
+
+    /**
+     * What a model call costs (FW-461): a total with two decimals, a fraction of a cent with as many
+     * as it takes not to read as nought — up to six — in the page's language's punctuation.
+     */
+    public function testSmallMoneyIsNeverNought(): void
+    {
+        // Act
+        $values = [NumberFormat::smallMoney(1.0488, 'USD', 'el'), NumberFormat::smallMoney(1.0488, 'USD', 'en'), NumberFormat::smallMoney(0.0034, 'USD', 'el'),
+            NumberFormat::smallMoney(0.00000012, 'USD', 'en'), NumberFormat::smallMoney(0, 'USD', 'en'), NumberFormat::number(34571857, 0, 'el')];
+
+        // Assert
+        $this->assertSame(['1,05 $', '$1.05', '0,0034 $', '$0.000000', '$0.00', '34.571.857'], $values);
+    }
 }

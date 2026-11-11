@@ -26,7 +26,9 @@
  */
 $c = ['card' => 'card bg-base-100 border border-base-300', 'muted' => 'text-sm opacity-70', 'ok' => 'text-success', 'bad' => 'text-error', 'btn' => 'btn btn-sm btn-primary', 'btnOutline' => 'btn btn-sm btn-ghost', 'input' => 'input input-sm input-bordered', 'table' => 'table table-sm'];
 $e         = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
-$usd       = static fn ($v): string => $v === null ? '—' : '$' . number_format((float) $v, 4);
+// Amounts and counts in the page's language: `1,05 $` and `34.571.857` in Greek, `$1.05` and `34,571,857` in English.
+$usd       = static fn ($v): string => $v === null ? '—' : \Pramnos\General\NumberFormat::smallMoney((float) $v, 'USD');
+$count     = static fn ($v): string => \Pramnos\General\NumberFormat::number((float) $v);
 $providers = is_array($this->providers ?? null) ? $this->providers : [];
 $features  = is_array($this->features ?? null) ? $this->features : [];
 $calls     = is_array($this->calls ?? null) ? $this->calls : [];
@@ -56,16 +58,16 @@ $labels    = array_column($providers, 'label', 'id'); @endphp
     @endif
 
     <div style="display:flex;gap:18px;flex-wrap:wrap;margin:16px 0">
-        @foreach (['Last 24 hours' => $day, 'Last 30 days' => $month] as $title => $sum)
+        @foreach ([t('Last 24 hours') => $day, t('Last 30 days') => $month] as $title => $sum)
             <div class="{!! $c['card'] !!}" style="padding:10px 14px;min-width:220px">
                 <div class="{!! $c['muted'] !!}">{{ $title }}</div>
                 <div style="font-size:1.6em">{!! $usd($sum['cost'] ?? 0) !!}</div>
                 <div class="{!! $c['muted'] !!}">
-                    {!! (int) ($sum['calls'] ?? 0) !!} calls ·
-                    {!! number_format((int) ($sum['tokens'] ?? 0)) !!} tokens ·
-                    <span class="{!! (int) ($sum['failed'] ?? 0) > 0 ? $c['bad'] : '' !!}">{!! (int) ($sum['failed'] ?? 0) !!} failed</span>
+                    {{ $count($sum['calls'] ?? 0) }} {{ t('calls') }} ·
+                    {{ $count($sum['tokens'] ?? 0) }} {{ t('tokens') }} ·
+                    <span class="{!! (int) ($sum['failed'] ?? 0) > 0 ? $c['bad'] : '' !!}">{{ $count($sum['failed'] ?? 0) }} {{ t('failed') }}</span>
                     @if ((int) ($sum['unpriced'] ?? 0) > 0)
-                        · {!! (int) $sum['unpriced'] !!} not priced, not in the total
+                        · {{ $count($sum['unpriced']) }} {{ t('not priced, not in the total') }}
                     @endif
                 </div>
             </div>
@@ -308,7 +310,7 @@ $labels    = array_column($providers, 'label', 'id'); @endphp
                 <tbody>
                 @foreach ($byModel as $m)
                     <tr><td>{{ $m['model'] }}</td><td>{!! (int) $m['calls'] !!}</td>
-                        <td>{!! $usd($m['cost']) !!}{!! (int) $m['unpriced'] > 0 ? ' + ' . (int) $m['unpriced'] . ' not priced' : '' !!}</td></tr>
+                        <td>{!! $usd($m['cost']) !!}{{ (int) $m['unpriced'] > 0 ? ' + ' . $count($m['unpriced']) . ' ' . t('not priced') : '' }}</td></tr>
                 @endforeach
                 </tbody>
             </table>
@@ -325,7 +327,7 @@ $labels    = array_column($providers, 'label', 'id'); @endphp
                         <td>{{ $row['created_at'] ?? '' }}</td>
                         <td>{{ $row['purpose'] ?? '' }}</td>
                         <td>{{ ($labels[$row['provider'] ?? ''] ?? ($row['provider'] ?? '')) . ' · ' . ($row['model'] ?? '') }}</td>
-                        <td>{!! $row['tokens'] === null ? '—' : number_format((int) $row['tokens']) !!}</td>
+                        <td>{{ $row['tokens'] === null ? '—' : $count($row['tokens']) }}</td>
                         <td>{!! $usd($row['cost'] ?? null) !!}</td>
                         <td class="{!! $failed ? $c['bad'] : $c['ok'] !!}">{!! $failed ? $e($row['error'] ?? ('HTTP ' . ($row['http_status'] ?? '—'))) : $e($row['finish_reason'] ?? 'ok') !!}</td>
                     </tr>

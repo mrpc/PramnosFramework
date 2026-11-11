@@ -70,6 +70,19 @@ class NumberFormat
     }
 
     /**
+     * An amount that may be a fraction of a cent — what a model call costs — with two decimals,
+     * or as many more as it takes not to read as nought, up to six: `1,05 $`, `0,0034 $` (el),
+     * `$1.05`, `$0.0034` (en).
+     */
+    public static function smallMoney(float $value, string $currency, ?string $language = null): string
+    {
+        $size     = abs($value);
+        $decimals = $size > 0 && $size < 0.01 ? (int) min(6, ceil(-log10($size)) + 1) : 2;
+
+        return static::money($value, $currency, $decimals, $language);
+    }
+
+    /**
      * The convention of a language: the application's, else the framework's, else the default.
      *
      * @return array{decimal: string, thousands: string, symbol: string}

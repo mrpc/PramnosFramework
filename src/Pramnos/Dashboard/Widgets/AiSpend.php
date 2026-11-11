@@ -80,7 +80,7 @@ final class AiSpend extends Widget
         $failed = (int) ($spend['failed'] ?? 0);
 
         return StatTile::grid([
-            StatTile::render(Figures::words('Cost'), '$' . number_format((float) ($spend['cost'] ?? 0), 2), number_format((int) ($spend['tokens'] ?? 0)) . ' ' . Figures::words('tokens'), $this->link()),
+            StatTile::render(Figures::words('Cost'), \Pramnos\General\NumberFormat::smallMoney((float) ($spend['cost'] ?? 0), 'USD'), \Pramnos\General\NumberFormat::number((float) ($spend['tokens'] ?? 0)) . ' ' . Figures::words('tokens'), $this->link()),
             StatTile::render(Figures::words('Calls'), number_format($calls), $this->periodLabel()),
             StatTile::render(Figures::words('Failed'), number_format($failed), state: $calls > 0 && $failed / $calls >= 0.05 ? StatTile::WARNING : null),
         ]);

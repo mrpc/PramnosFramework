@@ -28,7 +28,7 @@ $resets  = !empty($this->resets);
 $open    = is_array($this->open ?? null) ? $this->open : null;
 $u       = (is_array($this->urls ?? null) ? $this->urls : []) + ['all' => '', 'call' => '', 'ask' => '', 'reset' => '', 'reviews' => '', 'memories' => '', 'settings' => '', 'scheduled' => ''];
 $openId  = (int) ($open['conversation']['conversation_id'] ?? 0);
-$money   = static fn ($v): string => $v === null ? '' : '$' . number_format((float) $v, 4);
+$money   = static fn ($v): string => $v === null ? '' : \Pramnos\General\NumberFormat::smallMoney((float) $v, 'USD');
 $keep    = static fn (array $extra): string => http_build_query(array_filter(['channel' => $filters['channel'] === 'admin' ? '' : (string) $filters['channel'], 'person' => (int) $filters['person'], 'q' => (string) $filters['q']] + $extra));
 $said    = static fn ($v): string => is_scalar($v) ? (string) $v : (string) json_encode($v, JSON_UNESCAPED_UNICODE);
 // A moment on the page's clock, as the list shows them; a persona by its name.

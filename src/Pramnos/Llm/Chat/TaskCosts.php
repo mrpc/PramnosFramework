@@ -82,7 +82,7 @@ final class TaskCosts implements \Pramnos\Llm\Admin\Card
     /** USD, as the AI settings screen shows it: four places below a dollar, a dash for no price. */
     public static function usd(?float $cost): string
     {
-        return $cost === null ? '—' : '$' . number_format($cost, $cost < 1 ? 4 : 2);
+        return $cost === null ? '—' : \Pramnos\General\NumberFormat::smallMoney($cost, 'USD');
     }
 
     /**
