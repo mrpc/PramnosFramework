@@ -400,6 +400,36 @@ without waiting on, or being shaped by, a framework-chosen one. An application's
 reacts to `[data-pose="…"]` however it likes; that stylesheet is the entire "character", and it
 belongs to the application.
 
+### Out of the dock: moving and playing
+
+`pf-companion-play.js` takes the mounted companion out of its dock to move and play. It works
+with any set. A set that draws gaits, a facing and a look moves with them, as Tesla does (see
+[a character the framework ships](#its-living-picture)). Any other set is carried as it is.
+
+```js
+PfCompanionPlay.follow(true);   // the eyes follow the pointer: --pf-look-x/y on the avatar, -1.35 to 1.35
+PfCompanionPlay.laser();        // a red dot and a crosshair; a click sends her after it
+PfCompanionPlay.yarn();         // a ball on the page; she rolls on her back with it, then comes home
+PfCompanionPlay.zoomies();      // a dash across the whole width, and back
+PfCompanionPlay.stop();         // whatever is playing ends; she trots home
+PfCompanionPlay.playing();      // the game's name, or null
+```
+
+- **Moved, never copied.** While she is out, the avatar itself sits in a fixed
+  `.pf-companion-runner` and the dock is left empty, marked `data-pf-companion-away`, at its own
+  size. Coming home puts the avatar back in the same place in the dock's markup.
+- **A run** sets `data-gait` (`walk`, `trot`, `sprint`, `zoomies`, at their own speeds) and
+  `data-facing="right"` when she goes right. The gait is gone when she arrives.
+- **The laser** takes clicks for itself, so a click is not a click on the page. It ends on Esc,
+  after 30 seconds without a click, or on `stop()`. A click sends her at a sprint, followed by a
+  crouch (`stalking`) and a swat.
+- **One game at a time:** starting one ends the other. When a question is asked
+  (`pf-assistant:state` `listening`, `thinking` or `talking`), any game ends, so the assistant is
+  home to answer.
+- With `prefers-reduced-motion` she goes where she is going at once, without running.
+- Dispatches `pf-companion-play:start` and `pf-companion-play:stop` with `{ game }`. What starts a
+  game is the application's choice: a button, a menu, a word in the chat.
+
 ### A debug window for whatever is mounted
 
 ```js

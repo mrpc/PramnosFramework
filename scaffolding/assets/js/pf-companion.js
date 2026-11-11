@@ -179,11 +179,17 @@
         return current !== null;
     }
 
+    /** The mounted dock element, or null — for what builds on it (pf-companion-play.js). */
+    function dockElement() {
+        return current ? current.dock : null;
+    }
+
     window.PfCompanion = {
         mount: mount,
         unmount: unmount,
         setPose: setPose,
         setPosition: setPosition,
         isMounted: isMounted,
+        dock: dockElement,
     };
 }());

@@ -143,7 +143,12 @@ function createElement(document, tag, attributes = {}) {
         ownerDocument: document,
         children: [],
         parentNode: null,
-        style: {},
+        // A style that also takes custom properties, as a browser's does.
+        style: {
+            setProperty(name, value) { this[name] = String(value); },
+            removeProperty(name) { delete this[name]; },
+            getPropertyValue(name) { return this[name] === undefined ? '' : String(this[name]); },
+        },
         hidden: false,
         disabled: false,
         checked: false,
@@ -230,6 +235,8 @@ function createElement(document, tag, attributes = {}) {
             return copy;
         },
 
+        /** Where it is drawn: nothing is laid out here, so a box at 0,0 of no size. */
+        getBoundingClientRect() { return { left: 0, top: 0, right: 0, bottom: 0, x: 0, y: 0, width: 0, height: 0 }; },
         matches(selector) { return matches(this, selector); },
         contains(other) {
             for (let at = other; at; at = at.parentNode) {
