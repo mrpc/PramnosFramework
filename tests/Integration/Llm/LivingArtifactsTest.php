@@ -664,4 +664,35 @@ class LivingArtifactsTest extends LlmTestCase
         $this->assertStringContainsString('▦ Artifact #' . $hers, $printed, 'only named');
         $this->assertStringContainsString('▦ Artifact #' . $table, $plain, 'named where nothing reads it');
     }
+
+    /**
+     * What a conversation keeps is named in its later questions' context (with how to change it),
+     * so a story told over several answers stays one artifact: the tools' answers are not in the
+     * history sent. Another conversation's are not named.
+     */
+    #[DataProvider('databases')]
+    public function testWhatAConversationKeepsIsNamedInItsLaterQuestions(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $userId = $this->user();
+        $scope  = new Scope($userId, null);
+        $this->answer([
+            [200, self::calls([['save_artifact', ['kind' => 'text', 'title' => 'Our story', 'text' => 'Once upon a time.']]])], [200, self::says('Kept.')],
+            [200, self::says('And then…')],
+            [200, self::says('Hi')],
+        ]);
+
+        // Act
+        $id = (new Conversations(new BaseAssistant()))->as($scope)->ask(null, 'Tell me a story')['conversation_id'];
+        (new Conversations(new BaseAssistant()))->as($scope)->ask($id, 'And then the hare lost!');
+        $later = self::systemOf($this->sent[2]);
+        (new Conversations(new BaseAssistant()))->as($scope)->ask(null, 'Hi');
+        $other = self::systemOf($this->sent[3]);
+        $made  = (new Artifacts($scope))->search(['query' => 'Our story'])[0]['artifact_id'];
+
+        // Assert
+        $this->assertStringContainsString('- #' . $made . ' text "Our story" — change it with update_artifact ' . $made, $later, 'named, with how to change it');
+        $this->assertStringNotContainsString('Our story', $other, 'not in another conversation');
+    }
 }

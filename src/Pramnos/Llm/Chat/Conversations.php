@@ -1406,6 +1406,14 @@ class Conversations
             }
         }
 
+        // What this conversation keeps — made here, or changed here — so a later answer changes it
+        // rather than keeping a second one: the tools' answers are not in the history it is sent.
+        $kept = $turn->shared() ? '' : $this->keptHere($turn);
+        if ($kept !== '') {
+            $lines[] = '';
+            $lines[] = $kept;
+        }
+
         // The skills still on in this conversation: their method, as when they were turned on.
         $skillsOn = $this->openSkillsContext($turn);
         if ($skillsOn !== '') {
@@ -1693,6 +1701,44 @@ class Conversations
         }
 
         return array_slice(array_keys($open), 0, self::OPEN_SKILLS);
+    }
+
+    /** How many artifacts of a conversation its context names at most, the latest changed first. */
+    public const KEPT_HERE = 10;
+
+    /**
+     * The artifacts this conversation made or changed, a line each with how to change it; '' for none.
+     */
+    private function keptHere(Turn $turn): string
+    {
+        if ($turn->conversationId === null || !Artifacts::available()) {
+            return '';
+        }
+        $artifacts = new Artifacts($this->scope);
+        $ids       = [];
+        foreach ($artifacts->forConversation($turn->conversationId) as $made) {
+            foreach ($made as $one) {
+                $ids[(int) $one['artifact_id']] = true;
+            }
+        }
+        // …and those its answers changed: the ids their calls named.
+        foreach ($this->table('assist.chat_messages')->select(['tools'])->where('conversation_id', $turn->conversationId)->where('role', 'assistant')
+            ->orderBy('message_id', 'desc')->limit(50)->getAllOrFail() as $row) {
+            foreach ((array) json_decode((string) ($row['tools'] ?? ''), true) as $call) {
+                if (in_array($call['name'] ?? '', ['update_artifact', 'pin_artifact'], true) && (int) (($call['arguments'] ?? [])['id'] ?? 0) > 0) {
+                    $ids[(int) $call['arguments']['id']] = true;
+                }
+            }
+        }
+        $lines = [];
+        foreach (array_slice(array_reverse(array_keys($ids)), 0, self::KEPT_HERE) as $id) {
+            $found = $artifacts->find($id);
+            if ($found !== null) {
+                $lines[] = '- #' . $id . ' ' . $found['kind'] . ' "' . $found['title'] . '" — change it with update_artifact ' . $id;
+            }
+        }
+
+        return $lines === [] ? '' : "Kept in this conversation — to add to one or change it, use update_artifact with its id; do not save it again:\n" . implode("\n", $lines);
     }
 
     /** The method of each skill still on in this conversation, for its context; '' for none. */

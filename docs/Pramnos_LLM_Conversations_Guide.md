@@ -770,6 +770,14 @@ echo \Pramnos\Llm\Chat\Web\SubjectPanel::html($scope, 'user', 123, 'Summarise th
 - The subject is kept in `assist.chat_artifacts.subject`. It is written only when given, so an
   installation that has not run the migration keeps everything else.
 
+### What a conversation keeps, in its later questions
+
+The tools' answers are not in the history a later question sends, so the model would not know
+it already made an artifact. A question's context therefore names the artifacts its
+conversation made or changed, the latest ten (`Conversations::KEPT_HERE`), each with how to
+change it (`#21 text "Our story" — change it with update_artifact 21`). A story told over
+several answers, a plan kept up or a summary refreshed then stays one artifact.
+
 ### Sharing an artifact live
 
 A share above is a snapshot. An artifact can also be shared **live**: its members read the
