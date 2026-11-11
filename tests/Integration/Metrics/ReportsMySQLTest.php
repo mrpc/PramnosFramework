@@ -825,6 +825,51 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * A section with columns of its own (FW-473) — the last three months, with their chart — beside
+     * one with the report's; a row's description (an ⓘ, a footnote under the table for a printout
+     * or a mail) and its «What is this?» link; a section's note and its Jira issue, linked where the
+     * application says how.
+     */
+    public function testASectionsOwnColumnsAndWhatExplainsIt(): void
+    {
+        // Arrange
+        \Pramnos\Application\Application::getInstance()->applicationInfo['metrics']['jira'] = 'https://jira.example/browse/%s';
+        $definition = ['name' => 'Test explained', 'sections' => [
+            ['title' => 'Trend', 'chart' => 'line', 'columns' => ['periods' => 3], 'note' => 'Paid orders only.', 'jira' => 'NAN-5984', 'rows' => [
+                ['label' => 'Sales', 'metric' => 'test.sales', 'description' => 'Orders paid in the month.', 'link' => 'https://help.example/sales'],
+            ]],
+            ['title' => 'This month', 'rows' => [['label' => 'Sales now', 'metric' => 'test.sales'],
+                // A formula row through a card: kept a formula, not read as its first operand.
+                ['label' => 'Half', 'formula' => 'a / 2', 'operands' => ['a' => ['metric' => 'test.sales']]]]],
+        ]];
+        $built = Report::fromArray($definition)->build('2026-09-10', self::reader());
+        $id    = (new Reports())->save(self::reader(), $definition);
+        $entry = (new Reports())->find((string) $id, self::reader());
+
+        // Act
+        try {
+            $html = \Pramnos\Metrics\ReportBoard::html($entry, '2026-09-10', self::reader(), '/rows', false);
+        } finally {
+            \Pramnos\Metrics\ReportBoard::leave();
+            unset(\Pramnos\Application\Application::getInstance()->applicationInfo['metrics']['jira']);
+            (new Reports())->delete($id, self::reader(99, 9), true);
+        }
+
+        // Assert
+        $this->assertCount(3, $built['sections'][0]['columns'], 'the section\'s own: three months');
+        $this->assertSame([null, 1.0, 6.0], array_column($built['sections'][0]['rows'][0]['cells'], 'value'), 'July unread, August 1, September 6');
+        $this->assertCount(1, $built['columns'], 'the rest: the report\'s');
+        $this->assertSame([6.0], array_column($built['sections'][1]['rows'][0]['cells'], 'value'));
+        $this->assertStringContainsString('title="Orders paid in the month."', $html, 'the description, on the page');
+        $this->assertStringContainsString('<ol class="pf-report-footnotes"><li>Orders paid in the month.</li></ol>', $html, 'and as a footnote');
+        $this->assertStringContainsString('href="https://help.example/sales"', $html, 'What is this?');
+        $this->assertStringContainsString('Paid orders only.', $html, 'the section\'s note');
+        $this->assertStringContainsString('href="https://jira.example/browse/NAN-5984"', $html, 'its issue, linked');
+        $this->assertStringContainsString('data-pf-chart-config', $html, 'its chart');
+        $this->assertStringContainsString('<th scope="row">Half</th><td style="text-align:right">3', $html, 'a formula row through a card');
+    }
+
+    /**
      * A table of measures (FW-473): a row for each value of a dimension and the total, a column
      * for each measure — a metric with filters of its own, a formula, a share «n (x%)» of another
      * measure, a scale in words — on the report's page, its CSV, and each metric's cell linked to

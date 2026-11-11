@@ -162,22 +162,46 @@ final class ReportBoard
             if ($section['title'] !== '') {
                 $cards[] = ['id' => 'report.section~s' . $i, 'size' => Widget::FULL, 'settings' => ['title' => $section['title']]];
             }
+            // The section's own columns, as a table card takes them: the last N periods, a dimension's values, or its own.
+            $own = self::columnsAsSettings($section['columns'] ?? null);
             if ($section['chart'] !== null && $section['rows'] !== []) {
                 // Untitled: the section's heading is drawn once, by the section above it.
-                $cards[] = ['id' => 'report.chart~c' . $i, 'size' => Widget::FULL, 'settings' => [
+                $cards[] = ['id' => 'report.chart~c' . $i, 'size' => Widget::FULL, 'settings' => (isset($own['periods']) ? ['periods' => $own['periods']] : []) + [
                     'series' => array_map(static fn (array $row): array => ['label' => $row['label'], 'metric' => $row['metric'], 'filters' => $row['filters'], 'breakdown' => (string) $row['breakdown']],
                         array_values(array_filter($section['rows'], static fn (array $row): bool => !isset($row['formula'])))),
                     'chart'  => $section['chart'],
                 ]];
             }
-            $cards[] = ['id' => 'report.table~t' . $i, 'size' => Widget::FULL, 'settings' => array_intersect_key($section, array_flip(['by', 'filters', 'measures'])) + (isset($section['measures']) ? ['by_values' => $section['values']] : []) + [
+            $cards[] = ['id' => 'report.table~t' . $i, 'size' => Widget::FULL, 'settings' => array_intersect_key($section, array_flip(['by', 'filters', 'measures', 'note', 'link', 'jira'])) + (isset($section['measures']) ? ['by_values' => $section['values']] : []) + $own + [
                 'rows'  => array_map(static fn (array $row): array => ['label' => $row['label'], 'metric' => $row['metric'], 'filters' => $row['filters'], 'breakdown' => (string) $row['breakdown'], 'total' => $row['total']]
-                    + array_intersect_key($row, array_flip(['formula', 'operands', 'unit'])), $section['rows']),
+                    + array_intersect_key($row, array_flip(['formula', 'operands', 'unit', 'description', 'link'])), $section['rows']),
                 'total' => $section['total'] ? '1' : '',
             ]];
         }
 
         return $cards;
+    }
+
+    /**
+     * A section's own columns as a table card's settings: `periods`, a dimension's values, or a
+     * list of its own; none for a section with the report's.
+     *
+     * @return array<string, mixed>
+     */
+    private static function columnsAsSettings(?array $columns): array
+    {
+        if ($columns === null || $columns === []) {
+            return [];
+        }
+        if (isset($columns['periods'])) {
+            return ['columns' => 'periods', 'periods' => (int) $columns['periods']];
+        }
+        if (isset($columns['dimension'])) {
+            return ['columns' => 'dimension', 'dimension' => (string) $columns['dimension'], 'values' => implode(',', (array) ($columns['values'] ?? [])),
+                'column_total' => !empty($columns['total']) ? '1' : ''];
+        }
+
+        return ['columns' => 'custom', 'custom' => array_values($columns)];
     }
 
     /**

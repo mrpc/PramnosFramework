@@ -74,6 +74,10 @@ class TableWidget extends ReportWidget
             'by_values'    => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?array => is_array($v) ? array_values(array_map('strval', array_filter($v, 'is_scalar'))) : null],
             'measures'     => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?array => is_array($v) && $v !== [] ? array_values(array_filter($v, 'is_array')) : null],
             'filters'      => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?array => is_array($v) ? self::cleanFilters($v) : null],
+            // A section's note, its link and its issue, as a report's definition sets them.
+            'note'         => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?string => is_string($v) && trim($v) !== '' ? mb_substr(trim($v), 0, 2000) : null],
+            'link'         => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?string => is_string($v) && preg_match('#^(https?://|/)#i', $v) === 1 ? $v : null],
+            'jira'         => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?string => is_string($v) && preg_match('/^[A-Za-z][A-Za-z0-9_]*-\d+$/', trim($v)) === 1 ? trim($v) : null],
         ];
     }
 
@@ -113,7 +117,9 @@ class TableWidget extends ReportWidget
                 'filters'   => self::cleanFilters($row['filters'] ?? []),
                 'breakdown' => preg_match('/^[a-z][a-z0-9_]*$/', $breakdown) === 1 ? $breakdown : '',
                 'total'     => !empty($row['total']) && $row['total'] !== 'false',
-            ];
+            // What a report's definition gives a row beyond the form's fields — a formula over its
+            // operands, a description and a link — kept, for Report::fromArray() to check.
+            ] + array_intersect_key($row, array_flip(['formula', 'operands', 'unit', 'description', 'link']));
         });
     }
 
@@ -181,7 +187,7 @@ class TableWidget extends ReportWidget
             'sections' => [['title' => '', 'chart' => $chart, 'total' => (string) $this->setting('total') === '1' || $this->setting('total') === true, 'rows' => array_map(
                 fn (array $row): array => ['filters' => $this->narrowed((array) ($row['filters'] ?? []))] + $row + ['breakdown' => ($row['breakdown'] ?? '') !== '' ? $row['breakdown'] : null],
                 $rows,
-            )] + ($measures === [] ? [] : [
+            )] + array_filter(['note' => $this->setting('note'), 'link' => $this->setting('link'), 'jira' => $this->setting('jira')]) + ($measures === [] ? [] : [
                 // A table of measures: the board's variables narrow the whole section.
                 'by' => $this->setting('by'), 'values' => (array) ($this->setting('by_values') ?? []), 'measures' => $measures,
                 'filters' => $this->narrowed((array) ($this->setting('filters') ?? [])),

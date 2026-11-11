@@ -725,6 +725,19 @@ plus any value found in the report's periods. With `total`, a last row follows t
 metric without the breakdown. For a distinct metric that total is counted, not added up.
 A section's `total` adds up its rows but leaves breakdown totals out.
 
+### A section's own columns, and what explains it
+
+- **Columns of its own.** A section can have `columns` of its own, in any shape the report's take:
+  `['title' => 'Trend', 'chart' => 'line', 'columns' => ['periods' => 12], …]` shows the 12 periods
+  up to the report's, chart included, while the other sections keep the report's columns (per
+  market, say).
+- **A row's `description`** shows as an ⓘ beside its label, the text on hover. The description is
+  also a numbered footnote under the table, which the page hides and a printout or a mail shows.
+- **A row's `link`** (an address) adds *What is this?*.
+- **A section's `note`** is written under its table.
+- **A section's `jira`** (an issue key) is linked where the application says how:
+  `'metrics' => ['jira' => 'https://example.atlassian.net/browse/%s']`. Its `link` adds *More*.
+
 ### Formula rows
 
 A row with a `formula` works a number out of other metrics, each read with filters of its own:

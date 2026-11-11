@@ -92,9 +92,10 @@ final class Report
                     'filters'   => self::filters($row['filters'] ?? []),
                     'breakdown' => $breakdown !== '' ? $breakdown : null,
                     'total'     => $breakdown !== '' && (bool) ($row['total'] ?? false),
-                ];
+                ] + self::explained($row);
             }
-            $sections[] = self::measuresOf($section) + [
+            $sections[] = self::measuresOf($section) + self::explained($section, ['note', 'link', 'jira'])
+                + (isset($section['columns']) ? ['columns' => self::columns($section['columns'])] : []) + [
                 'title' => trim((string) ($section['title'] ?? '')),
                 'chart' => in_array($section['chart'] ?? null, ['line', 'bar'], true) ? (string) $section['chart'] : null,
                 'total' => (bool) ($section['total'] ?? false),
@@ -120,6 +121,28 @@ final class Report
         }
 
         return new self($clean);
+    }
+
+    /**
+     * What explains a row or a section, as given: a `description` (a row's ⓘ, a footnote when
+     * printed or mailed), a `link` to where more is said, a section's `note` under its table and
+     * its `jira` issue.
+     *
+     * @param array<string, mixed> $given
+     * @param list<string>         $keys
+     * @return array<string, string>
+     */
+    private static function explained(array $given, array $keys = ['description', 'link']): array
+    {
+        $out = [];
+        foreach ($keys as $key) {
+            $value = trim((string) ($given[$key] ?? ''));
+            if ($value !== '' && ($key !== 'link' || preg_match('#^(https?://|/)#i', $value) === 1)) {
+                $out[$key] = mb_substr($value, 0, 2000);
+            }
+        }
+
+        return $out;
     }
 
     /** How a measure's value may be written. */
@@ -226,7 +249,7 @@ final class Report
             'formula'   => $expression,
             'operands'  => $operands,
             'unit'      => (string) ($row['unit'] ?? ''),
-        ];
+        ] + self::explained($row);
     }
 
     /**
@@ -470,8 +493,9 @@ final class Report
         $compare = $this->definition['compare'];
         $other   = $compare === Metrics::YEAR_EARLIER ? $anchor->yearEarlier() : $anchor->previous();
         $visible = Metrics::all($user, false);
-        $columns = $this->expandColumns($anchor);
-        $hidden  = 0;
+        $reportColumns = $this->expandColumns($anchor);
+        $columns       = $reportColumns;
+        $hidden        = 0;
 
         $sections = [];
         foreach ($this->definition['sections'] as $section) {
@@ -479,7 +503,9 @@ final class Report
                 $sections[] = $this->buildMeasures($section, $visible, $anchor, $grain);
                 continue;
             }
-            $rows = [];
+            $rows    = [];
+            // A section with columns of its own — the last 12 months in a month's report — and the rest as the report's.
+            $columns = isset($section['columns']) ? $this->expandColumns($anchor, $section['columns']) : $reportColumns;
             foreach ($section['rows'] as $row) {
                 if (!isset($visible[$row['metric']])) {
                     $hidden++;
@@ -502,14 +528,16 @@ final class Report
                     $total = null;
                 }
             }
-            $sections[] = ['title' => $section['title'], 'chart' => $section['chart'], 'rows' => $rows, 'total' => $total];
+            $sections[] = ['title' => $section['title'], 'chart' => $section['chart'], 'rows' => $rows, 'total' => $total]
+                + (isset($section['columns']) ? ['columns' => array_column($columns, 'label')] : [])
+                + array_intersect_key($section, array_flip(['note', 'link', 'jira']));
         }
 
         return [
             'name'     => $this->definition['name'],
             'grain'    => $grain,
             'period'   => $anchor->label(),
-            'columns'  => array_column($columns, 'label'),
+            'columns'  => array_column($reportColumns, 'label'),
             'compare'  => $compare !== null ? ['against' => $other->label()] : null,
             'hidden'   => $hidden,
             'sections' => $sections,
@@ -521,9 +549,9 @@ final class Report
      *
      * @return list<array{label: string, filters: array<string, string|list<string>>, metric: ?string, window: Window}>
      */
-    private function expandColumns(Window $anchor): array
+    private function expandColumns(Window $anchor, ?array $columns = null): array
     {
-        $columns = $this->definition['columns'];
+        $columns ??= $this->definition['columns'];
         $out     = [];
         if (isset($columns['periods'])) {
             $window = $anchor;
@@ -570,12 +598,12 @@ final class Report
     {
         if (isset($row['formula'])) {
             return [['label' => $row['label'], 'metric' => $row['metric'], 'filters' => $row['filters'], 'subtotal' => false,
-                'formula' => $row['formula'], 'operands' => $row['operands'], 'unit' => $row['unit']]];
+                'formula' => $row['formula'], 'operands' => $row['operands'], 'unit' => $row['unit']] + self::explained($row)];
         }
         $metric = Metrics::get($row['metric']);
         $label  = $row['label'] !== '' ? $row['label'] : $metric->label();
         if ($row['breakdown'] === null) {
-            return [['label' => $label, 'metric' => $row['metric'], 'filters' => $row['filters'], 'subtotal' => false]];
+            return [['label' => $label, 'metric' => $row['metric'], 'filters' => $row['filters'], 'subtotal' => false] + self::explained($row)];
         }
         $dimension = Metrics::dimensionOf($row['breakdown']);
         $values    = array_map('strval', array_keys($dimension->all()));
@@ -713,7 +741,7 @@ final class Report
     private function buildFormula(array $row, array $visible, array $columns, Window $anchor, ?string $compare, string $grain): array
     {
         $built   = ['label' => $row['label'], 'unit' => $row['unit'], 'currency' => null, 'subtotal' => false, 'cells' => [], 'other' => null, 'change' => null,
-            'error' => null, 'part' => null, 'headed' => false, 'formula' => true];
+            'error' => null, 'part' => null, 'headed' => false, 'formula' => true] + self::explained($row);
         $program = Metric::derived('report.formula', $row['formula']);
         $value   = function (Window $window, array $filters) use ($row, $visible, $grain, $program): ?float {
             $values = [];
@@ -765,7 +793,7 @@ final class Report
         }
         $unit  = $visible[$row['metric']]->getUnit();
         $built = ['label' => $row['label'], 'unit' => $unit, 'currency' => null, 'subtotal' => $row['subtotal'], 'cells' => [], 'other' => null, 'change' => null, 'error' => $row['error'] ?? null,
-            'part' => $row['part'] ?? null, 'headed' => $row['headed'] ?? false];
+            'part' => $row['part'] ?? null, 'headed' => $row['headed'] ?? false] + self::explained($row);
         if ($built['error'] !== null) {
             return $built;
         }
@@ -852,6 +880,21 @@ final class Report
         };
         $reportHead = $head;
         $reportSpan = $span;
+        // A row's description: an ⓘ with it on the page, a numbered footnote under the table — which
+        // the page hides and a printout or a mail shows. Its link: «What is this?».
+        $explain = static function (array $row, array &$notes) use ($e, $t): string {
+            $out = '';
+            if (($row['description'] ?? '') !== '') {
+                $notes[] = $row['description'];
+                $out    .= ' <span class="pf-report-info" title="' . $e($row['description']) . '" aria-label="' . $e($row['description']) . '">ⓘ<sup>' . count($notes) . '</sup></span>';
+            }
+            if (($row['link'] ?? '') !== '') {
+                $out .= ' <a class="pf-report-what" href="' . $e($row['link']) . '" target="_blank" rel="noopener">' . $e($t('What is this?')) . '</a>';
+            }
+
+            return $out;
+        };
+        $jira = (string) (Metrics::config()['jira'] ?? '');
         foreach ($table['sections'] as $section) {
             // A table of measures has columns of its own, and no comparison.
             $head = isset($section['columns']) ? $ownHead($section['columns']) : $reportHead;
@@ -870,6 +913,7 @@ final class Report
             }
             $body  = '';
             $group = null;
+            $notes = [];
             foreach ($section['rows'] as $row) {
                 $part = $row['part'] ?? null;
                 // A breakdown's values under their row's name, set in and lighter, so three of them
@@ -880,7 +924,7 @@ final class Report
                 $group = $part;
                 $class = $row['subtotal'] ? 'pf-report-total' : ($part !== null ? 'pf-report-part' : '');
                 $body .= '<tr' . ($class !== '' ? ' class="' . $class . '"' : '') . '><th scope="row"'
-                    . ($part !== null ? ' style="padding-left:1.5em;font-weight:normal;opacity:.8"' : '') . '>' . $e($row['label']) . '</th>';
+                    . ($part !== null ? ' style="padding-left:1.5em;font-weight:normal;opacity:.8"' : '') . '>' . $e($row['label']) . $explain($row, $notes) . '</th>';
                 if ($row['error'] !== null) {
                     $body .= '<td colspan="' . $span . '" class="pf-muted">' . $e($row['error']) . '</td></tr>';
                     continue;
@@ -915,6 +959,23 @@ final class Report
             // One or two columns of values: the table as wide as it needs, the numbers beside their names.
             $html .= '<div class="pf-report-scroll"><table class="pf-report table table-sm"' . ($span <= 2 ? ' style="width:auto;min-width:50%"' : '')
                 . '><thead><tr>' . $head . '</tr></thead><tbody>' . $body . '</tbody></table></div>';
+            if ($notes !== []) {
+                $html .= '<ol class="pf-report-footnotes">' . implode('', array_map(static fn (string $n): string => '<li>' . $e($n) . '</li>', $notes)) . '</ol>';
+            }
+            // A section's note, and where more is said: its link, its issue (`metrics.jira`, `%s` the key).
+            $more = [];
+            if (($section['note'] ?? '') !== '') {
+                $more[] = $e($section['note']);
+            }
+            if (($section['jira'] ?? '') !== '') {
+                $more[] = str_contains($jira, '%s') ? '<a href="' . $e(sprintf($jira, rawurlencode($section['jira']))) . '" target="_blank" rel="noopener">' . $e($section['jira']) . '</a>' : $e($section['jira']);
+            }
+            if (($section['link'] ?? '') !== '') {
+                $more[] = '<a href="' . $e($section['link']) . '" target="_blank" rel="noopener">' . $e($t('More')) . '</a>';
+            }
+            if ($more !== []) {
+                $html .= '<p class="pf-report-note pf-muted">' . implode(' · ', $more) . '</p>';
+            }
         }
         if ($table['hidden'] > 0) {
             $html .= '<p class="pf-muted">' . $e(sprintf($t('%d rows are not shown: their metrics are not available to you.'), $table['hidden'])) . '</p>';
