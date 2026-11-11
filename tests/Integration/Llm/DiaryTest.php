@@ -79,7 +79,14 @@ class DiaryTest extends LlmTestCase
             [200, self::says('Σήμερα μου είπε ότι πέρασε όμορφα. Χάρηκα.')],
             [200, self::says('Καλησπέρα!')],
         ]);
-        $chat = (new Conversations(new BaseAssistant()))->as($scope);
+        $assistant = new class extends BaseAssistant {
+            /** The application's rules for a diary page. */
+            public function diaryRules(Scope $scope): string
+            {
+                return 'Spell the company acme, lower case.';
+            }
+        };
+        $chat = (new Conversations($assistant))->as($scope);
         $chat->ask(null, 'Είχα πολύ καλή μέρα σήμερα');
         $work = $chat->ask(null, 'SECRET revenue numbers');
         $this->db->queryBuilder()->table('assist.chat_conversations')->where('conversation_id', (int) $work['conversation_id'])->update(['tags' => '["work"]']);
@@ -101,6 +108,8 @@ class DiaryTest extends LlmTestCase
         $this->assertSame(0, $again, 'once a day');
         $asked = json_encode($this->sent[2]['body']['messages'], JSON_UNESCAPED_UNICODE);
         $this->assertStringContainsString('You are Naya, and you keep a diary', $asked);
+        $this->assertStringContainsString('of them in the third', $asked, 'about the person, not to them');
+        $this->assertStringContainsString('Spell the company acme, lower case.', $asked, 'the assistant\'s own rules');
         $this->assertStringContainsString('Them: Είχα πολύ καλή μέρα σήμερα', $asked);
         $this->assertStringNotContainsString('SECRET', $asked, 'never from a work conversation');
         $this->assertStringContainsString('Your own diary', json_encode($this->sent[3]['body']['messages'], JSON_UNESCAPED_UNICODE), 'remembered');

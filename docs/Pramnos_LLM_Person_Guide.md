@@ -173,6 +173,9 @@ evening about the day it spent with the person, from its own point of view.
 - **Written in the evening by `llm:routines`**, from the conversations of the day once `at` (21:30
   by default) has come on the person's clock, with the cheapest model that will do. A page is
   written only for a day with talk, never from a work conversation, and once.
+  The page speaks of the person in the third person, by their first name: a diary is not a
+  letter to them. An application's assistant can add rules of its own with a method
+  `diaryRules(Scope $scope): string`, such as how its name is spelled.
 - **Remembered.** The latest page, if it is from the last two days, is in what the assistant knows
   when it answers, so it can say "I was thinking about what you told me yesterday."
 - **Read by the person** through `GET {chat}/diary`, which gives `{pages: [{artifact_id, day,

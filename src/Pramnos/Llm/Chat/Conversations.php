@@ -861,7 +861,10 @@ class Conversations
                 continue;
             }
             $name   = Personas::get((string) Personas::of($scope))['name'] ?? \Pramnos\Llm\Analyst\Analyst::name();
-            $answer = $this->client($scope)->askCheaply(Diary::prompt($name), [['role' => 'user', 'content' => $talk]]);
+            // The application's own rules for the page — how its name is spelled, say — where its assistant has some.
+            $rules  = method_exists($this->assistant, 'diaryRules') ? (string) $this->assistant->diaryRules($scope) : '';
+            $person = trim((string) ((new \Pramnos\User\User($scope->userId))->firstname ?? ''));
+            $answer = $this->client($scope)->askCheaply(Diary::prompt($name, $person, $rules), [['role' => 'user', 'content' => $talk]]);
             if (!empty($answer['ok']) && trim((string) ($answer['reply'] ?? '')) !== '' && is_array($diary->keep($day, (string) $answer['reply']))) {
                 $written++;
             }

@@ -58,13 +58,19 @@ final class Diary
         return preg_match('/^\d{1,2}:\d{2}$/', $at) === 1 ? $at : self::AT;
     }
 
-    /** What the model is told to write, as the character it is. */
-    public static function prompt(string $name): string
+    /**
+     * What the model is told to write, as the character it is: about the person in the third
+     * person, by their name — a diary is not a letter to them — and with the application's own
+     * rules (`diaryRules()` of its assistant, a name spelled its way, say).
+     */
+    public static function prompt(string $name, string $person = '', string $rules = ''): string
     {
-        return 'You are ' . $name . ', and you keep a diary. Write tonight\'s page about your day with this person, from your own point '
-            . 'of view: what you talked about, what you noticed about them, how it felt to you. First person, warm and honest, four to '
-            . 'eight sentences, no heading, no date. Only what happened in the conversations below — never invent anything. '
-            . 'Write in the language the conversations were in.';
+        return 'You are ' . $name . ', and you keep a diary. Write tonight\'s page about your day with '
+            . ($person !== '' ? $person : 'this person') . ', from your own point of view: what you talked about, what you noticed '
+            . 'about them, how it felt to you. You write in the first person, and of them in the third' . ($person !== '' ? ', as ' . $person : '')
+            . ' — never "you": a diary is not a letter to them. Warm and honest, four to eight sentences, no heading, no date. '
+            . 'Only what happened in the conversations below — never invent anything. Write in the language the conversations were in.'
+            . (trim($rules) !== '' ? "\n" . trim($rules) : '');
     }
 
     /** The day's page, if it has been written: the artifact, or null. */
