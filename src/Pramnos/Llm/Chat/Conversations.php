@@ -1244,7 +1244,10 @@ class Conversations
      */
     private function context(Turn $turn, Memory $memory): string
     {
-        $remembered = $memory->all();
+        // A child speaking: only what is the child's to hear (Audience) — every source below asks.
+        $audience   = $this->audienceOf($turn);
+        $adult      = $audience !== Audience::CHILD;
+        $remembered = Audience::memories($memory->all(), $audience);
         // What the assistant said about itself goes apart: it is its own word to keep, not the person's.
         $itself     = array_values(array_filter($remembered, static fn (array $m): bool => $m['kind'] === Memory::SELF));
         $remembered = array_values(array_filter($remembered, static fn (array $m): bool => $m['kind'] !== Memory::SELF));
@@ -1259,7 +1262,7 @@ class Conversations
         }
 
         // What the person's other channels know, the topics this one may read (Memory::borrowed()), each by where it was learned.
-        $borrowed = $turn->shared() ? [] : $memory->borrowed();
+        $borrowed = $turn->shared() ? [] : Audience::memories($memory->borrowed(), $audience);
         if ($borrowed !== []) {
             $lines[] = '';
             $lines[] = 'What you know of this person from their other conversations, by where it was learned (from, topic, as of):';
@@ -1276,7 +1279,7 @@ class Conversations
             }
         }
 
-        $shared = $memory->shared();
+        $shared = $adult ? $memory->shared() : [];
         if ($shared !== []) {
             $lines[] = '';
             $lines[] = 'What this organisation keeps about its shared work, for everybody in it (id, kind, as of):';
@@ -1286,7 +1289,7 @@ class Conversations
         }
 
         // The assistant's own diary, its latest page (Diary): what it wrote, it remembers.
-        if (Diary::on($this->scope) && !$turn->shared()) {
+        if ($adult && Diary::on($this->scope) && !$turn->shared()) {
             $today  = (new \DateTimeImmutable('now', new \DateTimeZone($this->assistant->timezone($this->scope))))->format('Y-m-d');
             $recall = (new Diary($this->scope))->recall($today);
             if ($recall !== '') {
@@ -1297,13 +1300,13 @@ class Conversations
 
         // What the person pinned, as it stands at the start of this question: a change made during
         // the answer is in its tool result now, and here from the next question on.
-        $pinned = (new Artifacts($this->scope))->pinnedContext();
+        $pinned = $adult ? (new Artifacts($this->scope))->pinnedContext() : '';
         if ($pinned !== '') {
             $lines[] = '';
             $lines[] = $pinned;
         }
         // The checks still to come: the model drops one the person answered before it was asked.
-        if (FollowUps::on($this->scope) && !$turn->shared()) {
+        if ($adult && FollowUps::on($this->scope) && !$turn->shared()) {
             $checks = (new FollowUps(new Routines($this), $this->scope, $this->assistant->timezone($this->scope)))->context();
             if ($checks !== '') {
                 $lines[] = '';
@@ -1312,7 +1315,7 @@ class Conversations
         }
 
         // The person's plan, a line a project, in every persona and the Ask alike (Plan).
-        if (Plan::on($this->scope) && !$turn->shared()) {
+        if ($adult && Plan::on($this->scope) && !$turn->shared()) {
             $plan = (new Plan($this->scope, $this->assistant->timezone($this->scope)))->context();
             if ($plan !== '') {
                 $lines[] = '';
@@ -1322,7 +1325,7 @@ class Conversations
 
         // The person's own, where the application turned them on: what they confirmed about
         // themselves and what waits for their word, and today in their calendar.
-        if ($this->scope !== null && !$turn->shared()) {
+        if ($adult && $this->scope !== null && !$turn->shared()) {
             $own = [
                 Profile::on($this->scope) && Profile::available() ? (new Profile($this->scope))->context() : '',
                 Calendar::on($this->scope) ? (new Calendar($this->scope, $this->assistant->timezone($this->scope)))->context() : '',

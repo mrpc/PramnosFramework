@@ -221,7 +221,12 @@ class PlanTest extends LlmTestCase
         file_put_contents($dir . '/goodnight.md', "---\nname: goodnight\ndescription: Goodnight\n---\nSay goodnight.");
         $this->configure(['chat' => ['plan' => true, 'follow_up' => true, 'skills_path' => $dir, 'memory' => ['learn' => false]]]);
         $userId = $this->user();
-        (new Plan(new Scope($userId, null)))->add(['project' => 'Garden']);
+        (new Plan(new Scope($userId, null)))->add(['project' => 'Garden', 'status' => 'two offers, 8000 euros']);
+        $memory = new \Pramnos\Llm\Chat\Memory(new Scope($userId, null));
+        $memory->keepOn('plans', 'fact', 'Kitchen renovation offers came in at 8000 euros');
+        $memory->keepOn('mood', 'fact', 'Worried about money this month');
+        $memory->keepOn('interests', 'fact', 'The family has a cat called Pixel');
+        (new \Pramnos\Llm\Chat\Artifacts(new Scope($userId, null)))->pin((new \Pramnos\Llm\Chat\Artifacts(new Scope($userId, null)))->create(['kind' => 'text', 'title' => 'Budget', 'text' => 'Salary and loans'])['artifact_id']);
         $this->answer([[200, self::says('Hi!')], [200, self::says('Hi!')]]);
         $skillsOf = static function (array $request): string {
             foreach ((array) $request['body']['tools'] as $tool) {
@@ -259,5 +264,14 @@ class PlanTest extends LlmTestCase
         $this->assertStringContainsString('You are speaking with a child.', self::systemOf($this->sent[0]), 'what may be said, an allowlist');
         $this->assertStringNotContainsString('You are speaking with a child.', self::systemOf($this->sent[1]));
         $this->assertSame('child', $hooked, 'the application\'s own word');
+        // What the prompt carries for a child: the child's to hear, nothing of the grown-up's.
+        $childPrompt = (string) json_encode($this->sent[0]['body']['messages'], JSON_UNESCAPED_UNICODE);
+        $adultPrompt = (string) json_encode($this->sent[1]['body']['messages'], JSON_UNESCAPED_UNICODE);
+        $this->assertStringNotContainsString('8000 euros', $childPrompt, 'no plan rows, no memory of the plans');
+        $this->assertStringNotContainsString('Worried about money', $childPrompt, 'no memory outside the allowlist');
+        $this->assertStringNotContainsString('Salary and loans', $childPrompt, 'no pinned artifact');
+        $this->assertStringContainsString('a cat called Pixel', $childPrompt, 'what is the child\'s to hear');
+        $this->assertStringContainsString('8000 euros', $adultPrompt, 'an adult as before');
+        $this->assertStringContainsString('Salary and loans', $adultPrompt);
     }
 }

@@ -13,7 +13,10 @@ namespace Pramnos\Llm\Chat;
  *   and age ({@see allows()});
  * - **tools** for adults (`'audience' => 'adult'` in a tool's metadata — the plan, follow-ups, the
  *   work mode's) are not loaded at all for a child ({@see forTools()});
- * - **what is said to a child** keeps to an allowlist ({@see rules()}).
+ * - **what is said to a child** keeps to an allowlist ({@see rules()});
+ * - **what the prompt carries** for a child is the child's to hear: memories of {@see CHILD_TOPICS}
+ *   only, and none of the grown-up's plan, pinned artifacts, follow-ups, diary, profile, calendar
+ *   or organisation's memory — left out where the context is put together, in one place.
  *
  * Who is speaking comes from the request (`speaker`, `{kind: child|parent|…, name, age}`), or from
  * the application: `'llm' => ['chat' => ['audience' => fn (Scope $scope, ?array $speaker): string]]`
@@ -29,6 +32,13 @@ final class Audience
 
     /** What a skill may say it is for. */
     public const ALL = [self::CHILD, self::ADULT, self::EVERYONE];
+
+    /**
+     * The memories a child's answer may be told: who the account's people are, their relations,
+     * their interests, how they like to talk — never the plans, the work, the moods, the values or
+     * the goals of the grown-up whose account it is.
+     */
+    public const CHILD_TOPICS = ['identity', 'relationships', 'interests', 'talk'];
 
     /** What may be said to a child, unless the application words it otherwise (`chat.child_rules`). */
     public const RULES = 'You are speaking with a child. Whatever you say keeps to what is safe to bring up with them: their name, '
@@ -88,6 +98,18 @@ final class Audience
     public static function adults(array $tools): array
     {
         return array_map(static fn (array $tool): array => ['audience' => self::ADULT] + $tool, $tools);
+    }
+
+    /**
+     * The memories a child's answer may carry: those of {@see CHILD_TOPICS}; every one for an adult.
+     *
+     * @param list<array<string, mixed>> $memories
+     * @return list<array<string, mixed>>
+     */
+    public static function memories(array $memories, string $audience): array
+    {
+        return $audience !== self::CHILD ? $memories
+            : array_values(array_filter($memories, static fn (array $m): bool => in_array($m['topic'] ?? null, self::CHILD_TOPICS, true)));
     }
 
     /** What may be said to a child: the application's words, or {@see RULES}. */

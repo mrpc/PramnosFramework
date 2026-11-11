@@ -215,6 +215,12 @@ Where a child speaks on an account, what the assistant can do follows from it, i
   - never: fears that are not overcome, illness, quarrels, the parents' money or work, anything
     marked sensitive;
   - no moralising.
+- **What the prompt carries for a child** is the child's to hear, left out in the one place the
+  context is put together:
+  - memories only of `Audience::CHILD_TOPICS` (identity, relationships, interests, talk), never
+    plans, work, moods, values or goals;
+  - none of the grown-up's plan, pinned artifacts (today's thought among them), pending
+    follow-ups, the assistant's diary, the profile, the calendar, or the organisation's memory.
 
 ### A check a few hours later
 
