@@ -776,6 +776,26 @@ marked and *No chart* beside them. Every link lands back on its table (`#pf-char
 owner who wants it always adds a chart card in Customise. A printout and a mail leave the choice
 out.
 
+### Columns in two levels
+
+A group of the same columns for each value of a dimension, with the total as a last group if
+asked. The group's value is a filter of every column in it, and the header has two rows, the
+groups over their columns. It is given for the report, or for one section:
+
+```php
+'columns' => [
+    'groups'  => ['dimension' => 'market', 'values' => ['gr', 'uk'], 'total' => true],
+    'columns' => [
+        ['label' => 'New customer', 'filters' => ['customer' => 'first']],
+        ['label' => 'Returning', 'filters' => ['customer' => 'returning']],
+        ['label' => 'All'],
+    ],
+],
+```
+
+As text: `groups=market gr,uk total`, then a line for each column inside the groups. A column
+whose filter the metric cannot take says so in its cell, and the row stands.
+
 ### Headings inside a table, empty rows, a table of contents
 
 - **A heading inside a table**: a row `['heading' => 'Professionals › Registrations']`, with no

@@ -846,6 +846,47 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * Columns in two levels (FW-429): a group for each value of a dimension — and the total — each
+     * holding the same columns, the group's value a filter of each; a header of two rows, the
+     * groups over their columns; for one section only, through its card; written as text and read
+     * back the same.
+     */
+    public function testColumnsInGroupsOfTheSameColumns(): void
+    {
+        // Arrange
+        $columns    = ['groups' => ['dimension' => 'region', 'values' => ['north', 'south'], 'total' => true],
+            'columns' => [['label' => 'New', 'filters' => ['customer' => 'new']], ['label' => 'Returning', 'filters' => ['customer' => 'returning']], ['label' => 'All']]];
+        $definition = ['name' => 'Test groups', 'sections' => [
+            ['title' => 'Sales', 'columns' => $columns, 'rows' => [['label' => 'Sales', 'metric' => 'test.sales']]],
+            ['title' => 'Plain', 'rows' => [['label' => 'Sales', 'metric' => 'test.sales']]],
+        ]];
+
+        // Act
+        $built = Report::fromArray($definition)->build('2026-09-10', self::reader());
+        $html  = Report::html($built);
+        $text  = Report::fromArray(['columns' => $columns, 'sections' => []])->columnsAsText();
+        $back  = Report::columnsFromText($text);
+        $id    = (new Reports())->save(self::reader(), $definition);
+        $entry = (new Reports())->find((string) $id, self::reader());
+        try {
+            $card = \Pramnos\Metrics\ReportBoard::html($entry, '2026-09-10', self::reader(), null, true);
+        } finally {
+            \Pramnos\Metrics\ReportBoard::leave();
+            (new Reports())->delete($id, self::reader(99, 9), true);
+        }
+
+        // Assert
+        $this->assertSame([3.0, 2.0, 5.0, 1.0, null, 1.0, 4.0, 2.0, 6.0], array_map(static fn ($v) => $v === 0.0 ? null : $v, array_column($built['sections'][0]['rows'][0]['cells'], 'value')), 'each column filtered by its group');
+        $this->assertSame([['North', 3], ['South', 3], ['Total', 3]], $built['sections'][0]['column_groups']);
+        $this->assertSame([], $built['column_groups'], 'the other section keeps the report\'s');
+        $this->assertStringContainsString('<thead><tr><th scope="col"></th><th scope="colgroup" colspan="3" style="text-align:center">North</th>', $html, 'the groups over their columns');
+        $this->assertSame("groups=region north,south total\nNew | customer=new\nReturning | customer=returning\nAll\n", $text);
+        $this->assertSame($columns['groups'], $back['groups'], 'read back the same');
+        $this->assertSame(['New', 'Returning', 'All'], array_column($back['columns'], 'label'));
+        $this->assertStringContainsString('colspan="3" style="text-align:center">South</th>', $card, 'through its card too');
+    }
+
+    /**
      * Headings inside a table and rows left out where empty (FW-429): a heading over the rows after
      * it, spanning the table; a row with `hide_empty` and nothing in any column left out — each of a
      * breakdown's empty values too — and a heading with nothing under it left out with them;

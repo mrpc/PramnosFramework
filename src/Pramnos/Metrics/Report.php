@@ -344,6 +344,14 @@ final class Report
     private static function columns(mixed $columns): array
     {
         $columns = (array) $columns;
+        // Two levels: a group of the same columns for each value of a dimension — "Greece | UK |
+        // Total", each "New | Returning | All" — the group's value a filter of every column in it.
+        if (is_array($columns['groups'] ?? null) && (string) ($columns['groups']['dimension'] ?? '') !== '') {
+            $inner = self::columns(array_values((array) ($columns['columns'] ?? [])));
+
+            return ['groups' => ['dimension' => (string) $columns['groups']['dimension'], 'values' => array_values(array_map('strval', (array) ($columns['groups']['values'] ?? []))),
+                'total' => (bool) ($columns['groups']['total'] ?? true)], 'columns' => array_is_list($inner) ? $inner : []];
+        }
         if (isset($columns['dimension']) && (string) $columns['dimension'] !== '') {
             return ['dimension' => (string) $columns['dimension'], 'values' => array_values(array_map('strval', (array) ($columns['values'] ?? []))), 'total' => (bool) ($columns['total'] ?? true)];
         }
@@ -437,6 +445,15 @@ final class Report
         if (preg_match('/^periods\s*=\s*(\d+)$/', $lines[0], $m)) {
             return ['periods' => (int) $m[1]];
         }
+        // `groups=market gr,uk total`, then the columns inside each group, a line each.
+        if (preg_match('/^groups\s*=\s*([a-z][a-z0-9_]*)\s*(.*)$/', $lines[0], $m)) {
+            $rest   = trim($m[2]);
+            $total  = (bool) preg_match('/(^|\s)total$/', $rest);
+            $values = trim((string) preg_replace('/(^|\s)total$/', '', $rest));
+
+            return ['groups' => ['dimension' => $m[1], 'values' => $values === '' ? [] : array_map('trim', explode(',', $values)), 'total' => $total],
+                'columns' => self::columnsFromText(implode("\n", array_slice($lines, 1)) ?: 'x')];
+        }
         if (preg_match('/^dimension\s*=\s*([a-z][a-z0-9_]*)\s*(.*)$/', $lines[0], $m)) {
             $rest   = trim($m[2]);
             $total  = (bool) preg_match('/(^|\s)total$/', $rest);
@@ -453,10 +470,40 @@ final class Report
         return $specs;
     }
 
-    /** The columns written as {@see columnsFromText()} reads them. */
-    public function columnsAsText(): string
+    /**
+     * The groups over the columns, `[label, how many]` each in order, for a header of two rows; none
+     * where the columns have no groups.
+     *
+     * @param list<array<string, mixed>> $columns
+     * @return list<array{0: string, 1: int}>
+     */
+    private static function columnGroups(array $columns): array
     {
-        $columns = $this->definition['columns'];
+        $out = [];
+        foreach ($columns as $column) {
+            if (!isset($column['group'])) {
+                return [];
+            }
+            $last = array_key_last($out);
+            if ($last !== null && $out[$last][0] === $column['group']) {
+                $out[$last][1]++;
+            } else {
+                $out[] = [(string) $column['group'], 1];
+            }
+        }
+
+        return $out;
+    }
+
+    /** The columns written as {@see columnsFromText()} reads them. */
+    public function columnsAsText(?array $columns = null): string
+    {
+        $columns ??= $this->definition['columns'];
+        if (isset($columns['groups'])) {
+            $g = $columns['groups'];
+
+            return trim('groups=' . $g['dimension'] . ' ' . implode(',', $g['values']) . ($g['total'] ? ' total' : '')) . "\n" . $this->columnsAsText($columns['columns']);
+        }
         if (isset($columns['periods'])) {
             return 'periods=' . $columns['periods'] . "\n";
         }
@@ -611,7 +658,7 @@ final class Report
                 continue;
             }
             $sections[] = ['title' => $section['title'], 'chart' => $section['chart'], 'rows' => $rows, 'total' => $total]
-                + (isset($section['columns']) ? ['columns' => array_column($columns, 'label')] : [])
+                + (isset($section['columns']) ? ['columns' => array_column($columns, 'label'), 'column_groups' => self::columnGroups($columns)] : [])
                 + array_intersect_key($section, array_flip(['note', 'link', 'jira']));
         }
 
@@ -620,6 +667,7 @@ final class Report
             'grain'    => $grain,
             'period'   => $anchor->label(),
             'columns'  => array_column($reportColumns, 'label'),
+            'column_groups' => self::columnGroups($reportColumns),
             'compare'  => $compare !== null ? ['against' => $other->label()] : null,
             'hidden'   => $hidden,
             'sections' => $sections,
@@ -651,6 +699,22 @@ final class Report
             for ($i = 0; $i < $columns['periods']; $i++) {
                 array_unshift($out, ['label' => $window->label(), 'filters' => [], 'metric' => null, 'window' => $window]);
                 $window = $window->previous();
+            }
+
+            return $out;
+        }
+        if (isset($columns['groups'])) {
+            $dimension = Metrics::dimensionOf($columns['groups']['dimension']);
+            $values    = $columns['groups']['values'] !== [] ? $columns['groups']['values'] : array_map('strval', array_keys($dimension->all()));
+            $groups    = array_map(static fn (string $v): array => [$dimension->labelOf($v), [$columns['groups']['dimension'] => $v]], $values);
+            if ($columns['groups']['total']) {
+                $groups[] = [function_exists('t') ? (string) t('Total') : 'Total', []];
+            }
+            foreach ($groups as [$group, $filter]) {
+                // Each inner column inside its group: the group's value with the column's own filters.
+                foreach ($this->expandColumns($anchor, $columns['columns']) as $inner) {
+                    $out[] = ['filters' => $filter + $inner['filters'], 'group' => $group] + $inner;
+                }
             }
 
             return $out;
@@ -983,6 +1047,18 @@ final class Report
 
             return $head;
         };
+        // Columns in groups: a first row of the groups over them, each as wide as its columns.
+        $groupRow = static function (array $groups, string $after = '') use ($e): string {
+            if ($groups === []) {
+                return '';
+            }
+            $row = '<th scope="col"></th>';
+            foreach ($groups as [$label, $count]) {
+                $row .= '<th scope="colgroup" colspan="' . (int) $count . '" style="text-align:center">' . $e($label) . '</th>';
+            }
+
+            return '<tr>' . $row . $after . '</tr>';
+        };
         $reportHead = $head;
         $reportSpan = $span;
         // A row's description: an ⓘ with it on the page, a numbered footnote under the table — which
@@ -1003,6 +1079,9 @@ final class Report
         foreach ($table['sections'] as $section) {
             // A table of measures has columns of its own, and no comparison.
             $head = isset($section['columns']) ? $ownHead($section['columns']) : $reportHead;
+            // Its columns in groups, or the report's: a row of the groups above (with the comparison's two left blank).
+            $groups = isset($section['columns']) ? $groupRow((array) ($section['column_groups'] ?? []))
+                : $groupRow((array) ($table['column_groups'] ?? []), $table['compare'] !== null ? '<th></th><th></th>' : '');
             $span = isset($section['columns']) ? count($section['columns']) : $reportSpan;
             if ($section['title'] !== '') {
                 $html .= '<h3 class="pf-report-section">' . $e($section['title']) . '</h3>';
@@ -1068,7 +1147,7 @@ final class Report
             }
             // One or two columns of values: the table as wide as it needs, the numbers beside their names.
             $html .= '<div class="pf-report-scroll"><table class="pf-report table table-sm"' . ($span <= 2 ? ' style="width:auto;min-width:50%"' : '')
-                . '><thead><tr>' . $head . '</tr></thead><tbody>' . $body . '</tbody></table></div>';
+                . '><thead>' . $groups . '<tr>' . $head . '</tr></thead><tbody>' . $body . '</tbody></table></div>';
             if ($notes !== []) {
                 $html .= '<ol class="pf-report-footnotes">' . implode('', array_map(static fn (string $n): string => '<li>' . $e($n) . '</li>', $notes)) . '</ol>';
             }
