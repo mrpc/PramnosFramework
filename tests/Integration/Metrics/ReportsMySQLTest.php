@@ -394,9 +394,18 @@ class ReportsMySQLTest extends TestCase
         $pages['report'] = (array) $screen->view;
         $csv = $screen->csv();
         $xlsx = $screen->xlsx();
-        $this->request('GET', null, ['metric' => 'test.sales', 'grain' => 'month', 'period' => '2026-09-01', 'f' => ['region' => 'north']]);
+        $this->request('GET', null, ['report' => (string) $id, 'at' => '2026-09-10', 'metric' => 'test.sales', 'grain' => 'month', 'period' => '2026-09-01', 'f' => ['region' => 'north']]);
         $screen->rows();
         $pages['rows'] = (array) $screen->view;
+        // One who may change the menu: the report offered to be shown there, unless the application keeps it there itself.
+        Application::getInstance()->applicationInfo['metrics']['menu_editors'] = static fn (): bool => true;
+        $this->request('GET', null, ['report' => (string) $id, 'at' => '2026-09-10']);
+        $screen->show();
+        $offered = (array) $screen->view;
+        Application::getInstance()->applicationInfo['metrics']['menu_fixed'] = [(string) $id];
+        $screen->show();
+        $fixed = (array) $screen->view;
+        unset(Application::getInstance()->applicationInfo['metrics']['menu_fixed'], Application::getInstance()->applicationInfo['metrics']['menu_editors']);
         $this->request('GET', null, ['metric' => 'test.buyers']);
         $screen->rows();
         $blankId = (new Reports())->save(self::reader(98, 2), ['name' => 'Test blank', 'sections' => []]);
@@ -414,7 +423,11 @@ class ReportsMySQLTest extends TestCase
         $this->assertSame([], $pages['report']['pickers'], 'FW-428: a report that reads no dimension offers no picker');
         $this->assertTrue($pages['blank']['customise'], 'a new report of one\'s own, with no cards, opens in Customise');
         unset($pages['blank']);
-        $this->assertStringContainsString('MetricReports/rows?metric=test.sales', $pages['report']['body']);
+        $this->assertStringContainsString('MetricReports/rows?report=' . $id . '&amp;at=2026-09-10&amp;metric=test.sales', $pages['report']['body'], 'a cell\'s records know the report and day they came from');
+        $this->assertSame([['label' => 'Reports', 'url' => '/MetricReports'], ['label' => 'Test screen', 'url' => '/MetricReports/show?report=' . $id . '&at=2026-09-10'], ['label' => 'Sales', 'url' => null]],
+            array_map(static fn (array $one): array => ['label' => $one['label'], 'url' => $one['url'] === null ? null : (string) preg_replace('~^https?://[^/]+~', '', $one['url'])], $pages['rows']['trail']), 'the way back to it');
+        $this->assertTrue($offered['editsMenu']);
+        $this->assertFalse($fixed['editsMenu'], 'a report the application keeps in its menu itself is not offered to be shown or taken off');
         // The report's cards: a section is a line, not a card; a card is headed by nothing rather
         // than by its kind's name.
         $this->assertStringContainsString('pf-report-section-card', $pages['report']['body']);
@@ -480,6 +493,12 @@ class ReportsMySQLTest extends TestCase
             $records = $this->renderTemplate($theme, 'metricreports/rows.tpl.php', $pages['rows']);
             $this->assertStringContainsString('<a href="/admin/Orders/1">1</a>', $records, $theme . ': the order opens');
             $this->assertStringContainsString('<td>north</td>', $records, $theme . ': a column without a link is text');
+            $this->assertMatchesRegularExpression('~<nav class="pf-report-trail".*?›.*?Test screen</a>.*?<span aria-current="page">Sales</span></nav>~s', $records, $theme . ': the way back, as a trail');
+            $this->assertStringContainsString('>Back to the report</a>', $records, $theme . ': and a button back to the report');
+            // The flash on the report's own page: an application's own admin theme may not show it.
+            $_SESSION['_messages'] = ['Shown in the menu.'];
+            $this->assertStringContainsString('Shown in the menu.', $this->renderTemplate($theme, 'metricreports/report.tpl.php', $pages['report']), $theme . ': what was just done, said on the page');
+            unset($_SESSION['_messages']);
             foreach ($pages as $file => $vars) {
                 $html = $this->renderTemplate($theme, 'metricreports/' . $file . '.tpl.php', $vars);
 
@@ -951,7 +970,7 @@ class ReportsMySQLTest extends TestCase
 
         // Act
         $plain = $draw(false);
-        preg_match('~href="([^"]+)">Line · 12</a>~', $plain, $m);
+        preg_match('~Line: <a href="[^"]+">6</a> · <a href="([^"]+)">12</a>~', $plain, $m);
         parse_str((string) parse_url(html_entity_decode($m[1] ?? ''), PHP_URL_QUERY), $query);
         $_GET    = $query;
         $charted = $draw(false);
@@ -961,7 +980,12 @@ class ReportsMySQLTest extends TestCase
         (new Reports())->delete($id, self::reader(99, 9), true);
 
         // Assert
-        $this->assertNotSame('', $m[1] ?? '', 'the choice, a link');
+        $this->assertNotSame('', $m[1] ?? '', 'the choice, a link: "Line: 6 · 12 · 24"');
+        $this->assertStringEndsWith('#pf-chart-', preg_replace('/[0-9a-f]+$/', '', $m[1]), 'back at this table, not the top of the page');
+        $this->assertStringContainsString('<span id="pf-chart-', $plain, 'the place it comes back to');
+        $this->assertStringContainsString('<strong aria-current="true">12</strong>', $charted, 'the one shown, marked');
+        $this->assertStringContainsString('No chart</a>', $charted, 'and a way to take it away');
+        $this->assertStringNotContainsString('No chart', $plain, 'nothing to take away before');
         $this->assertStringNotContainsString('data-pf-chart-config', $plain, 'no chart until asked');
         $this->assertMatchesRegularExpression('~data-pf-chart-config>\{"type":"line","labels":\[("[^"]+",?){12}\]~', $charted, 'twelve periods, as lines');
         $this->assertStringContainsString('"data":[0,0,0,0,0,0,0,0,0,0,1,6]', str_replace('null', '0', $charted), 'its rows up to the report\'s period');

@@ -234,7 +234,8 @@ class TableWidget extends ReportWidget
         $table['sections'][0]['title'] = '';
         $static = (bool) $this->report()['static'];
 
-        return ($static ? '' : $this->chartAsked()) . Report::html($table, $static ? null : $this->report()['rowsUrl']) . ($static ? '' : $this->chartChoices());
+        // The place the chart's links come back to: the reader lands on this table, not the top of the page.
+        return ($static ? '' : '<span id="pf-chart-' . $this->chartKey() . '"></span>' . $this->chartAsked()) . Report::html($table, $static ? null : $this->report()['rowsUrl']) . ($static ? '' : $this->chartChoices());
     }
 
     /** This table among the page's, for the address that charts it: its settings, hashed. */
@@ -268,23 +269,44 @@ class TableWidget extends ReportWidget
         return $sets === [] ? '' : \Pramnos\Html\Chart::render($m[1], $built['columns'], $sets, ['title' => $this->heading(), 'height' => 240]);
     }
 
-    /** The viewer's choice of a chart over this table: lines or bars, over 6, 12 or 24 periods — links, no script. */
+    /**
+     * The viewer's choice of a chart over this table: lines or bars, over 6, 12 or 24 periods, or
+     * none — links, no script, each back at this table (`#pf-chart-<key>`), the one shown marked.
+     */
     private function chartChoices(): string
     {
         if (((array) ($this->setting('measures') ?? [])) !== []) {
             return '';
         }
-        $path  = (string) strtok((string) ($_SERVER['REQUEST_URI'] ?? ''), '?');
-        $query = $_GET;
-        $links = [];
+        $e      = static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
+        $path   = (string) strtok((string) ($_SERVER['REQUEST_URI'] ?? ''), '?');
+        $key    = $this->chartKey();
+        $asked  = (string) (((array) ($_GET['chart'] ?? []))[$key] ?? '');
+        $anchor = '#pf-chart-' . $key;
+        $link   = static function (array $query, string $text, bool $current) use ($e, $path, $anchor): string {
+            return $current ? '<strong aria-current="true">' . $e($text) . '</strong>'
+                : '<a href="' . $e($path . ($query === [] ? '' : '?' . http_build_query($query)) . $anchor) . '">' . $e($text) . '</a>';
+        };
+        $groups = [];
         foreach (['line' => Figures::words('Line'), 'bar' => Figures::words('Bars')] as $type => $label) {
+            $links = [];
             foreach (self::CHART_PERIODS as $n) {
-                $query['chart'][$this->chartKey()] = $type . ':' . $n;
-                $links[] = '<a href="' . htmlspecialchars($path . '?' . http_build_query($query), ENT_QUOTES, 'UTF-8') . '">' . htmlspecialchars($label . ' · ' . $n, ENT_QUOTES, 'UTF-8') . '</a>';
+                $query = $_GET;
+                $query['chart'][$key] = $type . ':' . $n;
+                $links[] = $link($query, (string) $n, $asked === $type . ':' . $n);
             }
+            $groups[] = '<span>' . $e($label) . ': ' . implode(' · ', $links) . '</span>';
+        }
+        if ($asked !== '') {
+            $query = $_GET;
+            unset($query['chart'][$key]);
+            if (($query['chart'] ?? []) === []) {
+                unset($query['chart']);
+            }
+            $groups[] = '<span>' . $link($query, Figures::words('No chart'), false) . '</span>';
         }
 
-        return '<details class="pf-report-chartit pf-no-print"><summary>' . htmlspecialchars(Figures::words('Chart'), ENT_QUOTES, 'UTF-8') . '</summary>'
-            . '<p style="display:flex;flex-wrap:wrap;gap:.5rem;margin:.25rem 0">' . implode('', $links) . '</p></details>';
+        return '<details class="pf-report-chartit pf-no-print"' . ($asked !== '' ? ' open' : '') . '><summary>' . $e(Figures::words('Chart')) . '</summary>'
+            . '<p style="display:flex;flex-wrap:wrap;gap:.25rem 1rem;margin:.25rem 0">' . implode('<span aria-hidden="true">|</span>', $groups) . '</p></details>';
     }
 }

@@ -625,7 +625,11 @@ a saved one as it is shared) unless the application says otherwise for one:
 - **In the menu.** Whoever `menu_editors` allows (root by default) turns a report on or off in the
   menu from the ⋯ of its page. That overrides an `app:` report's own `'menu' => true`.
   `Reports::inMenu($user)` gives the ones to put in the application's menu, each one the person may
-  open.
+  open. A report the application keeps in its menu itself is listed in
+  `'metrics' => ['menu_fixed' => ['app:kpi', …]]`, and is not offered to be shown or taken off.
+- **What was done is said on the page.** Showing in the menu, taking off it, Customise and Reset
+  each flash a message. The report page shows the flash itself (`Html\Flash::render()`), so it
+  appears even under an application's own admin theme whose header does not.
 - **Customise.** On a report they may not change, a person makes their own copy, bound to it
   (`Reports::customise()`). From then on it opens in the original's place for them, under the
   original's address, to arrange with the dashboard's Customise. It is never listed beside the
@@ -645,6 +649,12 @@ a saved one as it is shared) unless the application says otherwise for one:
 - **The Filters panel** holds every other picker, each with its label above it, in a grid as wide
   as the page allows (one column on a phone). Its button counts the filters chosen in it.
   *Apply* sends them, and *Clear* takes them all off but the pinned ones.
+- **Folded sections are remembered** in the browser for each report. The page opens as it was
+  left.
+- **The records behind a number** know the report and day they came from (`rows?report=…&at=…`).
+  Their page shows the trail *Reports › the report › the metric* and a button back. To put the same
+  trail in the application's own breadcrumbs, override `MetricReports::trail($report, $metric, $at)`,
+  which returns `[{label, url}, …]`.
 - **Chips.** Each filter chosen is a chip above the cards; its × takes that filter off. The
   address stays `?v[…]`.
 - **Columns narrowed to the filter.** A table whose columns are a dimension's values shows only
@@ -761,8 +771,10 @@ over its column's, and with neither a value is written as the metric's unit says
 Under each table on a report's page, *Chart* offers lines or bars over the last 6, 12 or 24
 periods up to the report's. The one chosen is drawn over the table, from its rows. It is an
 address (`?chart[<table>]=line:12`), so it is kept in the link and changes nothing in the
-report's definition. An owner who wants it always adds a chart card in Customise. A printout and a
-mail leave the choice out.
+report's definition. The choices read `Line: 6 · 12 · 24 | Bars: 6 · 12 · 24`, with the one shown
+marked and *No chart* beside them. Every link lands back on its table (`#pf-chart-<key>`). An
+owner who wants it always adds a chart card in Customise. A printout and a mail leave the choice
+out.
 
 ### Tabs, empty sections and some of a breakdown
 

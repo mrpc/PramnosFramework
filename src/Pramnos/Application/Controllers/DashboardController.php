@@ -267,7 +267,9 @@ class DashboardController extends Controller
         }
         $at  = (string) ($_GET['at'] ?? '');
         $day = \DateTime::createFromFormat('!Y-m-d', $at);
-        \Pramnos\Metrics\ReportBoard::enter($entry, $day !== false && $day->format('Y-m-d') === $at ? $at : date('Y-m-d'), $user, adminUrl('MetricReports/rows'));
+        $at = $day !== false && $day->format('Y-m-d') === $at ? $at : date('Y-m-d');
+        // A cell's records know the report and the day they came from: the way back to it.
+        \Pramnos\Metrics\ReportBoard::enter($entry, $at, $user, adminUrl('MetricReports/rows') . '?report=' . rawurlencode((string) ($entry['customises'] ?? $entry['id'])) . '&at=' . $at);
     }
 
     /** One of this controller's actions for a board — with `?board=` unless it is its own. */

@@ -1096,6 +1096,38 @@ test('a board asked to open for arranging starts in Customise', () => {
     assert.equal(p.tool('a', 'data-pf-widget-hide').closest('[data-pf-widget-tools]').hidden, false, 'the cards\' tools are out');
 });
 
+/**
+ * What is folded is remembered in this browser, for each report: the page opens as it was left,
+ * another report's folds are its own, and unfolding forgets it.
+ */
+test('a folded section is remembered for its report', () => {
+    // Arrange
+    const url = 'https://app.test/admin/MetricReports/show?report=7';
+    const key = 'pf-report-folded:/admin/MetricReports/show:7';
+    const first = page(true, '', null, url);
+    const toggle = first.el('button', { 'data-pf-report-section': '', 'aria-expanded': 'true' }, first.cards.a);
+
+    // Act
+    first.click(toggle);
+    const kept = first.window.localStorage.getItem(key);
+    const again = page(true, '', (el, document, window) => {
+        window.localStorage.setItem(key, kept);
+        el('button', { 'data-pf-report-section': '', 'aria-expanded': 'true' }, document.querySelector('[data-pf-widget="a"]'));
+    }, url);
+    const other = page(true, '', (el, document, window) => {
+        window.localStorage.setItem(key, kept);
+        el('button', { 'data-pf-report-section': '', 'aria-expanded': 'true' }, document.querySelector('[data-pf-widget="a"]'));
+    }, 'https://app.test/admin/MetricReports/show?report=8');
+    first.click(toggle);
+
+    // Assert
+    assert.equal(kept, '["a"]', 'the folded section, by its card');
+    assert.equal(again.cards.b.hidden, true, 'opened again as it was left');
+    assert.equal(again.document.querySelector('[data-pf-report-section]').getAttribute('aria-expanded'), 'false');
+    assert.equal(other.cards.b.hidden, false, 'another report\'s folds are its own');
+    assert.equal(first.window.localStorage.getItem(key), '[]', 'unfolded: forgotten');
+});
+
 /** A report's section heading folds the cards under it away, up to the next section, and back. */
 test('a section heading folds the cards under it', () => {
     // Arrange

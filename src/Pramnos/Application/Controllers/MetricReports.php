@@ -115,7 +115,9 @@ class MetricReports extends Controller
         $view->reportId  = (string) ($entry['customises'] ?? $entry['id']);
         $view->original  = $entry['customises'] ?? null;
         $view->inMenu    = $this->store()->shownInMenu($entry);
-        $view->editsMenu = Reports::editsMenu($this->user());
+        // A report the application keeps in its menu itself (`metrics.menu_fixed`) is not offered to be shown or taken off.
+        $view->editsMenu = Reports::editsMenu($this->user())
+            && !in_array((string) ($entry['customises'] ?? $entry['id']), array_map('strval', (array) (Metrics::config()['menu_fixed'] ?? [])), true);
         $view->csrfField = \Pramnos\Http\Middleware\CsrfMiddleware::tokenField();
         $view->urls      = $this->urls();
 
@@ -181,7 +183,10 @@ class MetricReports extends Controller
 
             return null;
         }
+        // Come from a report's cell (`report`, `at`): the way back to it.
+        $from          = (string) ($_GET['report'] ?? '') !== '' ? (new Reports())->find((string) $_GET['report'], $this->user()) : null;
         $view          = $this->getView('metricreports', 'tpl');
+        $view->trail   = $this->trail($from, $metric, self::day((string) ($_GET['at'] ?? '')));
         $view->metric  = $metric;
         $view->period  = $period->label();
         $view->filters = $filters;
@@ -190,6 +195,24 @@ class MetricReports extends Controller
         $view->urls    = $this->urls();
 
         return $view->display('rows');
+    }
+
+    /**
+     * The way back from the records behind a number: the reports, the report they came from (at
+     * its day), the metric. An application overrides it to put the same in its own breadcrumbs.
+     *
+     * @param array<string, mixed>|null $report The report the cell was in, if it is known and theirs to open
+     * @return list<array{label: string, url: ?string}>
+     */
+    protected function trail(?array $report, \Pramnos\Metrics\Metric $metric, string $at): array
+    {
+        $trail = [['label' => t('Reports'), 'url' => $this->urls()['list']]];
+        if ($report !== null) {
+            $trail[] = ['label' => (string) $report['name'], 'url' => $this->urls()['show'] . '?report=' . rawurlencode((string) ($report['customises'] ?? $report['id'])) . '&at=' . $at];
+        }
+        $trail[] = ['label' => t($metric->label()), 'url' => null];
+
+        return $trail;
     }
 
     /** The form: a new report, one of the person's own, or a copy of one they may open. */
@@ -327,6 +350,7 @@ class MetricReports extends Controller
 
             return;
         }
+        $this->addMessage(t('A copy of your own to arrange; the original stays as it is.'));
         $this->redirect($this->urls()['show'] . '?report=' . rawurlencode($id) . '&customise=1');
     }
 

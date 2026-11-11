@@ -2531,18 +2531,40 @@
     window.pfStructured = structured;
 
     // A report's section heading (data-pf-report-section, SectionWidget) folds away the cards
-    // under it, up to the next section, and shows them again.
-    document.addEventListener('click', function (e) {
-        var toggle = e.target && e.target.closest ? e.target.closest('[data-pf-report-section]') : null;
-        if (!toggle) { return; }
-        var card = toggle.closest('[data-pf-widget]');
-        var open = toggle.getAttribute('aria-expanded') !== 'false';
-        toggle.setAttribute('aria-expanded', open ? 'false' : 'true');
-        for (var next = card ? card.nextElementSibling : null; next; next = next.nextElementSibling) {
-            if (!next.hasAttribute('data-pf-widget') || next.querySelector('[data-pf-report-section]')) { break; }
-            next.hidden = open;
-        }
-    });
+    // under it, up to the next section, and shows them again. What is folded is remembered in this
+    // browser, for each report: the page opens as it was left.
+    (function () {
+        var key = 'pf-report-folded:' + location.pathname + ':' + (new URLSearchParams(location.search).get('report') || '');
+        var read = function () {
+            try { return JSON.parse(localStorage.getItem(key) || '[]') || []; } catch (err) { return []; }
+        };
+        var fold = function (toggle, folded) {
+            var card = toggle.closest('[data-pf-widget]');
+            toggle.setAttribute('aria-expanded', folded ? 'false' : 'true');
+            for (var next = card ? card.nextElementSibling : null; next; next = next.nextElementSibling) {
+                if (!next.hasAttribute('data-pf-widget') || next.querySelector('[data-pf-report-section]')) { break; }
+                next.hidden = folded;
+            }
+        };
+        var idOf = function (toggle) {
+            var card = toggle.closest('[data-pf-widget]');
+            return card ? card.getAttribute('data-pf-widget') : '';
+        };
+        var folded = read();
+        Array.prototype.forEach.call(document.querySelectorAll('[data-pf-report-section]'), function (toggle) {
+            if (folded.indexOf(idOf(toggle)) !== -1) { fold(toggle, true); }
+        });
+        document.addEventListener('click', function (e) {
+            var toggle = e.target && e.target.closest ? e.target.closest('[data-pf-report-section]') : null;
+            if (!toggle) { return; }
+            var fold_ = toggle.getAttribute('aria-expanded') !== 'false';
+            var id = idOf(toggle);
+            var now = read().filter(function (one) { return one !== id; });
+            fold(toggle, fold_);
+            if (fold_ && id) { now.push(id); }
+            try { localStorage.setItem(key, JSON.stringify(now)); } catch (err) { /* no storage: folded for this visit only */ }
+        });
+    }());
 
     // ══════════════════════════════════════════════════════════════════════════
     // data-pf-dashboard — a dashboard each person arranges (DashboardController)

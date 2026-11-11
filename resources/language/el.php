@@ -2565,4 +2565,11 @@ return [
     'Only its admins manage this conversation\'s automations.' => 'Τους αυτοματισμούς αυτής της συζήτησης τους διαχειρίζονται μόνο οι διαχειριστές της.',
     'The assistant could not answer.' => 'Ο βοηθός δεν μπόρεσε να απαντήσει.',
     'Sum up what is unread, or the last hours.' => 'Σύνοψη όσων δεν έχουν διαβαστεί ή των τελευταίων ωρών.',
+    'Back to the report' => 'Πίσω στην αναφορά',
+    'Breadcrumb' => 'Διαδρομή',
+    'No chart' => 'Χωρίς γράφημα',
+    'Shown in the menu.' => 'Η αναφορά μπήκε στο μενού.',
+    'Taken off the menu.' => 'Η αναφορά βγήκε από το μενού.',
+    'A copy of your own to arrange; the original stays as it is.' => 'Ένα δικό σας αντίγραφο για να το διαμορφώσετε· το αρχικό μένει ως έχει.',
+    'Back to the original.' => 'Επιστροφή στο αρχικό.',
 ];
