@@ -825,6 +825,45 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * A chart on demand (FW-473): under each table, lines or bars over 6, 12 or 24 periods, as
+     * links; the one asked for drawn over the table, its rows over those periods up to the
+     * report's — the report's definition unchanged; nothing of it in a mail.
+     */
+    public function testAChartOnDemandOverATable(): void
+    {
+        // Arrange
+        $id    = (new Reports())->save(self::reader(), ['name' => 'Test chart on demand', 'sections' => [['rows' => [['label' => 'Sales', 'metric' => 'test.sales']]]]]);
+        $entry = (new Reports())->find((string) $id, self::reader());
+        $draw  = static function (bool $static) use ($entry): string {
+            try {
+                return \Pramnos\Metrics\ReportBoard::html($entry, '2026-09-10', self::reader(), '/rows', $static);
+            } finally {
+                \Pramnos\Metrics\ReportBoard::leave();
+            }
+        };
+        $_SERVER['REQUEST_URI'] = '/admin/MetricReports/show?report=' . $id;
+        $_GET = ['report' => (string) $id];
+
+        // Act
+        $plain = $draw(false);
+        preg_match('~href="([^"]+)">Line · 12</a>~', $plain, $m);
+        parse_str((string) parse_url(html_entity_decode($m[1] ?? ''), PHP_URL_QUERY), $query);
+        $_GET    = $query;
+        $charted = $draw(false);
+        $mail    = $draw(true);
+        $_GET    = [];
+        unset($_SERVER['REQUEST_URI']);
+        (new Reports())->delete($id, self::reader(99, 9), true);
+
+        // Assert
+        $this->assertNotSame('', $m[1] ?? '', 'the choice, a link');
+        $this->assertStringNotContainsString('data-pf-chart-config', $plain, 'no chart until asked');
+        $this->assertMatchesRegularExpression('~data-pf-chart-config>\{"type":"line","labels":\[("[^"]+",?){12}\]~', $charted, 'twelve periods, as lines');
+        $this->assertStringContainsString('"data":[0,0,0,0,0,0,0,0,0,0,1,6]', str_replace('null', '0', $charted), 'its rows up to the report\'s period');
+        $this->assertStringNotContainsString('pf-report-chartit', $mail, 'nothing of it in a mail');
+    }
+
+    /**
      * A section with columns of its own (FW-473) — the last three months, with their chart — beside
      * one with the report's; a row's description (an ⓘ, a footnote under the table for a printout
      * or a mail) and its «What is this?» link; a section's note and its Jira issue, linked where the

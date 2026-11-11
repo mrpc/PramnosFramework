@@ -211,6 +211,9 @@ class TableWidget extends ReportWidget
         return $table;
     }
 
+    /** The periods a viewer may chart a table over. */
+    public const CHART_PERIODS = [6, 12, 24];
+
     public function render(): string
     {
         $table = $this->table();
@@ -218,7 +221,59 @@ class TableWidget extends ReportWidget
             return self::note(Figures::words('Add a row: choose a metric in the card\'s settings.'));
         }
         $table['sections'][0]['title'] = '';
+        $static = (bool) $this->report()['static'];
 
-        return Report::html($table, $this->report()['static'] ? null : $this->report()['rowsUrl']);
+        return ($static ? '' : $this->chartAsked()) . Report::html($table, $static ? null : $this->report()['rowsUrl']) . ($static ? '' : $this->chartChoices());
+    }
+
+    /** This table among the page's, for the address that charts it: its settings, hashed. */
+    private function chartKey(): string
+    {
+        return substr(md5((string) json_encode($this->dashboardSettings)), 0, 10);
+    }
+
+    /**
+     * The chart a viewer asked for over this table — `?chart[<key>]=line:12` — its rows over the
+     * last periods up to the report's; '' for none. The report's definition does not change: an
+     * owner keeps one with a chart card in Customise.
+     */
+    private function chartAsked(): string
+    {
+        $asked = (string) (((array) ($_GET['chart'] ?? []))[$this->chartKey()] ?? '');
+        if (preg_match('/^(line|bar):(\d{1,2})$/', $asked, $m) !== 1 || !in_array((int) $m[2], self::CHART_PERIODS, true)) {
+            return '';
+        }
+        $built = $this->built(['periods' => (int) $m[2]], $m[1]);
+        if ($built === null || $built['sections'] === []) {
+            return '';
+        }
+        $sets = [];
+        foreach ($built['sections'][0]['rows'] as $row) {
+            if ($row['error'] === null && empty($row['subtotal'])) {
+                $sets[] = ['label' => $row['label'], 'data' => array_column($row['cells'], 'value')];
+            }
+        }
+
+        return $sets === [] ? '' : \Pramnos\Html\Chart::render($m[1], $built['columns'], $sets, ['title' => $this->heading(), 'height' => 240]);
+    }
+
+    /** The viewer's choice of a chart over this table: lines or bars, over 6, 12 or 24 periods — links, no script. */
+    private function chartChoices(): string
+    {
+        if (((array) ($this->setting('measures') ?? [])) !== []) {
+            return '';
+        }
+        $path  = (string) strtok((string) ($_SERVER['REQUEST_URI'] ?? ''), '?');
+        $query = $_GET;
+        $links = [];
+        foreach (['line' => Figures::words('Line'), 'bar' => Figures::words('Bars')] as $type => $label) {
+            foreach (self::CHART_PERIODS as $n) {
+                $query['chart'][$this->chartKey()] = $type . ':' . $n;
+                $links[] = '<a href="' . htmlspecialchars($path . '?' . http_build_query($query), ENT_QUOTES, 'UTF-8') . '">' . htmlspecialchars($label . ' · ' . $n, ENT_QUOTES, 'UTF-8') . '</a>';
+            }
+        }
+
+        return '<details class="pf-report-chartit pf-no-print"><summary>' . htmlspecialchars(Figures::words('Chart'), ENT_QUOTES, 'UTF-8') . '</summary>'
+            . '<p style="display:flex;flex-wrap:wrap;gap:.5rem;margin:.25rem 0">' . implode('', $links) . '</p></details>';
     }
 }

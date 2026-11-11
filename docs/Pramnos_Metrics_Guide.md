@@ -738,6 +738,14 @@ A section's `total` adds up its rows but leaves breakdown totals out.
 - **A section's `jira`** (an issue key) is linked where the application says how:
   `'metrics' => ['jira' => 'https://example.atlassian.net/browse/%s']`. Its `link` adds *More*.
 
+### A chart on demand
+
+Under each table on a report's page, *Chart* offers lines or bars over the last 6, 12 or 24
+periods up to the report's. The one chosen is drawn over the table, from its rows. It is an
+address (`?chart[<table>]=line:12`), so it is kept in the link and changes nothing in the
+report's definition. An owner who wants it always adds a chart card in Customise. A printout and a
+mail leave the choice out.
+
 ### Formula rows
 
 A row with a `formula` works a number out of other metrics, each read with filters of its own:
