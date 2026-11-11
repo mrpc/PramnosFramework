@@ -855,6 +855,43 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * A pie over a table: a pie for each breakdown, its values the slices — never its total, nor
+     * a plain row beside it — of the total column where there is one; plain rows alone make one.
+     */
+    public function testAPieForEachBreakdownOfTheTotalColumn(): void
+    {
+        // Arrange
+        $definition = ['name' => 'Test pies', 'columns' => ['dimension' => 'region', 'values' => ['north', 'south'], 'total' => true], 'sections' => [['rows' => [
+            ['label' => 'Sales', 'metric' => 'test.sales'],
+            ['label' => 'By region', 'metric' => 'test.sales', 'breakdown' => 'region', 'total' => true],
+        ]]]];
+        $id    = (new Reports())->save(self::reader(), $definition);
+        $entry = (new Reports())->find((string) $id, self::reader());
+        $draw  = static function () use ($entry): string {
+            try {
+                return \Pramnos\Metrics\ReportBoard::html($entry, '2026-09-10', self::reader(), '/rows', false);
+            } finally {
+                \Pramnos\Metrics\ReportBoard::leave();
+            }
+        };
+        $_SERVER['REQUEST_URI'] = '/admin/MetricReports/show?report=' . $id;
+        $_GET = ['report' => (string) $id];
+
+        // Act
+        preg_match('~data-pf-chart-holder="([0-9a-f]+)"~', $draw(), $m);
+        $_GET = ['report' => (string) $id, 'chart' => [$m[1] => 'pie']];
+        $pie  = $draw();
+        $_GET = [];
+        unset($_SERVER['REQUEST_URI']);
+        (new Reports())->delete($id, self::reader(99, 9), true);
+
+        // Assert
+        $this->assertSame(1, substr_count($pie, '"type":"pie"'), 'one pie, for the one breakdown');
+        $this->assertMatchesRegularExpression('~"type":"pie","labels":\["North","South"\]~', $pie, 'its values, not its total nor the plain row');
+        $this->assertMatchesRegularExpression('~"label":"Total","data":\[5,1\]~', str_replace('.0', '', $pie), 'of the total column');
+    }
+
+    /**
      * A breakdown of a metric kept only in combinations (FW-429): its values read with each
      * column's filters — the row's alone is a combination it does not keep — and each cell the
      * row's filters with its column's; the row stands, not refused whole.

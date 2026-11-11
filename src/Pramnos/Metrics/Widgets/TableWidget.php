@@ -268,14 +268,7 @@ class TableWidget extends ReportWidget
     {
         $asked = (string) (((array) ($_GET['chart'] ?? []))[$this->chartKey()] ?? '');
         if ($asked === 'pie') {
-            // A breakdown, or a table of measures, in one period: its rows as slices of the first column.
-            $built = $this->built($this->columns(), null);
-            $rows  = $built === null || $built['sections'] === [] ? [] : array_values(array_filter($built['sections'][0]['rows'],
-                static fn (array $r): bool => $r['error'] === null && empty($r['subtotal']) && empty($r['heading']) && ($r['cells'][0]['value'] ?? null) !== null));
-
-            return $rows === [] ? '' : \Pramnos\Html\Chart::render('pie', array_column($rows, 'label'),
-                [['label' => $built['columns'][0] ?? $this->heading(), 'data' => array_map(static fn (array $r): float => (float) $r['cells'][0]['value'], $rows)]],
-                ['title' => $this->heading(), 'height' => 240]);
+            return $this->pies();
         }
         if (preg_match('/^(line|bar):(\d{1,2})$/', $asked, $m) !== 1 || !in_array((int) $m[2], self::CHART_PERIODS, true)) {
             return '';
@@ -292,6 +285,40 @@ class TableWidget extends ReportWidget
         }
 
         return $sets === [] ? '' : \Pramnos\Html\Chart::render($m[1], $built['columns'], $sets, ['title' => $this->heading(), 'height' => 240]);
+    }
+
+    /**
+     * The table in the report's period as pies: of the total column where there is one, else the
+     * first; a pie for each breakdown, its values the slices — never its total, nor the rows
+     * beside it — and, with no breakdown, the plain rows as one.
+     */
+    private function pies(): string
+    {
+        $built = $this->built($this->columns(), null);
+        if ($built === null || $built['sections'] === []) {
+            return '';
+        }
+        $total = array_search(function_exists('t') ? (string) t('Total') : 'Total', $built['columns'], true);
+        $at    = $total === false ? 0 : (int) $total;
+        $value = static fn (array $r): ?float => $r['error'] === null && empty($r['heading']) && ($r['cells'][$at]['value'] ?? null) !== null ? (float) $r['cells'][$at]['value'] : null;
+        $pies  = [];
+        foreach ($built['sections'][0]['rows'] as $row) {
+            if (!empty($row['subtotal']) || $value($row) === null) {
+                continue;
+            }
+            // A breakdown's values make a pie of their own, by the row they are of.
+            $pies[(string) ($row['part'] ?? '')][] = [$row['label'], $value($row)];
+        }
+        if (count($pies) > 1) {
+            unset($pies['']);
+        }
+        $html = '';
+        foreach ($pies as $part => $slices) {
+            $html .= \Pramnos\Html\Chart::render('pie', array_column($slices, 0), [['label' => $built['columns'][$at] ?? $this->heading(), 'data' => array_column($slices, 1)]],
+                ['title' => $part !== '' ? $part : $this->heading(), 'height' => 240]);
+        }
+
+        return $html;
     }
 
     /** How many periods of the report's grain read: "6 months", "12 weeks". */

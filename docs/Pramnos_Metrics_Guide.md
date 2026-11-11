@@ -776,8 +776,10 @@ report's definition. The choices are in two parts:
 - *Kind*: Lines · Bars · Pie;
 - *Span*, for lines and bars: 6 · 12 · 24 in the report's periods (months, days, weeks…).
 
-The ones shown are marked, with *No chart* beside them. A pie shows the table's rows in the
-report's period, which suits a breakdown, and is the only kind a table of measures offers. With
+The ones shown are marked, with *No chart* beside them. A pie shows the report's period, of the
+total column where there is one and the first otherwise. There is a pie for each breakdown, its
+values the slices and never its total or the rows beside it. A table with no breakdown makes one
+pie of its rows. It is the only kind a table of measures offers. With
 the page's script, a choice fetches that card alone (`card?id=…&part=body`) and draws it in place.
 The address is kept with `history.replaceState`, so the rest of the report is not loaded again.
 Without a script, every link lands back on its table (`#pf-chart-<key>`). An
