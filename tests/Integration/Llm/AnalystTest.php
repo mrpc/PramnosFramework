@@ -558,6 +558,7 @@ class AnalystTest extends LlmTestCase
             $this->assertStringContainsString('data-pf-chart="', $page, $theme . ': the chart, for pf-chat.js to draw');
             $this->assertMatchesRegularExpression('/<div[^>]*data-pf-chat>/', $page, $theme . ': which runs over the page');
             $this->assertStringContainsString('assets/js/pf-chat.js', $page, $theme);
+            $this->assertMatchesRegularExpression('~</div>\s*(<!--.*?-->\s*)?<button type="button"[^>]*data-pf-chat-copy="~s', $page, $theme . ': each answer copied, its button right after it (FW-481)');
         }
         $this->assertCount(4, $audit, 'each view of theirs: the list beside one, then each theme; not root\'s own');
         $this->assertSame(['7', '8', (string) $theirs], [(string) $audit[0]['actor_userid'], (string) $audit[0]['target_id'], (string) $audit[0]['object_id']]);

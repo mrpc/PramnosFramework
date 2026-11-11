@@ -94,6 +94,8 @@ $persona = static fn (?string $key): string => $key === null ? '—' : (string) 
                                 <span style="white-space:pre-wrap">{{ trim((string) $m['content']) }}</span>
                             @else
                                 <div class="pf-chat-answer">{!! \Pramnos\Llm\Chat\Markdown::toHtml((string) $m['content']) !!}</div>
+                                {{-- Right after the answer: pf-chat.js copies the answer before the button, as drawn and as Markdown. --}}
+                                <button type="button" class="{!! $c['btnGhost'] ?? '' !!}" data-pf-chat-copy="{{ $m['content'] }}" aria-label="{{ t('Copy the answer') }}">⧉ {{ t('Copy') }}</button>
                                 @php $steps = array_values(array_filter((array) (($m['extra'] ?? [])['steps'] ?? []), 'is_string')); @endphp
                                 @if ($steps !== [])
                                     <details class="{!! $c['muted'] !!}">
