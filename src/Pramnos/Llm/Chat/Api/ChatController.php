@@ -485,8 +485,10 @@ class ChatController extends \Pramnos\Application\ApiCrudController
 
     /**
      * Who the person is to the assistant: `GET {chat}/me` → `{name, usertype, persona,
-     * first_meeting}` — `first_meeting` the start of their first conversation with this persona,
-     * null before any.
+     * first_meeting, reset_at, first_meetings}` — `first_meeting` the start of their first
+     * conversation with this persona, null before any; `first_meetings` each persona's, by key
+     * (ISO 8601); `reset_at` when an administrator last started them over ({@see
+     * \Pramnos\Llm\Chat\People::reset()}), or null.
      */
     public function me(): array
     {
@@ -503,7 +505,9 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         $name  = trim((string) ($user->firstname ?? ''));
 
         return ['status' => 200, 'data' => ['name' => $name !== '' ? $name : (string) ($user->username ?? ''), 'usertype' => (int) ($user->usertype ?? 0),
-            'persona' => \Pramnos\Llm\Chat\Personas::of($scope), 'first_meeting' => $first === null || $first === false ? null : (string) $first]];
+            'persona' => \Pramnos\Llm\Chat\Personas::of($scope), 'first_meeting' => $first === null || $first === false ? null : (string) $first,
+            // After an administrator started the person over: the page starts over too, with no flag of its own.
+            'reset_at' => \Pramnos\Llm\Chat\People::resetAt($user), 'first_meetings' => (new \Pramnos\Llm\Chat\People())->firstMeetings($scope->userId)]];
     }
 
     /**

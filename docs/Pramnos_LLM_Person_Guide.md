@@ -208,6 +208,41 @@ profile, the latest diary page and the day's calendar, and kept as a text artifa
 Y-m-d` of the persona's: asked again, the same line, without another call. A person who does not
 open the page that day costs nothing.
 
+### For an administrator: seeing a person, and starting them over
+
+`Chat\People` is what an administrator's screen is built on, over the companion's spaces only
+(`chat` and each persona's `chat:<persona>`, never the Ask's). It checks nobody, so who may call
+which is the application's to decide:
+
+```php
+$people = new \Pramnos\Llm\Chat\People();
+$people->people(50, 0, 'maria');   // who talked to it, newest first
+$people->person($userId);          // one person, in full
+$people->messages($conversationId);
+$people->reset($userId, $by);      // start them over
+```
+
+- `people($limit, $offset, $search)` gives `userid`, `username`, `name`, `last_at`, the totals of
+  conversations and messages, the chosen `persona`, and `personas`: each persona's conversations,
+  messages and last activity. The search matches username, email and name.
+- `person($userId)` gives, for each persona, its conversations (`conversation_id`, `title`,
+  `messages`, `created_at`, `last_at`), `first_meeting`, `mood`, `memories`, `diary` (`total`,
+  `unread`), today's `thought`, the person's `voice` and `style`, and `routines`. Beside them come
+  the `profile`, the chosen `persona`, the `push` subscriptions (the browser, never the endpoint or
+  keys) and `reset_at`. It is null for somebody who does not exist.
+- `messages($conversationId)` reads a conversation straight from its table, with each message's
+  `tools`, `extra` (mood, act, speaker…) and `cost`. Nothing the person has read changes and
+  nothing is learned. It is null for a conversation that is not the companion's.
+- `reset($userId, $by)` deletes the companion's conversations and messages, queued questions,
+  memories, profile, every artifact of its spaces (diary, thoughts, journal), and routines with
+  their runs. The mood and first meetings go with the conversations. The persona, voice, style and
+  diary marks go back to the defaults, and `reset_at` (the user detail `askreset`) is set. The
+  Ask's conversations and the person's calendar stay. It writes one `llm.companion.reset` line to
+  the audit log with who, whom and the counts, and returns the counts.
+
+`GET {chat}/me` gives `reset_at` and `first_meetings` (`{persona: ISO 8601 | null}`), so a page
+starts over after a reset without keeping a flag of its own.
+
 ### Reaching out on its own, with manners
 
 An assistant reaches out in two ways: a [scheduled question](Pramnos_LLM_Scheduled_Tasks_Guide.md#scheduled-tasks-questions-reminders-reports)
