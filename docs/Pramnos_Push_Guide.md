@@ -864,3 +864,9 @@ class CheckIn extends Notification
 With nothing of that app subscribed, nothing is sent and the push log records
 `Log::NO_SUBSCRIPTION`.
 
+An app's subscription receives only what is sent to that app. `Subscriptions::forUser($userId)`
+and `Subscriptions::exist($userId)` answer the site's own, so every sender that reads them — a
+mass message, a sign-in approval, the conversations' beacon, a notification deciding whether
+`push` belongs in its `via()` — leaves the app's devices alone. `forUser($userId, 'chat')` answers
+one app's, `forUser($userId, Subscriptions::EVERY_APP)` all of them.
+

@@ -405,8 +405,9 @@ class ChatApiTest extends LlmTestCase
      * site's own `Push` controller takes a session): the VAPID key, the subscription kept for the
      * person asking and marked with the conversations' space — the same subscription sent again
      * refreshed, not added twice — and forgotten by its endpoint. On every mount: `/assistant/push`
-     * follows its `chat` path. One that is not usable is refused, and so is a request the
-     * controller refuses.
+     * follows its `chat` path. The app's subscription is not one of the site's: `forUser()` and
+     * `exist()` without an app never answer it. One that is not usable is refused, and so is a
+     * request the controller refuses.
      */
     #[DataProvider('databases')]
     public function testAnAppSubscribesToPushWithItsToken(string $type, string $host, int $port): void
@@ -427,7 +428,9 @@ class ChatApiTest extends LlmTestCase
         $key    = $this->call('GET', '/assistant/push/key', [], $paths);
         $first  = $this->call('POST', '/assistant/push', $phone, $paths);
         $again  = $this->call('POST', '/assistant/push', $phone, $paths);
-        $mine   = \Pramnos\Push\Subscriptions::forUser(7);
+        $mine   = \Pramnos\Push\Subscriptions::forUser(7, 'chat');
+        $site   = [\Pramnos\Push\Subscriptions::forUser(7), \Pramnos\Push\Subscriptions::exist(7), \Pramnos\Push\Subscriptions::exist(7, 'chat')];
+        $every  = \Pramnos\Push\Subscriptions::forUser(7, \Pramnos\Push\Subscriptions::EVERY_APP);
         $broken = $this->call('POST', '/assistant/push', ['endpoint' => 'http://push.test/x'], $paths);
         $gone   = $this->call('DELETE', '/assistant/push', ['endpoint' => $phone['endpoint']], $paths);
         $none   = $this->call('DELETE', '/assistant/push', [], $paths);
@@ -440,9 +443,13 @@ class ChatApiTest extends LlmTestCase
         $this->assertSame(200, $again['status']);
         $this->assertCount(1, $mine, 'the same subscription again: refreshed, not added');
         $this->assertSame('chat', $mine[0]['app'], 'marked with the app it came from');
+        // The app's subscription is not the site's: the site's senders (mass messages, sign-in
+        // approvals, the beacon) never see it; only what is sent to the app reaches it
+        $this->assertSame([[], false, true], $site);
+        $this->assertCount(1, $every, 'every app\'s, for a screen that lists them all');
         $this->assertSame(422, $broken['status']);
         $this->assertSame(['unsubscribed' => true], $gone['data']);
-        $this->assertSame([], \Pramnos\Push\Subscriptions::forUser(7));
+        $this->assertSame([], \Pramnos\Push\Subscriptions::forUser(7, \Pramnos\Push\Subscriptions::EVERY_APP));
         $this->assertSame(422, $none['status']);
         $this->assertSame(401, $refused['status']);
         $this->db->schema()->dropTableIfExists('pramnos.pushsubscriptions');

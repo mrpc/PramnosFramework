@@ -965,7 +965,7 @@ class UsersController extends Controller
         $mail    = $address !== '' && filter_var($address, FILTER_VALIDATE_EMAIL) !== false;
 
         $pushKeys  = \Pramnos\Push\Vapid::configured();
-        $pushRows  = $pushKeys ? \Pramnos\Push\Subscriptions::forUser((int) $user->userid) : [];
+        $pushRows  = $pushKeys ? \Pramnos\Push\Subscriptions::forUser((int) $user->userid, \Pramnos\Push\Subscriptions::EVERY_APP) : [];
 
         return [
             'mail' => [

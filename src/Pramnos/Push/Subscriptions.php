@@ -183,12 +183,17 @@ class Subscriptions
         return true;
     }
 
+    /** {@see forUser()}'s `$app` for the subscriptions of every app and of the site. */
+    public const EVERY_APP = '*';
+
     /**
-     * Every subscription for one account.
+     * One account's subscriptions: the site's own by default — never an app's
+     * ({@see tagApp()}), which receives only what is sent to that app — or one app's by its name,
+     * or {@see EVERY_APP}.
      *
      * @return list<array<string, mixed>>
      */
-    public static function forUser(int $userId): array
+    public static function forUser(int $userId, ?string $app = null): array
     {
         if ($userId < 1) {
             return [];
@@ -209,7 +214,10 @@ class Subscriptions
             $rows[] = (array) $result->fields;
         }
 
-        return $rows;
+        // Read here rather than in the query: an installation without the `app` column yet has
+        // only the site's subscriptions, and must not lose them to a failing WHERE.
+        return $app === self::EVERY_APP ? $rows
+            : array_values(array_filter($rows, static fn (array $row): bool => (string) ($row['app'] ?? '') === (string) $app));
     }
 
     /**
@@ -266,22 +274,29 @@ class Subscriptions
      * notification's `via()`. `forUser()` would answer the same question by fetching every
      * subscription with its keys — a credential each — to count them.
      *
+     * The site's subscriptions by default, an app's by its name ({@see forUser()}).
+     *
      * Answers **false** when it cannot tell. The alternative is an attempted send that the
      * channel refuses anyway, and a row in the push log for every account that has never
      * subscribed, on every alert. "Nothing is subscribed" is a fact about the account, and the
      * user screen already shows it; it does not need restating once per message.
      */
-    public static function exist(int $userId): bool
+    public static function exist(int $userId, ?string $app = null): bool
     {
         if ($userId < 1) {
             return false;
         }
-
         try {
-            return (bool) \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('pramnos.pushsubscriptions')
-                ->where('userid', $userId)
-                ->exists();
+            $db    = \Pramnos\Framework\Factory::getDatabase();
+            $query = $db->queryBuilder()->table('pramnos.pushsubscriptions')->where('userid', $userId);
+            // Asked first rather than caught: a failing query aborts a PostgreSQL transaction.
+            // Without the column yet, before its migration, every subscription is the site's.
+            if (!$db->schema()->hasColumn('pramnos.pushsubscriptions', 'app')) {
+                return $app === null && (bool) $query->exists();
+            }
+
+            // The site's own by default, as forUser(): an app's subscription is not one for the site.
+            return (bool) ($app === null ? $query->whereNull('app') : $query->where('app', $app))->exists();
         } catch (\Throwable) {
             return false;
         }

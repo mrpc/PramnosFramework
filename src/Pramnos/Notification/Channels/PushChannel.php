@@ -199,7 +199,8 @@ class PushChannel implements ChannelInterface
      */
     protected function subscriptionsFor(int $userId): array
     {
-        return Subscriptions::forUser($userId);
+        // Every app's: send() keeps the ones of the app the notification is for.
+        return Subscriptions::forUser($userId, Subscriptions::EVERY_APP);
     }
 
     /** @return array{publicKey: string, privateKey: string, subject: string}|null */
