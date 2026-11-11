@@ -285,7 +285,9 @@ class Conversations
         $scope  = $this->scope ?? new Scope(0);
         $router = \Pramnos\Llm\Llm::router();
 
-        return $router->route($router->context(['purpose' => $scope->purpose()] + $scope->context()), $this->assistant->connection($scope));
+        $chosen = $this->client === null && $scope->userId > 0 ? ModelChoices::chosen(new \Pramnos\User\User($scope->userId)) : null;
+
+        return $router->route($router->context(['purpose' => $scope->purpose()] + $scope->context()), $chosen !== null ? ModelChoices::connection($chosen) : $this->assistant->connection($scope));
     }
 
     /**
@@ -365,12 +367,32 @@ class Conversations
             }
         }
 
-        // The tier the question needs, where the application has tiers — never over a client the
-        // caller gave, which is its choice.
-        $tier   = $this->client === null
-            ? $this->heldTier($conversationId, fn (): ?string => \Pramnos\Llm\Llm::cascade()->tier(['purpose' => $this->scope->purpose()] + $this->scope->context(), $question, $history))
-            : null;
-        $client = $this->tiered($tier) ?? $this->client($this->scope);
+        // The model the person chose, checked again now; or, on Automatic, one among those they may
+        // choose; or the tier the question needs, where the application has tiers — never over a
+        // client the caller gave, which is its choice.
+        $tier    = null;
+        $choice  = null;
+        $allowed = [];
+        if ($this->client === null) {
+            $user    = $this->scope->userId > 0 ? new \Pramnos\User\User($this->scope->userId) : null;
+            $choice  = ModelChoices::chosen($user);
+            $allowed = $choice === null ? ModelChoices::allowed($user) : [];
+            $cascade = \Pramnos\Llm\Llm::cascade();
+            $context = ['purpose' => $this->scope->purpose()] + $this->scope->context();
+            if ($choice === null && count($allowed) > 1 && $cascade instanceof \Pramnos\Llm\Policy\ModelCascade) {
+                $keys   = array_column($allowed, 'key');
+                $picked = $this->heldTier($conversationId, fn (): ?string => $cascade->choose($context, $question, $history, $allowed), 'choice-', $keys);
+                $choice = $allowed[(int) array_search($picked, $keys, true)] ?? null;
+                $choice = $picked === null ? null : $choice;
+            } elseif ($choice === null) {
+                $allowed = [];
+                $tier    = $this->heldTier($conversationId, fn (): ?string => $cascade->tier($context, $question, $history));
+            } else {
+                // Chosen by the person: nothing to fall back to but what they chose.
+                $allowed = [];
+            }
+        }
+        $client = $choice !== null ? $this->chosen($choice) : ($this->tiered($tier) ?? $this->client($this->scope));
 
         // A conversation already holding data of a kind is asked only where that kind may go —
         // its summary too.
@@ -469,6 +491,14 @@ class Conversations
             && array_filter($held, static fn (string $tag): bool => !$fast->moveFor($tag)) === []) {
             $sent[count($sent) - 2]['content'] .= "\n\n" . self::DEGRADED;
             $answer = $run($fast, $sent);
+        }
+
+        // Automatic's pick down: answered on the cheapest the person may choose, which is told so.
+        if (!$answer['ok'] && $choice !== null && $allowed !== [] && $allowed[0]['key'] !== $choice['key']
+            && !isset($answer['cancelled']) && !isset($answer['consent']) && !isset($answer['limited'])
+            && array_filter($held, fn (string $tag): bool => !$this->chosen($allowed[0])->moveFor($tag)) === []) {
+            $sent[count($sent) - 2]['content'] .= "\n\n" . self::DEGRADED;
+            $answer = $run($this->chosen($allowed[0]), $sent);
         }
 
         if ($answer['ok']) {
@@ -826,6 +856,13 @@ class Conversations
             ->about(['purpose' => $this->scope->purpose(), 'tier' => $tier, 'trace_id' => $this->trace()] + $this->scope->context() + $this->about);
     }
 
+    /** A client on a model the person may choose ({@see ModelChoices}), marked as the scope's other calls are. */
+    private function chosen(array $choice): Client
+    {
+        return (new Client(ModelChoices::connection($choice)))
+            ->about(['purpose' => $this->scope?->purpose() ?? 'chat', 'model_choice' => $choice['key'], 'trace_id' => $this->trace()] + ($this->scope?->context() ?? []) + $this->about);
+    }
+
     /** The client a call in this scope is made with. */
     private function client(Scope $scope): Client
     {
@@ -1077,17 +1114,20 @@ class Conversations
      * The tier a conversation is on, decided once and held for {@see CASCADE_HOLD} questions
      * (`'llm' => ['cascade_hold' => …]`, 1 to decide every time): the decision is a model call of
      * its own, and a conversation rarely changes its nature from one message to the next. A new
-     * conversation, or one the cache cannot hold for, decides each time.
+     * conversation, or one the cache cannot hold for, decides each time. Automatic among the
+     * models a person may choose is held the same way, under `choice-`, and a held pick that is not
+     * among `$valid` any more is decided again.
      *
      * @param callable(): ?string $decide
+     * @param list<string>|null   $valid
      */
-    private function heldTier(?int $conversationId, callable $decide): ?string
+    private function heldTier(?int $conversationId, callable $decide, string $prefix = 'tier-', ?array $valid = null): ?string
     {
         $hold = (int) \Pramnos\Llm\Llm::config('cascade_hold', self::CASCADE_HOLD);
-        if ($conversationId === null || $hold <= 1 || \Pramnos\Llm\Llm::config('tiers', []) === []) {
+        if ($conversationId === null || $hold <= 1 || ($valid === null && \Pramnos\Llm\Llm::config('tiers', []) === [])) {
             return $decide();
         }
-        $key = 'tier-' . $conversationId;
+        $key = $prefix . $conversationId;
         try {
             // Held for an hour at most: a conversation picked up the next day is decided again.
             $cache = \Pramnos\Cache\Cache::getInstance('llm');
@@ -1095,7 +1135,9 @@ class Conversations
         } catch (\Throwable) {
             return $decide();
         }
-        if (is_array($held) && (int) ($held['left'] ?? 0) > 0 && (int) ($held['until'] ?? 0) > time()) {
+        // A held pick the person may no longer have is decided again.
+        if (is_array($held) && (int) ($held['left'] ?? 0) > 0 && (int) ($held['until'] ?? 0) > time()
+            && ($valid === null || in_array($held['tier'] ?? null, $valid, true))) {
             $tier = $held['tier'] === null ? null : (string) $held['tier'];
             $held = ['left' => (int) $held['left'] - 1] + $held;
         } else {

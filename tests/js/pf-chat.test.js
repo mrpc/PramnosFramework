@@ -126,7 +126,7 @@ const file = (name, size = 10, type = 'text/plain') => ({ name, size, type });
  *
  * @param {{waiting?: string, answers: Array<object|string|Error>, attributes?: object, parser?: boolean, now?: () => number}} options
  */
-function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, examples = [], before = [], clipboard = null, pfChat = undefined, states = null, pageClass = '', pfVoice = undefined, mic = false, speak = null, sanitizer = undefined }) {
+function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, examples = [], before = [], clipboard = null, pfChat = undefined, states = null, pageClass = '', pfVoice = undefined, mic = false, speak = null, sanitizer = undefined, model = false }) {
     const page = element('div', { 'data-pf-chat': '', 'data-asked': '/chat/asked/', 'data-question-class': 'bubble', ...attributes });
     page.className = pageClass;
     examples.forEach((text) => page.appendChild(element('button', { type: 'button', 'data-pf-chat-suggestion': text })));
@@ -148,6 +148,7 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
     const button = form.appendChild(element('button', { type: 'submit', 'aria-label': 'Ask', title: 'Ask' }));
     button.textContent = '↑';
     const micButton = mic ? form.appendChild(element('button', { 'data-pf-chat-mic': '' })) : null;
+    const modelPick = model ? form.appendChild(element('select', { 'data-pf-chat-model': '', 'data-pf-chat-model-url': '/chat/modelchoice' })) : null;
     const speakButton = speak ? page.appendChild(element('button', { 'data-pf-chat-speak': speak.text, 'data-pf-chat-speak-id': speak.id })) : null;
 
     const requests = [];
@@ -184,7 +185,7 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
         Math,
         JSON,
         document: { querySelector: (s) => (s === '[data-pf-chat]' ? page : null), createElement: (t) => element(t), createElementNS: (ns, t) => element(t) },
-        FormData: function FormData(f) { this.form = f; this.append = (k, v, n) => { sent.push(n); }; this.delete = () => {}; },
+        FormData: function FormData(f) { this.form = f; this.fields = []; this.append = (k, v, n) => { sent.push(n); this.fields.push([k, v]); }; this.delete = () => {}; },
         fetch: (url, init = {}) => {
             requests.push({ url, method: init.method || 'GET', body: init.body, headers: init.headers });
             const next = queue.shift();
@@ -207,7 +208,7 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
 
     const suggestions = page.querySelectorAll('[data-pf-chat-suggestion]');
 
-    return { page, messages, form, box, picker, attach, chips, button, requests, timers, delays, intervals, window, sent, replaced, suggestions, micButton, speakButton };
+    return { page, messages, form, box, picker, attach, chips, button, requests, timers, delays, intervals, window, sent, replaced, suggestions, micButton, speakButton, modelPick };
 }
 
 /** Let every pending promise settle: a few turns, for a fetch that leads to another. */
@@ -1216,3 +1217,24 @@ test('the mic button is not wired when data-pf-chat-voice is absent', () => {
     assert.equal(called, false);
 });
 
+/**
+ * The composer's model picker: a change is kept with the person's account — POSTed as `choice`
+ * to its own address, '' for Automatic — and the question itself carries nothing about it, since
+ * the server reads the kept choice and checks it again.
+ */
+test('the model picker keeps the choice at its address', () => {
+    // Arrange
+    const ui = run({ answers: [{ status: 200 }, { status: 200 }], model: true });
+
+    // Act
+    ui.modelPick.value = 'strong';
+    ui.modelPick.dispatch('change');
+    ui.modelPick.value = '';
+    ui.modelPick.dispatch('change');
+
+    // Assert
+    assert.deepEqual(ui.requests.map((r) => [r.url, r.method]), [['/chat/modelchoice', 'POST'], ['/chat/modelchoice', 'POST']]);
+    assert.deepEqual(ui.requests[0].body.fields, [['choice', 'strong']]);
+    assert.deepEqual(ui.requests[1].body.fields, [['choice', '']], 'Automatic is the empty choice');
+    assert.equal(ui.modelPick.getAttribute('name'), null, 'no name: not sent with the question');
+});

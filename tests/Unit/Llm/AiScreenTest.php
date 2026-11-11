@@ -87,8 +87,9 @@ class AiScreenTest extends LlmTestCase
         $this->assertTrue($view->problems);
         $this->assertSame([true], $controller->log->askedProblems);
         $this->assertJson($view->prices);
-        $this->assertSame('plans', $view->appSections[0]['key']);
-        $this->assertStringContainsString('This section failed: render broke', $view->appSections[1]['html'], 'one broken section does not take the screen');
+        // The framework's own card — the models people may choose — ahead of the application's.
+        $this->assertSame(['modelchoices', 'plans'], [$view->appSections[0]['key'], $view->appSections[1]['key']]);
+        $this->assertStringContainsString('This section failed: render broke', $view->appSections[2]['html'], 'one broken section does not take the screen');
         $_GET = [];
     }
 

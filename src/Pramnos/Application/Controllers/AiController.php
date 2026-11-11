@@ -50,6 +50,7 @@ class AiController extends Controller
     use \Pramnos\Llm\Chat\Web\ActsOnLists;
     use \Pramnos\Llm\Chat\Web\RatesAnswers;
     use \Pramnos\Llm\Chat\Web\ReadsAloud;
+    use \Pramnos\Llm\Chat\Web\ChoosesModel;
 
     /** The administration ability that opens this screen — its menu item's id. */
     protected string $adminAbility = 'admin.ai';
@@ -58,7 +59,7 @@ class AiController extends Controller
     protected int $requiredUserType = 0;
 
     /** The parts of the screen a form can save. */
-    public const SECTIONS = ['general', 'key', 'provider', 'features', 'prices', 'openai'];
+    public const SECTIONS = ['general', 'key', 'provider', 'features', 'prices', 'openai', 'modelchoices'];
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
@@ -66,11 +67,11 @@ class AiController extends Controller
             'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'report',
             'skills', 'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject', 'memories', 'memorycorrect', 'memorydelete',
             'skillcatalog', 'skillinstall', 'skillcatalogturn', 'skillcatalogrole', 'skillcatalogupdate', 'skillcatalogdelete',
-            'share', 'unshare', 'shared', 'people', 'act', 'approve', 'reject', 'rate', 'reviews', 'reviewed', 'download', 'printable', 'pin', 'speak', 'voicereply']);
+            'share', 'unshare', 'shared', 'people', 'act', 'approve', 'reject', 'rate', 'reviews', 'reviewed', 'download', 'printable', 'pin', 'speak', 'voicereply', 'modelchoice']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
         // `api` checks its own token, from the X-CSRF-Token header, since it also answers GET and DELETE.
         $this->addWriteAction(['save', 'check', 'ask', 'cancel', 'delete', 'forget', 'consent',
-            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'reviewed', 'pin', 'speak', 'voicereply',
+            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'reviewed', 'pin', 'speak', 'voicereply', 'modelchoice',
             'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject', 'memorycorrect', 'memorydelete',
             'skillinstall', 'skillcatalogturn', 'skillcatalogrole', 'skillcatalogupdate', 'skillcatalogdelete']);
         parent::__construct($application);
@@ -152,6 +153,7 @@ class AiController extends Controller
             // Answers read aloud by the speech server, where there is one.
             'speak'     => self::readsAloudOnServer() ? adminUrl('Ai/speak') : '',
             'voicereply' => adminUrl('Ai/voicereply'),
+            'modelchoice' => adminUrl('Ai/modelchoice'),
             // The bad answers to look at, for whoever reads everybody's.
             'reviews'   => $this->readsAll($this->reader()) ? adminUrl('Ai/reviews') : '',
         ];
@@ -951,7 +953,7 @@ class AiController extends Controller
 
         // The framework's own card first, once a scheduled task has ever run; an application's
         // sections follow it.
-        $own = \Pramnos\Llm\Chat\TaskCosts::byTask() === [] ? [] : [new \Pramnos\Llm\Chat\TaskCosts()];
+        $own = [...(\Pramnos\Llm\Chat\TaskCosts::byTask() === [] ? [] : [new \Pramnos\Llm\Chat\TaskCosts()]), new \Pramnos\Llm\Chat\ModelChoices()];
         foreach ([...$own, ...Llm::adminSections()] as $section) {
             try {
                 // A card that only shows has no form and no Save button.
@@ -1101,7 +1103,7 @@ class AiController extends Controller
     /** @param array<string, mixed> $input */
     private function saveSection(string $key, array $input): ?string
     {
-        foreach (Llm::adminSections() as $section) {
+        foreach ([new \Pramnos\Llm\Chat\ModelChoices(), ...Llm::adminSections()] as $section) {
             if ($section->key() === $key && $section instanceof \Pramnos\Llm\Admin\Section) {
                 return $section->save($input);
             }

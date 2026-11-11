@@ -59,6 +59,43 @@ class ModelCascade implements Cascade
         return ($answer['ok'] ?? false) ? (string) $answer['data']['tier'] : null;
     }
 
+    /**
+     * Automatic among the models a person may choose: the cheapest of them reads the question and
+     * names one of `$choices` — listed cheapest first, so the dearest it can name is the dearest
+     * this person's role allows. Null when it cannot decide; the caller then keeps its own
+     * connection.
+     *
+     * @param array<string, mixed>                       $context
+     * @param list<array{role: string, content: string}> $history
+     * @param list<array{key: string, name: string, provider: string, model: string, reasoning: bool}> $choices Cheapest first
+     */
+    public function choose(array $context, string $question, array $history, array $choices): ?string
+    {
+        if (count($choices) < 2) {
+            return null;
+        }
+
+        $client = $this->client ?? new Client(\Pramnos\Llm\Chat\ModelChoices::connection($choices[0]));
+        $recent = array_map(
+            static fn (array $m): string => $m['role'] . ': ' . mb_substr((string) $m['content'], 0, 1000),
+            array_slice($history, -self::HISTORY)
+        );
+        $list = implode("\n", array_map(
+            static fn (array $c): string => '- ' . $c['key'] . ': ' . $c['name'] . ' (' . $c['model'] . ($c['reasoning'] ? ', reasons first' : '') . ')',
+            $choices
+        ));
+        $answer = $client->about(['purpose' => 'cascade'] + array_intersect_key($context, ['userid' => true, 'organization_id' => true]))->askForJson(
+            'You decide which model answers a question. The models, cheapest and fastest first, dearest and strongest last:' . "\n" . $list
+            . "\n" . 'Name the cheapest that will answer it well. ' . $this->guidance() . ' The first models are "fast", the last "frontier". Answer with the key only.',
+            [['role' => 'user', 'content' => ($recent === [] ? '' : "Before it:\n" . implode("\n", $recent) . "\n\n") . 'The question: ' . mb_substr($question, 0, 4000)]],
+            ['type' => 'object', 'properties' => ['model' => ['type' => 'string', 'enum' => array_column($choices, 'key')]], 'required' => ['model']],
+            'choose_model'
+        );
+        $key = ($answer['ok'] ?? false) ? (string) ($answer['data']['model'] ?? '') : '';
+
+        return in_array($key, array_column($choices, 'key'), true) ? $key : null;
+    }
+
     /** What each tier is for, as the deciding model is told. */
     protected function guidance(): string
     {

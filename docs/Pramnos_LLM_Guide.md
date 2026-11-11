@@ -364,6 +364,45 @@ implement `Policy\Cascade` to decide without a model.
   within the hour, then is decided again. `'llm' => ['cascade_hold' => 1]` decides every question,
   at that cost; a conversation's first question, which has no id yet, is always decided.
 
+### Models a person may choose
+
+Beside the tiers, an installation can let people pick the model their Ask questions go to. The
+card **Models people may choose** on `/admin/Ai/settings` keeps the choices
+(`Chat\ModelChoices`, the setting `llm_model_choices`). Each choice has a name, a provider, a
+model, reasoning on or off, and a floor:
+
+| Field | |
+|---|---|
+| Lowest usertype | who reaches it, when no ability is named |
+| Or ability | when set, `AdminAccess::allows($user, ability, usertype)` decides — the access rules in `permissions` or `mixed` mode, the usertype in `usertype` mode |
+
+Reasoning is the provider's own switch (see [Providers and connections](#providers-and-connections)):
+on, the provider's `efforts['on']` is sent; off, `efforts['off']`.
+
+The Ask composer, on the conversation page and the analyst's, shows a picker when the person
+reaches at least one choice: **Automatic** first, then their choices, cheapest first. A change is
+posted to `modelchoice` (`Chat\Web\ChoosesModel`) and kept with their account as the user detail
+`askmodel`. Each question checks the kept choice again (`ModelChoices::chosen()`): a key that is
+unknown, or behind a floor the person no longer reaches, is Automatic. `Conversations::connection()`
+follows the choice too, so consent and "is it connected" are asked of the provider that will
+answer.
+
+**Automatic** picks among the choices the person reaches, when there are two or more and the
+cascade is `ModelCascade`. `ModelCascade::choose()` asks the cheapest of them to name one, with the
+list in cost order. So the dearest it can reach is the dearest the person's role allows: an
+administrator whose floor stops at a plain model never lands on a reasoning one, while a
+super-administrator can. The cost order is what a million tokens in and a million out cost in
+[the prices](#the-call-log-and-costs). An unpriced model comes last, as if dearest, and a reasoning
+choice comes after the same model without reasoning. The pick is held for
+`Conversations::CASCADE_HOLD` questions, like a tier, and decided again once the person no longer
+reaches it. A pick that fails (refused, or down after its retries and fallback) is answered on the
+cheapest choice, which is told it answers in the stronger model's place. With fewer than two
+choices, or another cascade, Automatic is what it was without choices: the tiers, or the
+assistant's own connection. A `Conversations` given a `Client` of the caller's own ignores the
+person's choice.
+
+The calls carry `model_choice` in their context.
+
 ### Approvals given in advance
 
 `Policy\GrantGate` lets a gated call run only within a `ToolGrant`: an approval for one tool, with

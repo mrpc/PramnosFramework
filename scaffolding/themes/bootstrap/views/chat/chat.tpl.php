@@ -100,7 +100,13 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
     'speak' => is_array($this->urls ?? null) || !\Pramnos\Llm\Chat\Web\ChatPageController::readsAloudOnServer() ? '' : $url('chat/speak'),
     // Keeping whether a question asked aloud is answered aloud.
     'voicereply' => is_array($this->urls ?? null) ? '' : $url('chat/voicereply'),
+    // Keeping the model the person chose for their questions (Automatic by default).
+    'modelchoice' => is_array($this->urls ?? null) ? '' : $url('chat/modelchoice'),
 ];
+// The models this person may choose, cheapest first, and the one they chose ('' is Automatic).
+$modelUser    = \Pramnos\User\User::getCurrentUser() ?: null;
+$modelChoices = \Pramnos\Llm\Chat\ModelChoices::allowed($modelUser);
+$modelChosen  = (string) (\Pramnos\Llm\Chat\ModelChoices::chosen($modelUser)['key'] ?? '');
 $pinned  = is_array($this->pinned ?? null) ? $this->pinned : [];
 $bulk    = is_array($this->bulkActions ?? null) ? $this->bulkActions : [];
 // Empty: a greeting over one large composer, the examples under it.
@@ -252,6 +258,7 @@ $voiceOn = (bool) \Pramnos\Llm\Llm::config('voice', false); @endphp
                         <button type="button" class="pf-chat-mic" data-pf-chat-mic aria-pressed="false" title="{{ t('Dictate your question') }}">🎤<span class="pf-sr-only">{{ t('Dictate your question') }}</span></button>
                         @if ($u['voicereply'] !== '')<label class="pf-chat-voice-reply" title="{{ t('Answer aloud a question asked aloud') }}"><input type="checkbox" data-pf-chat-voice-reply{!! \Pramnos\Llm\Chat\Web\ChatPageController::repliesAloud(\Pramnos\User\User::getCurrentUser() ?: null) ? ' checked' : '' !!}> 🔊<span class="pf-sr-only">{{ t('Answer aloud a question asked aloud') }}</span></label>@endif
                     @endif
+                    @if ($modelChoices !== [] && ($u['modelchoice'] ?? '') !== '')<label class="pf-chat-model"><span class="pf-sr-only">{{ t('Model') }}</span><select data-pf-chat-model data-pf-chat-model-url="{{ $u['modelchoice'] }}" title="{{ t('The model that answers') }}"><option value="">{{ t('Automatic') }}</option>@foreach ($modelChoices as $choice)<option value="{{ $choice['key'] }}"{!! $choice['key'] === $modelChosen ? ' selected' : '' !!}>{{ $choice['name'] }}</option>@endforeach</select></label>@endif
                     <label class="pf-chat-attach" title="{{ t('Attach a document') }}">📎<span class="pf-sr-only">{{ t('Attach a document') }}</span>
                         <input type="file" name="files[]" multiple accept=".docx,.odt,.txt,.md,.eml,image/*" class="pf-sr-only" data-pf-chat-files>
                     </label>

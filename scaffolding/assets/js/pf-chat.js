@@ -44,6 +44,9 @@
  *                                  the composer's [data-pf-chat-voice-reply] checkbox is it. A
  *                                  question dictated is sent with `voice=1` and, the choice on,
  *                                  its answer read aloud — the opening of a long one
+ *   [data-pf-chat-model]         — in the composer: a <select> of the models this person may
+ *                                  choose, '' Automatic; a change is POSTed as `choice` to its
+ *                                  data-pf-chat-model-url and kept with their account
  *   data-pf-chat-voice           — on the page: voice is on (the llm.voice setting); the mic
  *                                  and 🔊 buttons only do anything when this is present AND
  *                                  pf-voice.js (with pf-speech-sanitizer.js) is also loaded
@@ -770,6 +773,21 @@
                 });
                 body.append('on', replyToggle.checked ? '1' : '0');
                 fetch(replyUrl, { method: 'POST', body: body, headers: { Accept: 'application/json' }, credentials: 'same-origin' })
+                    .catch(function () {});
+            });
+        }
+
+        // The model that answers, Automatic by default: kept with the person's account, and checked
+        // again by the server on every question.
+        var modelPick = form ? form.querySelector('[data-pf-chat-model]') : null;
+        if (modelPick) {
+            modelPick.addEventListener('change', function () {
+                var body = new FormData();
+                Array.prototype.forEach.call(form.querySelectorAll('input[type="hidden"]'), function (field) {
+                    body.append(field.name, field.value);
+                });
+                body.append('choice', modelPick.value);
+                fetch(modelPick.getAttribute('data-pf-chat-model-url'), { method: 'POST', body: body, headers: { Accept: 'application/json' }, credentials: 'same-origin' })
                     .catch(function () {});
             });
         }
