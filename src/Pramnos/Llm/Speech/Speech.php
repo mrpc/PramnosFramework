@@ -25,6 +25,9 @@ use Pramnos\Logs\Logger;
  * access token) or an `api_key` — given here, or kept encrypted in the setting
  * {@see settingKey()}; without either it is not set up.
  *
+ * `fallback` names a second provider, asked when the first fails or is not set up — Piper beside
+ * Google, say: a voice of one's own for when the cloud's is not there.
+ *
  * Every call writes one line to the `speech` log — characters, milliseconds, bytes — so what the
  * server is asked for can be measured before it is scaled.
  */
@@ -77,11 +80,12 @@ final class Speech
     }
 
     /**
-     * Read a text aloud.
+     * Read a text aloud — with `$provider`, or the one in use and, should it fail or not be set
+     * up, the application's `fallback` (`'speech' => ['fallback' => 'piper']`), once.
      *
      * @return array{ok: bool, status: int, audio?: string, type?: string, says?: string}
      *         `status` is the one to answer with: 501 with no server, 422 for a text that cannot
-     *         be read, 502 when the server fails
+     *         be read, 502 when the server fails — the first provider's, when the fallback fails too
      */
     public static function speak(string $text, ?string $provider = null): array
     {
@@ -89,6 +93,27 @@ final class Speech
         if ($text === '' || mb_strlen($text) > self::MAX_TEXT) {
             return ['ok' => false, 'status' => 422, 'says' => 'The text must be 1 to ' . self::MAX_TEXT . ' characters.'];
         }
+        $spoken = self::speakWith($text, $provider);
+        if ($spoken['ok'] || $provider !== null) {
+            return $spoken;
+        }
+        $section  = Llm::config('speech', []);
+        $fallback = is_array($section) ? (string) ($section['fallback'] ?? '') : '';
+        if ($fallback === '' || $fallback === (string) ($section['provider'] ?? 'piper')) {
+            return $spoken;
+        }
+        $second = self::speakWith($text, $fallback);
+
+        return $second['ok'] ? $second : $spoken;
+    }
+
+    /**
+     * Read a text aloud with one provider, and log the call.
+     *
+     * @return array{ok: bool, status: int, audio?: string, type?: string, says?: string}
+     */
+    private static function speakWith(string $text, ?string $provider): array
+    {
         $config = self::config($provider);
         if ($config === null) {
             return ['ok' => false, 'status' => 501, 'says' => 'Speech is not set up.'];

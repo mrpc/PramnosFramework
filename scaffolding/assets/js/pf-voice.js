@@ -355,8 +355,8 @@
      * With `options.server` — a function from a sentence to a Promise of its audio, a `Blob` or
      * the speech API's `{audio, type}` — read-aloud is the application's speech server's: the
      * text is read a sentence at a time, the next one fetched while the one before it plays, so
-     * the first is heard as soon as it alone is ready. Should the first fail (no server set up,
-     * the network), the browser's own voice reads the text instead.
+     * the first is heard as soon as it alone is ready. Should a sentence fail (no server set up,
+     * the network, a clip that will not play), the browser's own voice reads from it to the end.
      *
      * @param {{ server?: function(string): Promise<Blob|{audio: string, type: string}> }} [options]
      * @returns {object}
@@ -666,6 +666,8 @@
                         }
                         return window.URL.createObjectURL(got);
                     });
+                    // Fetched ahead: its failure is handled when its turn comes, not reported now.
+                    fetched[i].catch(function () {});
                 }
                 return fetched[i];
             }
@@ -711,7 +713,12 @@
                     var audio = new window.Audio(src);
                     currentAudio = audio;
                     audio.onended = function () { release(src); play(i + 1); };
-                    audio.onerror = function (err) { release(src); finished(err || new Error('audio')); };
+                    audio.onerror = function (err) {
+                        release(src);
+                        if (run === serverRun) {
+                            fallBack(i, err || new Error('audio'));
+                        }
+                    };
                     if (!started) {
                         started = true;
                         if (opts.onStart) {
@@ -723,14 +730,27 @@
                     if (run !== serverRun) {
                         return;
                     }
-                    if (i === 0 && hasSynthesis) {
-                        // No sentence was heard: the browser's own voice reads the text instead.
-                        serverRun++;
-                        speakWithBrowser(id, rawText, opts);
-                        return;
-                    }
-                    finished(err);
+                    fallBack(i, err);
                 });
+            }
+
+            /**
+             * Sentence `i` could not be had or played: the browser's own voice reads from it to
+             * the end — the whole text when nothing was heard yet. Without one, it stops there.
+             */
+            function fallBack(i, err) {
+                if (!hasSynthesis) {
+                    finished(err);
+                    return;
+                }
+                serverRun++;
+                var rest = {};
+                Object.keys(opts).forEach(function (key) { rest[key] = opts[key]; });
+                if (started) {
+                    // Started once already, with the first sentence.
+                    rest.onStart = null;
+                }
+                speakWithBrowser(id, i === 0 ? rawText : parts.slice(i).join(' '), rest);
             }
 
             speaking = true;

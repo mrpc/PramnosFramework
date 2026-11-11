@@ -409,3 +409,33 @@ test('stripMarkdownForSpeech never leaves two punctuation marks together', () =>
     assert.equal(said, 'Γεια σου! Πώς πάει η μέρα σου; Σήμερα έχεις: Ραντεβού στις 10:00. Γυμναστήριο, στις 18:00. Ώρα, Τι. 10, Γιατρός. Καλή συνέχεια.');
     assert.doesNotMatch(said, /[.!?;:,]\s*[.,;:]/, 'no mark followed by another');
 });
+
+/**
+ * A sentence that fails in the middle — the server gone after the first — does not end the
+ * reading: the browser's voice reads from it to the end, and onStart is not told twice.
+ */
+test('with a server, a sentence failing midway is read on by the browser\'s voice', async () => {
+    // Arrange
+    const { window } = page({ voices: [{ name: 'Microsoft Athina', lang: 'el-GR', voiceURI: 'athina' }] });
+    const played = [];
+    window.Audio = fakeAudio(played);
+    window.URL = { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} };
+    let calls = 0;
+    const voice = window.PfVoice.createVoiceState({
+        server: () => (++calls === 1 ? Promise.resolve({ audio: 'QQ==', type: 'audio/mpeg' }) : Promise.reject(new Error('502'))),
+    });
+    let starts = 0;
+
+    // Act
+    voice.speak(1, 'Η πρώτη πρόταση εδώ. Η δεύτερη πρόταση εδώ. Η τρίτη πρόταση εδώ.', { onStart: () => { starts++; } });
+    await settle();
+    played[0].onended();
+    await settle();
+
+    // Assert
+    assert.equal(played.length, 1, 'only the first came from the server');
+    const spoken = window.speechSynthesis.spoken;
+    assert.equal(spoken.length, 1, 'the browser took over');
+    assert.ok(!spoken[0].text.includes('πρώτη') && spoken[0].text.includes('δεύτερη') && spoken[0].text.includes('τρίτη'), spoken[0].text);
+    assert.equal(starts, 1, 'onStart once');
+});

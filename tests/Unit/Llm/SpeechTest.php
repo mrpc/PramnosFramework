@@ -226,6 +226,45 @@ final class SpeechTest extends LlmTestCase
         $this->assertSame([502, 'The speech server did not answer (400): Voice el-GR-Nope does not exist.'], [$refused['status'], $refused['says']]);
         $this->assertSame([502, 'The speech server did not answer: The service account is not set up.'], [$noToken['status'], $noToken['says']]);
     }
+
+    /**
+     * A provider that fails, or is not set up, is followed once by the application's `fallback`:
+     * Google refused, Piper answers, and both calls are logged. When the fallback fails too, the
+     * first provider's answer is the one returned; a provider asked for by name falls back on
+     * nothing.
+     */
+    public function testTheFallbackAnswersWhenTheFirstFails(): void
+    {
+        // Arrange — Google refuses everything; Piper answers
+        $this->configure(['speech' => ['provider' => 'google', 'fallback' => 'piper', 'providers' => [
+            'google' => ['api_key' => 'AIza'],
+            'piper'  => ['base_url' => 'http://piper:5000'],
+        ]]]);
+        $piperUp = true;
+        Http::fake(['*' => function (Http $request) use (&$piperUp): ClientResponse {
+            $this->sent[] = $request->url();
+            if (str_contains($request->url(), 'googleapis')) {
+                return ClientResponse::make(['error' => ['message' => 'Quota exceeded.']], 429);
+            }
+
+            return $piperUp ? ClientResponse::make('ID3', 200, ['content-type' => 'audio/mpeg']) : ClientResponse::make('down', 500, ['content-type' => 'text/plain']);
+        }]);
+
+        // Act
+        $rescued = Speech::speak('Καλημέρα');
+        $piperUp = false;
+        $bothDown = Speech::speak('Καλημέρα');
+        $named = Speech::speak('Καλημέρα', 'google');
+        rewind($this->log);
+        $logged = substr_count((string) stream_get_contents($this->log), '"provider":');
+
+        // Assert
+        $this->assertSame(['ok' => true, 'status' => 200, 'audio' => 'ID3', 'type' => 'audio/mpeg'], $rescued, 'Piper answered for Google');
+        $this->assertSame([502, 'The speech server did not answer (429): Quota exceeded.'], [$bothDown['status'], $bothDown['says']], 'the first provider\'s refusal');
+        $this->assertSame(502, $named['status']);
+        $this->assertCount(5, $this->sent, 'google, piper; google, piper; google alone when named');
+        $this->assertSame(5, $logged, 'every call logged, the fallback\'s too');
+    }
 }
 
 /** The framework's controller, with the request's body and refusal set by the test. */

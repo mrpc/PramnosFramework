@@ -106,6 +106,16 @@ is sent as the billed project (`x-goog-user-project`). Google's own error comes 
 message — a voice that does not exist, an option it refuses. Google bills by the character, which
 is what the `speech` log's `chars` counts.
 
+`fallback` names a second provider, asked once when the one in use fails or is not set up —
+Piper beside Google, a voice of one's own for when the cloud's is not there:
+
+```php
+'speech' => ['provider' => 'google', 'fallback' => 'piper', 'providers' => [...]],
+```
+
+Both calls are logged. When the fallback fails too, the first provider's answer is returned, and
+`Speech::speak($text, 'google')` — a provider asked for by name — falls back on nothing.
+
 A provider of the application's own is an entry with `transport`, a `Speech\Transport` class.
 Each call writes one line to the `speech` log: provider, voice, `chars`, `ms`, `bytes` and the
 server's `status` — enough to size the server from before scaling it. `Speech::speak($text)` reads

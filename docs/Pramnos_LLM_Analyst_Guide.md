@@ -246,8 +246,9 @@ shared by the mic and every answer's 🔊 button:
   `raw: true`) or the endpoint's `{audio, type}`. `speak()` then reads the text a sentence at a
   time (`PfVoice.splitSentences()`: after `.` `!` `?` `;` `·` `…`, pieces of 20 to 250
   characters), asking for the next sentence while one plays, so the first is heard as soon as it
-  alone is synthesised. `stopSpeech()` and barge-in silence it the same way; if the first
-  sentence fails — no server set up, the network — the browser's voice reads the text instead.
+  alone is synthesised. `stopSpeech()` and barge-in silence it the same way; if a sentence
+  fails — no server set up, the network, a clip that will not play — the browser's voice reads
+  from that sentence to the end, the whole text when none was heard yet.
   `hasServer` says which is in use. See the Screens guide, "Reading answers aloud", for the server.
 - **The chat pages read through it on their own.** Where a speech server is set up
   (`Speech::config()`), the conversations page and the analyst's draw
