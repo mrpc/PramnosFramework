@@ -429,6 +429,36 @@ class ChatController extends \Pramnos\Application\ApiCrudController
     }
 
     /**
+     * The assistant's diary (`Chat\Diary`), the current persona's: `GET {chat}/diary` →
+     * `{pages: [{artifact_id, day, unread}], unread}`, newest first; `GET {chat}/diary/{id}` →
+     * `{artifact_id, day, text}`, which marks it and the pages before it read. 404 for a page not
+     * the persona's; 501 where the application keeps no diary.
+     */
+    public function diary($id = null): array
+    {
+        if (($stop = $this->refusal('read')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        if ($scope === null || $scope->userId < 1) {
+            return self::error(401, 'This needs somebody signed in.');
+        }
+        if (!\Pramnos\Llm\Chat\Diary::on($scope)) {
+            return self::error(501, 'There is no diary here.');
+        }
+        $diary = new \Pramnos\Llm\Chat\Diary($scope);
+        $user  = new \Pramnos\User\User($scope->userId);
+        if ($id === null) {
+            $pages = $diary->pages($user);
+
+            return ['status' => 200, 'data' => ['pages' => $pages, 'unread' => count(array_filter($pages, static fn (array $p): bool => $p['unread']))]];
+        }
+        $page = $diary->read($user, (int) $id);
+
+        return $page === null ? self::error(404, 'There is no such page.') : ['status' => 200, 'data' => $page];
+    }
+
+    /**
      * The personas the person can talk to (`Chat\Personas`): `GET {chat}/personas` →
      * `{personas: [{key, name, gender, voice, size, default, chosen, avatar}], chosen}` — `avatar` its picture's HTML; empty where the
      * application has none.

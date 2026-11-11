@@ -828,6 +828,73 @@ class Conversations
      * Learn from the conversations that went quiet with something of the person's not yet learned
      * from — each as its owner. Run by `llm:routines`. Returns how many were read.
      */
+    /**
+     * The evening's diary pages ({@see Diary}): for each person and persona who talked today and
+     * whose evening has come, the day's page, written from the day's conversations — work ones
+     * left out — once. Returns how many were written.
+     */
+    public function writeDiaries(int $now, int $limit = 20): int
+    {
+        if (!Diary::on() || !Artifacts::available()) {
+            return 0;
+        }
+        $result = $this->table('assist.chat_conversations')->select(['organization_id', 'userid', 'space'])->distinct()
+            ->where('updated_at', '>=', CallLog::instant($now - 26 * 3600))->whereLike('space', 'chat%')
+            ->orderBy('userid')->limit(max(1, $limit) * 5)->get();
+        $written = 0;
+        while ($result && ($row = $result->fetch()) !== null && $written < $limit) {
+            $scope = new Scope((int) $row['userid'], $row['organization_id'] === null ? null : (int) $row['organization_id'], (string) $row['space']);
+            if ($scope->space !== Scope::CHAT) {
+                continue;
+            }
+            $zone  = new \DateTimeZone($this->assistant->timezone($scope));
+            $local = (new \DateTimeImmutable('@' . $now))->setTimezone($zone);
+            $day   = $local->format('Y-m-d');
+            $diary = new Diary($scope);
+            if ($local->format('H:i') < str_pad(Diary::at(), 5, '0', STR_PAD_LEFT) || $diary->page($day) !== null) {
+                continue;
+            }
+            $talk = $this->asTold($scope, (new \DateTimeImmutable($day . ' 00:00', $zone))->getTimestamp(), $now);
+            if ($talk === '') {
+                continue;
+            }
+            $name   = Personas::get((string) Personas::of($scope))['name'] ?? \Pramnos\Llm\Analyst\Analyst::name();
+            $answer = $this->client($scope)->askCheaply(Diary::prompt($name), [['role' => 'user', 'content' => $talk]]);
+            if (!empty($answer['ok']) && trim((string) ($answer['reply'] ?? '')) !== '' && is_array($diary->keep($day, (string) $answer['reply']))) {
+                $written++;
+            }
+        }
+
+        return $written;
+    }
+
+    /**
+     * A day's conversations of one scope, as a diary is written from them — the person's words and
+     * the assistant's, in order, work conversations left out — up to {@see Diary::READS}.
+     */
+    private function asTold(Scope $scope, int $from, int $until): string
+    {
+        $chat  = $this->as($scope);
+        $lines = [];
+        $size  = 0;
+        foreach ($chat->list(50) as $conversation) {
+            $row = (array) $chat->conversation((int) $conversation['conversation_id']);
+            if (Work::in(self::tagsOf($row))) {
+                continue;
+            }
+            $messages = $this->table('assist.chat_messages')->select(['role', 'content'])
+                ->where('conversation_id', (int) $conversation['conversation_id'])
+                ->where('created_at', '>=', CallLog::instant($from))->where('created_at', '<=', CallLog::instant($until))->orderBy('message_id')->get();
+            while ($messages && ($m = $messages->fetch()) !== null && $size < Diary::READS) {
+                $line    = ($m['role'] === 'user' ? 'Them: ' : 'You: ') . mb_substr(trim((string) $m['content']), 0, 600);
+                $lines[] = $line;
+                $size   += mb_strlen($line);
+            }
+        }
+
+        return implode("\n", $lines);
+    }
+
     public function learnQuiet(int $now, int $limit = 20): int
     {
         if (!Memory::learns() || !$this->tracks()) {
@@ -1097,6 +1164,16 @@ class Conversations
             $lines[] = 'What this organisation keeps about its shared work, for everybody in it (id, kind, as of):';
             foreach ($shared as $one) {
                 $lines[] = '- [' . $one['memory_id'] . ', ' . $one['kind'] . ', ' . substr($one['created_at'], 0, 10) . '] ' . $one['content'];
+            }
+        }
+
+        // The assistant's own diary, its latest page (Diary): what it wrote, it remembers.
+        if (Diary::on($this->scope) && !$turn->shared()) {
+            $today  = (new \DateTimeImmutable('now', new \DateTimeZone($this->assistant->timezone($this->scope))))->format('Y-m-d');
+            $recall = (new Diary($this->scope))->recall($today);
+            if ($recall !== '') {
+                $lines[] = '';
+                $lines[] = $recall;
             }
         }
 

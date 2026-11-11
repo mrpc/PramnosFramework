@@ -158,6 +158,27 @@ down, and the morning's plan unpinned.
 
 Both templates are offered beside the application's own `routine_templates`, which win by key.
 
+### The assistant's own diary
+
+Beside the person's journal, the assistant can keep a diary of its own (`Chat\Diary`): a page each
+evening about the day it spent with the person, from its own point of view.
+
+```php
+'llm' => ['chat' => ['journal' => ['diary' => true]]],     // or ['diary' => ['at' => '22:00']]
+```
+
+- **A journal page of a second kind.** It is a text artifact titled `Diary Y-m-d`, so it is kept,
+  found, pinned and exported as any artifact is. It belongs to the persona, not the person: each
+  character keeps its own diary.
+- **Written in the evening by `llm:routines`**, from the conversations of the day once `at` (21:30
+  by default) has come on the person's clock, with the cheapest model that will do. A page is
+  written only for a day with talk, never from a work conversation, and once.
+- **Remembered.** The latest page, if it is from the last two days, is in what the assistant knows
+  when it answers, so it can say "I was thinking about what you told me yesterday."
+- **Read by the person** through `GET {chat}/diary`, which gives `{pages: [{artifact_id, day,
+  unread}], unread}`, and `GET {chat}/diary/{id}`, which gives `{artifact_id, day, text}` and marks
+  the page and those before it as read. Each persona's mark is kept with the account apart.
+
 ### Reaching out on its own, with manners
 
 An assistant reaches out in two ways: a [scheduled question](Pramnos_LLM_Scheduled_Tasks_Guide.md#scheduled-tasks-questions-reminders-reports)

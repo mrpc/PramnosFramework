@@ -44,6 +44,12 @@ class LlmRoutines extends Command
             $output->writeln('Reminded of ' . $reminded . ' appointment' . ($reminded === 1 ? '' : 's') . '.');
         }
 
+        // The assistant's diary, an evening page for each person it talked with today (Chat\Diary).
+        $diaries = $routines->conversations()->writeDiaries(time());
+        if ($diaries > 0) {
+            $output->writeln('Wrote ' . $diaries . ' diary page' . ($diaries === 1 ? '' : 's') . '.');
+        }
+
         $learned = $routines->conversations()->learnQuiet(time());
         if ($learned > 0) {
             $output->writeln('Learned from ' . $learned . ' quiet conversation' . ($learned === 1 ? '' : 's') . '.');
