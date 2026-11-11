@@ -15,8 +15,9 @@ use Pramnos\Llm\CallLog;
  * 'llm' => ['chat' => ['photos' => ['disk' => null, 'max' => 500, 'bytes' => 8388608]]],   // or true
  * ```
  *
- * - **Kept out of reach**: the bytes on a storage disk ({@see \Pramnos\Storage\Storage}, the
- *   default — outside the web root — or `disk`), read back only through an address signed for one
+ * - **Kept out of reach**: the bytes in a private place of their own outside the web root
+ *   ({@see privateRoot()}), or on the storage disk the application names (`disk`) — never the
+ *   default disk, which is the web root where nothing is configured — read back only through an address signed for one
  *   photo and one size, which lasts {@see TTL} seconds — an `<img>` sends no token.
  * - **Cleaned on the way in**: read as a picture or refused, turned upright, written again as
  *   JPEG — every piece of metadata, the place it was taken among it, left behind — with a
@@ -397,11 +398,22 @@ final class Photos
         return $at !== false && $at->format('Y-m-d') === $day ? $day : null;
     }
 
+    /**
+     * Where the files go: the disk the application names, or a private one of the photos' own,
+     * outside the web root ({@see privateRoot()}) — never the default disk, which with no storage
+     * configured is the web root itself, where a photo would be anybody's without a signature.
+     */
     private static function disk(): \Pramnos\Storage\StorageInterface
     {
         $name = (string) (self::config()['disk'] ?? '');
 
-        return $name !== '' ? \Pramnos\Storage\Storage::disk($name) : \Pramnos\Storage\Storage::getManager()->defaultDisk();
+        return $name !== '' ? \Pramnos\Storage\Storage::disk($name) : new \Pramnos\Storage\Drivers\LocalDriver(['root' => self::privateRoot()]);
+    }
+
+    /** The photos' own place, beside the application and outside its web root: `ROOT/var/chat-photos`. */
+    public static function privateRoot(): string
+    {
+        return (defined('ROOT') ? \ROOT : (string) getcwd()) . DIRECTORY_SEPARATOR . 'var' . DIRECTORY_SEPARATOR . 'chat-photos';
     }
 
     private static function limit(string $key, int $default): int

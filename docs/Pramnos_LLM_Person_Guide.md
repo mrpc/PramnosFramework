@@ -278,8 +278,9 @@ conversation and a day. The model never sees them: it knows a photo is there and
   converted first, where Imagick is there). It is turned upright and written again as JPEG, at most
   2560 on its longest side, so every piece of metadata, the place it was taken among it, stays
   behind. A thumbnail of 480 is kept beside it.
-- **Kept out of reach.** The files go on a storage disk: the default one, outside the web root, or
-  `disk`. They are read only through an address signed for one photo and one size, which lasts an
+- **Kept out of reach.** The files go in a private place of their own, `ROOT/var/chat-photos`,
+  outside the web root, or on the storage disk named by `disk`. They never go on the default
+  disk, which with no storage configured is the web root itself. They are read only through an address signed for one photo and one size, which lasts an
   hour, because an `<img>` sends no token: `{chat}/photos/{id}/file?size=full|thumb&e=…&s=…`. A
   wrong or old signature reads nothing.
 - **The API:**

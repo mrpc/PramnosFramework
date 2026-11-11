@@ -40,7 +40,7 @@ class PhotosTest extends LlmTestCase
             $this->markTestSkipped('GD is not installed');
         }
         $this->setting('llm_openai_api_key', 'sk-test');
-        $this->configure(['chat' => ['photos' => true, 'memory' => ['learn' => false],
+        $this->configure(['chat' => ['photos' => ['disk' => 'local'], 'memory' => ['learn' => false],
             'personas' => ['naya' => ['name' => 'Naya', 'default' => true], 'tesla' => ['name' => 'Tesla']]]]);
         $this->root = sys_get_temp_dir() . '/pf-photos-' . bin2hex(random_bytes(4));
         \Pramnos\Storage\Storage::init(['default' => 'local', 'disks' => ['local' => ['driver' => 'local', 'root' => $this->root]]]);
@@ -134,9 +134,9 @@ class PhotosTest extends LlmTestCase
         ApiFixture::$scope = new Scope($this->person, null, Scope::CHAT, 'tesla');
         $hers    = $this->call('GET', '/chat/photos');
         ApiFixture::$scope = new Scope($this->person);
-        $this->configure(['chat' => ['photos' => ['max' => 1]]]);
+        $this->configure(['chat' => ['photos' => ['disk' => 'local', 'max' => 1]]]);
         $tooMany = $this->call('POST', '/chat/photos', ['data' => base64_encode(self::jpeg(10, 10, 'x'))]);
-        $this->configure(['chat' => ['photos' => ['bytes' => 10]]]);
+        $this->configure(['chat' => ['photos' => ['disk' => 'local', 'bytes' => 10]]]);
         $tooBig  = $this->call('POST', '/chat/photos', ['data' => base64_encode(self::jpeg(10, 10, 'x'))]);
         $files   = glob($this->root . '/chat-photos/' . $this->person . '/*') ?: [];
         $onDisk  = implode('', array_map(static fn (string $f): string => (string) file_get_contents($f), $files));
@@ -195,5 +195,28 @@ class PhotosTest extends LlmTestCase
         $this->assertSame(2, $gone);
         $this->assertSame([], glob($this->root . '/chat-photos/' . $this->person . '/*') ?: [], 'every persona\'s');
         $this->assertTrue(\Pramnos\Security\PersonalDataRegistry::isPersonalTable('assist.chat_artifacts'));
+    }
+
+    /**
+     * With no disk named, photos are kept in a place of their own outside the web root — never the
+     * default disk, which with no storage configured is `www/`, where a photo would be anybody's
+     * without a signature.
+     */
+    public function testWithNoDiskNamedThePhotosAreNotUnderTheWebRoot(): void
+    {
+        // Arrange
+        $this->configure(['chat' => ['photos' => true]]);
+        \Pramnos\Storage\Storage::reset();
+        $web     = ROOT . DIRECTORY_SEPARATOR . 'www';
+        $disk    = (new \ReflectionMethod(Photos::class, 'disk'))->invoke(null);
+        $default = \Pramnos\Storage\Storage::getManager()->defaultDisk();
+
+        // Act
+        $root = (new \ReflectionProperty($disk, 'root'))->getValue($disk);
+
+        // Assert
+        $this->assertSame(Photos::privateRoot(), $root);
+        $this->assertStringStartsNotWith($web, $root, 'not under the web root');
+        $this->assertNotSame($default, $disk, 'never the default disk');
     }
 }
