@@ -94,7 +94,7 @@ final class Report
                     'total'     => $breakdown !== '' && (bool) ($row['total'] ?? false),
                 ];
             }
-            $sections[] = [
+            $sections[] = self::measuresOf($section) + [
                 'title' => trim((string) ($section['title'] ?? '')),
                 'chart' => in_array($section['chart'] ?? null, ['line', 'bar'], true) ? (string) $section['chart'] : null,
                 'total' => (bool) ($section['total'] ?? false),
@@ -120,6 +120,67 @@ final class Report
         }
 
         return new self($clean);
+    }
+
+    /** How a measure's value may be written. */
+    public const FORMATS = ['number', 'int', 'percent', 'money', 'share'];
+
+    /**
+     * A section that is a table of measures, as kept — or nothing for one that is not: `by`, the
+     * dimension whose values are its rows (`values` to name them; every listed value otherwise),
+     * `filters` for the whole section, and `measures`, its columns, each a metric or a formula
+     * with filters of its own, how it is written (`format`, `decimals`, `of` for a share of
+     * another measure) and a `scale` that names its value in words.
+     *
+     * ```php
+     * ['title' => 'Supply and demand', 'by' => 'pillar', 'filters' => ['market' => 'gr'], 'total' => true, 'measures' => [
+     *     ['label' => 'Supply', 'metric' => 'supply.count'],
+     *     ['label' => 'Demand', 'metric' => 'demand.count'],
+     *     ['label' => 'Ratio', 'formula' => 'd / s', 'operands' => ['d' => ['metric' => 'demand.count'], 's' => ['metric' => 'supply.count']], 'decimals' => 2],
+     *     ['label' => 'Verdict', 'formula' => 'd / s', 'operands' => […], 'scale' => [[0.5, 'Low'], [1.5, 'Balanced'], [INF, 'High']]],
+     *     ['label' => 'Answered', 'metric' => 'answers.count', 'format' => 'share', 'of' => 'Supply'],
+     * ]]
+     * ```
+     *
+     * @param array<string, mixed> $section
+     * @return array<string, mixed>
+     */
+    private static function measuresOf(array $section): array
+    {
+        $by = trim((string) ($section['by'] ?? ''));
+        if ($by === '' || !is_array($section['measures'] ?? null) || $section['measures'] === []) {
+            return [];
+        }
+        $measures = [];
+        foreach ($section['measures'] as $given) {
+            $given   = (array) $given;
+            $formula = self::formula($given);
+            $metric  = trim((string) ($given['metric'] ?? ''));
+            if ($formula === null && $metric === '') {
+                continue;
+            }
+            $scale = [];
+            foreach ((array) ($given['scale'] ?? []) as $step) {
+                if (is_array($step) && count($step) >= 2 && is_numeric($step[0])) {
+                    $scale[] = [(float) $step[0], (string) $step[1]];
+                }
+            }
+            usort($scale, static fn (array $a, array $b): int => $a[0] <=> $b[0]);
+            $measures[] = [
+                'label'    => trim((string) ($given['label'] ?? '')) !== '' ? trim((string) $given['label']) : ($formula['label'] ?? $metric),
+                'metric'   => $formula['metric'] ?? $metric,
+                'filters'  => self::filters($given['filters'] ?? []),
+                'formula'  => $formula['formula'] ?? null,
+                'operands' => $formula['operands'] ?? null,
+                'format'   => in_array($given['format'] ?? null, self::FORMATS, true) ? (string) $given['format'] : 'number',
+                'decimals' => isset($given['decimals']) ? max(0, min(6, (int) $given['decimals'])) : null,
+                'of'       => isset($given['of']) ? (string) $given['of'] : null,
+                'scale'    => $scale,
+            ];
+        }
+
+        return $measures === [] ? [] : ['by' => $by, 'values' => array_values(array_map('strval', (array) ($section['values'] ?? []))),
+            'filters' => self::filters($section['filters'] ?? []), 'measures' => $measures];
     }
 
     /**
@@ -180,7 +241,7 @@ final class Report
         $found = [];
         $walk  = static function (array $node) use (&$walk, &$found): void {
             foreach ($node as $key => $value) {
-                if (($key === 'breakdown' || $key === 'dimension') && is_string($value) && $value !== '') {
+                if (($key === 'breakdown' || $key === 'dimension' || $key === 'by') && is_string($value) && $value !== '') {
                     $found[$value] = true;
                 } elseif ($key === 'filters' && is_array($value)) {
                     $found += array_fill_keys(array_map('strval', array_keys($value)), true);
@@ -414,6 +475,10 @@ final class Report
 
         $sections = [];
         foreach ($this->definition['sections'] as $section) {
+            if (isset($section['measures'])) {
+                $sections[] = $this->buildMeasures($section, $visible, $anchor, $grain);
+                continue;
+            }
             $rows = [];
             foreach ($section['rows'] as $row) {
                 if (!isset($visible[$row['metric']])) {
@@ -533,6 +598,106 @@ final class Report
         }
 
         return $out;
+    }
+
+    /**
+     * A table of measures: a row for each value of the section's dimension — then the total, when
+     * asked — and a column for each measure, read in the report's period with the section's
+     * filters, the row's value and the measure's own; written as each measure says.
+     *
+     * @param array<string, mixed>  $section
+     * @param array<string, Metric> $visible
+     * @return array<string, mixed>
+     */
+    private function buildMeasures(array $section, array $visible, Window $anchor, string $grain): array
+    {
+        $dimension = Metrics::dimensionOf($section['by']);
+        $values    = $section['values'] !== [] ? $section['values'] : array_map('strval', array_keys($dimension->all()));
+        $keys      = array_map(static fn (string $v): array => [$v, $dimension->labelOf($v)], $values);
+        if ($section['total']) {
+            $keys[] = [null, function_exists('t') ? (string) t('Total') : 'Total'];
+        }
+        $rows = [];
+        foreach ($keys as [$value, $label]) {
+            $base  = ($value === null ? [] : [$section['by'] => $value]) + $section['filters'];
+            $cells = [];
+            foreach ($section['measures'] as $measure) {
+                $cells[$measure['label']] = $this->measureCell($measure, $base, $visible, $anchor, $grain);
+            }
+            foreach ($section['measures'] as $measure) {
+                $cell = &$cells[$measure['label']];
+                $cell['text'] = $cell['error'] !== null ? null : self::formatMeasure($measure, $cell['value'], $cell['currency'] ?? null,
+                    $measure['of'] !== null ? ($cells[$measure['of']]['value'] ?? null) : null);
+                unset($cell);
+            }
+            $rows[] = ['label' => $label, 'unit' => '', 'currency' => null, 'subtotal' => $value === null, 'cells' => array_values($cells), 'other' => null,
+                'change' => null, 'error' => null, 'part' => null, 'headed' => false];
+        }
+
+        return ['title' => $section['title'], 'chart' => null, 'rows' => $rows, 'total' => null, 'columns' => array_column($section['measures'], 'label')];
+    }
+
+    /**
+     * One measure's cell for one row: its metric read with the row's filters and its own, or its
+     * formula worked out of operands read so.
+     *
+     * @param array<string, mixed>  $measure
+     * @param array<string, mixed>  $base
+     * @param array<string, Metric> $visible
+     * @return array{value: ?float, currency: ?string, link: ?array<string, mixed>, error: ?string}
+     */
+    private function measureCell(array $measure, array $base, array $visible, Window $anchor, string $grain): array
+    {
+        try {
+            if ($measure['formula'] !== null) {
+                $values = [];
+                foreach ($measure['operands'] as $name => $operand) {
+                    if (!isset($visible[$operand['metric']])) {
+                        throw new \LogicException(sprintf(t('%s is not yours to read.'), $operand['metric']));
+                    }
+                    $values[$name] = $this->read($operand['metric'])->grain($grain)->at($anchor->key())->where($operand['filters'] + $measure['filters'] + $base)->value();
+                }
+
+                return ['value' => Metric::derived('report.formula', $measure['formula'])->evaluate($values), 'currency' => null, 'link' => null, 'error' => null];
+            }
+            if (!isset($visible[$measure['metric']])) {
+                return ['value' => null, 'currency' => null, 'link' => null, 'error' => sprintf(t('%s is not yours to read.'), $measure['metric'])];
+            }
+            $filters = $measure['filters'] + $base;
+            $query   = $this->read($measure['metric'])->grain($grain)->at($anchor->key())->where($filters);
+            $metric  = $visible[$measure['metric']];
+
+            return ['value' => $query->value(), 'currency' => $query->currency(), 'error' => null,
+                'link' => $metric->hasRows() ? ['metric' => $measure['metric'], 'grain' => $grain, 'period' => $anchor->key(), 'filters' => $filters,
+                    'url' => $metric->drillUrl($anchor, $filters)] : null];
+        } catch (\InvalidArgumentException|\LogicException $e) {
+            return ['value' => null, 'currency' => null, 'link' => null, 'error' => $e->getMessage()];
+        }
+    }
+
+    /** A measure's value as its format says — `—` for none, its scale's word where it has one. */
+    public static function formatMeasure(array $measure, ?float $value, ?string $currency = null, ?float $of = null): string
+    {
+        if ($value === null) {
+            return '—';
+        }
+        foreach ((array) ($measure['scale'] ?? []) as [$upTo, $word]) {
+            if ($value <= $upTo) {
+                return $word;
+            }
+        }
+        if (($measure['scale'] ?? []) !== []) {
+            return (string) end($measure['scale'])[1];
+        }
+        $decimals = $measure['decimals'] ?? null;
+
+        return match ($measure['format'] ?? 'number') {
+            'int'     => \Pramnos\General\NumberFormat::number($value, 0),
+            'percent' => \Pramnos\General\NumberFormat::number($value, $decimals ?? 1) . '%',
+            'money'   => $currency !== null ? \Pramnos\General\NumberFormat::money($value, $currency, $decimals ?? 2) : \Pramnos\General\NumberFormat::number($value, $decimals ?? 2),
+            'share'   => \Pramnos\General\NumberFormat::number($value, 0) . ($of !== null && $of != 0.0 ? ' (' . \Pramnos\General\NumberFormat::number(100 * $value / $of, $decimals ?? 0) . '%)' : ''),
+            default   => \Pramnos\General\NumberFormat::trimmed($value, $decimals ?? 2),
+        };
     }
 
     /**
@@ -676,8 +841,21 @@ final class Report
         if ($table['compare'] !== null) {
             $head .= $col . $e($table['compare']['against']) . '</th>' . $col . $e($t('Change')) . '</th>';
         }
-        $html = '';
+        $html     = '';
+        $ownHead  = static function (array $labels) use ($col, $e): string {
+            $head = '<th scope="col"></th>';
+            foreach ($labels as $label) {
+                $head .= $col . $e($label) . '</th>';
+            }
+
+            return $head;
+        };
+        $reportHead = $head;
+        $reportSpan = $span;
         foreach ($table['sections'] as $section) {
+            // A table of measures has columns of its own, and no comparison.
+            $head = isset($section['columns']) ? $ownHead($section['columns']) : $reportHead;
+            $span = isset($section['columns']) ? count($section['columns']) : $reportSpan;
             if ($section['title'] !== '') {
                 $html .= '<h3 class="pf-report-section">' . $e($section['title']) . '</h3>';
             }
@@ -712,7 +890,7 @@ final class Report
                         $body .= '<td class="pf-muted" style="text-align:right" title="' . $e($cell['error']) . '">—</td>';
                         continue;
                     }
-                    $text = $e(self::number($cell['value'], $row['unit'], $cell['currency'] ?? null));
+                    $text = $e(isset($cell['text']) ? (string) $cell['text'] : self::number($cell['value'], $row['unit'], $cell['currency'] ?? null));
                     if ($rowsUrl !== null && $cell['link'] !== null && $cell['value'] !== null) {
                         // The application's own list where the metric has one, else the framework's records.
                         $query = http_build_query(['metric' => $cell['link']['metric'], 'grain' => $cell['link']['grain'], 'period' => $cell['link']['period'], 'f' => $cell['link']['filters']]);
@@ -721,7 +899,7 @@ final class Report
                     }
                     $body .= $td . $text . '</td>';
                 }
-                if ($table['compare'] !== null) {
+                if ($table['compare'] !== null && !isset($section['columns'])) {
                     $body .= $td . $e(self::number($row['other'], $row['unit'], $row['currency'])) . '</td>' . $td . $e($row['change'] === null ? '—' : ($row['change'] >= 0 ? '+' : '') . \Pramnos\General\NumberFormat::number($row['change'] * 100, 1) . '%') . '</td>';
                 }
                 $body .= '</tr>';
@@ -755,6 +933,10 @@ final class Report
         }
         fputcsv($out, $head, ',', '"', '');
         foreach ($table['sections'] as $section) {
+            if (isset($section['columns'])) {
+                // A table of measures: its own columns, headed again.
+                fputcsv($out, array_merge(['section', 'row'], $section['columns']), ',', '"', '');
+            }
             foreach ($section['rows'] as $row) {
                 // An amount's currency beside its label: the cells stay plain numbers, to add up.
                 $line = [$section['title'], $row['label'] . (($row['currency'] ?? null) !== null ? ' (' . $row['currency'] . ')' : '')];
@@ -764,7 +946,7 @@ final class Report
                     foreach ($row['cells'] as $cell) {
                         $line[] = $cell['value'] ?? '';
                     }
-                    if ($table['compare'] !== null) {
+                    if ($table['compare'] !== null && !isset($section['columns'])) {
                         $line[] = $row['other'] ?? '';
                         $line[] = $row['change'] === null ? '' : round($row['change'], 4);
                     }

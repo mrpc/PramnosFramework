@@ -825,6 +825,52 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * A table of measures (FW-473): a row for each value of a dimension and the total, a column
+     * for each measure — a metric with filters of its own, a formula, a share «n (x%)» of another
+     * measure, a scale in words — on the report's page, its CSV, and each metric's cell linked to
+     * its records.
+     */
+    public function testATableOfMeasures(): void
+    {
+        // Arrange
+        $section = ['title' => 'Customers', 'by' => 'region', 'values' => ['north', 'south'], 'total' => true, 'measures' => [
+            ['label' => 'Sales', 'metric' => 'test.sales', 'format' => 'int'],
+            ['label' => 'New', 'metric' => 'test.sales', 'filters' => ['customer' => 'new'], 'format' => 'share', 'of' => 'Sales'],
+            ['label' => 'New share', 'formula' => '100 * n / t', 'format' => 'percent', 'decimals' => 0,
+                'operands' => ['n' => ['metric' => 'test.sales', 'filters' => ['customer' => 'new']], 't' => ['metric' => 'test.sales']]],
+            ['label' => 'Verdict', 'formula' => 'n / t', 'scale' => [[0.7, 'Some'], [1, 'All']],
+                'operands' => ['n' => ['metric' => 'test.sales', 'filters' => ['customer' => 'new']], 't' => ['metric' => 'test.sales']]],
+        ]];
+        $report = Report::fromArray(['sections' => [$section]]);
+        $id     = (new Reports())->save(self::reader(), ['name' => 'Test measures', 'sections' => [$section]]);
+        $entry  = (new Reports())->find((string) $id, self::reader());
+
+        // Act
+        $built = $report->build('2026-09-10', self::reader());
+        try {
+            $html = \Pramnos\Metrics\ReportBoard::html($entry, '2026-09-10', self::reader(), '/rows', false);
+        } finally {
+            \Pramnos\Metrics\ReportBoard::leave();
+        }
+        $csv = \Pramnos\Metrics\ReportBoard::csv($entry, '2026-09-10', self::reader());
+        (new Reports())->delete($id, self::reader(99, 9), true);
+
+        // Assert
+        $rows = array_column($built['sections'][0]['rows'], null, 'label');
+        $text = static fn (array $row): array => array_column($row['cells'], 'text');
+        $this->assertSame(['Sales', 'New', 'New share', 'Verdict'], $built['sections'][0]['columns']);
+        $this->assertSame(['5', '3 (60%)', '60%', 'Some'], $text($rows['North']));
+        $this->assertSame(['1', '1 (100%)', '100%', 'All'], $text($rows['South']));
+        $this->assertSame(['6', '4 (67%)', '67%', 'Some'], $text($rows['Total']), 'the total: every value');
+        $this->assertTrue($rows['Total']['subtotal']);
+        $this->assertNotNull($rows['North']['cells'][0]['link'], 'a metric\'s cell opens its records');
+        $this->assertStringContainsString('<th scope="col" style="text-align:right">New share</th>', $html, 'its own columns on the page');
+        $this->assertStringContainsString('3 (60%)', $html);
+        $this->assertStringContainsString("section,row,Sales,New,\"New share\",Verdict\n", $csv, 'and in the CSV');
+        $this->assertContains('region', $report->dimensions(), 'its dimension offered as a filter');
+    }
+
+    /**
      * A formula row over filtered metrics (FW-473): each operand read with its own filters and the
      * column's, the formula worked out per column — never added into the section's total — and
      * a formula that names an operand it is not given refused.

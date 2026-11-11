@@ -747,6 +747,33 @@ A row with a `formula` works a number out of other metrics, each read with filte
 - **Comparing:** where the report compares, the formula is worked out for the other period the
   same way.
 
+### Tables of measures
+
+A section can be a table of measures instead of rows across the report's columns: a row for each
+value of a dimension, and a column for each measure.
+
+```php
+['title' => 'Supply and demand', 'by' => 'pillar', 'filters' => ['market' => 'gr'], 'total' => true, 'measures' => [
+    ['label' => 'Supply',   'metric' => 'supply.count', 'format' => 'int'],
+    ['label' => 'Demand',   'metric' => 'demand.count', 'format' => 'int'],
+    ['label' => 'Ratio',    'formula' => 'd / s', 'decimals' => 2, 'operands' => ['d' => ['metric' => 'demand.count'], 's' => ['metric' => 'supply.count']]],
+    ['label' => 'Verdict',  'formula' => 'd / s', 'scale' => [[0.5, 'Low'], [1.5, 'Balanced'], [INF, 'High']], 'operands' => […]],
+    ['label' => 'Answered', 'metric' => 'answers.count', 'format' => 'share', 'of' => 'Supply'],
+]],
+```
+
+- **Rows:** the values of `by`, the ones in `values` or every one the dimension lists, then the
+  total with `total`.
+- **Columns:** each measure is a metric, or a formula as a formula row is, read in the report's
+  period with the section's `filters`, the row's value and its own filters. A metric's cell links
+  to its records.
+- **How a value is written:** `format` is `number`, `int`, `percent`, `money` (in the metric's
+  currency) or `share`, which writes «n (x%)» of the measure named by `of`. `decimals` sets the
+  decimals. A `scale` writes a word instead: the first step whose bound is at or above the value.
+- **Filters per section:** `filters` lets the same table appear once for each market. The
+  board's variables narrow it too.
+- **Where it shows:** the page, the mail and the CSV, where it is headed by its own columns.
+
 ### What each reader sees
 
 - **Rows:** a row reads only a metric its reader may see. The others are left out, and the

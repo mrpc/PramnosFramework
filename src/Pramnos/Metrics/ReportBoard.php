@@ -170,7 +170,7 @@ final class ReportBoard
                     'chart'  => $section['chart'],
                 ]];
             }
-            $cards[] = ['id' => 'report.table~t' . $i, 'size' => Widget::FULL, 'settings' => [
+            $cards[] = ['id' => 'report.table~t' . $i, 'size' => Widget::FULL, 'settings' => array_intersect_key($section, array_flip(['by', 'filters', 'measures'])) + (isset($section['measures']) ? ['by_values' => $section['values']] : []) + [
                 'rows'  => array_map(static fn (array $row): array => ['label' => $row['label'], 'metric' => $row['metric'], 'filters' => $row['filters'], 'breakdown' => (string) $row['breakdown'], 'total' => $row['total']]
                     + array_intersect_key($row, array_flip(['formula', 'operands', 'unit'])), $section['rows']),
                 'total' => $section['total'] ? '1' : '',

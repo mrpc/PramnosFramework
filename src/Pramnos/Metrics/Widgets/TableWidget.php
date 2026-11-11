@@ -68,6 +68,12 @@ class TableWidget extends ReportWidget
                 'offset'  => -abs((int) ($c['offset'] ?? 0)),
             ], Report::MAX_COLUMNS)],
             'total'        => ['label' => 'Total row', 'values' => ['' => Figures::words('No'), '1' => Figures::words('Yes')]],
+            // A table of measures, as a report's definition sets it (Report::measuresOf()): kept,
+            // never drawn in the card's form — `when` a setting no form has.
+            'by'           => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?string => is_string($v) && preg_match('/^[a-z][a-z0-9_]*$/', $v) === 1 ? $v : null],
+            'by_values'    => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?array => is_array($v) ? array_values(array_map('strval', array_filter($v, 'is_scalar'))) : null],
+            'measures'     => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?array => is_array($v) && $v !== [] ? array_values(array_filter($v, 'is_array')) : null],
+            'filters'      => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?array => is_array($v) ? self::cleanFilters($v) : null],
         ];
     }
 
@@ -161,8 +167,9 @@ class TableWidget extends ReportWidget
     /** The rows' report: one section of this card's rows, in the report's grain and comparison. */
     protected function built(array $columns, ?string $chart = null, ?string $at = null): ?array
     {
-        $rows = (array) ($this->setting('rows') ?? []);
-        if ($rows === []) {
+        $rows     = (array) ($this->setting('rows') ?? []);
+        $measures = (array) ($this->setting('measures') ?? []);
+        if ($rows === [] && $measures === []) {
             return null;
         }
         $report = $this->report();
@@ -171,10 +178,14 @@ class TableWidget extends ReportWidget
             'grain'    => $report['grain'],
             'compare'  => $chart === null ? $report['compare'] : null,
             'columns'  => $columns,
-            'sections' => [['title' => '', 'chart' => $chart, 'total' => (string) $this->setting('total') === '1', 'rows' => array_map(
+            'sections' => [['title' => '', 'chart' => $chart, 'total' => (string) $this->setting('total') === '1' || $this->setting('total') === true, 'rows' => array_map(
                 fn (array $row): array => ['filters' => $this->narrowed((array) ($row['filters'] ?? []))] + $row + ['breakdown' => ($row['breakdown'] ?? '') !== '' ? $row['breakdown'] : null],
                 $rows,
-            )]],
+            )] + ($measures === [] ? [] : [
+                // A table of measures: the board's variables narrow the whole section.
+                'by' => $this->setting('by'), 'values' => (array) ($this->setting('by_values') ?? []), 'measures' => $measures,
+                'filters' => $this->narrowed((array) ($this->setting('filters') ?? [])),
+            ])],
         ]);
         if (($report['tenant'] ?? null) !== null) {
             $built->forTenant((int) $report['tenant']);
