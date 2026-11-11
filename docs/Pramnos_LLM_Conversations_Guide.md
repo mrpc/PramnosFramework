@@ -357,6 +357,20 @@ today?"), when the application lets them (`Chat\Work`):
   conversation, and `doing: {tool, mode: "work"}` while a work tool runs, both on the poll and on
   the stream.
 
+## After every answer
+
+Every answer, in every space, is heard after it is kept, for moderation, analytics, or an alert
+of the application's:
+
+```php
+'llm' => ['chat' => ['after' => fn (Scope $scope, string $question, string $answer, int $conversationId) => …]],
+// or a listener: Event::listen('llm.chat.answered', fn (Scope $scope, string $q, string $a, int $id) => …);
+```
+
+The hook and the `llm.chat.answered` event each run on their own. What fails in one is logged,
+and stops neither the other nor the answer. `$scope` says whose answer it was, its persona and
+partition among it.
+
 ## Who is speaking on a shared account
 
 A family shares one account, and the question can say who is speaking: `POST {chat}` with

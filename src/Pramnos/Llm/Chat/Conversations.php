@@ -728,6 +728,7 @@ class Conversations
             $this->scope->apply($this->table('assist.chat_conversations'))->where('conversation_id', $conversationId)->update(['ended_at' => $stamp]);
         }
         $message['artifacts'] = $artifacts->link($conversationId, (int) $message['message_id'], $turn->tags);
+        $this->answered($asked, (string) $message['content'], $conversationId);
 
         // What the person stated, kept — once several of their messages have gathered. An answer
         // others read, or a scheduled run, is nothing of the person's to learn from.
@@ -1683,6 +1684,30 @@ class Conversations
             'parameters'  => ['type' => 'object', 'properties' => ['skill' => ['type' => 'string', 'enum' => $open]], 'required' => ['skill']],
             'run'         => static fn (array $a): string => in_array((string) ($a['skill'] ?? ''), $open, true) ? 'Turned off ' . $a['skill'] . '.' : 'Error: that skill is not on.',
         ]]);
+    }
+
+    /**
+     * After every answer, in every space: the application's `chat.after` hook —
+     * `fn (Scope $scope, string $question, string $answer, int $conversationId): void` — and the
+     * `llm.chat.answered` event with the same, for moderation, analytics, alerts. What fails in
+     * them is logged and never breaks the answer.
+     */
+    private function answered(string $question, string $answer, int $conversationId): void
+    {
+        if ($this->scope === null) {
+            return;
+        }
+        $hook = ((array) \Pramnos\Llm\Llm::config('chat', []))['after'] ?? null;
+        // Each on its own: one that fails stops neither the other nor the answer.
+        foreach ([is_callable($hook) ? $hook : null, static fn (...$a) => \Pramnos\Event\Event::fire('llm.chat.answered', ...$a)] as $hear) {
+            try {
+                if ($hear !== null) {
+                    $hear($this->scope, $question, $answer, $conversationId);
+                }
+            } catch (\Throwable $why) {
+                \Pramnos\Logs\Logger::log('llm chat.after: ' . $why->getMessage(), 'llm');
+            }
+        }
     }
 
     /** How many skills stay on in a conversation at most: the latest turned on. */

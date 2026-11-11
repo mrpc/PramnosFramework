@@ -118,4 +118,35 @@ class GistsTest extends LlmTestCase
         $this->assertSame('You said hi.', $api['data']['summary'], 'one\'s own, through the API');
         $this->assertSame(['Hi'], array_column($api['data']['conversations'], 'title'), 'never another partition\'s');
     }
+
+    /**
+     * After every answer, the application's `chat.after` hook and the `llm.chat.answered` event
+     * hear the scope, the question, the answer and the conversation; one that fails is logged and
+     * stops neither the other nor the answer.
+     */
+    #[DataProvider('databases')]
+    public function testEveryAnswerIsHeardAfterIt(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $heard = [];
+        $this->configure(['chat' => ['memory' => ['learn' => false], 'after' => static function (Scope $s, string $q, string $a, int $c) use (&$heard): void {
+            $heard[] = [$s->stored(), $q, $a];
+            throw new \RuntimeException('a hook that fails');
+        }]]);
+        $events = [];
+        \Pramnos\Event\Event::listen('llm.chat.answered', static function (Scope $s, string $q, string $a, int $c) use (&$events): void {
+            $events[] = [$q, $a];
+        });
+        $this->answer([[200, self::says('Hello there')]]);
+
+        // Act
+        $answer = (new Conversations(new BaseAssistant()))->as((new Scope(7, null))->withPartition(3))->ask(null, 'Hi');
+        \Pramnos\Event\Event::forget('llm.chat.answered');
+
+        // Assert
+        $this->assertTrue($answer['ok'], 'a hook that fails never breaks the answer');
+        $this->assertSame([['chat@3', 'Hi', 'Hello there']], $heard, 'the scope, the question, the answer');
+        $this->assertSame([['Hi', 'Hello there']], $events, 'the event too, though the hook failed');
+    }
 }
