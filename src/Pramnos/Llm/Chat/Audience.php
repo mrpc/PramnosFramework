@@ -34,17 +34,20 @@ final class Audience
     public const ALL = [self::CHILD, self::ADULT, self::EVERYONE];
 
     /**
-     * The memories a child's answer may be told: who the account's people are, their relations,
-     * their interests, how they like to talk — never the plans, the work, the moods, the values or
-     * the goals of the grown-up whose account it is.
+     * The memories a child's answer may be told: interests, and how they like to talk. Never who
+     * the grown-ups are and how they are — an illness, a separation can be kept under either —
+     * nor their plans, work, moods, values or goals.
      */
-    public const CHILD_TOPICS = ['identity', 'relationships', 'interests', 'talk'];
+    public const CHILD_TOPICS = ['interests', 'talk'];
 
     /** What may be said to a child, unless the application words it otherwise (`chat.child_rules`). */
     public const RULES = 'You are speaking with a child. Whatever you say keeps to what is safe to bring up with them: their name, '
         . 'age, brothers and sisters, pets, favourite things, good things that happened lately, and places. Never bring up fears '
         . '(unless they are overcome and the child is proud of it), illness, quarrels, the parents\' money or work, or anything '
-        . 'marked as sensitive — even if you remember it. No moralising: be warm, short and playful.';
+        . 'marked as sensitive — even if you remember it. When the child asks about a grown-up\'s things (their diary, plans, '
+        . 'reminders, money), never say they do not exist and never make anything up: decline kindly and send them to the grown-up '
+        . '("that is something to ask your mum"). Never guess at how a grown-up feels or what they are going through; bring it back '
+        . 'to the grown-up and to the child\'s own day. No moralising: be warm, short and playful.';
 
     /**
      * Whom an answer is for: the application's word, else the speaker's kind — a child is a child,

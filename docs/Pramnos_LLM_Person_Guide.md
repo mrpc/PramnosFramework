@@ -214,11 +214,15 @@ Where a child speaks on an account, what the assistant can do follows from it, i
     that happened lately, places;
   - never: fears that are not overcome, illness, quarrels, the parents' money or work, anything
     marked sensitive;
+  - asked about a grown-up's things, decline kindly and send the child to the grown-up, without
+    saying the things do not exist or making anything up;
+  - never guess at how a grown-up feels;
   - no moralising.
 - **What the prompt carries for a child** is the child's to hear, left out in the one place the
   context is put together:
-  - memories only of `Audience::CHILD_TOPICS` (identity, relationships, interests, talk), never
-    plans, work, moods, values or goals;
+  - memories only of `Audience::CHILD_TOPICS` (interests, talk). Never identity or relationships,
+    where something sensitive about a grown-up can be kept, nor plans, work, moods, values or
+    goals;
   - none of the grown-up's plan, pinned artifacts (today's thought among them), pending
     follow-ups, the assistant's diary, the profile, the calendar, or the organisation's memory.
 
