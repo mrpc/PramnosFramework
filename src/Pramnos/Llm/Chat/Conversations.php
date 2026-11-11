@@ -874,6 +874,36 @@ class Conversations
     }
 
     /**
+     * The morning's thought for a day ({@see Today}): the one written, or written now — once, with
+     * the cheapest model, from what the assistant knows of the person — and kept as a text
+     * artifact `Thought Y-m-d` of the persona's. Null where it cannot be written.
+     */
+    public function thought(Scope $scope, string $day): ?string
+    {
+        $artifacts = new Artifacts($scope);
+        foreach ($artifacts->search(['kind' => 'text', 'query' => Today::THOUGHT . ' ' . $day]) as $found) {
+            if ($found['title'] === Today::THOUGHT . ' ' . $day) {
+                return trim((string) ($artifacts->find((int) $found['artifact_id'])['content']['text'] ?? '')) ?: null;
+            }
+        }
+        $known = trim(implode("\n\n", array_filter([
+            Profile::on($scope) && Profile::available() ? (new Profile($scope))->context() : '',
+            Diary::on($scope) ? (new Diary($scope))->recall($day) : '',
+            Calendar::on($scope) && Calendar::available() ? (new Calendar($scope, $this->assistant->timezone($scope)))->context() : '',
+        ])));
+        $name   = Personas::get((string) Personas::of($scope))['name'] ?? \Pramnos\Llm\Analyst\Analyst::name();
+        $person = trim((string) ((new \Pramnos\User\User($scope->userId))->firstname ?? ''));
+        $answer = $this->client($scope)->askCheaply(Today::prompt($name, $person), [['role' => 'user', 'content' => $known !== '' ? $known : '(nothing yet)']]);
+        $text   = trim((string) ($answer['reply'] ?? ''));
+        if (empty($answer['ok']) || $text === '') {
+            return null;
+        }
+        $artifacts->create(['kind' => 'text', 'title' => Today::THOUGHT . ' ' . $day, 'text' => $text]);
+
+        return $text;
+    }
+
+    /**
      * A day's conversations of one scope, as a diary is written from them — the person's words and
      * the assistant's, in order, work conversations left out — up to {@see Diary::READS}.
      */

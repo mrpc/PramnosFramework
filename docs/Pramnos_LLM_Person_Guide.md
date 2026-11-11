@@ -182,6 +182,32 @@ evening about the day it spent with the person, from its own point of view.
   unread}], unread}`, and `GET {chat}/diary/{id}`, which gives `{artifact_id, day, text}` and marks
   the page and those before it as read. Each persona's mark is kept with the account apart.
 
+### The day's cards
+
+`GET {chat}/today` gives the cards a companion's page shows above the assistant (`Chat\Today`):
+`{day, cards: [{kind, title, text, action}]}`, on the person's clock, where `action` is what
+opening the card does (`{type, id}`):
+
+| kind | from | action |
+|---|---|---|
+| `thought` | a line for the morning, from what the assistant knows of the person | `chat` |
+| `event` | the day's appointments, `text` their hours | `event` |
+| `reminder` | tasks due today (`text` the hour) or overdue (`text` the day), and reminders that go off today | `task`, `routine` |
+| `question` | what the assistant noted and waits for the person's word on | `profile` |
+| `diary` | the assistant's diary pages the person has not read | `diary` |
+
+Each source counts only where it is on (calendar, profile, diary), five cards of a kind at most.
+The thought costs a call, so it is opt-in:
+
+```php
+'llm' => ['chat' => ['today' => ['thought' => true]]],
+```
+
+It is written the first time the day's cards are asked for, with the cheapest model, from the
+profile, the latest diary page and the day's calendar, and kept as a text artifact `Thought
+Y-m-d` of the persona's: asked again, the same line, without another call. A person who does not
+open the page that day costs nothing.
+
 ### Reaching out on its own, with manners
 
 An assistant reaches out in two ways: a [scheduled question](Pramnos_LLM_Scheduled_Tasks_Guide.md#scheduled-tasks-questions-reminders-reports)

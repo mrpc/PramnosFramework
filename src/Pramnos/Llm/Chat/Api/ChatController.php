@@ -537,6 +537,29 @@ class ChatController extends \Pramnos\Application\ApiCrudController
     }
 
     /**
+     * The day's cards (`Chat\Today`): `GET {chat}/today` → `{day, cards: [{kind, title, text,
+     * action}]}` — `kind` one of thought, event, reminder, question, diary; `action` what opening
+     * it does, `{type, id}`. On the person's clock.
+     */
+    public function today(): array
+    {
+        if (($stop = $this->refusal('read')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        if ($scope === null || $scope->userId < 1) {
+            return self::error(401, 'This needs somebody signed in.');
+        }
+        $chat     = $this->conversations();
+        $timezone = $chat->assistant()->timezone($scope);
+        $day      = (new \DateTimeImmutable('now', new \DateTimeZone($timezone)))->format('Y-m-d');
+        $cards    = \Pramnos\Llm\Chat\Today::cards($scope, new \Pramnos\User\User($scope->userId), $day, $timezone,
+            static fn (\Pramnos\Llm\Chat\Scope $s, string $d): ?string => $chat->thought($s, $d), $this->routineService());
+
+        return ['status' => 200, 'data' => ['day' => $day, 'cards' => $cards]];
+    }
+
+    /**
      * The personas the person can talk to (`Chat\Personas`): `GET {chat}/personas` →
      * `{personas: [{key, name, gender, voice, size, default, chosen, avatar}], chosen}` — `avatar` its picture's HTML; empty where the
      * application has none.
