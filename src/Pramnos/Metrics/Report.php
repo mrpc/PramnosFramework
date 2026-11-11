@@ -767,14 +767,32 @@ final class Report
         $only      = $row['values'] ?? null;
         $windows   = array_column($columns, 'window');
         usort($windows, static fn (Window $a, Window $b): int => $a->start <=> $b->start);
-        try {
-            $found  = $this->read($row['metric'])->grain($anchor->grain)->between($windows[0]->key(), $anchor->key())->where($row['filters'])->by($row['breakdown'])->series()['values'];
-            $values = array_values(array_unique(array_merge($values, array_map('strval', array_keys($found)))));
-            if (is_array($only)) {
-                $values = array_values(array_intersect($only, $values) ?: $only);
+        // The values found in the report's periods, read with the row's filters — and, where a metric
+        // keeps only some combinations, with each column's filters too: a cell is the row's filters
+        // with its column's, so a combination the row alone cannot read may be every cell's.
+        $sets = [[]];
+        foreach ($columns as $column) {
+            if (($column['filters'] ?? []) !== [] && !in_array($column['filters'], $sets, true)) {
+                $sets[] = $column['filters'];
             }
-        } catch (\InvalidArgumentException|\LogicException $e) {
-            return [['label' => $label, 'metric' => $row['metric'], 'filters' => $row['filters'], 'subtotal' => false, 'error' => $e->getMessage()]];
+        }
+        $read  = false;
+        $error = null;
+        foreach ($sets as $filters) {
+            try {
+                $found  = $this->read($row['metric'])->grain($anchor->grain)->between($windows[0]->key(), $anchor->key())->where($filters + $row['filters'])->by($row['breakdown'])->series()['values'];
+                $values = array_values(array_unique(array_merge($values, array_map('strval', array_keys($found)))));
+                $read   = true;
+            } catch (\InvalidArgumentException|\LogicException $e) {
+                $error ??= $e->getMessage();
+            }
+        }
+        // Nothing read at all, and no values declared to stand for them: the row says why.
+        if (!$read && $values === []) {
+            return [['label' => $label, 'metric' => $row['metric'], 'filters' => $row['filters'], 'subtotal' => false, 'error' => (string) $error]];
+        }
+        if (is_array($only)) {
+            $values = array_values(array_intersect($only, $values) ?: $only);
         }
         $out = [];
         foreach ($values as $value) {

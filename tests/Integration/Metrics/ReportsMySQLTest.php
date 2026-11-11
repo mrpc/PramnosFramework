@@ -85,6 +85,15 @@ class ReportsMySQLTest extends TestCase
 
                     return $by === [] ? self::BUYERS[''] : [['region' => 'north', 'value' => self::BUYERS['north']], ['region' => 'south', 'value' => self::BUYERS['south']]];
                 }),
+            // Counted once each, and kept only by plan and region together — never by plan alone.
+            Metric::flow('test.paid', 'Paid')->aggregate(Metric::DISTINCT)->dimensions(['region', 'plan'])->keeps([['plan', 'region']])
+                ->source(static function (Window $w, array $by): array|int {
+                    if ($w->key() !== '2026-09-01' || $by === []) {
+                        return $by === [] ? 0 : [];
+                    }
+
+                    return [['plan' => 'pro', 'region' => 'north', 'value' => 2], ['plan' => 'pro', 'region' => 'south', 'value' => 1]];
+                }),
             Metric::flow('test.secret', 'Secret')->allowed(static fn (): bool => false)->source(static fn (): int => 9),
         );
         Metrics::compute(null, ['month'], '2026-08-01', '2026-09-30', false, (int) strtotime('2026-11-06 12:00 UTC'));
@@ -843,6 +852,25 @@ class ReportsMySQLTest extends TestCase
         $this->assertStringNotContainsString('/customise"', $plain, 'customising is the Tailwind page\'s');
         $this->assertSame('[1](/admin/Orders/1)', $records['rows'][0]['order'], 'a linked value, as a markdown link');
         $this->assertArrayHasKey('links', $records);
+    }
+
+    /**
+     * A breakdown of a metric kept only in combinations (FW-429): its values read with each
+     * column's filters — the row's alone is a combination it does not keep — and each cell the
+     * row's filters with its column's; the row stands, not refused whole.
+     */
+    public function testABreakdownReadWithEachColumnsFilters(): void
+    {
+        // Arrange
+        $report = Report::fromArray(['sections' => [['columns' => [['label' => 'North', 'filters' => ['region' => 'north']], ['label' => 'South', 'filters' => ['region' => 'south']]],
+            'rows' => [['label' => 'Paid by plan', 'metric' => 'test.paid', 'breakdown' => 'plan']]]]]);
+
+        // Act
+        $rows = $report->build('2026-09-10', self::reader())['sections'][0]['rows'];
+
+        // Assert
+        $this->assertNull($rows[0]['error'], 'not refused whole: ' . (string) $rows[0]['error']);
+        $this->assertSame(['pro', [2.0, 1.0]], [strtolower($rows[0]['label']), array_column($rows[0]['cells'], 'value')], 'each cell, its column\'s region with the plan');
     }
 
     /**
