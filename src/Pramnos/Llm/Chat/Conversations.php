@@ -537,7 +537,7 @@ class Conversations
         // An answer cut at its budget or its rounds is remembered as cut, so the next question
         // goes on from what it read instead of reading it again (whereItStopped()).
         $stopped = !empty($answer['over_budget']) ? 'budget' : (!empty($answer['out_of_rounds']) ? 'rounds' : null);
-        $message = $this->store($conversationId, 'assistant', self::withoutMark((string) ($answer['final'] ?? $answer['reply'])),
+        $message = $this->store($conversationId, 'assistant', self::withoutMark($this->polished($turn, (string) ($answer['final'] ?? $answer['reply']))),
             (array) ($answer['calls'] ?? []), $answer['cost'], $stamp, $answer['context'] ?? null,
             array_filter(['steps' => $steps, 'stopped' => $stopped, 'source' => $this->console ? 'console' : null]));
         $message['artifacts'] = $artifacts->link($conversationId, (int) $message['message_id'], $turn->tags);
@@ -709,6 +709,27 @@ class Conversations
 
         return "\n\n⟦This answer stopped at its " . ($why === 'budget' ? 'budget' : 'limit of rounds') . ' after calling: '
             . implode('; ', $calls) . '. Go on from there; do not repeat those calls. ⟧';
+    }
+
+    /**
+     * The answer as the assistant's optional `polish(Turn, string): string` leaves it, before it is
+     * stored — so the history, the memory and the screen all keep the corrected text. A polish that
+     * throws or answers nothing leaves the answer as it was: a correction must never cost an answer.
+     */
+    private function polished(Turn $turn, string $answer): string
+    {
+        if (!method_exists($this->assistant, 'polish')) {
+            return $answer;
+        }
+        try {
+            $polished = (string) $this->assistant->polish($turn, $answer);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('polish() failed, the answer kept as it was: ' . $e->getMessage(), 'llm');
+
+            return $answer;
+        }
+
+        return trim($polished) === '' ? $answer : $polished;
     }
 
     /** A reply without any note it wrote itself in the system's name. */

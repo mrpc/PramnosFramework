@@ -74,6 +74,7 @@ Extend `Chat\BaseAssistant`, which answers every hook with a default:
 | `due(Turn)`, `verify(Turn)` | what an answer must end with, and what it is checked against — see `askWithTools()` |
 | `writes()` | the tools that change something: a later answer is told which an earlier one called |
 | `question(Turn, $q)` | the question as the model reads it, with what the caller passed in `extra` worked in |
+| `polish(Turn, $answer)` | optional: the answer corrected in its text before it is stored — a tag moved, a phrase fixed — so the history and the memory keep the correction; it sees the model's text with its marks, and one that throws or answers `''` leaves the answer as it was |
 | `answered(Turn, $message)` | after it is stored: attach what the answer produced, and decorate the message |
 | `present(Scope, $messages)` | stored messages, decorated for the screen |
 | `acting(Scope, $run)` | a queued or scheduled answer, run inside whatever the application's tools need set up |
