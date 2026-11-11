@@ -37,6 +37,12 @@ final class Chat
     /** The configured assistant, built once per call. */
     public static function assistant(string $space = Scope::CHAT): Assistant
     {
+        // A stored space with its persona (chat:tesla): that persona's assistant, if it has one of its own.
+        $scope = new Scope(0, null, $space);
+        if ($scope->persona !== null && is_string($own = Personas::get($scope->persona)['assistant'] ?? null) && is_a($own, Assistant::class, true)) {
+            return new $own();
+        }
+        $space = $scope->space;
         if ($space === Scope::ADMIN) {
             return \Pramnos\Llm\Analyst\Analyst::assistant();
         }

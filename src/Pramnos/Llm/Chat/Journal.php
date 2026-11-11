@@ -33,8 +33,12 @@ final class Journal
     /** A page's title, before the day it is for. */
     public const TITLE = 'Journal';
 
-    public function __construct(private readonly Scope $scope, private readonly string $timezone = 'UTC')
+    /** The person's, whichever persona they talk to (Scope::person()). */
+    private readonly Scope $scope;
+
+    public function __construct(Scope $scope, private readonly string $timezone = 'UTC')
     {
+        $this->scope = $scope->person();
     }
 
     /** Whether the application turned it on, for this scope's space: a person's own conversations only. */

@@ -393,12 +393,55 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         }
         $user = new \Pramnos\User\User($scope->userId);
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'PUT'
-            && !\Pramnos\Llm\Chat\Acts::choose($user, (string) ($this->input()['pose'] ?? ''))) {
+            && !\Pramnos\Llm\Chat\Acts::choose($user, (string) ($this->input()['pose'] ?? ''), $scope->persona)) {
             return self::error(422, 'That is not one of the picture\'s poses.');
         }
 
         return ['status' => 200, 'data' => ['on' => \Pramnos\Llm\Chat\Acts::on($scope) || \Pramnos\Assist\AvatarSets::poses() !== [],
-            'pose' => \Pramnos\Llm\Chat\Acts::style($user), 'poses' => \Pramnos\Assist\AvatarSets::poses()]];
+            'pose' => \Pramnos\Llm\Chat\Acts::style($user, $scope->persona), 'poses' => \Pramnos\Assist\AvatarSets::poses()]];
+    }
+
+    /**
+     * The personas the person can talk to (`Chat\Personas`): `GET {chat}/personas` →
+     * `{personas: [{key, name, gender, voice, size, default, chosen, avatar}], chosen}` — `avatar` its picture's HTML; empty where the
+     * application has none.
+     */
+    public function personas(): array
+    {
+        if (($stop = $this->refusal('read')) !== null) {
+            return $stop;
+        }
+        $scope  = $this->scope();
+        $chosen = $scope === null ? null : \Pramnos\Llm\Chat\Personas::of($scope);
+        $list   = array_values(array_map(static fn (array $p): array => ['key' => $p['key'], 'name' => $p['name'], 'gender' => $p['gender'],
+            'voice' => $p['voice'], 'size' => $p['size'], 'default' => $p['key'] === \Pramnos\Llm\Chat\Personas::default(), 'chosen' => $p['key'] === $chosen,
+            // Its picture, idle, with its stylesheet: a persona without a set of its own has the analyst's.
+            'avatar' => is_string($p['avatar_set']) || is_array($p['avatar_set'])
+                ? \Pramnos\Assist\AvatarSets::using($p['avatar_set'], static fn (): string => \Pramnos\Assist\AvatarSets::render('idle', (int) ($p['size'] ?? 64)))
+                : \Pramnos\Assist\AvatarSets::render('idle', (int) ($p['size'] ?? 64))],
+            \Pramnos\Llm\Chat\Personas::all()));
+
+        return ['status' => 200, 'data' => ['personas' => $list, 'chosen' => $chosen]];
+    }
+
+    /**
+     * Choose the persona the person talks to: `PUT {chat}/persona` with `{"persona": "tesla"}`.
+     * Its conversations, memories and mood are its own from then on; 422 for one not offered.
+     */
+    public function persona(): array
+    {
+        if (($stop = $this->refusal('ask')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        if ($scope === null || $scope->userId < 1) {
+            return self::error(401, 'This needs somebody signed in.');
+        }
+        if (!\Pramnos\Llm\Chat\Personas::choose(new \Pramnos\User\User($scope->userId), (string) ($this->input()['persona'] ?? ''))) {
+            return self::error(422, 'There is no such persona here.');
+        }
+
+        return ['status' => 200, 'data' => ['chosen' => (string) $this->input()['persona']]];
     }
 
     /**

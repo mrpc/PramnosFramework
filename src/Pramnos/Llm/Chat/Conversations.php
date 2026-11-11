@@ -87,6 +87,9 @@ class Conversations
 
     private ?bool $tracks = null;
 
+    /** Whether an answer is already inside its persona's avatar set (ask()). */
+    private bool $inPersona = false;
+
     /** Whether `chat_conversations.ended_at` exists (Ending), asked once. */
     private ?bool $ends = null;
 
@@ -346,6 +349,17 @@ class Conversations
             return self::refusal('scope', 'This needs somebody signed in.');
         }
 
+        // A persona with a picture of its own answers with it: its moods, acts and wear.
+        $set = Personas::avatarSet($this->scope);
+        if ($set !== null && !$this->inPersona) {
+            $this->inPersona = true;
+            try {
+                return \Pramnos\Assist\AvatarSets::using($set, fn (): array => $this->ask($conversationId, $question, $attachment, $extra));
+            } finally {
+                $this->inPersona = false;
+            }
+        }
+
         $this->traceId = self::newTrace();
         $question      = mb_substr(trim($question), 0, self::CHARS);
         $attached = trim((string) ($attachment['text'] ?? ''));
@@ -478,7 +492,7 @@ class Conversations
         // Reads asked for at once run at once, shared with the `llm_tool` workers, where the
         // application turned it on: a worker builds these same tools again from this.
         $parallel = ParallelTools::forAnswer([
-            'space'           => $this->scope->space,
+            'space'           => $this->scope->stored(),
             'userid'          => $this->scope->userId,
             'organization_id' => $this->scope->organizationId,
             'conversation_id' => $conversationId,

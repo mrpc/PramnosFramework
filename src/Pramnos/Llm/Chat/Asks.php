@@ -57,7 +57,7 @@ class Asks
             'ask_id'          => $askId,
             'organization_id' => $scope->organizationId,
             'userid'          => $scope->userId,
-            'space'           => $scope->space,
+            'space'           => $scope->stored(),
             'conversation_id' => $conversationId,
             'question'        => $question,
             'attachment'      => $attachment,

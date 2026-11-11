@@ -51,6 +51,8 @@ final class Routes
         $p['push']  ??= $p['chat'] . '/push';
         $p['mood']  ??= $p['chat'] . '/mood';
         $p['style'] ??= $p['chat'] . '/style';
+        $p['personas'] ??= $p['chat'] . '/personas';
+        $p['persona']  ??= $p['chat'] . '/persona';
         $make = static fn (): ChatController => new $controller();
 
         $r->post($p['speak'], static fn () => $make()->speak())->describeFrom([$controller, 'speak']);
@@ -58,6 +60,8 @@ final class Routes
         $r->get($p['mood'], static fn () => $make()->mood())->describeFrom([$controller, 'mood']);
         $r->get($p['style'], static fn () => $make()->style())->describeFrom([$controller, 'style']);
         $r->put($p['style'], static fn () => $make()->style())->describeFrom([$controller, 'style']);
+        $r->get($p['personas'], static fn () => $make()->personas())->describeFrom([$controller, 'personas']);
+        $r->put($p['persona'], static fn () => $make()->persona())->describeFrom([$controller, 'persona']);
         $r->get($p['push'] . '/key', static fn () => $make()->pushKey())->describeFrom([$controller, 'pushKey']);
         $r->post($p['push'], static fn () => $make()->pushSubscribe())->describeFrom([$controller, 'pushSubscribe']);
         $r->delete($p['push'], static fn () => $make()->pushUnsubscribe())->describeFrom([$controller, 'pushUnsubscribe']);

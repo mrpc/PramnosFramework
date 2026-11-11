@@ -114,25 +114,31 @@ final class Acts
         return rtrim((string) preg_replace([self::ACT, self::WEAR, '/\[\[[^\]]*\]?$/u'], '', $reply));
     }
 
-    /** The person's style: a pose of the set in use, or null for none. */
-    public static function style(object $user): ?string
+    /** The person's style with a persona (null: the default): a pose of the set in use, or null for none. */
+    public static function style(object $user, ?string $persona = null): ?string
     {
-        $pose = trim((string) ($user->{self::STYLE_DETAIL} ?? ''));
+        $pose = trim((string) ($user->{self::styleDetail($persona)} ?? ''));
 
         return $pose !== '' && in_array($pose, \Pramnos\Assist\AvatarSets::poses(), true) ? $pose : null;
     }
 
     /** Keep the person's style: a pose of the set's, or '' for none. False, keeping nothing, for another. */
-    public static function choose(object $user, string $pose): bool
+    public static function choose(object $user, string $pose, ?string $persona = null): bool
     {
         $pose = trim($pose);
         if ($pose !== '' && !in_array($pose, \Pramnos\Assist\AvatarSets::poses(), true)) {
             return false;
         }
-        $user->{self::STYLE_DETAIL} = $pose;
+        $user->{self::styleDetail($persona)} = $pose;
         $user->save();
 
         return true;
+    }
+
+    /** The detail a style is kept in: one for each persona, the default's without a suffix. */
+    private static function styleDetail(?string $persona): string
+    {
+        return $persona === null ? self::STYLE_DETAIL : self::STYLE_DETAIL . '-' . $persona;
     }
 
     /**

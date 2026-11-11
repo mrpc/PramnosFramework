@@ -71,6 +71,29 @@ final class AvatarSets
     /** Pictures drawn in this process, for `{uid}`. */
     private static int $drawn = 0;
 
+    /** A set in use for a while instead of app.php's ({@see using()}): a persona's. */
+    private static mixed $using = null;
+
+    /**
+     * Run with another set in use — a persona's — as if app.php named it: its moods, acts and
+     * picture. The set before is back afterwards, whatever `$run` does.
+     *
+     * @template T
+     * @param string|array<string, mixed> $set A registered name, a character, or a set
+     * @param callable(): T $run
+     * @return T
+     */
+    public static function using(string|array $set, callable $run): mixed
+    {
+        $before      = self::$using;
+        self::$using = $set;
+        try {
+            return $run();
+        } finally {
+            self::$using = $before;
+        }
+    }
+
     /**
      * Make a set known by name.
      *
@@ -101,7 +124,7 @@ final class AvatarSets
     public static function current(): ?array
     {
         $config = \Pramnos\Llm\Llm::config('analyst', []);
-        $set    = is_array($config) ? ($config['avatar_set'] ?? null) : null;
+        $set    = self::$using ?? (is_array($config) ? ($config['avatar_set'] ?? null) : null);
         if (is_string($set) && isset(self::$sets[$set])) {
             return self::$sets[$set];
         }
@@ -154,9 +177,10 @@ final class AvatarSets
     public static function moods(): array
     {
         $analyst = (array) \Pramnos\Llm\Llm::config('analyst', []);
-        $set     = $analyst['avatar_set'] ?? null;
+        $set     = self::$using ?? ($analyst['avatar_set'] ?? null);
         $given   = is_array($set) && is_array($set['moods'] ?? null) ? $set['moods'] : [];
-        $moods   = $given !== [] ? $given : ((array) ($analyst['avatar_moods'] ?? []) ?: (array) (self::current()['moods'] ?? []));
+        // A persona's set is its own: app.php's avatar_moods are the analyst's set's.
+        $moods   = $given !== [] ? $given : ((self::$using === null ? (array) ($analyst['avatar_moods'] ?? []) : []) ?: (array) (self::current()['moods'] ?? []));
 
         return array_map('strval', $moods);
     }

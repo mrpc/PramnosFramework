@@ -58,8 +58,12 @@ final class Profile
     /** @var array<int, true> Entries proposed during this answer: not confirmable in it. */
     private array $proposedNow = [];
 
-    public function __construct(private readonly Scope $scope)
+    /** The person's, whichever persona they talk to (Scope::person()). */
+    private readonly Scope $scope;
+
+    public function __construct(Scope $scope)
     {
+        $this->scope = $scope->person();
     }
 
     /** Whether the application turned it on, for this scope's space: a person's own conversations only. */

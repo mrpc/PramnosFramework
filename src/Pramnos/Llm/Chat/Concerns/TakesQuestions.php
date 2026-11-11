@@ -42,12 +42,17 @@ trait TakesQuestions
 
     protected function scope(): ?Scope
     {
-        return Scope::current();
+        // With the persona the person chose (Personas), where the application has personas.
+        $scope = Scope::current();
+
+        return $scope === null ? null : \Pramnos\Llm\Chat\Personas::scopeFor($scope);
     }
 
     protected function conversations(): Conversations
     {
-        return (new Conversations(Chat::assistant()))->as($this->scope());
+        $scope = $this->scope();
+
+        return (new Conversations(Chat::assistant($scope?->stored() ?? Scope::CHAT)))->as($scope);
     }
 
     protected function asks(): Asks

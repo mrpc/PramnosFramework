@@ -340,7 +340,8 @@ class Routines
             }
             $claimed++;
 
-            if (!$this->queued() && $task['space'] !== Scope::CHAT) {
+            // A persona's task is the chat assistant's, with its persona from the row (chat:<persona>).
+            if (!$this->queued() && (new Scope(0, null, (string) $task['space']))->space !== Scope::CHAT) {
                 // The analyst's task with the analyst: its tools, its prompt, its refusals —
                 // not the chat assistant this tick was built with.
                 $this->forSpace($task['space'])->run($task, $now);

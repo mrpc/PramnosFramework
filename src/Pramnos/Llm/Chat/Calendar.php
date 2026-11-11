@@ -60,8 +60,12 @@ final class Calendar
     /** The event a page hears on a change. */
     public const CHANGED = 'calendar.changed';
 
-    public function __construct(private readonly Scope $scope, private readonly string $timezone = 'UTC')
+    /** The person's, whichever persona they talk to (Scope::person()). */
+    private readonly Scope $scope;
+
+    public function __construct(Scope $scope, private readonly string $timezone = 'UTC')
     {
+        $this->scope = $scope->person();
     }
 
     /** Whether the application turned it on, for this scope's space: a person's own conversations only. */

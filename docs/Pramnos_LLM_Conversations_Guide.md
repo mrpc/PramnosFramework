@@ -290,6 +290,36 @@ A companion can end a conversation in which it is abused (`Chat\Ending`). It is 
   API, before anything is queued or sent to the model. The person can start a new conversation
   at any time; nobody is blocked.
 
+## Personas: more than one character on the conversation page
+
+An application can offer the person more than one character to talk to (`Chat\Personas`):
+
+```php
+'llm' => ['chat' => ['personas' => [
+    'naya'  => ['name' => 'Naya', 'avatar_set' => [...], 'voice' => 'el-GR-…', 'feature' => 'persona_naya', 'default' => true],
+    'tesla' => ['character' => 'tesla'],   // a character the framework ships: her name, prompt and picture
+]]],
+```
+
+- **Each keeps its own:** conversations, memories, its word about itself, mood, questions in the
+  queue and tasks. A scope carries its persona (`Scope::$persona`) and stores its rows under
+  `chat:<persona>`. `$scope->space` stays `chat`, so everything that asks which space it is in
+  still hears `chat`. **The default persona writes plain `chat`**, so whatever there was before
+  personas stays the default's, with nothing to migrate.
+- **Shared:** what is the person's, whichever character they talk to: their profile, calendar and
+  journal (`Scope::person()`).
+- **Who it is.** A persona other than the default is told so after the assistant's own
+  instructions (`Personas::identity()`). Give it `assistant` for a class of its own instead.
+  `feature` is the purpose its calls are made for, so it can have a model of its own in the AI
+  settings. Its `avatar_set` is its picture, and its moods, acts and wear are the ones that set
+  declares.
+- **The person's choice** is kept with their account (`askpersona`). `GET {chat}/personas` gives
+  `{personas: [{key, name, gender, voice, size, default, chosen, avatar}], chosen}`, where `avatar`
+  is the persona's picture, idle. `PUT {chat}/persona` with `{"persona": "tesla"}` chooses one; a
+  persona not offered is 422. Every request from then on is in that persona, and so are
+  `GET {chat}/mood` and `{chat}/style`, the style being kept for each persona apart.
+- Only the conversation page: the administration's analyst has no personas.
+
 ## Memory
 
 The model is given `remember`, `forget`, `search_conversations` and `read_conversation`, and told

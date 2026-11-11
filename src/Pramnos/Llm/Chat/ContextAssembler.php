@@ -86,7 +86,10 @@ final class ContextAssembler
     /** Zone 1: the assistant's role and rules, byte for byte the same from one question to the next. */
     public function staticPrefix(Turn $turn): string
     {
-        return trim($this->assistant->systemPrompt($turn));
+        // A persona other than the default: who the assistant is here, after what it is everywhere.
+        $identity = Personas::identity($turn->scope);
+
+        return trim(trim($this->assistant->systemPrompt($turn)) . ($identity === '' ? '' : "\n\n" . $identity));
     }
 
     /**
