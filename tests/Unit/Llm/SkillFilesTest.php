@@ -52,9 +52,9 @@ final class SkillFilesTest extends TestCase
 
         // Assert
         $this->assertSame(['copywriting', 'crm-loyalty', 'plain'], array_keys($skills));
-        $this->assertSame(['description' => 'Retention: who drifts', 'tools' => ['audience_segments', 'retention'], 'instructions' => "# Method\n\nStart from the cohort.", 'folder' => null, 'references' => [], 'evals' => null, 'enabled' => true, 'audience' => 'all', 'age' => ''], $skills['crm-loyalty'], 'for all, unless it says whom');
+        $this->assertSame(['description' => 'Retention: who drifts', 'tools' => ['audience_segments', 'retention'], 'instructions' => "# Method\n\nStart from the cohort.", 'folder' => null, 'references' => [], 'evals' => null, 'enabled' => true, 'audience' => 'all', 'age' => '', 'spaces' => []], $skills['crm-loyalty'], 'for all, unless it says whom');
         $this->assertSame(['draft', 'polish'], $skills['copywriting']['tools'], '- item lines');
-        $this->assertSame(['description' => '', 'tools' => [], 'instructions' => 'Just a method, no front matter.', 'folder' => null, 'references' => [], 'evals' => null, 'enabled' => true, 'audience' => 'all', 'age' => ''], $skills['plain']);
+        $this->assertSame(['description' => '', 'tools' => [], 'instructions' => 'Just a method, no front matter.', 'folder' => null, 'references' => [], 'evals' => null, 'enabled' => true, 'audience' => 'all', 'age' => '', 'spaces' => []], $skills['plain']);
     }
 
     /** No folder named, or one that is not there, is no skills — not an error. */

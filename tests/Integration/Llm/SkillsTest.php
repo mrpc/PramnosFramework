@@ -21,6 +21,7 @@ use Pramnos\Tests\Unit\Llm\LlmTestCase;
  * in `use_skill`; a tool of no skill is always offered; and a worker rebuilding the tools for a
  * parallel call still finds every one.
  */
+#[CoversClass(\Pramnos\Llm\Chat\Skills::class)]
 #[CoversClass(Conversations::class)]
 #[CoversClass(\Pramnos\Llm\ToolRegistry::class)]
 class SkillsTest extends LlmTestCase
@@ -209,6 +210,44 @@ class SkillsTest extends LlmTestCase
         $toolAnswer = array_values(array_filter($this->sent[1]['body']['messages'], static fn (array $m): bool => ($m['role'] ?? '') === 'tool'));
         $this->assertStringContainsString("Turned on crm-loyalty: crm_lookup.\n\nStart from the cohort, not the campaign.", (string) end($toolAnswer)['content']);
         $this->assertContains('crm_lookup', self::offered($this->sent[1]));
+    }
+
+    /**
+     * A skill file says where it is offered (`spaces`): the Ask's methods only in the Ask, the
+     * companion's stories only in the companion — `chat` covering every persona — and one that
+     * says nothing everywhere.
+     */
+    #[DataProvider('databases')]
+    public function testASkillFileIsOfferedOnlyWhereItSays(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $dir = sys_get_temp_dir() . '/pf-spaces-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        file_put_contents($dir . '/crm.md', "---\nname: crm-loyalty\ndescription: Retention\nspaces: [admin]\n---\nCohorts.");
+        file_put_contents($dir . '/story.md', "---\nname: story\ndescription: Go on with the story\nspace: chat\n---\nOnce upon a time.");
+        file_put_contents($dir . '/plain.md', "---\nname: plain\ndescription: Anywhere\n---\nPlain.");
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => ['skills_path' => $dir]]);
+        $this->answer([[200, self::says('Hi')]]);
+
+        try {
+            // Act
+            (new Conversations(self::assistant()))->as(new Scope(7, null, Scope::CHAT, 'tesla'))->ask(null, 'Hi');
+            $loaded = \Pramnos\Llm\Chat\Skills::load($dir);
+        } finally {
+            array_map('unlink', glob($dir . '/*.md') ?: []);
+            rmdir($dir);
+        }
+
+        // Assert
+        $first       = self::offered($this->sent[0]);
+        $description = $this->sent[0]['body']['tools'][array_search('use_skill', $first, true)]['function']['description'];
+        $this->assertStringContainsString('story (Go on with the story)', $description, 'the companion\'s, in a persona\'s conversation');
+        $this->assertStringContainsString('plain (Anywhere)', $description, 'one that says nothing, everywhere');
+        $this->assertStringNotContainsString('crm-loyalty', $description, 'not the Ask\'s');
+        $this->assertTrue(\Pramnos\Llm\Chat\Skills::offeredIn($loaded['crm-loyalty'], Scope::ADMIN));
+        $this->assertFalse(\Pramnos\Llm\Chat\Skills::offeredIn($loaded['story'], Scope::ADMIN), 'nor the companion\'s in the Ask');
+        $this->assertTrue(\Pramnos\Llm\Chat\Skills::offeredIn(['spaces' => ['all']], 'support'));
     }
 
     /**

@@ -1619,8 +1619,10 @@ class Conversations
         // Only the skills for whom the answer is: a child's for a child, of their age where it is known.
         $audience = $this->audienceOf($turn);
         $age      = $turn !== null && is_numeric($turn->extra['speaker']['age'] ?? null) ? (int) $turn->extra['speaker']['age'] : null;
-        $files    = array_filter($files, static fn (array $skill): bool => Audience::allows($skill, $audience, $age));
-        $stored   = array_filter($stored, static fn (array $skill): bool => Audience::allows($skill, $audience, $age));
+        // …and only those offered here: the Ask's methods are not the companion's, nor its stories the Ask's.
+        $space    = $this->scope?->space;
+        $files    = array_filter($files, static fn (array $skill): bool => Audience::allows($skill, $audience, $age) && Skills::offeredIn($skill, $space));
+        $stored   = array_filter($stored, static fn (array $skill): bool => Audience::allows($skill, $audience, $age) && Skills::offeredIn($skill, $space));
         // Skill files mean skills: a method is no use if nothing can turn it on.
         $skills = is_array($chat) && array_key_exists('skills', $chat) ? (bool) $chat['skills'] : (count($tools) > self::SKILLS_FROM || $files !== [] || $stored !== []);
         if (!$skills) {

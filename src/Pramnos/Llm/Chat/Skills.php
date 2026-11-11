@@ -19,6 +19,7 @@ namespace Pramnos\Llm\Chat;
  * description: Retention and loyalty: who is drifting away, and what to do for each
  * tools: [audience_segments, audience_why, retention]
  * audience: adult            # child, adult or all (the default) — see Audience
+ * spaces: [admin]            # where it is offered: admin (the Ask), chat (every persona), …; all by default
  * ---
  * # How a CRM and loyalty marketer works
  * Start from the cohort, not the campaign. …
@@ -44,6 +45,22 @@ final class Skills
 
     /** The largest reference file handed to the model, in bytes. */
     public const REFERENCE_MAX = 65536;
+
+    /**
+     * Whether a skill is offered in a space: everywhere unless its `spaces` say where — `chat`
+     * covering every persona's (`chat:<persona>`) — and `all` among them meaning everywhere.
+     *
+     * @param array<string, mixed> $skill
+     */
+    public static function offeredIn(array $skill, ?string $space): bool
+    {
+        $spaces = array_map('strval', (array) ($skill['spaces'] ?? []));
+        if ($spaces === [] || in_array('all', $spaces, true) || $space === null) {
+            return true;
+        }
+
+        return in_array($space, $spaces, true) || in_array(explode(':', $space)[0], $spaces, true);
+    }
 
     /**
      * The skills in the application's folder, by name; none without one.
@@ -94,6 +111,8 @@ final class Skills
                 // Whom it is for: child, adult or all (the default); and for a child, which ages (`3-7`).
                 'audience'     => in_array($meta['audience'] ?? null, Audience::ALL, true) ? (string) $meta['audience'] : Audience::EVERYONE,
                 'age'          => is_scalar($meta['age'] ?? null) ? trim((string) $meta['age']) : '',
+                // Where it is offered: `spaces: [admin]`, `[chat]` (every persona's), or `space: admin`; everywhere by default.
+                'spaces'       => \Pramnos\Support\FrontMatter::names($meta['spaces'] ?? $meta['space'] ?? []),
             ];
         }
         ksort($skills);
