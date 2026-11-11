@@ -343,6 +343,9 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             return is_string($made) ? self::error(422, $made) : ['status' => 201, 'data' => $made];
         }
 
+        // The application's own made and kept up to date first (sync).
+        \Pramnos\Llm\Chat\Profiles::sync($scope->userId);
+
         return ['status' => 200, 'data' => ['profiles' => \Pramnos\Llm\Chat\Profiles::of($scope->userId), 'active' => $scope->profile,
             'locked' => \Pramnos\Llm\Chat\Profiles::lockedTo($scope->userId) !== null, 'pin' => \Pramnos\Llm\Chat\Profiles::hasPin($user)]];
     }

@@ -2600,4 +2600,7 @@ return [
     'To go ahead, write yes in Confirm.' => 'Για να προχωρήσει, γράψε yes στην Επιβεβαίωση.',
     'To go ahead, write %s in Confirm.' => 'Για να προχωρήσει, γράψε %s στην Επιβεβαίωση.',
     'The people of your account who talk to the assistant' => 'Τα πρόσωπα του λογαριασμού σου που μιλούν με τον βοηθό',
+    '%s has not talked to the assistant in the last %d days.' => '%s δεν έχει μιλήσει με τον βοηθό τις τελευταίες %d μέρες.',
+    '%s had %d conversations in the last %d days, %d messages in all.' => '%s είχε %d συζητήσεις τις τελευταίες %d μέρες, %d μηνύματα συνολικά.',
+    'The last one\'s mood: %s.' => 'Η διάθεση της τελευταίας: %s.',
 ];

@@ -213,4 +213,43 @@ class ProfilesTest extends LlmTestCase
         $this->assertStringContainsString('1 in the plan: 1 active; blocked: Maths test', $plan['data']['summary'], 'the plan in short first');
         $this->assertSame(['Niko'], array_column($list['data']['profiles'], 'name'));
     }
+
+    /**
+     * The application's own children as profiles: made once, by their key, and kept up to date;
+     * one no longer given marked detached, never deleted, what it said kept — the holder lets go
+     * of its source to keep it as their own; a profile made by hand never touched; and the
+     * summary in the page's language.
+     */
+    #[DataProvider('databases')]
+    public function testTheApplicationsChildrenAreProfilesKeptUpToDate(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $children = ['child:1' => ['name' => 'Niko', 'kind' => 'child', 'birth_year' => 2019], 'child:2' => ['name' => 'Eleni', 'kind' => 'child', 'birth_year' => 2021]];
+        $this->configure(['chat' => ['profiles' => ['limit' => static fn (): int => 1, 'from' => static function (int $u) use (&$children): array {
+            return $children;
+        }]]]);
+        $user = $this->user();
+        $own  = Profiles::create($user, ['name' => 'Maria', 'kind' => 'parent']);
+
+        // Act
+        $made     = Profiles::sync((int) $user->userid);
+        $again    = Profiles::sync((int) $user->userid);
+        $children['child:1']['name'] = 'Nikos';
+        unset($children['child:2']);
+        Profiles::sync((int) $user->userid);
+        $after    = array_column(Profiles::of((int) $user->userid), null, 'name');
+        $kept     = Profiles::update((int) $user->userid, $after['Eleni']['profile_id'], ['source' => null]);
+        Profiles::sync((int) $user->userid);
+        $finally  = array_column(Profiles::of((int) $user->userid), null, 'name');
+
+        // Assert
+        $this->assertSame([2, 0], [$made, $again], 'made once, past the limit the application set for its own');
+        $this->assertSame(['child:1', false, 2019], [$after['Nikos']['source'], $after['Nikos']['detached'], $after['Nikos']['birth_year']], 'kept up to date');
+        $this->assertSame(['child:2', true], [$after['Eleni']['source'], $after['Eleni']['detached']], 'no longer given: detached, not deleted');
+        $this->assertSame([null, false], [$kept['source'], $kept['detached']], 'kept as the holder\'s own');
+        $this->assertArrayHasKey('Eleni', $finally, 'and left alone after');
+        $this->assertNull($finally['Maria']['source'], 'one made by hand never touched');
+        $this->assertSame($own['profile_id'], $finally['Maria']['profile_id']);
+    }
 }

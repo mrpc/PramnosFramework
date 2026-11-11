@@ -120,6 +120,57 @@ final class Profiles
     }
 
     /**
+     * The profiles the application gives, made and kept up to date: its hook
+     * `chat.profiles.from` — `fn (int $userId): array` answering `[source => {name, kind,
+     * birth_year, image}]`, a child it already keeps by its own key — makes the missing ones and
+     * changes those whose name, year or image changed. One it no longer gives is marked detached,
+     * never deleted: what it said stays, for the account holder to keep as a profile of its own or
+     * to delete. A profile with no source is never touched. Answers how many were made.
+     */
+    public static function sync(int $userId): int
+    {
+        $hook = ((array) (((array) \Pramnos\Llm\Llm::config('chat', []))['profiles'] ?? []))['from'] ?? null;
+        if (!self::on() || !is_callable($hook) || $userId <= 0) {
+            return 0;
+        }
+        try {
+            $given = (array) $hook($userId);
+        } catch (\Throwable $why) {
+            \Pramnos\Logs\Logger::log('llm profiles from-hook: ' . $why->getMessage(), 'llm');
+
+            return 0;
+        }
+        $mine  = array_column(array_filter(self::of($userId), static fn (array $p): bool => $p['source'] !== null), null, 'source');
+        $stamp = \Pramnos\Llm\CallLog::instant(time());
+        $made  = 0;
+        foreach ($given as $source => $one) {
+            $source = mb_substr(trim((string) $source), 0, 64);
+            $fields = is_array($one) && $source !== '' ? self::fields(array_intersect_key($one, array_flip(['name', 'kind', 'birth_year', 'image'])), true) : 'x';
+            if (is_string($fields)) {
+                continue;
+            }
+            $have = $mine[$source] ?? null;
+            if ($have === null) {
+                // The application's to give: it says how many, so its own are not held to the limit.
+                self::table()->insert($fields + ['userid' => $userId, 'source' => $source, 'created_at' => $stamp, 'updated_at' => $stamp]);
+                $made++;
+                continue;
+            }
+            $changed = array_filter($fields, static fn ($v, string $k): bool => $k !== 'kind' && $have[$k] !== $v, ARRAY_FILTER_USE_BOTH);
+            if ($changed !== [] || $have['detached']) {
+                self::table()->where('profile_id', $have['profile_id'])->update($changed + ['detached_at' => null, 'updated_at' => $stamp]);
+            }
+        }
+        foreach ($mine as $source => $have) {
+            if (!array_key_exists($source, $given) && !$have['detached']) {
+                self::table()->where('profile_id', $have['profile_id'])->update(['detached_at' => $stamp, 'updated_at' => $stamp]);
+            }
+        }
+
+        return $made;
+    }
+
+    /**
      * A profile changed: any of its fields.
      *
      * @param array<string, mixed> $given
@@ -331,9 +382,10 @@ final class Profiles
                 'mood' => $row['mood'] ?? null, 'from' => (string) $row['created_at'], 'to' => (string) $row['updated_at']];
         }
         $name    = (string) (self::get($reader->userId, $profileId)['name'] ?? '');
-        $summary = $list === [] ? sprintf('%s has not talked to the assistant in the last %d days.', $name, $days)
-            : sprintf('%s had %d conversations in the last %d days, %d messages in all%s.', $name, count($list), $days, array_sum(array_column($list, 'messages')),
-                ($list[0]['mood'] ?? null) !== null ? '; the last one\'s mood: ' . $list[0]['mood'] : '');
+        $t       = static fn (string $words): string => function_exists('t') ? (string) t($words) : $words;
+        $summary = $list === [] ? sprintf($t('%s has not talked to the assistant in the last %d days.'), $name, $days)
+            : sprintf($t('%s had %d conversations in the last %d days, %d messages in all.'), $name, count($list), $days, array_sum(array_column($list, 'messages')))
+                . (($list[0]['mood'] ?? null) !== null ? ' ' . sprintf($t('The last one\'s mood: %s.'), (string) $list[0]['mood']) : '');
         unset($theirs);
 
         return ['summary' => $summary, 'conversations' => $list];
@@ -449,6 +501,11 @@ final class Profiles
             }
             $row['birth_year'] = $year;
         }
+        // Kept as a profile of its own, no more the application's: its source let go of.
+        if (!$new && array_key_exists('source', $given) && $given['source'] === null) {
+            $row['source']      = null;
+            $row['detached_at'] = null;
+        }
         if (array_key_exists('image', $given)) {
             $row['image'] = $given['image'] === null || $given['image'] === '' ? null : mb_substr((string) $given['image'], 0, 255);
         }
@@ -462,7 +519,9 @@ final class Profiles
         $year = $row['birth_year'] === null ? null : (int) $row['birth_year'];
 
         return ['profile_id' => (int) $row['profile_id'], 'name' => (string) $row['name'], 'kind' => (string) $row['kind'],
-            'birth_year' => $year, 'age' => $year === null ? null : (int) date('Y') - $year, 'image' => $row['image'] === null ? null : (string) $row['image']];
+            'birth_year' => $year, 'age' => $year === null ? null : (int) date('Y') - $year, 'image' => $row['image'] === null ? null : (string) $row['image'],
+            // Given by the application (sync()): its key there, and whether it gives it no more.
+            'source' => ($row['source'] ?? null) === null ? null : (string) $row['source'], 'detached' => ($row['detached_at'] ?? null) !== null];
     }
 
     /** What a profile said and kept, wherever it is kept under its space. */

@@ -264,6 +264,16 @@ their own conversations, memories, diary, today's thought, photos, plan and remi
   not a child's has `profile_activity(name)`. A child's profile reads no one's. What counts as
   worth telling a parent, and whom to tell, is the application's: its `after` hook hears every
   answer of a profile.
+- **The application's own as profiles.** `'profiles' => ['from' => fn (int $userId): array =>
+  ['child:123' => ['name' => …, 'kind' => 'child', 'birth_year' => …, 'image' => …]]]` gives
+  the children an application already keeps.
+  - `Profiles::sync($userId)` runs on every `GET {chat}/profiles`, and whenever the application
+    changes one. It makes the missing ones and changes a name, year or image that changed.
+  - Each is linked by its `source`, so it is never made twice. The application's own are not
+    held to the limit, since it decides how many it gives.
+  - One it no longer gives is marked `detached` and never deleted. The holder keeps it as a
+    profile of their own (`PATCH` with `source: null`) or deletes it.
+  - A profile made by hand is never touched.
 - **Photos** of a profile are in its own space. Another profile does not see them.
 - **The account's choices** (persona, voice, quiet hours) are the account's, the same for every
   profile.
