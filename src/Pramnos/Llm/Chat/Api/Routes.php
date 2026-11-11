@@ -17,7 +17,7 @@ use Pramnos\Routing\Router;
  *
  * Everything sits under `/chat` by default: `/chat`, `/chat/{conversation_id}`,
  * `/chat/asks/{ask_id}`, `/chat/memory`, `/chat/connections`, `/chat/routines`, `/chat/runs`, `/chat/reports`,
- * `/chat/skills`, `/chat/consent`, `/chat/speak`, `/chat/push`, `/chat/mood` and `/chat/style` — the last four follow `chat`
+ * `/chat/skills`, `/chat/consent`, `/chat/speak`, `/chat/voices`, `/chat/voice`, `/chat/push`, `/chat/mood` and `/chat/style` — all but the first two follow `chat`
  * where they are not named, so a second mount at `/assistant` reads aloud at `/assistant/speak`. The fixed paths
  * are registered before `/chat/{conversation_id}`, which would otherwise take "memory" for an id.
  */
@@ -56,6 +56,8 @@ final class Routes
         $p['diary']    ??= $p['chat'] . '/diary';
         $p['me']       ??= $p['chat'] . '/me';
         $p['persona']  ??= $p['chat'] . '/persona';
+        $p['voices']   ??= $p['chat'] . '/voices';
+        $p['voice']    ??= $p['chat'] . '/voice';
         $make = static fn (): ChatController => new $controller();
 
         $r->post($p['speak'], static fn () => $make()->speak())->describeFrom([$controller, 'speak']);
@@ -64,6 +66,8 @@ final class Routes
         $r->get($p['mood'], static fn () => $make()->mood())->describeFrom([$controller, 'mood']);
         $r->get($p['style'], static fn () => $make()->style())->describeFrom([$controller, 'style']);
         $r->put($p['style'], static fn () => $make()->style())->describeFrom([$controller, 'style']);
+        $r->get($p['voices'], static fn () => $make()->voices())->describeFrom([$controller, 'voices']);
+        $r->put($p['voice'], static fn () => $make()->voices())->describeFrom([$controller, 'voices']);
         $r->get($p['personas'], static fn () => $make()->personas())->describeFrom([$controller, 'personas']);
         $r->get($p['diary'], static fn () => $make()->diary())->describeFrom([$controller, 'diary']);
         $r->get($p['me'], static fn () => $make()->me())->describeFrom([$controller, 'me']);

@@ -29,6 +29,15 @@ use Pramnos\Logs\Logger;
  * provider and every caller ({@see pronounce()}); the chat pages hand the list to the browser's
  * voice too.
  *
+ * `voices` lists the voices a person may choose from, each with a label, the provider's own name
+ * for it, and optionally its provider and a recorded sample ({@see voices()}); `sample` is a text
+ * the chat pages read in each, for a sample the application has not recorded:
+ *
+ * ```php
+ * 'voices' => ['maria' => ['label' => 'Μαρία', 'voice' => 'el-GR-Wavenet-A', 'provider' => 'google']],
+ * 'sample' => 'Γεια σου! Έτσι ακούγομαι.',
+ * ```
+ *
  * `fallback` names a second provider, asked when the first fails or is not set up — Piper beside
  * Google, say: a voice of one's own for when the cloud's is not there.
  *
@@ -87,29 +96,96 @@ final class Speech
      * Read a text aloud — with `$provider`, or the one in use and, should it fail or not be set
      * up, the application's `fallback` (`'speech' => ['fallback' => 'piper']`), once.
      *
+     * `$voice` is one of {@see voices()}, by its key — with its provider, where it names one — or
+     * else the provider's own name for a voice. The fallback reads in its own voice.
+     *
      * @return array{ok: bool, status: int, audio?: string, type?: string, says?: string}
      *         `status` is the one to answer with: 501 with no server, 422 for a text that cannot
      *         be read, 502 when the server fails — the first provider's, when the fallback fails too
      */
-    public static function speak(string $text, ?string $provider = null): array
+    public static function speak(string $text, ?string $provider = null, ?string $voice = null): array
     {
         $text = trim($text);
         if ($text === '' || mb_strlen($text) > self::MAX_TEXT) {
             return ['ok' => false, 'status' => 422, 'says' => 'The text must be 1 to ' . self::MAX_TEXT . ' characters.'];
         }
+        $named  = $provider !== null;
+        $listed = $voice !== null ? (self::voices()[$voice] ?? null) : null;
+        if ($listed !== null) {
+            $provider ??= $listed['provider'];
+            $voice    = $listed['voice'];
+        }
         $text   = self::pronounce($text);
-        $spoken = self::speakWith($text, $provider);
-        if ($spoken['ok'] || $provider !== null) {
+        $spoken = self::speakWith($text, $provider, $voice);
+        if ($spoken['ok'] || $named) {
             return $spoken;
         }
         $section  = Llm::config('speech', []);
         $fallback = is_array($section) ? (string) ($section['fallback'] ?? '') : '';
-        if ($fallback === '' || $fallback === (string) ($section['provider'] ?? 'piper')) {
+        if ($fallback === '' || $fallback === ($provider ?? (string) ($section['provider'] ?? 'piper'))) {
             return $spoken;
         }
         $second = self::speakWith($text, $fallback);
 
         return $second['ok'] ? $second : $spoken;
+    }
+
+    /**
+     * The voices a person may choose from (`'speech' => ['voices' => [...]]`), by key; one without
+     * a provider's name for it is left out.
+     *
+     * @return array<string, array{label: string, voice: string, provider: ?string, sample: ?string}>
+     */
+    public static function voices(): array
+    {
+        $section = Llm::config('speech', []);
+        $out     = [];
+        foreach ((is_array($section) && is_array($section['voices'] ?? null) ? $section['voices'] : []) as $key => $given) {
+            if (is_array($given) && trim((string) ($given['voice'] ?? '')) !== '') {
+                $out[(string) $key] = ['label' => (string) ($given['label'] ?? $key), 'voice' => trim((string) $given['voice']),
+                    'provider' => isset($given['provider']) ? (string) $given['provider'] : null,
+                    'sample' => isset($given['sample']) ? (string) $given['sample'] : null];
+            }
+        }
+
+        return $out;
+    }
+
+    /** The detail the person's own voice is kept in, one for each persona. */
+    public const VOICE_DETAIL = 'askvoice';
+
+    /** The voice the person chose (a key of {@see voices()}) for a persona, or null. */
+    public static function chosen(object $user, ?string $persona = null): ?string
+    {
+        $key = (string) ($user->{self::voiceDetail($persona)} ?? '');
+
+        return isset(self::voices()[$key]) ? $key : null;
+    }
+
+    /** Keep the person's voice for a persona: one of {@see voices()}, or '' for the default. False for neither. */
+    public static function choose(object $user, string $key, ?string $persona = null): bool
+    {
+        if ($key !== '' && !isset(self::voices()[$key])) {
+            return false;
+        }
+        $user->{self::voiceDetail($persona)} = $key;
+        $user->save();
+
+        return true;
+    }
+
+    /** The detail a persona's voice is kept in. */
+    private static function voiceDetail(?string $persona): string
+    {
+        return $persona === null ? self::VOICE_DETAIL : self::VOICE_DETAIL . '-' . $persona;
+    }
+
+    /** The text a voice's sample is read from, where the application has not recorded one; '' for none. */
+    public static function sample(): string
+    {
+        $section = Llm::config('speech', []);
+
+        return is_array($section) ? trim((string) ($section['sample'] ?? '')) : '';
     }
 
     /**
@@ -144,11 +220,14 @@ final class Speech
      *
      * @return array{ok: bool, status: int, audio?: string, type?: string, says?: string}
      */
-    private static function speakWith(string $text, ?string $provider): array
+    private static function speakWith(string $text, ?string $provider, ?string $voice = null): array
     {
         $config = self::config($provider);
         if ($config === null) {
             return ['ok' => false, 'status' => 501, 'says' => 'Speech is not set up.'];
+        }
+        if ($voice !== null && $voice !== '') {
+            $config['voice'] = $voice;
         }
         $started = hrtime(true);
         [$status, $audio, $type] = (new $config['transport']())->speak($config, $text);

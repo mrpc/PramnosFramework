@@ -130,6 +130,31 @@ Piper beside Google, a voice of one's own for when the cloud's is not there:
 Both calls are logged. When the fallback fails too, the first provider's answer is returned, and
 `Speech::speak($text, 'google')` — a provider asked for by name — falls back on nothing.
 
+`voices` lists the voices a person may choose from: a label, the provider's own name for the
+voice, optionally its provider (else the one in use) and a recorded `sample`. `sample` beside it
+is a text the pages read in each voice where none is recorded:
+
+```php
+'speech' => [
+    'voices' => [
+        'maria' => ['label' => 'Μαρία', 'voice' => 'el_GR-maria', 'sample' => '/audio/maria.mp3'],
+        'cloud' => ['label' => 'Ελένη', 'voice' => 'el-GR-Wavenet-A', 'provider' => 'google'],
+    ],
+    'sample' => 'Γεια σου! Έτσι ακούγομαι.',
+],
+```
+
+- `GET {chat}/voices` → `{voices: [{key, label, sample}], chosen, sample_text}`; `chosen` is the
+  person's own for this persona, or null.
+- `PUT {chat}/voice` with `{"voice": "maria"}` keeps it for this persona alone (the user detail
+  `askvoice-<persona>`); `""` goes back to the default; a key not on the list is a 422.
+- `POST {chat}/speak` reads in the person's voice, else the persona's own `voice`
+  (`'personas' => ['naya' => ['voice' => …]]`), else the provider's default. With `"voice": key`
+  it reads in that one, for a sample.
+
+`Speech::speak($text, null, 'maria')` takes a key of the list, with its provider, or a provider's
+own voice name. The fallback reads in its own voice.
+
 A provider of the application's own is an entry with `transport`, a `Speech\Transport` class.
 Each call writes one line to the `speech` log: provider, voice, `chars`, `ms`, `bytes` and the
 server's `status` — enough to size the server from before scaling it. `Speech::speak($text)` reads

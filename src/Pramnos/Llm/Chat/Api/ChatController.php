@@ -340,6 +340,8 @@ class ChatController extends \Pramnos\Application\ApiCrudController
      * `{"text": "…"}` → `audio` (base64), its `type` (as the server says: `audio/wav`, `audio/mpeg`…)
      * and `bytes`; with `"raw": true`, the audio itself, a third smaller. 501 where no speech server
      * is set up, 422 for an empty or overlong text, 502 when the server fails — JSON either way.
+     * It reads in the person's own voice for this persona ({@see voices()}), else the persona's;
+     * `"voice": key` reads in one of the list, for a sample.
      */
     public function speak(): array|\Pramnos\Http\Response
     {
@@ -347,7 +349,7 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             return $stop;
         }
         $input  = $this->input();
-        $spoken = \Pramnos\Llm\Speech\Speech::speak((string) ($input['text'] ?? ''));
+        $spoken = \Pramnos\Llm\Speech\Speech::speak((string) ($input['text'] ?? ''), null, $this->voiceFor((string) ($input['voice'] ?? '')));
         if (!$spoken['ok']) {
             return self::error($spoken['status'], $spoken['says']);
         }
@@ -355,6 +357,59 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return filter_var($input['raw'] ?? false, FILTER_VALIDATE_BOOLEAN)
             ? \Pramnos\Http\Response::make($spoken['audio'])->withHeader('Content-Type', $spoken['type'])
             : ['status' => 200, 'data' => ['audio' => base64_encode($spoken['audio']), 'type' => $spoken['type'], 'bytes' => strlen($spoken['audio'])]];
+    }
+
+    /**
+     * The voice a text is read in: the one asked for, where it is one of the list (a sample); the
+     * person's own for this persona; the persona's; else the provider's default (null).
+     */
+    private function voiceFor(string $asked): ?string
+    {
+        $voices = \Pramnos\Llm\Speech\Speech::voices();
+        if (isset($voices[$asked])) {
+            return $asked;
+        }
+        $scope = $this->scope();
+        if ($scope === null) {
+            return null;
+        }
+        if ($scope->userId > 0 && ($own = \Pramnos\Llm\Speech\Speech::chosen(new \Pramnos\User\User($scope->userId), $scope->persona)) !== null) {
+            return $own;
+        }
+        $persona = \Pramnos\Llm\Chat\Personas::of($scope);
+
+        return $persona === null ? null : (\Pramnos\Llm\Chat\Personas::get($persona)['voice'] ?? null);
+    }
+
+    /**
+     * The voices the person may choose from (`'speech' => ['voices' => …]`): `GET {chat}/voices` →
+     * `{voices: [{key, label, sample}], chosen, sample_text}` — `sample` a recording's address where
+     * the application has one, else null, and `sample_text` what to read with `POST {chat}/speak`
+     * `{"text": …, "voice": key}` instead; `chosen` the person's own for this persona, or null.
+     * `PUT {chat}/voice` with `{"voice": key}` keeps one, `""` goes back to the persona's; 422 for
+     * one not on the list.
+     */
+    public function voices(): array
+    {
+        $put = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'PUT';
+        if (($stop = $this->refusal($put ? 'ask' : 'read')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        if ($scope === null || $scope->userId < 1) {
+            return self::error(401, 'This needs somebody signed in.');
+        }
+        $user = new \Pramnos\User\User($scope->userId);
+        if ($put && !\Pramnos\Llm\Speech\Speech::choose($user, (string) ($this->input()['voice'] ?? ''), $scope->persona)) {
+            return self::error(422, 'That is not one of the voices.');
+        }
+        $list = [];
+        foreach (\Pramnos\Llm\Speech\Speech::voices() as $key => $voice) {
+            $list[] = ['key' => $key, 'label' => $voice['label'], 'sample' => $voice['sample']];
+        }
+
+        return ['status' => 200, 'data' => ['voices' => $list, 'chosen' => \Pramnos\Llm\Speech\Speech::chosen($user, $scope->persona),
+            'sample_text' => \Pramnos\Llm\Speech\Speech::sample()]];
     }
 
     /**
