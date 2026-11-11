@@ -207,6 +207,23 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return ['status' => 200, 'data' => ['artifacts' => $scope === null ? [] : (new \Pramnos\Llm\Chat\Artifacts($scope))->sharedWithMe()]];
     }
 
+    /**
+     * Hand an artifact to another administrator to look into (`POST {chat}/artifacts/{id}/assign`):
+     * `to` (username or email), `note`, `due` (Y-m-d). Shared with them, and a to-do in their list.
+     */
+    public function assignArtifact($artifact_id): array
+    {
+        if (($stop = $this->refusal('share')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        $input = $this->input();
+        $done  = $scope === null ? 'There is no such artifact.'
+            : (new \Pramnos\Llm\Chat\Assignments($scope))->assign((int) $artifact_id, (string) ($input['to'] ?? ''), (string) ($input['note'] ?? ''), isset($input['due']) ? (string) $input['due'] : null);
+
+        return is_string($done) ? self::error($done === 'There is no such artifact.' ? 404 : 422, $done) : ['status' => 200, 'data' => $done];
+    }
+
     /** Stop one of this person's shares. */
     public function revokeShare($share_id): array
     {

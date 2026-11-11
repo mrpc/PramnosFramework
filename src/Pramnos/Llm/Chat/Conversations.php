@@ -1468,6 +1468,8 @@ class Conversations
                 $this->scope->space === Scope::CHAT ? ['schedule_task', 'list_scheduled_tasks'] : [])
                 // Kept with a conversation the person can open: a scheduled run has none yet.
                 + self::inSkill($artifacts->tools(), 'artifacts', ['save_artifact'])
+                // An artifact handed to another administrator as a to-do: the Ask's, where shares are kept.
+                + ($this->scope->space === Scope::ADMIN && Shares::available() ? self::inSkill((new Assignments($this->scope))->tools(), 'artifacts') : [])
                 // And changes to approve, where the application turned them on: nobody approves in a run.
                 + (new Proposals($this->scope))->tools($artifacts)
                 // A way of working kept as one of the person's skills, on their word.

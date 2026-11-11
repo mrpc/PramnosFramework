@@ -43,6 +43,21 @@ trait ActsOnLists
         return null;
     }
 
+    /** Hand artifact `{id}` to another administrator, with `to`, `note` and `due`: shared with them, and a to-do in their list. */
+    public function assign(mixed $id = null): mixed
+    {
+        if ($this->taskDenied()) {
+            return null;
+        }
+        $scope  = $this->taskScope();
+        $result = $scope === null ? 'There is no such artifact.' : (new \Pramnos\Llm\Chat\Assignments($scope))->assign((int) ($id ?: \Pramnos\Http\Request::staticGetOption()),
+            (string) ($_POST['to'] ?? ''), (string) ($_POST['note'] ?? ''), (string) ($_POST['due'] ?? ''));
+        is_string($result) ? $this->addError($result) : $this->addMessage(sprintf('Handed to %s, a to-do in their list.', $result['to']));
+        $this->redirect($this->shareReturnUrl((int) ($_POST['conversation_id'] ?? 0)));
+
+        return null;
+    }
+
     /** Download artifact `{id}` as CSV — a table, a list or a chart's numbers. */
     public function download(mixed $id = null): mixed
     {

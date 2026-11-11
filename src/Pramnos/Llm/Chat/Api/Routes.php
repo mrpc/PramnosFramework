@@ -127,6 +127,7 @@ final class Routes
         $r->delete($p['artifacts'] . '/{artifact_id}/members/{userid}', static fn ($artifact_id, $userid) => $make()->removeArtifactMember($artifact_id, $userid))->describeFrom([$controller, 'removeArtifactMember']);
         $r->delete($p['artifacts'] . '/{artifact_id}', static fn ($artifact_id) => $make()->deleteArtifact($artifact_id))->describeFrom([$controller, 'deleteArtifact']);
         $r->post($p['artifacts'] . '/{artifact_id}/share', static fn ($artifact_id) => $make()->shareArtifact($artifact_id))->describeFrom([$controller, 'shareArtifact']);
+        $r->post($p['artifacts'] . '/{artifact_id}/assign', static fn ($artifact_id) => $make()->assignArtifact($artifact_id))->describeFrom([$controller, 'assignArtifact']);
         $r->get($p['artifacts'] . '/{artifact_id}/shares', static fn ($artifact_id) => $make()->artifactShares($artifact_id))->describeFrom([$controller, 'artifactShares']);
         $r->get($p['artifacts'] . '/{artifact_id}/actions', static fn ($artifact_id) => $make()->artifactActions($artifact_id))->describeFrom([$controller, 'artifactActions']);
         $r->post($p['artifacts'] . '/{artifact_id}/actions/{action}', static fn ($artifact_id, $action) => $make()->runArtifactAction($artifact_id, $action))->describeFrom([$controller, 'runArtifactAction']);

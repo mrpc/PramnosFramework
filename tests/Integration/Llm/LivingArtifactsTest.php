@@ -23,6 +23,8 @@ require_once __DIR__ . '/ChatApiTest.php';
  * front of the model at the start of every question, as it stands then.
  */
 #[CoversClass(Artifacts::class)]
+#[CoversClass(\Pramnos\Llm\Chat\Assignments::class)]
+#[CoversClass(\Pramnos\Todos\Todos::class)]
 #[CoversClass(\Pramnos\Llm\Chat\Api\ChatController::class)]
 #[CoversClass(\Pramnos\Broadcasting\BroadcastingManager::class)]
 class LivingArtifactsTest extends LlmTestCase
@@ -416,5 +418,73 @@ class LivingArtifactsTest extends LlmTestCase
         $this->assertSame(200, $removed['status']);
         $this->assertSame(404, $gone['status'], 'taken off: not theirs to see');
         $this->assertSame(404, $again['status'], 'nobody else takes a member off');
+    }
+
+    /**
+     * An artifact handed to another administrator (FW-476): shared with them, a to-do in their list
+     * leading to the share, with the note and the due day; their note and their closing it reach
+     * whoever handed it over, kept in the item's history; an application's own to-do list through
+     * its hook; nobody, no artifact, or a wrong day, refused.
+     */
+    #[DataProvider('databases')]
+    public function testAnArtifactHandedOverIsAToDoForThem(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        \Pramnos\Framework\Testing\Schema::ensure([
+            \Pramnos\Framework\Migrations\Todos\CreateTodosTable::class,
+            \Pramnos\Framework\Migrations\Changelog\CreateChangelogTables::class,
+            \Pramnos\Framework\Migrations\Changelog\AddScopeToChangelogEvents::class,
+        ], $this->db);
+        [$boss, $analyst] = [$this->user(), $this->user()];
+        // An administrator: the Ask's artifacts go only to people who may open the Ask.
+        $this->db->queryBuilder()->table('#PREFIX#users')->whereIn('userid', [$boss, $analyst])->update(['usertype' => 99]);
+        \Pramnos\User\User::clearUserCache();
+        $scope  = new Scope($boss, null, Scope::ADMIN);
+        $id     = (new Artifacts($scope))->create(['kind' => 'table', 'title' => 'October sales', 'columns' => ['M'], 'rows' => [['1']]])['artifact_id'];
+        $hand   = new \Pramnos\Llm\Chat\Assignments($scope);
+        // The item's history written at once, to be read back here.
+        \Pramnos\Database\WriteSpool::setDriver(\Pramnos\Database\WriteSpool::DRIVER_SYNC);
+
+        try {
+            // Act
+            $done    = $hand->assign($id, $this->nameOf($analyst), 'why is October down?', '2026-11-20');
+            $this->assertIsArray($done, (string) json_encode($done));
+            $this->assertIsArray($done, (string) json_encode($done));
+            $todo    = \Pramnos\Todos\Todos::get((int) ($done['todo'] ?? 0));
+            \Pramnos\Todos\Todos::update($todo['id'], ['note' => 'Looking at it'], $analyst);
+            \Pramnos\Todos\Todos::update($todo['id'], ['status' => \Pramnos\Todos\Todos::DONE, 'note' => 'Fewer renewals'], $analyst);
+            $notes   = array_map(static fn (array $r): ?string => json_decode((string) $r['details'], true)['note'] ?? null,
+                $this->db->queryBuilder()->table('pramnos.changelog_events')->where('entity', 'todo')->where('itemid', (string) $todo['id'])->where('event', 'changed')->getAllOrFail());
+            $shared  = (new \Pramnos\Llm\Chat\Shares())->withMe($analyst);
+            $nobody  = $hand->assign($id, 'nobody-' . $boss);
+            $none    = $hand->assign(999999, $this->nameOf($analyst));
+            $badDay  = $hand->assign($id, $this->nameOf($analyst), '', 'Friday');
+            $items   = [];
+            $this->configure(['chat' => ['assign' => static function (array $item) use (&$items): int {
+                $items[] = $item;
+
+                return 77;
+            }]]);
+            $hooked  = $hand->assign($id, $this->nameOf($analyst), 'again');
+            $tool    = $hand->tools()['assign_artifact']['run'](['id' => $id, 'to' => $this->nameOf($analyst)]);
+        } finally {
+            \Pramnos\Database\WriteSpool::setDriver(null);
+            $this->db->queryBuilder()->table(\Pramnos\Todos\Todos::TABLE)->where('source', 'artifact:' . $id . ':' . $analyst)->delete();
+            $this->db->queryBuilder()->table('assist.chat_shares')->where('userid', $boss)->delete();
+        }
+
+        // Assert
+        $this->assertSame($analyst, $todo['assigned_to'], 'a to-do in their list');
+        $this->assertSame(['assigned', 'Look into: October sales — why is October down?', '2026-11-20'], [$todo['kind'], $todo['title'], substr((string) date('Y-m-d', (int) $todo['due_at']), 0, 10)]);
+        $this->assertStringContainsString('Ai/shared/', (string) $todo['link'], 'leading to the share');
+        $this->assertSame(['October sales'], array_column($shared, 'title'), 'shared with them');
+        $this->assertSame(['Looking at it', 'Fewer renewals'], array_values(array_filter($notes)), 'their notes, in the item\'s history');
+        $this->assertSame('There is nobody called nobody-' . $boss . ' to hand it to.', $nobody);
+        $this->assertSame('There is no such artifact.', $none);
+        $this->assertSame('A due day is Y-m-d.', $badDay);
+        $this->assertSame(77, $hooked['todo'], 'the application\'s own to-do list');
+        $this->assertSame([$analyst, $boss, 'again', $id], [$items[0]['assigned_to'], $items[0]['assigned_by'], $items[0]['note'], $items[0]['artifact_id']]);
+        $this->assertStringStartsWith('Handed to ', $tool);
     }
 }

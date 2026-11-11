@@ -103,7 +103,9 @@ final class Todos
     /**
      * Change an item: `status`, `assigned_to` (0 for nobody), `due` (Y-m-d, '' clears it),
      * `remind_at` (0 clears it), `link`, `sort`; `title` only of one's own; `private` only by its
-     * author. Done and dismissed set when it closed; opened again, that is cleared.
+     * author. Done and dismissed set when it closed; opened again, that is cleared. `note`, a
+     * line to whoever handed the item over (kind `assigned`): they are told it, and told when the
+     * item is closed — the note kept in the item's history, not in a column.
      *
      * @param array<string, mixed> $changes
      * @throws \InvalidArgumentException For an item not there or not the person's to change, or a change it cannot take
@@ -158,11 +160,14 @@ final class Todos
                 $row['assigned_to'] = $by;
             }
         }
-        if ($row === []) {
+        $note = mb_substr(trim((string) preg_replace('/\s+/u', ' ', (string) ($changes['note'] ?? ''))), 0, 500);
+        if ($row === [] && $note === '') {
             return;
         }
-        self::db()->queryBuilder()->table(self::TABLE)->where('todoid', $id)->update($row + ['updated_at' => time()]);
-        ChangelogWriter::event('todo', $id, 'changed', array_intersect_key($row, array_flip(['status', 'assigned_to', 'due_at', 'private'])), by: $by ?: null);
+        if ($row !== []) {
+            self::db()->queryBuilder()->table(self::TABLE)->where('todoid', $id)->update($row + ['updated_at' => time()]);
+        }
+        ChangelogWriter::event('todo', $id, 'changed', array_intersect_key($row, array_flip(['status', 'assigned_to', 'due_at', 'private'])) + ($note !== '' ? ['note' => $note] : []), by: $by ?: null);
         if (isset($row['closed_at'])) {
             self::settle($id);
         }
@@ -171,6 +176,18 @@ final class Todos
             self::given($item, $to, $by);
         }
         self::changed($id, [$item['assigned_to'], $item['created_by'], $to, $by]);
+        // After its notices were settled: this one is new.
+        // Handed over by somebody else: they hear of a note, and of it being closed.
+        $from = (int) ($item['created_by'] ?? 0);
+        if ($item['kind'] === 'assigned' && $from > 0 && $from !== $by) {
+            $who  = $by > 0 ? self::nameOf($by) : '';
+            $what = self::short((string) $item['title']);
+            if (isset($row['closed_at']) && $item['closed_at'] === null) {
+                self::tell($item, $from, sprintf(t('%s closed: %s'), $who, $what) . ($note !== '' ? ' — ' . $note : ''));
+            } elseif ($note !== '') {
+                self::tell($item, $from, sprintf(t('%s on %s: %s'), $who, $what, $note));
+            }
+        }
     }
 
     /**

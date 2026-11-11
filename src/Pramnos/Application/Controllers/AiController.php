@@ -67,7 +67,7 @@ class AiController extends Controller
             'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'report',
             'skills', 'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject', 'memories', 'memorycorrect', 'memorydelete',
             'skillcatalog', 'skillinstall', 'skillcatalogturn', 'skillcatalogrole', 'skillcatalogupdate', 'skillcatalogdelete',
-            'share', 'unshare', 'shared', 'people', 'act', 'approve', 'reject', 'rate', 'reviews', 'reviewed', 'download', 'printable', 'pin', 'speak', 'voicereply', 'modelchoice',
+            'share', 'unshare', 'shared', 'people', 'act', 'assign', 'approve', 'reject', 'rate', 'reviews', 'reviewed', 'download', 'printable', 'pin', 'speak', 'voicereply', 'modelchoice',
             'companionreset']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
         // `api` checks its own token, from the X-CSRF-Token header, since it also answers GET and DELETE.
@@ -151,6 +151,8 @@ class AiController extends Controller
             'download'  => adminUrl('Ai/download/'),
             'print'     => adminUrl('Ai/printable/'),
             'pin'       => adminUrl('Ai/pin/'),
+            // Handing an artifact to another administrator, where shares and to-dos are kept.
+            'assign'    => \Pramnos\Llm\Chat\Shares::available() ? adminUrl('Ai/assign/') : '',
             // Answers read aloud by the speech server, where there is one.
             'speak'     => self::readsAloudOnServer() ? adminUrl('Ai/speak') : '',
             'voicereply' => adminUrl('Ai/voicereply'),

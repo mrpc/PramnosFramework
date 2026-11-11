@@ -666,6 +666,23 @@ $conversationId = $shares->open($shareId, $conversations->as($viewerScope));
 A page of an application's own gets the actions with `Chat\Web\SharesConversations`
 (`share/{id}`, `unshare/{share}`, `shared/{share}`) and the markup with `Chat\Web\ShareView`.
 
+### Assigning an artifact to someone
+
+*Assign to…* under an artifact in the Ask hands it to another administrator to look into
+(`Chat\Assignments::assign($id, $to, $note, $due)`). It shares the artifact with them, as above,
+and opens a to-do in their list that leads to the share. The to-do is titled *Look into: <title>
+— <note>* and carries the due day. When they close it, or add a note, whoever handed it over is
+told (see the [To-dos Guide](Pramnos_Todos_Guide.md#telling)).
+
+```php
+// The application's own to-do list, where it has one; the framework's Pramnos\Todos otherwise.
+'llm' => ['chat' => ['assign' => fn (array $item): int => MyTodos::add($item)]],
+// $item: title, note, link, assigned_to, assigned_by, due (Y-m-d or null), artifact_id
+```
+
+The model does the same with `assign_artifact(id, to, note, due)`, after the person confirms who
+and by when. The API is `POST {chat}/artifacts/{id}/assign` with `to`, `note` and `due`.
+
 ### Sharing an artifact live
 
 A share above is a snapshot. An artifact can also be shared **live**: its members read the

@@ -15,7 +15,7 @@ final class ArtifactTools
 {
     /**
      * @param array<string, mixed>  $artifact As Artifacts::shape() answers
-     * @param array<string, string> $urls     download, print, pin (each followed by the id)
+     * @param array<string, string> $urls     download, print, pin, assign (each followed by the id)
      * @param list<int>             $pinned   The ids this person has pinned
      * @param array<string, string> $c        The theme's classes: btnGhost
      */
@@ -36,6 +36,17 @@ final class ArtifactTools
             $html .= '<form method="post" action="' . $e($urls['pin'] . $id) . '" style="display:inline">' . $token
                 . '<input type="hidden" name="conversation_id" value="' . $returnTo . '"><input type="hidden" name="pinned" value="' . ($on ? '0' : '1') . '">'
                 . '<button type="submit" class="' . $e($c['btnGhost'] ?? '') . '" aria-pressed="' . ($on ? 'true' : 'false') . '">' . ($on ? $t('Unpin from dashboard') : $t('Pin to dashboard')) . '</button></form>';
+        }
+
+        // Hand it to another administrator to look into: who, a note, by when.
+        if (($urls['assign'] ?? '') !== '') {
+            $html .= '<details class="pf-artifact-assign" style="display:inline-block"><summary class="' . $e($c['btnGhost'] ?? '') . '">' . $t('Assign to…') . '</summary>'
+                . '<form method="post" action="' . $e($urls['assign'] . $id) . '" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:flex-end;margin-top:.25rem">' . $token
+                . '<input type="hidden" name="conversation_id" value="' . $returnTo . '">'
+                . '<label>' . $t('To (username or email)') . ' <input type="text" name="to" required></label>'
+                . '<label>' . $t('Note') . ' <input type="text" name="note"></label>'
+                . '<label>' . $t('Due') . ' <input type="date" name="due"></label>'
+                . '<button type="submit" class="' . $e($c['btnGhost'] ?? '') . '">' . $t('Assign') . '</button></form></details>';
         }
 
         return $html . '</span>';

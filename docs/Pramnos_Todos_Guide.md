@@ -102,6 +102,10 @@ It runs:
 - **Settled.** A notice is about its item (`todo:ID`): closing or deleting the item settles it in
   every bell. `Todos::seen($viewer)` settles a person's to-do notices; a screen showing the list
   calls it.
+- **Handed over** (kind `assigned`, as when an artifact is assigned to someone from the Ask).
+  Whoever handed the item over is told when its assignee closes it. They are also told of a
+  `note` the assignee adds, `Todos::update($id, ['note' => '…'], $by)`, alone or with the closing.
+  The note is kept in the item's history (`changelog_events`), not in a column.
 - **Where it leads:** `todos.url`, the list at `/admin/Todo` by default.
 
 ## In the conversations
