@@ -107,6 +107,11 @@ class TableWidget extends ReportWidget
     protected static function cleanRows(mixed $value): ?array
     {
         return self::cleanList($value, static function (array $row): ?array {
+            // A heading inside the table, over the rows after it: words, no metric.
+            $heading = trim((string) ($row['heading'] ?? ''));
+            if ($heading !== '') {
+                return ['label' => mb_substr($heading, 0, 120), 'heading' => mb_substr($heading, 0, 120), 'metric' => '', 'filters' => [], 'breakdown' => '', 'total' => false];
+            }
             $metric = trim((string) ($row['metric'] ?? ''));
             if ($metric === '' || preg_match('/^[a-z0-9_.:-]{1,100}$/i', $metric) !== 1) {
                 return null;
@@ -121,7 +126,7 @@ class TableWidget extends ReportWidget
                 'total'     => !empty($row['total']) && $row['total'] !== 'false',
             // What a report's definition gives a row beyond the form's fields — a formula over its
             // operands, a description and a link — kept, for Report::fromArray() to check.
-            ] + array_intersect_key($row, array_flip(['formula', 'operands', 'unit', 'description', 'link', 'format', 'decimals', 'zero', 'values']));
+            ] + array_intersect_key($row, array_flip(['formula', 'operands', 'unit', 'description', 'link', 'format', 'decimals', 'zero', 'values', 'hide_empty']));
         });
     }
 

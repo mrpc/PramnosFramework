@@ -113,5 +113,6 @@ $day       = strtotime($this->at) ?: time();
         @endforeach
     </div>
     @endif
+    {!! \Pramnos\Metrics\Widgets\SectionWidget::contents((array) ($this->entry['report']->definition['sections'] ?? [])) !!}
     {!! $this->body !!}
 </div>

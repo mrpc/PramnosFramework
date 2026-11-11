@@ -78,6 +78,12 @@ final class Report
         foreach ((array) ($definition['sections'] ?? []) as $section) {
             $rows = [];
             foreach ((array) ($section['rows'] ?? []) as $row) {
+                // A heading inside the table — "Professionals › Registrations" — over the rows after it.
+                if (trim((string) ($row['heading'] ?? '')) !== '' && trim((string) ($row['metric'] ?? '')) === '') {
+                    $rows[] = ['heading' => mb_substr(trim((string) $row['heading']), 0, 120), 'label' => mb_substr(trim((string) $row['heading']), 0, 120),
+                        'metric' => '', 'filters' => [], 'breakdown' => null, 'total' => false];
+                    continue;
+                }
                 // A formula over filtered metrics: its first operand's metric stands for it where one is asked for.
                 $formula = self::formula($row);
                 if ($formula !== null) {
@@ -96,6 +102,8 @@ final class Report
                     'breakdown' => $breakdown !== '' ? $breakdown : null,
                     'total'     => $breakdown !== '' && (bool) ($row['total'] ?? false),
                 ] + self::explained($row) + self::writtenAs($row)
+                    // Left out where it has nothing in the period: a nought or none in every column.
+                    + (!empty($row['hide_empty']) && $row['hide_empty'] !== 'false' ? ['hide_empty' => true] : [])
                     // Some of the breakdown's values only; its total stays every value's.
                     + ($breakdown !== '' && is_array($row['values'] ?? null) && $row['values'] !== [] ? ['values' => array_values(array_map('strval', $row['values']))] : []);
             }
@@ -563,14 +571,28 @@ final class Report
             // A section with columns of its own — the last 12 months in a month's report — and the rest as the report's.
             $columns = isset($section['columns']) ? $this->expandColumns($anchor, $section['columns']) : $reportColumns;
             foreach ($section['rows'] as $row) {
+                if (isset($row['heading'])) {
+                    $rows[] = ['label' => $row['heading'], 'heading' => true, 'metric' => null, 'cells' => [], 'subtotal' => false, 'formula' => true,
+                        'currency' => null, 'unit' => '', 'other' => null, 'change' => null, 'error' => null, 'part' => null, 'headed' => false];
+                    continue;
+                }
                 if (!isset($visible[$row['metric']])) {
                     $hidden++;
                     continue;
                 }
                 foreach ($this->expandRow($row, $anchor, $columns) as $one) {
-                    $rows[] = $this->buildRow($one, $visible, $columns, $anchor, $compare, $grain);
+                    $built = $this->buildRow($one, $visible, $columns, $anchor, $compare, $grain);
+                    // `hide_empty`: a row — or a breakdown's value — with nothing in any column is left out.
+                    if (!empty($row['hide_empty']) && $built['error'] === null && array_filter($built['cells'], static fn (array $c): bool => ($c['value'] ?? null) !== null && $c['value'] != 0.0) === []) {
+                        continue;
+                    }
+                    $rows[] = $built;
                 }
             }
+            // A heading with nothing under it before the next one, or the end: left out too.
+            $rows = array_values(array_filter($rows, static function (array $r, int $i) use ($rows): bool {
+                return empty($r['heading']) || (isset($rows[$i + 1]) && empty($rows[$i + 1]['heading']));
+            }, ARRAY_FILTER_USE_BOTH));
             $total = null;
             if ($section['total'] && $rows !== []) {
                 $total = [];
@@ -998,6 +1020,11 @@ final class Report
             $group = null;
             $notes = [];
             foreach ($section['rows'] as $row) {
+                if (!empty($row['heading'])) {
+                    $body .= '<tr class="pf-report-group pf-report-heading"><th scope="rowgroup" colspan="' . ($span + 1) . '">' . $e($row['label']) . '</th></tr>';
+                    $group = null;
+                    continue;
+                }
                 $part = $row['part'] ?? null;
                 // A breakdown's values under their row's name, set in and lighter, so three of them
                 // in a section are never read as rows of their own.

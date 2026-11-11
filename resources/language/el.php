@@ -2576,4 +2576,5 @@ return [
     'Monday to Friday at %s' => 'Δευτέρα με Παρασκευή στις %s',
     'The plan, this morning' => 'Το σχέδιο, σήμερα το πρωί',
     'The week\'s review' => 'Η ανασκόπηση της εβδομάδας',
+    'Contents' => 'Περιεχόμενα',
 ];

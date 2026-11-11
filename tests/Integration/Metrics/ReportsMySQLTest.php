@@ -645,7 +645,7 @@ class ReportsMySQLTest extends TestCase
         $csv = \Pramnos\Metrics\ReportBoard::csv($entry, '2026-09-10', self::reader());
 
         // Assert — the cards in order, each for September
-        $this->assertStringContainsString('<h2 style="margin:24px 0 8px">Selling</h2>', $mail);
+        $this->assertStringContainsString('<h2 id="' . \Pramnos\Metrics\Widgets\SectionWidget::anchor('Selling') . '" style="margin:24px 0 8px">Selling</h2>', $mail);
         $this->assertStringContainsString('<th scope="col" style="text-align:right">2026-08</th><th scope="col" style="text-align:right">2026-09</th>', $mail, 'two months');
         $this->assertStringContainsString('src="cid:chart-1.png"', $mail, 'the chart as an image');
         $this->assertSame(['chart-1.png'], array_keys($images));
@@ -843,6 +843,65 @@ class ReportsMySQLTest extends TestCase
         $this->assertStringNotContainsString('/customise"', $plain, 'customising is the Tailwind page\'s');
         $this->assertSame('[1](/admin/Orders/1)', $records['rows'][0]['order'], 'a linked value, as a markdown link');
         $this->assertArrayHasKey('links', $records);
+    }
+
+    /**
+     * Headings inside a table and rows left out where empty (FW-429): a heading over the rows after
+     * it, spanning the table; a row with `hide_empty` and nothing in any column left out — each of a
+     * breakdown's empty values too — and a heading with nothing under it left out with them;
+     * through a section's card the same.
+     */
+    public function testHeadingsInsideATableAndEmptyRowsLeftOut(): void
+    {
+        // Arrange
+        $definition = ['name' => 'Test headings', 'sections' => [['title' => 'S', 'rows' => [
+            ['heading' => 'Professionals › Registrations'],
+            ['label' => 'Sales', 'metric' => 'test.sales'],
+            ['label' => 'Returning by region', 'metric' => 'test.sales', 'filters' => ['customer' => 'returning'], 'breakdown' => 'region', 'hide_empty' => true],
+            ['heading' => 'Institutions'],
+            ['label' => 'Secretless', 'metric' => 'test.sales', 'filters' => ['customer' => 'returning', 'region' => 'south'], 'hide_empty' => true],
+        ]]]];
+
+        // Act
+        $built = Report::fromArray($definition)->build('2026-09-10', self::reader());
+        $html  = Report::html($built);
+        $id    = (new Reports())->save(self::reader(), $definition);
+        $entry = (new Reports())->find((string) $id, self::reader());
+        try {
+            $card = \Pramnos\Metrics\ReportBoard::html($entry, '2026-09-10', self::reader(), null, true);
+        } finally {
+            \Pramnos\Metrics\ReportBoard::leave();
+            (new Reports())->delete($id, self::reader(99, 9), true);
+        }
+        $labels = array_column($built['sections'][0]['rows'], 'label');
+
+        // Assert
+        $this->assertSame('Professionals › Registrations', $labels[0], 'a heading over the rows after it');
+        $this->assertNotContains('Institutions', $labels, 'a heading with nothing under it, left out');
+        $this->assertNotContains('Secretless', $labels, 'a row with nothing in it, left out');
+        $this->assertContains('North', $labels, 'a breakdown\'s value with numbers');
+        $this->assertNotContains('South', $labels, 'one without, left out');
+        $this->assertStringContainsString('<tr class="pf-report-group pf-report-heading"><th scope="rowgroup" colspan="2">Professionals › Registrations</th></tr>', $html);
+        $this->assertSame(6.0, $built['sections'][0]['rows'][1]['cells'][0]['value'], 'the rows under it as before');
+        $this->assertStringContainsString('Professionals › Registrations', $card, 'through a section\'s card too');
+        $this->assertStringNotContainsString('Institutions', $card);
+
+        // A table of contents, where there are more than two sections with headings of their own (FW-429).
+        $three = Report::fromArray(['sections' => [['title' => 'One', 'rows' => [['metric' => 'test.sales']]], ['title' => 'Two', 'rows' => [['metric' => 'test.sales']]],
+            ['title' => 'Tabbed', 'tab' => 'T', 'rows' => [['metric' => 'test.sales']]], ['title' => 'Three', 'rows' => [['metric' => 'test.sales']]]]]);
+        $contents = \Pramnos\Metrics\Widgets\SectionWidget::contents($three->definition['sections']);
+        $this->assertSame(3, substr_count($contents, '<li>'), 'a link to each, not to a tab');
+        $this->assertStringContainsString('<a href="#' . \Pramnos\Metrics\Widgets\SectionWidget::anchor('Two') . '">Two</a>', $contents);
+        $this->assertSame('', \Pramnos\Metrics\Widgets\SectionWidget::contents([['title' => 'Alone']]), 'none for one or two');
+        $id2 = (new Reports())->save(self::reader(), ['name' => 'Test contents'] + $three->definition);
+        try {
+            $mailed = \Pramnos\Metrics\ReportBoard::html((new Reports())->find((string) $id2, self::reader()), '2026-09-10', self::reader(), null, true);
+        } finally {
+            \Pramnos\Metrics\ReportBoard::leave();
+            (new Reports())->delete($id2, self::reader(99, 9), true);
+        }
+        $this->assertStringContainsString('class="pf-report-contents"', $mailed, 'printed and mailed too');
+        $this->assertStringContainsString('<h2 id="' . \Pramnos\Metrics\Widgets\SectionWidget::anchor('One') . '"', $mailed, 'each heading where its link leads');
     }
 
     /**

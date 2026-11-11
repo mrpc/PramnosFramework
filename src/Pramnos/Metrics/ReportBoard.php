@@ -172,7 +172,7 @@ final class ReportBoard
                     + array_intersect_key($section, array_flip(['by', 'filters', 'measures', 'note', 'link', 'jira', 'hide_empty']))
                     + (isset($section['measures']) ? ['by_values' => $section['values']] : []) + self::columnsAsSettings($section['columns'] ?? null) + [
                     'rows'  => array_map(static fn (array $row): array => ['label' => $row['label'], 'metric' => $row['metric'], 'filters' => $row['filters'], 'breakdown' => (string) $row['breakdown'], 'total' => $row['total']]
-                        + array_intersect_key($row, array_flip(['formula', 'operands', 'unit', 'description', 'link', 'format', 'decimals', 'zero', 'values'])), $section['rows']),
+                        + array_intersect_key($row, array_flip(['formula', 'operands', 'unit', 'description', 'link', 'format', 'decimals', 'zero', 'values', 'hide_empty', 'heading'])), $section['rows']),
                     'total' => $section['total'] ? '1' : '',
                 ]];
                 continue;
@@ -194,7 +194,7 @@ final class ReportBoard
             }
             $cards[] = ['id' => 'report.table~t' . $i, 'size' => Widget::FULL, 'settings' => array_intersect_key($section, array_flip(['by', 'filters', 'measures', 'note', 'link', 'jira'])) + (isset($section['measures']) ? ['by_values' => $section['values']] : []) + $own + [
                 'rows'  => array_map(static fn (array $row): array => ['label' => $row['label'], 'metric' => $row['metric'], 'filters' => $row['filters'], 'breakdown' => (string) $row['breakdown'], 'total' => $row['total']]
-                    + array_intersect_key($row, array_flip(['formula', 'operands', 'unit', 'description', 'link', 'format', 'decimals', 'zero', 'values'])), $section['rows']),
+                    + array_intersect_key($row, array_flip(['formula', 'operands', 'unit', 'description', 'link', 'format', 'decimals', 'zero', 'values', 'hide_empty', 'heading'])), $section['rows']),
                 'total' => $section['total'] ? '1' : '',
             ] + (!empty($section['hide_empty']) ? ['hide_empty' => '1'] : [])];
         }
@@ -258,7 +258,8 @@ final class ReportBoard
                 . ($title !== '' ? '<h3 style="margin:0 0 8px">' . $e($title) . '</h3>' : '') . $inside . '</section>';
         }
 
-        return '<div class="pf-report-body">' . $html . '</div>';
+        // Its contents first, printed and mailed as on the page.
+        return '<div class="pf-report-body">' . Widgets\SectionWidget::contents((array) ($entry['report']->definition['sections'] ?? [])) . $html . '</div>';
     }
 
     /**

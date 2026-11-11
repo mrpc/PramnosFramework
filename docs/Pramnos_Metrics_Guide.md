@@ -776,6 +776,16 @@ marked and *No chart* beside them. Every link lands back on its table (`#pf-char
 owner who wants it always adds a chart card in Customise. A printout and a mail leave the choice
 out.
 
+### Headings inside a table, empty rows, a table of contents
+
+- **A heading inside a table**: a row `['heading' => 'Professionals › Registrations']`, with no
+  metric, spans the table over the rows after it.
+- **An empty row left out**: a row with `hide_empty` and nothing but noughts and blanks in every
+  column is left out. For a breakdown, each value with nothing in it is left out. A heading
+  left with nothing under it goes too.
+- **A table of contents**: a report with more than two sections that have headings of their own
+  (not tabs) opens with a list of links to them. The page, the printout and the mail all have it.
+
 ### Tabs, empty sections and some of a breakdown
 
 - **Tabs.** Consecutive sections with the same `tab` are drawn as one group of tabs under that
