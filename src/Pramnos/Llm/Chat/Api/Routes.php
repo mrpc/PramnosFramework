@@ -77,6 +77,8 @@ final class Routes
         $r->delete($p['photos'] . '/{id}', static fn ($id) => $make()->photo($id))->describeFrom([$controller, 'photo']);
         $r->get($p['settings'], static fn () => $make()->settings())->describeFrom([$controller, 'settings']);
         $r->get($p['plan'], static fn () => $make()->plan())->describeFrom([$controller, 'plan']);
+        // Ahead of {chat}/{conversation_id}, which would take "digest" for an id.
+        $r->get($p['chat'] . '/digest', static fn () => $make()->digest())->describeFrom([$controller, 'digest']);
         $r->put($p['settings'], static fn () => $make()->settings())->describeFrom([$controller, 'settings']);
         $r->get($p['today'], static fn () => $make()->today())->describeFrom([$controller, 'today']);
         $r->get($p['voices'], static fn () => $make()->voices())->describeFrom([$controller, 'voices']);

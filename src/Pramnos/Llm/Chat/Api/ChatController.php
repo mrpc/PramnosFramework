@@ -319,6 +319,24 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return is_string($done) ? self::error($done === 'There is no such artifact.' ? 404 : 422, $done) : ['status' => 200, 'data' => $done];
     }
 
+    /**
+     * What this person's conversations come to (`GET {chat}/digest?since=last|today|Y-m-d&days=&about=`):
+     * each with its gist, and a summary of them in their language, since they last looked by default.
+     */
+    public function digest(): array
+    {
+        if (($stop = $this->refusal('list')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        if ($scope === null) {
+            return self::error(403, 'This needs somebody signed in.');
+        }
+        $since = isset($_GET['days']) ? max(1, min(90, (int) $_GET['days'])) : (string) ($_GET['since'] ?? 'last');
+
+        return ['status' => 200, 'data' => \Pramnos\Llm\Chat\Gists::digest($scope, $scope, $since, (string) ($_GET['about'] ?? ''))];
+    }
+
     /** Stop one of this person's shares. */
     public function revokeShare($share_id): array
     {

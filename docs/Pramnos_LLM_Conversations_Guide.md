@@ -778,6 +778,30 @@ conversation made or changed, the latest ten (`Conversations::KEPT_HERE`), each 
 change it (`#21 text "Our story" — change it with update_artifact 21`). A story told over
 several answers, a plan kept up or a summary refreshed then stays one artifact.
 
+### What a conversation was about: its gist
+
+`Chat\Gists` tells what conversations were about, in a sentence or two each: "what happened
+since I last looked".
+
+```php
+$digest = Gists::digest($of, $reader, 'last', 'the trip');  // since the reader last looked, about "the trip"
+// ['summary' => '…', 'since_last' => true, 'conversations' => [{conversation_id, title, from, to, gist}, …]]
+```
+
+- **A gist is written once**, on the cheapest model, and kept on the conversation (`gist`, up
+  to `gist_upto`). It is written again only when the conversation has new messages, and the
+  newest ten are written per reading.
+- **The summary** is made from the gists, in the reader's language, narrowed to what touches
+  `about` where one is given. It is null where there is nothing to sum up.
+- **The window**: `last` (since this reader last looked at these, seven days the first time),
+  `today`, a day `Y-m-d`, or so many days. A reader's last looks are kept for them, in their
+  partition where they have one (`Gists::seen()`, `markSeen()`).
+- **Whose conversations.** `$of` is any scope, a partition among them, and whether `$reader` may
+  read them is the caller's to decide. For one's own, the API is
+  `GET {chat}/digest?since=last|today|Y-m-d&days=&about=`.
+- **The wording** of what a gist and a summary stress is the application's:
+  `'llm' => ['chat' => ['gists' => ['prompt' => '…', 'summary' => '…']]]`.
+
 ### Sharing an artifact live
 
 A share above is a snapshot. An artifact can also be shared **live**: its members read the
