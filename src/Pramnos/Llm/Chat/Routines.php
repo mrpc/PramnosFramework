@@ -1683,4 +1683,50 @@ class Routines
         return 'You told the person you would remind or notify them, but nothing was scheduled — set_busy sends nothing. '
             . 'Call schedule_task with kind "reminder" for that time now, then confirm it; or, if you cannot, say plainly that no reminder was set.';
     }
+
+    /** An answer that says nothing is scheduled — no reminder, no alarm. */
+    public const DENIAL = '/\\bδεν\\s+(?:έχουμε|έχεις|έχω|υπάρχει|υπάρχουν|έχει)\\s+(?:\\S+\\s+){0,3}?(?:ξυπνητήρι|υπενθύμιση|υπενθυμίσεις|ειδοποίηση|προγραμματισμ)'
+        . '|\\b(?:no|not\\s+any)\\s+(?:reminders?|alarms?|scheduled\\s+tasks?)\\b|\\bnothing\\s+(?:is\\s+)?scheduled\\b/iu';
+
+    /**
+     * What is wrong with an answer that says nothing is scheduled without having looked —
+     * "have we set an alarm?" answered "no" while a reminder was due — or null.
+     *
+     * @param list<array{name: string, arguments: array<string, mixed>}> $calls
+     */
+    public static function unchecked(string $answer, array $calls): ?string
+    {
+        if (preg_match(self::DENIAL, $answer) !== 1) {
+            return null;
+        }
+        foreach ($calls as $call) {
+            if (in_array($call['name'] ?? '', ['list_scheduled_tasks', 'schedule_task', 'update_scheduled_task', 'cancel_scheduled_task'], true)) {
+                return null;
+            }
+        }
+
+        return 'You told the person nothing is scheduled without looking. Call list_scheduled_tasks, then answer from what it says.';
+    }
+
+    /**
+     * What is scheduled for this person in the next hours — on, with a next run — for the model to
+     * know without a call: "is my alarm set?" answered from it.
+     *
+     * @return list<array{title: string, kind: string, next_run_at: string}>|null Null where the tasks cannot be read
+     */
+    public function upcoming(Scope $scope, int $hours = 24): ?array
+    {
+        try {
+            $result = $scope->apply($this->table())->where('is_active', true)->whereNotNull('next_run_at')
+                ->where('next_run_at', '<=', \Pramnos\Llm\CallLog::instant(time() + $hours * 3600))->orderBy('next_run_at')->limit(20)->get();
+        } catch (\Throwable) {
+            return null;
+        }
+        $found = [];
+        while (($row = $result->fetch()) !== null) {
+            $found[] = ['title' => (string) $row['title'], 'kind' => (string) ($row['kind'] ?? self::ASK), 'next_run_at' => (string) $row['next_run_at']];
+        }
+
+        return $found;
+    }
 }

@@ -518,6 +518,7 @@ class Conversations
             . ($mood === null ? '' : "\n\n" . trim($mood->directive($conversationId) . "\n" . Mood::instruction()))
             . ($acts ? "\n\n" . Acts::instruction() : '')
             . ($ending ? "\n\n" . Ending::instruction() : '')
+            . ($this->scope->space === Scope::CHAT && !$this->scheduled && !$turn->shared() && ($soon = $this->upcoming()) !== '' ? "\n\n" . $soon : '')
         )->since($this->scheduled || $turn->shared() ? null : $this->sinceLast());
         $prefix = $zones->staticPrefix($turn);
         $zones->checkPrefix($prefix, $conversationId);
@@ -594,6 +595,13 @@ class Conversations
         // goes on from what it read instead of reading it again (whereItStopped()).
         $stopped = !empty($answer['over_budget']) ? 'budget' : (!empty($answer['out_of_rounds']) ? 'rounds' : null);
         $reply   = (string) ($answer['final'] ?? $answer['reply']);
+        // A model that wrote its answer, then called a tool and said nothing more, left the answer
+        // among its steps and nothing to show or read aloud: the steps are the answer then — with
+        // whatever tags the last round held.
+        if ($steps !== [] && trim($tagged ? Ending::strip(Acts::strip(Mood::strip($reply))) : $reply) === '') {
+            $reply = implode("\n\n", $steps) . ($reply === '' ? '' : "\n" . $reply);
+            $steps = [];
+        }
         $felt    = $mood === null ? null : Mood::parse($reply);
         // Felt before the answer is stored, so the answer keeps the mood it was given in — unless
         // the model only said back the mood that reached it from another conversation: kept, it
@@ -922,6 +930,26 @@ class Conversations
 
     /** Whether chat_conversations has its summary and watermarks yet — asked once per instance. */
     /**
+     * What is scheduled for the person in the next day, in their time, for zone 3 — so "is my alarm
+     * set?" is answered from what is so, not from nothing.
+     */
+    private function upcoming(): string
+    {
+        $soon = (new Routines($this))->upcoming($this->scope);
+        if ($soon === null) {
+            return '';
+        }
+        if ($soon === []) {
+            return 'Nothing is scheduled for this person in the next 24 hours.';
+        }
+        $zone  = new \DateTimeZone($this->assistant->timezone($this->scope));
+        $lines = array_map(static fn (array $r): string => '- ' . (new \DateTimeImmutable($r['next_run_at'], new \DateTimeZone('UTC')))->setTimezone($zone)->format('D j M H:i')
+            . ' — ' . $r['title'] . ' (' . $r['kind'] . ')', $soon);
+
+        return "Scheduled for this person in the next 24 hours:\n" . implode("\n", $lines);
+    }
+
+    /**
      * What reads an answer against the calls it made: the assistant's own first, then a
      * promise of a reminder that nothing scheduled (Routines::unkept()), where schedule_task
      * is offered. One correction at most, the first that finds something.
@@ -935,7 +963,8 @@ class Conversations
             return $own;
         }
 
-        return static fn (string $answer, array $calls): ?string => ($own === null ? null : $own($answer, $calls)) ?? Routines::unkept($answer, $calls);
+        return static fn (string $answer, array $calls): ?string => ($own === null ? null : $own($answer, $calls))
+            ?? Routines::unkept($answer, $calls) ?? Routines::unchecked($answer, $calls);
     }
 
     /** Whether conversations can be ended here: the column exists. */
@@ -1204,7 +1233,8 @@ class Conversations
                 // On the conversation page, "remind me at ten" must not wait for the model to open
                 // the tasks skill first: it reaches for set_busy instead and promises a reminder
                 // nothing sends.
-                $this->scope->space === Scope::CHAT ? ['schedule_task'] : [])
+                // Nor "is my alarm set?" for it to list them.
+                $this->scope->space === Scope::CHAT ? ['schedule_task', 'list_scheduled_tasks'] : [])
                 // Kept with a conversation the person can open: a scheduled run has none yet.
                 + self::inSkill($artifacts->tools(), 'artifacts', ['save_artifact'])
                 // And changes to approve, where the application turned them on: nobody approves in a run.

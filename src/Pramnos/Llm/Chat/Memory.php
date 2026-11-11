@@ -274,6 +274,8 @@ class Memory
             . self::LASTS . ' '
             . 'If something they said changes a memory, correct it (the latest word wins). '
             . 'If they took something back, forget it. Usually there is nothing to change: then answer {"changes": []}. '
+            . 'A sentence that may be a question is not a fact: dictated words carry no question mark, so "I had no meeting today" '
+            . 'may be asking. Never keep what contradicts what is remembered: leave it, the assistant asks. '
             . 'Everything is about "me". '
             . 'Answer JSON only: {"changes": [{"op": "keep", "about": "me", "kind": "fact|preference", "memory": "one sentence"}, '
             . '{"op": "correct", "id": 3, "memory": "one sentence"}, {"op": "forget", "id": 4}]}.';
@@ -520,7 +522,9 @@ class Memory
                 'description' => 'Keep a fact about this person or their work, or a preference about how they want answers, '
                     . 'for future conversations. Use it when they state something durable. One short sentence each. '
                     . 'Not for numbers the tools can read again. When what they say changes a memory, pass its id as replaces '
-                    . 'instead of keeping a second one — the latest word wins.'
+                    . 'instead of keeping a second one — the latest word wins. Never from a sentence that may be a question: '
+                    . 'dictated words carry no question mark ("I had no meeting today" may be asking). Never a fact that contradicts '
+                    . 'what you know — what is remembered, their calendar, their tasks — without asking them first.'
                     . (self::shares() && $this->scope->organizationId !== null && $this->mayShare() ? ' A fact about the whole team or company, only when this person asks for it to be kept for everybody: about = organization.' : ''),
                 'parameters'  => ['type' => 'object', 'properties' => [
                     'kind'     => ['type' => 'string', 'enum' => self::KINDS],

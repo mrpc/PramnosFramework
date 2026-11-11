@@ -326,6 +326,12 @@ The model is given `remember`, `forget`, `search_conversations` and `read_conver
 what it remembers in every prompt, each memory dated. At most `memory.max` entries of
 `memory.chars` characters. `Chat\Memory` lists and forgets them for a screen.
 
+**A question is not a fact.** Dictated words carry no question mark, so "I had no meeting today"
+may be asking. Both `remember` and the learning that follows a conversation are told that a
+sentence which may be a question is not a fact, and that a fact contradicting what is known (what
+is remembered, the calendar, the tasks) waits until the person is asked. A question asked aloud is
+told the same (`ContextAssembler::SPOKEN`).
+
 **A memory is corrected, not doubled.** When what the person says changes something remembered,
 the model passes its id as `replaces` and the memory is rewritten — the latest word wins, rather
 than two memories disagreeing. In code, `Memory::keep($kind, $content, $replaces, $about,

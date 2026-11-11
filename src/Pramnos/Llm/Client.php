@@ -707,6 +707,14 @@ class Client
                 continue;
             }
 
+            // Written before a tool call and never again: what it wrote is the answer, not a step
+            // beside an empty one — the person would see and hear nothing.
+            if (trim($reply) === '' && $finish !== 'length' && array_filter($said, static fn (string $one): bool => trim($one) !== '') !== []) {
+                $reply  = implode("\n\n", $said);
+                $answer = $reply;
+                $said   = [];
+            }
+
             /*
              * An empty answer is a failure, whatever the status said. The commonest: a reasoning
              * model spends the whole budget thinking and returns `finish_reason: length` with

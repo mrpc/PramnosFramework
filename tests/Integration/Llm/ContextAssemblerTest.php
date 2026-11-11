@@ -84,7 +84,8 @@ class ContextAssemblerTest extends LlmTestCase
         // zone 3, just before the question
         $tail = $second[4];
         $this->assertSame('system', $tail['role']);
-        $this->assertMatchesRegularExpression('/^Now: \w+ \d+ \w+ \d{4}, \d\d:\d\d \(Asia\/Tokyo\)\.\n\nThe page: \/orders$/', $tail['content']);
+        // …and what is scheduled for the person, so "is my alarm set?" is answered from it (FW-448)
+        $this->assertMatchesRegularExpression('/^Now: \w+ \d+ \w+ \d{4}, \d\d:\d\d \(Asia\/Tokyo\)\.\n\nThe page: \/orders\n\nNothing is scheduled for this person in the next 24 hours\.$/', $tail['content']);
         $this->assertSame(['role' => 'user', 'content' => 'And now?'], $second[5]);
     }
 

@@ -98,7 +98,8 @@ final class ContextAssembler
      */
     public const SPOKEN = 'This question was asked aloud, and the answer will be read aloud. Open it with one or two '
         . 'plain sentences that answer the question by themselves — no table, list, heading or Markdown in them — then '
-        . 'a blank line before any detail, which the reader sees but is not read out.';
+        . 'a blank line before any detail, which the reader sees but is not read out. Dictated words carry no punctuation: '
+        . 'a sentence may be a question though it has no question mark.';
 
     /**
      * Zone 3: what is true only now — the time in the assistant's zone, what the assistant adds
