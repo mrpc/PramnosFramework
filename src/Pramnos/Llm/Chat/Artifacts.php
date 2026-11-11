@@ -136,6 +136,7 @@ final class Artifacts
                 'columns' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'table: the column headings.'],
                 'rows'    => ['type' => 'array', 'items' => ['type' => 'array', 'items' => ['type' => ['string', 'number', 'boolean', 'null']]], 'description' => 'table: the rows, each a list of cells in column order.'],
                 'entity'  => ['type' => 'string', 'description' => 'list: what the ids are, singular and lower case, e.g. "user".'],
+                'subject' => ['type' => 'string', 'description' => 'The one record it is about, as entity:id — "user:123", "ticket:88" — so it shows on that record\'s screen.'],
                 'ids'     => ['type' => 'array', 'items' => ['type' => ['integer', 'string']], 'description' => 'list: the records\' ids, exactly as the tools gave them.'],
                 'text'    => ['type' => 'string', 'description' => 'text: the document, in Markdown.'],
                 'chart_type' => ['type' => 'string', 'enum' => self::CHARTS, 'description' => 'chart: how it is drawn.'],
@@ -458,7 +459,8 @@ final class Artifacts
         $c    = (array) ($artifact['content'] ?? []);
         $cell = static fn ($v): string => $v === null ? '' : (is_string($v) ? $v : (string) json_encode($v, JSON_UNESCAPED_UNICODE));
         $head = '#' . (int) $artifact['artifact_id'] . ' ' . $artifact['kind'] . ': ' . $artifact['title']
-            . (($artifact['entity'] ?? null) !== null ? ' (' . $artifact['entity'] . ')' : '');
+            . (($artifact['entity'] ?? null) !== null ? ' (' . $artifact['entity'] . ')' : '')
+            . (($artifact['subject'] ?? null) !== null ? ' about ' . $artifact['subject'] : '');
         $body = match ((string) $artifact['kind']) {
             'table' => implode("\n", array_map(
                 static fn (array $row): string => implode("\t", array_map($cell, $row)),
@@ -580,7 +582,7 @@ final class Artifacts
         }
         [$kind, $title, $content] = $made;
 
-        return $this->keep($kind, $title, $kind === 'list' ? (string) $input['entity'] : null, $content);
+        return $this->keep($kind, $title, $kind === 'list' ? (string) $input['entity'] : null, $content, self::subjectOf($input['subject'] ?? null));
     }
 
     /**
@@ -629,7 +631,7 @@ final class Artifacts
      * @param array<string, mixed> $content
      * @return array<string, mixed>
      */
-    public function keep(string $kind, string $title, ?string $entity, array $content): array
+    public function keep(string $kind, string $title, ?string $entity, array $content, ?string $subject = null): array
     {
         $stamp = CallLog::instant(time());
         $row   = $this->scope->columns() + [
@@ -639,7 +641,8 @@ final class Artifacts
             'content'    => (string) json_encode($content, JSON_UNESCAPED_UNICODE),
             'created_at' => $stamp,
             'updated_at' => $stamp,
-        ];
+        // Written only when given: an installation that has not run the migration adding it keeps every other.
+        ] + ($subject === null ? [] : ['subject' => $subject]);
         $this->table()->insert($row);
         $id = (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId();
         $this->pending[] = $id;
@@ -822,6 +825,7 @@ final class Artifacts
             'conversation_id' => ($row['conversation_id'] ?? null) === null ? null : (int) $row['conversation_id'],
             'message_id'      => ($row['message_id'] ?? null) === null ? null : (int) $row['message_id'],
             'userid'          => (int) $row['userid'],
+            'subject'         => ($row['subject'] ?? null) === null ? null : (string) $row['subject'],
             'tags'            => is_array($tags) ? array_values(array_filter($tags, 'is_string')) : [],
             'created_at'      => (string) $row['created_at'],
         ];
@@ -1042,6 +1046,50 @@ final class Artifacts
         }
 
         return ['text' => $text];
+    }
+
+    /**
+     * A subject as kept, `entity:id`, or null for none or one that is not one.
+     */
+    public static function subjectOf(mixed $subject): ?string
+    {
+        $subject = trim((string) $subject);
+
+        return preg_match('/^[a-z][a-z0-9_.-]{0,63}:[A-Za-z0-9_.-]{1,30}$/', $subject) === 1 ? $subject : null;
+    }
+
+    /**
+     * What this person has about one record — their own, and what others share live with them —
+     * newest change first, without content: for that record's own screen.
+     *
+     * @return list<array{artifact_id: int, kind: string, title: string, updated_at: string, shared: bool}>
+     */
+    public function about(string $entity, string|int $id): array
+    {
+        $subject = self::subjectOf($entity . ':' . $id);
+        if ($subject === null || !self::available()) {
+            return [];
+        }
+        try {
+            $rows = $this->scope->apply($this->table())->select(['artifact_id', 'kind', 'title', 'updated_at'])->where('subject', $subject)
+                ->orderBy('updated_at', 'desc')->limit(50)->getAllOrFail();
+            $theirs = array_column($this->sharedWithMe(), 'artifact_id');
+            $shared = $theirs === [] ? [] : $this->table()->select(['artifact_id', 'kind', 'title', 'updated_at'])->whereIn('artifact_id', $theirs)
+                ->where('subject', $subject)->orderBy('updated_at', 'desc')->limit(50)->getAllOrFail();
+        } catch (\Throwable) {
+            // An installation without the subject column has nothing about any record.
+            return [];
+        }
+        $out = [];
+        foreach ([[$rows, false], [$shared, true]] as [$list, $isShared]) {
+            foreach ($list as $row) {
+                $out[] = ['artifact_id' => (int) $row['artifact_id'], 'kind' => (string) $row['kind'], 'title' => (string) $row['title'],
+                    'updated_at' => (string) $row['updated_at'], 'shared' => $isShared];
+            }
+        }
+        usort($out, static fn (array $a, array $b): int => strcmp($b['updated_at'], $a['updated_at']));
+
+        return $out;
     }
 
     /** Whether artifacts can be shared live here: the members' table exists. */

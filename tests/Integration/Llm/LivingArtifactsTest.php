@@ -24,6 +24,7 @@ require_once __DIR__ . '/ChatApiTest.php';
  */
 #[CoversClass(Artifacts::class)]
 #[CoversClass(\Pramnos\Llm\Chat\Assignments::class)]
+#[CoversClass(\Pramnos\Llm\Chat\Web\SubjectPanel::class)]
 #[CoversClass(\Pramnos\Todos\Todos::class)]
 #[CoversClass(\Pramnos\Llm\Chat\Api\ChatController::class)]
 #[CoversClass(\Pramnos\Broadcasting\BroadcastingManager::class)]
@@ -371,10 +372,10 @@ class LivingArtifactsTest extends LlmTestCase
     }
 
     /** A request through the chat's routes, as the given person. */
-    private function route(int $userId, string $method, string $uri, array $input = []): mixed
+    private function route(int $userId, string $method, string $uri, array $input = [], string $space = Scope::CHAT): mixed
     {
         $_SERVER['REQUEST_METHOD'] = $method;
-        ApiFixture::$scope = new Scope($userId, null);
+        ApiFixture::$scope = new Scope($userId, null, $space);
         ApiFixture::$stop  = null;
         ApiFixture::$input = $input;
         $router = new \Pramnos\Routing\Router(null);
@@ -486,5 +487,49 @@ class LivingArtifactsTest extends LlmTestCase
         $this->assertSame(77, $hooked['todo'], 'the application\'s own to-do list');
         $this->assertSame([$analyst, $boss, 'again', $id], [$items[0]['assigned_to'], $items[0]['assigned_by'], $items[0]['note'], $items[0]['artifact_id']]);
         $this->assertStringStartsWith('Handed to ', $tool);
+    }
+
+    /**
+     * An artifact about one record (FW-474): kept with its subject, `entity:id`; what a person has
+     * about a record — theirs and shared live with them, never somebody else's unshared — for that
+     * record's screen, as a panel and through the API; a subject that is not one is not kept.
+     */
+    #[DataProvider('databases')]
+    public function testAnArtifactAboutARecordShowsOnItsScreen(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        [$me, $colleague, $other] = [$this->user(), $this->user(), $this->user()];
+        // Administrators: the Ask's artifacts are shared only with people who may open the Ask.
+        $this->db->queryBuilder()->table('#PREFIX#users')->whereIn('userid', [$me, $colleague, $other])->update(['usertype' => 99]);
+        \Pramnos\User\User::clearUserCache();
+        $mine   = new Artifacts(new Scope($me, null, Scope::ADMIN));
+        $theirs = new Artifacts(new Scope($colleague, null, Scope::ADMIN));
+        $sum    = $mine->create(['kind' => 'text', 'title' => 'Summary of 42', 'text' => 'Good customer', 'subject' => 'user:42'])['artifact_id'];
+        $mine->create(['kind' => 'text', 'title' => 'About 43', 'text' => 'x', 'subject' => 'user:43']);
+        $bad    = $mine->create(['kind' => 'text', 'title' => 'Bad subject', 'text' => 'x', 'subject' => 'not a subject']);
+        $shared = $theirs->create(['kind' => 'table', 'title' => 'Payments of 42', 'columns' => ['M'], 'rows' => [['1']], 'subject' => 'user:42'])['artifact_id'];
+        $theirs->shareLive($shared, [$this->nameOf($me)]);
+        (new Artifacts(new Scope($other, null, Scope::ADMIN)))->create(['kind' => 'text', 'title' => 'Not shared', 'text' => 'x', 'subject' => 'user:42']);
+
+        // Act
+        $about = $mine->about('user', 42);
+        $panel = \Pramnos\Llm\Chat\Web\SubjectPanel::html(new Scope($me, null, Scope::ADMIN), 'user', 42, 'Summarise this customer', ['open' => '/a/', 'ask' => '/ask']);
+        $empty = \Pramnos\Llm\Chat\Web\SubjectPanel::html(new Scope($me, null, Scope::ADMIN), 'user', 99, '', ['open' => '/a/', 'ask' => '']);
+        $_GET  = ['subject' => 'user:42'];
+        $api   = $this->route($me, 'GET', '/chat/artifacts', [], Scope::ADMIN);
+        $_GET  = [];
+
+        // Assert
+        $this->assertSame([[$sum, false], [$shared, true]], array_map(static fn (array $a): array => [$a['artifact_id'], $a['shared']], $about) ?: [], 'theirs and shared with them, not somebody else\'s');
+        $this->assertSame('user:42', $mine->find($sum)['subject']);
+        $this->assertNull($bad['subject'], 'a subject that is not one is not kept');
+        $this->assertStringContainsString('#' . $sum . ' text: Summary of 42 about user:42', Artifacts::asText($mine->find($sum)), 'the model reads what it is about');
+        $this->assertStringContainsString('<a href="/a/' . $sum . '"', $panel);
+        $this->assertStringContainsString('shared with you', $panel);
+        $this->assertStringContainsString('href="/ask?q=Summarise%20this%20customer%20%28user%3A42%29"', $panel, 'asked with the record named');
+        $this->assertStringContainsString('Nothing made about it yet.', $empty);
+        $this->assertStringNotContainsString('pf-subject-ask', $empty);
+        $this->assertCount(2, $api['data']['artifacts'], 'the same through the API');
     }
 }

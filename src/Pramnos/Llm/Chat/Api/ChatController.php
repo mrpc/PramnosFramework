@@ -89,6 +89,13 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             return $stop;
         }
         $scope = $this->scope();
+        // `?subject=user:123`: what this person has about one record, theirs and shared with them.
+        $subject = \Pramnos\Llm\Chat\Artifacts::subjectOf($_GET['subject'] ?? null);
+        if ($scope !== null && $subject !== null) {
+            [$entity, $id] = explode(':', $subject, 2);
+
+            return ['status' => 200, 'data' => ['artifacts' => (new \Pramnos\Llm\Chat\Artifacts($scope))->about($entity, $id)]];
+        }
 
         return ['status' => 200, 'data' => ['artifacts' => $scope === null ? [] : (new \Pramnos\Llm\Chat\Artifacts($scope))->list()]];
     }

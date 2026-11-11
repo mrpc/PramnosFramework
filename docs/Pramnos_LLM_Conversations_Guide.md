@@ -683,6 +683,25 @@ told (see the [To-dos Guide](Pramnos_Todos_Guide.md#telling)).
 The model does the same with `assign_artifact(id, to, note, due)`, after the person confirms who
 and by when. The API is `POST {chat}/artifacts/{id}/assign` with `to`, `note` and `due`.
 
+### An artifact about a record
+
+An artifact can be about one record, its `subject` given as `entity:id` (`user:123`,
+`ticket:88`). The model gives it in `save_artifact` when a question names the record. A record's
+own screen then shows what the person reading has about it: their own artifacts, and those
+shared live with them.
+
+```php
+$artifacts->about('user', 123);   // [{artifact_id, kind, title, updated_at, shared}]
+echo \Pramnos\Llm\Chat\Web\SubjectPanel::html($scope, 'user', 123, 'Summarise this customer');
+```
+
+- The panel lists them, each opening on a page of its own. Its *Ask about this* opens the Ask
+  with the record named in the question (`… (user:123)`), so what the answer keeps is about the
+  record.
+- The API is `GET {chat}/artifacts?subject=user:123`.
+- The subject is kept in `assist.chat_artifacts.subject`. It is written only when given, so an
+  installation that has not run the migration keeps everything else.
+
 ### Sharing an artifact live
 
 A share above is a snapshot. An artifact can also be shared **live**: its members read the
