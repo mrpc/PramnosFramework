@@ -380,6 +380,159 @@
         var server = options && typeof options.server === 'function' ? options.server : null;
         var listen = options && typeof options.listen === 'function' ? options.listen : null;
         var activeServer = null; // the recording for the server, while it is made
+        var barge = null;        // the microphone open for barge-in, while the voice speaks
+        var level = null;        // what tells onLevel, while the voice speaks
+        var sharedContext = null;
+
+        /** One AudioContext for the voice's own needs, made when first wanted; null where there is none. */
+        function audioContext() {
+            var Ctx = window.AudioContext || window.webkitAudioContext;
+            if (typeof Ctx !== 'function') {
+                return null;
+            }
+            sharedContext = sharedContext || new Ctx();
+            return sharedContext;
+        }
+
+        /** The loudness of an analyser's last samples, root mean square. */
+        function loudness(analyser, samples) {
+            analyser.getFloatTimeDomainData(samples);
+            var sum = 0;
+            for (var i = 0; i < samples.length; i++) {
+                sum += samples[i] * samples[i];
+            }
+            return Math.sqrt(sum / samples.length);
+        }
+
+        /**
+         * Barge-in by voice level: the microphone open while the voice speaks, with echo
+         * cancellation so the voice itself is not heard; a sound over `threshold` for `minMs`
+         * stops the voice, tells `onBargeIn`, and starts dictation with `dictate` when given.
+         */
+        function startBarge(cfg) {
+            endBarge();
+            var media = window.navigator && window.navigator.mediaDevices;
+            if (!media || typeof media.getUserMedia !== 'function') {
+                return;
+            }
+            var mine = { stream: null, timer: null, loudSince: 0 };
+            barge = mine;
+            var threshold = cfg.threshold > 0 ? cfg.threshold : 0.08;
+            var minMs = cfg.minMs > 0 ? cfg.minMs : 300;
+            media.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }).then(function (stream) {
+                mine.stream = stream;
+                var ctx = audioContext();
+                if (barge !== mine || !ctx) {
+                    endBarge(mine);
+                    return;
+                }
+                var analyser = ctx.createAnalyser();
+                analyser.fftSize = 512;
+                mine.source = ctx.createMediaStreamSource(stream);
+                mine.source.connect(analyser);
+                var samples = new Float32Array(analyser.fftSize);
+                mine.timer = setInterval(function () {
+                    var now = Date.now();
+                    if (loudness(analyser, samples) <= threshold) {
+                        mine.loudSince = 0;
+                        return;
+                    }
+                    mine.loudSince = mine.loudSince || now;
+                    if (now - mine.loudSince >= minMs) {
+                        endBarge(mine);
+                        stopSpeech();
+                        if (cfg.onBargeIn) {
+                            cfg.onBargeIn({ candidateText: '', rawCandidate: '', isPureStop: false, byLevel: true });
+                        }
+                        if (cfg.dictate) {
+                            startDictation(cfg.dictate);
+                        }
+                    }
+                }, 50);
+            }, function () {
+                endBarge(mine);
+            });
+        }
+
+        /** The barge-in microphone let go — this one, or whichever is open. */
+        function endBarge(which) {
+            var mine = which || barge;
+            if (!mine) {
+                return;
+            }
+            if (mine.timer) {
+                clearInterval(mine.timer);
+            }
+            if (mine.source && typeof mine.source.disconnect === 'function') {
+                mine.source.disconnect();
+            }
+            if (mine.stream) {
+                mine.stream.getTracks().forEach(function (t) { t.stop(); });
+            }
+            mine.done = true;
+            if (barge === mine) {
+                barge = null;
+            }
+        }
+
+        /**
+         * `onLevel(0..1)` while the voice speaks, for a mouth that moves with it: from the audio
+         * itself where it plays through an element (the speech server's), and as a pulse at each
+         * word where the browser speaks, whose sound a page cannot read.
+         */
+        function startLevel(onLevel, audio) {
+            endLevel();
+            var mine = { onLevel: onLevel, timer: null };
+            level = mine;
+            var ctx = audio ? audioContext() : null;
+            if (ctx && typeof ctx.createMediaElementSource === 'function') {
+                try {
+                    var analyser = ctx.createAnalyser();
+                    analyser.fftSize = 512;
+                    mine.source = ctx.createMediaElementSource(audio);
+                    mine.source.connect(analyser);
+                    analyser.connect(ctx.destination);
+                    var samples = new Float32Array(analyser.fftSize);
+                    mine.timer = setInterval(function () {
+                        onLevel(Math.min(1, loudness(analyser, samples) * 4));
+                    }, 50);
+                } catch (e) {
+                    mine.timer = null;
+                }
+            }
+        }
+
+        /** A word heard from the browser's voice: the level up, then down. */
+        function pulseLevel() {
+            var mine = level;
+            if (!mine) {
+                return;
+            }
+            mine.onLevel(0.8);
+            clearTimeout(mine.decay);
+            mine.decay = setTimeout(function () {
+                if (level === mine) {
+                    mine.onLevel(0);
+                }
+            }, 160);
+        }
+
+        /** The level told for the last time: 0, as the voice is quiet. */
+        function endLevel() {
+            var mine = level;
+            if (!mine) {
+                return;
+            }
+            level = null;
+            if (mine.timer) {
+                clearInterval(mine.timer);
+            }
+            clearTimeout(mine.decay);
+            if (mine.source && typeof mine.source.disconnect === 'function') {
+                mine.source.disconnect();
+            }
+            mine.onLevel(0);
+        }
         var serverRun = 0;
         var currentAudio = null;
         var dictating = false;
@@ -878,6 +1031,8 @@
                 currentlySpeakingText = '';
                 paused = false;
                 lastSpeechEndTime = Date.now();
+                endBarge();
+                endLevel();
                 stopDictation();
                 if (err && opts.onError) {
                     opts.onError(err);
@@ -902,6 +1057,9 @@
                     fetchPart(i + 1);
                     var audio = new window.Audio(src);
                     currentAudio = audio;
+                    if (opts.onLevel) {
+                        startLevel(opts.onLevel, audio);
+                    }
                     audio.onended = function () { release(src); play(i + 1); };
                     audio.onerror = function (err) {
                         release(src);
@@ -961,14 +1119,21 @@
 
         function speak(id, rawText, options) {
             var opts = options || {};
+            var started;
             if (server && typeof window.Audio === 'function') {
                 if (!opts.keepDictation) {
                     stopDictation();
                 }
                 stopSpeech();
-                return speakOnServer(id, rawText, opts);
+                started = speakOnServer(id, rawText, opts);
+            } else {
+                started = speakWithBrowser(id, rawText, opts);
             }
-            return speakWithBrowser(id, rawText, opts);
+            // Barge-in by voice level, for as long as it speaks (opts.bargeIn).
+            if (started && opts.bargeIn) {
+                startBarge(opts.bargeIn);
+            }
+            return started;
         }
 
         function speakWithBrowser(id, rawText, options) {
@@ -1036,6 +1201,11 @@
             utterance.pitch = pitch;
             utterance.rate = effectiveRate;
 
+            if (opts.onLevel) {
+                startLevel(opts.onLevel, null);
+            }
+            utterance.onboundary = function () { pulseLevel(); };
+
             utterance.onstart = function () {
                 speaking = true;
                 lastSpeechEndTime = 0;
@@ -1056,6 +1226,8 @@
                 currentlySpeakingText = '';
                 paused = false;
                 lastSpeechEndTime = Date.now();
+                endBarge();
+                endLevel();
                 stopDictation();
                 if (opts.onEnd) {
                     opts.onEnd();
@@ -1068,6 +1240,8 @@
                 currentlySpeakingText = '';
                 paused = false;
                 lastSpeechEndTime = Date.now();
+                endBarge();
+                endLevel();
                 stopDictation();
                 if (opts.onError) {
                     opts.onError(err);
@@ -1087,6 +1261,8 @@
 
         function stopSpeech() {
             serverRun++;
+            endBarge();
+            endLevel();
             if (currentAudio) {
                 currentAudio.onended = null;
                 currentAudio.onerror = null;

@@ -325,6 +325,17 @@ shared by the mic and every answer's 🔊 button:
   a multipart file `audio`, and answers `{text}`, or 501 (not set up), 422 (empty or over 10 MB)
   or 502. Each call writes a `listen` line to the `speech` log, with its bytes, milliseconds, the
   seconds the client reported and their cost at the provider's `per_minute`.
+- **Barge-in by voice level** — `speak(id, text, { bargeIn: { threshold, minMs, onBargeIn,
+  dictate } })` keeps the microphone open while the voice speaks, with echo cancellation, noise
+  suppression and gain control, so the voice itself is not heard. A sound over `threshold` (RMS,
+  0.08 by default) for `minMs` (300) stops the voice and calls
+  `onBargeIn({ byLevel: true, … })`, and with `dictate` it starts dictation with those options.
+  A cough does not stop it. The microphone is let go whenever the voice ends. This works beside
+  the interrupt words, and on browsers that have none of their own recognition.
+- **The voice's level, for a mouth** — `speak(id, text, { onLevel })` calls `onLevel(0..1)` while
+  it speaks. Through the speech server, the level is read from the audio itself (an analyser on
+  the element) every 50 ms. The browser's voice gives a page no access to its sound, so the level
+  is a pulse at each word (0.8, back to 0). It always ends at 0.
 - **Subtitles in step with the voice** — `speak(id, text, { onPart })` calls
   `onPart({index, count, text})` as each part starts to be heard: with a server, each sentence
   `splitSentences()` cut from the cleaned text; with the browser's voice, which reads it all at
