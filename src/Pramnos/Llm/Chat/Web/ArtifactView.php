@@ -31,7 +31,9 @@ final class ArtifactView
         $content = (array) ($artifact['content'] ?? []);
         $kind    = (string) ($artifact['kind'] ?? '');
         $label   = match ($kind) {
-            'table' => sprintf(\Pramnos\Translator\Language::getInstance()->_('Table · %d rows'), count((array) ($content['rows'] ?? []))),
+            'table' => is_array($content['query'] ?? null)
+                ? sprintf(\Pramnos\Translator\Language::getInstance()->_('Query · %d rows · run %s'), count((array) ($content['rows'] ?? [])), date('Y-m-d H:i', (int) ($content['query']['ran_at'] ?? 0)))
+                : sprintf(\Pramnos\Translator\Language::getInstance()->_('Table · %d rows'), count((array) ($content['rows'] ?? []))),
             'chart' => \Pramnos\Translator\Language::getInstance()->_('Chart'),
             'list'  => sprintf(\Pramnos\Translator\Language::getInstance()->_('List · %d %s'), count((array) ($content['ids'] ?? [])), (string) ($artifact['entity'] ?? '')),
             'proposal' => \Pramnos\Translator\Language::getInstance()->_(match ((string) ($content['status'] ?? 'pending')) {

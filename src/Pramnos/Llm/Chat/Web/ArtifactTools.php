@@ -15,7 +15,7 @@ final class ArtifactTools
 {
     /**
      * @param array<string, mixed>  $artifact As Artifacts::shape() answers
-     * @param array<string, string> $urls     download, print, pin, assign (each followed by the id)
+     * @param array<string, string> $urls     download, print, pin, assign, rerun (each followed by the id)
      * @param list<int>             $pinned   The ids this person has pinned
      * @param array<string, string> $c        The theme's classes: btnGhost
      */
@@ -38,6 +38,12 @@ final class ArtifactTools
                 . '<button type="submit" class="' . $e($c['btnGhost'] ?? '') . '" aria-pressed="' . ($on ? 'true' : 'false') . '">' . ($on ? $t('Unpin from dashboard') : $t('Pin to dashboard')) . '</button></form>';
         }
 
+        // A saved query: run again, as it was saved.
+        if (($urls['rerun'] ?? '') !== '' && is_array($artifact['content']['query'] ?? null)) {
+            $html .= '<form method="post" action="' . $e($urls['rerun'] . $id) . '" style="display:inline">' . $token
+                . '<input type="hidden" name="conversation_id" value="' . $returnTo . '">'
+                . '<button type="submit" class="' . $e($c['btnGhost'] ?? '') . '">' . $t('Run again') . '</button></form> ';
+        }
         // Hand it to another administrator to look into: who, a note, by when.
         if (($urls['assign'] ?? '') !== '') {
             $html .= '<details class="pf-artifact-assign" style="display:inline-block"><summary class="' . $e($c['btnGhost'] ?? '') . '">' . $t('Assign to…') . '</summary>'

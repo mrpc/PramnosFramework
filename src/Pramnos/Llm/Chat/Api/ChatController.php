@@ -249,6 +249,22 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return ['status' => 200, 'data' => ['artifact_id' => $plan->artifactId(), 'columns' => \Pramnos\Llm\Chat\Plan::COLUMNS, 'projects' => $plan->projects()]];
     }
 
+    /**
+     * Run a saved query again (`POST {chat}/artifacts/{id}/run`), as it was saved — or with `sql`,
+     * changed first by whoever may write SQL. Answers the artifact with its new result.
+     */
+    public function runArtifactQuery($artifact_id): array
+    {
+        if (($stop = $this->refusal('read')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        $sql   = $this->input()['sql'] ?? null;
+        $done  = $scope === null ? 'There is no such saved query.' : (new \Pramnos\Llm\Chat\Artifacts($scope))->runQuery((int) $artifact_id, is_string($sql) ? $sql : null);
+
+        return is_string($done) ? self::error($done === 'There is no such saved query.' ? 404 : 422, $done) : ['status' => 200, 'data' => $done];
+    }
+
     /** Stop one of this person's shares. */
     public function revokeShare($share_id): array
     {

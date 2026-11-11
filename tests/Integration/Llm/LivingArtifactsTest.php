@@ -532,4 +532,51 @@ class LivingArtifactsTest extends LlmTestCase
         $this->assertStringNotContainsString('pf-subject-ask', $empty);
         $this->assertCount(2, $api['data']['artifacts'], 'the same through the API');
     }
+
+    /**
+     * A saved query (FW-474): kept by whoever may write SQL, its result a table; run again by
+     * anybody it is shared with — a reader too — the SQL as saved, and changed only by whoever
+     * may write SQL; refused statements refused; a pinned one run again once its result is old.
+     */
+    #[DataProvider('databases')]
+    public function testASavedQueryIsRunAgainByWhoeverMayOpenIt(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        [$writer, $reader] = [$this->user(), $this->user()];
+        $this->db->queryBuilder()->table('#PREFIX#users')->whereIn('userid', [$writer, $reader])->update(['usertype' => 99]);
+        \Pramnos\User\User::clearUserCache();
+        $this->configure(['analyst' => ['sql' => true, 'sql_writers' => static fn (int $userId): bool => $userId === $writer]]);
+        $mine   = new Artifacts(new Scope($writer, null, Scope::ADMIN));
+        $theirs = new Artifacts(new Scope($reader, null, Scope::ADMIN));
+        $sql    = 'SELECT userid, username FROM users WHERE userid = ' . $writer;
+
+        // Act
+        $saved   = $mine->saveQuery('Me', $sql);
+        $refused = $theirs->saveQuery('Them', $sql);
+        $badSql  = $mine->saveQuery('Bad', 'DELETE FROM users');
+        $mine->shareLive($saved['artifact_id'], [$this->nameOf($reader)], 'read');
+        $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $writer)->update(['username' => 'renamed' . $writer]);
+        $rerun   = $theirs->runQuery($saved['artifact_id']);
+        $change  = $theirs->runQuery($saved['artifact_id'], 'SELECT 1 AS one');
+        $changed = $mine->runQuery($saved['artifact_id'], 'SELECT 1 AS one');
+        $notOne  = $mine->runQuery(999999);
+        $this->db->queryBuilder()->table('assist.chat_artifacts')->where('artifact_id', $saved['artifact_id'])
+            ->update(['content' => json_encode(['columns' => ['one'], 'rows' => [[0]], 'query' => ['sql' => 'SELECT 2 AS two', 'limit' => 5, 'ran_at' => time() - 3600]])]);
+        $stale   = $mine->fresh($mine->find($saved['artifact_id']));
+        $tools   = $mine->tools();
+
+        // Assert
+        $this->assertSame([['userid', 'username'], $writer], [$saved['content']['columns'], (int) $saved['content']['rows'][0][0]], 'its result, a table');
+        $this->assertSame($sql, $saved['content']['query']['sql']);
+        $this->assertSame('Only who may write SQL saves a query.', $refused);
+        $this->assertStringStartsWith('Refused: ', (string) $badSql);
+        $this->assertSame('renamed' . $writer, $rerun['content']['rows'][0][1], 'a reader runs it again, the SQL as saved');
+        $this->assertSame('Only who may write SQL, and change this artifact, changes its query.', $change);
+        $this->assertSame([['one'], 'SELECT 1 AS one'], [$changed['content']['columns'], $changed['content']['query']['sql']]);
+        $this->assertSame('There is no such saved query.', $notOne);
+        $this->assertSame(['two'], $stale['content']['columns'], 'an old result is run again');
+        $this->assertArrayHasKey('save_query', $tools);
+        $this->assertStringContainsString('a saved query, run', Artifacts::asText($stale));
+    }
 }

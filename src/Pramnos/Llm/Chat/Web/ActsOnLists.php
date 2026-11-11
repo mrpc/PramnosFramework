@@ -58,6 +58,20 @@ trait ActsOnLists
         return null;
     }
 
+    /** Run saved query `{id}` again, as it was saved. */
+    public function rerun(mixed $id = null): mixed
+    {
+        if ($this->taskDenied()) {
+            return null;
+        }
+        $scope  = $this->taskScope();
+        $result = $scope === null ? 'There is no such saved query.' : (new Artifacts($scope))->runQuery((int) ($id ?: \Pramnos\Http\Request::staticGetOption()));
+        is_string($result) ? $this->addError($result) : $this->addMessage(sprintf('Run again: %d rows.', count((array) $result['content']['rows'])));
+        $this->redirect($this->shareReturnUrl((int) ($_POST['conversation_id'] ?? 0)));
+
+        return null;
+    }
+
     /** Download artifact `{id}` as CSV — a table, a list or a chart's numbers. */
     public function download(mixed $id = null): mixed
     {

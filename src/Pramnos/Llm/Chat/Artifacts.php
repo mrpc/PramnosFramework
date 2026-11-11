@@ -223,7 +223,34 @@ final class Artifacts
                     return $lines === [] ? 'No artifacts found.' : implode("\n", $lines);
                 },
             ],
-        ] + (self::sharing() ? [
+        ] + ($this->scope->space === Scope::ADMIN && !empty(((array) \Pramnos\Llm\Llm::config('analyst', []))['sql']) ? [
+            'save_query' => [
+                'description' => 'Save a read-only SELECT as a query to run again — its result a table anyone it is shared with can refresh, '
+                    . 'pinned live, or run in a scheduled task. Only when the person asks to keep or repeat a query. Run it with sql first.',
+                'parameters'  => ['type' => 'object', 'properties' => [
+                    'title'   => ['type' => 'string'],
+                    'sql'     => ['type' => 'string', 'description' => 'The SELECT, as it ran.'],
+                    'limit'   => ['type' => 'integer', 'description' => 'Rows, at most ' . self::ROWS . '.'],
+                    'subject' => ['type' => 'string', 'description' => 'The one record it is about, entity:id, if any.'],
+                ], 'required' => ['title', 'sql']],
+                'run'         => function (array $a): string {
+                    $made = $this->saveQuery((string) ($a['title'] ?? ''), (string) ($a['sql'] ?? ''), (int) ($a['limit'] ?? self::ROWS), isset($a['subject']) ? (string) $a['subject'] : null);
+
+                    return is_string($made) ? 'Error: ' . $made : 'Saved as query ' . $made['artifact_id'] . ', ' . count($made['content']['rows']) . ' rows now.';
+                },
+                'writes'      => true,
+            ],
+        ] : []) + ($this->scope->space === Scope::ADMIN ? [
+            'run_query' => [
+                'description' => 'Run a saved query again and read its result as it is now.',
+                'parameters'  => ['type' => 'object', 'properties' => ['id' => $id], 'required' => ['id']],
+                'run'         => function (array $a): string {
+                    $ran = $this->runQuery((int) ($a['id'] ?? 0));
+
+                    return is_string($ran) ? 'Error: ' . $ran : self::asText($ran, self::limit('read'));
+                },
+            ],
+        ] : []) + (self::sharing() ? [
             'share_artifact_live' => [
                 'description' => 'Share one of this person\'s artifacts live — the same artifact, every change reaching everyone — with '
                     . 'people by username or email, or with their whole organisation; to read, or to change too. Only when they ask. '
@@ -393,6 +420,8 @@ final class Artifacts
             if ($found === null) {
                 continue;
             }
+            // A saved query pinned is live: run again where its result has grown old.
+            $found = $this->fresh($found);
             $share = min(self::limit('pinned_each'), $left);
             // No room left: still named, so the model knows it is there.
             $text    = $share < 200 ? self::indexLine($found) : self::pinnedText($found, $share);
@@ -460,7 +489,8 @@ final class Artifacts
         $cell = static fn ($v): string => $v === null ? '' : (is_string($v) ? $v : (string) json_encode($v, JSON_UNESCAPED_UNICODE));
         $head = '#' . (int) $artifact['artifact_id'] . ' ' . $artifact['kind'] . ': ' . $artifact['title']
             . (($artifact['entity'] ?? null) !== null ? ' (' . $artifact['entity'] . ')' : '')
-            . (($artifact['subject'] ?? null) !== null ? ' about ' . $artifact['subject'] : '');
+            . (($artifact['subject'] ?? null) !== null ? ' about ' . $artifact['subject'] : '')
+            . (is_array($c['query'] ?? null) ? ' (a saved query, run ' . date('Y-m-d H:i', (int) ($c['query']['ran_at'] ?? 0)) . '; run_query to refresh)' : '');
         $body = match ((string) $artifact['kind']) {
             'table' => implode("\n", array_map(
                 static fn (array $row): string => implode("\t", array_map($cell, $row)),
@@ -1090,6 +1120,129 @@ final class Artifacts
         usort($out, static fn (array $a, array $b): int => strcmp($b['updated_at'], $a['updated_at']));
 
         return $out;
+    }
+
+    /** How long a saved query's result stands before a pinned one is run again, in seconds. */
+    public const QUERY_STALE = 600;
+
+    /**
+     * Whether this person may write or change a saved query's SQL: the application's
+     * `'llm' => ['analyst' => ['sql_writers' => fn (int $userId): bool]]` (or an ability), root
+     * otherwise. Running a saved one needs only the artifact.
+     */
+    public static function writesSql(int $userId): bool
+    {
+        $hook = ((array) \Pramnos\Llm\Llm::config('analyst', []))['sql_writers'] ?? null;
+        $user = new \Pramnos\User\User($userId);
+        if (is_callable($hook)) {
+            return (bool) $hook($userId);
+        }
+        if (is_string($hook) && $hook !== '') {
+            return \Pramnos\Auth\AdminAccess::allows($user, $hook, \Pramnos\Auth\AdminAccess::defaultUsertype());
+        }
+
+        return (int) ($user->userid ?? 0) === $userId && \Pramnos\User\Roles::atLeast($user, \Pramnos\User\Roles::ROOT);
+    }
+
+    /**
+     * A saved query: a table that keeps the read-only SELECT it came from, to run again
+     * (`content.query` = `{sql, limit, ran_at}`). Written by whoever {@see writesSql()}; its result
+     * is read as any table's.
+     *
+     * @return array<string, mixed>|string
+     */
+    public function saveQuery(string $title, string $sql, int $limit = 200, ?string $subject = null): array|string
+    {
+        if (!self::writesSql($this->scope->userId)) {
+            return 'Only who may write SQL saves a query.';
+        }
+        $ran = self::runSql($sql, $limit);
+        if (is_string($ran)) {
+            return $ran;
+        }
+        $title = trim((string) preg_replace('/\s+/u', ' ', $title));
+        if ($title === '') {
+            return 'An artifact needs a title.';
+        }
+        // A query's result may be empty, as a table made by hand may not.
+        return $this->keep('table', $title, null, ['columns' => $ran['columns'], 'rows' => $ran['rows'],
+            'query' => ['sql' => trim($sql), 'limit' => $ran['limit'], 'ran_at' => time()]], self::subjectOf($subject));
+    }
+
+    /**
+     * A saved query run again, its result kept — by anybody who may open the artifact, the SQL as
+     * it was saved. With `$sql`, the statement changed first, by whoever {@see writesSql()} and may
+     * change the artifact.
+     *
+     * @return array<string, mixed>|string
+     */
+    public function runQuery(int $artifactId, ?string $sql = null): array|string
+    {
+        $found = $this->find($artifactId);
+        $query = $found === null ? null : ($found['content']['query'] ?? null);
+        if (!is_array($query)) {
+            return 'There is no such saved query.';
+        }
+        if ($sql !== null && trim($sql) !== trim((string) $query['sql'])) {
+            if (!self::writesSql($this->scope->userId) || ($found['shared'] ?? null) === 'read') {
+                return 'Only who may write SQL, and change this artifact, changes its query.';
+            }
+            $query['sql'] = trim($sql);
+        }
+        $ran = self::runSql((string) $query['sql'], (int) ($query['limit'] ?? 200));
+        if (is_string($ran)) {
+            return $ran;
+        }
+        $content = ['columns' => $ran['columns'], 'rows' => $ran['rows'], 'query' => ['sql' => (string) $query['sql'], 'limit' => $ran['limit'], 'ran_at' => time()]];
+        // Its result, kept for everyone who reads it: a reader's run refreshes it as an owner's does.
+        $this->table()->where('artifact_id', $artifactId)->update(['content' => (string) json_encode($content, JSON_UNESCAPED_UNICODE), 'updated_at' => CallLog::instant(time())]);
+        foreach ($this->audience($artifactId, (int) $found['userid']) as $userId) {
+            \Pramnos\Broadcasting\BroadcastingManager::toUser($userId, self::CHANGED, ['id' => $artifactId]);
+        }
+
+        return ['content' => $content] + $found;
+    }
+
+    /**
+     * An artifact as it stands now: a saved query whose result is older than {@see QUERY_STALE}
+     * run again first, so what is pinned is live. Anything else as it is.
+     *
+     * @param array<string, mixed> $artifact
+     * @return array<string, mixed>
+     */
+    public function fresh(array $artifact): array
+    {
+        $query = $artifact['content']['query'] ?? null;
+        if (!is_array($query) || (int) ($query['ran_at'] ?? 0) > time() - self::QUERY_STALE) {
+            return $artifact;
+        }
+        $ran = $this->runQuery((int) $artifact['artifact_id']);
+
+        return is_array($ran) ? $ran : $artifact;
+    }
+
+    /**
+     * One read-only SELECT through the analyst's guard, its rows with credentials withheld.
+     *
+     * @return array{columns: list<string>, rows: list<list<mixed>>, limit: int}|string
+     */
+    private static function runSql(string $sql, int $limit): array|string
+    {
+        $limit = max(1, min(self::ROWS, $limit));
+        $rows  = [];
+        try {
+            \Pramnos\Llm\Analyst\ReadOnlySql::each(\Pramnos\Framework\Factory::getDatabase(), $sql, $limit, static function (array $row) use (&$rows): void {
+                $rows[] = \Pramnos\Llm\Analyst\ReadOnlySql::withhold($row);
+            });
+        } catch (\InvalidArgumentException $e) {
+            return 'Refused: ' . $e->getMessage();
+        } catch (\Throwable $e) {
+            return 'The database refused it: ' . \Pramnos\Llm\Analyst\ReadOnlySql::said($e);
+        }
+        $columns = $rows === [] ? [] : array_slice(array_map('strval', array_keys($rows[0])), 0, self::COLUMNS);
+        $cells   = static fn (array $r): array => array_map(static fn ($v) => is_scalar($v) || $v === null ? $v : json_encode($v, JSON_UNESCAPED_UNICODE), array_slice(array_values($r), 0, self::COLUMNS));
+
+        return ['columns' => $columns === [] ? ['—'] : $columns, 'rows' => array_map($cells, $rows), 'limit' => $limit];
     }
 
     /** Whether artifacts can be shared live here: the members' table exists. */

@@ -683,6 +683,31 @@ told (see the [To-dos Guide](Pramnos_Todos_Guide.md#telling)).
 The model does the same with `assign_artifact(id, to, note, due)`, after the person confirms who
 and by when. The API is `POST {chat}/artifacts/{id}/assign` with `to`, `note` and `due`.
 
+### A saved query
+
+A read-only SELECT can be kept to run again. Its result is a table, so it is shown, exported,
+pinned and shared as any table is. The table also keeps the statement it came from
+(`content.query` = `{sql, limit, ran_at}`).
+
+```php
+$artifacts->saveQuery('Renewals this month', 'SELECT … FROM …', 200, 'user:123');
+$artifacts->runQuery($id);              // run again, as saved: whoever may open the artifact
+$artifacts->runQuery($id, 'SELECT …');  // changed first: whoever may write SQL and change it
+```
+
+- **Writing or changing the SQL** is for whoever the application says:
+  `'llm' => ['analyst' => ['sql_writers' => fn (int $userId): bool => …]]`, or an ability. With
+  neither, only root may.
+- **Running a saved one** needs only the artifact, its own or shared with the person. A reader's
+  run refreshes the result for everyone.
+- **Every run** goes through the analyst's guard (`ReadOnlySql`), with credentials withheld.
+- **Pinned, it is live.** A result older than ten minutes (`Artifacts::QUERY_STALE`) is run again
+  before it is shown in the context (`fresh()`).
+- **Tools.** In the Ask, where `sql` is on, the model saves one with `save_query`. `run_query(id)`
+  reads one as it is now, which is how a scheduled task runs it.
+- **On the page and in the API.** *Run again* sits under the table, and the API is
+  `POST {chat}/artifacts/{id}/run`, with an optional `sql`.
+
 ### An artifact about a record
 
 An artifact can be about one record, its `subject` given as `entity:id` (`user:123`,
