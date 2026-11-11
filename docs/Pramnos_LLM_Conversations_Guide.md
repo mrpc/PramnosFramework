@@ -184,6 +184,35 @@ Changes made during an answer, such as an artifact updated, reach the model as t
 and are in zone 2 from the next question. Moving zone 2 in the middle of an answer would break the
 cache.
 
+## The assistant's mood
+
+A companion can have a mood with each person that lasts and fades. It is off by default.
+`'llm' => ['chat' => ['mood' => true]]` takes the words from the avatar set's signals
+(`analyst.avatar_set.moods`, or `analyst.avatar_moods`; see
+[the picture in every state](Pramnos_LLM_Analyst_Guide.md#the-picture-in-every-state-on-the-ai-screen)),
+and `['mood' => ['words' => ['calm', 'cross', …]]]` names them directly. `Chat\Mood` does the rest:
+
+- **The model says it.** Zone 3 asks each answer to end with a private tag, `[[mood:happy|70]]`:
+  a word from the vocabulary and how strongly, 0–100. It costs no call. The tag is taken out of
+  the stream, the stored answer and the history, and a word outside the vocabulary is ignored.
+- **Per conversation and per person, never for everybody.** The conversation keeps its mood. A
+  different, weaker feeling does not displace a standing stronger one, and the same feeling keeps
+  the stronger of the two. A strong mood (`Mood::STRONG`, 60 and up) also colours the person's
+  other conversations, at four fifths of its strength.
+- **It fades** by 25 an hour, read rather than swept, so nothing has to be scheduled. Under 15 it
+  is not felt.
+- **Tone, not a statement.** While it is felt, zone 3 tells the next answer `Your mood right now:
+  sleepy, noticeably. Let it colour your tone; do not say it or explain it.`
+- **The application shows it.** The answer's message carries `mood`:
+  `{"mood": "happy", "intensity": 80, "plays": "success"}`, where `plays` is what the avatar set
+  says the word plays, or `null` when nothing is felt. `GET {chat}/mood` answers the same for
+  the avatar while idle: the person's strongest mood, or one conversation's with
+  `?conversation_id=`.
+
+A scheduled answer, or one others read, neither asks for the tag nor changes the mood. The mood is
+three columns of `assist.chat_conversations` (`mood`, `mood_intensity`, `mood_at`): state, with no
+history kept.
+
 ## Memory
 
 The model is given `remember`, `forget`, `search_conversations` and `read_conversation`, and told

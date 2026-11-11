@@ -358,6 +358,23 @@ class ChatController extends \Pramnos\Application\ApiCrudController
     }
 
     /**
+     * The assistant's mood with the person asking (`Chat\Mood`), for the avatar to show — idle
+     * included: `GET {chat}/mood`, or `?conversation_id=` for one conversation's. `mood` is null when
+     * nothing is felt or moods are off; `plays` is what the avatar set says the word plays.
+     */
+    public function mood(): array
+    {
+        if (($stop = $this->refusal('read')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        $id    = (int) ($_GET['conversation_id'] ?? 0);
+
+        return ['status' => 200, 'data' => ['on' => \Pramnos\Llm\Chat\Mood::on(),
+            'mood' => $scope === null || !\Pramnos\Llm\Chat\Mood::on() ? null : (new \Pramnos\Llm\Chat\Mood($scope))->now($id > 0 ? $id : null)]];
+    }
+
+    /**
      * The VAPID public key, for `PushManager.subscribe()` in an app that signs in with a token —
      * which the site's own `Push` controller, made for its pages and their session, does not take.
      * 503 where the installation has no key pair.

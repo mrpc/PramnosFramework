@@ -461,8 +461,12 @@ class Conversations
 
         // In three zones, the part that never changes first, so the provider's cache keeps the most.
         // How the person feels changes with a word, so it goes last, where nothing is cached anyway.
+        // The assistant's own mood, where the application turned it on: said by the model in a tag,
+        // kept with the conversation, given back as tone (Mood).
+        $mood   = Mood::on() && !$this->scheduled && !$turn->shared() ? new Mood($this->scope) : null;
         $zones  = (new ContextAssembler($this->assistant))->alsoNow(
-            !$turn->shared() && Profile::on($this->scope) && Profile::available() ? (new Profile($this->scope))->moodContext() : ''
+            (!$turn->shared() && Profile::on($this->scope) && Profile::available() ? (new Profile($this->scope))->moodContext() : '')
+            . ($mood === null ? '' : "\n\n" . trim($mood->directive($conversationId) . "\n" . Mood::instruction()))
         )->since($this->scheduled || $turn->shared() ? null : $this->sinceLast());
         $prefix = $zones->staticPrefix($turn);
         $zones->checkPrefix($prefix, $conversationId);
@@ -470,8 +474,9 @@ class Conversations
             . ($summary === '' ? '' : "\n\nEarlier in this conversation, in short (those messages are not shown again):\n" . $summary);
 
         $sent = $zones->messages($turn, $semi, $messages);
-        $run  = function (\Pramnos\Llm\Client $client, array $sent) use ($prefix, $tools, $turn, $parallel): array {
-            $answer = $client->onText($this->onText)->cancelWhen($this->stopWhen)->inParallel($parallel)->answering($this->answerKey)->askWithTools(
+        $onText = $mood === null || $this->onText === null ? $this->onText : fn (string $soFar) => ($this->onText)(Mood::strip($soFar));
+        $run  = function (\Pramnos\Llm\Client $client, array $sent) use ($prefix, $tools, $turn, $parallel, $onText): array {
+            $answer = $client->onText($onText)->cancelWhen($this->stopWhen)->inParallel($parallel)->answering($this->answerKey)->askWithTools(
                 $prefix,
                 $sent,
                 $tools,
@@ -537,10 +542,18 @@ class Conversations
         // An answer cut at its budget or its rounds is remembered as cut, so the next question
         // goes on from what it read instead of reading it again (whereItStopped()).
         $stopped = !empty($answer['over_budget']) ? 'budget' : (!empty($answer['out_of_rounds']) ? 'rounds' : null);
-        $message = $this->store($conversationId, 'assistant', self::withoutMark($this->polished($turn, (string) ($answer['final'] ?? $answer['reply']))),
+        $reply   = (string) ($answer['final'] ?? $answer['reply']);
+        $felt    = $mood === null ? null : Mood::parse($reply);
+        $message = $this->store($conversationId, 'assistant', self::withoutMark($this->polished($turn, $mood === null ? $reply : Mood::strip($reply))),
             (array) ($answer['calls'] ?? []), $answer['cost'], $stamp, $answer['context'] ?? null,
             array_filter(['steps' => $steps, 'stopped' => $stopped, 'source' => $this->console ? 'console' : null]));
         $message['artifacts'] = $artifacts->link($conversationId, (int) $message['message_id'], $turn->tags);
+        if ($mood !== null) {
+            if ($felt !== null) {
+                $mood->feel($conversationId, $felt['mood'], $felt['intensity']);
+            }
+            $message['mood'] = $mood->now($conversationId);
+        }
 
         // What the person stated, kept — once several of their messages have gathered. An answer
         // others read, or a scheduled run, is nothing of the person's to learn from.
