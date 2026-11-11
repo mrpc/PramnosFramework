@@ -87,6 +87,9 @@ class Conversations
 
     private ?bool $tracks = null;
 
+    /** Whether `chat_conversations.ended_at` exists (Ending), asked once. */
+    private ?bool $ends = null;
+
     private bool $scheduled = false;
 
     /** Asked from the console (`llm:ask`): kept, but not learned from, and marked as such. */
@@ -251,6 +254,8 @@ class Conversations
             'conversation_id' => $conversationId,
             'title'           => (string) $conversation['title'],
             'tags'            => self::tagsOf($conversation),
+            // Ended by the assistant (Ending): it takes no more questions.
+            'ended'           => !empty($conversation['ended_at']),
             'messages'        => $this->assistant->present($this->scope, $messages),
         ];
     }
@@ -350,6 +355,11 @@ class Conversations
 
             if ($found === null) {
                 return self::refusal('missing', 'There is no such conversation.');
+            }
+
+            // Ended by the assistant (Ending): no more questions here; a new conversation is open to them.
+            if (!empty($found['ended'])) {
+                return self::refusal('ended', Ending::SAYS);
             }
 
             $held    = $found['tags'];
@@ -466,11 +476,14 @@ class Conversations
         $mood   = Mood::on($this->scope) && !$this->scheduled && !$turn->shared() ? new Mood($this->scope) : null;
         // What the answer does and wears, picked the same way (Acts).
         $acts   = Acts::on($this->scope) && !$this->scheduled && !$turn->shared();
-        $tagged = $mood !== null || $acts;
+        // …and whether it may end the conversation of somebody who keeps insulting it (Ending).
+        $ending = Ending::on($this->scope) && !$this->scheduled && !$turn->shared() && $this->ends();
+        $tagged = $mood !== null || $acts || $ending;
         $zones  = (new ContextAssembler($this->assistant))->alsoNow(
             (!$turn->shared() && Profile::on($this->scope) && Profile::available() ? (new Profile($this->scope))->moodContext() : '')
             . ($mood === null ? '' : "\n\n" . trim($mood->directive($conversationId) . "\n" . Mood::instruction()))
             . ($acts ? "\n\n" . Acts::instruction() : '')
+            . ($ending ? "\n\n" . Ending::instruction() : '')
         )->since($this->scheduled || $turn->shared() ? null : $this->sinceLast());
         $prefix = $zones->staticPrefix($turn);
         $zones->checkPrefix($prefix, $conversationId);
@@ -478,7 +491,7 @@ class Conversations
             . ($summary === '' ? '' : "\n\nEarlier in this conversation, in short (those messages are not shown again):\n" . $summary);
 
         $sent = $zones->messages($turn, $semi, $messages);
-        $onText = !$tagged || $this->onText === null ? $this->onText : fn (string $soFar) => ($this->onText)(Acts::strip(Mood::strip($soFar)));
+        $onText = !$tagged || $this->onText === null ? $this->onText : fn (string $soFar) => ($this->onText)(Ending::strip(Acts::strip(Mood::strip($soFar))));
         $run  = function (\Pramnos\Llm\Client $client, array $sent) use ($prefix, $tools, $turn, $parallel, $onText): array {
             $answer = $client->onText($onText)->cancelWhen($this->stopWhen)->inParallel($parallel)->answering($this->answerKey)->askWithTools(
                 $prefix,
@@ -553,12 +566,16 @@ class Conversations
             $mood->feel($conversationId, $felt['mood'], $felt['intensity']);
         }
         $feels   = $mood?->now($conversationId);
-        $message = $this->store($conversationId, 'assistant', self::withoutMark($this->polished($turn, $tagged ? Acts::strip(Mood::strip($reply)) : $reply)),
+        $message = $this->store($conversationId, 'assistant', self::withoutMark($this->polished($turn, $tagged ? Ending::strip(Acts::strip(Mood::strip($reply))) : $reply)),
             (array) ($answer['calls'] ?? []), $answer['cost'], $stamp, $answer['context'] ?? null,
             // With moods on, `mood` is always there — null when nothing is felt — so a reader tells
             // "no mood" from "a backend without moods".
             array_filter(['steps' => $steps, 'stopped' => $stopped, 'source' => $this->console ? 'console' : null]) + ($mood === null ? [] : ['mood' => $feels])
-            + ($acts ? ['act' => Acts::act($reply), 'wear' => Acts::worn($reply)] : []));
+            + ($acts ? ['act' => Acts::act($reply), 'wear' => Acts::worn($reply)] : [])
+            + ($ending && Ending::ends($reply) ? ['ended' => true] : []));
+        if ($ending && Ending::ends($reply)) {
+            $this->scope->apply($this->table('assist.chat_conversations'))->where('conversation_id', $conversationId)->update(['ended_at' => $stamp]);
+        }
         $message['artifacts'] = $artifacts->link($conversationId, (int) $message['message_id'], $turn->tags);
 
         // What the person stated, kept — once several of their messages have gathered. An answer
@@ -868,6 +885,16 @@ class Conversations
     }
 
     /** Whether chat_conversations has its summary and watermarks yet — asked once per instance. */
+    /** Whether conversations can be ended here: the column exists. */
+    private function ends(): bool
+    {
+        try {
+            return $this->ends ??= \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('assist.chat_conversations', 'ended_at');
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
     private function tracks(): bool
     {
         try {
@@ -1067,7 +1094,9 @@ class Conversations
         // The assistant's mood as it gave this answer (Mood), where moods were on; in the history too.
         ] + array_map(static fn ($v): ?array => is_array($v) ? $v : null,
             // …and what it did and wore (Acts), where the set has acts or wear.
-            array_intersect_key($extra, array_flip(['mood', 'act', 'wear'])));
+            array_intersect_key($extra, array_flip(['mood', 'act', 'wear'])))
+            // The answer that ended the conversation (Ending).
+            + (!empty($extra['ended']) ? ['ended' => true] : []);
     }
 
     /**

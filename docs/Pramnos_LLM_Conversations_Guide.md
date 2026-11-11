@@ -263,6 +263,25 @@ what it wears (`Chat\Acts`). The set declares both, each with when it fits:
 - Only in the `chat` space, and only where the set declares acts or wear. The analyst of the
   administration is not asked for them.
 
+## Ending a conversation when the person keeps insulting the assistant
+
+A companion can end a conversation in which it is abused (`Chat\Ending`). It is off by default:
+
+```php
+'llm' => ['chat' => ['end_on_abuse' => true]],                       // the conversation page (chat)
+'llm' => ['chat' => ['end_on_abuse' => ['spaces' => ['chat', 'admin']]]],
+```
+
+- **The model decides, after a warning.** Zone 3 tells it to ask the person once, calmly, to stop.
+  Only if they go on does it say a short goodbye and end the answer with a private tag, `[[end]]`.
+  Disagreement, criticism, frustration with it or a bad day never end a conversation. The tag is
+  taken out of the stream and the stored answer, like the mood's.
+- **The conversation ends, not the person.** It is marked in `chat_conversations.ended_at`. The
+  answer that ended it carries `ended: true`, and the conversation (`find()`, `GET {chat}/{id}`)
+  says `ended: true`. A further question there is refused with `why: ended`, a 409 through the
+  API, before anything is queued or sent to the model. The person can start a new conversation
+  at any time; nobody is blocked.
+
 ## Memory
 
 The model is given `remember`, `forget`, `search_conversations` and `read_conversation`, and told

@@ -90,8 +90,14 @@ trait TakesQuestions
             return ['status' => 422, 'error' => 'Ask it something.'];
         }
 
-        if ($conversationId > 0 && $this->conversations()->find($conversationId) === null) {
+        $found = $conversationId > 0 ? $this->conversations()->find($conversationId) : null;
+        if ($conversationId > 0 && $found === null) {
             return ['status' => 404, 'error' => 'There is no such conversation.'];
+        }
+
+        // Ended by the assistant (Chat\Ending): told now, not queued for the worker to refuse.
+        if (!empty($found['ended'])) {
+            return ['status' => 409, 'error' => \Pramnos\Llm\Chat\Ending::SAYS, 'why' => 'ended'];
         }
 
         // Told now rather than from the worker, so the screen can ask for agreement on the spot.
@@ -161,7 +167,7 @@ trait TakesQuestions
             'scope', 'consent' => 403,
             'missing'          => 404,
             'empty'            => 422,
-            'limit', 'tags'    => 409,
+            'limit', 'tags', 'ended' => 409,
             default            => 502,
         };
     }
