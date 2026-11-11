@@ -111,7 +111,7 @@ final class AvatarSets
         if (is_array($set) && isset($set['markup']) && (is_string($set['markup']) || is_callable($set['markup']))) {
             return ['markup' => $set['markup'], 'css' => isset($set['css']) ? (string) $set['css'] : null, 'states' => (array) ($set['states'] ?? []),
                 'poses' => array_values(array_map('strval', (array) ($set['poses'] ?? []))), 'transitions' => (array) ($set['transitions'] ?? []),
-                'moods' => array_map('strval', (array) ($set['moods'] ?? []))];
+                'moods' => array_map('strval', (array) ($set['moods'] ?? [])), 'acts' => (array) ($set['acts'] ?? []), 'wear' => (array) ($set['wear'] ?? [])];
         }
         if (\Pramnos\Llm\Analyst\Analyst::avatar() !== null) {
             return null;

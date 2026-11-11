@@ -17,7 +17,7 @@ use Pramnos\Routing\Router;
  *
  * Everything sits under `/chat` by default: `/chat`, `/chat/{conversation_id}`,
  * `/chat/asks/{ask_id}`, `/chat/memory`, `/chat/connections`, `/chat/routines`, `/chat/runs`, `/chat/reports`,
- * `/chat/skills`, `/chat/consent`, `/chat/speak`, `/chat/push` and `/chat/mood` — the last three follow `chat`
+ * `/chat/skills`, `/chat/consent`, `/chat/speak`, `/chat/push`, `/chat/mood` and `/chat/style` — the last four follow `chat`
  * where they are not named, so a second mount at `/assistant` reads aloud at `/assistant/speak`. The fixed paths
  * are registered before `/chat/{conversation_id}`, which would otherwise take "memory" for an id.
  */
@@ -50,11 +50,14 @@ final class Routes
         $p['speak'] ??= $p['chat'] . '/speak';
         $p['push']  ??= $p['chat'] . '/push';
         $p['mood']  ??= $p['chat'] . '/mood';
+        $p['style'] ??= $p['chat'] . '/style';
         $make = static fn (): ChatController => new $controller();
 
         $r->post($p['speak'], static fn () => $make()->speak())->describeFrom([$controller, 'speak']);
         // Ahead of {chat}/{conversation_id}, which would take "push" or "mood" for an id.
         $r->get($p['mood'], static fn () => $make()->mood())->describeFrom([$controller, 'mood']);
+        $r->get($p['style'], static fn () => $make()->style())->describeFrom([$controller, 'style']);
+        $r->put($p['style'], static fn () => $make()->style())->describeFrom([$controller, 'style']);
         $r->get($p['push'] . '/key', static fn () => $make()->pushKey())->describeFrom([$controller, 'pushKey']);
         $r->post($p['push'], static fn () => $make()->pushSubscribe())->describeFrom([$controller, 'pushSubscribe']);
         $r->delete($p['push'], static fn () => $make()->pushUnsubscribe())->describeFrom([$controller, 'pushUnsubscribe']);

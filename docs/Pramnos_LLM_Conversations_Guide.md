@@ -217,6 +217,35 @@ A scheduled answer, or one others read, neither asks for the tag nor changes the
 three columns of `assist.chat_conversations` (`mood`, `mood_intensity`, `mood_at`): state, with no
 history kept.
 
+## What the assistant does and wears in an answer
+
+An avatar set with hands and props can let the assistant pick, for each answer, what it does and
+what it wears (`Chat\Acts`). The set declares both, each with when it fits:
+
+```php
+'llm' => ['analyst' => ['avatar_set' => [
+    'markup' => APP_PATH . '/themes/admin/assets/naya/naya.svg',
+    'poses'  => ['headphones', 'party', 'nightcap'],
+    'acts'   => ['explain' => ['plays' => 'teaching', 'when' => 'explaining or teaching something'],
+                 'search'  => ['plays' => 'searching', 'when' => 'looking something up']],
+    'wear'   => ['party'   => ['pose' => 'party', 'when' => 'celebrating good news']],
+]]],
+```
+
+- The words and their `when` go in the last part of the model's instructions. An answer **may**
+  end with `[[act:explain]]` and `[[wear:party]]`. Like the mood's tag, both are taken out of
+  what streams and what is stored.
+- The answer keeps `act` (`{act, plays}`) and `wear` (`{wear, pose}`), on the message and in the
+  history. Each is null when the model chose none, or chose a word the set does not have. The
+  act plays while the answer is read, and the wear lasts until the next message. Both are the
+  application's to show.
+- **The person's style** is a pose of the set's, shown all the time. `GET {chat}/style` gives
+  `{pose, poses}`, and `PUT {chat}/style` with `{"pose": "headphones"}` keeps one with the
+  person's account (`""` clears it; a pose the set lacks is 422). An answer's `wear` covers the
+  style for that answer.
+- Only in the `chat` space, and only where the set declares acts or wear. The analyst of the
+  administration is not asked for them.
+
 ## Memory
 
 The model is given `remember`, `forget`, `search_conversations` and `read_conversation`, and told

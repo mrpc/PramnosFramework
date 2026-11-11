@@ -377,6 +377,31 @@ class ChatController extends \Pramnos\Application\ApiCrudController
     }
 
     /**
+     * The person's style (`Chat\Acts`): a pose of the avatar set's that the picture keeps between
+     * answers. `GET {chat}/style` → `{pose, poses, on}`; `PUT {chat}/style` with `{"pose": "…"}`
+     * keeps one, `""` or null none. 422 for a pose the set does not have. An answer's `wear` covers
+     * it for that answer.
+     */
+    public function style(): array
+    {
+        if (($stop = $this->refusal($_SERVER['REQUEST_METHOD'] === 'PUT' ? 'ask' : 'read')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        if ($scope === null || $scope->userId < 1) {
+            return self::error(401, 'This needs somebody signed in.');
+        }
+        $user = new \Pramnos\User\User($scope->userId);
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'PUT'
+            && !\Pramnos\Llm\Chat\Acts::choose($user, (string) ($this->input()['pose'] ?? ''))) {
+            return self::error(422, 'That is not one of the picture\'s poses.');
+        }
+
+        return ['status' => 200, 'data' => ['on' => \Pramnos\Llm\Chat\Acts::on($scope) || \Pramnos\Assist\AvatarSets::poses() !== [],
+            'pose' => \Pramnos\Llm\Chat\Acts::style($user), 'poses' => \Pramnos\Assist\AvatarSets::poses()]];
+    }
+
+    /**
      * The VAPID public key, for `PushManager.subscribe()` in an app that signs in with a token —
      * which the site's own `Push` controller, made for its pages and their session, does not take.
      * 503 where the installation has no key pair.

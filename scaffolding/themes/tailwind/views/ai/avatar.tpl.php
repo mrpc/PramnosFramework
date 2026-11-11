@@ -23,7 +23,7 @@ $btn = $c['btn']; @endphp
     </div>
     <section class="{!! $c['card'] !!}" style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start">
         {{-- The dock's own element, inline: the set's CSS for "away" reacts to it as it does in a corner. --}}
-        <div class="pf-companion-dock pf-companion-dock--inline" data-pf-avatar-preview data-pf-companion-activity="active" style="position:relative;inset:auto;flex:none;width:auto;height:auto;padding:16px">{!! (string) ($this->picture ?? '') !!}</div>
+        <div class="pf-companion-dock pf-companion-dock--inline" data-pf-avatar-preview data-pf-companion-activity="active" style="position:relative;inset:auto;flex:none;width:auto;height:auto;max-width:100%;box-sizing:border-box;padding:16px 128px;overflow:hidden">{!! (string) ($this->picture ?? '') !!}</div>
         <div style="flex:1 1 18rem;display:flex;flex-direction:column;gap:12px">
             <div>
                 <h2 class="{!! $c['h2'] !!}">{{ $t('States') }}</h2>

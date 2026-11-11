@@ -464,9 +464,13 @@ class Conversations
         // The assistant's own mood, where the application turned it on: said by the model in a tag,
         // kept with the conversation, given back as tone (Mood).
         $mood   = Mood::on($this->scope) && !$this->scheduled && !$turn->shared() ? new Mood($this->scope) : null;
+        // What the answer does and wears, picked the same way (Acts).
+        $acts   = Acts::on($this->scope) && !$this->scheduled && !$turn->shared();
+        $tagged = $mood !== null || $acts;
         $zones  = (new ContextAssembler($this->assistant))->alsoNow(
             (!$turn->shared() && Profile::on($this->scope) && Profile::available() ? (new Profile($this->scope))->moodContext() : '')
             . ($mood === null ? '' : "\n\n" . trim($mood->directive($conversationId) . "\n" . Mood::instruction()))
+            . ($acts ? "\n\n" . Acts::instruction() : '')
         )->since($this->scheduled || $turn->shared() ? null : $this->sinceLast());
         $prefix = $zones->staticPrefix($turn);
         $zones->checkPrefix($prefix, $conversationId);
@@ -474,7 +478,7 @@ class Conversations
             . ($summary === '' ? '' : "\n\nEarlier in this conversation, in short (those messages are not shown again):\n" . $summary);
 
         $sent = $zones->messages($turn, $semi, $messages);
-        $onText = $mood === null || $this->onText === null ? $this->onText : fn (string $soFar) => ($this->onText)(Mood::strip($soFar));
+        $onText = !$tagged || $this->onText === null ? $this->onText : fn (string $soFar) => ($this->onText)(Acts::strip(Mood::strip($soFar)));
         $run  = function (\Pramnos\Llm\Client $client, array $sent) use ($prefix, $tools, $turn, $parallel, $onText): array {
             $answer = $client->onText($onText)->cancelWhen($this->stopWhen)->inParallel($parallel)->answering($this->answerKey)->askWithTools(
                 $prefix,
@@ -549,11 +553,12 @@ class Conversations
             $mood->feel($conversationId, $felt['mood'], $felt['intensity']);
         }
         $feels   = $mood?->now($conversationId);
-        $message = $this->store($conversationId, 'assistant', self::withoutMark($this->polished($turn, $mood === null ? $reply : Mood::strip($reply))),
+        $message = $this->store($conversationId, 'assistant', self::withoutMark($this->polished($turn, $tagged ? Acts::strip(Mood::strip($reply)) : $reply)),
             (array) ($answer['calls'] ?? []), $answer['cost'], $stamp, $answer['context'] ?? null,
             // With moods on, `mood` is always there — null when nothing is felt — so a reader tells
             // "no mood" from "a backend without moods".
-            array_filter(['steps' => $steps, 'stopped' => $stopped, 'source' => $this->console ? 'console' : null]) + ($mood === null ? [] : ['mood' => $feels]));
+            array_filter(['steps' => $steps, 'stopped' => $stopped, 'source' => $this->console ? 'console' : null]) + ($mood === null ? [] : ['mood' => $feels])
+            + ($acts ? ['act' => Acts::act($reply), 'wear' => Acts::worn($reply)] : []));
         $message['artifacts'] = $artifacts->link($conversationId, (int) $message['message_id'], $turn->tags);
 
         // What the person stated, kept — once several of their messages have gathered. An answer
@@ -1060,7 +1065,9 @@ class Conversations
             'rating'     => ($fields['rating'] ?? null) === null ? null : (int) $fields['rating'],
             'created_at' => (string) $fields['created_at'],
         // The assistant's mood as it gave this answer (Mood), where moods were on; in the history too.
-        ] + (array_key_exists('mood', $extra) ? ['mood' => is_array($extra['mood']) ? $extra['mood'] : null] : []);
+        ] + array_map(static fn ($v): ?array => is_array($v) ? $v : null,
+            // …and what it did and wore (Acts), where the set has acts or wear.
+            array_intersect_key($extra, array_flip(['mood', 'act', 'wear'])));
     }
 
     /**
