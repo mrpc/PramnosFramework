@@ -12,6 +12,8 @@ use Pramnos\Llm\Chat\Conversations;
 use Pramnos\Llm\Chat\Scope;
 use Pramnos\Tests\Unit\Llm\LlmTestCase;
 
+require_once __DIR__ . '/ChatApiTest.php';
+
 /**
  * Artifacts as a workspace across conversations — read, changed, found and pinned by the model —
  * on MySQL and PostgreSQL.
@@ -21,6 +23,7 @@ use Pramnos\Tests\Unit\Llm\LlmTestCase;
  * front of the model at the start of every question, as it stands then.
  */
 #[CoversClass(Artifacts::class)]
+#[CoversClass(\Pramnos\Llm\Chat\Api\ChatController::class)]
 #[CoversClass(\Pramnos\Broadcasting\BroadcastingManager::class)]
 class LivingArtifactsTest extends LlmTestCase
 {
@@ -294,5 +297,124 @@ class LivingArtifactsTest extends LlmTestCase
         $this->assertStringContainsString("#{$third} text: Late (", $context, 'past the share: still named');
         $this->assertStringContainsString("not shown here: read_artifact {$third})", $context);
         $this->assertLessThanOrEqual(50, mb_strlen($read), 'read_artifact reads up to the application\'s own limit');
+    }
+
+    /** A user's username, for sharing by name. */
+    private function nameOf(int $userId): string
+    {
+        return (string) $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->value('username');
+    }
+
+    /**
+     * Shared live (FW-472): the same artifact, not a copy. A reader reads every change and cannot
+     * make one; an editor's change is the owner's artifact itself; a whole organisation shares it;
+     * a member is listed, taken off, or leaves; only the owner shares or deletes it, and deleting
+     * it takes its members with it; what others share is listed for a member and the model.
+     */
+    #[DataProvider('databases')]
+    public function testAnArtifactSharedLiveIsTheSameForEveryMember(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        [$owner, $reader, $editor, $colleague, $stranger] = [$this->user(), $this->user(), $this->user(), $this->user(), $this->user()];
+        $mine   = new Artifacts(new Scope($owner, 7));
+        $id     = $mine->create(['kind' => 'table', 'title' => 'Shopping', 'columns' => ['Item'], 'rows' => [['milk']]])['artifact_id'];
+        $asRead = new Artifacts(new Scope($reader, null));
+        $asEdit = new Artifacts(new Scope($editor, null));
+
+        // Act
+        $before  = $asRead->find($id);
+        $shared  = $mine->shareLive($id, [$this->nameOf($reader), 'nobody-' . $owner], 'read');
+        $mine->shareLive($id, [$this->nameOf($editor)], 'edit');
+        $org     = $mine->shareLive($id, [], 'read', true);
+        $refused = $asRead->update($id, 'append', ['rows' => [['bread']]]);
+        $edited  = $asEdit->update($id, 'append', ['rows' => [['eggs']]]);
+        $seen    = $asRead->find($id);
+        $ownView = $mine->find($id);
+        $inOrg   = (new Artifacts(new Scope($colleague, 7)))->find($id);
+        $outside = (new Artifacts(new Scope($stranger, 8)))->find($id);
+        $notHers = $asEdit->shareLive($id, [$this->nameOf($stranger)], 'edit');
+        $list    = $asRead->sharedWithMe();
+        $tool    = self::call($asRead, 'list_artifacts', []);
+        $members = array_map(static fn (array $m): array => [$m['userid'], $m['role']], $mine->membersOf($id));
+        $badRole = $mine->shareLive($id, [$this->nameOf($reader)], 'owner');
+        $left    = $asRead->unshareLive($id, $reader);
+        $after   = $asRead->find($id);
+        $noDel   = $asEdit->delete($id);
+        $deleted = $mine->delete($id);
+        $rows    = $this->db->queryBuilder()->table(Artifacts::MEMBERS)->where('artifact_id', $id)->count();
+
+        // Assert
+        $this->assertNull($before, 'nobody else\'s before it is shared');
+        $this->assertSame([[$this->nameOf($reader)], ['nobody-' . $owner]], [$shared['shared'], $shared['unknown']]);
+        $this->assertSame(['shared' => [], 'unknown' => []], $org, 'the whole organisation');
+        $this->assertSame('It is shared with you to read; only its owner or an editor changes it.', $refused);
+        $this->assertSame([['milk'], ['eggs']], $edited['content']['rows'], 'an editor\'s change');
+        $this->assertSame([['milk'], ['eggs']], $seen['content']['rows'], 'the reader reads it: the same artifact, not a copy');
+        $this->assertSame([['milk'], ['eggs']], $ownView['content']['rows'], 'and it is the owner\'s');
+        $this->assertSame(['read', $owner], [$seen['shared'], $seen['owner']]);
+        $this->assertArrayNotHasKey('shared', $ownView, 'the owner\'s own');
+        $this->assertSame('read', $inOrg['shared'] ?? null, 'a colleague in its organisation');
+        $this->assertNull($outside, 'nobody outside it');
+        $this->assertSame('Only its owner shares an artifact.', $notHers);
+        $this->assertSame([['artifact_id' => $id, 'kind' => 'table', 'title' => 'Shopping', 'owner' => $owner, 'role' => 'read']], $list);
+        $this->assertStringContainsString('#' . $id . ' table: Shopping (shared with them by ', $tool, 'the model finds it too');
+        $this->assertSame([[$reader, 'read'], [$editor, 'edit'], [null, 'read']], $members);
+        $this->assertStringStartsWith('A member reads it', $badRole);
+        $this->assertTrue($left, 'a member leaves');
+        $this->assertNull($after);
+        $this->assertFalse($noDel, 'only its owner deletes it');
+        $this->assertTrue($deleted);
+        $this->assertSame(0, $rows, 'its members go with it');
+    }
+
+    /** A request through the chat's routes, as the given person. */
+    private function route(int $userId, string $method, string $uri, array $input = []): mixed
+    {
+        $_SERVER['REQUEST_METHOD'] = $method;
+        ApiFixture::$scope = new Scope($userId, null);
+        ApiFixture::$stop  = null;
+        ApiFixture::$input = $input;
+        $router = new \Pramnos\Routing\Router(null);
+        \Pramnos\Llm\Chat\Api\Routes::register($router, ApiFixture::class);
+
+        try {
+            return $router->dispatch(\Pramnos\Http\Request::create($uri, $method));
+        } finally {
+            unset($_SERVER['REQUEST_METHOD']);
+            ApiFixture::$scope = null;
+            ApiFixture::$input = [];
+        }
+    }
+
+    /**
+     * The same through the API (FW-472): shared by its owner, listed for its members, what is
+     * shared with a person, a member taken off; refused to one who is not its owner.
+     */
+    #[DataProvider('databases')]
+    public function testSharingLiveThroughTheApi(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        [$owner, $member] = [$this->user(), $this->user()];
+        $id = (new Artifacts(new Scope($owner, null)))->create(['kind' => 'text', 'title' => 'Notes', 'text' => 'one'])['artifact_id'];
+
+        // Act
+        $shared  = $this->route($owner, 'POST', '/chat/artifacts/' . $id . '/members', ['names' => $this->nameOf($member), 'role' => 'edit']);
+        $members = $this->route($member, 'GET', '/chat/artifacts/' . $id . '/members');
+        $mine    = $this->route($member, 'GET', '/chat/artifacts/shared');
+        $notHis  = $this->route($member, 'POST', '/chat/artifacts/' . $id . '/members', ['names' => 'x']);
+        $removed = $this->route($owner, 'DELETE', '/chat/artifacts/' . $id . '/members/' . $member);
+        $gone    = $this->route($member, 'GET', '/chat/artifacts/' . $id . '/members');
+        $again   = $this->route($member, 'DELETE', '/chat/artifacts/' . $id . '/members/' . $owner);
+
+        // Assert
+        $this->assertSame([200, [$this->nameOf($member)]], [$shared['status'], $shared['data']['shared']]);
+        $this->assertSame([[$member, 'edit']], array_map(static fn (array $m): array => [$m['userid'], $m['role']], $members['data']['members']), 'a member sees who shares it');
+        $this->assertSame([$id], array_column($mine['data']['artifacts'], 'artifact_id'));
+        $this->assertSame(404, $notHis['status'], 'only its owner shares it');
+        $this->assertSame(200, $removed['status']);
+        $this->assertSame(404, $gone['status'], 'taken off: not theirs to see');
+        $this->assertSame(404, $again['status'], 'nobody else takes a member off');
     }
 }

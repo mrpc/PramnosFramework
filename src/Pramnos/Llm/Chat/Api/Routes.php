@@ -119,7 +119,12 @@ final class Routes
         $r->delete($p['routines'] . '/{routine_id}', static fn ($routine_id) => $make()->deleteRoutine($routine_id))->describeFrom([$controller, 'deleteRoutine']);
 
         $r->get($p['artifacts'], static fn () => $make()->artifacts())->describeFrom([$controller, 'artifacts']);
+        // Before /{artifact_id}, which would take "shared" for an id.
+        $r->get($p['artifacts'] . '/shared', static fn () => $make()->artifactsSharedLive())->describeFrom([$controller, 'artifactsSharedLive']);
         $r->get($p['artifacts'] . '/{artifact_id}', static fn ($artifact_id) => $make()->readArtifact($artifact_id))->describeFrom([$controller, 'readArtifact']);
+        $r->get($p['artifacts'] . '/{artifact_id}/members', static fn ($artifact_id) => $make()->artifactMembers($artifact_id))->describeFrom([$controller, 'artifactMembers']);
+        $r->post($p['artifacts'] . '/{artifact_id}/members', static fn ($artifact_id) => $make()->shareArtifactLive($artifact_id))->describeFrom([$controller, 'shareArtifactLive']);
+        $r->delete($p['artifacts'] . '/{artifact_id}/members/{userid}', static fn ($artifact_id, $userid) => $make()->removeArtifactMember($artifact_id, $userid))->describeFrom([$controller, 'removeArtifactMember']);
         $r->delete($p['artifacts'] . '/{artifact_id}', static fn ($artifact_id) => $make()->deleteArtifact($artifact_id))->describeFrom([$controller, 'deleteArtifact']);
         $r->post($p['artifacts'] . '/{artifact_id}/share', static fn ($artifact_id) => $make()->shareArtifact($artifact_id))->describeFrom([$controller, 'shareArtifact']);
         $r->get($p['artifacts'] . '/{artifact_id}/shares', static fn ($artifact_id) => $make()->artifactShares($artifact_id))->describeFrom([$controller, 'artifactShares']);

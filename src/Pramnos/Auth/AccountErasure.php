@@ -240,6 +240,14 @@ class AccountErasure
         if ($schema->hasTable('assist.chat_artifacts')) {
             // The companion's photos are files too, not rows only.
             \Pramnos\Llm\Chat\Photos::eraseFiles($userId);
+            // Their artifacts' members go with the artifacts, and they stop being a member of others'.
+            if ($schema->hasTable('assist.chat_artifact_members')) {
+                $owned = $ids($qb('assist.chat_artifacts')->select(['artifact_id'])->where('userid', $userId)->get(), 'artifact_id');
+                if ($owned !== []) {
+                    $qb('assist.chat_artifact_members')->whereIn('artifact_id', $owned)->delete();
+                }
+                $qb('assist.chat_artifact_members')->where('userid', $userId)->delete();
+            }
             $qb('assist.chat_artifacts')->where('userid', $userId)->delete();
         }
 

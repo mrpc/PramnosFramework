@@ -419,7 +419,7 @@ final class Shares
     }
 
     /** A person's name as others read it: their full name, or their username. */
-    private static function nameOf(int $userId): string
+    public static function nameOf(int $userId): string
     {
         $found = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->first();
         if (!$found || (int) $found->numRows === 0) {

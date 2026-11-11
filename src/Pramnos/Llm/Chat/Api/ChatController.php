@@ -142,6 +142,71 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return $this->sharesOfOne(\Pramnos\Llm\Chat\Shares::ARTIFACT, (int) $artifact_id);
     }
 
+    /**
+     * Who shares an artifact live, and with what role (`GET {chat}/artifacts/{id}/members`): its
+     * owner's, or a member's to see.
+     */
+    public function artifactMembers($artifact_id): array
+    {
+        if (($stop = $this->refusal('read')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        $a     = $scope === null ? null : new \Pramnos\Llm\Chat\Artifacts($scope);
+        if ($a === null || $a->find((int) $artifact_id) === null) {
+            return self::error(404, 'There is no such artifact.');
+        }
+
+        return ['status' => 200, 'data' => ['members' => $a->membersOf((int) $artifact_id)]];
+    }
+
+    /**
+     * Share one of this person's artifacts live (`POST {chat}/artifacts/{id}/members`): `names`
+     * (usernames or emails), `role` read or edit, `organization` for everyone in it. The same
+     * artifact, not a copy: every change reaches every member.
+     */
+    public function shareArtifactLive($artifact_id): array
+    {
+        if (($stop = $this->refusal('share')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        $input = $this->input();
+        $names = $input['names'] ?? [];
+        $names = is_array($names) ? array_map('strval', $names) : (preg_split('/[\s,;]+/', (string) $names, -1, PREG_SPLIT_NO_EMPTY) ?: []);
+        $done  = $scope === null ? 'This needs somebody signed in.'
+            : (new \Pramnos\Llm\Chat\Artifacts($scope))->shareLive((int) $artifact_id, $names, (string) ($input['role'] ?? 'read'), !empty($input['organization']));
+
+        return is_string($done) ? self::error(str_starts_with($done, 'Only its owner') ? 404 : 422, $done) : ['status' => 200, 'data' => $done];
+    }
+
+    /**
+     * A member taken off an artifact shared live (`DELETE {chat}/artifacts/{id}/members/{userid}`):
+     * by its owner, or a member leaving; `0` is the whole organisation.
+     */
+    public function removeArtifactMember($artifact_id, $userid): array
+    {
+        if (($stop = $this->refusal('delete')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+
+        return $scope !== null && (new \Pramnos\Llm\Chat\Artifacts($scope))->unshareLive((int) $artifact_id, (int) $userid === 0 ? null : (int) $userid)
+            ? ['status' => 200, 'data' => ['deleted' => true]]
+            : self::error(404, 'There is no such member.');
+    }
+
+    /** What others share live with this person (`GET {chat}/artifacts/shared`). */
+    public function artifactsSharedLive(): array
+    {
+        if (($stop = $this->refusal('list')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+
+        return ['status' => 200, 'data' => ['artifacts' => $scope === null ? [] : (new \Pramnos\Llm\Chat\Artifacts($scope))->sharedWithMe()]];
+    }
+
     /** Stop one of this person's shares. */
     public function revokeShare($share_id): array
     {

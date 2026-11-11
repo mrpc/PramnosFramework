@@ -666,6 +666,38 @@ $conversationId = $shares->open($shareId, $conversations->as($viewerScope));
 A page of an application's own gets the actions with `Chat\Web\SharesConversations`
 (`share/{id}`, `unshare/{share}`, `shared/{share}`) and the markup with `Chat\Web\ShareView`.
 
+### Sharing an artifact live
+
+A share above is a snapshot. An artifact can also be shared **live**: its members read the
+artifact itself, not a copy, so every change reaches all of them.
+
+```php
+$artifacts = new Artifacts($scope);
+$artifacts->shareLive($id, ['maria', 'nikos@example.com'], 'edit');  // read, or edit too
+$artifacts->shareLive($id, [], 'read', true);                         // everyone in the organisation
+$artifacts->membersOf($id);                                           // [{userid, organization_id, name, role}]
+$artifacts->unshareLive($id, $userId);                                // the owner takes one off, or a member leaves
+$artifacts->sharedWithMe();                                           // what others share with this person
+```
+
+- **Reading.** `find()`, `read_artifact` and the pinned context return a member's shared
+  artifact as they return their own, with `shared` (their role) and `owner`. `list_artifacts`
+  lists them as "shared with them by …".
+- **Changing.** An editor's `update()` changes the owner's artifact. A reader's is refused.
+  The change is announced (`artifact.changed`) to the owner and every named member, so an open
+  page redraws it.
+- **Only the owner** shares it and deletes it. Deleting it takes its members with it. Erasing an
+  account takes the members of its artifacts and its own memberships.
+- **Who can be named** is the `SharePolicy`'s, as for a snapshot.
+- **The model** shares on the person's word with `share_artifact_live(id, with, role,
+  organization, remove)`.
+- **The API**:
+  - `GET {chat}/artifacts/{id}/members` and `POST` with `names`, `role` and `organization`;
+  - `DELETE {chat}/artifacts/{id}/members/{userid}`, where `0` is the organisation;
+  - `GET {chat}/artifacts/shared`.
+
+The members are kept in `assist.chat_artifact_members`, a table of who is a member now.
+
 ## Asking in the background
 
 An answer with tools can take a minute. `Chat\Asks::start($scope, $conversationId, $question,

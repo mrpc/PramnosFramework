@@ -52,6 +52,12 @@ final class Artifacts
         return is_numeric($given) && (int) $given > 0 ? (int) $given : $defaults[$name];
     }
 
+    /** Who else shares an artifact live ({@see shareLive()}). */
+    public const MEMBERS = 'assist.chat_artifact_members';
+
+    /** What a member may do: read it, or change it too. */
+    public const ROLES = ['read', 'edit'];
+
     /** How an artifact can be changed ({@see update()}). */
     public const MODES = ['replace', 'append', 'patch'];
 
@@ -201,13 +207,55 @@ final class Artifacts
                     'limit'  => ['type' => 'integer', 'description' => 'At most 50.'],
                 ]],
                 'run'         => function (array $a): string {
-                    $found = $this->search($a, min(50, max(1, (int) ($a['limit'] ?? 20))));
-
-                    return $found === [] ? 'No artifacts found.' : implode("\n", array_map(static fn (array $one): string => '#' . $one['artifact_id'] . ' ' . $one['kind'] . ': ' . $one['title']
+                    $found  = $this->search($a, min(50, max(1, (int) ($a['limit'] ?? 20))));
+                    $lines  = array_map(static fn (array $one): string => '#' . $one['artifact_id'] . ' ' . $one['kind'] . ': ' . $one['title']
                         . ($one['entity'] !== null ? ' (' . $one['entity'] . ')' : '') . ($one['tags'] !== [] ? ' [' . implode(', ', $one['tags']) . ']' : '')
-                        . ', ' . substr($one['updated_at'], 0, 10), $found));
+                        . ', ' . substr($one['updated_at'], 0, 10), $found);
+                    // What others share live with them, by words in the title where asked.
+                    $words  = mb_strtolower(trim((string) ($a['query'] ?? '')));
+                    foreach ($this->sharedWithMe() as $one) {
+                        if (($words === '' || str_contains(mb_strtolower($one['title']), $words)) && (!isset($a['kind']) || $a['kind'] === $one['kind'])) {
+                            $lines[] = '#' . $one['artifact_id'] . ' ' . $one['kind'] . ': ' . $one['title'] . ' (shared with them by ' . Shares::nameOf($one['owner']) . ', ' . $one['role'] . ')';
+                        }
+                    }
+
+                    return $lines === [] ? 'No artifacts found.' : implode("\n", $lines);
                 },
             ],
+        ] + (self::sharing() ? [
+            'share_artifact_live' => [
+                'description' => 'Share one of this person\'s artifacts live — the same artifact, every change reaching everyone — with '
+                    . 'people by username or email, or with their whole organisation; to read, or to change too. Only when they ask. '
+                    . 'role read or edit; remove: true takes the people named off.',
+                'parameters'  => ['type' => 'object', 'properties' => [
+                    'id'           => $id,
+                    'with'         => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Usernames or emails.'],
+                    'role'         => ['type' => 'string', 'enum' => self::ROLES],
+                    'organization' => ['type' => 'boolean', 'description' => 'Everyone in their organisation.'],
+                    'remove'       => ['type' => 'boolean'],
+                ], 'required' => ['id']],
+                'run'         => function (array $a): string {
+                    $id = (int) ($a['id'] ?? 0);
+                    if (!empty($a['remove'])) {
+                        $names = SharePolicy::current()->recipients($this->scope, array_map('strval', (array) ($a['with'] ?? [])));
+                        foreach ($names as $userId) {
+                            $this->unshareLive($id, (int) $userId);
+                        }
+                        if (!empty($a['organization'])) {
+                            $this->unshareLive($id, null);
+                        }
+
+                        return $this->own($id) === null ? 'Error: only its owner shares an artifact.' : 'Taken off.';
+                    }
+                    $done = $this->shareLive($id, array_map('strval', (array) ($a['with'] ?? [])), (string) ($a['role'] ?? 'read'), !empty($a['organization']));
+
+                    return is_string($done) ? 'Error: ' . $done : 'Shared live' . ($done['shared'] !== [] ? ' with ' . implode(', ', $done['shared']) : '')
+                        . (!empty($a['organization']) ? ($done['shared'] !== [] ? ' and' : '') . ' with the organisation' : '') . '.'
+                        . ($done['unknown'] !== [] ? ' Nobody is called ' . implode(', ', $done['unknown']) . '.' : '');
+                },
+                'writes'      => true,
+            ],
+        ] : []) + [
             'pin_artifact' => [
                 'description' => 'Pin an artifact, or take it off: a pinned one is on this person\'s dashboard and in front of you in every question that follows.',
                 'parameters'  => ['type' => 'object', 'properties' => ['id' => $id, 'pinned' => ['type' => 'boolean']], 'required' => ['id']],
@@ -233,6 +281,9 @@ final class Artifacts
         $found = $this->find($artifactId);
         if ($found === null) {
             return 'There is no such artifact.';
+        }
+        if (($found['shared'] ?? null) === 'read') {
+            return 'It is shared with you to read; only its owner or an editor changes it.';
         }
         if (!in_array($found['kind'], self::KINDS, true)) {
             return 'A ' . $found['kind'] . ' cannot be changed here.';
@@ -263,13 +314,16 @@ final class Artifacts
             return $content;
         }
 
-        $this->scope->apply($this->table())->where('artifact_id', $artifactId)->update([
+        // An editor changes the owner's artifact itself: the one row every member reads.
+        (isset($found['shared']) ? $this->table() : $this->scope->apply($this->table()))->where('artifact_id', $artifactId)->update([
             'title'      => mb_substr($title, 0, self::TITLE),
             'content'    => (string) json_encode($content, JSON_UNESCAPED_UNICODE),
             'updated_at' => CallLog::instant(time()),
         ]);
-        // An open page showing it redraws it now; the prompt has it from the next question.
-        \Pramnos\Broadcasting\BroadcastingManager::toUser($this->scope->userId, self::CHANGED, ['id' => $artifactId]);
+        // An open page showing it redraws it now, for its owner and every member; the prompt has it from the next question.
+        foreach ($this->audience($artifactId, (int) $found['userid']) as $userId) {
+            \Pramnos\Broadcasting\BroadcastingManager::toUser($userId, self::CHANGED, ['id' => $artifactId]);
+        }
 
         return $this->find($artifactId) ?? 'There is no such artifact.';
     }
@@ -644,9 +698,51 @@ final class Artifacts
         if (!self::available()) {
             return null;
         }
+
+        return $this->own($artifactId) ?? $this->shared($artifactId);
+    }
+
+    /** One of this person's own artifacts, in this space; null for one that is not theirs. */
+    private function own(int $artifactId): ?array
+    {
         $result = $this->scope->apply($this->table())->where('artifact_id', $artifactId)->first();
 
         return $result && (int) $result->numRows > 0 ? self::shape($result->fields) : null;
+    }
+
+    /**
+     * One shared with this person live ({@see shareLive()}), the same artifact as its owner's, with
+     * `shared` — their role — and `owner`; null where they are no member.
+     */
+    private function shared(int $artifactId): ?array
+    {
+        $role = $this->roleIn($artifactId);
+        if ($role === null) {
+            return null;
+        }
+        $result = $this->table()->where('artifact_id', $artifactId)->first();
+
+        return $result && (int) $result->numRows > 0 ? self::shape($result->fields) + ['shared' => $role, 'owner' => (int) $result->fields['userid']] : null;
+    }
+
+    /** This person's role in an artifact shared with them — edit before read — or null. */
+    private function roleIn(int $artifactId): ?string
+    {
+        if (!self::sharing() || $this->scope->userId <= 0) {
+            return null;
+        }
+        $user  = $this->scope->userId;
+        $org   = $this->scope->organizationId;
+        // A member by name, or by their organisation.
+        $roles = array_column($this->members()->select(['role'])->where('artifact_id', $artifactId)
+            ->where(static function ($q) use ($user, $org): void {
+                $q->where('userid', $user);
+                if ($org !== null) {
+                    $q->orWhere(static fn ($o) => $o->whereNull('userid')->where('organization_id', $org));
+                }
+            })->getAllOrFail(), 'role');
+
+        return $roles === [] ? null : (in_array('edit', $roles, true) ? 'edit' : 'read');
     }
 
     /**
@@ -680,10 +776,14 @@ final class Artifacts
     /** Remove one of this person's artifacts. False when there was none. */
     public function delete(int $artifactId): bool
     {
-        if ($this->find($artifactId) === null) {
+        // Its owner's to delete; a member only stops being one (unshareLive).
+        if (!self::available() || $this->own($artifactId) === null) {
             return false;
         }
         $this->scope->apply($this->table())->where('artifact_id', $artifactId)->delete();
+        if (self::sharing()) {
+            $this->members()->where('artifact_id', $artifactId)->delete();
+        }
         Shares::forget(Shares::ARTIFACT, $artifactId);
 
         return true;
@@ -942,6 +1042,162 @@ final class Artifacts
         }
 
         return ['text' => $text];
+    }
+
+    /** Whether artifacts can be shared live here: the members' table exists. */
+    public static function sharing(): bool
+    {
+        try {
+            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasTable(self::MEMBERS);
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * One of this person's artifacts shared live — the artifact itself, not a copy: every change
+     * reaches every member — with the people named (usernames or emails, as {@see SharePolicy}
+     * allows), or with their whole organisation; `read` or `edit`. Naming a member again changes
+     * their role.
+     *
+     * @param list<string> $names
+     * @return array{shared: list<string>, unknown: list<string>}|string Who it went to and who was nobody, or why not
+     */
+    public function shareLive(int $artifactId, array $names, string $role = 'read', bool $organization = false): array|string
+    {
+        if (!self::sharing()) {
+            return 'Sharing artifacts live is not set up here: run migrate.';
+        }
+        if ($this->own($artifactId) === null) {
+            return 'Only its owner shares an artifact.';
+        }
+        if (!in_array($role, self::ROLES, true)) {
+            return 'A member reads it (read) or changes it too (edit).';
+        }
+        $policy = SharePolicy::current();
+        if (($why = $policy->refusal($this->scope)) !== null) {
+            return $why;
+        }
+        $stamp = CallLog::instant(time());
+        $keep  = function (?int $userId, ?int $org) use ($artifactId, $role, $stamp): void {
+            $row = $this->members()->where('artifact_id', $artifactId);
+            $userId === null ? $row->whereNull('userid')->where('organization_id', $org) : $row->where('userid', $userId);
+            if ($row->count() > 0) {
+                $row = $this->members()->where('artifact_id', $artifactId);
+                ($userId === null ? $row->whereNull('userid')->where('organization_id', $org) : $row->where('userid', $userId))->update(['role' => $role, 'updated_at' => $stamp]);
+            } else {
+                $this->members()->insert(['artifact_id' => $artifactId, 'userid' => $userId, 'organization_id' => $org, 'role' => $role, 'created_at' => $stamp, 'updated_at' => $stamp]);
+            }
+            if ($userId !== null) {
+                \Pramnos\Broadcasting\BroadcastingManager::toUser($userId, self::CHANGED, ['id' => $artifactId]);
+            }
+        };
+        if ($organization) {
+            if ($this->scope->organizationId === null) {
+                return 'There is no organisation to share it with.';
+            }
+            $keep(null, $this->scope->organizationId);
+        }
+        $names = array_values(array_filter(array_map(static fn ($n): string => trim((string) $n), $names), static fn (string $n): bool => $n !== ''));
+        $found = $names === [] ? [] : $policy->recipients($this->scope, $names);
+        foreach (array_unique($found) as $userId) {
+            $keep((int) $userId, null);
+        }
+        if (!$organization && $names === []) {
+            return 'Name somebody to share it with, or the organisation.';
+        }
+
+        return ['shared' => array_keys($found), 'unknown' => array_values(array_diff($names, array_keys($found)))];
+    }
+
+    /**
+     * Who shares an artifact live: its owner's own, or a member's to see. `userid` null is the
+     * whole organisation.
+     *
+     * @return list<array{userid: ?int, organization_id: ?int, name: string, role: string}>
+     */
+    public function membersOf(int $artifactId): array
+    {
+        if (!self::sharing() || $this->find($artifactId) === null) {
+            return [];
+        }
+        $out = [];
+        foreach ($this->members()->where('artifact_id', $artifactId)->orderBy('member_id')->getAllOrFail() as $row) {
+            $userId = $row['userid'] === null ? null : (int) $row['userid'];
+            $out[]  = ['userid' => $userId, 'organization_id' => $row['organization_id'] === null ? null : (int) $row['organization_id'],
+                'name' => $userId === null ? 'Everyone in the organisation' : Shares::nameOf($userId), 'role' => (string) $row['role']];
+        }
+
+        return $out;
+    }
+
+    /**
+     * A member taken off — by the owner, or a member leaving (their own id). Null takes the whole
+     * organisation off.
+     */
+    public function unshareLive(int $artifactId, ?int $userId): bool
+    {
+        if (!self::sharing()) {
+            return false;
+        }
+        $owner = $this->own($artifactId) !== null;
+        if (!$owner && $userId !== $this->scope->userId) {
+            return false;
+        }
+        $row = $this->members()->where('artifact_id', $artifactId);
+        ($userId === null ? $row->whereNull('userid') : $row->where('userid', $userId))->delete();
+
+        return true;
+    }
+
+    /**
+     * What others share live with this person, newest first, without content.
+     *
+     * @return list<array{artifact_id: int, kind: string, title: string, owner: int, role: string}>
+     */
+    public function sharedWithMe(): array
+    {
+        if (!self::sharing() || $this->scope->userId <= 0) {
+            return [];
+        }
+        $user = $this->scope->userId;
+        $org  = $this->scope->organizationId;
+        $ids  = array_map('intval', array_column($this->members()->select(['artifact_id'])
+            ->where(static function ($q) use ($user, $org): void {
+                $q->where('userid', $user);
+                if ($org !== null) {
+                    $q->orWhere(static fn ($o) => $o->whereNull('userid')->where('organization_id', $org));
+                }
+            })->getAllOrFail(), 'artifact_id'));
+        if ($ids === []) {
+            return [];
+        }
+        $out = [];
+        foreach ($this->table()->select(['artifact_id', 'kind', 'title', 'userid'])->whereIn('artifact_id', array_values(array_unique($ids)))
+            ->where('userid', '!=', $user)->orderBy('updated_at', 'desc')->getAllOrFail() as $row) {
+            $out[] = ['artifact_id' => (int) $row['artifact_id'], 'kind' => (string) $row['kind'], 'title' => (string) $row['title'],
+                'owner' => (int) $row['userid'], 'role' => (string) $this->roleIn((int) $row['artifact_id'])];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Who hears of a change: its owner and every member named.
+     *
+     * @return list<int>
+     */
+    private function audience(int $artifactId, int $owner): array
+    {
+        // ponytail: an organisation-wide member hears nothing live; its people see the change on their next read.
+        $members = self::sharing() ? array_map('intval', array_filter(array_column($this->members()->select(['userid'])->where('artifact_id', $artifactId)->getAllOrFail(), 'userid'), static fn ($v): bool => $v !== null)) : [];
+
+        return array_values(array_unique([$owner, ...$members]));
+    }
+
+    private function members(): \Pramnos\Database\QueryBuilder
+    {
+        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table(self::MEMBERS);
     }
 
     private function table(): \Pramnos\Database\QueryBuilder
