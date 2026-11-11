@@ -77,6 +77,7 @@ class TableWidget extends ReportWidget
             // A section's note, its link and its issue, as a report's definition sets them.
             'note'         => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?string => is_string($v) && trim($v) !== '' ? mb_substr(trim($v), 0, 2000) : null],
             'link'         => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?string => is_string($v) && preg_match('#^(https?://|/)#i', $v) === 1 ? $v : null],
+            'hide_empty'   => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?string => !empty($v) && $v !== 'false' ? '1' : null],
             'own_columns'  => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?array => is_array($v) && $v !== [] ? $v : null],
             'jira'         => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?string => is_string($v) && preg_match('/^[A-Za-z][A-Za-z0-9_]*-\d+$/', trim($v)) === 1 ? trim($v) : null],
         ];
@@ -120,7 +121,7 @@ class TableWidget extends ReportWidget
                 'total'     => !empty($row['total']) && $row['total'] !== 'false',
             // What a report's definition gives a row beyond the form's fields — a formula over its
             // operands, a description and a link — kept, for Report::fromArray() to check.
-            ] + array_intersect_key($row, array_flip(['formula', 'operands', 'unit', 'description', 'link', 'format', 'decimals', 'zero']));
+            ] + array_intersect_key($row, array_flip(['formula', 'operands', 'unit', 'description', 'link', 'format', 'decimals', 'zero', 'values']));
         });
     }
 
@@ -193,7 +194,7 @@ class TableWidget extends ReportWidget
             'sections' => [['title' => '', 'chart' => $chart, 'total' => (string) $this->setting('total') === '1' || $this->setting('total') === true, 'rows' => array_map(
                 fn (array $row): array => ['filters' => $this->narrowed((array) ($row['filters'] ?? []))] + $row + ['breakdown' => ($row['breakdown'] ?? '') !== '' ? $row['breakdown'] : null],
                 $rows,
-            )] + array_filter(['note' => $this->setting('note'), 'link' => $this->setting('link'), 'jira' => $this->setting('jira')]) + ($measures === [] ? [] : [
+            )] + array_filter(['note' => $this->setting('note'), 'link' => $this->setting('link'), 'jira' => $this->setting('jira'), 'hide_empty' => $this->setting('hide_empty')]) + ($measures === [] ? [] : [
                 // A table of measures: the board's variables narrow the whole section.
                 'by' => $this->setting('by'), 'values' => (array) ($this->setting('by_values') ?? []), 'measures' => $measures,
                 'filters' => $this->narrowed((array) ($this->setting('filters') ?? [])),
@@ -225,6 +226,10 @@ class TableWidget extends ReportWidget
         $table = $this->table();
         if ($table === null) {
             return self::note(Figures::words('Add a row: choose a metric in the card\'s settings.'));
+        }
+        // A section with nothing but noughts, its report said to leave out: nothing to draw.
+        if ($table['sections'] === []) {
+            return '';
         }
         $table['sections'][0]['title'] = '';
         $static = (bool) $this->report()['static'];

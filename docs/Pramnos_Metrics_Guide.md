@@ -764,6 +764,17 @@ address (`?chart[<table>]=line:12`), so it is kept in the link and changes nothi
 report's definition. An owner who wants it always adds a chart card in Customise. A printout and a
 mail leave the choice out.
 
+### Tabs, empty sections and some of a breakdown
+
+- **Tabs.** Consecutive sections with the same `tab` are drawn as one group of tabs under that
+  name, each tab headed by its section's title: `['title' => 'Overall', 'tab' => 'General', …]`.
+  The group can be rearranged in Customise like any other.
+- **Empty sections.** A section with `hide_empty` and nothing but noughts and blanks in the
+  period is left out.
+- **Some of a breakdown.** A row's `values` shows only those values of its breakdown:
+  `['metric' => 'orders.count', 'breakdown' => 'plan', 'values' => ['pro'], 'total' => true]`.
+  Its total stays the metric over every value.
+
 ### Formula rows
 
 A row with a `formula` works a number out of other metrics, each read with filters of its own:

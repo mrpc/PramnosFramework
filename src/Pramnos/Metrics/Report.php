@@ -95,9 +95,12 @@ final class Report
                     'filters'   => self::filters($row['filters'] ?? []),
                     'breakdown' => $breakdown !== '' ? $breakdown : null,
                     'total'     => $breakdown !== '' && (bool) ($row['total'] ?? false),
-                ] + self::explained($row) + self::writtenAs($row);
+                ] + self::explained($row) + self::writtenAs($row)
+                    // Some of the breakdown's values only; its total stays every value's.
+                    + ($breakdown !== '' && is_array($row['values'] ?? null) && $row['values'] !== [] ? ['values' => array_values(array_map('strval', $row['values']))] : []);
             }
-            $sections[] = self::measuresOf($section) + self::explained($section, ['note', 'link', 'jira'])
+            $sections[] = self::measuresOf($section) + self::explained($section, ['note', 'link', 'jira', 'tab'])
+                + (!empty($section['hide_empty']) ? ['hide_empty' => true] : [])
                 + (isset($section['columns']) ? ['columns' => self::columns($section['columns'])] : []) + [
                 'title' => trim((string) ($section['title'] ?? '')),
                 'chart' => in_array($section['chart'] ?? null, ['line', 'bar'], true) ? (string) $section['chart'] : null,
@@ -581,6 +584,10 @@ final class Report
                     $total = null;
                 }
             }
+            // `hide_empty`: a section with nothing but noughts and blanks is left out.
+            if (!empty($section['hide_empty']) && array_filter($rows, static fn (array $r): bool => array_filter($r['cells'], static fn (array $c): bool => ($c['value'] ?? null) !== null && $c['value'] != 0.0) !== []) === []) {
+                continue;
+            }
             $sections[] = ['title' => $section['title'], 'chart' => $section['chart'], 'rows' => $rows, 'total' => $total]
                 + (isset($section['columns']) ? ['columns' => array_column($columns, 'label')] : [])
                 + array_intersect_key($section, array_flip(['note', 'link', 'jira']));
@@ -671,11 +678,15 @@ final class Report
         }
         $dimension = Metrics::dimensionOf($row['breakdown']);
         $values    = array_map('strval', array_keys($dimension->all()));
+        $only      = $row['values'] ?? null;
         $windows   = array_column($columns, 'window');
         usort($windows, static fn (Window $a, Window $b): int => $a->start <=> $b->start);
         try {
             $found  = $this->read($row['metric'])->grain($anchor->grain)->between($windows[0]->key(), $anchor->key())->where($row['filters'])->by($row['breakdown'])->series()['values'];
             $values = array_values(array_unique(array_merge($values, array_map('strval', array_keys($found)))));
+            if (is_array($only)) {
+                $values = array_values(array_intersect($only, $values) ?: $only);
+            }
         } catch (\InvalidArgumentException|\LogicException $e) {
             return [['label' => $label, 'metric' => $row['metric'], 'filters' => $row['filters'], 'subtotal' => false, 'error' => $e->getMessage()]];
         }

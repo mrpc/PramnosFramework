@@ -827,6 +827,38 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * Sections as tabs (FW-473): consecutive sections with the same `tab` are one group of tabs,
+     * each headed by its title; a section `hide_empty` with nothing but noughts is left out.
+     */
+    public function testSectionsAsTabsAndAnEmptyOneLeftOut(): void
+    {
+        // Arrange
+        $report = Report::fromArray(['sections' => [
+            ['title' => 'Overall', 'tab' => 'General', 'rows' => [['metric' => 'test.sales']]],
+            ['title' => 'By region', 'tab' => 'General', 'rows' => [['metric' => 'test.sales', 'breakdown' => 'region']]],
+            ['title' => 'Pillars', 'rows' => [['metric' => 'test.sales']]],
+            ['title' => 'Buyers', 'hide_empty' => true, 'rows' => [['metric' => 'test.buyers']]],
+        ]]);
+
+        // Act
+        $layout  = \Pramnos\Metrics\ReportBoard::layout($report);
+        $august  = $report->build('2026-08-10', self::reader());
+        $september = $report->build('2026-09-10', self::reader());
+
+        // Assert
+        $this->assertSame('tabs:s0', $layout[0]['id'], 'one group of tabs');
+        $this->assertSame('General', $layout[0]['title']);
+        $this->assertSame(['Overall', 'By region'], array_map(static fn (array $t): string => $t['settings']['title'], $layout[0]['tabs']));
+        $this->assertSame('report.section~s2', $layout[1]['id'], 'the next section as before');
+        $this->assertNotContains('Buyers', array_column($august['sections'], 'title'), 'nothing but noughts in August: left out');
+        $this->assertContains('Buyers', array_column($september['sections'], 'title'), 'in September it has numbers');
+        // Some of a breakdown's values, its total every value's (FW-473, 11).
+        $some = Report::fromArray(['sections' => [['rows' => [['label' => 'Sales', 'metric' => 'test.sales', 'breakdown' => 'region', 'values' => ['south'], 'total' => true]]]]])
+            ->build('2026-09-10', self::reader())['sections'][0]['rows'];
+        $this->assertSame([['South', 1.0], ['Total', 6.0]], array_map(static fn (array $r): array => [$r['label'], $r['cells'][0]['value']], $some), 'south only; the total, north\'s too');
+    }
+
+    /**
      * The periods inside the report's month, quarter or year as its columns (FW-473): a day's
      * report has every day of its month — those still to come too — and a month's report its
      * quarter; a section of a month's report the same through its card.

@@ -158,7 +158,27 @@ final class ReportBoard
             return $layout;
         }
         $cards = [];
+        $group = null;
         foreach ($report->definition['sections'] as $i => $section) {
+            // Sections side by side as tabs: consecutive ones with the same `tab`, each a tab
+            // headed by its title, its table alone — under one heading, the tab's name.
+            $tab = (string) ($section['tab'] ?? '');
+            if ($tab !== '') {
+                if ($group === null || $group['title'] !== $tab) {
+                    $cards[] = ['id' => 'tabs:s' . $i, 'size' => Widget::FULL, 'tabs' => [], 'title' => $tab];
+                    $group   = &$cards[array_key_last($cards)];
+                }
+                $group['tabs'][] = ['id' => 'report.table~t' . $i, 'settings' => ['title' => $section['title'] !== '' ? $section['title'] : $tab]
+                    + array_intersect_key($section, array_flip(['by', 'filters', 'measures', 'note', 'link', 'jira', 'hide_empty']))
+                    + (isset($section['measures']) ? ['by_values' => $section['values']] : []) + self::columnsAsSettings($section['columns'] ?? null) + [
+                    'rows'  => array_map(static fn (array $row): array => ['label' => $row['label'], 'metric' => $row['metric'], 'filters' => $row['filters'], 'breakdown' => (string) $row['breakdown'], 'total' => $row['total']]
+                        + array_intersect_key($row, array_flip(['formula', 'operands', 'unit', 'description', 'link', 'format', 'decimals', 'zero', 'values'])), $section['rows']),
+                    'total' => $section['total'] ? '1' : '',
+                ]];
+                continue;
+            }
+            unset($group);
+            $group = null;
             if ($section['title'] !== '') {
                 $cards[] = ['id' => 'report.section~s' . $i, 'size' => Widget::FULL, 'settings' => ['title' => $section['title']]];
             }
@@ -174,10 +194,11 @@ final class ReportBoard
             }
             $cards[] = ['id' => 'report.table~t' . $i, 'size' => Widget::FULL, 'settings' => array_intersect_key($section, array_flip(['by', 'filters', 'measures', 'note', 'link', 'jira'])) + (isset($section['measures']) ? ['by_values' => $section['values']] : []) + $own + [
                 'rows'  => array_map(static fn (array $row): array => ['label' => $row['label'], 'metric' => $row['metric'], 'filters' => $row['filters'], 'breakdown' => (string) $row['breakdown'], 'total' => $row['total']]
-                    + array_intersect_key($row, array_flip(['formula', 'operands', 'unit', 'description', 'link', 'format', 'decimals', 'zero'])), $section['rows']),
+                    + array_intersect_key($row, array_flip(['formula', 'operands', 'unit', 'description', 'link', 'format', 'decimals', 'zero', 'values'])), $section['rows']),
                 'total' => $section['total'] ? '1' : '',
-            ]];
+            ] + (!empty($section['hide_empty']) ? ['hide_empty' => '1'] : [])];
         }
+        unset($group);
 
         return $cards;
     }
