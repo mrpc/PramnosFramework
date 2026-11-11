@@ -11,7 +11,7 @@ use Pramnos\Llm\CallLog;
  * The assistant's mood with a person: one it says itself, that lasts, and fades.
  *
  * Turned on with `'llm' => ['chat' => ['mood' => true]]` — the words are then the signals the
- * avatar set declares (`analyst.avatar_set.moods`, or `analyst.avatar_moods`) — or with
+ * avatar set declares ({@see \Pramnos\Assist\AvatarSets::moods()}) — or with
  * `['mood' => ['words' => ['happy', 'sleepy', …]]]`. Only in the `chat` space unless
  * `'spaces'` names others. Off, nothing here runs.
  *
@@ -84,11 +84,7 @@ final class Mood
      */
     public static function plays(): array
     {
-        $analyst = (array) \Pramnos\Llm\Llm::config('analyst', []);
-        $set     = $analyst['avatar_set'] ?? null;
-        $moods   = is_array($set) && is_array($set['moods'] ?? null) ? $set['moods'] : (array) ($analyst['avatar_moods'] ?? []);
-
-        return array_map('strval', $moods);
+        return \Pramnos\Assist\AvatarSets::moods();
     }
 
     /** What the model is told to end an answer with. */

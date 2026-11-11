@@ -42,6 +42,11 @@ namespace Pramnos\Assist;
  * for (`pfAssistant.state('curious')`, a mood's `plays`). A transition's class is on the element
  * for its milliseconds (400 when not given) when the state changes from → to; `*` is any.
  *
+ * A name that is not registered is one of the framework's characters ({@see Characters}):
+ * `'avatar_set' => 'tesla'`. `{uid}` in a set's markup becomes a different value in each picture
+ * drawn, for the ids a gradient or a mask needs; `css` that is a file on disk rather than an
+ * address is written into the page, once, as a `<style>`.
+ *
  * Without one it is the framework's own, `pf`: a round drop with two eyes, in the theme's accent,
  * still where the reader asks for less motion. A plain picture (`llm.analyst.avatar`) with no set
  * is drawn as that picture, in the same element, and does not move.
@@ -63,6 +68,9 @@ final class AvatarSets
     /** Whether a set's stylesheet has been written into this page already, by URL. */
     private static array $linked = [];
 
+    /** Pictures drawn in this process, for `{uid}`. */
+    private static int $drawn = 0;
+
     /**
      * Make a set known by name.
      *
@@ -81,6 +89,7 @@ final class AvatarSets
     {
         self::$sets   = [];
         self::$linked = [];
+        self::$drawn  = 0;
     }
 
     /**
@@ -96,9 +105,13 @@ final class AvatarSets
         if (is_string($set) && isset(self::$sets[$set])) {
             return self::$sets[$set];
         }
+        if (is_string($set) && ($character = Characters::get($set)) !== null) {
+            $set = $character['avatar_set'];
+        }
         if (is_array($set) && isset($set['markup']) && (is_string($set['markup']) || is_callable($set['markup']))) {
             return ['markup' => $set['markup'], 'css' => isset($set['css']) ? (string) $set['css'] : null, 'states' => (array) ($set['states'] ?? []),
-                'poses' => array_values(array_map('strval', (array) ($set['poses'] ?? []))), 'transitions' => (array) ($set['transitions'] ?? [])];
+                'poses' => array_values(array_map('strval', (array) ($set['poses'] ?? []))), 'transitions' => (array) ($set['transitions'] ?? []),
+                'moods' => array_map('strval', (array) ($set['moods'] ?? []))];
         }
         if (\Pramnos\Llm\Analyst\Analyst::avatar() !== null) {
             return null;
@@ -130,6 +143,22 @@ final class AvatarSets
     public static function poses(): array
     {
         return (array) (self::current()['poses'] ?? []);
+    }
+
+    /**
+     * What each mood word plays on the picture, a state or a pose: the moods of a set given in
+     * app.php, else `analyst.avatar_moods`, else those of the set in use (a character's).
+     *
+     * @return array<string, string>
+     */
+    public static function moods(): array
+    {
+        $analyst = (array) \Pramnos\Llm\Llm::config('analyst', []);
+        $set     = $analyst['avatar_set'] ?? null;
+        $given   = is_array($set) && is_array($set['moods'] ?? null) ? $set['moods'] : [];
+        $moods   = $given !== [] ? $given : ((array) ($analyst['avatar_moods'] ?? []) ?: (array) (self::current()['moods'] ?? []));
+
+        return array_map('strval', $moods);
     }
 
     /**
@@ -171,7 +200,7 @@ final class AvatarSets
             $durations = self::DURATIONS;
             $css       = null;
         } else {
-            $inner     = self::markup($set['markup']);
+            $inner     = str_replace('{uid}', 'pfa' . ++self::$drawn, self::markup($set['markup']));
             $durations = array_map('intval', array_filter($set['states'], static fn ($v, $k): bool => is_string($k) && is_numeric($v), ARRAY_FILTER_USE_BOTH) + self::DURATIONS);
             $css       = $set['css'];
         }
@@ -208,6 +237,9 @@ final class AvatarSets
             return '';
         }
         self::$linked[$css] = true;
+        if (str_ends_with($css, '.css') && is_file($css)) {
+            return '<style>' . (string) file_get_contents($css) . '</style>';
+        }
 
         return '<link rel="stylesheet" href="' . htmlspecialchars(self::versioned($css), ENT_QUOTES, 'UTF-8') . '">';
     }

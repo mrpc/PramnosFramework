@@ -449,15 +449,12 @@ class AiController extends Controller
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = t('The assistant\'s picture');
-        $analyst    = Llm::config('analyst', []);
-        $set        = is_array($analyst) ? ($analyst['avatar_set'] ?? null) : null;
-        $moods      = is_array($set) && is_array($set['moods'] ?? null) ? $set['moods'] : (is_array($analyst['avatar_moods'] ?? null) ? $analyst['avatar_moods'] : []);
 
         $view          = $this->getView('ai');
         $view->picture = \Pramnos\Assist\AvatarSets::render('idle', 160);
         $view->states  = \Pramnos\Assist\AvatarSets::states();
         $view->poses   = \Pramnos\Assist\AvatarSets::poses();
-        $view->moods   = array_map('strval', $moods);
+        $view->moods   = \Pramnos\Assist\AvatarSets::moods();
         $view->urls    = ['settings' => adminUrl('Ai/settings'), 'chat' => adminUrl('Ai')];
 
         return $view->display('avatar');

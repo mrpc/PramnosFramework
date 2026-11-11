@@ -212,6 +212,38 @@ set's CSS to move between the two. It looks for the exact `from>to` first, then 
 `AvatarSets::register($name, $markup, $css, $states, $poses, $transitions)` takes them for a
 registered set.
 
+**A character the framework ships.** Instead of drawing its own, an application can name one of
+the framework's characters (`Assist\Characters`):
+
+```php
+'llm' => ['analyst' => ['avatar_set' => 'tesla']],
+```
+
+Tesla is a slate-grey cat with chartreuse eyes, a white heart on her chest and white front socks.
+`Characters::get('tesla')` gives her name, `gender`, a `prompt` saying who she is, the `size` her
+whole body wants in a dock (64px), and her set. Her art is in `resources/characters/tesla/`: one
+svg with all her poses and expressions, and a stylesheet that shows the ones the picture asks for.
+The stylesheet is written into the page once, as a `<style>`, so nothing is copied to the web
+root. A set registered under the same name is the application's and wins.
+
+| attribute | what it does |
+|---|---|
+| `data-state` | the nine, and hers: `curious`, `looking-around`, `wink`, `happy`, `excited`, `drowsy`, `sleeping`, `waking`, `presenting`, `playing`, `rubbing`, `stretching`, `spooked`, `stalking` |
+| `data-pose` | `sitting`, `classic`, `slender`, `loaf`, `lounging`, `sleeping`, `rubbing`, `stretch`, `spooked`, `sploot`, `stalking`, `belly-up`; an unknown name leaves her sitting |
+| no `data-pose` | a state with a pose of its own takes it — `sleeping`, `drowsy` → lounging, `rubbing`, `stretching`, `stalking`, `playing` → belly-up, `spooked`; any other state sits |
+| `data-gait` | `walk`, `trot`, `sprint`, `zoomies`: on four legs and moving, whatever the pose |
+| `data-facing="right"` | mirrored; she is drawn facing left |
+| `--pf-look-x`, `--pf-look-y` | where her pupils look, -1.35 to 1.35 |
+
+Her moods (`AvatarSets::moods()`) are the words a [mood](Pramnos_LLM_Conversations_Guide.md#the-assistants-mood)
+may use and what each plays: `affectionate` → `rubbing`, `calm` → the `loaf` pose, `sleepy` →
+`drowsy`, and so on. `analyst.avatar_moods` replaces them with the application's own.
+
+**The set's own ids.** `{uid}` in a set's markup becomes a different value in each picture drawn,
+so a gradient or a mask referenced by id does not point at another picture's, which breaks when
+that one is hidden. A set's `css` that is a file on disk rather than an address is written into
+the page as a `<style>`, once.
+
 Two properties belong to the contract, and a set respects them: `--pf-assistant-size` (24px) and
 `--pf-assistant-color` (the theme's accent). Both are inherited — the element declares neither —
 so a parent sizes or colours the picture: `.pf-ask { --pf-assistant-size: 20px; --pf-assistant-color: #fff; }`.
