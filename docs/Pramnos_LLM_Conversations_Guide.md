@@ -814,7 +814,11 @@ $digest = Gists::digest($of, $reader, 'last', 'the trip');  // since the reader 
   read them is the caller's to decide. For one's own, the API is
   `GET {chat}/digest?since=last|today|Y-m-d&days=&about=`.
 - **The wording** of what a gist and a summary stress is the application's:
-  `'llm' => ['chat' => ['gists' => ['prompt' => '…', 'summary' => '…']]]`.
+  `'llm' => ['chat' => ['gists' => ['prompt' => '…', 'summary' => '…']]]`. Each is either words
+  or `fn (Scope $of, Scope $reader): string`, which can name whose conversations they are and who
+  reads them in the application's own terms.
+- **A single gist is its own summary**, with no call made to say it again, unless an `about` is
+  to be weighed against it.
 
 ### Sharing an artifact live
 

@@ -36,7 +36,10 @@ class GistsTest extends LlmTestCase
     {
         parent::setUp();
         $this->setting('llm_openai_api_key', 'sk-test');
-        $this->configure(['chat' => ['memory' => ['learn' => false]]]);
+        $this->configure(['chat' => ['memory' => ['learn' => false], 'gists' => [
+            // The application's words, naming whose conversations they are and who reads them.
+            'prompt' => static fn (Scope $of, Scope $reader): string => 'Gist of partition ' . ($of->partition ?? 0) . ' for reader ' . $reader->userId . '.',
+        ]]]);
     }
 
     protected function tearDown(): void
@@ -83,9 +86,8 @@ class GistsTest extends LlmTestCase
             [200, self::says('They told a story about a cat.')],           // its gist
             [200, self::says('A story was told.')],                        // the summary
             [200, self::says('And then?')],                                 // a new answer
-            [200, self::says('The cat story went on.')],                   // its gist, again
-            [200, self::says('The story went on.')],                       // the summary
-            [200, self::says('Hi')], [200, self::says('A greeting.')], [200, self::says('You said hi.')], // one's own, through the API
+            [200, self::says('The cat story went on.')],                   // its gist, again — one gist is its own summary
+            [200, self::says('Hi')], [200, self::says('A greeting.')],     // one's own, through the API
         ]);
         $talk = (new Conversations(new BaseAssistant()))->as($other)->ask(null, 'Tell me a story');
 
@@ -109,13 +111,16 @@ class GistsTest extends LlmTestCase
         $this->assertSame('A story was told.', $first['summary']);
         $this->assertSame('They told a story about a cat.', $first['conversations'][0]['gist']);
         $this->assertStringContainsString('Only what touches this: the cat', $asked, 'narrowed to what was asked');
+        $this->assertStringContainsString('Gist of partition 5 for reader ' . $userId, $asked, 'the application\'s words, told whose and for whom');
         $this->assertStringContainsString('language whose code is \"el\"', $asked, 'in the reader\'s language');
         $this->assertSame([], $nothing['conversations'], 'since last: nothing new');
         $this->assertNull($nothing['summary'], 'nothing to sum up — the caller says so in its own words');
         $this->assertTrue($nothing['since_last']);
         $this->assertSame('The cat story went on.', $later['conversations'][0]['gist'], 'a new message, its gist written again');
+        $this->assertSame('The cat story went on.', $later['summary'], 'one gist: its own summary, no call to say it again');
         $this->assertSame(200, $api['status']);
-        $this->assertSame('You said hi.', $api['data']['summary'], 'one\'s own, through the API');
+        $this->assertSame('A greeting.', $api['data']['summary'], 'one\'s own, through the API');
+        $this->assertSame(7, count($this->sent), 'no summary called for a single gist: seven calls, not nine');
         $this->assertSame(['Hi'], array_column($api['data']['conversations'], 'title'), 'never another partition\'s');
     }
 

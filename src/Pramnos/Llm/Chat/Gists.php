@@ -15,7 +15,8 @@ namespace Pramnos\Llm\Chat;
  * ({@see seen()}, {@see markSeen()}), so "since last" is theirs.
  *
  * What a gist and a summary are asked to stress is the application's:
- * `'llm' => ['chat' => ['gists' => ['prompt' => '…', 'summary' => '…']]]`.
+ * `'llm' => ['chat' => ['gists' => ['prompt' => '…', 'summary' => '…']]]`, each words or
+ * `fn (Scope $of, Scope $reader): string`, to name whose conversations they are and who reads them.
  */
 final class Gists
 {
@@ -36,7 +37,7 @@ final class Gists
      *
      * @param array<string, mixed> $row The conversation's row: conversation_id, gist, gist_upto
      */
-    public static function of(Conversations $asker, array $row, Scope $reader): ?string
+    public static function of(Conversations $asker, array $row, Scope $reader, ?Scope $of = null): ?string
     {
         $db       = \Pramnos\Framework\Factory::getDatabase();
         $id       = (int) $row['conversation_id'];
@@ -48,7 +49,7 @@ final class Gists
             return $kept;
         }
         $said = implode("\n", array_map(static fn (array $m): string => $m['role'] . ': ' . mb_substr((string) $m['content'], 0, 600), array_slice($messages, -30)));
-        $made = $asker->cheaply(self::worded('prompt', self::PROMPT) . ' ' . self::inLanguageOf($reader), $said);
+        $made = $asker->cheaply(self::worded('prompt', self::PROMPT, $of ?? $reader, $reader) . ' ' . self::inLanguageOf($reader), $said);
         if ($made === null) {
             return $kept;
         }
@@ -63,13 +64,17 @@ final class Gists
      *
      * @param list<string> $gists
      */
-    public static function summary(Conversations $asker, array $gists, Scope $reader, string $window, string $about = '', bool $sinceLast = false): ?string
+    public static function summary(Conversations $asker, array $gists, Scope $reader, string $window, string $about = '', bool $sinceLast = false, ?Scope $of = null): ?string
     {
         if ($gists === []) {
             return null;
         }
+        // One gist says it already: no call to say it again — unless it is to be weighed against an `about`.
+        if (count($gists) === 1 && trim($about) === '') {
+            return $gists[0];
+        }
 
-        return $asker->cheaply(self::worded('summary', self::SUMMARY) . ' ' . $window . '. '
+        return $asker->cheaply(self::worded('summary', self::SUMMARY, $of ?? $reader, $reader) . ' ' . $window . '. '
             . (trim($about) !== '' ? 'Only what touches this: ' . mb_substr(trim($about), 0, 200) . '; if nothing does, say so in a sentence. ' : '')
             . ($sinceLast ? 'Begin by saying it is since the reader last looked. ' : '')
             . self::inLanguageOf($reader), implode("\n", array_map(static fn (string $g): string => '- ' . $g, $gists)));
@@ -107,11 +112,11 @@ final class Gists
         $list  = [];
         foreach ($rows as $i => $row) {
             $list[] = ['conversation_id' => (int) $row['conversation_id'], 'title' => (string) $row['title'], 'from' => (string) $row['created_at'], 'to' => (string) $row['updated_at'],
-                'gist' => $i < self::FRESH ? self::of($asker, $row, $reader) : (($row['gist'] ?? null) === null ? null : (string) $row['gist'])];
+                'gist' => $i < self::FRESH ? self::of($asker, $row, $reader, $of) : (($row['gist'] ?? null) === null ? null : (string) $row['gist'])];
         }
         $days    = max(1, (int) ceil((time() - $from) / 86400));
         $summary = self::summary($asker, array_values(array_filter(array_column($list, 'gist'))), $reader,
-            $sinceLast ? 'These are since the reader last looked' : 'These are of the last ' . $days . ' days', $about, $sinceLast);
+            $sinceLast ? 'These are since the reader last looked' : 'These are of the last ' . $days . ' days', $about, $sinceLast, $of);
 
         return ['summary' => $summary, 'since_last' => $sinceLast, 'conversations' => $list];
     }
@@ -147,11 +152,21 @@ final class Gists
         return $code === '' ? 'Write it in the language of the conversation.' : 'Write it in the language whose code is "' . $code . '".';
     }
 
-    /** The application's wording for a prompt, or the framework's. */
-    private static function worded(string $key, string $default): string
+    /**
+     * The application's wording for a prompt — words, or `fn (Scope $of, Scope $reader): string`,
+     * which names whose conversations they are and who reads them — or the framework's.
+     */
+    private static function worded(string $key, string $default, Scope $of, Scope $reader): string
     {
-        $chat = (array) \Pramnos\Llm\Llm::config('chat', []);
-        $own  = ((array) ($chat['gists'] ?? []))[$key] ?? ($key === 'prompt' ? (((array) ($chat['profiles'] ?? []))['gist_prompt'] ?? null) : null);
+        $own = ((array) (((array) \Pramnos\Llm\Llm::config('chat', []))['gists'] ?? []))[$key] ?? null;
+        if (is_callable($own)) {
+            try {
+                $own = (string) $own($of, $reader);
+            } catch (\Throwable $why) {
+                \Pramnos\Logs\Logger::log('llm gists ' . $key . ': ' . $why->getMessage(), 'llm');
+                $own = null;
+            }
+        }
 
         return is_string($own) && trim($own) !== '' ? trim($own) : $default;
     }
