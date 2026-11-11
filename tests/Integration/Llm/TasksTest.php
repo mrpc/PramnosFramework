@@ -180,6 +180,11 @@ class TasksTest extends LlmTestCase
         $this->assertFalse($after['active'], 'a one-off is done');
         $this->assertNull($after['next_run_at']);
         $this->assertSame('Send the invoice to Acme', $tasks->runs($made['routine_id'])[0]['content']);
+        // Told from the space it ran in (FW-413): `chat`, which has no app here — the site's devices
+        $this->assertSame('', $tasks->delivered[0][1]->pushApp(null));
+        $this->configure(['chat' => ['app_url' => 'https://app.example/']]);
+        $this->assertSame('chat', $tasks->delivered[0][1]->pushApp(null), 'with an app: the app\'s devices');
+        $this->assertSame('https://app.example/', $tasks->delivered[0][1]->toPush(null)['url'], 'and the push opens the app');
     }
 
     /**

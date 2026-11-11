@@ -58,6 +58,9 @@ class Routines
 
     private ?TaskPolicy $policy = null;
 
+    /** The space the task being run is in: where what it tells goes ({@see TellsItsApp}). */
+    private string $space = '';
+
     /** @var list<int> Tasks this instance's tools made with no conversation to name yet */
     private array $madeUnlinked = [];
 
@@ -500,6 +503,8 @@ class Routines
     {
         $policy    = $this->policy();
         $scope     = $policy->scope($routine);
+        // What this run tells goes to the devices of the space it runs in (TellsItsApp).
+        $this->space = $scope->space;
         $timezone  = $policy->timezone($routine);
         $started   = time();
 
@@ -1472,7 +1477,7 @@ class Routines
 
         try {
             // The day and the task go seventh and eighth: a notification class of the application's own, written for six, ignores them.
-            $this->deliver($userId, new $class($title, $ok, $ok ? '' : $says, self::linkable($link ?? $this->chat->assistant()->conversationUrl($conversationId)), $content, $email, $day, $routineId));
+            $this->deliver($userId, RoutineReady::tag(new $class($title, $ok, $ok ? '' : $says, self::linkable($link ?? $this->chat->assistant()->conversationUrl($conversationId)), $content, $email, $day, $routineId), $this->space));
         } catch (\Throwable $why) {
             // A dead push endpoint must not undo a report that was written.
             \Pramnos\Logs\Logger::log('llm routine notification: ' . $why->getMessage());
@@ -1488,7 +1493,7 @@ class Routines
 
         foreach ($audience as $userId) {
             try {
-                $this->deliver((int) $userId, new $class($words, self::linkable($link)));
+                $this->deliver((int) $userId, RoutineReady::tag(new $class($words, self::linkable($link)), $this->space));
             } catch (\Throwable $why) {
                 \Pramnos\Logs\Logger::log('llm reminder notification: ' . $why->getMessage());
             }

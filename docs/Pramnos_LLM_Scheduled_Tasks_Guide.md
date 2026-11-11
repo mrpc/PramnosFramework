@@ -104,6 +104,14 @@ After each run:
 - Both go to the bell, and as a push where the owner has a browser subscribed. `'llm' => ['chat'
   => ['notify_via' => ['database']]]` keeps them to the bell; the list names the channels allowed
   (`database`, `push`).
+- **An assistant with an app of its own.** Where the assistant of the `chat` space lives in its
+  own app — a PWA on another origin, whose devices subscribe through the conversation API — the
+  application names it: `'llm' => ['chat' => ['app_url' => 'https://app.example/']]`. A task of
+  the `chat` space, a calendar reminder and a share made there then push to that app's devices
+  alone (`pushApp()`, see the Push guide), and the push opens the app. The bell keeps its link.
+  `Chat\TellsItsApp` does this for `RoutineReady`, `TaskReminder` and `SharedWithYou`; an
+  application's own class that extends one of them has it too, and one written from scratch
+  uses the trait.
 - A one-off is done once it ran.
 - A notification's link that was built with no site address, as in a cron run with no `APP_URL`,
   starts from the site's root rather than from the page the notification is opened on.

@@ -409,7 +409,7 @@ final class Shares
         try {
             $user = new \Pramnos\User\User($recipient);
             if ((int) ($user->userid ?? 0) === $recipient) {
-                $user->notify(new $class($words, $this->policy()->link($share)));
+                $user->notify(RoutineReady::tag(new $class($words, $this->policy()->link($share)), $by->space));
             }
         } catch (\Throwable $why) {
             \Pramnos\Logs\Logger::log('llm share notification: ' . $why->getMessage());

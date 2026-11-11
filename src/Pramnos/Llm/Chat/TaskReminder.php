@@ -17,6 +17,8 @@ use Pramnos\Notification\NotificationInterface;
  */
 class TaskReminder implements NotificationInterface
 {
+    use TellsItsApp;
+
     public function __construct(private readonly string $words, private readonly string $link)
     {
     }
@@ -24,7 +26,7 @@ class TaskReminder implements NotificationInterface
     /** @return list<string> */
     public function via(mixed $notifiable): array
     {
-        return RoutineReady::channels($notifiable);
+        return RoutineReady::channels($notifiable, $this->pushApp($notifiable));
     }
 
     /** @return array{message: string, url: string} */
@@ -39,7 +41,7 @@ class TaskReminder implements NotificationInterface
         return [
             'title' => mb_substr($this->words, 0, 90),
             'body'  => mb_strlen($this->words) > 90 ? mb_substr($this->words, 0, 240) : '',
-            'url'   => $this->link,
+            'url'   => $this->pushLink($notifiable, $this->link),
             'tag'   => 'reminder-' . md5($this->words . $this->link),
         ];
     }

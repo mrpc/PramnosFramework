@@ -16,6 +16,8 @@ use Pramnos\Notification\NotificationInterface;
  */
 class RoutineReady implements NotificationInterface
 {
+    use TellsItsApp;
+
     public function __construct(
         private readonly string $title,
         private readonly bool $ok,
@@ -42,7 +44,7 @@ class RoutineReady implements NotificationInterface
     public function via(mixed $notifiable): array
     {
         // By email too when the reader's subscription asks for it and there is a report to send.
-        return [...self::channels($notifiable), ...($this->email && $this->ok && $this->content !== '' ? ['mail'] : [])];
+        return [...self::channels($notifiable, $this->pushApp($notifiable)), ...($this->email && $this->ok && $this->content !== '' ? ['mail'] : [])];
     }
 
     /**
@@ -68,15 +70,16 @@ class RoutineReady implements NotificationInterface
      * The bell, and a push where the person has a browser subscribed and push is switched on
      * (`PushChannel::sends()`) — of those, the ones
      * `'llm' => ['chat' => ['notify_via' => ['database']]]` names: that one is the bell only.
+     * With `$app`, the subscribed devices are that app's ({@see TellsItsApp}).
      *
      * @return list<string>
      */
-    public static function channels(mixed $notifiable): array
+    public static function channels(mixed $notifiable, string $app = ''): array
     {
         $chat    = \Pramnos\Llm\Llm::config('chat', []);
         $allowed = is_array($chat['notify_via'] ?? null) ? $chat['notify_via'] : ['database', 'push'];
         $push    = in_array('push', $allowed, true) && \Pramnos\Notification\Channels\PushChannel::sends()
-            && \Pramnos\Push\Subscriptions::exist((int) ($notifiable->userid ?? 0));
+            && \Pramnos\Push\Subscriptions::exist((int) ($notifiable->userid ?? 0), $app === '' ? null : $app);
 
         return array_values(array_filter(['database', $push ? 'push' : ''], static fn (string $via): bool => $via !== '' && in_array($via, $allowed, true)));
     }
@@ -96,7 +99,7 @@ class RoutineReady implements NotificationInterface
         return [
             'title' => mb_substr($this->title, 0, 90),
             'body'  => $this->ok ? self::t('Your scheduled report is ready.') : mb_substr(self::t('It could not be made: %s', $this->why), 0, 180),
-            'url'   => $this->link,
+            'url'   => $this->pushLink($notifiable, $this->link),
             // One per routine: this morning's replaces yesterday's.
             'tag'   => 'routine-' . substr(md5($this->title), 0, 8),
         ];

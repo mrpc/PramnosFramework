@@ -15,6 +15,8 @@ use Pramnos\Notification\NotificationInterface;
  */
 class SharedWithYou implements NotificationInterface
 {
+    use TellsItsApp;
+
     public function __construct(private readonly string $words, private readonly string $link)
     {
     }
@@ -22,7 +24,7 @@ class SharedWithYou implements NotificationInterface
     /** @return list<string> */
     public function via(mixed $notifiable): array
     {
-        return RoutineReady::channels($notifiable);
+        return RoutineReady::channels($notifiable, $this->pushApp($notifiable));
     }
 
     /** @return array{message: string, url: string} */
@@ -34,6 +36,6 @@ class SharedWithYou implements NotificationInterface
     /** @return array{title: string, body: string, url: string, tag: string} */
     public function toPush(mixed $notifiable): array
     {
-        return ['title' => mb_substr($this->words, 0, 90), 'body' => '', 'url' => $this->link, 'tag' => 'shared-' . md5($this->link)];
+        return ['title' => mb_substr($this->words, 0, 90), 'body' => '', 'url' => $this->pushLink($notifiable, $this->link), 'tag' => 'shared-' . md5($this->link)];
     }
 }

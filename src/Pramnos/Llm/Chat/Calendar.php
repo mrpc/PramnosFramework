@@ -119,7 +119,7 @@ final class Calendar
                 $starts  = (new \DateTimeImmutable((string) $row['starts_at'], new \DateTimeZone('UTC')))->getTimestamp();
                 $minutes = max(1, (int) round(($starts - $now) / 60));
                 $words   = 'In ' . $minutes . ' minute' . ($minutes === 1 ? '' : 's') . ': ' . $row['title'] . '.';
-                $notice  = new TaskReminder($words, '');
+                $notice  = RoutineReady::tag(new TaskReminder($words, ''), $scope->space);
                 $deliver !== null ? $deliver($scope->userId, $notice) : (new \Pramnos\User\User($scope->userId))->notify($notice);
                 $sent++;
             } catch (\Throwable $why) {
