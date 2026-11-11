@@ -182,7 +182,10 @@ trait TakesQuestions
         $kind = strtolower(trim((string) ($given['kind'] ?? '')));
 
         return preg_match('/^[a-z][a-z_-]{0,30}$/', $kind) === 1
-            ? ['kind' => $kind, 'name' => mb_substr(trim(strip_tags((string) ($given['name'] ?? ''))), 0, 60)] : null;
+            ? ['kind' => $kind, 'name' => mb_substr(trim(strip_tags((string) ($given['name'] ?? ''))), 0, 60)]
+                // Their age, where given — what a skill's `age` is matched against (Audience).
+                + (is_numeric($given['age'] ?? null) && (int) $given['age'] >= 1 && (int) $given['age'] <= 120 ? ['age' => (int) $given['age']] : [])
+            : null;
     }
 
     private static function statusFor(string $why): int
