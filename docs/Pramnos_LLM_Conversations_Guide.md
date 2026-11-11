@@ -137,6 +137,12 @@ count. Those belong in `volatileContext()`. The time is added for every assistan
 `Now: Wednesday 11 November 2026, night (Europe/Athens).` instead: morning is 5–11, midday 12–13,
 afternoon 14–17, evening 18–21, night 22–4 (`ContextAssembler::partOfDay()`).
 
+When the person's last conversation in the same scope and space moved an hour or more ago, zone 3
+also says so: `You last spoke with this person 3 days ago. Do not carry on as if you had just been
+talking.` Under a day it counts hours, after that days. A scheduled answer, or one others read,
+gets no note. `'llm' => ['chat' => ['gap_note' => 7200]]` sets the threshold in seconds, and `0`
+turns the note off.
+
 ```php
 final class SupportAssistant extends \Pramnos\Llm\Chat\BaseAssistant
 {

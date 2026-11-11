@@ -41,6 +41,12 @@ final class ContextAssembler
     /** What the framework adds to zone 3 itself, beside the assistant's own. */
     private string $alsoNow = '';
 
+    /** Seconds since the person last spoke with the assistant here, or null when unknown or never. */
+    private ?int $gap = null;
+
+    /** Below this many seconds since the last conversation, no note is added (`'llm' => ['chat' => ['gap_note' => …]]`, 0 for none). */
+    public const GAP = 3600;
+
     public function __construct(private readonly Assistant $assistant)
     {
     }
@@ -51,6 +57,30 @@ final class ContextAssembler
         $this->alsoNow = trim($text);
 
         return $this;
+    }
+
+    /** How long since the person last spoke with the assistant here: a note before the question, past {@see GAP}. */
+    public function since(?int $seconds): static
+    {
+        $this->gap = $seconds;
+
+        return $this;
+    }
+
+    /**
+     * The note for a gap since the last conversation, or '' under the threshold — so the assistant
+     * does not carry on as if no time had passed.
+     */
+    public static function gapNote(?int $seconds, int $threshold = self::GAP): string
+    {
+        if ($seconds === null || $threshold <= 0 || $seconds < $threshold) {
+            return '';
+        }
+        $days  = intdiv($seconds, 86400);
+        $hours = intdiv($seconds, 3600);
+        $ago   = $days >= 1 ? $days . ($days === 1 ? ' day' : ' days') : $hours . ($hours === 1 ? ' hour' : ' hours');
+
+        return 'You last spoke with this person ' . $ago . ' ago. Do not carry on as if you had just been talking.';
     }
 
     /** Zone 1: the assistant's role and rules, byte for byte the same from one question to the next. */
@@ -82,7 +112,10 @@ final class ContextAssembler
             ? $now->format('l j F Y') . ', ' . self::partOfDay((int) $now->format('G'))
             : $now->format('l j F Y, H:i');
 
+        $note = self::gapNote($this->gap, (int) (((array) \Pramnos\Llm\Llm::config('chat', []))['gap_note'] ?? self::GAP));
+
         return 'Now: ' . $when . ' (' . $zone . ').'
+            . ($note === '' ? '' : "\n\n" . $note)
             . (empty($turn->extra['voice']) ? '' : "\n\n" . self::SPOKEN)
             . ($own !== '' ? "\n\n" . $own : '')
             . ($turn->documents === [] ? '' : "\n\n" . Client::DATA_NOTICE);

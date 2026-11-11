@@ -172,6 +172,49 @@ class ContextAssemblerTest extends LlmTestCase
         $this->assertMatchesRegularExpression('/^Now: \w+ \d+ \w+ \d{4}, \d\d:\d\d \(/', $fine, 'the default stays at the minute');
     }
 
+    /**
+     * FW-422: after a gap since the person's last conversation here, a note before the question
+     * says how long it was, so the assistant does not carry on as if no time had passed. Under an
+     * hour, or with `gap_note` 0, nothing.
+     */
+    #[DataProvider('databases')]
+    public function testAGapSinceTheLastConversationIsSaid(string $type, string $host, int $port): void
+    {
+        // Arrange — a person whose only conversation last moved three days ago
+        $this->connectDatabase($type, $host, $port);
+        $person = random_int(100000, 999999);
+        $then   = \Pramnos\Llm\CallLog::instant(time() - 3 * 86400 - 60);
+        $this->db->queryBuilder()->table('assist.chat_conversations')->insert(['organization_id' => null, 'userid' => $person, 'title' => 'Old', 'space' => 'chat', 'created_at' => $then, 'updated_at' => $then]);
+        $this->answer([[200, self::says('Welcome back.')], [200, self::says('Yes.')], [200, self::says('Quiet.')]]);
+        $chat = (new Conversations(new BaseAssistant()))->as(new Scope($person, null));
+
+        // Act
+        $first = $chat->ask(null, 'Hello again');
+        $chat->ask($first['conversation_id'], 'Still there?');
+        $this->configure(['chat' => ['gap_note' => 0]]);
+        $this->db->queryBuilder()->table('assist.chat_conversations')->where('userid', $person)->update(['updated_at' => $then]);
+        $chat->ask($first['conversation_id'], 'And now?');
+        $tail = static fn (array $sent): string => (string) $sent['body']['messages'][count($sent['body']['messages']) - 2]['content'];
+
+        // Assert
+        $this->assertStringContainsString('You last spoke with this person 3 days ago.', $tail($this->sent[0]));
+        $this->assertStringNotContainsString('You last spoke', $tail($this->sent[1]), 'just now: no note');
+        $this->assertStringNotContainsString('You last spoke', $tail($this->sent[2]), 'turned off');
+        $this->db->queryBuilder()->table('assist.chat_conversations')->where('userid', $person)->delete();
+    }
+
+    /** The note's wording at its edges: hours under a day, days after; nothing under the threshold. */
+    public function testTheGapNote(): void
+    {
+        // Act / Assert
+        $this->assertSame('', ContextAssembler::gapNote(null));
+        $this->assertSame('', ContextAssembler::gapNote(3599));
+        $this->assertStringStartsWith('You last spoke with this person 1 hour ago.', ContextAssembler::gapNote(3600));
+        $this->assertStringStartsWith('You last spoke with this person 23 hours ago.', ContextAssembler::gapNote(86399));
+        $this->assertStringStartsWith('You last spoke with this person 1 day ago.', ContextAssembler::gapNote(86400));
+        $this->assertSame('', ContextAssembler::gapNote(90000, 0), 'a threshold of 0 is off');
+    }
+
     /** The five parts and their edges: 5 is morning, 12 midday, 14 afternoon, 18 evening, 22 and 4 night. */
     public function testThePartsOfTheDay(): void
     {

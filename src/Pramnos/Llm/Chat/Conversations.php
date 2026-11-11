@@ -463,7 +463,7 @@ class Conversations
         // How the person feels changes with a word, so it goes last, where nothing is cached anyway.
         $zones  = (new ContextAssembler($this->assistant))->alsoNow(
             !$turn->shared() && Profile::on($this->scope) && Profile::available() ? (new Profile($this->scope))->moodContext() : ''
-        );
+        )->since($this->scheduled || $turn->shared() ? null : $this->sinceLast());
         $prefix = $zones->staticPrefix($turn);
         $zones->checkPrefix($prefix, $conversationId);
         $semi   = ($turn->shared() ? trim($this->assistant->context($turn)) : $this->context($turn, $memory))
@@ -875,6 +875,24 @@ class Conversations
 
         return (new \Pramnos\Llm\Client(new \Pramnos\Llm\Connection(null, $feature)))
             ->about(['purpose' => $this->scope->purpose(), 'tier' => $tier, 'trace_id' => $this->trace()] + $this->scope->context() + $this->about);
+    }
+
+    /**
+     * Seconds since this person's last conversation in this scope moved — read before this answer
+     * moves it — or null for none, or a database that cannot say.
+     */
+    private function sinceLast(): ?int
+    {
+        try {
+            $db  = \Pramnos\Framework\Factory::getDatabase();
+            $row = $this->scope->apply($this->table('assist.chat_conversations'))
+                ->select([\Pramnos\Database\Instant::unix($db, 'updated_at', 'at')])
+                ->orderBy('updated_at', 'desc')->first();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return !$row || $row->numRows < 1 || ($row->fields['at'] ?? null) === null ? null : max(0, time() - (int) $row->fields['at']);
     }
 
     /** A client on a model the person may choose ({@see ModelChoices}), marked as the scope's other calls are. */
