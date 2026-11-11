@@ -196,12 +196,14 @@ class ChatPageTest extends LlmTestCase
         }
 
         // Act — a speech server set up (FW-409)
-        $this->configure(['voice' => true, 'speech' => ['providers' => ['piper' => ['base_url' => 'http://piper:5000']]]]);
+        $this->configure(['voice' => true, 'speech' => ['pronounce' => ['Ava' => 'Έιβα'], 'providers' => ['piper' => ['base_url' => 'http://piper:5000']]]]);
         foreach (self::THEMES as $theme) {
             $page = (string) $this->page(theme: $theme)->display();
 
             // Assert — the page reads its answers through it, with the session's token
             $this->assertMatchesRegularExpression('~data-pf-chat-speak-server="[^"]*chat/speak" data-pf-chat-csrf="[0-9a-f]{64}"~', $page, $theme);
+            // And the application's own words, for the browser's voice too (FW-410)
+            $this->assertStringContainsString('data-pf-chat-pronounce="{&quot;Ava&quot;:&quot;Έιβα&quot;}"', $page, $theme);
         }
     }
 

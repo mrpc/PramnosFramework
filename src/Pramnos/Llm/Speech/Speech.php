@@ -25,6 +25,10 @@ use Pramnos\Logs\Logger;
  * access token) or an `api_key` — given here, or kept encrypted in the setting
  * {@see settingKey()}; without either it is not set up.
  *
+ * `pronounce` lists the application's own words as they are said — a name, a brand — for every
+ * provider and every caller ({@see pronounce()}); the chat pages hand the list to the browser's
+ * voice too.
+ *
  * `fallback` names a second provider, asked when the first fails or is not set up — Piper beside
  * Google, say: a voice of one's own for when the cloud's is not there.
  *
@@ -93,6 +97,7 @@ final class Speech
         if ($text === '' || mb_strlen($text) > self::MAX_TEXT) {
             return ['ok' => false, 'status' => 422, 'says' => 'The text must be 1 to ' . self::MAX_TEXT . ' characters.'];
         }
+        $text   = self::pronounce($text);
         $spoken = self::speakWith($text, $provider);
         if ($spoken['ok'] || $provider !== null) {
             return $spoken;
@@ -105,6 +110,33 @@ final class Speech
         $second = self::speakWith($text, $fallback);
 
         return $second['ok'] ? $second : $spoken;
+    }
+
+    /**
+     * The application's own words, as they are said: `'speech' => ['pronounce' => ['Ava' =>
+     * 'Έιβα']]`, each a whole word in any case — "Avalon" is left alone. The longest first, so a
+     * phrase is replaced before a word inside it.
+     *
+     * @return array<string, string>
+     */
+    public static function pronunciations(): array
+    {
+        $section = Llm::config('speech', []);
+        $words   = is_array($section) && is_array($section['pronounce'] ?? null) ? $section['pronounce'] : [];
+        $words   = array_filter(array_map('strval', $words), static fn (string $said, $word): bool => trim((string) $word) !== '', ARRAY_FILTER_USE_BOTH);
+        uksort($words, static fn ($a, $b): int => mb_strlen((string) $b) <=> mb_strlen((string) $a));
+
+        return $words;
+    }
+
+    /** A text with the application's own words as they are said ({@see pronunciations()}). */
+    public static function pronounce(string $text): string
+    {
+        foreach (self::pronunciations() as $word => $said) {
+            $text = (string) preg_replace('/(?<!\pL)' . preg_quote((string) $word, '/') . '(?!\pL)/iu', str_replace(['\\', '$'], ['\\\\', '\\$'], $said), $text);
+        }
+
+        return $text;
     }
 
     /**

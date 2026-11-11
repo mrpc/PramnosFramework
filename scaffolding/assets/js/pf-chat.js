@@ -37,6 +37,9 @@
  *                                  on its first press, and sent with the next
  *   data-pf-chat-speak-server="…" — on the page: where the speech server reads answers aloud
  *   data-pf-chat-csrf="…"          (POST `text`, the token in X-CSRF-Token), when one is set up
+ *   data-pf-chat-pronounce="{…}" — on the page: the application's words as they are said
+ *                                  (`speech.pronounce`), given to pf-speech-sanitizer.js so the
+ *                                  browser's voice says them as the speech server does
  *   data-pf-chat-voice           — on the page: voice is on (the llm.voice setting); the mic
  *                                  and 🔊 buttons only do anything when this is present AND
  *                                  pf-voice.js (with pf-speech-sanitizer.js) is also loaded
@@ -52,6 +55,35 @@
  */
 (function () {
     'use strict';
+
+    /** The words already handed to the speech sanitizer, so a second conversation on the page adds none twice. */
+    var pronounced = {};
+
+    /**
+     * The application's own words as they are said (data-pf-chat-pronounce, a JSON object), each a
+     * whole word in any case, handed to pf-speech-sanitizer.js before its own transliteration.
+     *
+     * @param {string|null} json
+     */
+    function pronounce(json) {
+        var words = {};
+        try {
+            words = json ? JSON.parse(json) : {};
+        } catch (e) {
+            return;
+        }
+        if (!window.PfSpeechSanitizer || !words || typeof words !== 'object') {
+            return;
+        }
+        Object.keys(words).sort(function (a, b) { return b.length - a.length; }).forEach(function (word) {
+            if (pronounced[word.toLowerCase()] || !word.trim()) {
+                return;
+            }
+            pronounced[word.toLowerCase()] = true;
+            var escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            window.PfSpeechSanitizer.addTransliteration(new RegExp('(?<!\\p{L})' + escaped + '(?!\\p{L})', 'giu'), String(words[word]));
+        });
+    }
 
     /** What the server reads: documents and pictures, ten at most, 5 MB together. */
     var TYPES = ['.docx', '.odt', '.txt', '.md', '.eml', '.jpg', '.jpeg', '.png', '.gif', '.webp'];
@@ -355,6 +387,7 @@
         // sentence at a time, the session's token in a header; a sentence that fails falls back to
         // the browser's own voice (pf-voice.js).
         var speakServer = root.getAttribute('data-pf-chat-speak-server');
+        pronounce(root.getAttribute('data-pf-chat-pronounce'));
         var voice = (window.PfVoice && root.getAttribute('data-pf-chat-voice') !== null)
             ? window.PfVoice.createVoiceState(speakServer ? { server: function (sentence) {
                 var body = new FormData();

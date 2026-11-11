@@ -275,6 +275,8 @@ natural rather than spelled out or mis-gendered:
   default; this is what corrects it for a female or neutral persona). The built-in title noun
   ("ο βοηθός" → "η βοηθός"/"το AI") corrects on its own; anything more specific an application's
   assistant says about itself needs its own entry.
+- The application's `'speech' => ['pronounce' => […]]` list reaches it on its own on the chat
+  pages (`data-pf-chat-pronounce`); `addTransliteration()` is for a page that is not one of them.
 - `addTransliteration(pattern, replacement)` — an application's own domain vocabulary (product
   names, metrics, jargon) spoken in Greek instead of spelled out; the built-in map carries only a
   handful of universal terms (AI, API, OK, URL).

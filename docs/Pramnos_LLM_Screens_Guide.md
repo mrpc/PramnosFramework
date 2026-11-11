@@ -58,8 +58,8 @@ One line in the application's API routes mounts every endpoint:
 | `GET`/`POST`/`DELETE /chat/consent?feature=` | a feature's provider (`chat` by default), whether it needs agreement and whether it was given; agree; withdraw |
 | `POST /chat/speak` | read `text` aloud with the application's speech server: `audio` (base64), `type`, `bytes`; with `raw: true` the audio itself, under the server's `Content-Type`; 501 with no server, 422 for an empty text or one over 5 000 characters, 502 when the server fails |
 
-`speak` follows `chat` where its own path is not named: a second mount with `'chat' => '/naya'`
-reads aloud at `/naya/speak`.
+`speak` follows `chat` where its own path is not named: a second mount with `'chat' => '/assistant'`
+reads aloud at `/assistant/speak`.
 
 ### Reading answers aloud
 
@@ -105,6 +105,18 @@ asked for each time a text is read, so its caching is the application's — or w
 is sent as the billed project (`x-goog-user-project`). Google's own error comes back as the 502's
 message — a voice that does not exist, an option it refuses. Google bills by the character, which
 is what the `speech` log's `chars` counts.
+
+`pronounce` lists the application's own words as they are said — a name, a brand a voice would
+spell out or read as English:
+
+```php
+'speech' => ['pronounce' => ['Ava' => 'Έιβα', 'Acme' => 'άκμε'], ...],
+```
+
+Each is a whole word in any case ("Avalon" is left alone), the longer first. `Speech::speak()`
+applies the list before any provider, so every caller — the API, the pages — gets it; the chat
+pages also hand it to `pf-speech-sanitizer.js` (`data-pf-chat-pronounce`), so the browser's voice
+says the words the same way.
 
 `fallback` names a second provider, asked once when the one in use fails or is not set up —
 Piper beside Google, a voice of one's own for when the cloud's is not there:

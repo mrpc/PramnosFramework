@@ -126,7 +126,7 @@ const file = (name, size = 10, type = 'text/plain') => ({ name, size, type });
  *
  * @param {{waiting?: string, answers: Array<object|string|Error>, attributes?: object, parser?: boolean, now?: () => number}} options
  */
-function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, examples = [], before = [], clipboard = null, pfChat = undefined, states = null, pageClass = '', pfVoice = undefined, mic = false, speak = null }) {
+function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, examples = [], before = [], clipboard = null, pfChat = undefined, states = null, pageClass = '', pfVoice = undefined, mic = false, speak = null, sanitizer = undefined }) {
     const page = element('div', { 'data-pf-chat': '', 'data-asked': '/chat/asked/', 'data-question-class': 'bubble', ...attributes });
     page.className = pageClass;
     examples.forEach((text) => page.appendChild(element('button', { type: 'button', 'data-pf-chat-suggestion': text })));
@@ -159,6 +159,7 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
     const window = {
         PfChat: pfChat,
         PfVoice: pfVoice,
+        PfSpeechSanitizer: sanitizer,
         navigator: clipboard ? { clipboard } : {},
         location: { href: '/chat' },
         setTimeout: (fn, ms) => { delays.push(ms); return timers.push(fn); },
@@ -1071,6 +1072,27 @@ test('with a speech server named, the voice reads through it with the session\'s
     assert.equal(refused, 'speak 501', 'not audio: a failure, for the browser\'s voice to take over');
     assert.equal(given[1], undefined, 'no server named: the browser\'s voice');
     assert.equal(plain.requests.length, 0);
+});
+
+/**
+ * The application's own words (data-pf-chat-pronounce) are handed to the speech sanitizer, as
+ * whole words in any case and the longest first, so the browser's voice says them as the speech
+ * server does.
+ */
+test('the application\'s own words are handed to the speech sanitizer', () => {
+    // Arrange
+    const added = [];
+    run({
+        answers: [],
+        attributes: { 'data-pf-chat-voice': '', 'data-pf-chat-pronounce': JSON.stringify({ Ava: 'Έιβα', 'Acme Plus': 'άκμε πλας' }) },
+        pfVoice: { createVoiceState: () => ({ speaking: false }) },
+        sanitizer: { addTransliteration: (pattern, said) => added.push([pattern, said]) },
+    });
+
+    // Assert
+    assert.deepEqual(added.map((a) => a[1]), ['άκμε πλας', 'Έιβα'], 'the longer first');
+    const ava = added[1][0];
+    assert.equal('Η Ava, η AVA, η Avalon'.replace(ava, 'X'), 'Η X, η X, η Avalon', 'whole words, any case');
 });
 
 /**

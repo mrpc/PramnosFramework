@@ -18,7 +18,7 @@ use Pramnos\Routing\Router;
  * Everything sits under `/chat` by default: `/chat`, `/chat/{conversation_id}`,
  * `/chat/asks/{ask_id}`, `/chat/memory`, `/chat/connections`, `/chat/routines`, `/chat/runs`, `/chat/reports`,
  * `/chat/skills`, `/chat/consent` and `/chat/speak` — which follows `chat` where it is not named,
- * so a second mount at `/naya` reads aloud at `/naya/speak`. The fixed paths
+ * so a second mount at `/assistant` reads aloud at `/assistant/speak`. The fixed paths
  * are registered before `/chat/{conversation_id}`, which would otherwise take "memory" for an id.
  */
 final class Routes

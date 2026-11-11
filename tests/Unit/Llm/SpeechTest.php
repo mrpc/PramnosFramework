@@ -77,8 +77,8 @@ final class SpeechTest extends LlmTestCase
     }
 
     /**
-     * The same text read aloud at `/chat/speak` and, mounted again under `/naya` with only its
-     * `chat` path named, at `/naya/speak` — the audio as base64 with its type, or itself with
+     * The same text read aloud at `/chat/speak` and, mounted again under `/assistant` with only its
+     * `chat` path named, at `/assistant/speak` — the audio as base64 with its type, or itself with
      * `raw`; Piper is sent the
      * text, the voice and the options; and each call is one line in the speech log with the
      * text's length, the time and the audio's size.
@@ -90,14 +90,14 @@ final class SpeechTest extends LlmTestCase
 
         // Act
         $chat = $this->call('/chat/speak', ['text' => '  Καλημέρα  ']);
-        $naya = $this->call('/naya/speak', ['text' => 'Καλημέρα'], ['chat' => '/naya']);
+        $assistant = $this->call('/assistant/speak', ['text' => 'Καλημέρα'], ['chat' => '/assistant']);
         $raw  = $this->call('/chat/speak', ['text' => 'Καλημέρα', 'raw' => true]);
         rewind($this->log);
         $lines = array_values(array_filter(explode("\n", (string) stream_get_contents($this->log)), static fn (string $l): bool => str_contains($l, 'speak')));
 
         // Assert
         $this->assertSame(200, $chat['status']);
-        $this->assertSame($chat, $naya, 'the same answer on both mounts');
+        $this->assertSame($chat, $assistant, 'the same answer on both mounts');
         $this->assertSame("RIFF\0\0WAVE", base64_decode($chat['data']['audio']));
         $this->assertSame(['audio/wav', 10], [$chat['data']['type'], $chat['data']['bytes']]);
         $this->assertSame('http://piper:5000/', $this->sent[0]['url']);
@@ -264,6 +264,31 @@ final class SpeechTest extends LlmTestCase
         $this->assertSame(502, $named['status']);
         $this->assertCount(5, $this->sent, 'google, piper; google, piper; google alone when named');
         $this->assertSame(5, $logged, 'every call logged, the fallback\'s too');
+    }
+
+    /**
+     * The application's own words are said as it says them (FW-410), before any provider is
+     * asked: a whole word in any case — "Ava" and "AVA", not "Avalon" — the longer phrase before
+     * a word inside it, and a replacement with `$` in it taken as it is. Without the list, the
+     * text is untouched.
+     */
+    public function testTheApplicationsOwnWordsAreSaidItsWay(): void
+    {
+        // Arrange
+        $this->piper();
+        $this->configure(['speech' => ['pronounce' => ['Ava' => 'Έιβα', 'Acme' => 'άκμε', 'Acme Plus' => 'άκμε πλας', 'USD' => '$ δολάρια'],
+            'providers' => ['piper' => ['base_url' => 'http://piper:5000']]]]);
+
+        // Act
+        Speech::speak('Η Ava της Acme Plus, όχι η Avalon. AVA, 5 USD.');
+        $sent = $this->sent[0]['body']['text'];
+        $this->configure([]);
+        $untouched = Speech::pronounce('Ava');
+
+        // Assert
+        $this->assertSame('Η Έιβα της άκμε πλας, όχι η Avalon. Έιβα, 5 $ δολάρια.', $sent);
+        $this->assertSame('Ava', $untouched);
+        $this->assertSame([], Speech::pronunciations());
     }
 }
 
