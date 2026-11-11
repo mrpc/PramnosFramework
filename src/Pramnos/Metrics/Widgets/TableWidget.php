@@ -77,6 +77,7 @@ class TableWidget extends ReportWidget
             // A section's note, its link and its issue, as a report's definition sets them.
             'note'         => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?string => is_string($v) && trim($v) !== '' ? mb_substr(trim($v), 0, 2000) : null],
             'link'         => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?string => is_string($v) && preg_match('#^(https?://|/)#i', $v) === 1 ? $v : null],
+            'own_columns'  => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?array => is_array($v) && $v !== [] ? $v : null],
             'jira'         => ['when' => ['measures_from_definition' => '1'], 'clean' => static fn (mixed $v): ?string => is_string($v) && preg_match('/^[A-Za-z][A-Za-z0-9_]*-\d+$/', trim($v)) === 1 ? trim($v) : null],
         ];
     }
@@ -126,6 +127,11 @@ class TableWidget extends ReportWidget
     /** The columns chosen, as {@see Report::fromArray()} takes them. @return array<string, mixed>|list<array<string, mixed>> */
     protected function columns(): array
     {
+        // Columns a report's definition gave in a shape the form has no field for: as they are.
+        if (is_array($this->setting('own_columns'))) {
+            return $this->setting('own_columns');
+        }
+
         return $this->onlyChosen(match ((string) $this->setting('columns')) {
             'periods'   => ['periods' => (int) ($this->setting('periods') ?? 12)],
             'dimension' => (string) $this->setting('dimension') !== ''

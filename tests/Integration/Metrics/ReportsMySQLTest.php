@@ -827,6 +827,36 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * The periods inside the report's month, quarter or year as its columns (FW-473): a day's
+     * report has every day of its month — those still to come too — and a month's report its
+     * quarter; a section of a month's report the same through its card.
+     */
+    public function testThePeriodsInsideTheReportsMonthAsColumns(): void
+    {
+        // Arrange
+        $daily   = Report::fromArray(['grain' => 'day', 'columns' => ['periods' => 'month'], 'sections' => [['rows' => [['metric' => 'test.sales']]]]]);
+        $monthly = Report::fromArray(['grain' => 'month', 'columns' => ['periods' => 'quarter'], 'sections' => [['rows' => [['metric' => 'test.sales']]]]]);
+        $id      = (new Reports())->save(self::reader(), ['name' => 'Test quarter', 'sections' => [['title' => 'Q', 'columns' => ['periods' => 'quarter'], 'rows' => [['label' => 'Sales', 'metric' => 'test.sales']]]]]);
+        $entry   = (new Reports())->find((string) $id, self::reader());
+
+        // Act
+        $days   = $daily->build('2026-09-10', self::reader())['columns'];
+        $months = $monthly->build('2026-09-10', self::reader());
+        try {
+            $html = \Pramnos\Metrics\ReportBoard::html($entry, '2026-09-10', self::reader(), '/rows', false);
+        } finally {
+            \Pramnos\Metrics\ReportBoard::leave();
+            (new Reports())->delete($id, self::reader(99, 9), true);
+        }
+
+        // Assert
+        $this->assertCount(30, $days, 'every day of September');
+        $this->assertSame(['2026-07', '2026-08', '2026-09'], $months['columns'], 'a month\'s quarter');
+        $this->assertSame([null, 1.0, 6.0], array_column($months['sections'][0]['rows'][0]['cells'], 'value'));
+        $this->assertStringContainsString('>2026-07</th><th scope="col" style="text-align:right">2026-08</th><th scope="col" style="text-align:right">2026-09</th>', $html, 'through a section\'s card too');
+    }
+
+    /**
      * How values are written (FW-473): a row's format — an integer, a percentage to its decimals,
      * an amount — or its column's where the row says nothing, and a dash for a nought; a row with
      * no format at all written as before.

@@ -700,6 +700,8 @@ cards, the cards are kept and the sections go.
             ['label' => 'Month before',     'offset' => -1],
         ],
         // … or a shorthand: ['periods' => 12]
+        //                or ['periods' => 'month']   every period of the report's grain in its month (or 'quarter', 'year'):
+        //                                              a day's report, day by day — the days still to come too
         //                or ['dimension' => 'region', 'values' => ['north', 'south'], 'total' => true]
         'sections' => [
             ['title' => 'Orders', 'chart' => 'line', 'total' => true, 'rows' => [

@@ -51,6 +51,9 @@ final class Report
     /** The most columns a report has. */
     public const MAX_COLUMNS = 60;
 
+    /** What `periods` may name instead of a number: the periods inside the report's month, quarter or year. */
+    public const WITHIN = [Window::MONTH, Window::QUARTER, Window::YEAR];
+
     /** @param array<string, mixed> $definition As {@see fromArray()} cleaned it */
     private function __construct(public readonly array $definition)
     {
@@ -334,6 +337,11 @@ final class Report
             return ['dimension' => (string) $columns['dimension'], 'values' => array_values(array_map('strval', (array) ($columns['values'] ?? []))), 'total' => (bool) ($columns['total'] ?? true)];
         }
         if (!array_is_list($columns) || $columns === []) {
+            // `month`, `quarter`, `year`: every period of the report's grain inside the one it falls in — a day's report's month, day by day.
+            if (in_array($columns['periods'] ?? null, self::WITHIN, true)) {
+                return ['periods' => (string) $columns['periods']];
+            }
+
             return ['periods' => max(1, min(self::MAX_COLUMNS, (int) ($columns['periods'] ?? 1)))];
         }
         $specs = [];
@@ -411,6 +419,9 @@ final class Report
         $lines = array_values(array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', $text) ?: []), static fn (string $l): bool => $l !== ''));
         if ($lines === []) {
             return ['periods' => 1];
+        }
+        if (preg_match('/^periods\s*=\s*(month|quarter|year)$/', $lines[0], $m)) {
+            return ['periods' => $m[1]];
         }
         if (preg_match('/^periods\s*=\s*(\d+)$/', $lines[0], $m)) {
             return ['periods' => (int) $m[1]];
@@ -595,6 +606,17 @@ final class Report
     {
         $columns ??= $this->definition['columns'];
         $out     = [];
+        if (isset($columns['periods']) && is_string($columns['periods'])) {
+            // Every period of the report's grain inside its month (quarter, year), the ones still to come too.
+            $within = Window::of($columns['periods'], $anchor->start->format('Y-m-d'));
+            $window = Window::of($anchor->grain, $within->start->format('Y-m-d'));
+            while ($window->start < $within->end && count($out) < self::MAX_COLUMNS) {
+                $out[]  = ['label' => $window->label(), 'filters' => [], 'metric' => null, 'window' => $window];
+                $window = $window->next();
+            }
+
+            return $out;
+        }
         if (isset($columns['periods'])) {
             $window = $anchor;
             for ($i = 0; $i < $columns['periods']; $i++) {

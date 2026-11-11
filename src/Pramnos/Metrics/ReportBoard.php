@@ -193,6 +193,10 @@ final class ReportBoard
         if ($columns === null || $columns === []) {
             return [];
         }
+        if (isset($columns['periods']) && is_string($columns['periods'])) {
+            // The periods inside the report's month: a spec the card's form has no field for, kept as it is.
+            return ['own_columns' => $columns];
+        }
         if (isset($columns['periods'])) {
             return ['columns' => 'periods', 'periods' => (int) $columns['periods']];
         }
