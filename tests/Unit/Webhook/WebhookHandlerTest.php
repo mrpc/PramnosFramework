@@ -537,6 +537,40 @@ class WebhookHandlerTest extends TestCase
     }
 
     /**
+     * Two deploys of one checkout take turns (FW-414): while one holds the checkout's lock, the
+     * next waits, and its commands start only after the first's last one is done. Two pushes
+     * seconds apart ran at once on a shared stage, and one's `rm -rf` landed in the other's
+     * go-live — half a vendor/, every page a 500. The lock is beside the checkout, outside it.
+     */
+    public function testDeploysOfOneCheckoutTakeTurns(): void
+    {
+        // Arrange — a checkout, and another deploy holding its lock for a second
+        $base = sys_get_temp_dir() . '/pf-deploy-' . bin2hex(random_bytes(4));
+        mkdir($base . '/site', 0777, true);
+        $handler = new WebhookHandler('secret', $base . '/site');
+        $lock    = $base . '/.site-deploy.lock';
+        $held    = $base . '/held';
+        $code    = '$f = fopen(' . var_export($lock, true) . ', "c"); flock($f, LOCK_EX); touch(' . var_export($held, true) . ');'
+            . ' usleep(1000000); file_put_contents(' . var_export($base . '/released', true) . ', microtime(true)); flock($f, LOCK_UN);';
+        $other = proc_open([PHP_BINARY, '-r', $code], [], $pipes);
+        for ($i = 0; $i < 200 && !is_file($held); $i++) {
+            usleep(10000);
+        }
+
+        // Act — this deploy's one command says when it started
+        $results = $this->callPrivate($handler, 'executeCommands', [['php -r "echo microtime(true);"']]);
+        proc_close($other);
+
+        // Assert
+        $this->assertTrue(is_file($held), 'the other deploy held the lock');
+        $this->assertGreaterThanOrEqual((float) file_get_contents($base . '/released'), (float) $results[0]['output'], 'started after the other let go');
+        $this->assertSame($lock, $this->callPrivate($handler, 'lockPath', []), 'beside the checkout, outside it');
+        array_map('unlink', array_filter(glob($base . '/{,.}*[!.]*', GLOB_BRACE) ?: [], 'is_file'));
+        @rmdir($base . '/site');
+        @rmdir($base);
+    }
+
+    /**
      * executeCommands() must stop after the first non-zero exit code (fail-fast).
      *
      * This prevents a broken deploy from partially executing subsequent commands

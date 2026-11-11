@@ -79,6 +79,17 @@ For a webhook whose commands are fast and whose caller genuinely reads the answe
 $handler->respondFirst(false);   // 200 with the outcome, 500 when a command fails
 ```
 
+### Two pushes in a row: one deploy at a time
+
+Each deploy of a checkout holds a lock for its whole list of commands:
+`../.<checkout>-deploy.lock`, beside the checkout and outside the site's root, where the staged
+deploy's stage also is. A second webhook that arrives while a deploy runs waits for it and runs
+afterwards. Its own `git fetch` then brings the newer commit, so the last push is what ends up
+live. Without the lock, two pushes seconds apart ran at once on the same stage, and one's
+`rm -rf` landed in the other's go-live, leaving half a `vendor/`. Where the lock file cannot be
+created, the deploy runs unlocked and the log says so. `lockPath()` is protected, for a
+subclass that keeps it elsewhere.
+
 ### `fastcgi_finish_request()`, and when it is not there
 
 Under PHP-FPM — which is how a containerised application is served — the

@@ -434,6 +434,47 @@ class WebhookHandler
      */
     private function executeCommands(array $commands): array
     {
+        /*
+         * One deploy at a time on a checkout: two pushes seconds apart are two webhooks, and the
+         * response goes out before the work (respondFirst()), so both ran at once on the same
+         * stage — the second's `rm -rf` landing in the first's go-live, the site left with half a
+         * vendor/ and a 500 on every page. The second waits, and runs after the first is done:
+         * its own `git fetch` then brings the newer commit. Without a lock file to be had, the
+         * deploy runs as it did, and the log says so.
+         */
+        $lock = @fopen($this->lockPath(), 'c');
+        if ($lock === false) {
+            $this->log('warning', 'Webhook deploy: no lock at ' . $this->lockPath() . '; running unlocked.');
+        } else {
+            flock($lock, LOCK_EX);
+        }
+        try {
+            return $this->runCommands($commands);
+        } finally {
+            if ($lock !== false) {
+                flock($lock, LOCK_UN);
+                fclose($lock);
+            }
+        }
+    }
+
+    /**
+     * The file the deploys of this checkout take turns on: beside it, outside the site's root,
+     * where the staged deploy's stage also is — `../.<checkout>-deploy.lock`.
+     */
+    protected function lockPath(): string
+    {
+        $root = rtrim($this->repoDir, '/');
+
+        return dirname($root) . '/.' . basename($root) . '-deploy.lock';
+    }
+
+    /**
+     * @param list<string> $commands
+     * @return list<array{command: string, exit_code: int, output: string}>
+     */
+    private function runCommands(array $commands): array
+    {
         $results = [];
 
         foreach ($commands as $cmd) {
