@@ -30,6 +30,18 @@ namespace Pramnos\Assist;
  * 'llm' => ['analyst' => ['avatar_set' => 'aria']],
  * ```
  *
+ * A set may have more than the framework's states, poses, and transitions between states:
+ *
+ * ```php
+ * 'states'      => ['curious', 'drowsy', 'sleeping', 'success' => 1800],  // a name alone is a state of its own; name => ms ends by itself
+ * 'poses'       => ['sitting', 'loaf', 'sploot'],                          // set as data-pose, independent of the state
+ * 'transitions' => ['idle>listening' => ['is-perking-up', 360], 'sleeping>*' => 'is-waking-up'],
+ * ```
+ *
+ * The framework still sets only {@see STATES} by itself; the others are the application's to ask
+ * for (`pfAssistant.state('curious')`, a mood's `plays`). A transition's class is on the element
+ * for its milliseconds (400 when not given) when the state changes from → to; `*` is any.
+ *
  * Without one it is the framework's own, `pf`: a round drop with two eyes, in the theme's accent,
  * still where the reader asks for less motion. A plain picture (`llm.analyst.avatar`) with no set
  * is drawn as that picture, in the same element, and does not move.
@@ -42,8 +54,11 @@ final class AvatarSets
     /** How long a state that ends by itself lasts before `idle`, unless the set says otherwise (ms). */
     public const DURATIONS = ['success' => 1800, 'greeting' => 2400, 'notify' => 4000];
 
-    /** @var array<string, array{markup: string|callable, css: ?string, states: array<string, int>}> */
+    /** @var array<string, array{markup: string|callable, css: ?string, states: array<int|string, int|string>, poses: list<string>, transitions: array<string, string|array>}> */
     private static array $sets = [];
+
+    /** How long a transition's class stays when the set does not say (ms). */
+    public const TRANSITION_MS = 400;
 
     /** Whether a set's stylesheet has been written into this page already, by URL. */
     private static array $linked = [];
@@ -52,11 +67,13 @@ final class AvatarSets
      * Make a set known by name.
      *
      * @param string|callable(): string $markup Markup, a file holding it, or what returns it
-     * @param array<string, int>        $states Milliseconds for the states that end by themselves
+     * @param array<int|string, int|string> $states      Milliseconds for the states that end by themselves; a name alone, a state of the set's own
+     * @param list<string>                  $poses       The set's poses
+     * @param array<string, string|array>   $transitions 'from>to' => class, or [class, ms]
      */
-    public static function register(string $name, string|callable $markup, ?string $css = null, array $states = []): void
+    public static function register(string $name, string|callable $markup, ?string $css = null, array $states = [], array $poses = [], array $transitions = []): void
     {
-        self::$sets[$name] = ['markup' => $markup, 'css' => $css, 'states' => $states];
+        self::$sets[$name] = ['markup' => $markup, 'css' => $css, 'states' => $states, 'poses' => $poses, 'transitions' => $transitions];
     }
 
     /** Forget the registered sets and the stylesheets written: tests. */
@@ -70,7 +87,7 @@ final class AvatarSets
      * The set in use: `llm.analyst.avatar_set` — a registered name or the set itself — or the
      * framework's; null where the application gives a plain picture and no set.
      *
-     * @return array{markup: string|callable, css: ?string, states: array<string, int>}|null
+     * @return array{markup: string|callable, css: ?string, states: array<int|string, int|string>, poses: list<string>, transitions: array<string, string|array>}|null
      */
     public static function current(): ?array
     {
@@ -80,13 +97,57 @@ final class AvatarSets
             return self::$sets[$set];
         }
         if (is_array($set) && isset($set['markup']) && (is_string($set['markup']) || is_callable($set['markup']))) {
-            return ['markup' => $set['markup'], 'css' => isset($set['css']) ? (string) $set['css'] : null, 'states' => (array) ($set['states'] ?? [])];
+            return ['markup' => $set['markup'], 'css' => isset($set['css']) ? (string) $set['css'] : null, 'states' => (array) ($set['states'] ?? []),
+                'poses' => array_values(array_map('strval', (array) ($set['poses'] ?? []))), 'transitions' => (array) ($set['transitions'] ?? [])];
         }
         if (\Pramnos\Llm\Analyst\Analyst::avatar() !== null) {
             return null;
         }
 
-        return ['markup' => self::DEFAULT_MARKUP, 'css' => null, 'states' => []];
+        return ['markup' => self::DEFAULT_MARKUP, 'css' => null, 'states' => [], 'poses' => [], 'transitions' => []];
+    }
+
+    /**
+     * Every state the set in use plays: the framework's, then its own.
+     *
+     * @return list<string>
+     */
+    public static function states(): array
+    {
+        $own = [];
+        foreach ((array) (self::current()['states'] ?? []) as $key => $value) {
+            $own[] = is_int($key) ? (string) $value : (string) $key;
+        }
+
+        return array_values(array_unique([...self::STATES, ...array_filter($own, static fn (string $s): bool => preg_match('/^[a-z0-9][a-z0-9_-]*$/i', $s) === 1)]));
+    }
+
+    /**
+     * The set's poses.
+     *
+     * @return list<string>
+     */
+    public static function poses(): array
+    {
+        return (array) (self::current()['poses'] ?? []);
+    }
+
+    /**
+     * The set's transitions, each as a class and its milliseconds.
+     *
+     * @return array<string, array{class: string, ms: int}>
+     */
+    public static function transitions(): array
+    {
+        $out = [];
+        foreach ((array) (self::current()['transitions'] ?? []) as $when => $how) {
+            $class = is_array($how) ? (string) ($how[0] ?? $how['class'] ?? '') : (string) $how;
+            if (str_contains((string) $when, '>') && $class !== '') {
+                $out[(string) $when] = ['class' => $class, 'ms' => (int) (is_array($how) ? ($how[1] ?? $how['ms'] ?? self::TRANSITION_MS) : self::TRANSITION_MS)];
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -100,8 +161,9 @@ final class AvatarSets
      */
     public static function render(string $state = 'idle', int $size = 24, string $class = '', bool $link = true): string
     {
-        $state = in_array($state, self::STATES, true) ? $state : 'idle';
-        $set   = self::current();
+        $set    = self::current();
+        $states = $set === null ? self::STATES : self::states();
+        $state  = in_array($state, $states, true) ? $state : 'idle';
         $e     = static fn (string $v): string => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
         $name  = \Pramnos\Llm\Analyst\Analyst::name();
         if ($set === null) {
@@ -110,12 +172,16 @@ final class AvatarSets
             $css       = null;
         } else {
             $inner     = self::markup($set['markup']);
-            $durations = array_map('intval', $set['states'] + self::DURATIONS);
+            $durations = array_map('intval', array_filter($set['states'], static fn ($v, $k): bool => is_string($k) && is_numeric($v), ARRAY_FILTER_USE_BOTH) + self::DURATIONS);
             $css       = $set['css'];
         }
 
         return ($link ? self::link($css) : '') . '<span class="pf-assistant-avatar pf-assistant--' . $state . ($class !== '' ? ' ' . $e($class) : '') . '" data-state="' . $state . '"'
-            . ' data-durations="' . $e((string) json_encode(array_intersect_key($durations, array_flip(self::STATES)))) . '"'
+            . ' data-durations="' . $e((string) json_encode(array_intersect_key($durations, array_flip($states)))) . '"'
+            // The set's own states, poses and transitions, for pfAssistant and the debug panel.
+            . (count($states) > count(self::STATES) ? ' data-states="' . $e(implode(',', array_slice($states, count(self::STATES)))) . '"' : '')
+            . ($set !== null && $set['poses'] !== [] ? ' data-poses="' . $e(implode(',', $set['poses'])) . '"' : '')
+            . ($set !== null && self::transitions() !== [] ? ' data-transitions="' . $e((string) json_encode(self::transitions())) . '"' : '')
             // Offline is the server's word: the page's own states do not wake it.
             . ($state === 'offline' ? ' data-offline' : '')
             // Its size inline, so a page without the theme's components.css does not draw it the

@@ -3,7 +3,8 @@
  *
  * Variables:
  *   $this->picture — Assist\AvatarSets::render('idle', 160): the set in use, large
- *   $this->states  — Assist\AvatarSets::STATES
+ *   $this->states  — Assist\AvatarSets::states(): the framework's nine, then the set's own
+ *   $this->poses   — Assist\AvatarSets::poses(): the set's poses, if it declares any
  *   $this->moods   — the set's own signals and the state (or pose) each plays: `avatar_set.moods`, or `avatar_moods`
  *   $this->urls    — settings, chat
  */
@@ -13,6 +14,7 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
 $u = (array) ($this->urls ?? []);
 $states = (array) ($this->states ?? []);
 $moods  = (array) ($this->moods ?? []);
+$poses  = (array) ($this->poses ?? []);
 $btn = $c['btn']; @endphp
 <div class="{!! $c['page'] !!}" data-pf-avatar-page>
     <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px">
@@ -25,13 +27,19 @@ $btn = $c['btn']; @endphp
         <div style="flex:1 1 18rem;display:flex;flex-direction:column;gap:12px">
             <div>
                 <h2 class="{!! $c['h2'] !!}">{{ $t('States') }}</h2>
-                <p class="{!! $c['muted'] !!}">{{ $t('Success, greeting and notify go back to idle by themselves.') }}</p>
+                <p class="{!! $c['muted'] !!}">{{ $t('A state that ends by itself goes back to idle. A state and a pose play together.') }}</p>
                 <div style="display:flex;flex-wrap:wrap;gap:6px" role="group" aria-label="{{ $t('The picture\'s states') }}">
                     @foreach ($states as $state)<button type="button" class="{!! $btn !!}" data-pf-avatar-state="{{ $state }}" aria-pressed="{!! $state === 'idle' ? 'true' : 'false' !!}">{{ $state }}</button>@endforeach
                 </div>
             </div>
             <div>
                 <h2 class="{!! $c['h2'] !!}">{{ $t('Pose') }}</h2>
+                @if ($poses !== [])
+                    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px" role="group" aria-label="{{ $t('The picture\'s poses') }}">
+                        <button type="button" class="{!! $btn !!}" data-pf-avatar-pose-pick="" aria-pressed="true">{{ $t('No pose') }}</button>
+                        @foreach ($poses as $pose)<button type="button" class="{!! $btn !!}" data-pf-avatar-pose-pick="{{ $pose }}" aria-pressed="false">{{ $pose }}</button>@endforeach
+                    </div>
+                @endif
                 <div style="display:flex;flex-wrap:wrap;gap:6px">
                     <label class="pf-sr-only" for="pf-avatar-pose">{{ $t('Any pose name') }}</label>
                     <input id="pf-avatar-pose" type="text" class="{!! $c['input'] !!}" placeholder="{{ $t('Any pose name') }}" data-pf-avatar-pose>
@@ -64,9 +72,15 @@ $btn = $c['btn']; @endphp
     var avatar = preview.querySelector('.pf-assistant-avatar');
     if (!avatar) { return; }
     var states = {!! json_encode(array_values($states)) !!};
+    var pose = function (name) {
+        name === '' ? avatar.removeAttribute('data-pose') : avatar.setAttribute('data-pose', name);
+        page.querySelectorAll('[data-pf-avatar-pose-pick]').forEach(function (b) {
+            b.setAttribute('aria-pressed', b.getAttribute('data-pf-avatar-pose-pick') === name ? 'true' : 'false');
+        });
+    };
     var play = function (name) {
         if (states.indexOf(name) === -1) {
-            avatar.setAttribute('data-pose', name);
+            pose(name);
             return;
         }
         if (window.pfAssistant) {
@@ -88,9 +102,12 @@ $btn = $c['btn']; @endphp
     page.querySelectorAll('[data-pf-avatar-try]').forEach(function (b) {
         b.addEventListener('click', function () { play(b.getAttribute('data-pf-avatar-try')); });
     });
-    var pose = page.querySelector('[data-pf-avatar-pose]');
+    page.querySelectorAll('[data-pf-avatar-pose-pick]').forEach(function (b) {
+        b.addEventListener('click', function () { pose(b.getAttribute('data-pf-avatar-pose-pick')); });
+    });
+    var typed = page.querySelector('[data-pf-avatar-pose]');
     page.querySelector('[data-pf-avatar-pose-apply]').addEventListener('click', function () {
-        if (pose.value.trim() !== '') { avatar.setAttribute('data-pose', pose.value.trim()); }
+        if (typed.value.trim() !== '') { pose(typed.value.trim()); }
     });
     var away = page.querySelector('[data-pf-avatar-away]');
     away.addEventListener('click', function () {

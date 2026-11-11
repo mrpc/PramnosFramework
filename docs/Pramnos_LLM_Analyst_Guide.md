@@ -190,6 +190,28 @@ under `prefers-reduced-motion`. A set of the application's own is its markup and
 
 A plain picture (`avatar`) with no set is drawn in the same element and does not move.
 
+**A set with more than the nine.** A set can declare states of its own, poses, and transitions
+between states:
+
+```php
+'llm' => ['analyst' => ['avatar_set' => [
+    'markup'      => APP_PATH . '/themes/admin/assets/cat/cat.svg',
+    'states'      => ['curious', 'drowsy', 'sleeping', 'success' => 1800],   // a name alone: a state of its own; name => ms: ends by itself
+    'poses'       => ['sitting', 'loaf', 'sploot'],                         // data-pose, independent of the state
+    'transitions' => ['idle>listening' => ['is-perking-up', 360], 'sleeping>*' => 'is-waking-up'],
+]]],
+```
+
+The framework still sets only the nine by itself. The set's own states are the application's to
+ask for, with `pfAssistant.state('curious')` or a [mood's](Pramnos_LLM_Conversations_Guide.md#the-assistants-mood)
+`plays`. A picture whose set does not play a state ignores it. The picture carries
+`data-states`, `data-poses` and `data-transitions`. As the state changes, `pfAssistant` puts the
+matching transition's class on the picture for its milliseconds (400 when not given), for the
+set's CSS to move between the two. It looks for the exact `from>to` first, then `from>*`, then
+`*>to`. `AvatarSets::states()`, `poses()` and `transitions()` read them, and
+`AvatarSets::register($name, $markup, $css, $states, $poses, $transitions)` takes them for a
+registered set.
+
 Two properties belong to the contract, and a set respects them: `--pf-assistant-size` (24px) and
 `--pf-assistant-color` (the theme's accent). Both are inherited — the element declares neither —
 so a parent sizes or colours the picture: `.pf-ask { --pf-assistant-size: 20px; --pf-assistant-color: #fff; }`.
@@ -368,7 +390,8 @@ would mount anything else. Nothing here adds a new controller or permission surf
 ### The picture in every state, on the AI screen
 
 `/admin/Ai/avatar` (opened as the settings are, and linked from them) shows the set in use,
-large (`AvatarSets::render('idle', 160)`), with a button per state. The one playing is marked
+large (`AvatarSets::render('idle', 160)`), with a button per state, the set's own included, and a
+button per pose it declares; a state and a pose play together. The one playing is marked
 and follows `data-state`, so `success`, `greeting` and `notify` hand the mark back to `idle` when
 they end. Below the states are a box for a pose of any name (`data-pose`) and an Away toggle,
 which sets `data-pf-companion-activity="away"` on an inline dock around the picture, as idle

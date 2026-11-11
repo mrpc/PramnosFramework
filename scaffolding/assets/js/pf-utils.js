@@ -3646,16 +3646,41 @@
  * `greeting`, `notify`) goes back to `idle` after the set's duration (`data-durations`, ms).
  * `pf-assistant:state` is dispatched on the document with `{ state }`, so the application can
  * follow it; `pfAssistant.state('thinking')` lets it drive it too. `within` limits the change to
- * the pictures inside an element.
+ * the pictures inside an element. A set may play states of its own (`data-states="curious,drowsy"`),
+ * which a picture takes and others ignore, and declare transitions (`data-transitions`, `{"idle>listening":
+ * {"class": "is-perking-up", "ms": 360}}`, `*` for any): the class is on the picture for its
+ * milliseconds as the state changes, for the set's CSS to move between the two.
  */
 (function () {
     // Not in a worker: the shared connection's worker loads this file too.
     if (typeof window === 'undefined' || typeof document === 'undefined') { return; }
     var STATES = ['idle', 'listening', 'thinking', 'talking', 'success', 'error', 'offline', 'greeting', 'notify'];
     var timers = new Map();
+    var passing = new Map();
+
+    function ownStates(avatar) {
+        return (avatar.getAttribute('data-states') || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    }
+
+    function transition(avatar, from, to) {
+        var all = {};
+        try { all = JSON.parse(avatar.getAttribute('data-transitions') || '{}') || {}; } catch (e) { all = {}; }
+        var found = all[from + '>' + to] || all[from + '>*'] || all['*>' + to];
+        if (!found || !found.class || from === to) { return; }
+        if (passing.has(avatar)) {
+            window.clearTimeout(passing.get(avatar).timer);
+            avatar.classList.remove(passing.get(avatar).class);
+        }
+        avatar.classList.add(found.class);
+        passing.set(avatar, { class: found.class, timer: window.setTimeout(function () {
+            avatar.classList.remove(found.class);
+            passing.delete(avatar);
+        }, found.ms > 0 ? found.ms : 400) });
+    }
 
     function apply(avatar, state) {
-        STATES.forEach(function (s) { avatar.classList.remove('pf-assistant--' + s); });
+        transition(avatar, avatar.getAttribute('data-state') || 'idle', state);
+        STATES.concat(ownStates(avatar)).forEach(function (s) { avatar.classList.remove('pf-assistant--' + s); });
         avatar.classList.add('pf-assistant--' + state);
         avatar.setAttribute('data-state', state);
         if (timers.has(avatar)) {
@@ -3673,13 +3698,17 @@
     }
 
     function state(name, within) {
-        if (STATES.indexOf(name) === -1) { return; }
         var root = within && within.querySelectorAll ? within : document;
+        var taken = STATES.indexOf(name) !== -1;
         Array.prototype.forEach.call(root.querySelectorAll('.pf-assistant-avatar'), function (avatar) {
+            // A state of one set's own: only the pictures that play it take it.
+            if (STATES.indexOf(name) === -1 && ownStates(avatar).indexOf(name) === -1) { return; }
             // Offline stays offline: the analyst cannot answer here, whatever the page does.
             if (avatar.getAttribute('data-state') === 'offline' && avatar.hasAttribute('data-offline')) { return; }
+            taken = true;
             apply(avatar, name);
         });
+        if (!taken) { return; }
         document.dispatchEvent(new CustomEvent('pf-assistant:state', { bubbles: true, detail: { state: name } }));
     }
 

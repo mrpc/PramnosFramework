@@ -455,7 +455,8 @@ class AiController extends Controller
 
         $view          = $this->getView('ai');
         $view->picture = \Pramnos\Assist\AvatarSets::render('idle', 160);
-        $view->states  = \Pramnos\Assist\AvatarSets::STATES;
+        $view->states  = \Pramnos\Assist\AvatarSets::states();
+        $view->poses   = \Pramnos\Assist\AvatarSets::poses();
         $view->moods   = array_map('strval', $moods);
         $view->urls    = ['settings' => adminUrl('Ai/settings'), 'chat' => adminUrl('Ai')];
 

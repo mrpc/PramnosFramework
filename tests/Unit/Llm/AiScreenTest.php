@@ -484,7 +484,8 @@ class AiScreenTest extends LlmTestCase
     public function testTheAvatarScreen(): void
     {
         // Arrange
-        $this->configure(['analyst' => ['avatar_set' => ['markup' => '<svg data-set="mine"></svg>', 'moods' => ['calm' => 'idle', 'curious' => 'sniff']]]]);
+        $this->configure(['analyst' => ['avatar_set' => ['markup' => '<svg data-set="mine"></svg>', 'moods' => ['calm' => 'idle', 'curious' => 'sniff'],
+            'states' => ['drowsy'], 'poses' => ['loaf', 'sploot']]]]);
         $controller = $this->controller();
         $refused    = $this->controller(true);
 
@@ -496,7 +497,7 @@ class AiScreenTest extends LlmTestCase
         foreach (self::THEMES as $theme) {
             $dir  = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/ai';
             $view = new \Pramnos\Application\View(new \Pramnos\Application\Controller(), $dir, 'ai');
-            foreach (['picture', 'states', 'moods', 'urls'] as $name) {
+            foreach (['picture', 'states', 'poses', 'moods', 'urls'] as $name) {
                 $view->$name = $fed->$name;
             }
             ob_start();
@@ -513,7 +514,9 @@ class AiScreenTest extends LlmTestCase
         $this->assertSame(['calm' => 'idle', 'curious' => 'sniff'], $fed->moods);
         $this->assertNull($refused->view, 'below the floor: nothing drawn');
         foreach ($pages as $theme => $page) {
-            $this->assertSame(9, substr_count($page, 'data-pf-avatar-state="'), $theme . ': a button per state');
+            $this->assertSame(10, substr_count($page, 'data-pf-avatar-state="'), $theme . ': a button per state, the set\'s own too');
+            $this->assertStringContainsString('data-pf-avatar-state="drowsy"', $page, $theme);
+            $this->assertStringContainsString('data-pf-avatar-pose-pick="sploot"', $page, $theme . ': the set\'s poses, to play with any state');
             $this->assertStringContainsString('data-pf-avatar-state="idle" aria-pressed="true"', $page, $theme . ': idle playing at first');
             $this->assertStringContainsString('class="pf-companion-dock pf-companion-dock--inline" data-pf-avatar-preview data-pf-companion-activity="active"', $page, $theme);
             $this->assertStringContainsString('data-pf-avatar-pose-apply', $page, $theme);

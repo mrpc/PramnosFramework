@@ -107,6 +107,48 @@ final class AvatarSetsTest extends TestCase
     }
 
     /**
+     * FW-424: a set with states of its own, poses and transitions. A name alone in `states` is a
+     * state of its own, a name with milliseconds ends by itself; the picture can be drawn in one
+     * and carries the set's own states, its poses and its transitions for the script. A set that
+     * declares none of them draws as before, with none of the attributes.
+     */
+    public function testASetsOwnStatesPosesAndTransitions(): void
+    {
+        // Arrange
+        $this->analyst(['avatar_set' => ['markup' => '<svg></svg>',
+            'states'      => ['curious', 'sleeping', 'waking' => 900, 'success' => 1000, '<bad>'],
+            'poses'       => ['sitting', 'loaf'],
+            'transitions' => ['idle>listening' => ['is-perking-up', 360], 'sleeping>*' => 'is-waking-up', 'nonsense' => 'x']]]);
+
+        // Act
+        $curious = AvatarSets::render('curious');
+        $states  = AvatarSets::states();
+
+        // Assert
+        $this->assertSame([...AvatarSets::STATES, 'curious', 'sleeping', 'waking'], $states, 'the nine first; a name that is no name dropped');
+        $this->assertSame(['sitting', 'loaf'], AvatarSets::poses());
+        $this->assertSame(['idle>listening' => ['class' => 'is-perking-up', 'ms' => 360], 'sleeping>*' => ['class' => 'is-waking-up', 'ms' => AvatarSets::TRANSITION_MS]], AvatarSets::transitions());
+        $this->assertStringContainsString('data-state="curious"', $curious, 'a state of its own can be drawn');
+        $this->assertStringContainsString('data-states="curious,sleeping,waking"', $curious);
+        $this->assertStringContainsString('data-poses="sitting,loaf"', $curious);
+        $this->assertStringContainsString('&quot;waking&quot;:900', $curious, 'its own state ends by itself');
+        $this->assertStringContainsString('&quot;success&quot;:1000', $curious, 'and its duration for one of the nine');
+        $this->assertStringContainsString('data-transitions="{&quot;idle&gt;listening&quot;:{&quot;class&quot;:&quot;is-perking-up&quot;,&quot;ms&quot;:360}', $curious);
+
+        // A registered set says the same through register(); one with none of it has no attributes.
+        AvatarSets::register('cat', '<svg></svg>', null, ['drowsy'], ['loaf'], ['*>sleeping' => 'is-dozing']);
+        $this->analyst(['avatar_set' => 'cat']);
+        $this->assertSame('drowsy', AvatarSets::states()[9]);
+        $this->assertSame(['loaf'], AvatarSets::poses());
+        $this->analyst(['avatar_set' => ['markup' => '<svg></svg>']]);
+        $plain = AvatarSets::render('curious');
+        $this->assertStringContainsString('data-state="idle"', $plain, 'not its state: idle');
+        $this->assertStringNotContainsString('data-states=', $plain);
+        $this->assertStringNotContainsString('data-poses=', $plain);
+        $this->assertStringNotContainsString('data-transitions=', $plain);
+    }
+
+    /**
      * A picture drawn as data first — the dock's props, a `<template>` — carries no `<link>` and
      * does not count as the page having the stylesheet: `stylesheet()` afterwards still gives it.
      * Without this the stylesheet was spent on data, never reached the page, and a set's picture

@@ -87,3 +87,41 @@ test('a scheduled task\'s result makes it notify; another notification does not'
     assert.equal(before, 'idle');
     assert.equal(ui.one.getAttribute('data-state'), 'notify');
 });
+
+/**
+ * FW-424: a set's own states and transitions. A picture whose set plays `curious` takes it and
+ * others ignore it; a state nobody plays is still not taken. As the state changes, the declared
+ * transition's class is on the picture for its milliseconds — the exact pair first, then `from>*`,
+ * then `*>to` — and gone after.
+ */
+test('a set\'s own states are taken by its pictures, with their transitions', async () => {
+    // Arrange
+    const ui = page();
+    const cat = ui.document.createElement('span');
+    cat.className = 'pf-assistant-avatar pf-assistant--idle';
+    cat.setAttribute('data-state', 'idle');
+    cat.setAttribute('data-states', 'curious,sleeping');
+    cat.setAttribute('data-transitions', JSON.stringify({ 'idle>listening': { class: 'is-perking-up', ms: 20 }, 'sleeping>*': { class: 'is-waking-up', ms: 20 } }));
+    ui.document.body.appendChild(cat);
+
+    // Act
+    ui.window.pfAssistant.state('curious');
+    const curious = [cat.getAttribute('data-state'), ui.one.getAttribute('data-state')];
+    ui.window.pfAssistant.state('dancing');
+    ui.window.pfAssistant.state('idle');
+    ui.window.pfAssistant.state('listening');
+    const perking = cat.classList.contains('is-perking-up');
+    await wait(40);
+    const settled = cat.classList.contains('is-perking-up');
+    ui.window.pfAssistant.state('sleeping');
+    ui.window.pfAssistant.state('talking');
+    const waking = cat.classList.contains('is-waking-up');
+
+    // Assert
+    assert.deepEqual(curious, ['curious', 'idle'], 'the set\'s own state: its picture only');
+    assert.deepEqual(ui.heard.slice(0, 2), ['curious', 'idle'], 'a state nobody plays is not told');
+    assert.ok(perking, 'idle > listening: the transition\'s class');
+    assert.ok(!settled, 'gone after its milliseconds');
+    assert.ok(waking, 'sleeping > anything');
+    assert.ok(!cat.classList.contains('pf-assistant--curious'), 'its own state\'s class goes too');
+});
