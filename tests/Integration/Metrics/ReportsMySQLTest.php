@@ -913,6 +913,10 @@ class ReportsMySQLTest extends TestCase
         $this->assertStringContainsString('3 (60%)', $html);
         $this->assertStringContainsString("section,row,Sales,New,\"New share\",Verdict\n", $csv, 'and in the CSV');
         $this->assertContains('region', $report->dimensions(), 'its dimension offered as a filter');
+        // A distinct metric that keeps no figure for the total: no row of dashes.
+        $buyers = Report::fromArray(['sections' => [['by' => 'region', 'values' => ['north'], 'filters' => ['customer' => 'new'], 'total' => true,
+            'measures' => [['label' => 'Buyers', 'metric' => 'test.buyers']]]]])->build('2026-09-10', self::reader());
+        $this->assertSame(['North'], array_column($buyers['sections'][0]['rows'], 'label'), 'the total no measure can read is left out');
     }
 
     /**

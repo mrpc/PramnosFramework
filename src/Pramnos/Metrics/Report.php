@@ -658,6 +658,11 @@ final class Report
                     $measure['of'] !== null ? ($cells[$measure['of']]['value'] ?? null) : null);
                 unset($cell);
             }
+            // A total no measure can read — a distinct metric that keeps no figure for the section's
+            // filters without the row's value — is left out rather than a row of dashes.
+            if ($value === null && array_filter($cells, static fn (array $c): bool => $c['error'] === null) === []) {
+                continue;
+            }
             $rows[] = ['label' => $label, 'unit' => '', 'currency' => null, 'subtotal' => $value === null, 'cells' => array_values($cells), 'other' => null,
                 'change' => null, 'error' => null, 'part' => null, 'headed' => false];
         }
