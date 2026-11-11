@@ -827,6 +827,32 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * How values are written (FW-473): a row's format — an integer, a percentage to its decimals,
+     * an amount — or its column's where the row says nothing, and a dash for a nought; a row with
+     * no format at all written as before.
+     */
+    public function testValuesAreWrittenAsTheRowOrColumnSays(): void
+    {
+        // Arrange
+        $report = Report::fromArray(['columns' => [['label' => 'All', 'format' => 'percent', 'decimals' => 1], ['label' => 'South new', 'filters' => ['region' => 'south', 'customer' => 'returning']]],
+            'sections' => [['rows' => [
+                ['label' => 'Plain', 'metric' => 'test.sales'],
+                ['label' => 'Int', 'metric' => 'test.sales', 'format' => 'int', 'zero' => true],
+                ['label' => 'Share', 'formula' => '100 * a / b', 'format' => 'percent', 'decimals' => 2,
+                    'operands' => ['a' => ['metric' => 'test.sales', 'filters' => ['customer' => 'new']], 'b' => ['metric' => 'test.sales']]],
+            ]]]]);
+
+        // Act
+        $rows = array_column($report->build('2026-09-10', self::reader())['sections'][0]['rows'], null, 'label');
+        $text = static fn (array $row): array => array_column($row['cells'], 'text');
+
+        // Assert
+        $this->assertSame(['6.0%', null], $text($rows['Plain']), 'the column\'s format where the row says nothing; none at all, as before');
+        $this->assertSame(['6', '—'], $text($rows['Int']), 'the row\'s own, and a dash for nought');
+        $this->assertSame(['66.67%', '—'], array_map(static fn ($t) => $t, $text($rows['Share'])), 'a formula, to its decimals; no operand, no value');
+    }
+
+    /**
      * A chart on demand (FW-473): under each table, lines or bars over 6, 12 or 24 periods, as
      * links; the one asked for drawn over the table, its rows over those periods up to the
      * report's — the report's definition unchanged; nothing of it in a mail.

@@ -119,7 +119,7 @@ class TableWidget extends ReportWidget
                 'total'     => !empty($row['total']) && $row['total'] !== 'false',
             // What a report's definition gives a row beyond the form's fields — a formula over its
             // operands, a description and a link — kept, for Report::fromArray() to check.
-            ] + array_intersect_key($row, array_flip(['formula', 'operands', 'unit', 'description', 'link']));
+            ] + array_intersect_key($row, array_flip(['formula', 'operands', 'unit', 'description', 'link', 'format', 'decimals', 'zero']));
         });
     }
 

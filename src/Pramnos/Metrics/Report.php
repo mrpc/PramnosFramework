@@ -92,7 +92,7 @@ final class Report
                     'filters'   => self::filters($row['filters'] ?? []),
                     'breakdown' => $breakdown !== '' ? $breakdown : null,
                     'total'     => $breakdown !== '' && (bool) ($row['total'] ?? false),
-                ] + self::explained($row);
+                ] + self::explained($row) + self::writtenAs($row);
             }
             $sections[] = self::measuresOf($section) + self::explained($section, ['note', 'link', 'jira'])
                 + (isset($section['columns']) ? ['columns' => self::columns($section['columns'])] : []) + [
@@ -143,6 +143,48 @@ final class Report
         }
 
         return $out;
+    }
+
+    /**
+     * How a row's or a column's values are written, as given: `format` (one of {@see FORMATS} but
+     * `share`), `decimals`, and `zero` — a dash where the value is nought or none.
+     *
+     * @param array<string, mixed> $given
+     * @return array<string, mixed>
+     */
+    private static function writtenAs(array $given): array
+    {
+        $out = [];
+        if (in_array($given['format'] ?? null, ['number', 'int', 'percent', 'money'], true)) {
+            $out['format'] = (string) $given['format'];
+        }
+        if (isset($given['decimals']) && is_numeric($given['decimals'])) {
+            $out['decimals'] = max(0, min(6, (int) $given['decimals']));
+        }
+        if (!empty($given['zero'])) {
+            $out['zero'] = true;
+        }
+
+        return $out;
+    }
+
+    /**
+     * A cell's value as its row says — or else its column — or null where neither says how.
+     *
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $column
+     */
+    private static function written(array $row, array $column, ?float $value, ?string $currency): ?string
+    {
+        $how = isset($row['format']) || isset($row['decimals']) || isset($row['zero']) ? $row : $column;
+        if (!isset($how['format']) && !isset($how['decimals']) && !isset($how['zero'])) {
+            return null;
+        }
+        if (!empty($how['zero']) && ($value === null || $value == 0.0)) {
+            return '—';
+        }
+
+        return self::formatMeasure(['format' => $how['format'] ?? 'number', 'decimals' => $how['decimals'] ?? null], $value, $currency);
     }
 
     /** How a measure's value may be written. */
@@ -249,7 +291,7 @@ final class Report
             'formula'   => $expression,
             'operands'  => $operands,
             'unit'      => (string) ($row['unit'] ?? ''),
-        ] + self::explained($row);
+        ] + self::explained($row) + self::writtenAs($row);
     }
 
     /**
@@ -303,7 +345,7 @@ final class Report
                 'filters' => self::filters($spec['filters'] ?? []),
                 'metric'  => $metric !== '' ? $metric : null,
                 'offset'  => min(0, (int) ($spec['offset'] ?? 0)),
-            ];
+            ] + self::writtenAs($spec);
         }
 
         return $specs;
@@ -580,7 +622,7 @@ final class Report
                 $window = $window->previous();
             }
             $label = $spec['label'] !== '' ? $spec['label'] : ($spec['offset'] !== 0 ? $window->label() : self::pairsText($spec['filters']));
-            $out[] = ['label' => $label, 'filters' => $spec['filters'], 'metric' => $spec['metric'], 'window' => $window];
+            $out[] = ['label' => $label, 'filters' => $spec['filters'], 'metric' => $spec['metric'], 'window' => $window] + self::writtenAs($spec);
         }
 
         return $out;
@@ -598,12 +640,12 @@ final class Report
     {
         if (isset($row['formula'])) {
             return [['label' => $row['label'], 'metric' => $row['metric'], 'filters' => $row['filters'], 'subtotal' => false,
-                'formula' => $row['formula'], 'operands' => $row['operands'], 'unit' => $row['unit']] + self::explained($row)];
+                'formula' => $row['formula'], 'operands' => $row['operands'], 'unit' => $row['unit']] + self::explained($row) + self::writtenAs($row)];
         }
         $metric = Metrics::get($row['metric']);
         $label  = $row['label'] !== '' ? $row['label'] : $metric->label();
         if ($row['breakdown'] === null) {
-            return [['label' => $label, 'metric' => $row['metric'], 'filters' => $row['filters'], 'subtotal' => false] + self::explained($row)];
+            return [['label' => $label, 'metric' => $row['metric'], 'filters' => $row['filters'], 'subtotal' => false] + self::explained($row) + self::writtenAs($row)];
         }
         $dimension = Metrics::dimensionOf($row['breakdown']);
         $values    = array_map('strval', array_keys($dimension->all()));
@@ -619,11 +661,11 @@ final class Report
         foreach ($values as $value) {
             // A part of its row: drawn under its row's name, set in — a group of its own, whatever came before.
             $out[] = ['label' => $dimension->labelOf($value), 'metric' => $row['metric'], 'filters' => [$row['breakdown'] => $value] + $row['filters'], 'subtotal' => false,
-                'part' => $label, 'headed' => true];
+                'part' => $label, 'headed' => true] + self::writtenAs($row);
         }
         if ($row['total']) {
             // Under the group's heading, its total is the group's: «Total».
-            $out[] = ['label' => function_exists('t') ? (string) t('Total') : 'Total', 'metric' => $row['metric'], 'filters' => $row['filters'], 'subtotal' => true, 'part' => $label];
+            $out[] = ['label' => function_exists('t') ? (string) t('Total') : 'Total', 'metric' => $row['metric'], 'filters' => $row['filters'], 'subtotal' => true, 'part' => $label] + self::writtenAs($row);
         }
 
         return $out;
@@ -762,7 +804,8 @@ final class Report
         };
         foreach ($columns as $column) {
             try {
-                $built['cells'][] = ['value' => $value($column['window'], $column['filters']), 'link' => null, 'error' => null];
+                $worked           = $value($column['window'], $column['filters']);
+                $built['cells'][] = ['value' => $worked, 'text' => self::written($row, $column, $worked, null), 'link' => null, 'error' => null];
             } catch (\InvalidArgumentException|\LogicException $e) {
                 $built['cells'][] = ['value' => null, 'link' => null, 'error' => $e->getMessage()];
             }
@@ -829,6 +872,7 @@ final class Report
                 $built['cells'][] = [
                     'currency' => $query->currency(),
                     'value' => $value,
+                    'text'  => self::written($row, $column, $value, $query->currency()),
                     'link'  => $visible[$name]->hasRows() ? ['metric' => $name, 'grain' => $grain, 'period' => $column['window']->key(), 'filters' => $filters,
                         'url' => $visible[$name]->drillUrl($column['window'], $filters)] : null,
                     'error' => null,

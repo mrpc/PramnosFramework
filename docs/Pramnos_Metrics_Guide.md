@@ -738,6 +738,22 @@ A section's `total` adds up its rows but leaves breakdown totals out.
 - **A section's `jira`** (an issue key) is linked where the application says how:
   `'metrics' => ['jira' => 'https://example.atlassian.net/browse/%s']`. Its `link` adds *More*.
 
+### How values are written
+
+A row, or a column of a report's own columns, says how its values are written. A row's way wins
+over its column's, and with neither a value is written as the metric's unit says:
+
+- `format`: `int`, `percent`, `money` (in the metric's currency) or `number`;
+- `decimals`: from 0 to 6;
+- `zero`: a dash where the value is nought or none.
+
+```php
+['label' => 'Conversion', 'formula' => '100 * a / b', 'format' => 'percent', 'decimals' => 1, 'operands' => […]],
+['label' => 'Refunds', 'metric' => 'refunds.count', 'format' => 'int', 'zero' => true],
+```
+
+«n (x%)» is a table of measures' `share` (above).
+
 ### A chart on demand
 
 Under each table on a report's page, *Chart* offers lines or bars over the last 6, 12 or 24
