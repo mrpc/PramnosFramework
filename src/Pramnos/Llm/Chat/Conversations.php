@@ -544,16 +544,17 @@ class Conversations
         $stopped = !empty($answer['over_budget']) ? 'budget' : (!empty($answer['out_of_rounds']) ? 'rounds' : null);
         $reply   = (string) ($answer['final'] ?? $answer['reply']);
         $felt    = $mood === null ? null : Mood::parse($reply);
+        // Felt before the answer is stored, so the answer keeps the mood it was given in.
+        if ($mood !== null && $felt !== null) {
+            $mood->feel($conversationId, $felt['mood'], $felt['intensity']);
+        }
+        $feels   = $mood?->now($conversationId);
         $message = $this->store($conversationId, 'assistant', self::withoutMark($this->polished($turn, $mood === null ? $reply : Mood::strip($reply))),
             (array) ($answer['calls'] ?? []), $answer['cost'], $stamp, $answer['context'] ?? null,
-            array_filter(['steps' => $steps, 'stopped' => $stopped, 'source' => $this->console ? 'console' : null]));
+            // With moods on, `mood` is always there — null when nothing is felt — so a reader tells
+            // "no mood" from "a backend without moods".
+            array_filter(['steps' => $steps, 'stopped' => $stopped, 'source' => $this->console ? 'console' : null]) + ($mood === null ? [] : ['mood' => $feels]));
         $message['artifacts'] = $artifacts->link($conversationId, (int) $message['message_id'], $turn->tags);
-        if ($mood !== null) {
-            if ($felt !== null) {
-                $mood->feel($conversationId, $felt['mood'], $felt['intensity']);
-            }
-            $message['mood'] = $mood->now($conversationId);
-        }
 
         // What the person stated, kept — once several of their messages have gathered. An answer
         // others read, or a scheduled run, is nothing of the person's to learn from.
@@ -1045,6 +1046,8 @@ class Conversations
         $tools = json_decode((string) ($fields['tools'] ?? ''), true);
         $extra = json_decode((string) ($fields['extra'] ?? ''), true);
 
+        $extra = is_array($extra) ? $extra : [];
+
         return [
             'message_id' => (int) $fields['message_id'],
             'role'       => (string) $fields['role'],
@@ -1052,11 +1055,12 @@ class Conversations
             'tools'      => is_array($tools) ? $tools : [],
             'cost'       => ($fields['cost'] ?? null) === null ? null : (float) $fields['cost'],
             'context'    => ($fields['context_tokens'] ?? null) === null ? null : (int) $fields['context_tokens'],
-            'extra'      => is_array($extra) ? $extra : [],
+            'extra'      => $extra,
             // What the person thought of it: 1, -1, or null — null, too, before the columns exist.
             'rating'     => ($fields['rating'] ?? null) === null ? null : (int) $fields['rating'],
             'created_at' => (string) $fields['created_at'],
-        ];
+        // The assistant's mood as it gave this answer (Mood), where moods were on; in the history too.
+        ] + (array_key_exists('mood', $extra) ? ['mood' => is_array($extra['mood']) ? $extra['mood'] : null] : []);
     }
 
     /**

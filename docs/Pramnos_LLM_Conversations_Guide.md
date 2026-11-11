@@ -197,17 +197,19 @@ conversation page's space (`chat`) only, so the administrators' analyst has no m
 - **The model says it.** Zone 3 asks each answer to end with a private tag, `[[mood:happy|70]]`:
   a word from the vocabulary and how strongly, 0–100. It costs no call. The tag is taken out of
   the stream, the stored answer and the history, and a word outside the vocabulary is ignored.
-- **Per conversation and per person, never for everybody.** The conversation keeps its mood. A
-  different, weaker feeling does not displace a standing stronger one, and the same feeling keeps
-  the stronger of the two. A strong mood (`Mood::STRONG`, 60 and up) also colours the person's
-  other conversations, at four fifths of its strength.
+- **Per conversation and per person, never for everybody.** In a conversation, the model's latest
+  word is the mood: it has read the whole conversation, so "good night" after good news is sleepy.
+  A strong mood (`Mood::STRONG`, 60 and up) also colours the person's other conversations, at four
+  fifths of its strength, where none of their own is felt; the strongest of those wins.
 - **It fades** by 25 an hour, read rather than swept, so nothing has to be scheduled. Under 15 it
   is not felt.
 - **Tone, not a statement.** While it is felt, zone 3 tells the next answer `Your mood right now:
   sleepy, noticeably. Let it colour your tone; do not say it or explain it.`
-- **The application shows it.** The answer's message carries `mood`:
+- **The application shows it.** Each answer keeps the mood it was given in, as `extra.mood`, and
+  its message carries it as `mood`, in the answer and in the conversation's history alike:
   `{"mood": "happy", "intensity": 80, "plays": "success"}`, where `plays` is what the avatar set
-  says the word plays, or `null` when nothing is felt. `GET {chat}/mood` answers the same for
+  says the word plays. With moods on the key is always there, `null` when nothing is felt; its
+  absence means moods are off. `GET {chat}/mood` answers the same for
   the avatar while idle: the person's strongest mood, or one conversation's with
   `?conversation_id=`.
 

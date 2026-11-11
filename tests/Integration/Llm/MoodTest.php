@@ -106,8 +106,9 @@ class MoodTest extends LlmTestCase
     /**
      * Asked: the model is told to end with the tag; the tag is taken out of the stored answer and
      * the stream; the conversation keeps the mood; the message carries it with what the avatar
-     * plays; and the next answer is told it as tone. A weaker, different feeling then does not
-     * displace it.
+     * plays; and the next answer is told it as tone. FW-427: the model's latest word is the
+     * conversation's mood — "good night" after good news is sleepy — and each answer keeps the mood
+     * it was given in, read back with the conversation's history.
      */
     #[DataProvider('databases')]
     public function testAMoodSaidKeptAndGivenBackAsTone(string $type, string $host, int $port): void
@@ -136,7 +137,16 @@ class MoodTest extends LlmTestCase
         }
         $this->assertSame(['mood' => 'happy', 'intensity' => 80, 'plays' => 'success'], $first['message']['mood']);
         $this->assertStringContainsString('Your mood right now: happy, strongly. Let it colour your tone; do not say it or explain it.', self::tail($this->sent[1]));
-        $this->assertSame('happy', $second['message']['mood']['mood'], 'a weaker, different feeling does not displace it');
+        $this->assertSame(['mood' => 'sleepy', 'intensity' => 30, 'plays' => 'idle'], $second['message']['mood'], 'the latest word is the mood');
+        // An answer that says no mood still says so: the key, null — not a backend without moods.
+        $this->answer([[200, self::says('Fine.')]]);
+        $this->db->queryBuilder()->table('assist.chat_conversations')->where('conversation_id', (int) $first['conversation_id'])->update(['mood' => null]);
+        $third = $chat->ask((int) $first['conversation_id'], 'And?');
+        $this->assertArrayHasKey('mood', $third['message']);
+        $this->assertNull($third['message']['mood']);
+        $this->assertArrayHasKey('mood', $third['message']['extra']);
+        $history = array_values(array_filter($chat->find((int) $first['conversation_id'])['messages'], static fn (array $m): bool => $m['role'] === 'assistant'));
+        $this->assertSame(['happy', 'sleepy', null], array_map(static fn (array $m): ?string => $m['mood']['mood'] ?? null, $history), 'each answer keeps its mood, in the history; none, null');
         $this->db->queryBuilder()->table('assist.chat_conversations')->where('userid', $person)->delete();
     }
 
@@ -164,8 +174,9 @@ class MoodTest extends LlmTestCase
         // Act
         $mood->feel($ids[0], 'sleepy', 80);
         $elsewhere = $mood->now($ids[1]);
-        $mood->feel($ids[0], 'sleepy', 50);   // the same feeling keeps the stronger
-        $kept = $mood->now($ids[0]);
+        $mood->feel($ids[1], 'thinking', 20);   // its own, felt, wins over a stronger one from elsewhere
+        $own = $mood->now($ids[1]);
+        $this->db->queryBuilder()->table('assist.chat_conversations')->where('conversation_id', $ids[1])->update(['mood' => null]);
         $nobody = (new Mood(new Scope($person + 1, null)))->now();
         ApiFixture::$scope = $scope;
         ApiFixture::$stop  = null;   // another class's refusal, left on the shared fixture, is not this test's
@@ -178,7 +189,7 @@ class MoodTest extends LlmTestCase
 
         // Assert
         $this->assertSame(['mood' => 'sleepy', 'intensity' => 64, 'plays' => 'idle'], $elsewhere, 'a strong mood, dampened, in the other conversation');
-        $this->assertSame(80, $kept['intensity']);
+        $this->assertSame(['mood' => 'thinking', 'intensity' => 20, 'plays' => 'thinking'], $own);
         $this->assertNull($nobody, 'nobody else\'s');
         $this->assertSame(['on' => true, 'mood' => ['mood' => 'sleepy', 'intensity' => 80, 'plays' => 'idle']], $api['data'], 'idle: the person\'s strongest');
         $this->assertNull($faded, 'three hours later, 80 is 5: not felt');

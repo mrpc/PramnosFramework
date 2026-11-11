@@ -18,10 +18,10 @@ use Pramnos\Llm\CallLog;
  * - **Said by the model.** Each answer ends with a private tag, `[[mood:happy|70]]`: a word from
  *   the vocabulary and how strongly, 0–100. It costs no call, and is taken out before the answer
  *   is stored or shown ({@see strip()}).
- * - **Per conversation, and per person.** The tag sets the conversation's mood ({@see feel()});
- *   a different, weaker feeling does not displace a standing stronger one. A strong one
- *   ({@see STRONG} and up) also colours the person's other conversations, at {@see DAMPEN} of its
- *   strength. Never global for everybody.
+ * - **Per conversation, and per person.** The tag sets the conversation's mood ({@see feel()}):
+ *   its latest word is the mood there. A strong one ({@see STRONG} and up) also colours the
+ *   person's other conversations, at {@see DAMPEN} of its strength, where none of their own is
+ *   felt; the strongest of those wins. Never global for everybody.
  * - **Fading.** {@see FADE} an hour, read rather than swept: nothing to schedule. Under
  *   {@see FELT} it is not felt, and the prompt says nothing.
  * - **As tone, never said.** The next answer is told the mood to colour its tone, and not to state
@@ -128,16 +128,11 @@ final class Mood
     }
 
     /**
-     * Set the conversation's mood from what the model said: a different, weaker feeling does not
-     * displace a standing stronger one; the same feeling keeps the stronger of the two.
+     * Set the conversation's mood from what the model said. Its latest word is the mood: it read the
+     * whole conversation, so "good night" after good news is sleepy, not the news still.
      */
     public function feel(int $conversationId, string $mood, int $intensity): void
     {
-        $now = $this->rows($conversationId)[$conversationId] ?? null;
-        if ($now !== null && $now['mood'] !== $mood && $intensity < $now['intensity']) {
-            return;
-        }
-        $intensity = $now !== null && $now['mood'] === $mood ? max($now['intensity'], $intensity) : $intensity;
         try {
             $this->scope->apply($this->table())->where('conversation_id', $conversationId)
                 ->update(['mood' => $mood, 'mood_intensity' => $intensity, 'mood_at' => CallLog::instant(time())]);
@@ -147,16 +142,22 @@ final class Mood
     }
 
     /**
-     * The mood now: in a conversation, the stronger of its own and what a strong mood elsewhere
-     * leaves for this person; without one, the strongest of the person's — what the avatar shows
-     * while idle. Null when nothing is felt.
+     * The mood now: in a conversation, its own while it is felt, else the strongest a strong mood
+     * elsewhere leaves for this person; without one, the strongest of the person's — what the
+     * avatar shows while idle. Null when nothing is felt.
      *
      * @return array{mood: string, intensity: int, plays: string|null}|null
      */
     public function now(?int $conversationId = null): ?array
     {
+        $rows = $this->rows();
+        if ($conversationId !== null && ($rows[$conversationId]['intensity'] ?? 0) >= self::FELT) {
+            $own = $rows[$conversationId];
+
+            return ['mood' => $own['mood'], 'intensity' => $own['intensity'], 'plays' => self::plays()[$own['mood']] ?? null];
+        }
         $best = null;
-        foreach ($this->rows() as $id => $row) {
+        foreach ($rows as $id => $row) {
             $value = $conversationId === null || $id === $conversationId
                 ? $row['intensity']
                 : ($row['set'] >= self::STRONG ? (int) floor($row['intensity'] * self::DAMPEN) : 0);
