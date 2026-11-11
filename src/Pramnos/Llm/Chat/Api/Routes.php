@@ -67,6 +67,7 @@ final class Routes
         $r->get($p['push'] . '/key', static fn () => $make()->pushKey())->describeFrom([$controller, 'pushKey']);
         $r->post($p['push'], static fn () => $make()->pushSubscribe())->describeFrom([$controller, 'pushSubscribe']);
         $r->delete($p['push'], static fn () => $make()->pushUnsubscribe())->describeFrom([$controller, 'pushUnsubscribe']);
+        $r->get($p['asks'] . '/{ask_id}/stream', static fn ($ask_id) => $make()->askStream($ask_id))->describeFrom([$controller, 'askStream']);
         $r->get($p['asks'] . '/{ask_id}', static fn ($ask_id) => $make()->asked($ask_id))->describeFrom([$controller, 'asked']);
         $r->post($p['asks'] . '/{ask_id}/cancel', static fn ($ask_id) => $make()->cancelAsk($ask_id))->describeFrom([$controller, 'cancelAsk']);
         $r->get($p['skills'], static fn () => $make()->skillList())->describeFrom([$controller, 'skillList']);

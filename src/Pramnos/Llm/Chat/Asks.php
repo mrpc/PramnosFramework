@@ -180,6 +180,92 @@ class Asks
         ];
     }
 
+    /** How often {@see follow()} reads the ask, in seconds. */
+    public const FOLLOW_EVERY = 0.25;
+
+    /** How long {@see follow()} follows one ask at most, in seconds: then the client asks again. */
+    public const FOLLOW_FOR = 180;
+
+    /**
+     * Follow an ask as it is answered, telling `$emit($event, $data)` each change — for a stream
+     * (`GET {chat}/asks/{id}/stream`), so a voice can start on the first sentence:
+     *
+     * - `doing` `{tool, host?}` or null, as it changes;
+     * - `partial` `{text}`: the answer so far up to its last whole sentence, tags already out — a
+     *   voice reads a sentence it will not have to take back;
+     * - `answered` `{conversation_id, message_id, content, mood, act, wear, ended}` at the end, or
+     *   `failed` `{status, why, says}`; then it returns.
+     *
+     * Returns false for an ask that is not this person's. `$sleep` is for tests.
+     *
+     * @param callable(string, mixed): void $emit
+     * @param (callable(float): void)|null  $sleep
+     */
+    public function follow(Scope $scope, int $askId, callable $emit, ?callable $sleep = null, int $maxSeconds = self::FOLLOW_FOR): bool
+    {
+        $sleep ??= static function (float $seconds): void {
+            usleep((int) ($seconds * 1_000_000));
+        };
+        $doing = false;  // not told yet
+        $told  = '';
+        for ($waited = 0.0; $waited <= $maxSeconds; $waited += self::FOLLOW_EVERY) {
+            $ask = $this->find($scope, $askId);
+            if ($ask === null) {
+                return false;
+            }
+            if ($ask['doing'] !== $doing) {
+                $emit('doing', $ask['doing']);
+                $doing = $ask['doing'];
+            }
+            $whole = self::wholeSentences((string) $ask['partial']);
+            if ($whole !== '' && $whole !== $told && mb_strlen($whole) > mb_strlen($told)) {
+                $emit('partial', ['text' => $whole]);
+                $told = $whole;
+            }
+            if ($ask['status'] === 'answered') {
+                $emit('answered', $this->answered($scope, (int) $ask['conversation_id']));
+
+                return true;
+            }
+            if ($ask['status'] !== 'waiting') {
+                $emit('failed', ['status' => $ask['status'], 'why' => $ask['why'], 'says' => $ask['says']]);
+
+                return true;
+            }
+            if (function_exists('connection_aborted') && connection_aborted()) {
+                return true; // @codeCoverageIgnore — never under CLI
+            }
+            $sleep(self::FOLLOW_EVERY);
+        }
+
+        return true;
+    }
+
+    /**
+     * A text up to its last whole sentence: one ended by a mark and followed by a space or a line
+     * break — "3." of "3.5" is not an end. '' when no sentence has ended yet.
+     */
+    public static function wholeSentences(string $text): string
+    {
+        return preg_match('/^.*[.!?;…·](?=\s)/su', $text, $m) === 1 ? rtrim($m[0]) : '';
+    }
+
+    /**
+     * The answer an ask ended with, as the stream's last event says it.
+     *
+     * @return array<string, mixed>
+     */
+    private function answered(Scope $scope, int $conversationId): array
+    {
+        $found    = $this->chat->as($scope)->find($conversationId);
+        $messages = array_values(array_filter((array) ($found['messages'] ?? []), static fn (array $m): bool => $m['role'] === 'assistant'));
+        $last     = $messages === [] ? [] : end($messages);
+
+        return ['conversation_id' => $conversationId, 'message_id' => isset($last['message_id']) ? (int) $last['message_id'] : null,
+            'content' => $last['content'] ?? null] + array_intersect_key($last + ['mood' => null, 'act' => null, 'wear' => null, 'ended' => false],
+            array_flip(['mood', 'act', 'wear', 'ended']));
+    }
+
     /**
      * What a screen is told a tool call is doing: its name, and for one that sends an address out
      * (`outbound`) only that address's host — never the whole address, never other arguments,

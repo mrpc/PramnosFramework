@@ -554,6 +554,30 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return $found === null ? self::error(404, 'There is no such question.') : ['status' => 200, 'data' => $found];
     }
 
+    /**
+     * A queued question followed as a stream of events (`Asks::follow()`): `GET {chat}/asks/{id}/stream`
+     * — `doing`, `partial` (whole sentences, tags out), then `answered` or `failed`. An `EventSource`
+     * that reconnects is told the same from where the ask stands. 404 for an ask not the person's.
+     */
+    public function askStream($ask_id): array|\Pramnos\Http\StreamedResponse
+    {
+        if (($stop = $this->refusal('read')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        $asks  = $this->asks();
+        if ($scope === null || $asks->find($scope, (int) $ask_id) === null) {
+            return self::error(404, 'There is no such question.');
+        }
+
+        return \Pramnos\Http\StreamedResponse::sse(static function (\Pramnos\Http\Sse\SseWriter $sse) use ($asks, $scope, $ask_id): void {
+            $sse->retry(1000);
+            $asks->follow($scope, (int) $ask_id, static function (string $event, mixed $data) use ($sse): void {
+                $sse->event($event, $data);
+            });
+        });
+    }
+
     /** Stop a question while the worker answers it: `POST /chat/asks/{ask_id}/cancel`. */
     public function cancelAsk($ask_id): array
     {
