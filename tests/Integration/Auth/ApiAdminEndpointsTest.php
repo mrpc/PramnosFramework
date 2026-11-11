@@ -365,16 +365,32 @@ class ApiAdminEndpointsTest extends BaseTestCase
         }
     }
 
-    /** And the default file is served rather than refused. */
+    /**
+     * And the default file is served rather than refused. The file has to be there: a viewer with
+     * no whitelist opens what the log directory holds, and whether something was logged before
+     * this test depends on which tests ran first — so it is made here when missing, and taken away.
+     */
     public function testTheDefaultLogFileIsServed(): void
     {
         // Arrange
         $api  = $this->api(authenticated: true, authorized: true);
         $_GET = [];
         \Pramnos\Http\Request::resetInstance();
+        $file = LOG_PATH . DS . 'logs' . DS . 'pramnosframework.log';
+        $made = !is_file($file);
+        if ($made) {
+            @mkdir(dirname($file), 0777, true);
+            file_put_contents($file, "INFO started\n");
+        }
 
         // Act
-        $answer = $api->logs();
+        try {
+            $answer = $api->logs();
+        } finally {
+            if ($made) {
+                @unlink($file);
+            }
+        }
 
         // Assert
         $this->assertNotSame(
