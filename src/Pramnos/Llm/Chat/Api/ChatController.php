@@ -370,8 +370,10 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         $scope = $this->scope();
         $id    = (int) ($_GET['conversation_id'] ?? 0);
 
-        return ['status' => 200, 'data' => ['on' => \Pramnos\Llm\Chat\Mood::on(),
-            'mood' => $scope === null || !\Pramnos\Llm\Chat\Mood::on() ? null : (new \Pramnos\Llm\Chat\Mood($scope))->now($id > 0 ? $id : null)]];
+        $on    = \Pramnos\Llm\Chat\Mood::on($scope);
+
+        return ['status' => 200, 'data' => ['on' => $on,
+            'mood' => $scope === null || !$on ? null : (new \Pramnos\Llm\Chat\Mood($scope))->now($id > 0 ? $id : null)]];
     }
 
     /**

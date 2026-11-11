@@ -12,7 +12,8 @@ use Pramnos\Llm\CallLog;
  *
  * Turned on with `'llm' => ['chat' => ['mood' => true]]` — the words are then the signals the
  * avatar set declares (`analyst.avatar_set.moods`, or `analyst.avatar_moods`) — or with
- * `['mood' => ['words' => ['happy', 'sleepy', …]]]`. Off, nothing here runs.
+ * `['mood' => ['words' => ['happy', 'sleepy', …]]]`. Only in the `chat` space unless
+ * `'spaces'` names others. Off, nothing here runs.
  *
  * - **Said by the model.** Each answer ends with a private tag, `[[mood:happy|70]]`: a word from
  *   the vocabulary and how strongly, 0–100. It costs no call, and is taken out before the answer
@@ -63,10 +64,17 @@ final class Mood
         return $config === true ? array_map('strval', array_keys(self::plays())) : [];
     }
 
-    /** Whether moods are on: there is a vocabulary. */
-    public static function on(): bool
+    /**
+     * Whether moods are on — there is a vocabulary — and, given a scope, in its space: the
+     * conversation page's (`chat`) unless `['mood' => ['spaces' => [...]]]` names others, so the
+     * administrators' analyst has none.
+     */
+    public static function on(?Scope $scope = null): bool
     {
-        return self::words() !== [];
+        $config = ((array) \Pramnos\Llm\Llm::config('chat', []))['mood'] ?? false;
+        $spaces = is_array($config) && is_array($config['spaces'] ?? null) ? array_map('strval', $config['spaces']) : [Scope::CHAT];
+
+        return self::words() !== [] && ($scope === null || in_array($scope->space, $spaces, true));
     }
 
     /**

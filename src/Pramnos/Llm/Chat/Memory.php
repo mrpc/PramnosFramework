@@ -146,11 +146,15 @@ class Memory
     /**
      * Whether learning also keeps what the assistant made up about itself — its looks, small
      * details, names — so it never contradicts itself with this person: `'llm' => ['chat' =>
-     * ['memory' => ['self' => true]]]`, off by default. A companion wants it; an analyst does not.
+     * ['memory' => ['self' => true]]]`, off by default, and then in the `chat` space only —
+     * `['self' => ['spaces' => [...]]]` names others. A companion wants it; an analyst does not.
      */
-    public static function selfOn(): bool
+    public static function selfOn(?Scope $scope = null): bool
     {
-        return (bool) (self::config()['self'] ?? false);
+        $self   = self::config()['self'] ?? false;
+        $spaces = is_array($self) && is_array($self['spaces'] ?? null) ? array_map('strval', $self['spaces']) : [Scope::CHAT];
+
+        return ($self === true || is_array($self)) && ($scope === null || in_array($scope->space, $spaces, true));
     }
 
     /** Whether the application keeps memories an organisation shares. */
@@ -252,7 +256,7 @@ class Memory
     public function learnConversation(\Pramnos\Llm\Client $client, string $said, string $replied): array
     {
         $done = ['kept' => 0, 'corrected' => 0, 'forgotten' => 0, 'proposed' => 0, 'self' => 0];
-        $replied = self::selfOn() ? trim($replied) : '';
+        $replied = self::selfOn($this->scope) ? trim($replied) : '';
         if (trim($said) === '' && $replied === '') {
             return $done;
         }

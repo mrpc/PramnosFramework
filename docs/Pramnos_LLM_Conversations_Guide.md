@@ -190,7 +190,9 @@ A companion can have a mood with each person that lasts and fades. It is off by 
 `'llm' => ['chat' => ['mood' => true]]` takes the words from the avatar set's signals
 (`analyst.avatar_set.moods`, or `analyst.avatar_moods`; see
 [the picture in every state](Pramnos_LLM_Analyst_Guide.md#the-picture-in-every-state-on-the-ai-screen)),
-and `['mood' => ['words' => ['calm', 'cross', …]]]` names them directly. `Chat\Mood` does the rest:
+and `['mood' => ['words' => ['calm', 'cross', …]]]` names them directly. It applies in the
+conversation page's space (`chat`) only, so the administrators' analyst has no mood;
+`['mood' => ['spaces' => ['chat', 'admin']]]` names the spaces. `Chat\Mood` does the rest:
 
 - **The model says it.** Zone 3 asks each answer to end with a private tag, `[[mood:happy|70]]`:
   a word from the vocabulary and how strongly, 0–100. It costs no call. The tag is taken out of
@@ -257,7 +259,8 @@ into the prompt apart from what is remembered about the person, under *What you 
 yourself to this person — keep to it, never contradict it*. The person sees and forgets them on
 the memory list like any other, and `llm:memory-review` leaves them out. In code,
 `Memory::learnConversation($client, $said, $replied)`; `learn($client, $said)` is the same without
-replies.
+replies. Like the mood, it applies in the `chat` space only unless `['self' => ['spaces' => [...]]]`
+names others.
 
 **What the person asks to be remembered is remembered at once.** "Remember that I moved to
 Athens", "forget that": the model calls `remember` or `forget` in the same answer, with no batch to

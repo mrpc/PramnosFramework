@@ -75,6 +75,35 @@ class MoodTest extends LlmTestCase
     }
 
     /**
+     * Mood and the assistant's word about itself live in the conversation page's space unless the
+     * application names others: the administrators' analyst (space `admin`) is asked for no tag and
+     * keeps no `self`, while `'spaces'` can let it in.
+     */
+    #[DataProvider('databases')]
+    public function testOnlyInTheSpacesNamed(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $chat  = new Scope(7, null);
+        $admin = new Scope(7, null, Scope::ADMIN);
+        $this->configure(['chat' => ['mood' => true, 'memory' => ['self' => true]], 'analyst' => ['avatar_set' => ['markup' => '<svg></svg>', 'moods' => ['happy' => 'success']]]]);
+        $this->answer([[200, self::says('Figures. [[mood:happy|90]]')]]);
+
+        // Act
+        $byDefault = [Mood::on($chat), Mood::on($admin), \Pramnos\Llm\Chat\Memory::selfOn($chat), \Pramnos\Llm\Chat\Memory::selfOn($admin)];
+        $answer    = (new Conversations(new BaseAssistant()))->as($admin)->ask(null, 'Sales today?');
+        $this->configure(['chat' => ['mood' => ['words' => ['happy'], 'spaces' => ['chat', 'admin']], 'memory' => ['self' => ['spaces' => ['admin']]]]]);
+        $named = [Mood::on($admin), \Pramnos\Llm\Chat\Memory::selfOn($chat), \Pramnos\Llm\Chat\Memory::selfOn($admin)];
+
+        // Assert
+        $this->assertSame([true, false, true, false], $byDefault, 'the conversation page only');
+        $this->assertStringNotContainsString('[[mood:', self::tail($this->sent[0]), 'the analyst is not asked for a tag');
+        $this->assertArrayNotHasKey('mood', $answer['message']);
+        $this->assertSame([true, false, true], $named);
+        $this->db->queryBuilder()->table('assist.chat_conversations')->where('conversation_id', (int) $answer['conversation_id'])->delete();
+    }
+
+    /**
      * Asked: the model is told to end with the tag; the tag is taken out of the stored answer and
      * the stream; the conversation keeps the mood; the message carries it with what the avatar
      * plays; and the next answer is told it as tone. A weaker, different feeling then does not

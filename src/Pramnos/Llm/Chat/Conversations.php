@@ -463,7 +463,7 @@ class Conversations
         // How the person feels changes with a word, so it goes last, where nothing is cached anyway.
         // The assistant's own mood, where the application turned it on: said by the model in a tag,
         // kept with the conversation, given back as tone (Mood).
-        $mood   = Mood::on() && !$this->scheduled && !$turn->shared() ? new Mood($this->scope) : null;
+        $mood   = Mood::on($this->scope) && !$this->scheduled && !$turn->shared() ? new Mood($this->scope) : null;
         $zones  = (new ContextAssembler($this->assistant))->alsoNow(
             (!$turn->shared() && Profile::on($this->scope) && Profile::available() ? (new Profile($this->scope))->moodContext() : '')
             . ($mood === null ? '' : "\n\n" . trim($mood->directive($conversationId) . "\n" . Mood::instruction()))
@@ -799,7 +799,7 @@ class Conversations
 
         while ($result && ($row = $result->fetch()) !== null) {
             $last = (int) $row['message_id'];
-            if ($row['role'] === 'assistant' && Memory::selfOn()) {
+            if ($row['role'] === 'assistant' && Memory::selfOn($this->scope)) {
                 $replied[] = mb_substr((string) $row['content'], 0, 800);
             }
             if ($row['role'] === 'user') {
