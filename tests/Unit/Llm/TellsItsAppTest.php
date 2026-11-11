@@ -59,16 +59,19 @@ final class TellsItsAppTest extends LlmTestCase
     }
 
     /**
-     * The companion's notifications are its app's alone (FW-465): from `chat` or any persona's
-     * `chat:<persona>`, never the site's bell (`database`) nor the site's devices — the app's
-     * devices only, and with no app, nowhere — unless the application asks for the bell
-     * (`companion_notify_via`). The administration's keep the bell. An application's own class
-     * that names the app but not the space is the companion's too.
+     * Where the application says the companion tells through its own app alone
+     * (`notify.channel = app`): from `chat` or any persona's `chat:<persona>`, never the site's bell
+     * (`database`) nor the site's devices — the app's devices only, and with no app, nowhere —
+     * unless the application asks for the bell (`companion_notify_via`). The administration's keep
+     * the bell. An application's own class that names the app but not the space is the companion's
+     * too. Without that setting, the site's ordinary notification.
      */
     public function testTheCompanionsNotificationsNeverReachTheSite(): void
     {
         // Arrange
         $this->configure(['chat' => ['app_url' => 'https://app.example/']]);
+        $ordinary = RoutineReady::tag(new TaskReminder('Tesla left you something', ''), 'chat:tesla')->via((object) ['userid' => 0]);
+        $this->configure(['chat' => ['app_url' => 'https://app.example/', 'notify' => ['channel' => 'app']]]);
         $tesla = RoutineReady::tag(new TaskReminder('Tesla left you something', ''), 'chat:tesla');
         $naya  = RoutineReady::tag(new RoutineReady('Daily check-in', true, '', ''), Scope::CHAT);
         $share = RoutineReady::tag(new SharedWithYou('Shared', ''), 'chat:tesla');
@@ -78,12 +81,13 @@ final class TellsItsAppTest extends LlmTestCase
         // Act
         $withApp  = [$tesla->pushApp($person), $tesla->via($person), $naya->via($person), $share->via($person), $admin->via($person)];
         $ownClass = RoutineReady::channels($person, Scope::CHAT);
-        $this->configure([]);
+        $this->configure(['chat' => ['notify' => ['channel' => 'app']]]);
         $noApp    = [$tesla->pushApp($person), $tesla->via($person), $naya->via($person)];
-        $this->configure(['chat' => ['app_url' => 'https://app.example/', 'companion_notify_via' => ['database', 'push']]]);
+        $this->configure(['chat' => ['app_url' => 'https://app.example/', 'notify' => ['channel' => 'app'], 'companion_notify_via' => ['database', 'push']]]);
         $optedIn  = $tesla->via($person);
 
         // Assert
+        $this->assertContains('database', $ordinary, 'without the setting, the site\'s ordinary notification');
         $this->assertSame('chat', $withApp[0], 'every persona\'s goes to the app');
         $this->assertNotContains('database', $withApp[1], 'never the site\'s bell');
         $this->assertNotContains('database', $withApp[2]);

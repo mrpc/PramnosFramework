@@ -116,7 +116,7 @@ class PlanTest extends LlmTestCase
         $this->assertSame(['Garden', 'Novel'], array_column($fromAsk, 'project'), 'the Ask reads the same plan as every persona');
         $this->assertSame(['rain', 'active', (new \DateTimeImmutable('now', new \DateTimeZone('Europe/Athens')))->format('Y-m-d')], [$fromAsk[0]['blockers'], $fromAsk[0]['phase'], $fromAsk[0]['updated']]);
         $this->assertStringContainsString('- Garden (home) — active; beds dug; blocked by: rain; updated ', $system, 'a line a project in the question');
-        $this->assertStringContainsString('When they tell you news about a project listed here, update it with plan_update', $system, 'news is the cue to change it');
+        $this->assertStringContainsString('Keep it up to date with plan_update when the person tells you of a project listed here.', $system, 'what to do with it');
         $offered = array_column(array_column((array) ($this->sent[0]['body']['tools'] ?? []), 'function'), 'description', 'name');
         $this->assertArrayHasKey('plan_update', $offered, 'with projects in it, changing one is at hand, not behind its skill');
         $this->assertStringContainsString('that goes to plan_update', (string) ($offered['remember'] ?? ''), 'news is not kept in memory too');
@@ -140,15 +140,17 @@ class PlanTest extends LlmTestCase
         // Act
         $on        = [Plan::on(new Scope(5, null, Scope::CHAT, 'naya')), Plan::on(new Scope(5, null, Scope::ADMIN)), Plan::on(new Scope(5, null, 'support')), Plan::on(new Scope(0, null))];
         $templates = Routines::templates();
+        $this->configure(['chat' => ['plan' => ['templates' => ['plan_morning' => ['title' => 'Morning', 'prompt' => 'Brief me.', 'cadence' => 'weekdays', 'at' => '10:00']]]]]);
+        $declared  = Routines::templates();
         $this->configure(['chat' => []]);
         $off       = [Plan::on(new Scope(5, null)), Routines::templates()];
         $next      = Routines::nextRun('weekdays', '10:00', null, 'UTC', $friday);
 
         // Assert
         $this->assertSame([true, true, false, false], $on, 'a person\'s conversations and the Ask; not another space, nor nobody');
-        $this->assertSame(['weekdays', '10:00'], [$templates['plan_morning']['cadence'], $templates['plan_morning']['at']]);
-        $this->assertSame(['weekly', 7, '20:00'], [$templates['plan_week']['cadence'], $templates['plan_week']['day'], $templates['plan_week']['at']]);
-        $this->assertSame([false, []], [$off[0], array_intersect_key($off[1], Plan::TEMPLATES)], 'off: nothing');
+        $this->assertSame([], array_intersect_key($templates, ['plan_morning' => 1, 'plan_week' => 1]), 'no ready-made routines of the framework\'s own');
+        $this->assertSame(['weekdays', '10:00'], [$declared['plan_morning']['cadence'], $declared['plan_morning']['at']], 'the application\'s, where it declares them');
+        $this->assertSame([false, []], [$off[0], array_intersect_key($off[1], ['plan_morning' => 1])], 'off: nothing');
         $this->assertSame('2026-11-16 10:00', gmdate('Y-m-d H:i', $next), 'after Friday\'s, Monday\'s: the weekend skipped');
     }
 
@@ -199,7 +201,7 @@ class PlanTest extends LlmTestCase
         $this->assertSame(['Follow-up: the shopping'], $after);
         $this->assertSame([true, false], [\Pramnos\Llm\Chat\FollowUps::on($scope), \Pramnos\Llm\Chat\FollowUps::on(new Scope($userId, null, Scope::ADMIN))]);
         $this->assertSame(['follow_up', 'follow_up_cancel'], array_keys($follow->tools()));
-        $this->assertStringContainsString('do not ask whether they want it', $follow->tools()['follow_up']['description']);
+        $this->assertSame(\Pramnos\Llm\Chat\FollowUps::DESCRIPTION, $follow->tools()['follow_up']['description'], 'the framework\'s plain words, without the application\'s');
     }
 
     /**

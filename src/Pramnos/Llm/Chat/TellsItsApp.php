@@ -6,10 +6,10 @@ namespace Pramnos\Llm\Chat;
 
 /**
  * A notification of the conversations that knows the space it comes from. One of the companion's
- * (`chat`, `chat:<persona>`) goes by push to the devices of its own app alone
- * (`'llm' => ['chat' => ['app_url' => 'https://…/']]`), the push opening the app — never the
- * site's bell or devices ({@see RoutineReady::channels()}), and nowhere without an app. Anywhere
- * else, the site's.
+ * (`chat`, `chat:<persona>`) goes by push to the devices of its own app
+ * (`'llm' => ['chat' => ['app_url' => 'https://…/']]`), the push opening the app; with
+ * `'notify' => ['channel' => 'app']`, there alone — never the site's bell or devices
+ * ({@see RoutineReady::channels()}). Anywhere else, the site's.
  *
  * {@see RoutineReady}, {@see TaskReminder} and {@see SharedWithYou} use it, and so may an
  * application's own replacement of them: the senders call {@see fromSpace()} where it is there,

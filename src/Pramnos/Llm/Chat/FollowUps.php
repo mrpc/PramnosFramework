@@ -43,6 +43,19 @@ final class FollowUps
         return $scope->space === Scope::CHAT && $scope->userId > 0 && is_array($chat) && !empty($chat['follow_up']);
     }
 
+    /** What `follow_up` is told, unless the application words it (`chat.follow_up.description`). */
+    public const DESCRIPTION = 'When the person says what they are doing now, you may schedule one check a few hours later, to ask '
+        . 'how it went. One for a thing; never for something they did not say they are doing. Write `about` in their own words and '
+        . 'language, quoting their phrase.';
+
+    /** The `follow_up` tool's description: the application's words, or {@see DESCRIPTION}. */
+    public static function description(): string
+    {
+        $own = ((array) (((array) \Pramnos\Llm\Llm::config('chat', []))['follow_up'] ?? []))['description'] ?? null;
+
+        return is_string($own) && trim($own) !== '' ? trim($own) : self::DESCRIPTION;
+    }
+
     /** How many a day the application allows. */
     public static function daily(): int
     {
@@ -60,10 +73,7 @@ final class FollowUps
     {
         return [
             'follow_up' => [
-                'description' => 'When the person says what they are doing now ("I\'m sitting down to do the accounts"), schedule one '
-                    . 'check a few hours later, by yourself: do not ask whether they want it. Mention it in half a sentence. One for '
-                    . 'a thing; never for something they did not say they are doing. Write `about` in their own words and language, '
-                    . 'quoting their phrase.',
+                'description' => self::description(),
                 'parameters'  => ['type' => 'object', 'properties' => [
                     'about'    => ['type' => 'string', 'description' => 'The thing, in the person\'s own words and language: "την αναφορά", "the accounts".'],
                     'in_hours' => ['type' => 'integer', 'description' => 'Hours from now, 1 to ' . self::MAX_HOURS . '; 2 or 3 usually.'],

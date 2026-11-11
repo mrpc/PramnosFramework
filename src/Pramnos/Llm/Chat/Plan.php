@@ -13,8 +13,9 @@ namespace Pramnos\Llm\Chat;
  * deadlines and next steps are to-dos with a date, not columns. The tools name a project, and the
  * code finds it — a change never lands on a project the person did not name.
  *
- * Every question carries the plan a line a project ({@see context()}); {@see TEMPLATES} offers a
- * weekday morning briefing and a Sunday review. What is finished is taken out, not kept.
+ * Every question carries the plan a line a project ({@see context()}). Its routines, and how its
+ * tools are to be used, are the application's to declare ({@see templates()}). What is finished is
+ * taken out, not kept.
  */
 final class Plan
 {
@@ -30,31 +31,41 @@ final class Plan
     /** How many projects a plan holds at most. */
     public const MAX = 50;
 
-    /** The routines it offers beside the application's own `routine_templates`, which override them by key. */
-    public const TEMPLATES = [
-        'plan_morning' => [
-            'title'   => 'The plan, this morning',
-            'prompt'  => 'Brief me on my plan in about a minute of speech: only what needs a decision today — a deadline today '
-                . 'or past, a blocker, a project that has not moved for a week (its updated date). Do not list the projects. '
-                . 'Close with one question.',
-            'cadence' => 'weekdays',
-            'at'      => '10:00',
-        ],
-        'plan_week' => [
-            'title'   => 'The week\'s review',
-            'prompt'  => 'Review my plan with me for the week: what moved, what is stuck, what is waiting on somebody, and the '
-                . 'deadlines of the week ahead. Ask me about one project at a time, and change the plan only with what I say.',
-            'cadence' => 'weekly',
-            'day'     => 7,
-            'at'      => '20:00',
-        ],
-    ];
+    /**
+     * The routines the plan offers, as the application declares them —
+     * `'chat' => ['plan' => ['templates' => ['plan_morning' => ['title', 'prompt', 'cadence', 'at', 'day'], …]]]` —
+     * beside its own `routine_templates`, which win by key. None where it declares none.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public static function templates(): array
+    {
+        $given = self::config()['templates'] ?? null;
 
-    /** How the plan's tools are used, told in each of their descriptions. */
-    private const RULES = 'Change the plan only with what the person says, never from what you infer. Change one field at a '
-        . 'time, and confirm it in one sentence. Before closing a project, setting it done or paused, or when it is not '
-        . 'clear which project they mean, ask first. Deadlines and next steps are to-dos with a date; a deadline past is '
-        . 'closed or moved, never left overdue.';
+        return is_array($given) ? array_filter($given, 'is_array') : [];
+    }
+
+    /** How the plan's tools are to be used, told in each of their descriptions, unless the application words it (`chat.plan.rules`). */
+    private const RULES = 'Change the plan with what the person says.';
+
+    /** What the plan in each question ends with, unless the application words it (`chat.plan.cue`). */
+    private const CUE = 'Keep it up to date with plan_update when the person tells you of a project listed here.';
+
+    /** The application's words for one of the plan's texts, or the framework's. */
+    private static function worded(string $key, string $default): string
+    {
+        $own = self::config()[$key] ?? null;
+
+        return is_string($own) && trim($own) !== '' ? trim($own) : $default;
+    }
+
+    /** @return array<string, mixed> `chat.plan` where it is an array of settings */
+    private static function config(): array
+    {
+        $plan = ((array) \Pramnos\Llm\Llm::config('chat', []))['plan'] ?? null;
+
+        return is_array($plan) ? $plan : [];
+    }
 
     /** The person's, in their own conversations: every persona, and the Ask, read the same plan. */
     private readonly Scope $scope;
@@ -130,9 +141,8 @@ final class Plan
                 . ($p['blockers'] !== '' ? '; blocked by: ' . $p['blockers'] : '') . ($p['updated'] !== '' ? '; updated ' . $p['updated'] : '');
         }
 
-        // The tools wait behind the skill: the news itself is the cue to load it and use them.
-        $lines[] = 'When they tell you news about a project listed here, update it with plan_update (one field, usually status) '
-            . 'and say so in one sentence; ask first only to close it, set it done or paused, or when it is unclear which project.';
+        // What the model is to do with it: the application's words, or the framework's plain ones.
+        $lines[] = self::worded('cue', self::CUE);
 
         return implode("\n", $lines);
     }
@@ -151,7 +161,7 @@ final class Plan
 
         return [
             'plan_add' => [
-                'description' => 'Add a project to the person\'s plan: anything they are working on — work, a hobby, the family, the house. ' . self::RULES,
+                'description' => 'Add a project to the person\'s plan: anything they are working on. ' . self::worded('rules', self::RULES),
                 'parameters'  => ['type' => 'object', 'properties' => [
                     'project'  => ['type' => 'string', 'description' => 'Its name, short.'],
                     'kind'     => ['type' => 'string', 'description' => 'work, hobby, family, home, or another word.'],
@@ -165,7 +175,7 @@ final class Plan
                 'tags'        => ['personal' => true],
             ],
             'plan_update' => [
-                'description' => 'Change one field of a project in the person\'s plan. ' . self::RULES,
+                'description' => 'Change one field of a project in the person\'s plan. ' . self::worded('rules', self::RULES),
                 'parameters'  => ['type' => 'object', 'properties' => [
                     'project' => ['type' => 'string', 'description' => 'The project\'s name as the plan has it.'],
                     'field'   => ['type' => 'string', 'enum' => $fields],
@@ -176,7 +186,7 @@ final class Plan
                 'tags'        => ['personal' => true],
             ],
             'plan_close' => [
-                'description' => 'Take a finished or dropped project out of the person\'s plan; nothing of it is kept. Ask first. ' . self::RULES,
+                'description' => 'Take a finished or dropped project out of the person\'s plan; nothing of it is kept. ' . self::worded('rules', self::RULES),
                 'parameters'  => ['type' => 'object', 'properties' => ['project' => ['type' => 'string']], 'required' => ['project']],
                 'run'         => fn (array $a): string => $this->close((string) ($a['project'] ?? '')),
                 'writes'      => true,

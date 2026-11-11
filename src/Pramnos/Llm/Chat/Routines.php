@@ -95,7 +95,7 @@ class Routines
         return (is_array($chat['routine_templates'] ?? null) ? $chat['routine_templates'] : [])
             + (is_array($chat) && !empty($chat['calendar']) ? Calendar::TEMPLATES : [])
             + (is_array($chat) && !empty($chat['journal']) ? Journal::TEMPLATES : [])
-            + (is_array($chat) && !empty($chat['plan']) ? Plan::TEMPLATES : []);
+            + (is_array($chat) && !empty($chat['plan']) ? Plan::templates() : []);
     }
 
     /**

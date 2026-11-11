@@ -118,16 +118,19 @@ After each run:
 - Both go to the bell, and as a push where the owner has a browser subscribed. `'llm' => ['chat'
   => ['notify_via' => ['database']]]` keeps them to the bell; the list names the channels allowed
   (`database`, `push`).
-- **The companion's notifications are its app's alone.** The companion's assistant (the `chat`
-  space and every persona's `chat:<persona>`) lives in its own app, a PWA whose devices subscribe
-  through the conversation API. The application names it:
-  `'llm' => ['chat' => ['app_url' => 'https://app.example/']]`.
+- **The companion's notifications, through its own app where the application says so.** The
+  companion's assistant (the `chat` space and every persona's `chat:<persona>`) may live in its own
+  app, a PWA whose devices subscribe through the conversation API. The application names it,
+  `'llm' => ['chat' => ['app_url' => 'https://app.example/']]`, and pushes then open that app.
+  Which channel the companion tells through is the application's choice:
+  `'llm' => ['chat' => ['notify' => ['channel' => 'app']]]` keeps them to the app alone. Without
+  it, they are the site's ordinary notifications, like any other. With `app`:
     - **Which notifications:** a task of those spaces, a calendar reminder, a share made there and
       the morning's thought.
     - **Where they go:** push to that app's devices alone (`pushApp()`, see the Push guide), and
       the push opens the app. They never go to the site's bell (`database`) or to the site's
       devices: the companion's person is not necessarily somebody who uses the site.
-    - **No app:** they go nowhere, and what they were about waits in the app's own pages.
+    - **No app URL:** they go nowhere, and what they were about waits in the app's own pages.
     - **The bell:** an application that wants it too says so with
       `'llm' => ['chat' => ['companion_notify_via' => ['database', 'push']]]`.
     - **Which classes:** `Chat\TellsItsApp` and `RoutineReady::channels($notifiable, $app, $space)` do

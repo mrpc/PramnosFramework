@@ -175,24 +175,25 @@ focus, blockers, updated`. The phase is one of `active`, `paused`, `waiting` or 
   changes one field, and `plan_close` takes a project out with nothing kept. The code finds the
   project by its name, whatever the case. For a name the plan does not have it changes nothing
   and lists the ones it has. `updated` is set by the plan itself.
-- **The rules the model is given**, in every tool's description:
-  - change only on the person's word;
-  - one field at a time, confirmed in a sentence;
-  - ask before closing a project, setting it done or paused, or guessing which one;
-  - deadlines and next steps are to-dos with a date, and a deadline past is closed or moved.
+- **How the tools are to be used** is told in every tool's description: by default a plain
+  "change the plan with what the person says". The application words its own rules (when to
+  ask, what to confirm, how deadlines are kept) with
+  `'chat' => ['plan' => ['rules' => '…']]`.
 - **In every question**, a line per project (`Plan::context()`).
 - **For a page of the application's**, `GET {chat}/plan` returns `{artifact_id, columns,
   projects}`. It is the same from every persona. The artifact list itself is each persona's own,
   and the default persona's space is the person's, so the plan is read here rather than listed
   there.
-- **Its routines.** `Plan::TEMPLATES` offers `plan_morning`, Monday to Friday at 10:00
-  (`cadence: weekdays`). It covers, in about a minute, only what needs a decision today:
-  deadlines, blockers, what has not moved. It also offers `plan_week`, Sunday at 20:00.
+- **Its routines** are the application's to declare: `'chat' => ['plan' => ['templates' =>
+  ['plan_morning' => ['title' => '…', 'prompt' => '…', 'cadence' => 'weekdays', 'at' => '10:00'],
+  …]]]`, in the shape of `routine_templates`, which win by key. `Plan::templates()` gives them.
+  Without any declared, the plan offers no ready-made routines.
 - **Memory.** A memory about the person's projects takes the topic `plans`. A channel reads it
   from another only where the application lets it (`channels.reads`).
 
-- **News is the cue.** The plan in each question ends with a line telling the model to update a
-  listed project when the person brings news of it, and to say so in a sentence. With projects in
+- **News is the cue.** The plan in each question ends with a line telling the model to keep a
+  listed project up to date with `plan_update` when the person brings news of it. The
+  application words it its own way with `'chat' => ['plan' => ['cue' => '…']]`. With projects in
   the plan, `plan_add` and `plan_update` are always loaded, outside the skill. `remember` is told
   that news about a project goes to the plan, not to memory.
 
@@ -257,8 +258,10 @@ in_hours)` schedules one question 1 to 12 hours later. It is a one-off routine t
 - **Not in the person's quiet hours** (their companion settings): a check that would fall in them
   is asked when they end.
 - **A few a day**, three unless the application says, counted by the day each check is asked on.
-- **Set by itself.** The model is told to schedule the check without asking, mention it in half a
-  sentence, and write `about` in the person's own words and language.
+- **How it is set** is in the tool's description: by default, that the model *may* schedule
+  one, one for a thing, with `about` in the person's own words and language
+  (`FollowUps::DESCRIPTION`). Whether to ask first, and how to mention it, is the application's
+  to word: `'chat' => ['follow_up' => ['description' => '…']]`.
 - **Forgotten when said first.** The checks still to come are in each question's context, and the
   model drops one with `follow_up_cancel` when the person tells how it went, in any words. A
   question that names the thing, by the first five letters of each longer word, also takes it

@@ -77,10 +77,11 @@ class RoutineReady implements NotificationInterface
     public static function channels(mixed $notifiable, string $app = '', string $space = ''): array
     {
         $chat = \Pramnos\Llm\Llm::config('chat', []);
-        // The companion's (`chat`, `chat:<persona>`) are its app's alone: never the site's bell,
-        // never the site's devices — unless the application asks (`companion_notify_via`). With no
-        // app, nothing goes: what it was about waits in the app's own pages.
-        if (People::companion($space) || $app === Scope::CHAT) {
+        // Where the application says the companion tells through its own app alone
+        // (`'chat' => ['notify' => ['channel' => 'app']]`): its (`chat`, `chat:<persona>`) never
+        // reach the site's bell or devices — but for what `companion_notify_via` lets — and with no
+        // app, nothing goes. Otherwise, the site's ordinary notification, as for any other.
+        if ((People::companion($space) || $app === Scope::CHAT) && (((array) ($chat['notify'] ?? []))['channel'] ?? null) === 'app') {
             $allowed = is_array($chat['companion_notify_via'] ?? null) ? $chat['companion_notify_via'] : ['push'];
             $push    = $app !== '' && in_array('push', $allowed, true) && \Pramnos\Notification\Channels\PushChannel::sends()
                 && \Pramnos\Push\Subscriptions::exist((int) ($notifiable->userid ?? 0), $app);
