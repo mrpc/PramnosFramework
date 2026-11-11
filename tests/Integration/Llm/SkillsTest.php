@@ -117,7 +117,8 @@ class SkillsTest extends LlmTestCase
         $this->assertContains('remember', $first);
         $this->assertNotContains('crm_lookup', $first);
         $this->assertNotContains('pin_artifact', $first, 'the framework\'s artifacts skill');
-        $this->assertNotContains('schedule_task', $first, 'the framework\'s tasks skill');
+        $this->assertContains('schedule_task', $first, 'kept out of the tasks skill on the conversation page: "remind me at ten" (FW-431)');
+        $this->assertNotContains('cancel_scheduled_task', $first, 'the framework\'s tasks skill');
         $description = $this->sent[0]['body']['tools'][array_search('use_skill', $first, true)]['function']['description'];
         $this->assertStringContainsString('crm (customers and their orders)', $description);
         $this->assertStringContainsString('artifacts (reading, changing, finding and pinning artifacts kept earlier)', $description);

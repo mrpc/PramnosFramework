@@ -499,7 +499,7 @@ class Conversations
                 $tools,
                 $this->assistant->rounds(),
                 $this->assistant->due($turn),
-                $this->assistant->verify($turn)
+                $this->verifier($turn, $tools)
             );
             $client->onText(null)->cancelWhen(null)->inParallel(null)->answering(null);
 
@@ -885,6 +885,23 @@ class Conversations
     }
 
     /** Whether chat_conversations has its summary and watermarks yet — asked once per instance. */
+    /**
+     * What reads an answer against the calls it made: the assistant's own first, then a
+     * promise of a reminder that nothing scheduled (Routines::unkept()), where schedule_task
+     * is offered. One correction at most, the first that finds something.
+     *
+     * @param array<string, array<string, mixed>> $tools
+     */
+    private function verifier(Turn $turn, array $tools): ?callable
+    {
+        $own = $this->assistant->verify($turn);
+        if (!isset($tools['schedule_task'])) {
+            return $own;
+        }
+
+        return static fn (string $answer, array $calls): ?string => ($own === null ? null : $own($answer, $calls)) ?? Routines::unkept($answer, $calls);
+    }
+
     /** Whether conversations can be ended here: the column exists. */
     private function ends(): bool
     {
@@ -1147,7 +1164,11 @@ class Conversations
             + (self::mcpOn() ? \Pramnos\Llm\Mcp\Servers::tools() : [])
             + ($turn->shared() ? [] : $memory->tools($this, $turn->conversationId)
             // Not from a scheduled run: a task that schedules tasks has no end.
-            + ($this->scheduled ? [] : self::inSkill($routines->toolsFor($this->scope, $this->assistant->timezone($this->scope), $turn->conversationId), 'tasks')
+            + ($this->scheduled ? [] : self::inSkill($routines->toolsFor($this->scope, $this->assistant->timezone($this->scope), $turn->conversationId), 'tasks',
+                // On the conversation page, "remind me at ten" must not wait for the model to open
+                // the tasks skill first: it reaches for set_busy instead and promises a reminder
+                // nothing sends.
+                $this->scope->space === Scope::CHAT ? ['schedule_task'] : [])
                 // Kept with a conversation the person can open: a scheduled run has none yet.
                 + self::inSkill($artifacts->tools(), 'artifacts', ['save_artifact'])
                 // And changes to approve, where the application turned them on: nobody approves in a run.

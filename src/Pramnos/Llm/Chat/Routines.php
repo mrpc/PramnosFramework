@@ -1657,4 +1657,29 @@ class Routines
     {
         return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('pramnos.ai_task_runs');
     }
+
+    /** A reply that promises to remind or notify the person at a time. */
+    public const PROMISE = '/\\b(?:θα\\s+σου\\s+(?:χτυπήσω|θυμίσω|υπενθυμίσω|στείλω\\s+(?:υπενθύμιση|ειδοποίηση|μήνυμα))|θα\\s+σε\\s+(?:ειδοποιήσω|ξυπνήσω|θυμίσω))'
+        . '|\\b(?:I\'ll|I\\s+will|I\\s+shall)\\s+(?:remind|ping|notify|nudge|wake)\\s+you\\b/iu';
+
+    /**
+     * What is wrong with an answer that promises a reminder nothing scheduled — "I'll remind you
+     * at 10" after only set_busy, which sends nothing — or null. For the model to correct once.
+     *
+     * @param list<array{name: string, arguments: array<string, mixed>}> $calls
+     */
+    public static function unkept(string $answer, array $calls): ?string
+    {
+        if (preg_match(self::PROMISE, $answer) !== 1) {
+            return null;
+        }
+        foreach ($calls as $call) {
+            if (in_array($call['name'] ?? '', ['schedule_task', 'update_scheduled_task'], true)) {
+                return null;
+            }
+        }
+
+        return 'You told the person you would remind or notify them, but nothing was scheduled — set_busy sends nothing. '
+            . 'Call schedule_task with kind "reminder" for that time now, then confirm it; or, if you cannot, say plainly that no reminder was set.';
+    }
 }

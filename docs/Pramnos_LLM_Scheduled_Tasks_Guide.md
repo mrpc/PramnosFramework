@@ -53,6 +53,14 @@ tasks has no end), the model has four tools:
 | `list_reports` | The shared reports here this person may receive, and whether they do |
 | `subscribe_report`, `unsubscribe_report` | Receive a shared report by id, or stop. `email: true` sends the report itself by email too ("send it to me by email"); asked again, it turns email on or off on the existing subscription |
 
+These tools sit in the `tasks` skill, except `schedule_task` on the conversation page (`chat`).
+There it is always offered: a person who says "remind me at ten, I have a meeting" should not
+depend on the model opening a skill first. Without it, the model reaches for `set_busy`, which
+sends nothing. **A promised reminder must be scheduled.** An answer that says "I'll remind you"
+or «θα σου θυμίσω», while no `schedule_task` was called, is sent back once
+(`Routines::unkept()`, after the assistant's own `verify()`). The model then schedules the
+reminder, or says plainly that none was set.
+
 `schedule_task` also makes a report (`kind` `report`), shared with the organisation or the
 installation (`owner`) when the person asks and the policy lets them, and told only when there is
 something new (`notify` `relevant`).

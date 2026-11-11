@@ -457,7 +457,8 @@ final class Calendar
             ],
             'set_busy' => [
                 'description' => 'The person says they are busy — in a meeting, driving, resting — until a time; or, with no time, that they no longer are. '
-                    . 'Nothing is sent to them on the assistant\'s own initiative meanwhile.',
+                    . 'Nothing is sent to them on the assistant\'s own initiative meanwhile. Not a reminder: it sends nothing. '
+                    . 'To tell them something at a time ("remind me at 10", "let me know before the meeting"), use schedule_task with kind "reminder".',
                 'parameters'  => ['type' => 'object', 'properties' => ['until' => $time]],
                 'run'         => function (array $a): string {
                     $until = trim((string) ($a['until'] ?? ''));
