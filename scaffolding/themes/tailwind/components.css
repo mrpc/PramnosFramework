@@ -2481,3 +2481,7 @@ a.pf-person:hover { background: var(--pf-subtle); }
 .pf-canvas-versions li { display: flex; gap: 0.5rem; align-items: center; padding: 0.15rem 0; }
 /* A question asked in the page, never a browser box: deleting a message */
 .pf-conv-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.3rem; padding: 0.4rem 0.6rem; font-size: 0.85rem; background: var(--pf-subtle); border-radius: var(--pf-radius); }
+
+/* A card's settings form and its tools, hidden until Customise: no room taken, whatever display a
+   theme's own classes give them (a flex or grid utility outranks the [hidden] attribute). */
+[data-pf-widget-settings][hidden], [data-pf-widget-tools][hidden] { display: none !important; }
