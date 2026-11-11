@@ -643,6 +643,20 @@
             clipboard.writeText(text).then(done);
         }
 
+        /** An answer's HTML without the page's own buttons in it — a table's copy button among them. */
+        function drawnHtml(answer) {
+            var clone = answer.cloneNode ? answer.cloneNode(true) : null;
+
+            if (!clone || !clone.querySelectorAll) {
+                return answer.innerHTML;
+            }
+            Array.prototype.forEach.call(clone.querySelectorAll('button'), function (one) {
+                one.parentNode.removeChild(one);
+            });
+
+            return clone.innerHTML;
+        }
+
         /** The drawn answer a copy button stands under: the nearest `.pf-chat-answer` before it. */
         function answerOf(button) {
             var siblings = button.parentNode ? button.parentNode.children : [];
@@ -764,7 +778,7 @@
             button.addEventListener('click', function () {
                 var answer = answerOf(button);
 
-                copy(button, button.getAttribute('data-pf-chat-copy') || '', answer ? answer.innerHTML : '');
+                copy(button, button.getAttribute('data-pf-chat-copy') || '', answer ? drawnHtml(answer) : '');
             });
         });
 

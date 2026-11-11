@@ -791,7 +791,14 @@ test('copy puts the drawn answer on the clipboard as HTML, with its text beside 
     const box = message.appendChild(element('div'));
     const answer = box.appendChild(element('div'));
     answer.className = 'pf-chat-answer';
-    answer.innerHTML = '<p><strong>Total</strong>: 12</p>';
+    answer.innerHTML = '<p><strong>Total</strong>: 12</p><button>Copy table</button>';
+    // The page's own buttons are left out of what is copied: a clone, its buttons taken away.
+    answer.cloneNode = () => {
+        const clone = element('div');
+        clone.appendChild(element('button'));
+        Object.defineProperty(clone, 'innerHTML', { get: () => (clone.children.length ? '<p><strong>Total</strong>: 12</p><button>Copy table</button>' : '<p><strong>Total</strong>: 12</p>') });
+        return clone;
+    };
     const copy = message.appendChild(element('button', { 'data-pf-chat-copy': '**Total**: 12' }));
     copy.textContent = 'Copy';
     class Item { constructor(parts) { this.parts = parts; } }
@@ -812,7 +819,7 @@ test('copy puts the drawn answer on the clipboard as HTML, with its text beside 
 
     // Assert
     assert.deepEqual(Object.keys(items[0].parts), ['text/html', 'text/plain'], 'both kinds');
-    assert.equal(await items[0].parts['text/html'].text(), '<p><strong>Total</strong>: 12</p>', 'the answer as drawn');
+    assert.equal(await items[0].parts['text/html'].text(), '<p><strong>Total</strong>: 12</p>', 'the answer as drawn, without the table\'s copy button');
     assert.equal(await items[0].parts['text/plain'].text(), '**Total**: 12', 'its Markdown for a plain field');
     assert.equal(said, '✓ Copied');
     assert.deepEqual(plain, ['**Total**: 12'], 'where writing both is refused, the text alone');
