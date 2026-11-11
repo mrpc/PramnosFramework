@@ -147,6 +147,11 @@ gear.
   session's token. Anybody else gets a 404 there.
 - **The rest** about the assistants is linked from the same page: answers to review, memories,
   scheduled tasks, and costs and settings.
+- **In the application's own menu.** An application that keeps the assistants' management (this
+  page, everybody's memory, the answers to review) in a menu of its own says so:
+  `'llm' => ['analyst' => ['assistants_in_menu' => true]]`, or overrides
+  `AiController::assistantsInMenu()`. The Ask's gear then keeps only what is the Ask's (its skills,
+  settings and scheduled tasks), and this page has no link back to the Ask.
 
 Nothing else there writes: no question box, no delete, no memory, no agreement. Each view of
 somebody else's conversation is recorded in the audit log as `ai.conversation_viewed`, with the

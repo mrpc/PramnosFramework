@@ -794,6 +794,28 @@ class AnalystTest extends LlmTestCase
             $this->assertStringContainsString('Ai/skillcatalog', $hidden, $theme . ': no settings link, but 98 manages skills: the gear holds them');
             $this->assertStringNotContainsString('Ai/skillcatalog', $neither, $theme . ': not for staff');
         }
+
+        // Act — the assistants in the application's own menu (FW-467): the Ask's gear keeps what is the Ask's
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class], $this->db);
+        $app    = \Pramnos\Application\Application::getInstance();
+        $before = $app->applicationInfo['llm'] ?? null;
+        $app->applicationInfo['llm']['analyst']['assistants_in_menu'] = true;
+        try {
+            $inMenu = (string) (new AnalystScreen('plain-css'))->display();
+        } finally {
+            // The application's settings as they were, for every test after this one.
+            if ($before === null) {
+                unset($app->applicationInfo['llm']);
+            } else {
+                $app->applicationInfo['llm'] = $before;
+            }
+        }
+
+        // Assert
+        foreach (['Ai/all', 'Ai/memories', 'Ai/reviews'] as $gone) {
+            $this->assertStringNotContainsString($gone, $inMenu, $gone . ': in the application\'s menu, not the Ask\'s');
+        }
+        $this->assertStringContainsString('Ai/settings', $inMenu, 'the Ask keeps its own');
     }
 
     /**

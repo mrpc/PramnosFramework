@@ -138,9 +138,9 @@ class AiController extends Controller
             // The application's skills from the catalogues, for whoever manages skills.
             'skillcatalog' => \Pramnos\Llm\Chat\CatalogSkills::canManage($this->reader()) ? adminUrl('Ai/skillcatalog') : '',
             // Everybody's Ask memory, for whoever reads everybody's conversations.
-            'memories'  => $this->readsAll($this->reader()) ? adminUrl('Ai/memories') : '',
+            'memories'  => $this->readsAll($this->reader()) && !$this->assistantsInMenu() ? adminUrl('Ai/memories') : '',
             // Everybody's conversations, read only, for whoever reads them all.
-            'all'       => $this->readsAll($this->reader()) ? adminUrl('Ai/all') : '',
+            'all'       => $this->readsAll($this->reader()) && !$this->assistantsInMenu() ? adminUrl('Ai/all') : '',
             'share'     => adminUrl('Ai/share/'),
             'unshare'   => adminUrl('Ai/unshare/'),
             'shared'    => adminUrl('Ai/shared/'),
@@ -156,7 +156,7 @@ class AiController extends Controller
             'voicereply' => adminUrl('Ai/voicereply'),
             'modelchoice' => adminUrl('Ai/modelchoice'),
             // The bad answers to look at, for whoever reads everybody's.
-            'reviews'   => $this->readsAll($this->reader()) ? adminUrl('Ai/reviews') : '',
+            'reviews'   => $this->readsAll($this->reader()) && !$this->assistantsInMenu() ? adminUrl('Ai/reviews') : '',
         ];
         foreach ($page as $name => $value) {
             $view->{$name} = $value;
@@ -223,7 +223,8 @@ class AiController extends Controller
         $view->person   = $companion ? (new \Pramnos\Llm\Chat\People())->person($open['owner']) : null;
         $view->resets   = $companion && $this->resetsCompanion($me);
         $view->me       = (int) $me->userid;
-        $view->urls     = ['all' => adminUrl('Ai/all'), 'call' => adminUrl('Ai/call/'), 'ask' => adminUrl('Ai'), 'reset' => adminUrl('Ai/companionreset'),
+        // Back to the Ask only where it is reached from there, not from the application's own menu.
+        $view->urls     = ['all' => adminUrl('Ai/all'), 'call' => adminUrl('Ai/call/'), 'ask' => $this->assistantsInMenu() ? '' : adminUrl('Ai'), 'reset' => adminUrl('Ai/companionreset'),
             'reviews' => adminUrl('Ai/reviews'), 'memories' => adminUrl('Ai/memories'), 'settings' => adminUrl('Ai/settings'), 'scheduled' => adminUrl('Ai/scheduled')];
 
         return $view->display('review');
@@ -444,6 +445,18 @@ class AiController extends Controller
         $this->redirect(adminUrl('Ai/memories') . (preg_match('/^\?[A-Za-z0-9=&_:%-]*$/', $back) === 1 ? $back : ''));
 
         return null;
+    }
+
+    /**
+     * Whether the assistants' management — the control centre, everybody's memory, the answers to
+     * review — is in the application's own menu, and so not linked from the Ask's gear, which keeps
+     * what is the Ask's: `'llm' => ['analyst' => ['assistants_in_menu' => true]]`. Overridable.
+     */
+    protected function assistantsInMenu(): bool
+    {
+        $analyst = \Pramnos\Llm\Llm::config('analyst', []);
+
+        return is_array($analyst) && !empty($analyst['assistants_in_menu']);
     }
 
     /** Whether an account reads every administrator's Ask conversations — `admin.ai.all`, root's in usertype mode. */

@@ -38,7 +38,7 @@ $persona = static fn (?string $key): string => $key === null ? '—' : (string) 
 <div class="px-4 py-6" data-pf-chat>
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <nav class="{!! $c['card'] !!}" style="flex:0 0 300px;padding:12px" aria-label="{{ t('The assistants') }}">
-            <a href="{{ $u['ask'] }}" class="{!! $c['btnGhost'] !!}">‹ {{ $channels['admin'] ?? t('Ask') }}</a>
+            @if ($u['ask'] !== '')<a href="{{ $u['ask'] }}" class="{!! $c['btnGhost'] !!}">‹ {{ $channels['admin'] ?? t('Ask') }}</a>@endif
             <p style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0">
                 <a href="{{ $u['reviews'] }}">{{ t('Answers to review') }}</a>
                 <a href="{{ $u['memories'] . '?space=' . rawurlencode((string) $filters['channel']) }}">{{ t('Memories') }}</a>
