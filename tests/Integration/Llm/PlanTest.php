@@ -13,6 +13,8 @@ use Pramnos\Llm\Chat\Routines;
 use Pramnos\Llm\Chat\Scope;
 use Pramnos\Tests\Unit\Llm\LlmTestCase;
 
+require_once __DIR__ . '/ChatApiTest.php';
+
 /**
  * A person's plan (FW-470), on MySQL and PostgreSQL.
  *
@@ -91,6 +93,15 @@ class PlanTest extends LlmTestCase
         $this->answer([[200, self::says('Noted.')]]);
         (new Conversations(new BaseAssistant()))->as(new Scope($userId, null, Scope::CHAT))->ask(null, 'How is the garden?');
         $system   = self::systemOf($this->sent[0]);
+        // Through the API, from another persona than the one that wrote it.
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        ApiFixture::$scope = new Scope($userId, null, Scope::CHAT, 'naya');
+        ApiFixture::$stop  = null;
+        $router = new \Pramnos\Routing\Router(null);
+        \Pramnos\Llm\Chat\Api\Routes::register($router, ApiFixture::class);
+        $api    = $router->dispatch(\Pramnos\Http\Request::create('/chat/plan', 'GET'));
+        ApiFixture::$scope = null;
+        unset($_SERVER['REQUEST_METHOD']);
         $closed   = $run('plan_close', ['project' => 'novel']);
         $after    = (new Plan($scope))->projects();
 
@@ -108,6 +119,8 @@ class PlanTest extends LlmTestCase
         $offered = array_column(array_column((array) ($this->sent[0]['body']['tools'] ?? []), 'function'), 'description', 'name');
         $this->assertArrayHasKey('plan_update', $offered, 'with projects in it, changing one is at hand, not behind its skill');
         $this->assertStringContainsString('that goes to plan_update', (string) ($offered['remember'] ?? ''), 'news is not kept in memory too');
+        $this->assertSame([200, ['Garden', 'Novel'], Plan::COLUMNS], [$api['status'], array_column($api['data']['projects'], 'project'), $api['data']['columns']], 'the same plan through the API, from any persona');
+        $this->assertIsInt($api['data']['artifact_id']);
         $this->assertSame('Closed Novel; it is out of the plan.', $closed);
         $this->assertSame(['Garden'], array_column($after, 'project'), 'nothing of it kept');
     }

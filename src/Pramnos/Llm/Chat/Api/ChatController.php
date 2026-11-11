@@ -224,6 +224,24 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return is_string($done) ? self::error($done === 'There is no such artifact.' ? 404 : 422, $done) : ['status' => 200, 'data' => $done];
     }
 
+    /**
+     * The person's plan (`GET {chat}/plan`), the same from every persona: `{artifact_id, columns,
+     * projects}`, `projects` each by its column; 404 where the application keeps no plan.
+     */
+    public function plan(): array
+    {
+        if (($stop = $this->refusal('read')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        if ($scope === null || !\Pramnos\Llm\Chat\Plan::on($scope)) {
+            return self::error(404, 'There is no plan here.');
+        }
+        $plan = new \Pramnos\Llm\Chat\Plan($scope);
+
+        return ['status' => 200, 'data' => ['artifact_id' => $plan->artifactId(), 'columns' => \Pramnos\Llm\Chat\Plan::COLUMNS, 'projects' => $plan->projects()]];
+    }
+
     /** Stop one of this person's shares. */
     public function revokeShare($share_id): array
     {

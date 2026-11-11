@@ -224,6 +224,14 @@ final class Plan
         return $this->keep(array_values($projects)) ?? 'Closed ' . $name . '; it is out of the plan.';
     }
 
+    /** The plan's artifact id, or null before its first project. */
+    public function artifactId(): ?int
+    {
+        $found = $this->artifact();
+
+        return $found === null ? null : (int) $found['artifact_id'];
+    }
+
     /** The plan's table, or null before its first project. */
     private function artifact(): ?array
     {

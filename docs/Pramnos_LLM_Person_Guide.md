@@ -179,6 +179,10 @@ focus, blockers, updated`. The phase is one of `active`, `paused`, `waiting` or 
   - ask before closing a project, setting it done or paused, or guessing which one;
   - deadlines and next steps are to-dos with a date, and a deadline past is closed or moved.
 - **In every question**, a line per project (`Plan::context()`).
+- **For a page of the application's**, `GET {chat}/plan` returns `{artifact_id, columns,
+  projects}`. It is the same from every persona. The artifact list itself is each persona's own,
+  and the default persona's space is the person's, so the plan is read here rather than listed
+  there.
 - **Its routines.** `Plan::TEMPLATES` offers `plan_morning`, Monday to Friday at 10:00
   (`cadence: weekdays`). It covers, in about a minute, only what needs a decision today:
   deadlines, blockers, what has not moved. It also offers `plan_week`, Sunday at 20:00.

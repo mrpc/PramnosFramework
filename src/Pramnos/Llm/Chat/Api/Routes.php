@@ -60,6 +60,7 @@ final class Routes
         $p['voice']    ??= $p['chat'] . '/voice';
         $p['today']    ??= $p['chat'] . '/today';
         $p['settings'] ??= $p['chat'] . '/settings';
+        $p['plan']     ??= $p['chat'] . '/plan';
         $p['photos']   ??= $p['chat'] . '/photos';
         $make = static fn (): ChatController => new $controller();
 
@@ -75,6 +76,7 @@ final class Routes
         $r->patch($p['photos'] . '/{id}', static fn ($id) => $make()->photo($id))->describeFrom([$controller, 'photo']);
         $r->delete($p['photos'] . '/{id}', static fn ($id) => $make()->photo($id))->describeFrom([$controller, 'photo']);
         $r->get($p['settings'], static fn () => $make()->settings())->describeFrom([$controller, 'settings']);
+        $r->get($p['plan'], static fn () => $make()->plan())->describeFrom([$controller, 'plan']);
         $r->put($p['settings'], static fn () => $make()->settings())->describeFrom([$controller, 'settings']);
         $r->get($p['today'], static fn () => $make()->today())->describeFrom([$controller, 'today']);
         $r->get($p['voices'], static fn () => $make()->voices())->describeFrom([$controller, 'voices']);
