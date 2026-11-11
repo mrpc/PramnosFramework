@@ -8,9 +8,10 @@ use Pramnos\Database\Expression;
 use Pramnos\Llm\Chat\Scope;
 
 /**
- * Every administrator's Ask conversations, for whoever reads them all — to debug what the analyst
- * did for somebody else. Read only: nothing here writes to a conversation, to anybody's memory, or
- * asks the model anything.
+ * Everybody's conversations with the assistants, channel by channel — the Ask's, each companion
+ * persona's (`chat`, `chat:<persona>`), any other space the application has — for whoever reads
+ * them all, to see and improve what the assistants did. Read only: nothing here writes to a
+ * conversation, to anybody's memory, or asks the model anything.
  *
  * `admin.ai.all` reads them; in usertype mode root's alone, as `admin.chat.all` is — reading other
  * people's questions is more than a superuser's work. A conversation opens as its owner sees it,
@@ -22,6 +23,33 @@ final class Review
     /** The ability that reads every administrator's Ask conversations. */
     public const ABILITY = 'admin.ai.all';
 
+    /**
+     * The channels there are conversations in, by stored space, with their names: the Ask's first,
+     * then each companion persona's, then the rest.
+     *
+     * @return array<string, string>
+     */
+    public static function channels(): array
+    {
+        $spaces = array_map('strval', array_column(self::table('assist.chat_conversations')->select(['space'])->groupBy('space')->getAllOrFail(), 'space'));
+        $out    = [Scope::ADMIN => t('Ask')];
+        sort($spaces);
+        foreach ($spaces as $space) {
+            if ($space === Scope::ADMIN) {
+                continue;
+            }
+            if (\Pramnos\Llm\Chat\People::companion($space)) {
+                $key  = \Pramnos\Llm\Chat\People::personaOf($space);
+                $name = \Pramnos\Llm\Chat\Personas::get($key)['name'] ?? ($key === Scope::CHAT ? t('Companion') : $key);
+                $out[$space] = $name;
+                continue;
+            }
+            $out[$space] = $space;
+        }
+
+        return $out;
+    }
+
     /** Whether an account reads every administrator's Ask conversations. */
     public static function readsAll(?object $user): bool
     {
@@ -30,16 +58,17 @@ final class Review
     }
 
     /**
-     * The conversations, newest first, each with its owner, how many messages and what they cost;
-     * `person` keeps one owner's, `q` those whose title holds it, `except` leaves one owner's out —
-     * the reader's own, which open in Ask itself.
+     * The conversations of a channel (`channel`, the stored space — the Ask's by default), newest
+     * first, each with its owner, how many messages and what they cost; `person` keeps one
+     * owner's, `q` those whose title holds it, `except` leaves one owner's out — the reader's own
+     * Ask conversations, which open in Ask itself.
      *
-     * @param array{person?: int, q?: string, except?: int} $filters
+     * @param array{channel?: string, person?: int, q?: string, except?: int} $filters
      * @return list<array{conversation_id: int, owner: int, owner_name: string, title: string, updated_at: string, messages: int, cost: float}>
      */
     public static function list(array $filters = [], int $limit = 200): array
     {
-        $query = self::table('assist.chat_conversations')->select(['conversation_id', 'userid', 'title', 'updated_at'])->where('space', Scope::ADMIN);
+        $query = self::table('assist.chat_conversations')->select(['conversation_id', 'userid', 'title', 'updated_at'])->where('space', self::channel($filters));
         if ((int) ($filters['person'] ?? 0) > 0) {
             $query->where('userid', (int) $filters['person']);
         }
@@ -70,13 +99,14 @@ final class Review
     }
 
     /**
-     * Who has Ask conversations, by name — for the filter; `$except`, an owner left out.
+     * Who has conversations in a channel (the Ask's by default), by name — for the filter;
+     * `$except`, an owner left out.
      *
      * @return array<int, string>
      */
-    public static function owners(int $except = 0): array
+    public static function owners(int $except = 0, string $channel = Scope::ADMIN): array
     {
-        $query = self::table('assist.chat_conversations')->select(['userid'])->where('space', Scope::ADMIN);
+        $query = self::table('assist.chat_conversations')->select(['userid'])->where('space', $channel);
         if ($except > 0) {
             $query->where('userid', '!=', $except);
         }
@@ -88,26 +118,40 @@ final class Review
     }
 
     /**
-     * One conversation as its owner sees it, with its owner; each answer carries the ids of the
-     * model calls made while it was being answered. Null when there is no such Ask conversation.
+     * One conversation, in any channel, as its owner sees it, with its owner and its channel (the
+     * stored space); each answer carries the ids of the model calls made while it was being
+     * answered. Null when there is no such conversation.
      *
-     * @return array{owner: int, owner_name: string, conversation: array<string, mixed>}|null
+     * @return array{owner: int, owner_name: string, channel: string, conversation: array<string, mixed>}|null
      */
     public static function open(int $conversationId): ?array
     {
-        $row = self::table('assist.chat_conversations')->select(['userid'])->where('conversation_id', $conversationId)->where('space', Scope::ADMIN)
+        $row = self::table('assist.chat_conversations')->select(['userid', 'organization_id', 'space'])->where('conversation_id', $conversationId)
             ->limit(1)->getAllOrFail()[0] ?? null;
         if ($row === null) {
             return null;
         }
-        $owner        = (int) $row['userid'];
-        $conversation = Analyst::conversations($owner)->find($conversationId);
+        $owner = (int) $row['userid'];
+        $space = (string) $row['space'];
+        $scope = new Scope($owner, $row['organization_id'] === null ? null : (int) $row['organization_id'], $space);
+        // Read straight, as the owner sees it: nothing marked read, nothing learned.
+        $conversation = $space === Scope::ADMIN ? Analyst::conversations($owner)->find($conversationId)
+            : (new \Pramnos\Llm\Chat\Conversations(new \Pramnos\Llm\Chat\BaseAssistant()))->as($scope)->find($conversationId);
         if ($conversation === null) {
             return null;
         }
-        $conversation['messages'] = self::withCalls($owner, $conversation['messages']);
+        $conversation['messages'] = self::withCalls($owner, $conversation['messages'], $scope->purpose());
 
-        return ['owner' => $owner, 'owner_name' => \Pramnos\Conversations\People::names([$owner])[$owner] ?? '#' . $owner, 'conversation' => $conversation];
+        return ['owner' => $owner, 'owner_name' => \Pramnos\Conversations\People::names([$owner])[$owner] ?? '#' . $owner, 'channel' => $space,
+            'conversation' => $conversation];
+    }
+
+    /** @param array{channel?: string} $filters */
+    private static function channel(array $filters): string
+    {
+        $channel = trim((string) ($filters['channel'] ?? ''));
+
+        return $channel === '' ? Scope::ADMIN : $channel;
     }
 
     /**
@@ -116,7 +160,7 @@ final class Review
      * @param list<array<string, mixed>> $messages
      * @return list<array<string, mixed>>
      */
-    private static function withCalls(int $owner, array $messages): array
+    private static function withCalls(int $owner, array $messages, string $purpose = 'analyst'): array
     {
         $questions = array_values(array_filter($messages, static fn (array $m): bool => $m['role'] === 'user'));
         $from      = null;
@@ -133,7 +177,7 @@ final class Review
                 }
             }
             // ponytail: matched by time — an owner asking in two conversations at once shares calls between them; a call → message link if that matters.
-            $query = self::table('#PREFIX#llm_calls')->select(['call_id'])->where('userid', $owner)->where('purpose', 'analyst')
+            $query = self::table('#PREFIX#llm_calls')->select(['call_id'])->where('userid', $owner)->where('purpose', $purpose)
                 ->where('created_at', '>=', $from ?? (string) $message['created_at']);
             if ($next !== null) {
                 $query->where('created_at', '<', $next);

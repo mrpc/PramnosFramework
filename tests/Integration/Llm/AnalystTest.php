@@ -560,7 +560,81 @@ class AnalystTest extends LlmTestCase
         $this->assertSame(['7', '8', (string) $theirs], [(string) $audit[0]['actor_userid'], (string) $audit[0]['target_id'], (string) $audit[0]['object_id']]);
         $this->assertSame($before, [$this->rowsIn('assist.chat_messages'), $this->rowsIn('assist.chat_memory'), $this->rowsIn('assist.chat_conversations')], 'nothing else written');
         $this->assertNull(\Pramnos\Llm\Analyst\Review::open(999999));
-        $this->assertNull(\Pramnos\Llm\Analyst\Review::open((int) $ids[2]), 'a private Ask AI conversation is not opened here');
+        $this->assertSame(Scope::CHAT, \Pramnos\Llm\Analyst\Review::open((int) $ids[2])['channel'], 'a companion conversation opens too, as its own channel');
+    }
+
+    /**
+     * The assistants' control centre (FW-458): every channel there are conversations in, the Ask's
+     * first; a companion's listed and opened by its channel, with root's own listed there — only
+     * the Ask's own open in Ask — and beside it what the companion knows of its owner and the way
+     * to reset their experience; the reset keeps every conversation, marks when, comes back to the
+     * channel, and is a 404 to whoever may not.
+     */
+    #[DataProvider('databases')]
+    public function testTheAssistantsControlCentre(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->seed();
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\AuthServer\CreateAuthserverAuditLogTable::class,
+            \Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class], $this->db);
+        $stamp = static fn (int $ago): string => gmdate('Y-m-d H:i:s', time() - $ago);
+        $this->insert('assist.chat_conversations', ['organization_id' => null, 'userid' => 8, 'title' => 'Talking with the companion', 'space' => Scope::CHAT, 'created_at' => $stamp(600), 'updated_at' => $stamp(500)]);
+        $this->insert('assist.chat_conversations', ['organization_id' => null, 'userid' => 7, 'title' => 'Root talks too', 'space' => Scope::CHAT, 'created_at' => $stamp(400), 'updated_at' => $stamp(400)]);
+        $this->insert('assist.chat_conversations', ['organization_id' => null, 'userid' => 8, 'title' => 'An Ask question', 'space' => Scope::ADMIN, 'created_at' => $stamp(300), 'updated_at' => $stamp(300)]);
+        $ids = array_map('intval', array_column($this->db->queryBuilder()->table('assist.chat_conversations')->orderBy('conversation_id')->getAllOrFail(), 'conversation_id'));
+        [$companion, $roots] = [$ids[0], $ids[1]];
+        $this->insert('assist.chat_messages', ['conversation_id' => $companion, 'organization_id' => null, 'role' => 'user', 'content' => 'Γεια σου', 'created_at' => $stamp(600), 'updated_at' => $stamp(600)]);
+        $this->insert('assist.chat_messages', ['conversation_id' => $companion, 'organization_id' => null, 'role' => 'assistant', 'content' => 'Γεια!', 'created_at' => $stamp(590), 'updated_at' => $stamp(590)]);
+        (new \Pramnos\Llm\Chat\Memory(new Scope(8)))->keep('fact', 'Likes green tea');
+        $get = function (array $query, ?object $reader = null): array {
+            $_GET = $query;
+            \Pramnos\Http\Request::resetInstance();
+            $screen          = new AnalystScreen();
+            $screen->reading = $reader;
+
+            return [(string) $screen->all(), $screen];
+        };
+
+        // Act
+        $channels     = \Pramnos\Llm\Analyst\Review::channels();
+        [$listed]     = $get(['channel' => Scope::CHAT]);
+        [$opened]     = $get(['channel' => Scope::CHAT, 'c' => (string) $companion]);
+        [, $ownChat]  = $get(['channel' => Scope::CHAT, 'c' => (string) $roots]);
+        [$unknown]    = $get(['channel' => 'no-such-space']);
+        $_POST        = ['userid' => '8', 'back' => '?channel=chat'];
+        $refused      = new AnalystScreen();
+        $refused->reading = (object) ['userid' => 9, 'usertype' => 10, 'active' => 1];
+        try {
+            $refused->companionreset();
+            $closed = false;
+        } catch (\Pramnos\Application\ApplicationClosedException $e) {
+            $closed = str_contains($e->getMessage(), '404');
+        }
+        $left         = $this->rowsIn('assist.chat_conversations');
+        $reset        = new AnalystScreen();
+        $reset->companionreset();
+        $_POST        = [];
+
+        // Assert
+        $this->assertSame([Scope::ADMIN, Scope::CHAT], array_keys($channels), 'the Ask first, then the companion');
+        $this->assertSame('Ask', $channels[Scope::ADMIN]);
+        $this->assertStringContainsString('Talking with the companion', $listed);
+        $this->assertStringContainsString('Root talks too', $listed, 'root\'s own companion conversations are listed here: only the Ask\'s open in Ask');
+        $this->assertStringNotContainsString('An Ask question', $listed, 'one channel at a time');
+        $this->assertStringContainsString('<option value="chat" selected>', $listed);
+        $this->assertStringContainsString('Answers to review', $listed, 'everything about the assistants on one page');
+        $this->assertStringContainsString('Γεια σου', $opened);
+        $this->assertStringContainsString('Likes green tea', $opened, 'what the companion knows of them, beside');
+        $this->assertStringContainsString('Ai/companionreset', $opened, 'root may start them over');
+        $this->assertSame([], $ownChat->redirectedTo, 'root\'s own companion conversation reads here');
+        $this->assertStringContainsString('An Ask question', $unknown, 'a channel that is none is the Ask\'s');
+        $this->assertTrue($closed, 'a 404 to whoever may not');
+        $this->assertSame(3, $left, 'and nothing deleted');
+        $this->assertSame([adminUrl('Ai/all') . '?channel=chat'], $reset->redirectedTo);
+        $this->assertStringContainsString('The experience was reset', implode(' ', $reset->messages));
+        $this->assertSame(3, $this->rowsIn('assist.chat_conversations'), 'a reset keeps every conversation');
+        $this->assertNotNull(\Pramnos\Llm\Chat\People::resetAt(new \Pramnos\User\User(8)), 'and marks when');
     }
 
     /**

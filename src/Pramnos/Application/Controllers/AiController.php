@@ -67,13 +67,14 @@ class AiController extends Controller
             'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'report',
             'skills', 'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject', 'memories', 'memorycorrect', 'memorydelete',
             'skillcatalog', 'skillinstall', 'skillcatalogturn', 'skillcatalogrole', 'skillcatalogupdate', 'skillcatalogdelete',
-            'share', 'unshare', 'shared', 'people', 'act', 'approve', 'reject', 'rate', 'reviews', 'reviewed', 'download', 'printable', 'pin', 'speak', 'voicereply', 'modelchoice']);
+            'share', 'unshare', 'shared', 'people', 'act', 'approve', 'reject', 'rate', 'reviews', 'reviewed', 'download', 'printable', 'pin', 'speak', 'voicereply', 'modelchoice',
+            'companionreset']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
         // `api` checks its own token, from the X-CSRF-Token header, since it also answers GET and DELETE.
         $this->addWriteAction(['save', 'check', 'ask', 'cancel', 'delete', 'forget', 'consent',
             'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'reviewed', 'pin', 'speak', 'voicereply', 'modelchoice',
             'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject', 'memorycorrect', 'memorydelete',
-            'skillinstall', 'skillcatalogturn', 'skillcatalogrole', 'skillcatalogupdate', 'skillcatalogdelete']);
+            'skillinstall', 'skillcatalogturn', 'skillcatalogrole', 'skillcatalogupdate', 'skillcatalogdelete', 'companionreset']);
         parent::__construct($application);
     }
 
@@ -170,10 +171,12 @@ class AiController extends Controller
     }
 
     /**
-     * Every administrator's Ask conversations, read only: the list — by owner, by a word in the
-     * title — and one opened as its owner sees it, under a banner saying whose it is. Nothing is
-     * written but the audit log's line for a view of somebody else's. A 404 to whoever does not
-     * read them all.
+     * The assistants' control centre, read only: everybody's conversations, channel by channel —
+     * the Ask's, each companion persona's, any other space — by owner, by a word in the title, and
+     * one opened as its owner sees it, under a banner saying whose it is. Beside a companion's, what
+     * it knows of its owner (`Chat\People::person()`), and the way to reset their experience where
+     * {@see resetsCompanion()} allows. Nothing is written but the audit log's line for a view of
+     * somebody else's. A 404 to whoever does not read them all.
      */
     public function all(): mixed
     {
@@ -184,7 +187,10 @@ class AiController extends Controller
             return null;
         }
         $request = new \Pramnos\Http\Request();
-        $filters = ['person' => (int) $request->get('person', 0, 'get', 'int'), 'q' => (string) $request->get('q', '', 'get')];
+        $channels = \Pramnos\Llm\Analyst\Review::channels();
+        $channel  = (string) $request->get('channel', \Pramnos\Llm\Chat\Scope::ADMIN, 'get');
+        $channel  = isset($channels[$channel]) ? $channel : \Pramnos\Llm\Chat\Scope::ADMIN;
+        $filters  = ['channel' => $channel, 'person' => (int) $request->get('person', 0, 'get', 'int'), 'q' => (string) $request->get('q', '', 'get')];
         $openId  = (int) $request->get('c', 0, 'get', 'int');
         $open    = $openId > 0 ? \Pramnos\Llm\Analyst\Review::open($openId) : null;
         if ($openId > 0 && $open === null) {
@@ -192,7 +198,7 @@ class AiController extends Controller
 
             return null;
         }
-        if ($open !== null && $open['owner'] === (int) $me->userid) {
+        if ($open !== null && $open['owner'] === (int) $me->userid && $open['channel'] === \Pramnos\Llm\Chat\Scope::ADMIN) {
             // One's own opens in Ask, where it is not read only.
             $this->redirect(adminUrl('Ai') . '?c=' . $openId);
 
@@ -204,17 +210,59 @@ class AiController extends Controller
         }
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = t('Other people\'s Ask conversations');
+        $doc->title = t('The assistants');
+        $ask        = $channel === \Pramnos\Llm\Chat\Scope::ADMIN;
+        $companion  = $open !== null && \Pramnos\Llm\Chat\People::companion($open['channel']);
 
-        $view          = $this->getView('ai');
-        $view->list    = \Pramnos\Llm\Analyst\Review::list($filters + ['except' => (int) $me->userid]);
-        $view->owners  = \Pramnos\Llm\Analyst\Review::owners((int) $me->userid);
-        $view->filters = $filters;
-        $view->open    = $open;
-        $view->me      = (int) $me->userid;
-        $view->urls    = ['all' => adminUrl('Ai/all'), 'call' => adminUrl('Ai/call/'), 'ask' => adminUrl('Ai')];
+        $view           = $this->getView('ai');
+        $view->list     = \Pramnos\Llm\Analyst\Review::list($filters + ($ask ? ['except' => (int) $me->userid] : []));
+        $view->owners   = \Pramnos\Llm\Analyst\Review::owners($ask ? (int) $me->userid : 0, $channel);
+        $view->channels = $channels;
+        $view->filters  = $filters;
+        $view->open     = $open;
+        $view->person   = $companion ? (new \Pramnos\Llm\Chat\People())->person($open['owner']) : null;
+        $view->resets   = $companion && $this->resetsCompanion($me);
+        $view->me       = (int) $me->userid;
+        $view->urls     = ['all' => adminUrl('Ai/all'), 'call' => adminUrl('Ai/call/'), 'ask' => adminUrl('Ai'), 'reset' => adminUrl('Ai/companionreset'),
+            'reviews' => adminUrl('Ai/reviews'), 'memories' => adminUrl('Ai/memories'), 'settings' => adminUrl('Ai/settings'), 'scheduled' => adminUrl('Ai/scheduled')];
 
         return $view->display('review');
+    }
+
+    /**
+     * Who may reset a person's experience of the companion, from the control centre: root, by default.
+     * An application gives it to whom it decides by overriding this.
+     */
+    protected function resetsCompanion(object $user): bool
+    {
+        return $this->readsAll($user) && \Pramnos\User\Roles::atLeast($user, \Pramnos\User\Roles::ROOT);
+    }
+
+    /**
+     * Reset a person's experience of the companion (`Chat\People::reset()`) — their choices back
+     * to the defaults and each persona meeting them again, their history kept: `userid` in the form, with
+     * the session's token; `back`, the control centre's query to go back to. A 404 to whoever may
+     * not ({@see resetsCompanion()}).
+     */
+    public function companionreset(): mixed
+    {
+        $me = $this->reader();
+        if ($me === null || !$this->resetsCompanion($me)) {
+            ($this->application ?? \Pramnos\Application\Application::currentInstance())?->notFound();
+
+            return null;
+        }
+        $person = (int) ($_POST['userid'] ?? 0);
+        if ($person < 1) {
+            $this->addError(t('There is nobody to reset.'));
+        } else {
+            (new \Pramnos\Llm\Chat\People())->reset($person, (int) $me->userid);
+            $this->addMessage(t('The experience was reset. Their conversations and memories are kept.'));
+        }
+        $back = (string) ($_POST['back'] ?? '');
+        $this->redirect(adminUrl('Ai/all') . (preg_match('/^\?[A-Za-z0-9=&_:%-]*$/', $back) === 1 ? $back : ''));
+
+        return null;
     }
 
     /**

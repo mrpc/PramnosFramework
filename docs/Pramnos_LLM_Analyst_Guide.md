@@ -112,26 +112,49 @@ call goes to the router with `organization_id` **null**, purpose `analyst`. The 
 administrator's own (a consent row with no organisation), asked on the page. The analyst runs no
 scheduled reports.
 
-## Other people's conversations, read only
+## The assistants' control centre
 
-`/admin/Ai/all` lists the other administrators' Ask conversations — owner, title, last change, how
-many messages and what they cost, filtered by owner or a word in the title — for whoever has
-`admin.ai.all`: root alone in usertype mode, as `admin.chat.all` is (`Analyst\Review::readsAll()`;
-`AiController::readsAll()` is the seam to override). The Ask page links to it from the ⚙ under
-its title, beside the settings — a reader with neither link sees no gear. One opens
-as its owner sees it, under a banner saying whose it is: the questions, the answers, the tools each
-answer used with their input, and the model calls made while it was answered — the call log's
-rows, `/admin/Ai/call/{id}`, where what each tool returned is in the messages sent. The calls are
-matched by time: those of the owner's analyst between one question and the next. The steps and
-tools are folded, as on Ask's page, and `pf-chat.js` draws the answers' charts.
+`/admin/Ai/all` is the one page for everything the assistants do, on every channel. It is for
+whoever has `admin.ai.all`, which in usertype mode is root alone, as `admin.chat.all` is
+(`Analyst\Review::readsAll()`; `AiController::readsAll()` is the seam to override). The Ask page
+links to it from the ⚙ under its title, beside the settings. A reader with neither link sees no
+gear.
 
-Nothing there writes: no question box, no delete, no memory, no agreement. Each view of somebody
-else's conversation is recorded in the audit log as `ai.conversation_viewed`, the owner as its
-target and the conversation as its object. Anybody else gets a 404.
+- **Channels.** A select picks the channel: the Ask's first, then each companion persona's
+  (`chat`, `chat:<persona>`, named after the persona), then any other space the application keeps
+  conversations in (`Review::channels()`). A channel that is none is the Ask's.
+- **The list** gives each conversation's owner, title, last change, how many messages and what
+  they cost. It filters by owner or a word in the title (`Review::list(['channel' => …, 'person'
+  => …, 'q' => …])`, `Review::owners($except, $channel)`).
+- **One opened** reads as its owner sees it, under a banner saying whose it is. It shows the
+  questions, the answers, the tools each answer used with their input, and the model calls made
+  while it was answered. The calls are the call log's rows, `/admin/Ai/call/{id}`, where what each
+  tool returned is in the messages sent. They are matched by time: the owner's calls of the
+  channel's purpose between one question and the next. The steps and tools are folded, as on Ask's
+  page, and `pf-chat.js` draws the answers' charts. Opening reads the conversation straight from its
+  tables, so nothing is marked read and nothing is learned.
+- **Beside a companion conversation**, a panel shows what the companion knows of its owner
+  (`Chat\People::person()`). For each persona that is the first meeting, mood, voice and style,
+  diary, today's thought, memories and routines. Below come the profile, the push subscriptions
+  and when they were last started over.
+- **Reset the experience.** On that panel, a folded *Reset the experience* puts the person's
+  persona, voice and style back to the defaults, so each persona meets them again for the first
+  time (`Chat\People::reset()`, see [The person's companion](Pramnos_LLM_Person_Guide.md)). Their
+  conversations, memories, profile, diary and routines are kept, and it says so before it is
+  confirmed. It is offered to whoever `AiController::resetsCompanion(object $user): bool` allows,
+  root by default, and an application overrides it. The form posts to `Ai/companionreset` with the
+  session's token. Anybody else gets a 404 there.
+- **The rest** about the assistants is linked from the same page: answers to review, memories,
+  scheduled tasks, and costs and settings.
 
-The reader's own conversations are left out of the list and the owner filter
-(`Review::list(['except' => $id])`, `Review::owners($id)`): they are in the Ask column already, where
-they are not read only, and `/admin/Ai/all?c=` with one of them redirects there.
+Nothing else there writes: no question box, no delete, no memory, no agreement. Each view of
+somebody else's conversation is recorded in the audit log as `ai.conversation_viewed`, with the
+owner as its target and the conversation as its object. Anybody else gets a 404.
+
+The reader's own Ask conversations are left out of the Ask's list and owner filter
+(`Review::list(['except' => $id])`, `Review::owners($id)`). They are in the Ask column already,
+where they are not read only, and `/admin/Ai/all?c=` with one of them redirects there. Their own
+conversations on another channel are listed and read here like anybody's.
 
 ## Its name and picture
 

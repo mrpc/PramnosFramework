@@ -7,16 +7,16 @@ namespace Pramnos\Llm\Chat;
 use Pramnos\Llm\CallLog;
 
 /**
- * What an administrator sees of the people who talk to the companion, and the way to start one of
- * them over — over the companion's spaces only: `chat` and each persona's `chat:<persona>`, never
- * the Ask's or another space's.
+ * What the companion knows of a person, and the way to start them over — over the companion's
+ * spaces only: `chat` and each persona's `chat:<persona>`, never the Ask's or another space's.
+ * The conversations themselves are read through {@see \Pramnos\Llm\Analyst\Review}, every
+ * channel's alike; this is the panel beside one of the companion's.
  *
- * - {@see people()}: who talked to it, newest first, with their conversations and messages by persona;
- * - {@see person()}: one of them in full — conversations, mood, profile, memories, diary, today's
+ * - {@see person()}: one person in full — conversations, mood, profile, memories, diary, today's
  *   thought, their choices, routines and push subscriptions;
- * - {@see messages()}: a conversation as it was, read without counting as the person's reading;
- * - {@see reset()}: everything the companion knows of them and did with them gone, their choices
- *   back to the defaults, `reset_at` set — and one line in the audit log.
+ * - {@see reset()}: their experience reset — their choices back to the defaults and `reset_at`
+ *   set, so each persona meets them again — with their history kept;
+ * - {@see erase()}: their history with the companion gone as well; no screen offers it.
  *
  * Who may do which is the application's: the class checks nobody.
  */
@@ -26,10 +26,13 @@ final class People
     public const RESET_DETAIL = 'askreset';
 
     /** The person's companion choices, by the start of their detail's name: each persona's too. */
-    public const CHOICES = [Personas::USER_DETAIL, \Pramnos\Llm\Speech\Speech::VOICE_DETAIL, Acts::STYLE_DETAIL, Diary::READ_DETAIL];
+    public const CHOICES = [Personas::USER_DETAIL, \Pramnos\Llm\Speech\Speech::VOICE_DETAIL, Acts::STYLE_DETAIL];
 
     /** The tables a companion space's rows live in, beside the conversations' messages. */
     private const SPACED = ['assist.chat_conversations', 'assist.chat_asks', 'assist.chat_memory', 'assist.chat_artifacts', 'pramnos.ai_routines'];
+
+    /** Each person's last reset, read once: userid => ISO 8601, '' for none. @var array<int, string> */
+    private array $resets = [];
 
     /** Whether a stored space is the companion's: `chat` or `chat:<persona>`. */
     public static function companion(string $space): bool
@@ -41,54 +44,6 @@ final class People
     public static function personaOf(string $space): string
     {
         return str_contains($space, ':') ? substr($space, (int) strpos($space, ':') + 1) : (Personas::default() ?? Scope::CHAT);
-    }
-
-    /**
-     * The people who talked to the companion, the latest first.
-     *
-     * @return list<array{userid: int, username: string, name: string, last_at: ?string, conversations: int, messages: int,
-     *         persona: ?string, personas: array<string, array{conversations: int, messages: int, last_at: ?string}>}>
-     */
-    public function people(int $limit = 50, int $offset = 0, string $search = ''): array
-    {
-        $query = $this->table('assist.chat_conversations')->select(['userid', $this->db()->queryBuilder()->raw('MAX(updated_at) AS last_at')])
-            ->whereLike('space', Scope::CHAT . '%')->groupBy('userid')->orderBy('last_at', 'DESC')->limit(max(1, $limit))->offset(max(0, $offset));
-        if (trim($search) !== '') {
-            $found = $this->matching(trim($search));
-            if ($found === []) {
-                return [];
-            }
-            $query->whereIn('userid', $found);
-        }
-        $order  = [];
-        $result = $query->get();
-        while ($result && ($row = $result->fetch()) !== null) {
-            $order[] = (int) $row['userid'];
-        }
-        if ($order === []) {
-            return [];
-        }
-        $out = [];
-        foreach ($order as $userId) {
-            $user = new \Pramnos\User\User($userId);
-            $out[$userId] = ['userid' => $userId, 'username' => (string) ($user->username ?? ''),
-                'name' => trim((string) ($user->firstname ?? '') . ' ' . (string) ($user->lastname ?? '')), 'last_at' => null,
-                'conversations' => 0, 'messages' => 0, 'persona' => Personas::on() ? Personas::chosen($user) : null, 'personas' => []];
-        }
-        foreach ($this->conversations($order) as $conversation) {
-            $one = &$out[$conversation['userid']];
-            $key = self::personaOf($conversation['space']);
-            $one['personas'][$key] ??= ['conversations' => 0, 'messages' => 0, 'last_at' => null];
-            $one['personas'][$key]['conversations']++;
-            $one['personas'][$key]['messages'] += $conversation['messages'];
-            $one['personas'][$key]['last_at'] = max((string) $one['personas'][$key]['last_at'], $conversation['last_at']) ?: null;
-            $one['conversations']++;
-            $one['messages'] += $conversation['messages'];
-            $one['last_at'] = max((string) $one['last_at'], $conversation['last_at']) ?: null;
-            unset($one);
-        }
-
-        return array_values($out);
     }
 
     /**
@@ -117,7 +72,7 @@ final class People
             $pages   = Artifacts::available() ? (new Diary($scope))->pages($user, 500) : [];
             $personas[$key] = [
                 'conversations' => array_map(static fn (array $c): array => array_diff_key($c, ['userid' => 1, 'space' => 1, 'organization_id' => 1]), $mine),
-                'first_meeting' => $mine === [] ? null : self::iso((string) min(array_column($mine, 'created_at'))),
+                'first_meeting' => array_reduce($mine, fn (?string $first, array $c): ?string => self::earlier($first, $this->since($userId, $c['created_at'])), null),
                 'mood'          => (new Mood($scope))->now(),
                 'memories'      => self::quietly(static fn (): array => (new Memory($scope))->all()),
                 'diary'         => ['total' => count($pages), 'unread' => count(array_filter($pages, static fn (array $p): bool => $p['unread']))],
@@ -145,42 +100,48 @@ final class People
     }
 
     /**
-     * A companion conversation's messages, as they were, for an administrator: with the tools
-     * called, the mood, act and the rest of `extra`, and the cost. Read straight from the table, so
-     * nothing the person has read changes and nothing is learned.
+     * Reset a person's experience of the companion — nothing of the history goes: their persona,
+     * voice and style (each persona's) are the defaults again, and `reset_at` is now, so each
+     * persona meets them again for the first time ({@see firstMeetings()} counts from it). Their
+     * conversations, memories, profile, mood, diary and routines stay. One `llm.companion.reset`
+     * line in the audit log.
      *
-     * @return array{conversation: array<string, mixed>, messages: list<array<string, mixed>>}|null Null for one not the companion's
+     * @param int $by Who did it
+     * @return string When, ISO 8601
      */
-    public function messages(int $conversationId): ?array
+    public function reset(int $userId, int $by): string
     {
-        $found = $this->table('assist.chat_conversations')->where('conversation_id', $conversationId)->get();
-        $row   = $found ? $found->fetch() : null;
-        if (!is_array($row) || !self::companion((string) $row['space'])) {
-            return null;
-        }
-        $out    = [];
-        $result = $this->table('assist.chat_messages')->where('conversation_id', $conversationId)->orderBy('message_id')->get();
-        while ($result && ($m = $result->fetch()) !== null) {
-            $out[] = ['message_id' => (int) $m['message_id'], 'role' => (string) $m['role'], 'content' => (string) $m['content'],
-                'tools' => json_decode((string) ($m['tools'] ?? ''), true), 'extra' => json_decode((string) ($m['extra'] ?? ''), true),
-                'cost' => $m['cost'] === null ? null : (float) $m['cost'], 'created_at' => (string) $m['created_at']];
-        }
+        $this->table(defined('DB_USERDETAILSTABLE') ? DB_USERDETAILSTABLE : '#PREFIX#userdetails')->where('userid', $userId)->where(
+            static function (\Pramnos\Database\QueryBuilder $q): void {
+                foreach (self::CHOICES as $i => $prefix) {
+                    $i === 0 ? $q->whereLike('fieldname', $prefix . '%') : $q->orWhereLike('fieldname', $prefix . '%');
+                }
+            }
+        )->delete();
+        // The details went around the account's caches: read it afresh, and let the next reader too.
+        self::forget();
+        $at   = gmdate('c');
+        $user = new \Pramnos\User\User($userId);
+        $user->{self::RESET_DETAIL} = $at;
+        $user->save();
+        self::forget();
+        $this->resets[$userId] = $at;
+        \Pramnos\Auth\AuditLog::record('llm.companion.reset', $by, $userId, ['reset_at' => $at]);
 
-        return ['conversation' => ['conversation_id' => $conversationId, 'userid' => (int) $row['userid'], 'persona' => self::personaOf((string) $row['space']),
-            'title' => (string) $row['title'], 'created_at' => (string) $row['created_at'], 'updated_at' => (string) $row['updated_at']], 'messages' => $out];
+        return $at;
     }
 
     /**
-     * Start a person over with the companion: their conversations and messages, queued questions,
-     * memories, profile, diary, thoughts and every other artifact of its spaces, routines and
-     * reminders go — the mood and first meetings with the conversations — their persona, voice,
-     * style and diary marks are the defaults again, and `reset_at` is now. The Ask's conversations
-     * and the person's calendar stay. One `llm.companion.reset` line in the audit log.
+     * Erase a person's history with the companion, and reset their experience ({@see reset()}):
+     * their conversations and messages, queued questions, memories, profile, diary, thoughts and
+     * every other artifact of its spaces, routines and reminders go, and their diary marks. The
+     * Ask's conversations and the person's calendar stay. One `llm.companion.erased` line in the
+     * audit log. No screen offers it: it is the application's to call, where it decides to.
      *
      * @param int $by Who did it
      * @return array<string, int> How many of each went
      */
-    public function reset(int $userId, int $by): array
+    public function erase(int $userId, int $by): array
     {
         $spaces = [];
         foreach (self::SPACED as $table) {
@@ -222,24 +183,18 @@ final class People
             }
         }
         $counts['profile'] = Profile::erase('userid', $userId, $this->db());
-        $details = $this->table(defined('DB_USERDETAILSTABLE') ? DB_USERDETAILSTABLE : '#PREFIX#userdetails')->where('userid', $userId)->where(
-            static function (\Pramnos\Database\QueryBuilder $q): void {
-                foreach (self::CHOICES as $i => $prefix) {
-                    $i === 0 ? $q->whereLike('fieldname', $prefix . '%') : $q->orWhereLike('fieldname', $prefix . '%');
-                }
-            }
-        );
-        $details->delete();
-        $user = new \Pramnos\User\User($userId);
-        $user->{self::RESET_DETAIL} = gmdate('c');
-        $user->save();
-        \Pramnos\Auth\AuditLog::record('llm.companion.reset', $by, $userId, $counts);
+        $this->table(defined('DB_USERDETAILSTABLE') ? DB_USERDETAILSTABLE : '#PREFIX#userdetails')->where('userid', $userId)
+            ->whereLike('fieldname', Diary::READ_DETAIL . '%')->delete();
+        self::forget();
+        \Pramnos\Auth\AuditLog::record('llm.companion.erased', $by, $userId, $counts);
+        $this->reset($userId, $by);
 
         return $counts;
     }
 
     /**
-     * The first meeting with each persona, by key — null before any — for `GET {chat}/me`.
+     * The first meeting with each persona, by key, for `GET {chat}/me`: the start of the first
+     * conversation with it since the person's experience was last reset — null before any.
      *
      * @return array<string, ?string>
      */
@@ -251,11 +206,27 @@ final class People
         }
         foreach ($this->conversations([$userId]) as $conversation) {
             $key       = self::personaOf($conversation['space']);
-            $first     = self::iso($conversation['created_at']);
-            $out[$key] = $out[$key] === null || ($first !== null && $first < $out[$key]) ? $first : $out[$key];
+            $out[$key] = self::earlier($out[$key] ?? null, $this->since($userId, $conversation['created_at']));
         }
 
         return $out;
+    }
+
+    /** A conversation's start as ISO 8601, if it is after the person's last reset; else null. */
+    private function since(int $userId, string $created): ?string
+    {
+        $this->resets[$userId] ??= (string) (self::resetAt(new \Pramnos\User\User($userId)) ?? '');
+        $at    = Routines::utc($created);
+        $reset = $this->resets[$userId] === '' ? null : strtotime($this->resets[$userId]);
+
+        // ponytail: to the second — a conversation begun in the very second of a reset counts as before it.
+        return $at === null || ($reset !== null && $reset !== false && $at <= $reset) ? null : gmdate('c', $at);
+    }
+
+    /** The earlier of two ISO moments, either of which may be none. */
+    private static function earlier(?string $a, ?string $b): ?string
+    {
+        return $a === null ? $b : ($b === null ? $a : min($a, $b));
     }
 
     /** When a person was last started over (ISO 8601), or null. */
@@ -293,21 +264,6 @@ final class People
         }
 
         return array_values($out);
-    }
-
-    /** Who a search finds: by username, email or name, the first 500. @return list<int> */
-    private function matching(string $search): array
-    {
-        $like   = '%' . $search . '%';
-        $result = $this->table('#PREFIX#users')->select(['userid'])->where(static function (\Pramnos\Database\QueryBuilder $q) use ($like): void {
-            $q->whereLike('username', $like)->orWhereLike('email', $like)->orWhereLike('firstname', $like)->orWhereLike('lastname', $like);
-        })->limit(500)->get();
-        $out = [];
-        while ($result && ($row = $result->fetch()) !== null) {
-            $out[] = (int) $row['userid'];
-        }
-
-        return $out;
     }
 
     /** The ids of a person's rows of a table in some spaces. @return list<int> */
@@ -359,12 +315,11 @@ final class People
         }
     }
 
-    /** A stored moment as ISO 8601, or null. */
-    private static function iso(string $stored): ?string
+    /** Forget the accounts read in this request, and their cached rows. */
+    private static function forget(): void
     {
-        $at = Routines::utc($stored);
-
-        return $at === null ? null : gmdate('c', $at);
+        \Pramnos\Framework\Factory::getDatabase()->cacheflush('userlist');
+        \Pramnos\User\User::clearUserCache();
     }
 
     private function db(): \Pramnos\Database\Database
