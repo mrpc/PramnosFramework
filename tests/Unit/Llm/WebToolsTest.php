@@ -229,4 +229,27 @@ class WebToolsTest extends LlmTestCase
         $this->assertSame('https://plain.test/', Search::unwrap('https://plain.test/'));
         $this->assertSame('https://www.bing.com/x', Search::unwrap('https://www.bing.com/x'));
     }
+
+    /**
+     * FW-433: `'web' => true` offers the web on the conversation page only — the administration's
+     * analyst reads customers' data and gets it only where the application names its space.
+     */
+    public function testTheWebIsTheConversationPagesUnlessSpacesAreNamed(): void
+    {
+        // Arrange
+        $chat  = new \Pramnos\Llm\Chat\Scope(1, null);
+        $admin = new \Pramnos\Llm\Chat\Scope(1, null, \Pramnos\Llm\Chat\Scope::ADMIN);
+
+        // Act
+        $this->configure(['chat' => ['web' => true]]);
+        $byDefault = [\Pramnos\Llm\Web\Web::on($chat), \Pramnos\Llm\Web\Web::on($admin)];
+        $this->configure(['chat' => ['web' => ['spaces' => ['chat', 'admin']]]]);
+        $named = [\Pramnos\Llm\Web\Web::on($chat), \Pramnos\Llm\Web\Web::on($admin)];
+        $this->configure(['chat' => []]);
+
+        // Assert
+        $this->assertSame([true, false], $byDefault, 'not the analyst by default');
+        $this->assertSame([true, true], $named);
+        $this->assertFalse(\Pramnos\Llm\Web\Web::on($chat), 'off unless turned on');
+    }
 }

@@ -8,7 +8,8 @@ use Pramnos\Http\Client;
 
 /**
  * The web, for a model: `web_search` ({@see Search}) and `fetch_url` ({@see page()}) — offered in
- * a person's conversations with `'llm' => ['chat' => ['web' => true]]`, in the `web` skill.
+ * a person's conversations with `'llm' => ['chat' => ['web' => true]]` (the `chat` space unless
+ * `spaces` names others: {@see on()}), in the `web` skill.
  *
  * **What it may fetch.** An address the model chose is a user-supplied URL: fetched with
  * {@see Client::forUserSuppliedUrl()}, so every hop must resolve to a public address, the address
@@ -45,12 +46,22 @@ final class Web
     {
     }
 
-    /** Whether the application offers the web in conversations. */
-    public static function on(): bool
+    /**
+     * Whether the application offers the web — given a scope, in its space. `'web' => true` is the
+     * conversation page's (`chat`) only: the administration's analyst reads customers' data, and a
+     * page or snippet could lead it to fetch an address carrying that data. `['web' => ['spaces' =>
+     * ['chat', 'admin']]]` names the spaces.
+     */
+    public static function on(?\Pramnos\Llm\Chat\Scope $scope = null): bool
     {
         $chat = \Pramnos\Llm\Llm::config('chat', []);
+        $web  = is_array($chat) ? ($chat['web'] ?? false) : false;
+        if (empty($web)) {
+            return false;
+        }
+        $spaces = is_array($web) && is_array($web['spaces'] ?? null) ? array_map('strval', $web['spaces']) : [\Pramnos\Llm\Chat\Scope::CHAT];
 
-        return is_array($chat) && !empty($chat['web']);
+        return $scope === null || in_array($scope->space, $spaces, true);
     }
 
     /**

@@ -1159,7 +1159,7 @@ class Conversations
         // about them, not their tasks.
         $tools    = $this->assistant->tools($turn)
             // The web, where the application offers it: nobody's own, so in a shared answer too.
-            + (\Pramnos\Llm\Web\Web::on() ? (new \Pramnos\Llm\Web\Web())->tools() : [])
+            + (\Pramnos\Llm\Web\Web::on($this->scope) ? (new \Pramnos\Llm\Web\Web())->tools() : [])
             // The external MCP servers, where the application offers them here: the application's.
             + (self::mcpOn() ? \Pramnos\Llm\Mcp\Servers::tools() : [])
             + ($turn->shared() ? [] : $memory->tools($this, $turn->conversationId)
