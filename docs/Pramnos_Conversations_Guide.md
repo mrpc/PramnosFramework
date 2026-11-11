@@ -305,6 +305,19 @@ application's cards.
 **Imports** pass `source` and `externalid` (and `at`): the same message twice is written once, so
 an import can run again for what is new.
 
+**A source that is not conversation.** A reminder a bot posts, say, is a message, but not one that
+should sit among a person's unread like a colleague's words. The application names those sources:
+
+```php
+'conversations' => ['quiet_sources' => ['todo']],
+// SystemPost::post($to, 'Υπενθύμιση: γάλα', [], ['source' => 'todo', 'externalid' => 'todo:' . $id]);
+```
+
+`unreads` leaves their messages out and does not count them, and does not list a conversation that
+has only those unread. `activity` gives each one with its source as its `kind` (`todo`), so a page
+can show it under its own tab. The conversation's own unread count in the sidebar still counts
+them: the message is still there to be read.
+
 ## Posting from the application — in place of a chat webhook
 
 `SystemPost::post()` takes what a chat webhook takes — a channel, the text, attachments — so code
@@ -1243,8 +1256,8 @@ described by its docblock, and it answers as it is, with its own `me()`:
 | `conversations` | GET | — | `{me, conversations, browse, people, avatars}`: one's own with unread, mentions and a `title`, the open ones to join, the names of the people in direct and group ones |
 | `messages/{id}` | GET | `before`, `after`, `thread`, `around`, `limit` | `{conversation, handles, members, messages, pinned, saved, draft}` — `saved`, which of these messages the reader kept; `draft`, what the reader has begun writing there (in `thread`, when asked for one); with `around` (a message id) the stream around it and `around: {messageId, threadRootId}`, `older`, `newer` — none of the three when the message is no anchor, and the newest are shown |
 | `threads` | GET | — | `{threads}`: the threads one takes part in, newest reply first — `{root, latest, replies, newReplies}` |
-| `activity` | GET | — | `{activity}`: mentions of one, reactions to what one wrote, replies in one's threads — `{kind, at, message, by, byName, emoji}` |
-| `unreads` | GET | — | `{unreads}`: every unread message, conversation by conversation |
+| `activity` | GET | — | `{activity}`: mentions of one, reactions to what one wrote, replies in one's threads, and the quiet sources' messages with their source as `kind` — `{kind, at, message, by, byName, emoji}` |
+| `unreads` | GET | — | `{unreads}`: every unread message, conversation by conversation, but those of the quiet sources |
 | `sent` | GET | — | `{messages}`: what one wrote, newest first |
 | `saved` | GET | — | `{messages}`: what one kept for later |
 | `files/{id}` | GET | `kind` (`media`, `files`), `q`, `before` (a file id), `limit` | `{files}`: the files sent in a conversation and still kept, newest first, each with `thumbnail`; a page when any of these is given |

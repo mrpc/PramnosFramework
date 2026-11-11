@@ -52,7 +52,8 @@ final class Inbox
 
     /**
      * What happened to somebody, newest first: messages that mention them, `@all` or `@online`
-     * where they are; reactions to what they wrote; replies in the threads they take part in. Their
+     * where they are; reactions to what they wrote; replies in the threads they take part in; and
+     * the messages of the quiet sources ({@see quietSources()}), each of its source's kind. Their
      * own doing is left out.
      *
      * @return list<array{kind: string, at: int, message: array<string, mixed>, by: ?int, emoji: ?string, byName: ?string}>
@@ -88,6 +89,14 @@ final class Inbox
                 $items['m' . $row['messageid']] ??= ['kind' => 'reply', 'at' => 0, 'id' => (int) $row['messageid'], 'by' => null, 'emoji' => null];
             }
         }
+        $quiet = self::quietSources();
+        if ($quiet !== []) {
+            foreach (self::messages()->select(['messageid', 'source'])->whereIn('source', $quiet)->whereIn('conversationid', $mine)
+                ->whereNull('deletedat')->where(self::others($person))->orderBy('created_at', 'desc')->orderBy('messageid', 'desc')->limit($limit)->getAllOrFail() as $row) {
+                // A quiet source's message is its own kind — `todo` — whatever else it is.
+                $items['m' . $row['messageid']] = ['kind' => (string) $row['source'], 'at' => 0, 'id' => (int) $row['messageid'], 'by' => null, 'emoji' => null];
+            }
+        }
         $messages = [];
         foreach (Messages::many(array_values(array_unique(array_column($items, 'id')))) as $message) {
             $messages[$message['id']] = $message;
@@ -109,21 +118,52 @@ final class Inbox
     }
 
     /**
+     * The sources of the messages that are not conversation — a reminder a bot posts, say
+     * (`SystemPost::post(..., ['source' => 'todo'])`): `'conversations' => ['quiet_sources' =>
+     * ['todo']]`. {@see unreads()} leaves them out; {@see activity()} tells them as their own kind.
+     *
+     * @return list<string>
+     */
+    public static function quietSources(): array
+    {
+        $quiet = Conversations::settings()['quiet_sources'] ?? [];
+
+        return is_array($quiet) ? array_values(array_filter(array_map('strval', $quiet), static fn (string $s): bool => $s !== '')) : [];
+    }
+
+    /**
      * Every message somebody has not read, conversation by conversation — the newest first, each
-     * conversation's messages oldest first, at most `$each` of them. Muted ones are left out.
+     * conversation's messages oldest first, at most `$each` of them. Muted ones are left out, and
+     * so are the messages of the quiet sources ({@see quietSources()}): a conversation with only
+     * those unread is not listed, and `unread` does not count them.
      *
      * @return list<array{id: int, title: string, unread: int, lastMessageId: ?int, messages: list<array<string, mixed>>}>
      */
     public static function unreads(int $person, int $each = 20): array
     {
-        $out = [];
+        $out   = [];
+        $quiet = self::quietSources();
         foreach (Conversations::forPerson($person) as $c) {
             if ($c['muted'] || $c['unread'] === 0 || $c['archivedAt'] !== null) {
                 continue;
             }
-            $ids = array_map('intval', array_column(Messages::inOrder(Messages::beyond(Messages::inStream(self::messages())->select(['messageid'])
-                ->where('conversationid', $c['id']), $c['lastReadId'])->whereNull('deletedat')->where(self::others($person)), 'desc')->limit(max(1, min(self::LIMIT, $each)))->getAllOrFail(), 'messageid'));
-            $out[] = ['id' => $c['id'], 'title' => Conversations::names([$c['id']])[$c['id']] ?? '', 'unread' => $c['unread'],
+            $unread = static fn (): \Pramnos\Database\QueryBuilder => Messages::beyond(Messages::inStream(self::messages())
+                ->where('conversationid', $c['id']), $c['lastReadId'])->whereNull('deletedat')->where(self::others($person));
+            $count = $c['unread'];
+            if ($quiet !== []) {
+                $count -= (int) ($unread()->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->whereIn('source', $quiet)->getAllOrFail()[0]['n'] ?? 0);
+                if ($count <= 0) {
+                    continue;
+                }
+            }
+            $query = $unread()->select(['messageid']);
+            if ($quiet !== []) {
+                $query->where(static function ($q) use ($quiet): void {
+                    $q->whereNull('source')->orWhereNotIn('source', $quiet);
+                });
+            }
+            $ids = array_map('intval', array_column(Messages::inOrder($query, 'desc')->limit(max(1, min(self::LIMIT, $each)))->getAllOrFail(), 'messageid'));
+            $out[] = ['id' => $c['id'], 'title' => Conversations::names([$c['id']])[$c['id']] ?? '', 'unread' => $count,
                 'lastMessageId' => $c['lastMessageId'], 'messages' => Messages::many(array_reverse($ids))];
         }
 

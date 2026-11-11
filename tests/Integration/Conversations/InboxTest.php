@@ -123,4 +123,41 @@ class InboxTest extends TestCase
         $this->assertSame([], Inbox::savedIds($eleni, []));
         $this->assertSame([], Inbox::sent($this->ids['tasos']));
     }
+
+    /**
+     * A quiet source — a reminder a bot posts — is not conversation (FW-456): unread leaves it out
+     * and does not count it, a conversation with only it unread is not listed, and activity tells
+     * it as its own kind. Without the setting, it is a message like any other.
+     */
+    #[DataProvider('databases')]
+    public function testQuietSources(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30, 'quiet_sources' => ['todo']];
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        $general  = Conversations::create('channel', 'general', [$maria], $eleni);
+        $bot      = Conversations::create('channel', 'reminders', [$maria], $eleni);
+        Messages::post($general, $eleni, 'δικό μου');
+        Messages::post($bot, $eleni, 'δικό μου');
+        $said     = Messages::post($general, $maria, 'γεια');
+        $todo     = Messages::post($general, $maria, 'Υπενθύμιση: γάλα', ['source' => 'todo', 'externalid' => 'todo:1']);
+        $only     = Messages::post($bot, $maria, 'Υπενθύμιση: ψωμί', ['source' => 'todo', 'externalid' => 'todo:2']);
+
+        // Act
+        $unreads  = array_column(Inbox::unreads($eleni), null, 'id');
+        $activity = Inbox::activity($eleni);
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
+        $plain    = array_column(Inbox::unreads($eleni), null, 'id');
+
+        // Assert
+        $this->assertSame([$general], array_keys($unreads), 'a conversation with only a reminder unread is not listed');
+        $this->assertSame([$said], array_column($unreads[$general]['messages'], 'id'));
+        $this->assertSame(1, $unreads[$general]['unread'], 'the reminder is not counted');
+        $this->assertEqualsCanonicalizing([[$todo, 'todo'], [$only, 'todo']],
+            array_map(static fn (array $a): array => [$a['message']['id'], $a['kind']], $activity), 'each reminder its own kind');
+        $this->assertSame(2, $plain[$general]['unread'], 'without the setting, a message like any other');
+        $this->assertArrayHasKey($bot, $plain);
+        $this->assertSame([], Inbox::quietSources(), 'none set');
+    }
 }
