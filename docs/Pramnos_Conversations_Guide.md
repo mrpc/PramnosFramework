@@ -819,6 +819,7 @@ Files::send($file, $user, true);    // an image's thumbnail
 Files::usage();                     // bytes per conversation and month, the largest, the oldest, the total
 Files::prune(365);                  // remove the ones older than a year: ['files' => 41, 'bytes' => 912345678]
 Files::prune(0, $conversationId);   // every one of a conversation
+Files::extensions();                // every extension accepted, for a client's file picker (`accept`) and its drop/paste guard
 ```
 
 | setting | where | default |
@@ -826,13 +827,22 @@ Files::prune(0, $conversationId);   // every one of a conversation
 | the tree | `'conversations' => ['files_path' => …]` | `var/chat-files` |
 | the largest file | the setting `conversations_max_file_mb` (an administrator's), else `'conversations' => ['max_file_mb' => …]` | 25 MB |
 | the largest video | the setting `conversations_max_video_mb`, else `'conversations' => ['max_video_mb' => …]` | 100 MB |
+| what may be sent | `Files::TYPES`, plus `'conversations' => ['file_types' => ['mime' => ['ext', …]]]` | see below |
 
 **What may be sent** is decided by what the file is, not what it is called: images (JPEG, PNG, GIF,
-WebP), video (MP4, QuickTime `.mov`, WebM), PDF, Word, Excel and PowerPoint, OpenDocument, CSV,
-plain text and zip. A video is limited by its own setting rather than the files' one, and is kept
-without a thumbnail. The composer checks the same two limits before uploading. Uploads also stay
-within PHP's `upload_max_filesize` and `post_max_size`, which must be raised for videos that large. A program renamed
-`invoice.pdf` is refused. A name loses any path and any character a disk cannot hold. An image
+WebP, HEIC/HEIF, TIFF), video (MP4, QuickTime `.mov`, WebM), audio (MP3, M4A, WAV, OGG, AAC), PDF,
+Word, Excel and PowerPoint (both the old, OLE-container `.doc`/`.xls`/`.ppt` and the current ones),
+Outlook `.msg` and `.eml`, OpenDocument, CSV/TSV, plain text, JSON, XML, RTF, zip, rar and 7z. A
+video is limited by its own setting rather than the files' one, and is kept without a thumbnail. An
+application adds its own kinds with `Files::types()`'s setting (`'conversations' => ['file_types' =>
+['mime' => ['ext', …]]]`), merged onto `Files::TYPES` rather than replacing it; `Files::extensions()`
+reads the merged list back as a flat list, for a client's upload picker and its own guard against a
+dropped or pasted file of a kind that will only be refused. The composer checks the same two
+megabyte limits before uploading. Uploads also stay within PHP's `upload_max_filesize` and
+`post_max_size`, which must be raised for videos that large. A program renamed `invoice.pdf` is
+refused, naming the extension it was refused by, and the refusal is logged (the user, the
+conversation, the type `finfo` read, the extension and the size) — a refusal is otherwise
+indistinguishable from a bug. A name loses any path and any character a disk cannot hold. An image
 larger than 400 pixels on a side gets a thumbnail beside it, fitted inside 400×400 with its own
 proportions: a PNG for a PNG, so a transparent background stays transparent, a JPEG otherwise,
 named `.thumb.png` or `.thumb.jpg` for what it is. A smaller image has none and is shown itself, as

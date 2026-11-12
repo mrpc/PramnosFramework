@@ -160,8 +160,8 @@ class FilesTest extends TestCase
         $this->assertFileExists($this->tree . '/' . $file['thumbPath'], 'an image has a thumbnail');
         $this->assertSame('text/plain', Files::get($text)['mime']);
         $this->assertSame([
-            'Files of this kind are not sent here: images, video, PDF, Office documents, CSV, text and zip are.',
-            'Files of this kind are not sent here: images, video, PDF, Office documents, CSV, text and zip are.',
+            'Files of this kind (.pdf) are not sent here: images, video, PDF, Office documents, CSV, text and zip are.',
+            'Files of this kind (.php) are not sent here: images, video, PDF, Office documents, CSV, text and zip are.',
             'A file is at most 2 MB.',
             'The file did not arrive.',
             'Only its members write in a conversation.',
@@ -286,5 +286,75 @@ class FilesTest extends TestCase
         $this->assertNull(Files::pathFor($old, $this->user('eleni')), 'removed: nothing to send');
         $this->assertSame(0, Files::remove($old), 'removed once');
         $this->assertSame(['files' => 1, 'bytes' => strlen('καινούριο αρχείο')], Files::prune(0, $secret), 'one conversation\'s, every one');
+    }
+
+    /**
+     * A CSV is `text/plain` under finfo (FW-494, from a production 422 that refused one): both
+     * `text/plain` and `text/csv` must carry the `csv` extension, or every CSV is refused. A refusal
+     * names the extension and writes one warning line — user, conversation, mime, extension, size —
+     * so a future refusal can be told apart from a bug without reproducing it.
+     */
+    #[DataProvider('databases')]
+    public function testACsvIsAcceptedAndARefusalIsNamedAndLogged(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->tree = sys_get_temp_dir() . '/pfchat-' . bin2hex(random_bytes(4));
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30, 'files_path' => $this->tree];
+        $eleni   = $this->ids['eleni'];
+        $general = Conversations::create('channel', 'general', [], $eleni);
+        $logFile = \Pramnos\Logs\Logger::logDirectory() . '/pramnosframework.log';
+        @unlink($logFile);
+
+        // Act — a real finfo-detected CSV, as text/plain on this system
+        $csv = Files::store($general, $eleni, $this->upload("name,age\nLela,30\n"), 'μισθοδοσία.csv');
+        try {
+            Files::store($general, $eleni, $this->upload('whatever'), 'σημείωση.rtx');
+            $refused = '';
+        } catch (\InvalidArgumentException $e) {
+            $refused = $e->getMessage();
+        }
+        $logged = is_file($logFile) ? (string) file_get_contents($logFile) : '';
+
+        // Assert
+        $this->assertSame('text/plain', Files::get($csv)['mime'], 'what finfo actually reports for a CSV');
+        $this->assertStringEndsWith('.csv', Files::get($csv)['path']);
+        $this->assertStringContainsString('(.rtx)', $refused, 'the refusal names the extension');
+        $this->assertStringContainsString('not sent here', $refused);
+        // One warning line with exactly what is needed to tell a refusal apart from a bug.
+        $this->assertMatchesRegularExpression('/"userid":' . $eleni . '\b/', $logged, 'the user is in the log line');
+        $this->assertMatchesRegularExpression('/"conversationid":' . $general . '\b/', $logged);
+        $this->assertStringContainsString('"extension":"rtx"', $logged);
+        $this->assertStringContainsString('"mime":"text/plain"', $logged);
+        $this->assertStringContainsString('"size":8', $logged);
+    }
+
+    /**
+     * An application adds its own mime/extension pairs on top of {@see Files::TYPES} — e.g. a kind
+     * the framework does not know, or a second extension for a mime it already allows — without
+     * forking the list.
+     */
+    #[DataProvider('databases')]
+    public function testAnApplicationExtendsTheAllowedTypes(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->tree = sys_get_temp_dir() . '/pfchat-' . bin2hex(random_bytes(4));
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30, 'files_path' => $this->tree,
+            'file_types' => ['text/plain' => ['weird'], 'application/x-custom' => ['xyz']]];
+        $general = Conversations::create('channel', 'general', [], $this->ids['eleni']);
+
+        // Act
+        $extended   = Files::store($general, $this->ids['eleni'], $this->upload('data'), 'σημείωση.weird');
+        $stillCsv   = Files::types()['text/plain'];
+
+        // Assert
+        $this->assertSame('text/plain', Files::get($extended)['mime'], 'the application\'s own extension on an existing mime');
+        $this->assertContains('csv', $stillCsv, 'the framework\'s own extensions stay, merged rather than replaced');
+        $this->assertContains('weird', $stillCsv);
+        $this->assertSame(['xyz'], Files::types()['application/x-custom'], 'and a mime the framework does not know at all');
+        $this->assertContains('weird', Files::extensions(), 'extensions() carries the application\'s own too');
+        $this->assertContains('xyz', Files::extensions());
+        $this->assertContains('pdf', Files::extensions(), 'and the framework\'s');
     }
 }

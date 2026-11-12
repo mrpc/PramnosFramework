@@ -25,8 +25,10 @@ use Pramnos\Database\Expression;
  * | the largest file | the setting `conversations_max_file_mb`, else `'conversations' => ['max_file_mb' => …]` | 25 MB |
  * | the largest video | the setting `conversations_max_video_mb`, else `'conversations' => ['max_video_mb' => …]` | 100 MB |
  *
- * Allowed: images, video (mp4, mov, webm), PDF, Office and OpenDocument, CSV, plain text and zip — by what the file is, not
- * what it is called; never a program. An image larger than THUMB gets a thumbnail beside it.
+ * Allowed: images (incl. HEIC/HEIF/TIFF), video (mp4, mov, webm), audio, PDF, Office (old and new) and
+ * OpenDocument, CSV/TSV, text, JSON/XML/RTF, email (eml/msg), zip/rar/7z — by what the file is, not what it is
+ * called ({@see types}, which an application extends); never a program, and only an image or a PDF opens inline
+ * ({@see send}). An image larger than THUMB gets a thumbnail beside it.
  */
 final class Files
 {
@@ -36,10 +38,17 @@ final class Files
     /** The setting an administrator changes it with. */
     public const SETTING = 'conversations_max_file_mb';
 
-    /** What may be sent, by type, with the extensions each may carry. */
+    /**
+     * What may be sent, by type, with the extensions each may carry — an application adds its own
+     * with the setting `'conversations' => ['file_types' => ['mime' => ['ext', …]]]`, merged onto
+     * this list ({@see types()}).
+     */
     public const TYPES = [
         'image/jpeg' => ['jpg', 'jpeg'], 'image/png' => ['png'], 'image/gif' => ['gif'], 'image/webp' => ['webp'],
-        'application/pdf' => ['pdf'], 'text/plain' => ['txt', 'log', 'md'], 'text/csv' => ['csv'], 'application/csv' => ['csv'],
+        'image/heic' => ['heic'], 'image/heif' => ['heif'], 'image/tiff' => ['tiff', 'tif'],
+        'application/pdf' => ['pdf'],
+        'text/plain' => ['txt', 'log', 'md', 'csv', 'tsv'], 'text/csv' => ['csv', 'tsv'],
+        'application/csv' => ['csv', 'tsv'], 'text/x-csv' => ['csv', 'tsv'],
         'application/zip' => ['zip', 'docx', 'xlsx', 'pptx', 'odt', 'ods', 'odp'],
         'application/msword' => ['doc'], 'application/vnd.ms-excel' => ['xls', 'csv'], 'application/vnd.ms-powerpoint' => ['ppt'],
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => ['docx'],
@@ -47,6 +56,15 @@ final class Files
         'application/vnd.openxmlformats-officedocument.presentationml.presentation' => ['pptx'],
         'application/vnd.oasis.opendocument.text' => ['odt'], 'application/vnd.oasis.opendocument.spreadsheet' => ['ods'],
         'application/vnd.oasis.opendocument.presentation' => ['odp'], 'application/x-zip-compressed' => ['zip'],
+        // Old (OLE-container) Office: finfo cannot tell doc from xls from ppt from msg by content alone.
+        'application/CDFV2' => ['doc', 'xls', 'ppt', 'msg'], 'application/x-ole-storage' => ['doc', 'xls', 'ppt', 'msg'],
+        'application/rtf' => ['rtf'], 'text/rtf' => ['rtf'],
+        'application/json' => ['json'], 'text/xml' => ['xml'], 'application/xml' => ['xml'],
+        'message/rfc822' => ['eml'], 'application/vnd.ms-outlook' => ['msg'],
+        'application/vnd.rar' => ['rar'], 'application/x-rar-compressed' => ['rar'], 'application/x-7z-compressed' => ['7z'],
+        // Audio, kept and sent like any file, no thumbnail.
+        'audio/mpeg' => ['mp3'], 'audio/mp4' => ['m4a'], 'audio/x-m4a' => ['m4a'],
+        'audio/wav' => ['wav'], 'audio/x-wav' => ['wav'], 'audio/ogg' => ['ogg'], 'audio/aac' => ['aac'],
         // Video, with a limit of its own (VIDEO_SETTING): kept and sent like any file, no thumbnail.
         'video/mp4' => ['mp4', 'm4v'], 'video/quicktime' => ['mov'], 'video/webm' => ['webm'],
     ];
@@ -59,6 +77,26 @@ final class Files
 
     /** The thumbnail's longest side, in pixels. */
     public const THUMB = 400;
+
+    /**
+     * {@see TYPES}, with an application's own extensions merged in by `'conversations' =>
+     * ['file_types' => ['mime' => ['ext', …]]]` — added to a mime already listed, or a new one.
+     *
+     * @return array<string, list<string>>
+     */
+    public static function types(): array
+    {
+        $own = Conversations::settings()['file_types'] ?? [];
+        if (!is_array($own) || $own === []) {
+            return self::TYPES;
+        }
+        $types = self::TYPES;
+        foreach ($own as $mime => $extensions) {
+            $types[$mime] = array_values(array_unique([...($types[$mime] ?? []), ...(array) $extensions]));
+        }
+
+        return $types;
+    }
 
     /**
      * Keep a file sent in a conversation; it is linked to its message when the message is written.
@@ -77,8 +115,11 @@ final class Files
         $mime = (string) (new \finfo(FILEINFO_MIME_TYPE))->file($tmp);
         $name = self::name($name);
         $ext  = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-        if (!in_array($ext, self::TYPES[$mime] ?? [], true)) {
-            throw new \InvalidArgumentException(t('Files of this kind are not sent here: images, video, PDF, Office documents, CSV, text and zip are.'));
+        if (!in_array($ext, self::types()[$mime] ?? [], true)) {
+            \Pramnos\Logs\Logger::warning('Conversation file upload refused: a type not sent here', [
+                'userid' => $by, 'conversationid' => $conversationId, 'mime' => $mime, 'extension' => $ext, 'size' => $size, 'name' => $name,
+            ]);
+            throw new \InvalidArgumentException(t('Files of this kind (.%s) are not sent here: images, video, PDF, Office documents, CSV, text and zip are.', $ext !== '' ? $ext : '?'));
         }
         // What it is decides how large it may be: a video has a limit of its own.
         $video = str_starts_with($mime, 'video/');
@@ -345,6 +386,17 @@ final class Files
         $own = (int) (Conversations::settings()['max_video_mb'] ?? 0);
 
         return $own > 0 ? $own : self::DEFAULT_MAX_VIDEO_MB;
+    }
+
+    /**
+     * Every extension {@see store} accepts, the application's own additions included — what a
+     * client's file picker (`accept`) and its drop/paste guard are built from.
+     *
+     * @return list<string>
+     */
+    public static function extensions(): array
+    {
+        return array_values(array_unique(array_merge(...array_values(self::types()))));
     }
 
     /** The tree the files are kept in. */
