@@ -245,6 +245,18 @@ as before.
 
 Who the partitions are, how a request names one, whether a device is held to one, and who may read
 another's are the application's, built on this hook.
+
+What runs on its own, without a request, takes the partition from the stored space:
+
+- **The evening's diary** writes a page for each space that talked that day, a partition's
+  included.
+- **The morning's thought** is written and told once a day per stored space, so one partition's
+  morning never stands for another's or the holder's.
+- **The name** the thought and the diary call the person by is the account's first name, unless
+  the application's assistant has `personName(Scope $scope): ?string`.
+- **Whom the morning is told to** is the account's holder, unless the assistant has
+  `tellMorning(Scope $scope, object $notice): bool`. That method tells whom it decides, in its own
+  way, and answers false where there was nobody to tell. Either way the day is marked.
 An account's erasure takes every partition's rows with the account's.
 
 ### A check a few hours later

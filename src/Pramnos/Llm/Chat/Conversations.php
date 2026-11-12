@@ -971,7 +971,7 @@ class Conversations
             $name   = Personas::get((string) Personas::of($scope))['name'] ?? \Pramnos\Llm\Analyst\Analyst::name();
             // The application's own rules for the page — how its name is spelled, say — where its assistant has some.
             $rules  = method_exists($this->assistant, 'diaryRules') ? (string) $this->assistant->diaryRules($scope) : '';
-            $person = trim((string) ((new \Pramnos\User\User($scope->userId))->firstname ?? ''));
+            $person = $this->personName($scope);
             $answer = $this->client($scope)->askCheaply(Diary::prompt($name, $person, $rules), [['role' => 'user', 'content' => $talk]]);
             if (!empty($answer['ok']) && trim((string) ($answer['reply'] ?? '')) !== '' && is_array($diary->keep($day, (string) $answer['reply']))) {
                 $written++;
@@ -1000,7 +1000,7 @@ class Conversations
             Calendar::on($scope) && Calendar::available() ? (new Calendar($scope, $this->assistant->timezone($scope)))->context() : '',
         ])));
         $name   = Personas::get((string) Personas::of($scope))['name'] ?? \Pramnos\Llm\Analyst\Analyst::name();
-        $person = trim((string) ((new \Pramnos\User\User($scope->userId))->firstname ?? ''));
+        $person = $this->personName($scope);
         $answer = $this->client($scope)->askCheaply(Today::prompt($name, $person), [['role' => 'user', 'content' => $known !== '' ? $known : '(nothing yet)']]);
         $text   = trim((string) ($answer['reply'] ?? ''));
         if (empty($answer['ok']) || $text === '') {
@@ -1051,7 +1051,8 @@ class Conversations
                 if ($this->thought($scope, $day) === null || !$morning['notify'] || !$set['notify']['thought']) {
                     continue;
                 }
-                $mark = 'askmorning' . ($scope->persona === null ? '' : '-' . $scope->persona);
+                // Per stored space: one persona's or one partition's morning never stands for another's.
+                $mark = 'askmorning' . ($scope->persona === null ? '' : '-' . $scope->persona) . ($scope->partition === null ? '' : '@' . $scope->partition);
                 // Once a day; and not in their quiet hours — it waits for their end, the same day.
                 if ((string) ($user->{$mark} ?? '') === $day || Settings::quietAt($set['quiet'], $local->format('H:i'))) {
                     continue;
@@ -1060,10 +1061,18 @@ class Conversations
                 // Its words in the person's language, not the console's.
                 $notice = \Pramnos\Notification\Notifier::inLanguageOf($user,
                     static fn (): object => RoutineReady::tag(new TaskReminder(sprintf(t('%s left you something 💌'), $name), $morning['url']), $scope->space));
-                $deliver !== null ? $deliver($scope->userId, $notice) : $user->notify($notice);
+                // The application's assistant tells it its own way where it has `tellMorning(Scope, object): bool`
+                // — whom, and how; false for nobody — else the account's holder is told.
+                $sent = true;
+                if (method_exists($this->assistant, 'tellMorning')) {
+                    $sent = (bool) $this->assistant->tellMorning($scope, $notice);
+                } else {
+                    $deliver !== null ? $deliver($scope->userId, $notice) : $user->notify($notice);
+                }
+                // Marked either way: told, or nobody to tell today — not asked again every minute.
                 $user->{$mark} = $day;
                 $user->save();
-                $told++;
+                $told += $sent ? 1 : 0;
             } catch (\Throwable $why) {
                 // One person's morning that cannot go does not stop the others'.
                 \Pramnos\Logs\Logger::log('morning thought for ' . $scope->userId . ': ' . $why->getMessage(), 'llm');
@@ -1071,6 +1080,18 @@ class Conversations
         }
 
         return $told;
+    }
+
+    /**
+     * The name the morning's thought and the diary call the person by: the application's
+     * assistant's own, where it has `personName(Scope $scope): ?string`, else the account's first
+     * name.
+     */
+    private function personName(Scope $scope): string
+    {
+        $given = method_exists($this->assistant, 'personName') ? $this->assistant->personName($scope) : null;
+
+        return is_string($given) && trim($given) !== '' ? trim($given) : trim((string) ((new \Pramnos\User\User($scope->userId))->firstname ?? ''));
     }
 
     /**

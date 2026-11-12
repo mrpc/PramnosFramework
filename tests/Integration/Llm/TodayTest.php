@@ -171,6 +171,79 @@ class TodayTest extends LlmTestCase
         $this->assertCount(2, $this->sent, 'the thought written once, while it waited too');
     }
 
+    /**
+     * Partitions under one account: each one's thought and diary call it by the name the
+     * application's assistant gives (`personName()`), not the holder's; each one's morning is told
+     * once of its own — one partition's never stands for another's — the application's way
+     * (`tellMorning()`), or to nobody; and a partition's evening gets its diary page.
+     */
+    #[DataProvider('databases')]
+    public function testEachPartitionIsCalledByItsNameAndToldOfItsOwnMorning(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $user = new \Pramnos\User\User();
+        $user->username  = 'parts' . random_int(100000, 999999);
+        $user->email     = $user->username . '@example.test';
+        $user->firstname = 'Giannis';
+        $user->save();
+        $this->person = (int) $user->userid;
+        $this->configure(['chat' => ['memory' => ['learn' => false], 'journal' => ['diary' => ['at' => '00:00']],
+            'today' => ['thought' => true, 'morning' => ['at' => '00:00', 'notify' => true, 'url' => 'https://app.test/']]]]);
+        $holder = new Scope($this->person);
+        $this->answer([
+            [200, self::says('Γεια Μαρίνα!')], [200, self::says('Γεια Νίκο!')],
+            [200, self::says('Καλημέρα.')], [200, self::says('Καλημέρα.')],     // the two thoughts
+            [200, self::says('Σήμερα η Μαρίνα μου μίλησε.')],                   // the diary page of partition 2
+        ]);
+        $told      = [];
+        $assistant = new class ($told) extends \Pramnos\Llm\Chat\BaseAssistant {
+            /** @param list<string> $told */
+            public function __construct(private array &$told)
+            {
+            }
+
+            /** The application's name for the person a scope is. */
+            public function personName(Scope $scope): ?string
+            {
+                return [2 => 'Marina', 3 => 'Nikos'][$scope->partition ?? 0] ?? null;
+            }
+
+            /** The application tells a morning its own way: partition 3, nobody. */
+            public function tellMorning(Scope $scope, object $notice): bool
+            {
+                if ($scope->partition === 3) {
+                    return false;
+                }
+                $this->told[] = $scope->stored();
+
+                return true;
+            }
+        };
+        $chat = new \Pramnos\Llm\Chat\Conversations($assistant);
+        $chat->as($holder->withPartition(2))->ask(null, 'Γεια');
+        $chat->as($holder->withPartition(3))->ask(null, 'Γεια');
+
+        // Act
+        $first = $chat->writeThoughts(time());
+        \Pramnos\User\User::clearUserCache();
+        $again = $chat->writeThoughts(time());
+        $asked = json_encode([$this->sent[2]['body']['messages'], $this->sent[3]['body']['messages']], JSON_UNESCAPED_UNICODE);
+        $pages = $chat->writeDiaries(time(), 1);
+        $diary = json_encode($this->sent[4]['body']['messages'] ?? [], JSON_UNESCAPED_UNICODE);
+
+        // Assert
+        $this->assertSame([1, 0], [$first, $again], 'partition 2 told once; partition 3 told to nobody');
+        $this->assertSame(['chat@2'], $told, 'the application tells it, its own way — asked once a day for partition 3 too');
+        $this->assertStringContainsString('Marina', $asked, 'the partition\'s own name');
+        $this->assertStringContainsString('Nikos', $asked);
+        $this->assertStringNotContainsString('Giannis', $asked, 'never the holder\'s');
+        $this->assertSame(1, $pages, 'a partition gets its diary page');
+        $this->assertStringContainsString('Marina', $diary);
+        $this->db->queryBuilder()->table('assist.chat_artifacts')->where('userid', $this->person)->delete();
+        $this->db->queryBuilder()->table('assist.chat_conversations')->where('userid', $this->person)->delete();
+    }
+
     /** Nobody signed in has no day. */
     public function testNeedsSomebody(): void
     {
