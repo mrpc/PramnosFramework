@@ -210,6 +210,7 @@ what follows from it:
         'topics'    => ['interests', 'talk'],                          // the memories that pass; all when not said
         'leave_out' => ['plan', 'pinned', 'follow_ups', 'diary', 'profile', 'calendar', 'organisation'],
         'without'   => ['adult'],                                      // tools marked with these, not loaded
+        'skills_without' => ['web'],                                   // skills not offered at all, nor their tools
     ],
 ]]],
 ```
@@ -223,6 +224,9 @@ what follows from it:
 - **Tools.** Those a capability marks (the plan, the follow-ups, the work mode, or any tool given
   `'audience' => 'adult'` or marked with `Audience::adults($tools)`) are not loaded at all for an
   audience whose `without` names the mark. This is code, not a rule in the prompt.
+- **Skills withheld.** The skills an audience's `skills_without` names, the built-in `web` among
+  them, are not offered: they are not in `use_skill`, and their tools are not loaded. A model that
+  asks for one anyway is told it is not available here.
 - **The context.** The sources an audience's `leave_out` names are left out, in the one place the
   context is put together, as are memories of topics other than its `topics`. Its `rules` are said
   in the prompt.
@@ -271,6 +275,11 @@ What runs on its own, without a request, takes the partition from the stored spa
   partition, those subscribed before partitions among them.
 - **Its own first meetings:** `People::firstMeetings($userId, $partition)` and `first_meetings`
   on `{chat}/me` count its own conversations, and the holder's count only the holder's.
+- **Which pushes go:** before any push of the assistant's, the application's assistant is asked,
+  where it has `notifies(Scope $scope, string $kind, int $at): bool`. The kinds are `morning`,
+  `reminder`, `calendar`, `answer` and `share`. False holds the push back, and what it was about
+  stays in the app, such as no pushes for the youngest or none late at night. An application's
+  own notification says its kind with `RoutineReady::tag($n, $space, $kind)`.
 - **Whom the morning is told to** is the account's holder, unless the assistant has
   `tellMorning(Scope $scope, object $notice): bool`. That method tells whom it decides, in its own
   way, and answers false where there was nobody to tell. Either way the day is marked.

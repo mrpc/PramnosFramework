@@ -1481,7 +1481,7 @@ class Routines
 
         try {
             // The day and the task go seventh and eighth: a notification class of the application's own, written for six, ignores them.
-            $this->deliver($userId, RoutineReady::tag(new $class($title, $ok, $ok ? '' : $says, self::linkable($link ?? $this->chat->assistant()->conversationUrl($conversationId)), $content, $email, $day, $routineId), $this->space));
+            $this->deliver($userId, RoutineReady::tag(new $class($title, $ok, $ok ? '' : $says, self::linkable($link ?? $this->chat->assistant()->conversationUrl($conversationId)), $content, $email, $day, $routineId), $this->space, 'answer'));
         } catch (\Throwable $why) {
             // A dead push endpoint must not undo a report that was written.
             \Pramnos\Logs\Logger::log('llm routine notification: ' . $why->getMessage());
@@ -1497,7 +1497,7 @@ class Routines
 
         foreach ($audience as $userId) {
             try {
-                $this->deliver((int) $userId, RoutineReady::tag(new $class($words, self::linkable($link)), $this->space));
+                $this->deliver((int) $userId, RoutineReady::tag(new $class($words, self::linkable($link)), $this->space, 'reminder'));
             } catch (\Throwable $why) {
                 \Pramnos\Logs\Logger::log('llm reminder notification: ' . $why->getMessage());
             }

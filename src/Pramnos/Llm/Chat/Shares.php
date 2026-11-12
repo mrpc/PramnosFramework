@@ -411,7 +411,7 @@ final class Shares
                 // The recipient's language, not the sharer's.
                 $words = \Pramnos\Notification\Notifier::inLanguageOf($user, static fn (): string => sprintf(
                     \Pramnos\Translator\Language::getInstance()->_('%s shared “%s” with you'), self::nameOf($by->userId), (string) $share['title']));
-                $user->notify(RoutineReady::tag(new $class($words, $this->policy()->link($share)), $by->stored()));
+                $user->notify(RoutineReady::tag(new $class($words, $this->policy()->link($share)), $by->stored(), 'share'));
             }
         } catch (\Throwable $why) {
             \Pramnos\Logs\Logger::log('llm share notification: ' . $why->getMessage());

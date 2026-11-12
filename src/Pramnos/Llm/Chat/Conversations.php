@@ -1060,7 +1060,7 @@ class Conversations
                 $name   = Personas::get((string) Personas::of($scope))['name'] ?? \Pramnos\Llm\Analyst\Analyst::name();
                 // Its words in the person's language, not the console's.
                 $notice = \Pramnos\Notification\Notifier::inLanguageOf($user,
-                    static fn (): object => RoutineReady::tag(new TaskReminder(sprintf(t('%s left you something 💌'), $name), $morning['url']), $scope->stored()));
+                    static fn (): object => RoutineReady::tag(new TaskReminder(sprintf(t('%s left you something 💌'), $name), $morning['url']), $scope->stored(), 'morning'));
                 // The application's assistant tells it its own way where it has `tellMorning(Scope, object): bool`
                 // — whom, and how; false for nobody — else the account's holder is told.
                 $sent = true;
@@ -1738,6 +1738,13 @@ class Conversations
         $space    = $this->scope?->space;
         $files    = array_filter($files, static fn (array $skill): bool => Audience::allows($skill, $audience, $age) && Skills::offeredIn($skill, $space));
         $stored   = array_filter($stored, static fn (array $skill): bool => Audience::allows($skill, $audience, $age) && Skills::offeredIn($skill, $space));
+        // The skills this audience is not offered at all (`skills_without`): nor their tools.
+        $withheld = Audience::skillsWithout($audience);
+        if ($withheld !== []) {
+            $files = array_diff_key($files, array_flip($withheld));
+            $stored = array_diff_key($stored, array_flip($withheld));
+            $tools = array_filter($tools, static fn (array $tool): bool => ($in = array_map('strval', (array) ($tool['skills'] ?? []))) === [] || array_diff($in, $withheld) !== []);
+        }
         // Skill files mean skills: a method is no use if nothing can turn it on.
         $skills = is_array($chat) && array_key_exists('skills', $chat) ? (bool) $chat['skills'] : (count($tools) > self::SKILLS_FROM || $files !== [] || $stored !== []);
         if (!$skills) {
@@ -1745,7 +1752,7 @@ class Conversations
         }
 
         $registry = (new \Pramnos\Llm\ToolRegistry())->add($tools);
-        $notes    = self::SKILLS + (method_exists($this->assistant, 'skills') ? (array) $this->assistant->skills() : []);
+        $notes    = array_diff_key(self::SKILLS + (method_exists($this->assistant, 'skills') ? (array) $this->assistant->skills() : []), array_flip($withheld));
         foreach ($notes as $skill => $note) {
             $registry->describeSkill((string) $skill, (string) $note);
         }
@@ -1758,7 +1765,14 @@ class Conversations
         $open    = array_values(array_intersect($this->openSkills($turn), array_keys($files + $stored + $notes)));
         $this->offeredSkills = $files + $stored;
 
-        return $registry->tools($context, $open) + $registry->skillTool($context) + ($open === [] ? [] : ['close_skill' => [
+        $use = $registry->skillTool($context);
+        if ($withheld !== [] && isset($use['use_skill'])) {
+            $run = $use['use_skill']['run'];
+            // Asked for one withheld from this audience: said so plainly, not "no such skill".
+            $use['use_skill']['run'] = static fn (array $a): string => in_array((string) ($a['skill'] ?? ''), $withheld, true) ? 'Error: that skill is not available here.' : $run($a);
+        }
+
+        return $registry->tools($context, $open) + $use + ($open === [] ? [] : ['close_skill' => [
             'description' => 'Turn off a skill turned on earlier in this conversation, when its work is done: its tools and method leave.',
             'parameters'  => ['type' => 'object', 'properties' => ['skill' => ['type' => 'string', 'enum' => $open]], 'required' => ['skill']],
             'run'         => static fn (array $a): string => in_array((string) ($a['skill'] ?? ''), $open, true) ? 'Turned off ' . $a['skill'] . '.' : 'Error: that skill is not on.',

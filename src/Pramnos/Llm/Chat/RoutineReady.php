@@ -44,7 +44,7 @@ class RoutineReady implements NotificationInterface
     public function via(mixed $notifiable): array
     {
         // By email too when the reader's subscription asks for it and there is a report to send.
-        return [...self::channels($notifiable, $this->pushApp($notifiable), $this->space), ...($this->email && $this->ok && $this->content !== '' ? ['mail'] : [])];
+        return [...self::channels($notifiable, $this->pushApp($notifiable), $this->space, $this->tellsKind), ...($this->email && $this->ok && $this->content !== '' ? ['mail'] : [])];
     }
 
     /**
@@ -74,7 +74,39 @@ class RoutineReady implements NotificationInterface
      *
      * @return list<string>
      */
-    public static function channels(mixed $notifiable, string $app = '', string $space = ''): array
+    public static function channels(mixed $notifiable, string $app = '', string $space = '', string $kind = ''): array
+    {
+        return self::heard(self::reach($notifiable, $app, $space), $notifiable, $space, $kind);
+    }
+
+    /**
+     * A push the application's assistant holds back: where it has `notifies(Scope $scope, string
+     * $kind, int $at): bool` and answers false for this kind now — "no push for the youngest", say —
+     * the push is not sent and what it was about waits in the app. Without a kind, as it was.
+     *
+     * @param list<string> $channels
+     * @return list<string>
+     */
+    private static function heard(array $channels, mixed $notifiable, string $space, string $kind): array
+    {
+        $userId = (int) ($notifiable->userid ?? 0);
+        if ($kind === '' || $userId < 1 || !in_array('push', $channels, true)) {
+            return $channels;
+        }
+        $scope     = new Scope($userId, null, $space !== '' ? $space : Scope::CHAT);
+        $assistant = Chat::assistant($scope->stored());
+        try {
+            $heard = !method_exists($assistant, 'notifies') || (bool) $assistant->notifies($scope, $kind, time());
+        } catch (\Throwable $why) {
+            \Pramnos\Logs\Logger::log('llm notifies: ' . $why->getMessage(), 'llm');
+            $heard = true;
+        }
+
+        return $heard ? $channels : array_values(array_diff($channels, ['push']));
+    }
+
+    /** @return list<string> Whom a notification of a space reaches, before the application's word. */
+    private static function reach(mixed $notifiable, string $app, string $space): array
     {
         $chat = \Pramnos\Llm\Llm::config('chat', []);
         // Where the application says the companion tells through its own app alone

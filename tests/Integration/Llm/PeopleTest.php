@@ -272,6 +272,47 @@ class PeopleTest extends LlmTestCase
         $this->assertSame('chat', $holder['data']['app'], 'the holder\'s');
         $this->db->queryBuilder()->table('pramnos.pushsubscriptions')->where('userid', $id)->delete();
     }
+
+    /**
+     * FW-491: an audience's `skills_without` are never offered — not in `use_skill`, nor their
+     * tools — and asked for anyway they are "not available here"; and the application's
+     * `notifies()` holds back a push by its kind, the rest as they were.
+     */
+    #[DataProvider('databases')]
+    public function testAnAudienceWithoutSkillsAndPushesHeldBack(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Notifications\CreatePushSubscriptionsTable::class,
+            \Pramnos\Framework\Migrations\Notifications\AddTrustedDeviceToPushSubscriptions::class, \Pramnos\Framework\Migrations\Notifications\AddClientToPushSubscriptions::class,
+            \Pramnos\Framework\Migrations\Notifications\AddAppToPushSubscriptions::class], $this->db);
+        $this->configure(['chat' => ['assistant' => QuietAssistant::class, 'memory' => ['learn' => false], 'skills' => true, 'audience' => static fn (): string => 'young',
+            'audiences' => ['young' => ['skills_without' => ['web']]]]]);
+        $id = random_int(100000, 999999);
+        \Pramnos\Push\Subscriptions::store($id, ['endpoint' => 'https://push.example/q/' . $id, 'keys' => ['p256dh' => 'k', 'auth' => 'a']]);
+        $chat  = (new Conversations(new QuietAssistant()))->as(new Scope($id));
+        $turn  = new \Pramnos\Llm\Chat\Turn(new Scope($id), null, false, [], [], [], $chat);
+        $web   = ['web_search' => ['description' => 'Search the web.', 'parameters' => ['type' => 'object', 'properties' => []], 'run' => static fn (): string => 'x', 'skills' => ['web']]];
+        $grouped = new \ReflectionMethod(Conversations::class, 'grouped');
+        $tools = $grouped->invoke($chat, $web + $chat->toolsFor($turn), $turn);
+        $enum  = (array) ($tools['use_skill']['parameters']['properties']['skill']['enum'] ?? []);
+        $asked = isset($tools['use_skill']) ? $tools['use_skill']['run'](['skill' => 'web']) : '';
+
+        // Act
+        $reminder = RoutineReadyProbe::via($id, 'reminder');
+        $morning  = RoutineReadyProbe::via($id, 'morning');
+        $plain    = RoutineReadyProbe::via($id, '');
+
+        // Assert
+        $this->assertNotContains('web', $enum, 'not offered');
+        $this->assertSame([], array_filter(array_keys($tools), static fn (string $t): bool => str_starts_with($t, 'web')), 'nor its tools');
+        $this->assertSame('Error: that skill is not available here.', $asked);
+        $this->assertContains('push', $reminder, 'the kind the application lets through');
+        $this->assertNotContains('push', $morning, 'held back: no push');
+        $this->assertContains('database', $morning, 'what it was about stays');
+        $this->assertContains('push', $plain, 'without a kind, as it was');
+        $this->db->queryBuilder()->table('pramnos.pushsubscriptions')->where('userid', $id)->delete();
+    }
 }
 
 /** An application's assistant that keeps a persona per partition: partition 4 has Tesla, and none may choose Naya. */
@@ -311,3 +352,24 @@ class MeExtrasAssistant extends \Pramnos\Llm\Chat\BaseAssistant
         return ['photo' => 'https://media.example/me.jpg', 'name' => 'Somebody else'];
     }
 }
+
+/** An application's assistant that lets reminders through as pushes, and nothing else. */
+class QuietAssistant extends \Pramnos\Llm\Chat\BaseAssistant
+{
+    /** Reminders only. */
+    public function notifies(Scope $scope, string $kind, int $at): bool
+    {
+        return $kind === 'reminder';
+    }
+}
+
+/** The channels a companion notification of a kind reaches. */
+final class RoutineReadyProbe
+{
+    /** @return list<string> */
+    public static function via(int $userId, string $kind): array
+    {
+        return \Pramnos\Llm\Chat\RoutineReady::channels((object) ['userid' => $userId], '', Scope::CHAT, $kind);
+    }
+}
+

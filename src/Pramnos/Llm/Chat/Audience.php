@@ -88,6 +88,7 @@ final class Audience
                 'topics'    => is_array($one['topics'] ?? null) ? array_values(array_map('strval', $one['topics'])) : null,
                 'leave_out' => array_values(array_intersect(array_map('strval', (array) ($one['leave_out'] ?? [])), self::SOURCES)),
                 'without'   => array_values(array_map('strval', (array) ($one['without'] ?? []))),
+                'skills_without' => array_values(array_map('strval', (array) ($one['skills_without'] ?? []))),
             ];
         }
         return ['rules' => '', 'topics' => null, 'leave_out' => [], 'without' => []];
@@ -133,6 +134,12 @@ final class Audience
     }
 
     /** Whether an audience's context leaves a source out ({@see SOURCES}). */
+    /** The skills an audience is not offered, by name (`skills_without`): never loaded, never turned on. @return list<string> */
+    public static function skillsWithout(string $audience): array
+    {
+        return self::policy($audience)['skills_without'] ?? [];
+    }
+
     public static function leavesOut(string $audience, string $source): bool
     {
         return in_array($source, self::policy($audience)['leave_out'], true);

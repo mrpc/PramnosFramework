@@ -20,6 +20,17 @@ trait TellsItsApp
     /** The conversations' space it comes from. */
     private string $space = '';
 
+    /** What kind of telling it is — morning, reminder, calendar, answer, share — for the application's `notifies()`. */
+    private string $tellsKind = '';
+
+    /** Say what kind of telling it is; answered for chaining. */
+    public function ofKind(string $kind): static
+    {
+        $this->tellsKind = $kind;
+
+        return $this;
+    }
+
     /** Say which space it comes from; answered for chaining. */
     public function fromSpace(string $space): static
     {
@@ -63,11 +74,14 @@ trait TellsItsApp
         return $this->pushApp($notifiable) !== '' ? self::appUrl() : $link;
     }
 
-    /** Tell a notification its space, where it can be told — called on a class using this, `RoutineReady::tag()`. */
-    public static function tag(object $notification, string $space): object
+    /** Tell a notification its space and its kind, where it can be told — called on a class using this, `RoutineReady::tag()`. */
+    public static function tag(object $notification, string $space, string $kind = ''): object
     {
         if (method_exists($notification, 'fromSpace')) {
             $notification->fromSpace($space);
+        }
+        if ($kind !== '' && method_exists($notification, 'ofKind')) {
+            $notification->ofKind($kind);
         }
 
         return $notification;
