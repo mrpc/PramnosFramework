@@ -16,6 +16,8 @@ use Pramnos\Notification\Feed;
  *   - `POST /Notifications/read?id=…`                    mark one read, or several: `id=a,b` (a collapsed item's)
  *   - `POST /Notifications/readall?group=tasks`          mark every unread one read
  *   - `POST /Notifications/settle?about=todo:42,…`       mark read one's own about those (`data-pf-settles` on a page)
+ *   - `GET  /Notifications/preferences`                  one's choices: each type on or off, reading what is in sight
+ *   - `POST /Notifications/preferences`                  `types[<class>]=1|0`, `readOnView=1|0`; with `back`, back there
  *
  * Each takes `except=conversations,…` too: groups the bell leaves out, of its list, its counts and
  * its "mark all read".
@@ -31,7 +33,7 @@ class NotificationsController extends Controller
 {
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'count', 'read', 'readall', 'settle']);
+        $this->addAuthAction(['display', 'count', 'read', 'readall', 'settle', 'preferences']);
         // A write: a POST with the page's token, refused otherwise before it runs.
         $this->addWriteAction(['read', 'readall', 'settle']);
         parent::__construct($application);
@@ -125,6 +127,39 @@ class NotificationsController extends Controller
         $raw = is_array($raw) ? $raw : explode(',', (string) $raw);
 
         return array_values(array_filter(array_map(static fn ($g): string => trim((string) $g), $raw), static fn (string $g): bool => $g !== ''));
+    }
+
+    /**
+     * One's choices about notifications: read them (GET), or change them (POST, with the page's
+     * token): `types[<class>]` 1 or 0 for each declared type, `readOnView` 1 or 0. A form that
+     * names `back` (a path on this site) is sent back there with a flash; otherwise JSON.
+     */
+    public function preferences(): mixed
+    {
+        $user = \Pramnos\User\User::current();
+        if (!is_object($user) || (int) ($user->userid ?? 0) <= 1) {
+            return $this->answer(['error' => 'Sign in to see your notifications.'], 401);
+        }
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+            if (!$this->isVerifiedWrite()) {
+                return $this->answer(['error' => 'The session\'s token is missing.'], 403);
+            }
+            foreach ((array) ($_POST['types'] ?? []) as $type => $on) {
+                \Pramnos\Notification\Preferences::set($user, (string) $type, (string) $on === '1');
+            }
+            if (isset($_POST['readOnView'])) {
+                \Pramnos\Notification\Preferences::setReadOnView($user, (string) $_POST['readOnView'] === '1');
+            }
+            $back = (string) ($_POST['back'] ?? '');
+            if (preg_match('~^/(?!/)[^\s]*$~', $back) === 1) {
+                $this->addMessage(t('Saved.'));
+                $this->redirect($back);
+
+                return null;
+            }
+        }
+
+        return $this->answer(\Pramnos\Notification\Preferences::of($user));
     }
 
     /** The signed-in person's feed, or null. */

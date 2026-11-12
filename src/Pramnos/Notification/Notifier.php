@@ -95,6 +95,10 @@ class Notifier
     public function sendNow(mixed $notifiable, NotificationInterface $notification): void
     {
         $this->failures = [];
+        // A type the person turned off is not sent to them at all, by any channel.
+        if (!Preferences::allows($notifiable, $notification)) {
+            return;
+        }
 
         // In the recipient's language, not the sender's.
         //

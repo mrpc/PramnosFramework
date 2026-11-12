@@ -678,6 +678,8 @@ class Notifications extends \Pramnos\Application\Controllers\NotificationsContro
 | `POST /Notifications/read?id=…` | `{read, unread}`; `id=a,b` reads several, as a collapsed item's |
 | `POST /Notifications/readall?group=tasks` | `{marked, unread}` |
 | `POST /Notifications/settle?about=todo:42,…` | `{settled}`: one's own about those, read |
+| `GET /Notifications/preferences` | `{types: [{type, label, on}], readOnView}` |
+| `POST /Notifications/preferences` | `types[<class>]=1\|0`, `readOnView=1\|0`; with `back`, back there |
 
 Nobody signed in gets 401. A write without the token gets 403 and changes nothing.
 
@@ -735,6 +737,30 @@ The scaffolded stylesheets style the `pf-notify-*` hooks. A theme can write its 
 the same `data-pf-notifications*` attributes. Each item can be its own too, as a
 `<template data-pf-notifications-item>` inside the bell whose parts carry
 `data-field="title|message|time"` and whose link gets the item's address.
+
+### A person's choices: a switch per type
+
+Each person turns off the kinds of notification they do not want, one switch per type and no
+matrix of channels. The application names the types that may be turned off, each in words its
+people understand:
+
+```php
+'notifications' => [
+    'types'        => [\App\Notifications\TaskAssigned::class => 'A task given to me'],
+    'read_on_view' => 500,   // the delay of "mark as read what I have seen"; 500 ms by default
+],
+```
+
+- **A type turned off** is not sent to that person at all, by any channel (`Notifier` asks
+  `Preferences::allows()` first). A type the application did not declare is always sent.
+- **Reading what is in sight** is each person's own choice, off until they make it. With it on,
+  the bell reads what stays in sight of the open list for `read_on_view` milliseconds. A bell
+  given `readOnView` itself uses that instead.
+- **The form:** `Html\NotificationPreferences::render('/Myaccount/notifications')` draws it for
+  the application's account page. It posts to `/Notifications/preferences`, which also answers
+  them as JSON on a GET, and comes back to the given path with a flash.
+- They are kept on the person as user details (`notifyoff`, `notifyonview`) and read with
+  `Preferences::of($user)`.
 
 ### One item for many: collapsed groups
 

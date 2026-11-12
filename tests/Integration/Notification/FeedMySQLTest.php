@@ -500,6 +500,57 @@ class FeedMySQLTest extends TestCase
     }
 
     /**
+     * A person's choices (FW-488): a declared type they turned off is not sent to them at all,
+     * by any channel, and the rest still are; a type not declared cannot be turned off; the bell
+     * reads what stays in sight only when they chose it, after the application's delay; the
+     * endpoint reads and saves them, a form comes back where it says; the form shows each type.
+     */
+    public function testAPersonsChoices(): void
+    {
+        // Arrange
+        Application::getInstance()->applicationInfo['notifications']['types'] = [\Pramnos\Notification\Message::class => 'A message from the team'];
+        // Kept on the person as user details; here, on the signed-in object itself.
+        $me = new \Pramnos\User\User();
+        $me->userid = self::ME;
+        \Pramnos\Http\RequestIdentity::seal($me, 'test');
+        $plain = (object) ['userid' => self::ME];
+        $other = new class implements \Pramnos\Notification\NotificationInterface {
+            /** No channel: only its type matters here. */
+            public function via(mixed $notifiable): array
+            {
+                return [];
+            }
+        };
+
+        // Act
+        $before    = \Pramnos\Notification\Preferences::of($me);
+        $declared  = \Pramnos\Notification\Preferences::set($plain, \Pramnos\Notification\Message::class, false);
+        $undeclared = \Pramnos\Notification\Preferences::set($plain, 'App\\Notifications\\Other', false);
+        $allowed   = \Pramnos\Notification\Preferences::allows($plain, new \Pramnos\Notification\Message('Hi', 'There'));
+        $offView   = \Pramnos\Notification\Preferences::readOnView($me);
+        $me->{\Pramnos\Notification\Preferences::READ_ON_VIEW} = '1';
+        $onView    = \Pramnos\Notification\Preferences::readOnView($me);
+        $bell      = \Pramnos\Html\NotificationBell::render();
+        $form      = \Pramnos\Html\NotificationPreferences::render('/Myaccount/notifications');
+        $answer    = json_decode((string) (new NotificationsController(Application::getInstance()))->preferences()->getBody(), true);
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $refused   = (new NotificationsController(Application::getInstance()))->preferences()->getStatusCode();
+        unset($_SERVER['REQUEST_METHOD']);
+
+        // Assert
+        $this->assertSame([['type' => \Pramnos\Notification\Message::class, 'label' => 'A message from the team', 'on' => true]], $before['types']);
+        $this->assertSame([true, false], [$declared, $undeclared], 'only a declared type is turned off');
+        $this->assertFalse($allowed, 'turned off: not sent');
+        $this->assertTrue(\Pramnos\Notification\Preferences::allows($plain, $other), 'another type still is');
+        $this->assertSame([0, 500], [$offView, $onView], 'reading what is in sight: their choice, the default delay');
+        $this->assertStringContainsString('data-read-on-view="500"', $bell);
+        $this->assertStringContainsString('name="types[' . htmlspecialchars(\Pramnos\Notification\Message::class) . ']"', $form);
+        $this->assertStringContainsString('name="readOnView" value="1" checked', $form);
+        $this->assertSame([true, true], [$answer['types'][0]['on'], $answer['readOnView']], 'the endpoint reads them');
+        $this->assertSame(403, $refused, 'a change without the page\'s token');
+    }
+
+    /**
      * Read notifications past the age are removed and unread ones never are; with no age given
      * or configured, the command removes nothing and says how to set one.
      */

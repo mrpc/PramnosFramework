@@ -77,7 +77,8 @@ final class NotificationBell
      *  - `sound` — played when one arrives, once per browser: `true` for a short tone made in
      *    the page, a sound's address, or `false` for none (the default)
      *  - `readOnView` — milliseconds an unread notification stays in sight of the open list
-     *    before it is read; 0, only a click reads it (the default)
+     *    before it is read; 0, only a click reads it. By default the person's own choice
+     *    ({@see \Pramnos\Notification\Preferences::readOnView()}), off until they make it
      */
     public static function render(array $options = []): string
     {
@@ -112,7 +113,7 @@ final class NotificationBell
             . ((string) ($options['channel'] ?? '') !== '' ? ' data-channel="' . self::e((string) $options['channel']) . '"' : '')
             . (($options['titleFlash'] ?? true) === false ? ' data-title-flash="0"' : '')
             . self::soundAttribute($options['sound'] ?? false)
-            . ((int) ($options['readOnView'] ?? 0) > 0 ? ' data-read-on-view="' . (int) $options['readOnView'] . '"' : '') . '>'
+            . (($onView = (int) ($options['readOnView'] ?? \Pramnos\Notification\Preferences::readOnView($user))) > 0 ? ' data-read-on-view="' . $onView . '"' : '') . '>'
             . '<button type="button" class="pf-notify-toggle ' . self::e((string) ($options['class'] ?? '')) . '"'
             . ' data-pf-notifications-toggle data-label="' . self::e($label) . '" aria-haspopup="true" aria-expanded="false"'
             . ' aria-label="' . self::e($label . ($unread > 0 ? ' (' . $unread . ')' : '')) . '">'

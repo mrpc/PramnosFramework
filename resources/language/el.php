@@ -2649,4 +2649,6 @@ return [
     'Every year' => 'Κάθε χρόνο',
     'A to-do repeats daily, on weekdays, weekly, monthly or yearly.' => 'Ένα to-do επαναλαμβάνεται κάθε μέρα, κάθε εργάσιμη, κάθε εβδομάδα, κάθε μήνα ή κάθε χρόνο.',
     'A repeating to-do needs a day or a reminder.' => 'Ένα to-do που επαναλαμβάνεται χρειάζεται ημερομηνία ή υπενθύμιση.',
+    'Tell me about' => 'Να με ειδοποιείς για',
+    'Mark as read what I have seen in the bell' => 'Να γίνονται αναγνωσμένες όσες είδα στο καμπανάκι',
 ];
