@@ -159,6 +159,50 @@ final class Overview
         return $out;
     }
 
+    /**
+     * Everything else the assistant holds for one person, by section — routines (reminders and
+     * timers among them), calendar, artifacts made and shared with them, shares, questions under
+     * way, dossier and skills — each a list of rows, the newest first, at most 100. A section whose
+     * table this installation does not have is left out, and so is an empty one.
+     *
+     * @return array<string, list<array<string, mixed>>>
+     */
+    public function holdingsOf(int $userId): array
+    {
+        $q    = fn (string $table) => $this->db()->queryBuilder()->table($table);
+        $from = [
+            'routines'  => fn () => $q('pramnos.ai_routines')->select(['routine_id', 'kind', 'title', 'space', 'cadence', 'at', 'next_run_at', 'last_run_at', 'is_active', 'last_error', 'conversation_id'])
+                ->where('userid', $userId)->orderBy('routine_id', 'desc'),
+            'calendar'  => fn () => $q('assist.chat_calendar')->select(['item_id', 'kind', 'title', 'space', 'starts_at', 'due_at', 'done'])
+                ->where('userid', $userId)->orderBy('item_id', 'desc'),
+            'artifacts' => fn () => $q('assist.chat_artifacts')->select(['artifact_id', 'kind', 'title', 'space', 'conversation_id', new Expression("'owner' AS role")])
+                ->where('userid', $userId)->orderBy('artifact_id', 'desc'),
+            'shared'    => fn () => $q(\Pramnos\Llm\Chat\Artifacts::MEMBERS . ' AS m')->join('assist.chat_artifacts AS a', 'a.artifact_id', '=', 'm.artifact_id')
+                ->select(['a.artifact_id', 'a.kind', 'a.title', 'a.space', 'm.role'])->where('m.userid', $userId)->orderBy('m.member_id', 'desc'),
+            'shares'    => fn () => $q('assist.chat_shares')->select(['share_id', 'kind', 'title', 'space', 'recipient', 'created_at'])
+                ->where('userid', $userId)->orderBy('share_id', 'desc'),
+            'asks'      => fn () => $q('assist.chat_asks')->select(['ask_id', 'status', 'conversation_id'])
+                ->where('userid', $userId)->orderBy('ask_id', 'desc'),
+            'dossier'   => fn () => $q('assist.chat_dossier')->select(['dossier_id', 'space', 'area', 'subject', 'content', 'pending'])
+                ->where('userid', $userId)->orderBy('dossier_id', 'desc'),
+            'skills'    => fn () => $q(\Pramnos\Llm\Chat\StoredSkills::TABLE)->select(['skill_id', 'name', 'description', 'status', 'updated_at'])
+                ->where('userid', $userId)->orderBy('skill_id', 'desc'),
+        ];
+        $out = [];
+        foreach ($from as $section => $query) {
+            try {
+                $rows = $query()->limit(100)->getAllOrFail();
+            } catch (\Throwable) {
+                continue; // A feature this installation has not migrated.
+            }
+            if ($rows !== []) {
+                $out[$section] = $rows;
+            }
+        }
+
+        return $out;
+    }
+
     /** The conversations of a channel, or of every one. */
     private function conversations(string $channel): \Pramnos\Database\QueryBuilder
     {

@@ -157,6 +157,24 @@ gear.
   confirmed. It is offered to whoever `AiController::resetsCompanion(object $user): bool` allows,
   root by default, and an application overrides it. The form posts to `Ai/companionreset` with the
   session's token. Anybody else gets a 404 there.
+- **Everything else held for the person**, below, a folded section each with its count, and an
+  empty one left out (`Analyst\Overview::holdingsOf()`):
+  - routines, reminders and timers, with when they next and last ran, whether they are on, and
+    their last error;
+  - their calendar;
+  - the artifacts they made, and those shared with them with their role;
+  - their shares, their questions and their dossier;
+  - their own skills.
+
+  A section whose table the installation has not migrated is left out. A `conversation_id`
+  links to the conversation. An application adds sections of its own by overriding
+  `AiController::personSections(int $userId): array`, which returns title => rows.
+- **Deleting conversations for good.** Each conversation on the card can be selected, and a
+  folded *Delete the selected conversations* deletes them, after saying it cannot be undone. Their
+  messages, their questions, what they made and its members, and their shares go with them
+  (`Chat\Conversations::delete()`). Each is audited as `ai.conversation_deleted`. It is offered to
+  whoever `AiController::deletesConversations(object $user): bool` allows, root by default. The
+  form posts to `Ai/conversationsdelete` with the session's token, and anybody else gets a 404.
 - **The rest** about the assistants is linked from the same page: answers to review, memories,
   scheduled tasks, and costs and settings.
 - **In the application's own menu.** An application that keeps the assistants' management (this

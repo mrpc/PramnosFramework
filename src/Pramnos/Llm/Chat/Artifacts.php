@@ -873,6 +873,9 @@ final class Artifacts
         $result = $this->scope->apply($this->table())->select(['artifact_id'])->where('conversation_id', $conversationId)->get();
         while (($row = $result->fetch()) !== null) {
             Shares::forget(Shares::ARTIFACT, (int) $row['artifact_id']);
+            if (self::sharing()) {
+                $this->members()->where('artifact_id', (int) $row['artifact_id'])->delete(); // nobody left a member of what is gone
+            }
         }
         $this->scope->apply($this->table())->where('conversation_id', $conversationId)->delete();
     }

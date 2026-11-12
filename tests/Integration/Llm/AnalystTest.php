@@ -568,6 +568,66 @@ class AnalystTest extends LlmTestCase
     }
 
     /**
+     * A person's card shows what else the assistant holds for them (FW-484) — here their
+     * calendar and a question under way, each counted, an empty section left out — beside an
+     * application's own sections; root deletes conversations from it for good, several at once,
+     * with their messages and questions, each audited; nobody else may (a 404).
+     */
+    #[DataProvider('databases')]
+    public function testThePersonsHoldingsAndDeletingTheirConversations(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->seed();
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\AuthServer\CreateAuthserverAuditLogTable::class,
+            \Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class], $this->db);
+        $stamp = gmdate('Y-m-d H:i:s');
+        foreach (['A test', 'Another test', 'One to keep'] as $title) {
+            $this->insert('assist.chat_conversations', ['organization_id' => null, 'userid' => 8, 'title' => $title, 'space' => Scope::CHAT, 'created_at' => $stamp, 'updated_at' => $stamp]);
+        }
+        [$one, $two, $keep] = array_map('intval', array_column($this->db->queryBuilder()->table('assist.chat_conversations')->orderBy('conversation_id')->getAllOrFail(), 'conversation_id'));
+        foreach ([$one, $two, $keep] as $id) {
+            $this->insert('assist.chat_messages', ['conversation_id' => $id, 'organization_id' => null, 'role' => 'user', 'content' => 'hi', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        }
+        $this->insert('assist.chat_asks', ['organization_id' => null, 'userid' => 8, 'conversation_id' => $one, 'status' => 'running', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $this->insert('assist.chat_calendar', ['organization_id' => null, 'userid' => 8, 'space' => Scope::CHAT, 'kind' => 'task', 'title' => 'Call the plumber', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $_GET = ['person' => '8'];
+        \Pramnos\Http\Request::resetInstance();
+
+        // Act
+        $holdings = (new \Pramnos\Llm\Analyst\Overview())->holdingsOf(8);
+        $card     = (string) (new HoldingsScreen())->all();
+        $_POST    = ['ids' => [(string) $one, (string) $two, 'x'], 'back' => '?person=8'];
+        $refused  = new HoldingsScreen();
+        $refused->reading = (object) ['userid' => 9, 'usertype' => 10, 'active' => 1];
+        try {
+            $refused->conversationsdelete();
+            $closed = false;
+        } catch (\Pramnos\Application\ApplicationClosedException $e) {
+            $closed = str_contains($e->getMessage(), '404');
+        }
+        $untouched = $this->rowsIn('assist.chat_conversations');
+        (new HoldingsScreen())->conversationsdelete();
+        $_POST = [];
+        $left  = array_map('intval', array_column($this->db->queryBuilder()->table('assist.chat_conversations')->getAllOrFail(), 'conversation_id'));
+        $audit = $this->db->queryBuilder()->table('authserver.audit_log')->where('event_type', 'ai.conversation_deleted')->getAllOrFail();
+
+        // Assert
+        $this->assertSame(['calendar', 'asks'], array_keys($holdings), 'only what they have; an empty section left out');
+        $this->assertStringContainsString('Call the plumber', $card);
+        $this->assertStringContainsString('Calendar', $card);
+        $this->assertStringContainsString('Their own section', $card, 'an application\'s section beside the framework\'s');
+        $this->assertStringContainsString('Ai/conversationsdelete', $card, 'the deletion for root, on the card');
+        $this->assertStringContainsString('name="ids[]" value="' . $one . '"', $card, 'each conversation selectable');
+        $this->assertTrue($closed, 'a 404 to whoever may not');
+        $this->assertSame(3, $untouched, 'nothing deleted by a refusal');
+        $this->assertSame([$keep], $left, 'the two chosen gone, the third kept');
+        $this->assertSame(1, $this->rowsIn('assist.chat_messages'), 'their messages with them');
+        $this->assertSame(0, $this->rowsIn('assist.chat_asks'), 'and their questions: nothing orphaned');
+        $this->assertCount(2, $audit, 'each deletion audited');
+    }
+
+    /**
      * The assistants' control centre (FW-458): every channel there are conversations in, the Ask's
      * first; a companion's listed and opened by its channel, with root's own listed there — only
      * the Ask's own open in Ask — and beside it what the companion knows of its owner and the way
@@ -1140,7 +1200,7 @@ final class PostsTool implements \Pramnos\Mcp\McpToolInterface
 }
 
 /** The AI screen's analyst, as administrator 7, with its queue, flash and redirects recorded and real views. */
-final class AnalystScreen extends \Pramnos\Application\Controllers\AiController
+class AnalystScreen extends \Pramnos\Application\Controllers\AiController
 {
     /** @var list<string> */
     public array $redirectedTo = [];
@@ -1249,5 +1309,19 @@ final class AnalystScreen extends \Pramnos\Application\Controllers\AiController
         };
 
         return $view;
+    }
+}
+
+/** The control centre with an application's own section on the person's card (FW-484). */
+class HoldingsScreen extends AnalystScreen
+{
+    /**
+     * One section of the application's own.
+     *
+     * @return array<string, list<array<string, mixed>>>
+     */
+    protected function personSections(int $userId): array
+    {
+        return ['Their own section' => [['what' => 'something of the application\'s']]];
     }
 }

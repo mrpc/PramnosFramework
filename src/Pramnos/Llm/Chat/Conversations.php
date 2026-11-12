@@ -365,7 +365,7 @@ class Conversations
         return ['conversation_id' => (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId(), 'continued_from' => $conversationId];
     }
 
-    /** Forget a conversation and its messages. False when there was none of this person's. */
+    /** Forget a conversation: its messages, its questions, what it made and its shares. False when there was none of this person's. */
     public function delete(int $conversationId): bool
     {
         if ($this->conversation($conversationId) === null) {
@@ -373,6 +373,7 @@ class Conversations
         }
 
         $this->table('assist.chat_messages')->where('conversation_id', $conversationId)->delete();
+        $this->table('assist.chat_asks')->where('conversation_id', $conversationId)->delete();
         (new Artifacts($this->scope))->deleteConversation($conversationId);
         Shares::forget(Shares::CONVERSATION, $conversationId);
         $this->scope->apply($this->table('assist.chat_conversations'))->where('conversation_id', $conversationId)->delete();
