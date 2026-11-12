@@ -680,7 +680,7 @@ class Notifications extends \Pramnos\Application\Controllers\NotificationsContro
 | `POST /Notifications/settle?about=todo:42,…` | `{settled}`: one's own about those, read |
 | `POST /Notifications/snooze?id=…&for=1h\|3h\|tomorrow` | `{snoozed, unread}`; or `until` (unix) |
 | `GET /Notifications/preferences` | `{types: [{type, label, on}], readOnView}` |
-| `POST /Notifications/preferences` | `types[<class>]=1\|0`, `readOnView=1\|0`; with `back`, back there |
+| `POST /Notifications/preferences` | `types[<class>]=1\|0`, `readOnView=1\|0`, `quiet_from`/`quiet_to` (`H:i`, `''` for none); with `back`, back there |
 
 Nobody signed in gets 401. A write without the token gets 403 and changes nothing.
 
@@ -760,8 +760,12 @@ people understand:
 - **The form:** `Html\NotificationPreferences::render('/Myaccount/notifications')` draws it for
   the application's account page. It posts to `/Notifications/preferences`, which also answers
   them as JSON on a GET, and comes back to the given path with a flash.
-- They are kept on the person as user details (`notifyoff`, `notifyonview`) and read with
-  `Preferences::of($user)`.
+- **Quiet hours** (do not disturb), each person's own `from`–`to` (`Preferences::setQuiet()`),
+  on their clock, and they may wrap past midnight. In them, what would interrupt waits: a push
+  and an email are not sent (`Preferences::INTERRUPTING`), and the bell still keeps the
+  notification. One that must be acknowledged goes through.
+- They are kept on the person as user details (`notifyoff`, `notifyonview`, `notifyquiet`) and
+  read with `Preferences::of($user)`.
 
 ### One that must be acknowledged
 

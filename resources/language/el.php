@@ -2654,4 +2654,5 @@ return [
     'Tell me again later' => 'Θύμισέ μου αργότερα',
     'Tomorrow' => 'Αύριο',
     'Because you get: %s' => 'Επειδή λαμβάνεις: %s',
+    'Quiet hours: no push or email, the bell keeps them' => 'Ώρες ησυχίας: χωρίς push και email, μένουν στο καμπανάκι',
 ];

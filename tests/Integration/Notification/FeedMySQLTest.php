@@ -509,6 +509,61 @@ class FeedMySQLTest extends TestCase
     }
 
     /**
+     * Quiet hours (FW-488, do not disturb): what would interrupt — a push, an email — is held back
+     * in a person's quiet hours, on their clock, and the bell keeps it; one that must be
+     * acknowledged goes through; hours that wrap past midnight hold; a time that is not one is
+     * refused, and nulls clear them.
+     */
+    public function testQuietHoursHoldBackWhatWouldInterrupt(): void
+    {
+        // Arrange
+        $sent = (new \Pramnos\Notification\Notifier())->registerChannel('database', RecordedDatabase::class)
+            ->registerChannel('push', RecordedPush::class)->registerChannel('mail', RecordedMail::class);
+        Recorded::$through = [];
+        $notice = static fn (bool $ack): object => new class ($ack) implements \Pramnos\Notification\NotificationInterface {
+            public function __construct(private bool $ack)
+            {
+            }
+
+            /** Every channel. */
+            public function via(mixed $notifiable): array
+            {
+                return ['database', 'push', 'mail'];
+            }
+
+            /** @return array<string, mixed> */
+            public function toDatabase(mixed $notifiable): array
+            {
+                return ['message' => 'x'] + ($this->ack ? ['requires_ack' => true] : []);
+            }
+        };
+        $person = (object) ['userid' => self::ME, 'timezone' => 'UTC'];
+        $hour   = gmdate('H');
+        \Pramnos\Notification\Preferences::setQuiet($person, $hour . ':00', sprintf('%02d:59', (int) $hour));
+
+        // Act
+        $sent->sendNow($person, $notice(false));
+        $quiet = Recorded::$through;
+        Recorded::$through = [];
+        $sent->sendNow($person, $notice(true));
+        $ack   = Recorded::$through;
+        $wraps = \Pramnos\Notification\Preferences::setQuiet($person, '22:00', '07:00')
+            && \Pramnos\Notification\Preferences::inQuiet($person, (int) gmmktime(23, 30, 0, 1, 1, 2027))
+            && !\Pramnos\Notification\Preferences::inQuiet($person, (int) gmmktime(12, 0, 0, 1, 1, 2027));
+        $bad   = \Pramnos\Notification\Preferences::setQuiet($person, '25:00', '07:00');
+        \Pramnos\Notification\Preferences::setQuiet($person, null, null);
+        Recorded::$through = [];
+        $sent->sendNow($person, $notice(false));
+
+        // Assert
+        $this->assertSame(['database'], $quiet, 'in quiet hours: the bell alone');
+        $this->assertSame(['database', 'push', 'mail'], $ack, 'one that must be acknowledged goes through');
+        $this->assertTrue($wraps, 'hours past midnight');
+        $this->assertFalse($bad);
+        $this->assertSame(['database', 'push', 'mail'], Recorded::$through, 'cleared: everything again');
+    }
+
+    /**
      * Why it is here and what can be done from the bell (FW-488): its own `why`, or the type's
      * label where a person may turn it off, with where to; its `actions`, a path on this site
      * alone — one elsewhere left out.
@@ -776,3 +831,50 @@ class FeedMySQLTest extends TestCase
         $this->assertStringContainsString('There is no notifications table', $prune->getDisplay());
     }
 }
+
+/** A channel that records that it was used, by its name, instead of sending. */
+abstract class Recorded implements \Pramnos\Notification\ChannelInterface
+{
+    /** @var list<string> The channels used, in order */
+    public static array $through = [];
+
+    /** The channel's name. */
+    abstract protected function name(): string;
+
+    /** Recorded. */
+    public function send(mixed $notifiable, \Pramnos\Notification\NotificationInterface $notification): void
+    {
+        self::$through[] = $this->name();
+    }
+}
+
+/** The bell, recorded. */
+class RecordedDatabase extends Recorded
+{
+    /** Its name. */
+    protected function name(): string
+    {
+        return 'database';
+    }
+}
+
+/** A push, recorded. */
+class RecordedPush extends Recorded
+{
+    /** Its name. */
+    protected function name(): string
+    {
+        return 'push';
+    }
+}
+
+/** An email, recorded. */
+class RecordedMail extends Recorded
+{
+    /** Its name. */
+    protected function name(): string
+    {
+        return 'mail';
+    }
+}
+

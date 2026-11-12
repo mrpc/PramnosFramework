@@ -49,6 +49,9 @@ final class NotificationPreferences
         return $html . '<input type="hidden" name="readOnView" value="0">'
             . '<label class="pf-check"><input type="checkbox" name="readOnView" value="1"' . ($mine['readOnView'] ? ' checked' : '') . '> '
             . self::e(self::t('Mark as read what I have seen in the bell')) . '</label>'
+            . '<div class="pf-field"><span class="pf-label">' . self::e(self::t('Quiet hours: no push or email, the bell keeps them')) . '</span> '
+            . '<input type="time" name="quiet_from" class="pf-input" value="' . self::e((string) ($mine['quiet']['from'] ?? '')) . '" aria-label="' . self::e(self::t('From')) . '"> – '
+            . '<input type="time" name="quiet_to" class="pf-input" value="' . self::e((string) ($mine['quiet']['to'] ?? '')) . '" aria-label="' . self::e(self::t('To')) . '"></div>'
             . '<div><button type="submit" class="pf-btn pf-btn-primary">' . self::e(self::t('Save')) . '</button></div></form>';
     }
 

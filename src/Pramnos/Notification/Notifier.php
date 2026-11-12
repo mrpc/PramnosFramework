@@ -117,6 +117,10 @@ class Notifier
             $this->languageOf($notifiable),
             function () use ($notifiable, $notification): void {
                 $channels = $notification->via($notifiable);
+                // In the person's quiet hours what would interrupt waits — unless it must be acknowledged.
+                if (Preferences::inQuiet($notifiable) && !self::mustBeAcknowledged($notification, $notifiable)) {
+                    $channels = array_values(array_diff($channels, Preferences::INTERRUPTING));
+                }
 
                 foreach ($channels as $channelName) {
                     /*
@@ -166,6 +170,16 @@ class Notifier
     public static function inLanguageOf(mixed $notifiable, callable $build): mixed
     {
         return \Pramnos\Translator\Language::using((new static())->languageOf($notifiable), $build);
+    }
+
+    /** Whether a notification must be acknowledged: what it stores says `requires_ack`. */
+    private static function mustBeAcknowledged(NotificationInterface $notification, mixed $notifiable): bool
+    {
+        try {
+            return method_exists($notification, 'toDatabase') && !empty(((array) $notification->toDatabase($notifiable))['requires_ack']);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     protected function languageOf(mixed $notifiable): string

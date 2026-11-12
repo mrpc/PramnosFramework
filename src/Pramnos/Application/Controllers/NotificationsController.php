@@ -18,7 +18,7 @@ use Pramnos\Notification\Feed;
  *   - `POST /Notifications/settle?about=todo:42,…`       mark read one's own about those (`data-pf-settles` on a page)
  *   - `POST /Notifications/snooze?id=…&for=1h|3h|tomorrow`  put one off: back unread then
  *   - `GET  /Notifications/preferences`                  one's choices: each type on or off, reading what is in sight
- *   - `POST /Notifications/preferences`                  `types[<class>]=1|0`, `readOnView=1|0`; with `back`, back there
+ *   - `POST /Notifications/preferences`                  `types[<class>]=1|0`, `readOnView=1|0`, `quiet_from`/`quiet_to` (H:i, '' none); with `back`, back there
  *
  * Each takes `except=conversations,…` too: groups the bell leaves out, of its list, its counts and
  * its "mark all read".
@@ -162,6 +162,9 @@ class NotificationsController extends Controller
             }
             if (isset($_POST['readOnView'])) {
                 \Pramnos\Notification\Preferences::setReadOnView($user, (string) $_POST['readOnView'] === '1');
+            }
+            if (array_key_exists('quiet_from', $_POST) || array_key_exists('quiet_to', $_POST)) {
+                \Pramnos\Notification\Preferences::setQuiet($user, (string) ($_POST['quiet_from'] ?? ''), (string) ($_POST['quiet_to'] ?? ''));
             }
             $back = (string) ($_POST['back'] ?? '');
             if (preg_match('~^/(?!/)[^\s]*$~', $back) === 1) {

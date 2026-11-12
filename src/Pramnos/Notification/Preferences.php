@@ -30,6 +30,67 @@ final class Preferences
     /** The user detail whether the bell reads what stays in sight is kept in: '1' or '0'. */
     public const READ_ON_VIEW = 'notifyonview';
 
+    /** The user detail a person's quiet hours are kept in, as JSON `{from, to}`. */
+    public const QUIET = 'notifyquiet';
+
+    /** The channels quiet hours hold back: what would interrupt. The bell keeps everything. */
+    public const INTERRUPTING = ['push', 'mail'];
+
+    /** A person's quiet hours, `['from' => 'H:i', 'to' => 'H:i']`, or null for none. */
+    public static function quiet(?object $user): ?array
+    {
+        $quiet = json_decode((string) ($user?->{self::QUIET} ?? ''), true);
+
+        return is_array($quiet) && self::time((string) ($quiet['from'] ?? '')) !== null && self::time((string) ($quiet['to'] ?? '')) !== null
+            ? ['from' => self::time((string) $quiet['from']), 'to' => self::time((string) $quiet['to'])] : null;
+    }
+
+    /** Keep a person's quiet hours, or clear them with nulls. False for a time that is not one. */
+    public static function setQuiet(object $user, ?string $from, ?string $to): bool
+    {
+        if (($from ?? '') === '' || ($to ?? '') === '') {
+            $user->{self::QUIET} = '';
+        } elseif (self::time($from) === null || self::time($to) === null) {
+            return false;
+        } else {
+            $user->{self::QUIET} = (string) json_encode(['from' => self::time($from), 'to' => self::time($to)]);
+        }
+        if (method_exists($user, 'save')) {
+            $user->save();
+        }
+
+        return true;
+    }
+
+    /**
+     * Whether a person is in their quiet hours now, on their clock (`timezone`, else the
+     * installation's): what would interrupt them waits — a push, an email — and the bell keeps it.
+     */
+    public static function inQuiet(mixed $notifiable, ?int $now = null): bool
+    {
+        if (!is_object($notifiable) || ($quiet = self::quiet($notifiable)) === null) {
+            return false;
+        }
+        try {
+            $zone = new \DateTimeZone((string) (($notifiable->timezone ?? '') ?: date_default_timezone_get()));
+        } catch (\Throwable) {
+            $zone = new \DateTimeZone(date_default_timezone_get());
+        }
+        $time = (new \DateTimeImmutable('@' . ($now ?? time())))->setTimezone($zone)->format('H:i');
+
+        return $quiet['from'] <= $quiet['to'] ? $time >= $quiet['from'] && $time < $quiet['to'] : $time >= $quiet['from'] || $time < $quiet['to'];
+    }
+
+    /** `H:i`, padded, or null for what is not a time of day. */
+    private static function time(?string $time): ?string
+    {
+        if (preg_match('/^(\d{1,2}):(\d{2})$/', trim((string) $time), $m) !== 1 || (int) $m[1] > 23 || (int) $m[2] > 59) {
+            return null;
+        }
+
+        return sprintf('%02d:%02d', (int) $m[1], (int) $m[2]);
+    }
+
     /** How long an item stays in sight before it is read, where the application does not say. */
     public const READ_ON_VIEW_MS = 500;
 
@@ -112,7 +173,7 @@ final class Preferences
      * What a preferences screen shows: each declared type with its label and whether it is on,
      * and the reading choice.
      *
-     * @return array{types: list<array{type: string, label: string, on: bool}>, readOnView: bool}
+     * @return array{types: list<array{type: string, label: string, on: bool}>, readOnView: bool, quiet: ?array{from: string, to: string}}
      */
     public static function of(object $user): array
     {
@@ -122,7 +183,7 @@ final class Preferences
             $out[] = ['type' => $type, 'label' => function_exists('t') ? (string) t($label) : $label, 'on' => !in_array($type, $off, true)];
         }
 
-        return ['types' => $out, 'readOnView' => self::readOnView($user) > 0];
+        return ['types' => $out, 'readOnView' => self::readOnView($user) > 0, 'quiet' => self::quiet($user)];
     }
 
     /** @return array<string, mixed> The `notifications` settings */
