@@ -85,6 +85,15 @@ Todos::update($id, ['repeat' => ''], by: 7);   // stops it
 - within a day, oldest first, or newest with `todos.newest_first`;
 - a closed item for seven days.
 
+**One person's list:** `Todos::list($tenant, $viewer, person: $id)` keeps their items and
+nobody's. It also keeps what they gave to somebody else in the last 24 hours
+(`Todos::GIVEN_HOURS`), so an item does not vanish the moment it is handed over. That is told by
+when the item last changed (`updated_at`). A dashboard card or a conversation's list uses it.
+
+**In order by hand:** `Todos::reorder($ids, by: $userId)` sets `sort` from 0 in the order given,
+which is what a list dragged into order sends (`POST /admin/Todo/reorder`, `ids[]`). Another's
+private item, or one that is not there, is skipped.
+
 ## Sources
 
 ```php
@@ -265,6 +274,7 @@ export of the application's.
     'people'       => fn (int $tenant): array => […],           // id => name, offered as assignees
     'urgent_any_overdue' => false,                              // the header counts every overdue item
     'tool'         => 'todos',                                  // the assistant's tool's name
+    'photo'        => fn (int $user): ?string => …,             // a person's picture, beside their name on the list
 ],
 ```
 

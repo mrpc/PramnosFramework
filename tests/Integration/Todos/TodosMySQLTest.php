@@ -63,6 +63,37 @@ class TodosMySQLTest extends TestCase
     }
 
     /**
+     * For moving an application onto the list (FW-487): items put in order by hand, another's
+     * private one skipped; one person's list — theirs and nobody's, and what they gave away in the
+     * last day, not before; a person's picture by `todos.photo`, none without it.
+     */
+    public function testReorderOnePersonsListAndPhotos(): void
+    {
+        // Arrange
+        Application::getInstance()->applicationInfo['todos'] = ['photo' => static fn (int $user): ?string => $user === 8 ? '/p/8.jpg' : null];
+        $a       = Todos::add(['tenant' => 900, 'title' => 'A'], 7);
+        $b       = Todos::add(['tenant' => 900, 'title' => 'B'], 7);
+        $theirs  = Todos::add(['tenant' => 900, 'title' => 'Theirs, private', 'private' => true], 8);
+        $nobody  = Todos::add(['tenant' => 900, 'title' => 'Nobody', 'assigned_to' => 0], 7);
+        $given   = Todos::add(['tenant' => 900, 'title' => 'Given today', 'assigned_to' => 8], 7);
+        $old     = Todos::add(['tenant' => 900, 'title' => 'Given long ago', 'assigned_to' => 8], 7);
+        $other   = Todos::add(['tenant' => 900, 'title' => 'Eight\'s own', 'assigned_to' => 8], 8);
+        $this->db->queryBuilder()->table(Todos::TABLE)->where('todoid', $old)->update(['updated_at' => time() - 2 * 86400]);
+
+        // Act
+        Todos::reorder([$b, $theirs, $a], 7);
+        $sorts = [Todos::get($b)['sort'], Todos::get($a)['sort'], Todos::get($theirs)['sort']];
+        $seven = array_column(Todos::list(900, 7, null, 7), 'id');
+
+        // Assert
+        $this->assertSame([0, 1, 0], $sorts, 'in the order given; another\'s private one left as it was');
+        $this->assertEqualsCanonicalizing([$a, $b, $nobody, $given], $seven, 'theirs, nobody\'s and what they gave away today');
+        $this->assertNotContains($old, $seven, 'given more than a day ago');
+        $this->assertNotContains($other, $seven);
+        $this->assertSame(['/p/8.jpg', null], [Todos::photo(8), Todos::photo(7)]);
+    }
+
+    /**
      * A repeating item (FW-487): done, it closes and the next opens at once — same title, link,
      * assignee, privacy and repeat, its reminder at the next occurrence, its day moved as many
      * days, nobody told it is theirs; done again, no second next; dismissed, none. A repeat with

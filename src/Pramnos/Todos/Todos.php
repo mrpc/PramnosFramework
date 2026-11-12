@@ -32,6 +32,7 @@ use Pramnos\Changelog\ChangelogWriter;
  *   - `due_notice` bool — tell assignees at 08:05 of items due that day or overdue; off by default
  *   - `allowed` fn (int $tenant): bool — whether an organisation has to-dos at all; yes by default
  *   - `successor` fn (int $tenant, int $user): ?int — who takes a removed account's open items; nobody by default
+ *   - `photo` fn (int $user): ?string — a person's picture's address, beside their name on the list; none by default
  */
 final class Todos
 {
@@ -48,6 +49,9 @@ final class Todos
 
     /** When, in an organisation's zone, the day's "due today" notices go. */
     public const DUE_NOTICE_AT = '08:05';
+
+    /** How long an item a person gave to somebody else stays on their own list. */
+    public const GIVEN_HOURS = 24;
 
     /** How long a closed item stays on the list. */
     public const CLOSED_DAYS = 7;
@@ -241,18 +245,25 @@ final class Todos
      * The list a person sees: every public item of the organisation and their own private ones;
      * open first, then by hand, then by day — within a day oldest first, or newest
      * (`todos.newest_first`); closed ones for {@see CLOSED_DAYS} days. Syncs the sources first, at
-     * most once per `todos.sync_every` minutes.
+     * most once per `todos.sync_every` minutes. With `$person`, one person's: theirs and nobody's,
+     * and what they gave to somebody else in the last {@see GIVEN_HOURS} hours, so it does not
+     * vanish the moment it is handed over.
      *
      * @return list<array<string, mixed>>
      */
-    public static function list(int $tenant, int $viewer, ?int $now = null): array
+    public static function list(int $tenant, int $viewer, ?int $now = null, ?int $person = null): array
     {
         $now = $now ?? time();
         self::syncDue($tenant, $now);
-        $rows = self::db()->queryBuilder()->table(self::TABLE)->where('tenant', $tenant)
+        $query = self::db()->queryBuilder()->table(self::TABLE)->where('tenant', $tenant)
             ->where(static fn ($q) => $q->whereNull('closed_at')->orWhere('closed_at', '>=', $now - self::CLOSED_DAYS * 86400))
-            ->where(static fn ($q) => $q->where('private', false)->orWhere('created_by', $viewer))
-            ->getAllOrFail();
+            ->where(static fn ($q) => $q->where('private', false)->orWhere('created_by', $viewer));
+        if ($person !== null) {
+            // Given away: told by when it last changed hands — or changed at all, as near as the row knows.
+            $query->where(static fn ($q) => $q->where('assigned_to', $person)->orWhereNull('assigned_to')
+                ->orWhere(static fn ($g) => $g->where('created_by', $person)->where('updated_at', '>=', $now - self::GIVEN_HOURS * 3600)));
+        }
+        $rows = $query->getAllOrFail();
         $items  = array_map([self::class, 'shape'], $rows);
         $newest = !empty(self::config()['newest_first']);
         usort($items, static function (array $a, array $b) use ($newest): int {
@@ -264,6 +275,43 @@ final class Todos
         });
 
         return $items;
+    }
+
+    /**
+     * Put items in the order given, by hand: the first `sort` 0, the next 1, and so on — what a
+     * list dragged into order sends. Another's private item, or one not there, is skipped.
+     *
+     * @param list<int> $ids
+     */
+    public static function reorder(array $ids, int $by): void
+    {
+        $at = 0;
+        foreach (array_values(array_unique(array_map('intval', $ids))) as $id) {
+            $item = self::get($id);
+            if ($item === null || ($item['private'] && $item['created_by'] !== $by)) {
+                continue;
+            }
+            self::db()->queryBuilder()->table(self::TABLE)->where('todoid', $id)->update(['sort' => $at++, 'updated_at' => time()]);
+            self::changed($id, [$item['assigned_to'], $by]);
+        }
+    }
+
+    /** A person's picture's address, by `todos.photo`; null without it or one. */
+    public static function photo(int $user): ?string
+    {
+        $photo = self::config()['photo'] ?? null;
+        if (!is_callable($photo)) {
+            return null;
+        }
+        try {
+            $url = $photo($user);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('todos: photo of ' . $user . ': ' . $e->getMessage(), 'todos');
+
+            return null;
+        }
+
+        return is_string($url) && $url !== '' ? $url : null;
     }
 
     /**

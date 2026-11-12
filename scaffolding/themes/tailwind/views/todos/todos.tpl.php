@@ -93,7 +93,7 @@ $moment = fn (?int $at): string => $at === null ? '' : (new \DateTimeImmutable('
                     </select>
                     <input type="date" class="pf-input pf-input-sm pf-todo-chip" data-field="due" value="{{ $day($item['due_at']) }}" aria-label="{{ t('Day') }}">
                     @else
-                    @if ($item['assigned_to'] !== null)<span class="pf-muted">{{ $this->names[$item['assigned_to']] ?? '#' . $item['assigned_to'] }}</span>@endif
+                    @if ($item['assigned_to'] !== null)<span class="pf-muted">@if (isset($this->photos[$item['assigned_to']]))<img src="{{ $this->photos[$item['assigned_to']] }}" alt="" width="20" height="20" style="border-radius:50%;vertical-align:middle;object-fit:cover"> @endif{{ $this->names[$item['assigned_to']] ?? '#' . $item['assigned_to'] }}</span>@endif
                     @if ($item['due_at'] !== null)<span class="pf-muted">{{ $day($item['due_at']) }}</span>@endif
                     @endif
                     @if ($item['remind_at'] !== null)<span class="pf-muted" title="{{ t('Reminder') }}">⏰ {{ str_replace('T', ' ', $moment($item['remind_at'])) }}</span>@endif

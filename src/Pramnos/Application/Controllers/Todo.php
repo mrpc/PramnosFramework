@@ -29,8 +29,8 @@ class Todo extends Controller
     /** Registers the actions: all behind sign-in, the writes POSTs with the session's token. */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'add', 'change', 'delete', 'events', 'move']);
-        $this->addWriteAction(['add', 'change', 'delete', 'move']);
+        $this->addAuthAction(['display', 'add', 'change', 'delete', 'events', 'move', 'reorder']);
+        $this->addWriteAction(['add', 'change', 'delete', 'move', 'reorder']);
         parent::__construct($application);
     }
 
@@ -58,6 +58,13 @@ class Todo extends Controller
         $view->groups   = Todos::groups($items, $tenant);
         $view->people   = $people;
         $view->names    = $people + $this->names($items);
+        $photos = [];
+        foreach (array_keys($view->names) as $id) {
+            if (($photo = Todos::photo((int) $id)) !== null) {
+                $photos[(int) $id] = $photo;
+            }
+        }
+        $view->photos   = $photos;
         $view->team     = $mode === 'team' ? $this->team($items) : [];
         $view->writes   = Todos::can($user, 'write');
         $view->zone     = \Pramnos\Metrics\Window::zoneOf($tenant)->getName();
@@ -191,7 +198,24 @@ class Todo extends Controller
         $base = adminUrl('Todo');
 
         return ['list' => $base, 'add' => $base . '/add', 'change' => $base . '/change', 'delete' => $base . '/delete',
-            'events' => $base . '/events', 'move' => $base . '/move'];
+            'events' => $base . '/events', 'move' => $base . '/move', 'reorder' => $base . '/reorder'];
+    }
+
+    /** Items put in order by hand: `ids[]`, first to last, answered in JSON. */
+    public function reorder(): mixed
+    {
+        if ($this->refused('write', true)) {
+            return $this->json(['error' => t('You do not have access to that screen.')], 403);
+        }
+        $user = $this->user();
+        $ids  = array_values(array_filter(array_map('intval', (array) ($_POST['ids'] ?? [])), static function (int $id) use ($user): bool {
+            $item = Todos::get($id);
+
+            return $item !== null && $item['tenant'] === Todos::tenantOf($user);
+        }));
+        Todos::reorder($ids, (int) $user->userid);
+
+        return $this->json(['ok' => true]);
     }
 
     /** A JSON answer. @param array<mixed> $data */
