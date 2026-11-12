@@ -43,6 +43,9 @@ use Pramnos\Database\QueryBuilder;
  */
 final class Feed
 {
+    /** How the stored data of one that must be acknowledged reads: `toDatabase()` returned `'requires_ack' => true`. */
+    private const ACK_PATTERN = '%"requires_ack":true%';
+
     /** The most one page holds. */
     public const MAX_PER_PAGE = 100;
 
@@ -140,15 +143,16 @@ final class Feed
     }
 
     /**
-     * Mark every unread one read — in a group, or in all, but those in `$except`. Returns how many.
+     * Mark every unread one read — in a group, or in all, but those in `$except`, and those that
+     * must be acknowledged (`requires_ack` in their data): a click on each reads those. Returns how many.
      *
      * @param list<string> $except Groups left as they are
      */
     public function markAllRead(?string $group = null, array $except = []): int
     {
-        $count = $this->unreadCount($group, $except);
+        $count = (int) $this->query($group, $except)->whereNull('read_at')->where('data', 'NOT LIKE', self::ACK_PATTERN)->count();
         if ($count > 0) {
-            $this->query($group, $except)->whereNull('read_at')->update(['read_at' => date('Y-m-d H:i:s')]);
+            $this->query($group, $except)->whereNull('read_at')->where('data', 'NOT LIKE', self::ACK_PATTERN)->update(['read_at' => date('Y-m-d H:i:s')]);
             self::announceRead([$this->userId]);
         }
 
@@ -256,7 +260,7 @@ final class Feed
             if (($group !== null && $group !== '' && $group !== $name) || in_array($name, $except, true)) {
                 continue;
             }
-            $unread = $this->query($name, $except)->whereNull('read_at')->select(['id', 'created_at'])->orderBy('created_at', 'desc')->limit(500)->getAllOrFail();
+            $unread = $this->query($name, $except)->whereNull('read_at')->where('data', 'NOT LIKE', self::ACK_PATTERN)->select(['id', 'created_at'])->orderBy('created_at', 'desc')->limit(500)->getAllOrFail();
             if (count($unread) < max(2, (int) ($rule['min'] ?? 2))) {
                 continue;
             }
@@ -410,6 +414,8 @@ final class Feed
             'url'        => isset($data['url']) && is_string($data['url']) ? $data['url'] : null,
             'data'       => $data,
             'read'       => $row['read_at'] !== null,
+            // Read by a click on it alone: never by "mark all read", by being in sight, or in a collapsed item.
+            'ack'        => !empty($data['requires_ack']),
             'created_at' => (string) $row['created_at'],
         ];
     }

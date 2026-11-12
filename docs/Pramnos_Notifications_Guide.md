@@ -762,6 +762,22 @@ people understand:
 - They are kept on the person as user details (`notifyoff`, `notifyonview`) and read with
   `Preferences::of($user)`.
 
+### One that must be acknowledged
+
+A critical reminder or a deadline must not be lost in a "mark all read". A notification says so
+in what it stores:
+
+```php
+public function toDatabase(mixed $notifiable): array
+{
+    return ['title' => 'The contract expires today', 'url' => '/contracts/7', 'requires_ack' => true];
+}
+```
+
+Such a notification is read only by a click on it. "Mark all read" leaves it unread, it is never
+read by being in sight, and it is not folded into a collapsed item. On the feed it carries
+`ack: true`, and the bell draws it with its own red mark (`is-ack`).
+
 ### One item for many: collapsed groups
 
 Where a group's unread pile up, such as ten to-dos, the bell can show them as one item:

@@ -135,6 +135,8 @@
 .pf-notify-item a { display: block; padding: .5rem .75rem; color: inherit; text-decoration: none; border-bottom: 1px solid color-mix(in oklab, currentColor 15%, transparent); }
 .pf-notify-item a:hover { background: var(--color-base-200, rgba(128,128,128,.12)); }
 .pf-notify-item.is-unread a { font-weight: 600; }
+/* One that must be acknowledged (requires_ack): a red mark, read by a click alone. */
+.pf-notify-item.is-ack a::before { content: "!"; display: inline-block; min-width: 1.1em; margin-right: .35em; color: #fff; background: #c62828; border-radius: 50%; text-align: center; font-weight: 700; font-size: .8em; }
 .pf-notify-title, .pf-notify-message, .pf-notify-time { display: block; }
 .pf-notify-message { font-weight: 400; opacity: .85; font-size: .9rem; }
 .pf-notify-time { font-weight: 400; opacity: .6; font-size: .75rem; }

@@ -198,6 +198,7 @@ test('read on view: what stays in sight of the open list is read, all of a colla
     const ui = page({ onView: 500, items: [
         { id: 'b1,b2', title: 'You have 2 to-dos', message: '', url: '/Todo', read: false, collapsed: true, created_at: '2026-10-15 10:00:00' },
         { id: 'a2', title: 'Old', message: '', url: null, read: true, created_at: '2026-10-15 09:00:00' },
+        { id: 'k1', title: 'Deadline today', message: '', url: null, read: false, ack: true, created_at: '2026-10-15 08:00:00' },
     ] });
     const waits = [];
     ui.window.setTimeout = (fn, ms) => { waits.push([fn, ms]); return waits.length; };
@@ -219,6 +220,8 @@ test('read on view: what stays in sight of the open list is read, all of a colla
     assert.equal(delay, 500, 'after the delay asked');
     assert.deepEqual(posts, ['/Notifications/read?id=b1%2Cb2'], 'the unread in sight, every one a collapsed item stands for; the read one not again');
     assert.equal(ui.list.children[0].classList.contains('is-unread'), false);
+    assert.equal(ui.list.children[2].classList.contains('is-ack'), true, 'one that must be acknowledged: its own mark');
+    assert.equal(ui.list.children[2].classList.contains('is-unread'), true, 'never read by being in sight');
 });
 
 test('without read on view, opening reads nothing', async () => {

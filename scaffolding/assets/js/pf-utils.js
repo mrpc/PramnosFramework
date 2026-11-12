@@ -1961,6 +1961,8 @@
                 link.setAttribute('data-pf-notifications-item', n.id);
                 if (!n.read) { li.classList.add('is-unread'); }
                 if (n.collapsed) { li.classList.add('is-collapsed'); }
+                // One that must be acknowledged: its own mark, and read by a click on it alone.
+                if (n.ack && !n.read) { li.classList.add('is-ack'); }
                 var fill = { title: n.title || n.message, message: n.title ? n.message : '', time: n.created_at };
                 Object.keys(fill).forEach(function (field) {
                     var part = li.querySelector('[data-field="' + field + '"]');
@@ -1998,6 +2000,7 @@
                 var box = list.getBoundingClientRect();
                 var ids = [];
                 Array.prototype.forEach.call(list.querySelectorAll('.is-unread'), function (li) {
+                    if (li.classList.contains('is-ack')) { return; }
                     var r = li.getBoundingClientRect();
                     var link = li.querySelector('[data-pf-notifications-item]') || li;
                     if (r.bottom > box.top && r.top < box.bottom && r.height > 0) {

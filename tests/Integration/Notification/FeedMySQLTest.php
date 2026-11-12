@@ -500,6 +500,34 @@ class FeedMySQLTest extends TestCase
     }
 
     /**
+     * One that must be acknowledged (FW-488, `requires_ack`): flagged so on the feed, left unread
+     * by "mark all read" and out of a collapsed item; a click on it alone reads it.
+     */
+    public function testOneThatMustBeAcknowledgedIsReadByAClickAlone(): void
+    {
+        // Arrange
+        Application::getInstance()->applicationInfo['notifications']['collapse'] = ['tasks' => ['title' => '%d tasks', 'min' => 2]];
+        $ack = '30000000-0000-4000-8000-000000000001';
+        $this->db->queryBuilder()->table('notifications')->insert(['id' => $ack, 'type' => 'App\\Notifications\\TaskDue', 'notifiable_type' => 'App\\User',
+            'notifiable_id' => self::ME, 'data' => json_encode(['message' => 'The deadline is today', 'requires_ack' => true]), 'created_at' => '2026-10-15 11:00:00']);
+        $feed = new Feed(self::ME, $this->db);
+
+        // Act
+        $items  = array_column($feed->list(1, 20)['items'], null, 'id');
+        $folded = $feed->list(1, 20, false, null, [], true)['items'];
+        $marked = $feed->markAllRead();
+        $left   = $feed->unreadCount();
+        $read   = $feed->markRead($ack);
+
+        // Assert
+        $this->assertTrue($items[$ack]['ack'], 'flagged on the feed');
+        $this->assertFalse($items['00000000-0000-4000-8000-000000000001']['ack']);
+        $this->assertContains($ack, array_column($folded, 'id'), 'not folded into the collapsed item');
+        $this->assertSame([4, 1], [$marked, $left], 'mark all read leaves it unread');
+        $this->assertTrue($read, 'a click on it reads it');
+    }
+
+    /**
      * A person's choices (FW-488): a declared type they turned off is not sent to them at all,
      * by any channel, and the rest still are; a type not declared cannot be turned off; the bell
      * reads what stays in sight only when they chose it, after the application's delay; the
