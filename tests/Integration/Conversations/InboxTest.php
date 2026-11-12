@@ -126,8 +126,8 @@ class InboxTest extends TestCase
 
     /**
      * A quiet source — a reminder a bot posts — is not conversation (FW-456): unread leaves it out
-     * and does not count it, a conversation with only it unread is not listed, and activity tells
-     * it as its own kind. Without the setting, it is a message like any other.
+     * and does not count it, a conversation with only it unread is not listed, and activity leaves
+     * it out too — it stays in its conversation. Without the setting, it is a message like any other.
      */
     #[DataProvider('databases')]
     public function testQuietSources(string $type, string $host, int $port, string $user): void
@@ -154,8 +154,8 @@ class InboxTest extends TestCase
         $this->assertSame([$general], array_keys($unreads), 'a conversation with only a reminder unread is not listed');
         $this->assertSame([$said], array_column($unreads[$general]['messages'], 'id'));
         $this->assertSame(1, $unreads[$general]['unread'], 'the reminder is not counted');
-        $this->assertEqualsCanonicalizing([[$todo, 'todo'], [$only, 'todo']],
-            array_map(static fn (array $a): array => [$a['message']['id'], $a['kind']], $activity), 'each reminder its own kind');
+        $this->assertSame([], array_intersect([$todo, $only], array_map(static fn (array $a): int => $a['message']['id'], $activity)), 'not activity');
+        $this->assertSame([], array_filter(array_column($activity, 'kind'), static fn (string $k): bool => $k === 'todo'), 'no kind of its own');
         $this->assertSame(2, $plain[$general]['unread'], 'without the setting, a message like any other');
         $this->assertArrayHasKey($bot, $plain);
         $this->assertSame([], Inbox::quietSources(), 'none set');

@@ -314,8 +314,8 @@ should sit among a person's unread like a colleague's words. The application nam
 ```
 
 `unreads` leaves their messages out and does not count them, and does not list a conversation that
-has only those unread. `activity` gives each one with its source as its `kind` (`todo`), so a page
-can show it under its own tab. The conversation's own unread count in the sidebar still counts
+has only those unread. `activity` leaves them out too: a reminder stays in its conversation, and
+the bell and the to-do list are where it is told. The conversation's own unread count in the sidebar still counts
 them: the message is still there to be read.
 
 ## Posting from the application — in place of a chat webhook

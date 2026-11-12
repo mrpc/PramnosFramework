@@ -52,9 +52,8 @@ final class Inbox
 
     /**
      * What happened to somebody, newest first: messages that mention them, `@all` or `@online`
-     * where they are; reactions to what they wrote; replies in the threads they take part in; and
-     * the messages of the quiet sources ({@see quietSources()}), each of its source's kind. Their
-     * own doing is left out.
+     * where they are; reactions to what they wrote; replies in the threads they take part in. Their
+     * own doing is left out, and so are the messages of the quiet sources ({@see quietSources()}).
      *
      * @return list<array{kind: string, at: int, message: array<string, mixed>, by: ?int, emoji: ?string, byName: ?string}>
      */
@@ -90,13 +89,6 @@ final class Inbox
             }
         }
         $quiet = self::quietSources();
-        if ($quiet !== []) {
-            foreach (self::messages()->select(['messageid', 'source'])->whereIn('source', $quiet)->whereIn('conversationid', $mine)
-                ->whereNull('deletedat')->where(self::others($person))->orderBy('created_at', 'desc')->orderBy('messageid', 'desc')->limit($limit)->getAllOrFail() as $row) {
-                // A quiet source's message is its own kind — `todo` — whatever else it is.
-                $items['m' . $row['messageid']] = ['kind' => (string) $row['source'], 'at' => 0, 'id' => (int) $row['messageid'], 'by' => null, 'emoji' => null];
-            }
-        }
         $messages = [];
         foreach (Messages::many(array_values(array_unique(array_column($items, 'id')))) as $message) {
             $messages[$message['id']] = $message;
@@ -105,7 +97,9 @@ final class Inbox
         foreach ($items as $item) {
             $message = $messages[$item['id']] ?? null;
             // Gone, or what they wrote themselves: not something that happened to them.
-            if ($message === null || $message['deletedAt'] !== null || ($item['kind'] !== 'reaction' && $message['authorId'] === $person)) {
+            // A quiet source's message — a bot's reminder — is not activity: it stays in its conversation.
+            if ($message === null || $message['deletedAt'] !== null || ($item['kind'] !== 'reaction' && $message['authorId'] === $person)
+                || in_array($message['source'], $quiet, true)) {
                 continue;
             }
             $out[] = ['kind' => $item['kind'], 'at' => $item['at'] ?: $message['at'], 'message' => $message, 'by' => $item['by'], 'emoji' => $item['emoji']];
@@ -120,7 +114,7 @@ final class Inbox
     /**
      * The sources of the messages that are not conversation — a reminder a bot posts, say
      * (`SystemPost::post(..., ['source' => 'todo'])`): `'conversations' => ['quiet_sources' =>
-     * ['todo']]`. {@see unreads()} leaves them out; {@see activity()} tells them as their own kind.
+     * ['todo']]`. {@see unreads()} and {@see activity()} leave them out; they stay in their conversation.
      *
      * @return list<string>
      */
