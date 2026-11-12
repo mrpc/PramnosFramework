@@ -2638,4 +2638,9 @@ return [
     'Area' => 'Περιοχή',
     'Content' => 'Περιεχόμενο',
     'Description' => 'Περιγραφή',
+    'Delete the selected' => 'Διαγραφή των επιλεγμένων',
+    'They go for good. This cannot be undone.' => 'Διαγράφονται οριστικά. Δεν αναιρείται.',
+    '%d deleted.' => 'Διαγράφηκαν %d.',
+    'Outside a conversation' => 'Εκτός συζήτησης',
+    'Entity' => 'Οντότητα',
 ];

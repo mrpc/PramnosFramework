@@ -170,22 +170,23 @@ final class Overview
     public function holdingsOf(int $userId): array
     {
         $q    = fn (string $table) => $this->db()->queryBuilder()->table($table);
+        // The title first, then when; each row's id last, as `_id`, for what opens or deletes it.
         $from = [
-            'routines'  => fn () => $q('pramnos.ai_routines')->select(['routine_id', 'kind', 'title', 'space', 'cadence', 'at', 'next_run_at', 'last_run_at', 'is_active', 'last_error', 'conversation_id'])
+            'routines'  => fn () => $q('pramnos.ai_routines')->select(['title', 'next_run_at', 'last_run_at', 'kind', 'cadence', 'at', 'is_active', 'last_error', 'space', 'conversation_id', 'routine_id AS _id'])
                 ->where('userid', $userId)->orderBy('routine_id', 'desc'),
-            'calendar'  => fn () => $q('assist.chat_calendar')->select(['item_id', 'kind', 'title', 'space', 'starts_at', 'due_at', 'done'])
+            'calendar'  => fn () => $q('assist.chat_calendar')->select(['title', 'starts_at', 'due_at', 'kind', 'done', 'space', 'item_id AS _id'])
                 ->where('userid', $userId)->orderBy('item_id', 'desc'),
-            'artifacts' => fn () => $q('assist.chat_artifacts')->select(['artifact_id', 'kind', 'title', 'space', 'conversation_id', new Expression("'owner' AS role")])
+            'artifacts' => fn () => $q('assist.chat_artifacts')->select(['title', 'created_at', 'kind', 'entity', 'space', 'conversation_id', 'artifact_id AS _id'])
                 ->where('userid', $userId)->orderBy('artifact_id', 'desc'),
             'shared'    => fn () => $q(\Pramnos\Llm\Chat\Artifacts::MEMBERS . ' AS m')->join('assist.chat_artifacts AS a', 'a.artifact_id', '=', 'm.artifact_id')
-                ->select(['a.artifact_id', 'a.kind', 'a.title', 'a.space', 'm.role'])->where('m.userid', $userId)->orderBy('m.member_id', 'desc'),
-            'shares'    => fn () => $q('assist.chat_shares')->select(['share_id', 'kind', 'title', 'space', 'recipient', 'created_at'])
+                ->select(['a.title', 'a.created_at', 'a.kind', 'm.role', 'a.artifact_id AS _id'])->where('m.userid', $userId)->orderBy('m.member_id', 'desc'),
+            'shares'    => fn () => $q('assist.chat_shares')->select(['title', 'created_at', 'kind', 'recipient', 'target_id', 'space', 'share_id AS _id'])
                 ->where('userid', $userId)->orderBy('share_id', 'desc'),
-            'asks'      => fn () => $q('assist.chat_asks')->select(['ask_id', 'status', 'conversation_id'])
+            'asks'      => fn () => $q('assist.chat_asks')->select(['status', 'created_at', 'conversation_id', 'ask_id AS _id'])
                 ->where('userid', $userId)->orderBy('ask_id', 'desc'),
-            'dossier'   => fn () => $q('assist.chat_dossier')->select(['dossier_id', 'space', 'area', 'subject', 'content', 'pending'])
+            'dossier'   => fn () => $q('assist.chat_dossier')->select(['subject', 'updated_at', 'area', 'content', 'pending', 'space', 'dossier_id AS _id'])
                 ->where('userid', $userId)->orderBy('dossier_id', 'desc'),
-            'skills'    => fn () => $q(\Pramnos\Llm\Chat\StoredSkills::TABLE)->select(['skill_id', 'name', 'description', 'status', 'updated_at'])
+            'skills'    => fn () => $q(\Pramnos\Llm\Chat\StoredSkills::TABLE)->select(['name', 'updated_at', 'description', 'status', 'skill_id AS _id'])
                 ->where('userid', $userId)->orderBy('skill_id', 'desc'),
         ];
         $out = [];

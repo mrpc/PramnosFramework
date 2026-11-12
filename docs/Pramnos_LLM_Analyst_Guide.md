@@ -166,9 +166,19 @@ gear.
   - their shares, their questions and their dossier;
   - their own skills.
 
-  A section whose table the installation has not migrated is left out. A `conversation_id`
-  links to the conversation. An application adds sections of its own by overriding
+  A section whose table the installation has not migrated is left out. Each row shows its title
+  first, then its date. The *From* column links to the conversation it came from, or says it
+  was made outside one, as a diary page written by a routine is. An artifact's title opens it
+  read only on a page of its own, `Ai/artifact/{id}`, for whoever reads everybody's
+  conversations, and each opening is audited as `ai.artifact_viewed`. A share's title opens what
+  was shared. An application adds sections of its own by overriding
   `AiController::personSections(int $userId): array`, which returns title => rows.
+- **Deleting what is held, for good.** Rows of the routines, calendar, artifacts, shares,
+  dossier, skills and memories can be selected the same way, and *Delete the selected* deletes
+  them. Each goes through what owns it, so nothing is left behind: a routine goes with its runs
+  and readers, and an artifact with its members and shares. Each deletion is audited
+  (`AiController::DELETABLE` names the events). The form posts `section` and `ids[]` to
+  `Ai/holdingsdelete`, behind the same `deletesConversations()`.
 - **Deleting conversations for good.** Each conversation on the card can be selected, and a
   folded *Delete the selected conversations* deletes them, after saying it cannot be undone. Their
   messages, their questions, what they made and its members, and their shares go with them

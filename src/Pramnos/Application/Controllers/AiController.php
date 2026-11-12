@@ -68,13 +68,13 @@ class AiController extends Controller
             'skills', 'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject', 'memories', 'memorycorrect', 'memorydelete',
             'skillcatalog', 'skillinstall', 'skillcatalogturn', 'skillcatalogrole', 'skillcatalogupdate', 'skillcatalogdelete',
             'share', 'unshare', 'shared', 'people', 'act', 'assign', 'rerun', 'view', 'approve', 'reject', 'rate', 'reviews', 'reviewed', 'download', 'printable', 'pin', 'speak', 'voicereply', 'modelchoice',
-            'companionreset', 'conversationsdelete']);
+            'companionreset', 'conversationsdelete', 'holdingsdelete', 'artifact']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
         // `api` checks its own token, from the X-CSRF-Token header, since it also answers GET and DELETE.
         $this->addWriteAction(['save', 'check', 'ask', 'cancel', 'delete', 'forget', 'consent',
             'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'share', 'unshare', 'act', 'approve', 'reject', 'rate', 'reviewed', 'pin', 'speak', 'voicereply', 'modelchoice',
             'skillsave', 'skillturn', 'skilldelete', 'skillshare', 'skillapprove', 'skillreject', 'memorycorrect', 'memorydelete',
-            'skillinstall', 'skillcatalogturn', 'skillcatalogrole', 'skillcatalogupdate', 'skillcatalogdelete', 'companionreset', 'conversationsdelete']);
+            'skillinstall', 'skillcatalogturn', 'skillcatalogrole', 'skillcatalogupdate', 'skillcatalogdelete', 'companionreset', 'conversationsdelete', 'holdingsdelete']);
         parent::__construct($application);
     }
 
@@ -194,7 +194,7 @@ class AiController extends Controller
         $channels = \Pramnos\Llm\Analyst\Review::channels();
         $openId  = (int) $request->get('c', 0, 'get', 'int');
         $who     = (int) $request->get('person', 0, 'get', 'int');
-        $urls    = ['all' => adminUrl('Ai/all'), 'call' => adminUrl('Ai/call/'), 'ask' => $this->assistantsInMenu() ? '' : adminUrl('Ai'), 'reset' => adminUrl('Ai/companionreset'), 'delete' => adminUrl('Ai/conversationsdelete'),
+        $urls    = ['all' => adminUrl('Ai/all'), 'call' => adminUrl('Ai/call/'), 'ask' => $this->assistantsInMenu() ? '' : adminUrl('Ai'), 'reset' => adminUrl('Ai/companionreset'), 'delete' => adminUrl('Ai/conversationsdelete'), 'deleteHeld' => adminUrl('Ai/holdingsdelete'), 'artifact' => adminUrl('Ai/artifact/'),
             'reviews' => adminUrl('Ai/reviews'), 'memories' => adminUrl('Ai/memories'), 'settings' => adminUrl('Ai/settings'), 'scheduled' => adminUrl('Ai/scheduled')];
         // Without a conversation: the dashboard — every channel's figures and people — or one person's card.
         if ($openId === 0) {
@@ -291,6 +291,7 @@ class AiController extends Controller
         $view->holdings      = $overview->holdingsOf($who) + $this->personSections($who);
         $view->resets        = $this->resetsCompanion($me);
         $view->deletes       = $this->deletesConversations($me);
+        $view->deletable     = self::DELETABLE;
         $view->urls          = $urls;
 
         return $view->display('assistant');
@@ -308,13 +309,92 @@ class AiController extends Controller
         return [];
     }
 
+    /** The sections of a person's card whose rows root may delete there, and the audit event each deletion writes. */
+    public const DELETABLE = ['routines' => 'ai.routine_deleted', 'calendar' => 'ai.calendar_item_deleted', 'artifacts' => 'ai.artifact_deleted',
+        'shares' => 'ai.share_deleted', 'dossier' => 'ai.dossier_entry_deleted', 'skills' => 'ai.skill_deleted', 'memories' => 'ai.memory_deleted'];
+
+    /** Where each deletable section's rows are, by their id: table, id column. */
+    private const HELD = ['routines' => ['pramnos.ai_routines', 'routine_id'], 'calendar' => ['assist.chat_calendar', 'item_id'],
+        'artifacts' => ['assist.chat_artifacts', 'artifact_id'], 'shares' => ['assist.chat_shares', 'share_id'], 'dossier' => ['assist.chat_dossier', 'dossier_id'],
+        'skills' => [\Pramnos\Llm\Chat\StoredSkills::TABLE, 'skill_id'], 'memories' => ['assist.chat_memory', 'memory_id']];
+
     /**
-     * Who may delete people's conversations for good from the control centre: root, by default.
-     * An application gives it to whom it decides by overriding this.
+     * Who may delete for good, from a person's card, their conversations and anything else listed
+     * there that can be deleted ({@see DELETABLE}): root, by default. An application gives it to
+     * whom it decides by overriding this.
      */
     protected function deletesConversations(object $user): bool
     {
         return $this->readsAll($user) && \Pramnos\User\Roles::atLeast($user, \Pramnos\User\Roles::ROOT);
+    }
+
+    /**
+     * Delete rows of one section of a person's card for good — `section` (one of {@see DELETABLE})
+     * and `ids[]` in the form, with the session's token — each through what owns it, so nothing is
+     * left behind: a routine with its runs and readers, an artifact with its members and shares.
+     * Each is audited. A 404 to whoever may not ({@see deletesConversations()}).
+     */
+    public function holdingsdelete(): mixed
+    {
+        $me      = $this->reader();
+        $section = (string) ($_POST['section'] ?? '');
+        if ($me === null || !$this->deletesConversations($me) || !isset(self::HELD[$section])) {
+            ($this->application ?? \Pramnos\Application\Application::currentInstance())?->notFound();
+
+            return null;
+        }
+        [$table, $key] = self::HELD[$section];
+        $ids  = array_values(array_unique(array_filter(array_map('intval', (array) ($_POST['ids'] ?? [])), static fn (int $id): bool => $id > 0)));
+        $rows = $ids === [] ? [] : \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table($table)->whereIn($key, $ids)->getAllOrFail();
+        $done = 0;
+        foreach ($rows as $row) {
+            $id    = (int) $row[$key];
+            $owner = (int) ($row['userid'] ?? 0);
+            $scope = new \Pramnos\Llm\Chat\Scope($owner, isset($row['organization_id']) ? (int) $row['organization_id'] : null, (string) ($row['space'] ?? \Pramnos\Llm\Chat\Scope::CHAT));
+            $gone  = match ($section) {
+                'routines'  => (new \Pramnos\Llm\Chat\Routines((new \Pramnos\Llm\Chat\Conversations(new \Pramnos\Llm\Chat\BaseAssistant()))->as($scope)))->delete($scope, $id),
+                'calendar'  => (new \Pramnos\Llm\Chat\Calendar($scope))->delete($id),
+                'artifacts' => (new \Pramnos\Llm\Chat\Artifacts($scope))->delete($id),
+                'shares'    => (new \Pramnos\Llm\Chat\Shares())->revoke($scope, $id),
+                'dossier'   => (new \Pramnos\Llm\Chat\Profile($scope))->forget($id),
+                'skills'    => (new \Pramnos\Llm\Chat\StoredSkills())->delete(new \Pramnos\User\User($owner), $id),
+                'memories'  => (new \Pramnos\Llm\Chat\MemoryAdmin())->delete($me, $id), // audits it itself
+            };
+            if ($gone) {
+                if ($section !== 'memories') {
+                    \Pramnos\Auth\AuditLog::record(self::DELETABLE[$section], (int) $me->userid, $owner > 0 ? $owner : null,
+                        ['title' => (string) ($row['title'] ?? $row['subject'] ?? $row['name'] ?? '')], $section, $id);
+                }
+                $done++;
+            }
+        }
+        $done === 0 ? $this->addError(t('There was nothing to delete.')) : $this->addMessage(sprintf(t('%d deleted.'), $done));
+        $back = (string) ($_POST['back'] ?? '');
+        $this->redirect(adminUrl('Ai/all') . (preg_match('/^\?[A-Za-z0-9=&_:%-]*$/', $back) === 1 ? $back : ''));
+
+        return null;
+    }
+
+    /**
+     * `Ai/artifact/{id}` — anybody's artifact, read only on a page of its own, for whoever reads
+     * everybody's conversations; each reading audited (`ai.artifact_viewed`). A 404 otherwise.
+     */
+    public function artifact(mixed $id = null): mixed
+    {
+        $me  = $this->reader();
+        $id  = (int) ($id ?: \Pramnos\Http\Request::staticGetOption());
+        $row = $me === null || !$this->readsAll($me) || $id < 1 ? null
+            : (\Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('assist.chat_artifacts')->where('artifact_id', $id)->limit(1)->getAllOrFail()[0] ?? null);
+        $artifacts = $row === null ? null : new \Pramnos\Llm\Chat\Artifacts(new \Pramnos\Llm\Chat\Scope((int) $row['userid'], $row['organization_id'] === null ? null : (int) $row['organization_id'], (string) $row['space']));
+        $found     = $artifacts?->find($id);
+        if ($found === null) {
+            ($this->application ?? \Pramnos\Application\Application::currentInstance())?->notFound();
+
+            return null;
+        }
+        \Pramnos\Auth\AuditLog::record('ai.artifact_viewed', (int) $me->userid, (int) $row['userid'], [], 'artifact', $id);
+
+        return $this->sendFile('', 'text/html; charset=utf-8', \Pramnos\Llm\Chat\Web\ArtifactTools::printable($found, static fn (int $one): ?array => $artifacts->find($one)));
     }
 
     /**

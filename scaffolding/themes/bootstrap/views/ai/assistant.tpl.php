@@ -9,13 +9,13 @@
  *   $this->memories      — stored space => topic => list of memories
  *   $this->holdings      — section => rows: routines, calendar, artifacts, shared, shares, asks, dossier, skills, the application's
  *   $this->channels      — stored space => name; $this->resets — whether the reader may reset
- *   $this->deletes       — whether the reader may delete conversations for good
- *   $this->urls          — all, reset, memories, delete
+ *   $this->deletes       — whether the reader may delete for good; $this->deletable — the sections they may delete rows of
+ *   $this->urls          — all, reset, memories, delete, deleteHeld, artifact
  */
 $c        = ['card' => 'card pf-l-card', 'muted' => 'text-muted small', 'btn' => 'btn btn-sm btn-primary', 'field' => 'form-control form-control-sm input-sm', 'select' => 'form-control input-sm form-select form-select-sm pf-l-select', 'h1' => 'h3', 'table' => 'table table-sm'];
 $card     = is_array($this->card ?? null) ? $this->card : [];
 $channels = is_array($this->channels ?? null) ? $this->channels : [];
-$u        = (is_array($this->urls ?? null) ? $this->urls : []) + ['all' => '', 'reset' => '', 'memories' => '', 'delete' => ''];
+$u        = (is_array($this->urls ?? null) ? $this->urls : []) + ['all' => '', 'reset' => '', 'memories' => '', 'delete' => '', 'deleteHeld' => '', 'artifact' => ''];
 $when     = static fn (?string $iso): string => $iso === null || $iso === '' || ($t = strtotime($iso)) === false ? '—' : date('Y-m-d H:i', $t);
 $persona  = static fn (?string $key): string => $key === null ? '—' : (string) (\Pramnos\Llm\Chat\Personas::get($key)['name'] ?? ($key === 'chat' ? t('Companion') : $key));
 $name     = static fn (string $space): string => (string) ($channels[$space] ?? $space);
@@ -82,29 +82,62 @@ $id       = (int) ($card['userid'] ?? 0); @endphp
         </section>
         <section class="{!! $c['card'] !!}" style="flex:1 1 320px;padding:12px">
             <h2 style="font-size:1.1rem;margin:0 0 8px">{{ t('Memories') }}</h2>
+            @if (!empty($this->deletes) && $this->memories !== [])<form method="post" action="{{ $u['deleteHeld'] }}">{!! \Pramnos\Http\Session::getInstance()->getTokenField() !!}<input type="hidden" name="section" value="memories"><input type="hidden" name="back" value="{{ '?person=' . $id }}">@endif
             @if ($this->memories === [])<p class="{!! $c['muted'] !!}">{{ t('Nothing remembered.') }}</p>@endif
             @foreach ((array) $this->memories as $space => $topics)
                 <h3 style="font-size:1rem;margin:10px 0 4px"><a href="{{ $u['memories'] . '?' . http_build_query(['person' => $id, 'org' => '', 'space' => $space]) }}">{{ $name((string) $space) }}</a></h3>
                 @foreach ($topics as $topic => $list)
                     <div class="{!! $c['muted'] !!}">{{ t(ucfirst((string) $topic)) }}</div>
-                    <ul style="margin:0 0 6px;padding-left:18px">@foreach ($list as $memory)<li>{{ $memory['content'] }}</li>@endforeach</ul>
+                    <ul style="margin:0 0 6px;padding-left:18px">@foreach ($list as $memory)<li>@if (!empty($this->deletes))<input type="checkbox" name="ids[]" value="{!! (int) ($memory['memory_id'] ?? 0) !!}" aria-label="{{ t('Select') }}"> @endif{{ $memory['content'] }}</li>@endforeach</ul>
                 @endforeach
             @endforeach
+            @if (!empty($this->deletes) && $this->memories !== [])
+                <details style="margin-top:8px">
+                    <summary>{{ t('Delete the selected') }}</summary>
+                    <p class="{!! $c['muted'] !!}">{{ t('They go for good. This cannot be undone.') }}</p>
+                    <button type="submit" class="{!! $c['btn'] !!}">{{ t('Yes, delete them for good') }}</button>
+                </details>
+            </form>@endif
         </section>
     </div>
     @php
         $titles = ['routines' => t('Routines, reminders and timers'), 'calendar' => t('Calendar'), 'artifacts' => t('Artifacts they made'), 'shared' => t('Artifacts shared with them'),
             'shares' => t('Shares'), 'asks' => t('Questions'), 'dossier' => t('Dossier'), 'skills' => t('Their skills')];
         $cell   = static fn (mixed $v): string => $v === null || $v === '' ? '—' : (is_bool($v) ? ($v ? '✓' : '—') : mb_strimwidth((string) $v, 0, 160, '…'));
+        $opens  = static function (string $section, array $row) use ($u): string {
+            $id = (int) ($row['_id'] ?? 0);
+            return match (true) {
+                in_array($section, ['artifacts', 'shared'], true)                       => $u['artifact'] . $id,
+                $section === 'shares' && ($row['kind'] ?? '') === 'artifact'            => $u['artifact'] . (int) ($row['target_id'] ?? 0),
+                $section === 'shares' && ($row['kind'] ?? '') === 'conversation'        => $u['all'] . '?c=' . (int) ($row['target_id'] ?? 0),
+                default                                                                  => '',
+            };
+        };
+        $deletable = !empty($this->deletes) ? (array) ($this->deletable ?? []) : [];
     @endphp
     @foreach ((array) ($this->holdings ?? []) as $section => $rows)
         @if (is_array($rows) && $rows !== [])
+        @php $del = isset($deletable[$section]); $cols = array_values(array_filter(array_keys((array) reset($rows)), static fn ($k): bool => $k !== 'target_id' && !str_starts_with((string) $k, '_'))); @endphp
         <details class="{!! $c['card'] !!}" style="margin-top:16px;padding:12px">
             <summary><strong>{{ $titles[$section] ?? t((string) $section) }}</strong> <span class="{!! $c['muted'] !!}">({{ count($rows) }})</span></summary>
+            @if ($del)<form method="post" action="{{ $u['deleteHeld'] }}">{!! \Pramnos\Http\Session::getInstance()->getTokenField() !!}<input type="hidden" name="section" value="{{ $section }}"><input type="hidden" name="back" value="{{ '?person=' . $id }}">@endif
             <div style="overflow-x:auto"><table class="{!! $c['table'] !!}">
-                <thead><tr>@foreach (array_keys((array) reset($rows)) as $col)<th>{{ t(ucfirst(str_replace('_', ' ', (string) $col))) }}</th>@endforeach</tr></thead>
-                <tbody>@foreach ($rows as $row)<tr>@foreach ((array) $row as $col => $v)<td>@if ($col === 'conversation_id' && (int) $v > 0)<a href="{{ $u['all'] . '?channel=' . rawurlencode((string) ($row['space'] ?? '')) . '&c=' . (int) $v }}">#{{ (int) $v }}</a>@else{{ $cell($v) }}@endif</td>@endforeach</tr>@endforeach</tbody>
+                <thead><tr>@if ($del)<th></th>@endif @foreach ($cols as $col)<th>{{ $col === 'conversation_id' ? t('From') : t(ucfirst(str_replace('_', ' ', (string) $col))) }}</th>@endforeach</tr></thead>
+                <tbody>@foreach ($rows as $row)<tr>
+                    @if ($del)<td><input type="checkbox" name="ids[]" value="{!! (int) ($row['_id'] ?? 0) !!}" aria-label="{{ t('Select') }}"></td>@endif
+                    @foreach ($cols as $i => $col)@php $v = $row[$col] ?? null; $open = $i === 0 ? $opens((string) $section, (array) $row) : ''; @endphp<td>
+                        @if ($col === 'conversation_id')@if ((int) $v > 0)<a href="{{ $u['all'] . '?channel=' . rawurlencode((string) ($row['space'] ?? '')) . '&c=' . (int) $v }}">{{ t('Conversation') }} #{{ (int) $v }}</a>@else{{ t('Outside a conversation') }}@endif
+                        @elseif ($open !== '')<a href="{{ $open }}" target="_blank" rel="noopener">{{ $cell($v) }}</a>
+                        @else{{ $cell($v) }}@endif</td>@endforeach
+                </tr>@endforeach</tbody>
             </table></div>
+            @if ($del)
+                <details style="margin-top:8px">
+                    <summary>{{ t('Delete the selected') }}</summary>
+                    <p class="{!! $c['muted'] !!}">{{ t('They go for good. This cannot be undone.') }}</p>
+                    <button type="submit" class="{!! $c['btn'] !!}">{{ t('Yes, delete them for good') }}</button>
+                </details>
+            </form>@endif
         </details>
         @endif
     @endforeach

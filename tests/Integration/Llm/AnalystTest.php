@@ -568,6 +568,83 @@ class AnalystTest extends LlmTestCase
     }
 
     /**
+     * On a person's card each thing held opens and is deleted where it can be (FW-484): an
+     * artifact's title opens it read only, audited, and says where it came from — a conversation,
+     * or outside one; root deletes artifacts, calendar items and memories by section, each through
+     * what owns it and audited; an unknown section, or anybody else, is a 404.
+     */
+    #[DataProvider('databases')]
+    public function testEachThingHeldOpensAndIsDeletedFromTheCard(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->seed();
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\AuthServer\CreateAuthserverAuditLogTable::class,
+            \Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class], $this->db);
+        $stamp = gmdate('Y-m-d H:i:s');
+        $this->insert('assist.chat_conversations', ['organization_id' => null, 'userid' => 8, 'title' => 'Where a list was made', 'space' => Scope::CHAT, 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $talk = (int) $this->db->queryBuilder()->table('assist.chat_conversations')->max('conversation_id');
+        foreach ([['Shopping list', $talk], ['Diary 2026-11-12', null]] as [$title, $from]) {
+            $this->insert('assist.chat_artifacts', ['organization_id' => null, 'userid' => 8, 'space' => Scope::CHAT, 'conversation_id' => $from, 'kind' => 'text', 'title' => $title,
+                'content' => json_encode(['text' => 'Written for ' . $title]), 'created_at' => $stamp, 'updated_at' => $stamp]);
+        }
+        [$list, $diary] = array_map('intval', array_column($this->db->queryBuilder()->table('assist.chat_artifacts')->orderBy('artifact_id')->getAllOrFail(), 'artifact_id'));
+        $this->insert('assist.chat_calendar', ['organization_id' => null, 'userid' => 8, 'space' => Scope::CHAT, 'kind' => 'task', 'title' => 'A test task', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $item   = (int) $this->db->queryBuilder()->table('assist.chat_calendar')->max('item_id');
+        (new \Pramnos\Llm\Chat\Memory(new Scope(8)))->keep('fact', 'A test memory');
+        $memory = (int) $this->db->queryBuilder()->table('assist.chat_memory')->max('memory_id');
+        $_GET   = ['person' => '8'];
+        \Pramnos\Http\Request::resetInstance();
+        $delete = function (string $section, array $ids, ?object $reader = null): bool {
+            $_POST  = ['section' => $section, 'ids' => array_map('strval', $ids), 'back' => '?person=8'];
+            $screen = new HoldingsScreen();
+            $screen->reading = $reader;
+            try {
+                $screen->holdingsdelete();
+                return true;
+            } catch (\Pramnos\Application\ApplicationClosedException) {
+                return false;
+            } finally {
+                $_POST = [];
+            }
+        };
+
+        // Act
+        $card    = (string) (new HoldingsScreen())->all();
+        $opened  = (string) (new HoldingsScreen())->artifact($diary);
+        $outsider = new HoldingsScreen();
+        $outsider->reading = (object) ['userid' => 9, 'usertype' => 10, 'active' => 1];
+        try {
+            $outsider->artifact($diary);
+            $hidden = false;
+        } catch (\Pramnos\Application\ApplicationClosedException) {
+            $hidden = true;
+        }
+        $refused = $delete('artifacts', [$list], (object) ['userid' => 9, 'usertype' => 10, 'active' => 1]);
+        $unknown = $delete('users', [8]);
+        $delete('artifacts', [$list, $diary]);
+        $delete('calendar', [$item]);
+        $delete('memories', [$memory]);
+        $events = array_count_values(array_column($this->db->queryBuilder()->table('authserver.audit_log')->where('event_type', 'like', 'ai.%')->getAllOrFail(), 'event_type'));
+
+        // Assert
+        $this->assertStringContainsString('Ai/artifact/' . $diary, $card, 'an artifact\'s title opens it');
+        $this->assertStringContainsString('Outside a conversation', $card, 'the diary\'s page: made outside a conversation');
+        $this->assertStringContainsString('Conversation #' . $talk, $card, 'the list: where it was made');
+        $this->assertLessThan(strpos($card, '>Kind<'), strpos($card, '>Title<'), 'the title first');
+        $this->assertStringContainsString('name="section" value="memories"', $card, 'memories deleted from the card too');
+        $this->assertStringContainsString('Written for Diary 2026-11-12', $opened, 'read on a page of its own');
+        $this->assertTrue($hidden, 'a 404 to whoever does not read everybody\'s');
+        $this->assertFalse($refused, 'deleting: a 404 to whoever may not');
+        $this->assertFalse($unknown, 'and for a section that is not deletable');
+        $this->assertSame(0, $this->rowsIn('assist.chat_artifacts'), 'both artifacts gone');
+        $this->assertSame(0, $this->rowsIn('assist.chat_calendar'));
+        $this->assertSame(0, $this->rowsIn('assist.chat_memory'));
+        $this->assertSame(1, $events['ai.artifact_viewed'] ?? 0, 'opening audited');
+        $this->assertSame([2, 1, 1], [$events['ai.artifact_deleted'] ?? 0, $events['ai.calendar_item_deleted'] ?? 0, $events['ai.memory_deleted'] ?? 0], 'each deletion audited');
+    }
+
+    /**
      * A person's card shows what else the assistant holds for them (FW-484) — here their
      * calendar and a question under way, each counted, an empty section left out — beside an
      * application's own sections; root deletes conversations from it for good, several at once,
