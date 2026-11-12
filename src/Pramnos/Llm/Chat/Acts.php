@@ -115,30 +115,32 @@ final class Acts
     }
 
     /** The person's style with a persona (null: the default): a pose of the set in use, or null for none. */
-    public static function style(object $user, ?string $persona = null): ?string
+    public static function style(object $user, ?string $persona = null, ?int $partition = null): ?string
     {
-        $pose = trim((string) ($user->{self::styleDetail($persona)} ?? ''));
+        // A partition's own over the holder's.
+        $own  = $partition === null ? '' : trim((string) ($user->{self::styleDetail($persona, $partition)} ?? ''));
+        $pose = $own !== '' ? $own : trim((string) ($user->{self::styleDetail($persona)} ?? ''));
 
         return $pose !== '' && in_array($pose, \Pramnos\Assist\AvatarSets::poses(), true) ? $pose : null;
     }
 
     /** Keep the person's style: a pose of the set's, or '' for none. False, keeping nothing, for another. */
-    public static function choose(object $user, string $pose, ?string $persona = null): bool
+    public static function choose(object $user, string $pose, ?string $persona = null, ?int $partition = null): bool
     {
         $pose = trim($pose);
         if ($pose !== '' && !in_array($pose, \Pramnos\Assist\AvatarSets::poses(), true)) {
             return false;
         }
-        $user->{self::styleDetail($persona)} = $pose;
+        $user->{self::styleDetail($persona, $partition)} = $pose;
         $user->save();
 
         return true;
     }
 
     /** The detail a style is kept in: one for each persona, the default's without a suffix. */
-    private static function styleDetail(?string $persona): string
+    private static function styleDetail(?string $persona, ?int $partition = null): string
     {
-        return $persona === null ? self::STYLE_DETAIL : self::STYLE_DETAIL . '-' . $persona;
+        return ($persona === null ? self::STYLE_DETAIL : self::STYLE_DETAIL . '-' . $persona) . ($partition === null ? '' : '@' . $partition);
     }
 
     /**

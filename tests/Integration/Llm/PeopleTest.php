@@ -187,7 +187,8 @@ class PeopleTest extends LlmTestCase
         // Arrange
         $this->connectDatabase($type, $host, $port);
         $this->configure(['chat' => ['assistant' => PartitionAssistant::class, 'memory' => ['learn' => false],
-            'personas' => ['naya' => ['name' => 'Naya', 'default' => true], 'tesla' => ['name' => 'Tesla']]]]);
+            'personas' => ['naya' => ['name' => 'Naya', 'default' => true], 'tesla' => ['name' => 'Tesla']]],
+            'speech' => ['voices' => ['maria' => ['label' => 'Μαρία', 'voice' => 'el_GR-maria']]]]);
         $user = new \Pramnos\User\User();
         $user->username = 'part' . random_int(100000, 999999);
         $user->email    = $user->username . '@example.test';
@@ -202,6 +203,12 @@ class PeopleTest extends LlmTestCase
         // Act
         $scoped = \Pramnos\Llm\Chat\Personas::ofPartition($part);
         \Pramnos\Llm\Chat\Settings::change(new \Pramnos\User\User($id), 'tesla', ['thought_at' => '09:30'], 4);
+        \Pramnos\Llm\Speech\Speech::choose(new \Pramnos\User\User($id), 'maria', 'tesla');           // the holder's voice
+        \Pramnos\Llm\Chat\Settings::change(new \Pramnos\User\User($id), 'tesla', ['voice' => ''], 4);
+        $fallback = \Pramnos\Llm\Speech\Speech::chosen(new \Pramnos\User\User($id), 'tesla', 4);
+        \Pramnos\Llm\Speech\Speech::choose(new \Pramnos\User\User($id), '', 'tesla');
+        \Pramnos\Llm\Chat\Settings::change(new \Pramnos\User\User($id), 'tesla', ['voice' => 'maria'], 4);
+        $ownVoice = [\Pramnos\Llm\Speech\Speech::chosen(new \Pramnos\User\User($id), 'tesla', 4), \Pramnos\Llm\Speech\Speech::chosen(new \Pramnos\User\User($id), 'tesla')];
         $hers   = \Pramnos\Llm\Chat\Settings::of(new \Pramnos\User\User($id), 'tesla', 4);
         $holder = \Pramnos\Llm\Chat\Settings::of(new \Pramnos\User\User($id), 'tesla');
         ApiFixture::$scope = $part;
@@ -219,6 +226,8 @@ class PeopleTest extends LlmTestCase
         $this->assertSame('09:30', $hers['thought_at'], 'its own setting');
         $this->assertSame(['from' => '22:00', 'to' => '07:00'], $hers['quiet'], 'the holder\'s where it has none of its own');
         $this->assertSame('07:00', $holder['thought_at'], 'the holder\'s untouched');
+        $this->assertSame('maria', $fallback, 'no voice of its own: the holder\'s');
+        $this->assertSame(['maria', null], $ownVoice, 'its own voice; the holder\'s untouched');
         $this->assertSame([403, 'Not for this profile.'], [$refused['status'], $refused['error']], 'the application refuses');
         $this->assertSame(200, $kept['status']);
         $this->assertNotNull($meHers['data']['first_meetings']['tesla'], 'its own conversations');

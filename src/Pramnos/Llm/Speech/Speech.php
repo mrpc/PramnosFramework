@@ -154,30 +154,31 @@ final class Speech
     /** The detail the person's own voice is kept in, one for each persona. */
     public const VOICE_DETAIL = 'askvoice';
 
-    /** The voice the person chose (a key of {@see voices()}) for a persona, or null. */
-    public static function chosen(object $user, ?string $persona = null): ?string
+    /** The voice the person chose (a key of {@see voices()}) for a persona — a partition's own over the holder's — or null. */
+    public static function chosen(object $user, ?string $persona = null, ?int $partition = null): ?string
     {
-        $key = (string) ($user->{self::voiceDetail($persona)} ?? '');
+        $own = $partition === null ? '' : (string) ($user->{self::voiceDetail($persona, $partition)} ?? '');
+        $key = $own !== '' ? $own : (string) ($user->{self::voiceDetail($persona)} ?? '');
 
         return isset(self::voices()[$key]) ? $key : null;
     }
 
     /** Keep the person's voice for a persona: one of {@see voices()}, or '' for the default. False for neither. */
-    public static function choose(object $user, string $key, ?string $persona = null): bool
+    public static function choose(object $user, string $key, ?string $persona = null, ?int $partition = null): bool
     {
         if ($key !== '' && !isset(self::voices()[$key])) {
             return false;
         }
-        $user->{self::voiceDetail($persona)} = $key;
+        $user->{self::voiceDetail($persona, $partition)} = $key;
         $user->save();
 
         return true;
     }
 
     /** The detail a persona's voice is kept in. */
-    private static function voiceDetail(?string $persona): string
+    private static function voiceDetail(?string $persona, ?int $partition = null): string
     {
-        return $persona === null ? self::VOICE_DETAIL : self::VOICE_DETAIL . '-' . $persona;
+        return ($persona === null ? self::VOICE_DETAIL : self::VOICE_DETAIL . '-' . $persona) . ($partition === null ? '' : '@' . $partition);
     }
 
     /** The text a voice's sample is read from, where the application has not recorded one; '' for none. */

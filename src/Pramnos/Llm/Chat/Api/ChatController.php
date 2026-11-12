@@ -568,7 +568,7 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         if ($scope === null) {
             return null;
         }
-        if ($scope->userId > 0 && ($own = \Pramnos\Llm\Speech\Speech::chosen(new \Pramnos\User\User($scope->userId), $scope->persona)) !== null) {
+        if ($scope->userId > 0 && ($own = \Pramnos\Llm\Speech\Speech::chosen(new \Pramnos\User\User($scope->userId), $scope->persona, $scope->partition)) !== null) {
             return $own;
         }
         $persona = \Pramnos\Llm\Chat\Personas::of($scope);
@@ -595,7 +595,7 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             return self::error(401, 'This needs somebody signed in.');
         }
         $user = new \Pramnos\User\User($scope->userId);
-        if ($put && !\Pramnos\Llm\Speech\Speech::choose($user, (string) ($this->input()['voice'] ?? ''), $scope->persona)) {
+        if ($put && !\Pramnos\Llm\Speech\Speech::choose($user, (string) ($this->input()['voice'] ?? ''), $scope->persona, $scope->partition)) {
             return self::error(422, 'That is not one of the voices.');
         }
         $list = [];
@@ -603,7 +603,7 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             $list[] = ['key' => $key, 'label' => $voice['label'], 'sample' => $voice['sample']];
         }
 
-        return ['status' => 200, 'data' => ['voices' => $list, 'chosen' => \Pramnos\Llm\Speech\Speech::chosen($user, $scope->persona),
+        return ['status' => 200, 'data' => ['voices' => $list, 'chosen' => \Pramnos\Llm\Speech\Speech::chosen($user, $scope->persona, $scope->partition),
             'sample_text' => \Pramnos\Llm\Speech\Speech::sample()]];
     }
 
@@ -670,12 +670,12 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         }
         $user = new \Pramnos\User\User($scope->userId);
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'PUT'
-            && !\Pramnos\Llm\Chat\Acts::choose($user, (string) ($this->input()['pose'] ?? ''), $scope->persona)) {
+            && !\Pramnos\Llm\Chat\Acts::choose($user, (string) ($this->input()['pose'] ?? ''), $scope->persona, $scope->partition)) {
             return self::error(422, 'That is not one of the picture\'s poses.');
         }
 
         return ['status' => 200, 'data' => ['on' => \Pramnos\Llm\Chat\Acts::on($scope) || \Pramnos\Assist\AvatarSets::poses() !== [],
-            'pose' => \Pramnos\Llm\Chat\Acts::style($user, $scope->persona), 'poses' => \Pramnos\Assist\AvatarSets::poses()]];
+            'pose' => \Pramnos\Llm\Chat\Acts::style($user, $scope->persona, $scope->partition), 'poses' => \Pramnos\Assist\AvatarSets::poses()]];
     }
 
     /**

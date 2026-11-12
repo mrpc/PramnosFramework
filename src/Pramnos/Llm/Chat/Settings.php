@@ -57,8 +57,8 @@ final class Settings
 
         return [
             'persona'    => Personas::on() ? Personas::chosen($user) : null,
-            'voice'      => \Pramnos\Llm\Speech\Speech::chosen($user, $persona),
-            'style'      => Acts::style($user, $persona),
+            'voice'      => \Pramnos\Llm\Speech\Speech::chosen($user, $persona, $partition),
+            'style'      => Acts::style($user, $persona, $partition),
             'thought_at' => array_key_exists('thought_at', $kept) ? $kept['thought_at'] : ($morning['at'] ?? null),
             'quiet'      => array_key_exists('quiet', $kept) ? $kept['quiet'] : ($morning['quiet'] ?? null),
             'notify'     => $notify,
@@ -138,10 +138,10 @@ final class Settings
             Personas::choose($user, (string) $changes['persona']);
         }
         if (array_key_exists('voice', $changes)) {
-            \Pramnos\Llm\Speech\Speech::choose($user, (string) $changes['voice'], $persona);
+            \Pramnos\Llm\Speech\Speech::choose($user, (string) $changes['voice'], $persona, $partition);
         }
         if (array_key_exists('style', $changes)) {
-            Acts::choose($user, (string) $changes['style'], $persona);
+            Acts::choose($user, (string) $changes['style'], $persona, $partition);
         }
         if (array_diff_key($changed, array_flip(['persona', 'voice', 'style'])) !== []) {
             $user->{self::detail($persona, $partition)} = (string) json_encode($kept, JSON_UNESCAPED_UNICODE);

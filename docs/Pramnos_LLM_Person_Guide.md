@@ -261,7 +261,9 @@ What runs on its own, without a request, takes the partition from the stored spa
   application's.
 - **Its own settings** (`Settings::of($user, $persona, $partition)`, `change(…, $partition)`):
   its own over the holder's, which it falls back on. Changing them in a partition leaves the
-  holder's as they are.
+  holder's as they are. That covers the voice and the style (`Speech::chosen/choose(…,
+  $partition)`, `Acts::style/choose(…, $partition)`), so each person under the account has their
+  own.
 - **Its own devices:** a device subscribed to push from a partition (`{chat}/push/subscribe`)
   belongs to it, as app `chat@<partition>`, and moves to another profile when the same device
   subscribes again from it. A partition's notices, such as its morning, reminders, calendar and
