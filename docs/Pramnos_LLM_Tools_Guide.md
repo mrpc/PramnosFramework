@@ -593,6 +593,33 @@ reached. At most 3 MB, in 15 seconds.
   that fetches from its own servers (`Web::READER`). It is off by default, because it tells a
   third party which address was read, and an address the guard refused is never sent there.
 
+## The weather
+
+`weather(place, days)` gives the forecast for a place: now, then each day on the person's clock,
+with the low and the high, rain, the strongest wind and the sky at midday. It is in the
+`weather` skill, beside `web`.
+
+```php
+'llm' => ['chat' => ['weather' => [
+    'user_agent' => 'MyApp/1.0 https://myapp.example',            // required: who asks, as both services require
+    'place'      => fn (string $name, Scope $scope): ?array => …, // [lat, lon, name] of the application's own, before the geocoder
+    'here'       => fn (Scope $scope): ?array => …,               // where the person is, when no place is said
+    'spaces'     => ['chat'],                                      // where it is offered; the conversation page by default
+]]],
+```
+
+- **The sources:** the forecast is MET Norway's Locationforecast (`api.met.no`), and a place by
+  its name is found through Nominatim (OpenStreetMap), unless `place` finds it first. Neither
+  needs a key. Each service's terms are the application's to keep: attribution, the rates, and
+  where their policies say to run your own instance. Every answer names both sources
+  (`Weather::CREDIT`).
+- **Off without `user_agent`:** MET Norway refuses a request that does not say who makes it.
+- **What is kept:** a forecast until its `Expires`, then asked again with `If-Modified-Since`,
+  where a 304 keeps it. A place found is kept for 30 days, and the geocoder is asked at most once
+  a second for the whole installation. Coordinates go at four decimals, as MET Norway requires.
+- **Outbound:** the place's name leaves for the geocoder, so it is guarded like `fetch_url`'s
+  address (`outbound`). An audience can be kept from it with `skills_without: ['weather']`.
+
 ## What somebody else wrote is data, not instructions
 
 A tool that reads words somebody other than the person asking wrote — an email, a customer's

@@ -82,6 +82,7 @@ class Conversations
         'journal'   => 'the person\'s journal for the day',
         'plan'      => 'the person\'s plan: their projects, one a row',
         'web'       => 'searching the web and reading a page',
+        'weather'   => 'the weather forecast for a place',
         Work::MODE  => Work::SKILL,
     ];
 
@@ -1664,6 +1665,7 @@ class Conversations
         $tools    = $this->assistant->tools($turn)
             // The web, where the application offers it: nobody's own, so in a shared answer too.
             + (\Pramnos\Llm\Web\Web::on($this->scope) ? (new \Pramnos\Llm\Web\Web())->tools() : [])
+            + ($this->scope !== null && \Pramnos\Llm\Weather\Weather::on($this->scope) ? (new \Pramnos\Llm\Weather\Weather($this->scope, $this->assistant->timezone($this->scope)))->tools() : [])
             // The external MCP servers, where the application offers them here: the application's.
             + (self::mcpOn() ? \Pramnos\Llm\Mcp\Servers::tools() : [])
             // A check a few hours later, on what the person said they are doing (FollowUps).
