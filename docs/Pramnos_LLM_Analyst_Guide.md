@@ -169,8 +169,10 @@ gear.
   A section whose table the installation has not migrated is left out. Each row shows its title
   first, then its date. The *From* column links to the conversation it came from, or says it
   was made outside one, as a diary page written by a routine is. An artifact's title opens it
-  read only on a page of its own, `Ai/artifact/{id}`, for whoever reads everybody's
-  conversations, and each opening is audited as `ai.artifact_viewed`. A share's title opens what
+  read only inside the administration, at `Ai/artifact/{id}`, for whoever reads everybody's
+  conversations. The page shows the trail back to the person's card and a *Print or save as
+  PDF* button, which opens its print form (`?print=1`). Each opening is audited as
+  `ai.artifact_viewed`. A share's title opens what
   was shared. An application adds sections of its own by overriding
   `AiController::personSections(int $userId): array`, which returns title => rows.
 - **Deleting what is held, for good.** Rows of the routines, calendar, artifacts, shares,

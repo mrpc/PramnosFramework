@@ -127,7 +127,7 @@ $id       = (int) ($card['userid'] ?? 0); @endphp
                     @if ($del)<td><input type="checkbox" name="ids[]" value="{!! (int) ($row['_id'] ?? 0) !!}" aria-label="{{ t('Select') }}"></td>@endif
                     @foreach ($cols as $i => $col)@php $v = $row[$col] ?? null; $open = $i === 0 ? $opens((string) $section, (array) $row) : ''; @endphp<td>
                         @if ($col === 'conversation_id')@if ((int) $v > 0)<a href="{{ $u['all'] . '?channel=' . rawurlencode((string) ($row['space'] ?? '')) . '&c=' . (int) $v }}">{{ t('Conversation') }} #{{ (int) $v }}</a>@else{{ t('Outside a conversation') }}@endif
-                        @elseif ($open !== '')<a href="{{ $open }}" target="_blank" rel="noopener">{{ $cell($v) }}</a>
+                        @elseif ($open !== '')<a href="{{ $open }}">{{ $cell($v) }}</a>
                         @else{{ $cell($v) }}@endif</td>@endforeach
                 </tr>@endforeach</tbody>
             </table></div>

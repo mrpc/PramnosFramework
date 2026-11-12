@@ -2643,4 +2643,5 @@ return [
     '%d deleted.' => 'Διαγράφηκαν %d.',
     'Outside a conversation' => 'Εκτός συζήτησης',
     'Entity' => 'Οντότητα',
+    'Back to the card' => 'Πίσω στην καρτέλα',
 ];

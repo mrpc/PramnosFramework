@@ -612,6 +612,12 @@ class AnalystTest extends LlmTestCase
         // Act
         $card    = (string) (new HoldingsScreen())->all();
         $opened  = (string) (new HoldingsScreen())->artifact($diary);
+        foreach (['tailwind', 'bootstrap'] as $theme) {
+            $themed[$theme] = (string) (new HoldingsScreen($theme))->artifact($diary);
+        }
+        $_GET    = ['print' => '1'];
+        $printed = (string) (new HoldingsScreen())->artifact($diary);
+        $_GET    = ['person' => '8'];
         $outsider = new HoldingsScreen();
         $outsider->reading = (object) ['userid' => 9, 'usertype' => 10, 'active' => 1];
         try {
@@ -633,14 +639,21 @@ class AnalystTest extends LlmTestCase
         $this->assertStringContainsString('Conversation #' . $talk, $card, 'the list: where it was made');
         $this->assertLessThan(strpos($card, '>Kind<'), strpos($card, '>Title<'), 'the title first');
         $this->assertStringContainsString('name="section" value="memories"', $card, 'memories deleted from the card too');
-        $this->assertStringContainsString('Written for Diary 2026-11-12', $opened, 'read on a page of its own');
+        $this->assertStringContainsString('Written for Diary 2026-11-12', $opened, 'read inside the administration');
+        $this->assertStringContainsString('?person=8', $opened, 'with the way back to the card');
+        $this->assertStringContainsString('Ai/artifact/' . $diary . '?print=1', $opened, 'and to its print form');
+        $this->assertStringNotContainsString('target="_blank" rel="noopener">Diary', $card, 'opened in the same tab');
+        $this->assertStringStartsWith('<!doctype html>', $printed, 'the print form, a page of its own');
+        foreach ($themed as $theme => $page) {
+            $this->assertStringContainsString('Written for Diary 2026-11-12', $page, $theme . ': drawn in every theme');
+        }
         $this->assertTrue($hidden, 'a 404 to whoever does not read everybody\'s');
         $this->assertFalse($refused, 'deleting: a 404 to whoever may not');
         $this->assertFalse($unknown, 'and for a section that is not deletable');
         $this->assertSame(0, $this->rowsIn('assist.chat_artifacts'), 'both artifacts gone');
         $this->assertSame(0, $this->rowsIn('assist.chat_calendar'));
         $this->assertSame(0, $this->rowsIn('assist.chat_memory'));
-        $this->assertSame(1, $events['ai.artifact_viewed'] ?? 0, 'opening audited');
+        $this->assertSame(3, $events['ai.artifact_viewed'] ?? 0, 'each opening audited, printing not again');
         $this->assertSame([2, 1, 1], [$events['ai.artifact_deleted'] ?? 0, $events['ai.calendar_item_deleted'] ?? 0, $events['ai.memory_deleted'] ?? 0], 'each deletion audited');
     }
 

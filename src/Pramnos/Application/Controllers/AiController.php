@@ -376,8 +376,9 @@ class AiController extends Controller
     }
 
     /**
-     * `Ai/artifact/{id}` — anybody's artifact, read only on a page of its own, for whoever reads
-     * everybody's conversations; each reading audited (`ai.artifact_viewed`). A 404 otherwise.
+     * `Ai/artifact/{id}` — anybody's artifact, read only inside the administration, with the way
+     * back to its owner's card, for whoever reads everybody's conversations; each reading audited
+     * (`ai.artifact_viewed`). `?print=1` gives it on a page of its own, to print. A 404 otherwise.
      */
     public function artifact(mixed $id = null): mixed
     {
@@ -392,9 +393,21 @@ class AiController extends Controller
 
             return null;
         }
-        \Pramnos\Auth\AuditLog::record('ai.artifact_viewed', (int) $me->userid, (int) $row['userid'], [], 'artifact', $id);
+        $embed = static fn (int $one): ?array => $artifacts->find($one);
+        $owner = (int) $row['userid'];
+        if (!empty($_GET['print'])) {
+            return $this->sendFile('', 'text/html; charset=utf-8', \Pramnos\Llm\Chat\Web\ArtifactTools::printable($found, $embed));
+        }
+        \Pramnos\Auth\AuditLog::record('ai.artifact_viewed', (int) $me->userid, $owner, [], 'artifact', $id);
+        $person = \Pramnos\Conversations\People::names([$owner])[$owner] ?? '#' . $owner;
+        \Pramnos\Framework\Factory::getDocument()->title = (string) $found['title'];
+        $view           = $this->getView('ai');
+        $view->artifact = $found;
+        $view->embed    = $embed;
+        $view->person   = $person;
+        $view->urls     = ['all' => adminUrl('Ai/all'), 'card' => adminUrl('Ai/all') . '?person=' . $owner, 'print' => adminUrl('Ai/artifact/' . $id) . '?print=1'];
 
-        return $this->sendFile('', 'text/html; charset=utf-8', \Pramnos\Llm\Chat\Web\ArtifactTools::printable($found, static fn (int $one): ?array => $artifacts->find($one)));
+        return $view->display('artifact');
     }
 
     /**
