@@ -202,13 +202,17 @@ final class People
      *
      * @return array<string, ?string>
      */
-    public function firstMeetings(int $userId): array
+    public function firstMeetings(int $userId, ?int $partition = null): array
     {
         $out = [];
         foreach (array_keys(Personas::all()) ?: [Scope::CHAT] as $key) {
             $out[$key] = null;
         }
         foreach ($this->conversations([$userId]) as $conversation) {
+            // The holder's, or one partition's: never another's.
+            if ((new Scope(0, null, (string) $conversation['space']))->partition !== $partition) {
+                continue;
+            }
             $key       = self::personaOf($conversation['space']);
             $out[$key] = self::earlier($out[$key] ?? null, $this->since($userId, $conversation['created_at']));
         }

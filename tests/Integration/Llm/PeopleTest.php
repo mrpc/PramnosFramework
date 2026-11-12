@@ -174,6 +174,83 @@ class PeopleTest extends LlmTestCase
         $this->assertSame('https://media.example/me.jpg', $me['data']['photo'], 'its own field');
         $this->assertNotSame('Somebody else', $me['data']['name'], 'never over the framework\'s');
     }
+
+    /**
+     * A partition's own assistant, settings and first meetings (partitions under one account): its
+     * persona the application's assistant keeps, chosen through the API and refused where it says;
+     * its settings its own over the holder's, the holder's untouched; its first meetings its own
+     * conversations', never the holder's.
+     */
+    #[DataProvider('databases')]
+    public function testAPartitionHasItsOwnPersonaSettingsAndFirstMeetings(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => ['assistant' => PartitionAssistant::class, 'memory' => ['learn' => false],
+            'personas' => ['naya' => ['name' => 'Naya', 'default' => true], 'tesla' => ['name' => 'Tesla']]]]);
+        $user = new \Pramnos\User\User();
+        $user->username = 'part' . random_int(100000, 999999);
+        $user->email    = $user->username . '@example.test';
+        $user->save();
+        $id   = (int) $user->userid;
+        $part = (new Scope($id))->withPartition(4);
+        \Pramnos\Llm\Chat\Settings::change(new \Pramnos\User\User($id), 'tesla', ['thought_at' => '07:00', 'quiet' => ['from' => '22:00', 'to' => '07:00']]);
+        $this->db->queryBuilder()->table('assist.chat_conversations')->insert(['organization_id' => null, 'userid' => $id, 'space' => 'chat:tesla@4',
+            'title' => 'Hers', 'created_at' => gmdate('Y-m-d H:i:s'), 'updated_at' => gmdate('Y-m-d H:i:s')]);
+        ApiFixture::$stop = null;
+
+        // Act
+        $scoped = \Pramnos\Llm\Chat\Personas::ofPartition($part);
+        \Pramnos\Llm\Chat\Settings::change(new \Pramnos\User\User($id), 'tesla', ['thought_at' => '09:30'], 4);
+        $hers   = \Pramnos\Llm\Chat\Settings::of(new \Pramnos\User\User($id), 'tesla', 4);
+        $holder = \Pramnos\Llm\Chat\Settings::of(new \Pramnos\User\User($id), 'tesla');
+        ApiFixture::$scope = $part;
+        ApiFixture::$input = ['persona' => 'naya'];
+        $refused = (new ApiFixture())->persona();
+        ApiFixture::$input = ['persona' => 'tesla'];
+        $kept    = (new ApiFixture())->persona();
+        ApiFixture::$input = [];
+        $meHers  = (new ApiFixture())->me();
+        ApiFixture::$scope = new Scope($id);
+        $meHolder = (new ApiFixture())->me();
+
+        // Assert
+        $this->assertSame(['tesla', 4], [$scoped->persona, $scoped->partition], 'the partition\'s own persona');
+        $this->assertSame('09:30', $hers['thought_at'], 'its own setting');
+        $this->assertSame(['from' => '22:00', 'to' => '07:00'], $hers['quiet'], 'the holder\'s where it has none of its own');
+        $this->assertSame('07:00', $holder['thought_at'], 'the holder\'s untouched');
+        $this->assertSame([403, 'Not for this profile.'], [$refused['status'], $refused['error']], 'the application refuses');
+        $this->assertSame(200, $kept['status']);
+        $this->assertNotNull($meHers['data']['first_meetings']['tesla'], 'its own conversations');
+        $this->assertNull($meHolder['data']['first_meetings']['tesla'], 'never the holder\'s');
+        $this->db->queryBuilder()->table('assist.chat_conversations')->where('userid', $id)->delete();
+        $this->db->queryBuilder()->table('#PREFIX#userdetails')->where('userid', $id)->delete();
+        $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $id)->delete();
+    }
+}
+
+/** An application's assistant that keeps a persona per partition: partition 4 has Tesla, and none may choose Naya. */
+class PartitionAssistant extends \Pramnos\Llm\Chat\BaseAssistant
+{
+    /** @var array<int, string> The persona each partition chose */
+    public static array $chosen = [4 => 'tesla'];
+
+    /** The partition's persona, or null for the holder's. */
+    public function chosenPersona(Scope $scope): ?string
+    {
+        return self::$chosen[$scope->partition ?? 0] ?? null;
+    }
+
+    /** Keep a partition's choice; Naya is refused. */
+    public function choosePersona(Scope $scope, string $key): ?string
+    {
+        if ($key === 'naya') {
+            return 'Not for this profile.';
+        }
+        self::$chosen[(int) $scope->partition] = $key;
+
+        return null;
+    }
 }
 
 /** An application's assistant that adds its own fields to `/me`. */

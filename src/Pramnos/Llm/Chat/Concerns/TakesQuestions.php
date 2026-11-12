@@ -58,7 +58,7 @@ trait TakesQuestions
             }
         }
 
-        return $scope;
+        return \Pramnos\Llm\Chat\Personas::ofPartition($scope);
     }
 
     protected function conversations(): Conversations

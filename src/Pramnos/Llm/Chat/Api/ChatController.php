@@ -695,7 +695,7 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             return self::error(401, 'This needs somebody signed in.');
         }
         $user     = new \Pramnos\User\User($scope->userId);
-        $meetings = (new \Pramnos\Llm\Chat\People())->firstMeetings($scope->userId);
+        $meetings = (new \Pramnos\Llm\Chat\People())->firstMeetings($scope->userId, $scope->partition);
         $first    = $meetings[\Pramnos\Llm\Chat\People::personaOf($scope->stored())] ?? null;
         $name     = trim((string) ($user->firstname ?? ''));
 
@@ -764,11 +764,17 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             return self::error(401, 'This needs somebody signed in.');
         }
         $user = new \Pramnos\User\User($scope->userId);
-        if ($put && is_string($done = \Pramnos\Llm\Chat\Settings::change($user, $scope->persona, $this->input()))) {
+        if ($put && is_string($done = \Pramnos\Llm\Chat\Settings::change($user, $scope->persona, $this->input(), $scope->partition))) {
             return self::error(422, $done);
         }
 
-        return ['status' => 200, 'data' => \Pramnos\Llm\Chat\Settings::of($put ? new \Pramnos\User\User($scope->userId) : $user, $scope->persona)];
+        $settings = \Pramnos\Llm\Chat\Settings::of($put ? new \Pramnos\User\User($scope->userId) : $user, $scope->persona, $scope->partition);
+        // A partition's persona is its scope's, as the application keeps it — not the holder's.
+        if ($scope->partition !== null && $settings['persona'] !== null) {
+            $settings['persona'] = \Pramnos\Llm\Chat\Personas::of($scope);
+        }
+
+        return ['status' => 200, 'data' => $settings];
     }
 
     /**
@@ -922,7 +928,17 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         if ($scope === null || $scope->userId < 1) {
             return self::error(401, 'This needs somebody signed in.');
         }
-        if (!\Pramnos\Llm\Chat\Personas::choose(new \Pramnos\User\User($scope->userId), (string) ($this->input()['persona'] ?? ''))) {
+        $key = (string) ($this->input()['persona'] ?? '');
+        // A partition's own choice is the application's to keep, where its assistant does (`choosePersona()`): null kept, words a refusal.
+        $assistant = \Pramnos\Llm\Chat\Chat::assistant(\Pramnos\Llm\Chat\Scope::CHAT);
+        if ($scope->partition !== null && method_exists($assistant, 'choosePersona')) {
+            if (!isset(\Pramnos\Llm\Chat\Personas::all()[$key])) {
+                return self::error(422, 'There is no such persona here.');
+            }
+            if (is_string($why = $assistant->choosePersona($scope, $key))) {
+                return self::error(403, $why);
+            }
+        } elseif (!\Pramnos\Llm\Chat\Personas::choose(new \Pramnos\User\User($scope->userId), $key)) {
             return self::error(422, 'There is no such persona here.');
         }
 

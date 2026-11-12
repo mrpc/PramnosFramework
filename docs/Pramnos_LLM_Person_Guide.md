@@ -254,6 +254,16 @@ What runs on its own, without a request, takes the partition from the stored spa
   morning never stands for another's or the holder's.
 - **The name** the thought and the diary call the person by is the account's first name, unless
   the application's assistant has `personName(Scope $scope): ?string`.
+- **Its own persona**, where the application's assistant keeps one per partition:
+  `chosenPersona(Scope $scope): ?string` answers it (null, the holder's), and
+  `PUT {chat}/persona` in a partition calls `choosePersona(Scope $scope, string $key): ?string`,
+  where null means kept and words are a refusal (403). Who may have which persona is the
+  application's.
+- **Its own settings** (`Settings::of($user, $persona, $partition)`, `change(…, $partition)`):
+  its own over the holder's, which it falls back on. Changing them in a partition leaves the
+  holder's as they are.
+- **Its own first meetings:** `People::firstMeetings($userId, $partition)` and `first_meetings`
+  on `{chat}/me` count its own conversations, and the holder's count only the holder's.
 - **Whom the morning is told to** is the account's holder, unless the assistant has
   `tellMorning(Scope $scope, object $notice): bool`. That method tells whom it decides, in its own
   way, and answers false where there was nobody to tell. Either way the day is marked.

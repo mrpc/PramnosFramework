@@ -37,13 +37,14 @@ final class Settings
     private static array $changed = [];
 
     /**
-     * A person's settings for a persona (null: the default one), defaults filled in.
+     * A person's settings for a persona (null: the default one), defaults filled in — in a
+     * partition of their account, its own over the holder's.
      *
      * @return array{persona: ?string, voice: ?string, style: ?string, thought_at: ?string, quiet: ?array{from: string, to: string}, notify: array<string, bool>, app: array<string, string>}
      */
-    public static function of(object $user, ?string $persona = null): array
+    public static function of(object $user, ?string $persona = null, ?int $partition = null): array
     {
-        $kept    = self::kept($user, $persona);
+        $kept    = self::kept($user, $persona, $partition);
         $morning = self::morning();
         $app     = [];
         foreach (self::declared() as $key => $declared) {
@@ -67,14 +68,14 @@ final class Settings
 
     /**
      * Change some of a person's settings for a persona: any of {@see of()}'s fields, `app` by its
-     * own keys. All or nothing.
+     * own keys. All or nothing. In a partition, its own are written, the holder's left as they are.
      *
      * @param array<string, mixed> $changes
      * @return array<string, mixed>|string What changed, or the field that is wrong and why
      */
-    public static function change(object $user, ?string $persona, array $changes): array|string
+    public static function change(object $user, ?string $persona, array $changes, ?int $partition = null): array|string
     {
-        $kept    = self::kept($user, $persona);
+        $kept    = self::kept($user, $persona, $partition);
         $changed = [];
         foreach ($changes as $field => $value) {
             switch ($field) {
@@ -143,7 +144,7 @@ final class Settings
             Acts::choose($user, (string) $changes['style'], $persona);
         }
         if (array_diff_key($changed, array_flip(['persona', 'voice', 'style'])) !== []) {
-            $user->{self::detail($persona)} = (string) json_encode($kept, JSON_UNESCAPED_UNICODE);
+            $user->{self::detail($persona, $partition)} = (string) json_encode($kept, JSON_UNESCAPED_UNICODE);
             $user->save();
         }
 
@@ -260,15 +261,21 @@ final class Settings
     }
 
     /** @return array<string, mixed> What is kept for a persona */
-    private static function kept(object $user, ?string $persona): array
+    /** @return array<string, mixed> What is kept — a partition's own over the holder's. */
+    private static function kept(object $user, ?string $persona, ?int $partition = null): array
     {
-        $kept = json_decode((string) ($user->{self::detail($persona)} ?? ''), true);
+        $read = static function (string $detail) use ($user): array {
+            $kept = json_decode((string) ($user->{$detail} ?? ''), true);
 
-        return is_array($kept) ? $kept : [];
+            return is_array($kept) ? $kept : [];
+        };
+        $own = $read(self::detail($persona));
+
+        return $partition === null ? $own : array_replace_recursive($own, $read(self::detail($persona, $partition)));
     }
 
-    private static function detail(?string $persona): string
+    private static function detail(?string $persona, ?int $partition = null): string
     {
-        return $persona === null ? self::DETAIL : self::DETAIL . '-' . $persona;
+        return ($persona === null ? self::DETAIL : self::DETAIL . '-' . $persona) . ($partition === null ? '' : '@' . $partition);
     }
 }

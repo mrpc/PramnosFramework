@@ -127,6 +127,21 @@ final class Personas
         return $scope->withPersona($chosen === self::default() ? null : $chosen);
     }
 
+    /**
+     * A partition's own persona, where the application's assistant keeps one —
+     * `chosenPersona(Scope $scope): ?string` — else the scope as it is (the holder's choice).
+     */
+    public static function ofPartition(Scope $scope): Scope
+    {
+        if ($scope->partition === null || $scope->space !== Scope::CHAT || !self::on()) {
+            return $scope;
+        }
+        $assistant = Chat::assistant(Scope::CHAT);
+        $chosen    = method_exists($assistant, 'chosenPersona') ? $assistant->chosenPersona($scope) : null;
+
+        return is_string($chosen) && isset(self::all()[$chosen]) ? $scope->withPersona($chosen === self::default() ? null : $chosen) : $scope;
+    }
+
     /** The key of a scope's persona: its own, or the default for none. Null without personas. */
     public static function of(Scope $scope): ?string
     {

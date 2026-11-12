@@ -131,7 +131,7 @@ final class FollowUps
         $zone = new \DateTimeZone($this->timezone);
         // Not in the person's quiet hours: then, when they end.
         $at    = (new \DateTimeImmutable('@' . ($now + $hours * 3600)))->setTimezone($zone);
-        $quiet = Settings::of(new \Pramnos\User\User($this->scope->userId), $this->scope->persona)['quiet'];
+        $quiet = Settings::of(new \Pramnos\User\User($this->scope->userId), $this->scope->persona, $this->scope->partition)['quiet'];
         if (Settings::quietAt($quiet, $at->format('H:i'))) {
             [$h, $m] = array_map('intval', explode(':', (string) $quiet['to']));
             $end     = $at->setTime($h, $m);

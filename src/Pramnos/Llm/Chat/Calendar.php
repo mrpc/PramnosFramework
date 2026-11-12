@@ -116,7 +116,7 @@ final class Calendar
             try {
                 $zone = Chat::assistant()->timezone($scope);
                 // The person's own word (Settings): reminders off, or their quiet hours, and none goes.
-                $set  = Settings::of(new \Pramnos\User\User($scope->userId), $scope->persona);
+                $set  = Settings::of(new \Pramnos\User\User($scope->userId), $scope->persona, $scope->partition);
                 $go   = self::on($scope) && $set['notify']['reminders']
                     && !Settings::quietAt($set['quiet'], (new \DateTimeImmutable('@' . $now))->setTimezone(new \DateTimeZone($zone))->format('H:i'))
                     && (!\Pramnos\Llm\Llm::proactive() || \Pramnos\Llm\Llm::proactivity()->when($scope->userId, $zone, $now) === $now);

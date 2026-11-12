@@ -1041,7 +1041,7 @@ class Conversations
             $scope = new Scope((int) $row['userid'], $row['organization_id'] === null ? null : (int) $row['organization_id'], (string) $row['space']);
             try {
                 $user  = new \Pramnos\User\User($scope->userId);
-                $set   = Settings::of($user, $scope->persona);
+                $set   = Settings::of($user, $scope->persona, $scope->partition);
                 $at    = $set['thought_at'];
                 $local = (new \DateTimeImmutable('@' . $now))->setTimezone(new \DateTimeZone($this->assistant->timezone($scope)));
                 $day   = $local->format('Y-m-d');
