@@ -160,4 +160,36 @@ class InboxTest extends TestCase
         $this->assertArrayHasKey($bot, $plain);
         $this->assertSame([], Inbox::quietSources(), 'none set');
     }
+
+    /**
+     * When somebody last saw their activity is kept on the server (FW-489), so every device agrees:
+     * what came since is unseen, for a badge; seeing it clears the count; a later moment never
+     * moves back; nothing seen yet, everything is unseen.
+     */
+    #[DataProvider('databases')]
+    public function testActivitySeenIsKeptOnTheServer(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class], Conversations::db());
+        $general = Conversations::create('channel', 'general', [$maria], $eleni);
+        Messages::post($general, $maria, 'Γεια <@' . $eleni . '>');
+        Messages::post($general, $maria, 'Και πάλι <@' . $eleni . '>');
+
+        // Act
+        $before = Inbox::unseenActivity($eleni);
+        Inbox::sawActivity($eleni, time() + 5);
+        \Pramnos\User\User::clearUserCache();
+        $after  = Inbox::unseenActivity($eleni);
+        Inbox::sawActivity($eleni, 1000);
+        \Pramnos\User\User::clearUserCache();
+        $kept   = Inbox::activitySeen($eleni);
+
+        // Assert
+        $this->assertSame(2, $before, 'nothing seen yet: both mentions unseen');
+        $this->assertSame(0, $after, 'seen: none');
+        $this->assertGreaterThan(1000, $kept, 'never moved back');
+        \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#userdetails')->where('userid', $eleni)->where('fieldname', Inbox::ACTIVITY_SEEN)->delete();
+    }
 }

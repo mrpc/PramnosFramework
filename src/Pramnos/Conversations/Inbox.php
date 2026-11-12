@@ -111,6 +111,42 @@ final class Inbox
         return array_map(static fn (array $item): array => $item + ['byName' => $item['by'] === null ? null : ($names[$item['by']] ?? '#' . $item['by'])], $out);
     }
 
+    /** The user detail the moment somebody last saw their activity is kept in. */
+    public const ACTIVITY_SEEN = 'activityseen';
+
+    /** When somebody last saw their activity, kept on the server so every device agrees; null for never. */
+    public static function activitySeen(int $person): ?int
+    {
+        $at = (new \Pramnos\User\User($person))->{self::ACTIVITY_SEEN} ?? null;
+
+        return is_numeric($at) && (int) $at > 0 ? (int) $at : null;
+    }
+
+    /** Somebody saw their activity: up to now, or to `$at`. Never moved back. */
+    public static function sawActivity(int $person, ?int $at = null): void
+    {
+        $user = new \Pramnos\User\User($person);
+        $at ??= time();
+        if ((int) ($user->userid ?? 0) !== $person || $at <= (int) (self::activitySeen($person) ?? 0)) {
+            return;
+        }
+        $user->{self::ACTIVITY_SEEN} = (string) $at;
+        $user->save();
+    }
+
+    /**
+     * How many of somebody's activity they have not seen yet — newer than {@see activitySeen()} —
+     * for a badge. Counted over the newest {@see LIMIT}.
+     *
+     * @param list<array<string, mixed>>|null $activity Their activity, where it was read already
+     */
+    public static function unseenActivity(int $person, ?array $activity = null): int
+    {
+        $seen = self::activitySeen($person) ?? 0;
+
+        return count(array_filter($activity ?? self::activity($person), static fn (array $a): bool => (int) $a['at'] > $seen));
+    }
+
     /**
      * The sources of the messages that are not conversation — a reminder a bot posts, say
      * (`SystemPost::post(..., ['source' => 'todo'])`): `'conversations' => ['quiet_sources' =>

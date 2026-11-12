@@ -72,7 +72,7 @@ use Pramnos\Http\Response;
 class Conversations extends Controller
 {
     /** The writes: each a POST with the session's token. */
-    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away', 'rename', 'setimage', 'clearimage', 'addtodo', 'changetodo', 'deletetodo', 'savetodo',
+    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'activityseen', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away', 'rename', 'setimage', 'clearimage', 'addtodo', 'changetodo', 'deletetodo', 'savetodo',
         'describe', 'setprivate', 'archive', 'unarchive', 'removemember', 'setrole', 'destroy', 'settings',
         'addtab', 'removetab', 'hidetab', 'ordertabs', 'newcanvas', 'savecanvas', 'lockcanvas', 'unlockcanvas', 'restorecanvas', 'deletecanvas', 'summarize',
         'addautomation', 'changeautomation', 'pauseautomation', 'deleteautomation'];
@@ -407,16 +407,35 @@ class Conversations extends Controller
         return $this->answer(static fn (object $me): array => ['threads' => Inbox::threads((int) $me->userid)]);
     }
 
-    /** What happened to one: mentions, reactions, replies. */
+    /**
+     * What happened to one: mentions, reactions, replies — with when they last saw it (`seenAt`,
+     * the server's, the same on every device) and how many are newer (`unseen`).
+     */
     public function activity(): mixed
     {
-        return $this->answer(static fn (object $me): array => ['activity' => Inbox::activity((int) $me->userid)]);
+        return $this->answer(static function (object $me): array {
+            $activity = Inbox::activity((int) $me->userid);
+
+            return ['activity' => $activity, 'seenAt' => Inbox::activitySeen((int) $me->userid), 'unseen' => Inbox::unseenActivity((int) $me->userid, $activity)];
+        });
     }
 
-    /** Every unread message, conversation by conversation. */
+    /** One saw their activity: `at`, or now. Their other devices hear it (`activity.seen`). */
+    public function activityseen(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $at = (int) $this->in('at');
+            Inbox::sawActivity((int) $me->userid, $at > 0 ? min($at, time()) : null);
+            \Pramnos\Conversations\Realtime::activitySeen((int) $me->userid, Inbox::activitySeen((int) $me->userid));
+
+            return ['ok' => true, 'seenAt' => Inbox::activitySeen((int) $me->userid)];
+        });
+    }
+
+    /** Every unread message, conversation by conversation, and how many of one's activity is unseen. */
     public function unreads(): mixed
     {
-        return $this->answer(static fn (object $me): array => ['unreads' => Inbox::unreads((int) $me->userid)]);
+        return $this->answer(static fn (object $me): array => ['unreads' => Inbox::unreads((int) $me->userid), 'activityUnseen' => Inbox::unseenActivity((int) $me->userid)]);
     }
 
     /** What one wrote. */

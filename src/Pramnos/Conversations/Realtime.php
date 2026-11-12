@@ -12,7 +12,7 @@ use Pramnos\Broadcasting\Auth\ChannelRegistry;
  * | channel                         | events                                                     |
  * |---------------------------------|------------------------------------------------------------|
  * | `private-conversation.{id}`     | `message.posted`, `message.edited`, `message.deleted`, `message.reacted`, `message.pinned` — and `client-typing`, which browsers whisper to each other |
- * | each member's own (`private-users.{id}`) | `conversation.activity`: a message in one of their conversations — a reply also sent to it marked `broadcast` — whether it mentions them, and `notify`: the client to show a notification (the one they were last active in) or `all`; `conversation.read`: what they have read there moved — read, or marked unread — with what is left; `conversation.draft`: their draft somewhere changed |
+ * | each member's own (`private-users.{id}`) | `conversation.activity`: a message in one of their conversations — a reply also sent to it marked `broadcast` — whether it mentions them, and `notify`: the client to show a notification (the one they were last active in) or `all`; `conversation.read`: what they have read there moved — read, or marked unread — with what is left; `conversation.draft`: their draft somewhere changed; `activity.seen`: they saw their activity |
  * | `presence-chat`                 | who of the team is connected                               |
  *
  * A message is written first and told second, so a browser that missed a telling asks for what came
@@ -141,6 +141,12 @@ final class Realtime
         foreach (array_unique($people) as $person) {
             self::tell(self::userChannel($person), 'todo.changed', ['id' => $todoId, 'deleted' => $deleted]);
         }
+    }
+
+    /** Somebody saw their activity — told as `activity.seen` on their own channel, so every device clears its badge. */
+    public static function activitySeen(int $person, ?int $seenAt): void
+    {
+        self::tell(self::userChannel($person), 'activity.seen', ['seenAt' => $seenAt]);
     }
 
     /** A message changed — edited, deleted, reacted to, pinned — told as it now reads. */
