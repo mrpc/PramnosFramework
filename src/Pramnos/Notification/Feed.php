@@ -142,6 +142,51 @@ final class Feed
         return true;
     }
 
+    /** The moments a notification can be put off to, by name: in an hour, in three, tomorrow at nine. */
+    public const SNOOZES = ['1h', '3h', 'tomorrow'];
+
+    /**
+     * Put one off until a moment — "tell me again later": out of the bell and its counts until
+     * then, back unread after. `$until` is a moment (unix) or one of {@see SNOOZES}. False when
+     * it is not this person's, already read, or the moment is not to come.
+     */
+    public function snooze(string $id, int|string $until): bool
+    {
+        if (!preg_match('/^[0-9a-f-]{36}$/i', $id) || !$this->snoozes()) {
+            return false;
+        }
+        $at = is_int($until) ? $until : match ($until) {
+            '1h'       => time() + 3600,
+            '3h'       => time() + 3 * 3600,
+            'tomorrow' => (int) strtotime('tomorrow 09:00'),
+            default    => 0,
+        };
+        if ($at <= time()) {
+            return false;
+        }
+        $query = $this->db()->queryBuilder()->table('#PREFIX#notifications')->where('id', $id)->where('notifiable_id', $this->userId)->whereNull('read_at');
+        if ((int) (clone $query)->count() === 0) {
+            return false;
+        }
+        $query->update(['snoozed_until' => $at]);
+        self::announceRead([$this->userId]);
+
+        return true;
+    }
+
+    /** Whether notifications can be put off here: the column made. */
+    private function snoozes(): bool
+    {
+        try {
+            return self::$snoozes ??= $this->db()->schema()->hasColumn('notifications', 'snoozed_until');
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /** @var bool|null Whether the column is there, asked once */
+    private static ?bool $snoozes = null;
+
     /**
      * Mark every unread one read — in a group, or in all, but those in `$except`, and those that
      * must be acknowledged (`requires_ack` in their data): a click on each reads those. Returns how many.
@@ -324,6 +369,11 @@ final class Feed
     private function query(?string $group, array $except = []): QueryBuilder
     {
         $query = $this->db()->queryBuilder()->table('#PREFIX#notifications')->where('notifiable_id', $this->userId);
+        // One put off is out of the list and its counts until its moment comes.
+        if ($this->snoozes()) {
+            $now = time();
+            $query->where(static fn ($q) => $q->whereNull('snoozed_until')->orWhere('snoozed_until', '<=', $now));
+        }
         foreach (array_unique(array_filter(array_map(static fn ($g): string => trim((string) $g), $except), static fn (string $g): bool => $g !== '')) as $out) {
             $types = self::groups()[$out] ?? null;
             if ($types === null) {

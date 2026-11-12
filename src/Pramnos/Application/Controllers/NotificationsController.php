@@ -16,6 +16,7 @@ use Pramnos\Notification\Feed;
  *   - `POST /Notifications/read?id=…`                    mark one read, or several: `id=a,b` (a collapsed item's)
  *   - `POST /Notifications/readall?group=tasks`          mark every unread one read
  *   - `POST /Notifications/settle?about=todo:42,…`       mark read one's own about those (`data-pf-settles` on a page)
+ *   - `POST /Notifications/snooze?id=…&for=1h|3h|tomorrow`  put one off: back unread then
  *   - `GET  /Notifications/preferences`                  one's choices: each type on or off, reading what is in sight
  *   - `POST /Notifications/preferences`                  `types[<class>]=1|0`, `readOnView=1|0`; with `back`, back there
  *
@@ -33,9 +34,9 @@ class NotificationsController extends Controller
 {
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'count', 'read', 'readall', 'settle', 'preferences']);
+        $this->addAuthAction(['display', 'count', 'read', 'readall', 'settle', 'preferences', 'snooze']);
         // A write: a POST with the page's token, refused otherwise before it runs.
-        $this->addWriteAction(['read', 'readall', 'settle']);
+        $this->addWriteAction(['read', 'readall', 'settle', 'snooze']);
         parent::__construct($application);
     }
 
@@ -84,6 +85,18 @@ class NotificationsController extends Controller
         }
 
         return $this->answer(['read' => $read, 'unread' => $feed->unreadCount(null, $this->exceptedGroups())]);
+    }
+
+    /** Put one off: `id`, and `for` (1h, 3h, tomorrow) or `until` (unix). */
+    public function snooze(): mixed
+    {
+        $feed = $this->feed();
+        if ($feed === null) {
+            return $this->answer(['error' => 'Sign in to see your notifications.'], 401);
+        }
+        $until = isset($_POST['until']) || isset($_GET['until']) ? (int) ($_POST['until'] ?? $_GET['until']) : (string) ($_POST['for'] ?? $_GET['for'] ?? '');
+
+        return $this->answer(['snoozed' => $feed->snooze((string) ($_POST['id'] ?? $_GET['id'] ?? ''), $until), 'unread' => $feed->unreadCount(null, $this->exceptedGroups())]);
     }
 
     /**

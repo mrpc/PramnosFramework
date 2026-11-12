@@ -678,6 +678,7 @@ class Notifications extends \Pramnos\Application\Controllers\NotificationsContro
 | `POST /Notifications/read?id=…` | `{read, unread}`; `id=a,b` reads several, as a collapsed item's |
 | `POST /Notifications/readall?group=tasks` | `{marked, unread}` |
 | `POST /Notifications/settle?about=todo:42,…` | `{settled}`: one's own about those, read |
+| `POST /Notifications/snooze?id=…&for=1h\|3h\|tomorrow` | `{snoozed, unread}`; or `until` (unix) |
 | `GET /Notifications/preferences` | `{types: [{type, label, on}], readOnView}` |
 | `POST /Notifications/preferences` | `types[<class>]=1\|0`, `readOnView=1\|0`; with `back`, back there |
 
@@ -777,6 +778,14 @@ public function toDatabase(mixed $notifiable): array
 Such a notification is read only by a click on it. "Mark all read" leaves it unread, it is never
 read by being in sight, and it is not folded into a collapsed item. On the feed it carries
 `ack: true`, and the bell draws it with its own red mark (`is-ack`).
+
+### Tell me again later
+
+Each unread item in the bell offers to put it off: in an hour, in three, or tomorrow at nine. Put
+off, it is out of the list and its counts until that moment, and comes back unread then
+(`Feed::snooze($id, '1h' | '3h' | 'tomorrow' | $unix)`, `POST /Notifications/snooze`). One already
+read, somebody else's, or to a moment past is not put off. A collapsed item is not, either. The
+column it needs (`snoozed_until`) comes with a migration. Run `migrate`.
 
 ### One item for many: collapsed groups
 

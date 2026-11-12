@@ -1961,6 +1961,22 @@
                 link.setAttribute('data-pf-notifications-item', n.id);
                 if (!n.read) { li.classList.add('is-unread'); }
                 if (n.collapsed) { li.classList.add('is-collapsed'); }
+                // "Tell me again later": an unread one, not a collapsed one, is put off to a moment.
+                if (!n.read && !n.collapsed) {
+                    var later = document.createElement('span');
+                    later.className = 'pf-notify-later';
+                    [['1h', '1h'], ['3h', '3h'], ['tomorrow', panel.getAttribute('data-tomorrow') || 'Tomorrow']].forEach(function (p) {
+                        var b = document.createElement('button');
+                        b.type = 'button';
+                        b.className = 'pf-notify-snooze';
+                        b.setAttribute('data-pf-notifications-snooze', p[0]);
+                        b.setAttribute('data-id', n.id);
+                        b.setAttribute('title', panel.getAttribute('data-later') || 'Later');
+                        b.textContent = p[1];
+                        later.appendChild(b);
+                    });
+                    li.appendChild(later);
+                }
                 // One that must be acknowledged: its own mark, and read by a click on it alone.
                 if (n.ack && !n.read) { li.classList.add('is-ack'); }
                 var fill = { title: n.title || n.message, message: n.title ? n.message : '', time: n.created_at };
@@ -2032,6 +2048,13 @@
             });
 
             bell.addEventListener('click', function (e) {
+                var snooze = e.target.closest ? e.target.closest('[data-pf-notifications-snooze]') : null;
+                if (snooze) {
+                    e.preventDefault();
+                    post('/snooze?id=' + encodeURIComponent(snooze.getAttribute('data-id')) + '&for=' + encodeURIComponent(snooze.getAttribute('data-pf-notifications-snooze')))
+                        .then(function () { load(); refreshCount(); });
+                    return;
+                }
                 var link = e.target.closest ? e.target.closest('[data-pf-notifications-item]') : null;
                 if (link) {
                     var href = link.getAttribute('href');

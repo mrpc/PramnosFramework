@@ -120,7 +120,7 @@ final class NotificationBell
             . '<svg class="pf-notify-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>'
             . '<span class="pf-notify-count" data-pf-notifications-count' . ($unread > 0 ? '' : ' hidden') . '>' . ($unread > 99 ? '99+' : $unread) . '</span>'
             . '</button>'
-            . '<div class="pf-notify-panel" data-pf-notifications-panel hidden>'
+            . '<div class="pf-notify-panel" data-pf-notifications-panel data-later="' . self::e(self::t('Tell me again later')) . '" data-tomorrow="' . self::e(self::t('Tomorrow')) . '" hidden>'
             . '<div class="pf-notify-head"><strong>' . self::e($label) . '</strong>'
             . '<button type="button" class="pf-notify-read-all" data-pf-notifications-read-all>' . self::e(self::t((string) ($options['readAll'] ?? 'Mark all read'))) . '</button></div>';
 

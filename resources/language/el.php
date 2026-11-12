@@ -2651,4 +2651,6 @@ return [
     'A repeating to-do needs a day or a reminder.' => 'Ένα to-do που επαναλαμβάνεται χρειάζεται ημερομηνία ή υπενθύμιση.',
     'Tell me about' => 'Να με ειδοποιείς για',
     'Mark as read what I have seen in the bell' => 'Να γίνονται αναγνωσμένες όσες είδα στο καμπανάκι',
+    'Tell me again later' => 'Θύμισέ μου αργότερα',
+    'Tomorrow' => 'Αύριο',
 ];

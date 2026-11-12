@@ -43,7 +43,9 @@ class FeedMySQLTest extends TestCase
     {
         Settings::loadSettings(ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php');
         $this->db = $this->connect();
-        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Notifications\CreateNotificationsTable::class], $this->db);
+        require_once ROOT . '/database/migrations/framework/notifications/2026_11_12_000002_add_snoozed_until_to_notifications.php';
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Notifications\CreateNotificationsTable::class,
+            \Pramnos\Framework\Migrations\Notifications\AddSnoozedUntilToNotifications::class], $this->db);
         $this->clean();
 
         $this->info = Application::getInstance()->applicationInfo;
@@ -497,6 +499,34 @@ class FeedMySQLTest extends TestCase
         $this->assertSame(1, $settled['settled'], 'one\'s own about what the page shows');
         $this->assertSame(2, $theirs, 'nobody else\'s');
         $this->assertStringContainsString('data-read-on-view="1200"', $bell);
+    }
+
+    /**
+     * Put off (FW-488, snooze): out of the list and its count until its moment, back unread
+     * after; not one already read, nor somebody else's, nor to a moment past; the endpoint by a
+     * preset name.
+     */
+    public function testOnePutOffComesBackLater(): void
+    {
+        // Arrange
+        $feed = new Feed(self::ME, $this->db);
+        $id   = '00000000-0000-4000-8000-000000000001';
+
+        // Act
+        $before = $feed->unreadCount();
+        $done   = $feed->snooze($id, 'tomorrow');
+        $hidden = [$feed->unreadCount(), in_array($id, array_column($feed->list(1, 20)['items'], 'id'), true)];
+        $read   = $feed->snooze('00000000-0000-4000-8000-000000000002', '1h');   // read already
+        $theirs = $feed->snooze('00000000-0000-4000-8000-000000000006', '1h');   // somebody else's
+        $past   = $feed->snooze('00000000-0000-4000-8000-000000000003', time() - 5);
+        $this->db->queryBuilder()->table('notifications')->where('id', $id)->update(['snoozed_until' => time() - 1]);
+        $back   = $feed->unreadCount();
+
+        // Assert
+        $this->assertTrue($done);
+        $this->assertSame([$before - 1, false], $hidden, 'out of the count and the list');
+        $this->assertSame([false, false, false], [$read, $theirs, $past]);
+        $this->assertSame($before, $back, 'back, unread, when its moment came');
     }
 
     /**

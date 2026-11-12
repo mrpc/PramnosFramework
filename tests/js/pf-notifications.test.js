@@ -53,6 +53,7 @@ function page({ realtime = null, hidden = false, except = null, onView = null, i
         'GET /Notifications?per_page=10&collapse=1&group=tasks': { items: [], unread: 3 },
         'POST /Notifications/read': { read: true, unread: 2 },
         'POST /Notifications/readall': { marked: 2, unread: 1 },
+        'POST /Notifications/snooze': { snoozed: true, unread: 2 },
     });
     const timers = [];
     window.setInterval = (fn) => { timers.push(fn); return timers.length; };
@@ -261,5 +262,22 @@ test('data-pf-settles: what the page shows is settled once, by the bell\'s addre
     assert.deepEqual(posts.map((c) => c.path), ['/Notifications/settle?about=todo%3A42%2Ccomment%3A7'], 'one request, each key once');
     assert.equal(posts[0].headers['X-CSRF-Token'], 't0ken');
     assert.equal(told, 1, 'the bell refreshes');
+});
+
+test('an unread item is put off to a moment; a read one offers nothing', async () => {
+    // Arrange
+    const ui = page();
+    ui.toggle.click();
+    await settle();
+
+    // Act
+    const offers = ui.list.children.map((li) => li.querySelectorAll('[data-pf-notifications-snooze]').length);
+    ui.list.children[0].querySelector('[data-pf-notifications-snooze]').click();
+    await settle();
+
+    // Assert
+    const posts = ui.window.fetch.calls.filter((c) => c.method === 'POST').map((c) => c.path);
+    assert.deepEqual(offers, [3, 0], 'an hour, three, tomorrow — for the unread one alone');
+    assert.deepEqual(posts, ['/Notifications/snooze?id=a1&for=1h']);
 });
 

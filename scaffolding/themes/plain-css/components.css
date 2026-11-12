@@ -132,6 +132,10 @@
 .pf-notify-item a { display: block; padding: .5rem .75rem; color: inherit; text-decoration: none; border-bottom: 1px solid rgba(128,128,128,.25); }
 .pf-notify-item a:hover { background: rgba(128,128,128,.12); }
 .pf-notify-item.is-unread a { font-weight: 600; }
+/* "Tell me again later": small, quiet, beside each unread item. */
+.pf-notify-later { display: flex; gap: .25em; margin: .15em 0 .35em; }
+.pf-notify-snooze { font-size: .75em; padding: 0 .4em; border: 1px solid currentColor; border-radius: 4px; background: none; color: inherit; opacity: .6; cursor: pointer; }
+.pf-notify-snooze:hover { opacity: 1; }
 /* One that must be acknowledged (requires_ack): a red mark, read by a click alone. */
 .pf-notify-item.is-ack a::before { content: "!"; display: inline-block; min-width: 1.1em; margin-right: .35em; color: #fff; background: #c62828; border-radius: 50%; text-align: center; font-weight: 700; font-size: .8em; }
 .pf-notify-title, .pf-notify-message, .pf-notify-time { display: block; }
