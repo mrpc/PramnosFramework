@@ -2644,4 +2644,9 @@ return [
     'Outside a conversation' => 'Εκτός συζήτησης',
     'Entity' => 'Οντότητα',
     'Back to the card' => 'Πίσω στην καρτέλα',
+    'Repeat' => 'Επανάληψη',
+    'Every weekday' => 'Κάθε εργάσιμη',
+    'Every year' => 'Κάθε χρόνο',
+    'A to-do repeats daily, on weekdays, weekly, monthly or yearly.' => 'Ένα to-do επαναλαμβάνεται κάθε μέρα, κάθε εργάσιμη, κάθε εβδομάδα, κάθε μήνα ή κάθε χρόνο.',
+    'A repeating to-do needs a day or a reminder.' => 'Ένα to-do που επαναλαμβάνεται χρειάζεται ημερομηνία ή υπενθύμιση.',
 ];

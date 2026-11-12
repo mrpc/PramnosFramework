@@ -20,7 +20,7 @@ use Pramnos\Routing\Router;
  *
  *   - `GET    {path}?who=&about=&closed=`  the items (`who`: me, all, team, an id or a name), with
  *                                          the person's name and whether the plan has to-dos
- *   - `POST   {path}`                      add one: title, assigned_to (0 nobody), due, remind_at, link, private
+ *   - `POST   {path}`                      add one: title, assigned_to (0 nobody), due, remind_at, link, private, repeat
  *   - `PUT    {path}/{id}`                 change one: what is not sent stays; `due` '' clears it
  *   - `DELETE {path}/{id}`                 one's own item
  *   - `GET    {path}/calendar?start=&end=` the items with a day in the range, as a calendar shows them
@@ -134,7 +134,7 @@ class TodosApi
     /** The request's JSON body, only the fields an item takes. @return array<string, mixed> */
     private function body(): array
     {
-        return array_intersect_key((new \Pramnos\Http\Request())->body(), array_flip(['title', 'assigned_to', 'due', 'remind_at', 'status', 'link', 'private']));
+        return array_intersect_key((new \Pramnos\Http\Request())->body(), array_flip(['title', 'assigned_to', 'due', 'remind_at', 'status', 'link', 'private', 'repeat']));
     }
 
     /** The person asking with the API's credentials; null for nobody. */

@@ -28,6 +28,8 @@ $moment = fn (?int $at): string => $at === null ? '' : (new \DateTimeImmutable('
                 <input id="pf-todo-due" type="date" name="due" class="pf-input"></div>
             <div class="pf-field"><label class="pf-label" for="pf-todo-remind">{{ t('Remind me') }}</label>
                 <input id="pf-todo-remind" type="datetime-local" name="remind" class="pf-input"></div>
+            <div class="pf-field"><label class="pf-label" for="pf-todo-repeat">{{ t('Repeat') }}</label>
+                <select id="pf-todo-repeat" name="repeat" class="pf-input"><option value="">{{ t('Once') }}</option>@foreach (['daily' => t('Every day'), 'weekdays' => t('Every weekday'), 'weekly' => t('Every week'), 'monthly' => t('Every month'), 'yearly' => t('Every year')] as $k => $v)<option value="{{ $k }}">{{ $v }}</option>@endforeach</select></div>
             <div class="pf-field"><label class="pf-check"><input type="checkbox" name="private" value="1"> {{ t('Private: only I see it') }}</label></div>
         </div>
         <div><button type="submit" class="pf-btn pf-btn-primary">{{ t('Add') }}</button></div>

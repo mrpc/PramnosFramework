@@ -33,7 +33,8 @@ class TodosMySQLTest extends TestCase
         Settings::loadSettings(ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php');
         $this->db = $this->connect();
         require_once ROOT . '/database/migrations/framework/todos/2026_11_09_000011_create_todos_table.php';
-        \Pramnos\Framework\Testing\Schema::ensure([CreateTodosTable::class], $this->db);
+        require_once ROOT . '/database/migrations/framework/todos/2026_11_12_000001_add_repeat_to_todos.php';
+        \Pramnos\Framework\Testing\Schema::ensure([CreateTodosTable::class, \Pramnos\Framework\Migrations\Todos\AddRepeatToTodos::class], $this->db);
         $this->db->queryBuilder()->table(Todos::TABLE)->where('tenant', '>=', 900)->delete();
         $this->info = Application::getInstance()->applicationInfo;
         Application::getInstance()->applicationInfo['todos'] = [];
@@ -59,6 +60,63 @@ class TodosMySQLTest extends TestCase
         }
 
         return $db;
+    }
+
+    /**
+     * A repeating item (FW-487): done, it closes and the next opens at once — same title, link,
+     * assignee, privacy and repeat, its reminder at the next occurrence, its day moved as many
+     * days, nobody told it is theirs; done again, no second next; dismissed, none. A repeat with
+     * no time to count from, or not known, is refused; a reminder sent keeps its time, so a
+     * reminder-only item still repeats from it.
+     */
+    public function testARepeatingItemOpensItsNextWhenDone(): void
+    {
+        // Arrange
+        $zone   = \Pramnos\Metrics\Window::zoneOf(900);
+        $remind = (new \DateTimeImmutable('today 09:00', $zone))->getTimestamp() - 86400;   // yesterday 09:00
+        $day    = (new \DateTimeImmutable('@' . $remind))->setTimezone($zone)->format('Y-m-d');
+        $refused = [];
+        foreach ([['repeat' => 'daily'], ['repeat' => 'hourly', 'due' => $day]] as $bad) {
+            try {
+                Todos::add(['tenant' => 900, 'title' => 'x'] + $bad, 7);
+            } catch (\InvalidArgumentException $e) {
+                $refused[] = $e->getMessage();
+            }
+        }
+        $id = Todos::add(['tenant' => 900, 'title' => 'Water the plants https://example.test/p', 'due' => $day, 'remind_at' => $remind, 'repeat' => 'daily', 'private' => true], 7);
+        $once = Todos::add(['tenant' => 900, 'title' => 'Once', 'remind_at' => $remind], 7);
+        $mine = static fn (): array => array_values(array_filter(Todos::list(900, 7), static fn (array $i): bool => str_starts_with($i['title'], 'Water')));
+
+        // Act
+        Todos::remind($remind + 60);
+        $sent = Todos::get($id);
+        Todos::update($id, ['status' => Todos::DONE], 7);
+        Todos::update($id, ['status' => Todos::DONE], 7);
+        $after = $mine();
+        $next  = array_values(array_filter($after, static fn (array $i): bool => $i['id'] !== $id))[0];
+        Todos::update($next['id'], ['status' => Todos::DISMISSED], 7);
+        Todos::update($once, ['repeat' => 'weekly'], 7);       // a reminder sent: it counts from it
+        $weekly = Todos::get($once);
+        try {
+            Todos::update(Todos::add(['tenant' => 900, 'title' => 'No time'], 7), ['repeat' => 'daily'], 7);
+        } catch (\InvalidArgumentException $e) {
+            $refused[] = $e->getMessage();
+        }
+
+        // Assert
+        $this->assertSame(['A repeating to-do needs a day or a reminder.', 'A to-do repeats daily, on weekdays, weekly, monthly or yearly.',
+            'A repeating to-do needs a day or a reminder.'], $refused);
+        $this->assertNull($sent['remind_at'], 'the reminder sent');
+        $this->assertSame($remind, $sent['reminded_at'], 'its time kept');
+        $this->assertCount(2, $after, 'the done one and its next: done twice opens one next');
+        $this->assertSame(['Water the plants', 'https://example.test/p', 7, true, 'daily'], [$next['title'], $next['link'], $next['assigned_to'], $next['private'], $next['repeat']]);
+        $this->assertGreaterThan(time(), $next['remind_at'], 'its reminder at the next occurrence, still to come');
+        $this->assertSame('09:00', (new \DateTimeImmutable('@' . $next['remind_at']))->setTimezone($zone)->format('H:i'), 'at the same time of day');
+        $moved = (int) round(($next['remind_at'] - $remind) / 86400);
+        $this->assertSame((new \DateTimeImmutable($day, $zone))->modify('+' . $moved . ' days')->format('Y-m-d'),
+            (new \DateTimeImmutable('@' . $next['due_at']))->setTimezone($zone)->format('Y-m-d'), 'its day moved as many days');
+        $this->assertCount(2, $mine(), 'dismissed: no next');
+        $this->assertSame('weekly', $weekly['repeat']);
     }
 
     /**

@@ -33,7 +33,8 @@ final class TodosChangeTool implements McpToolInterface
         return 'Add a to-do, or change one (id), only when the person asked for it or agreed. title: a line, its web address the link. '
             . 'assigned_to: a user id or name, "me", or 0 for nobody in particular. due: YYYY-MM-DD, or "" to clear it. '
             . 'remind_at: YYYY-MM-DD HH:MM on the person\'s clock, or "" to clear it. status: open, in_progress, done, dismissed. '
-            . 'private: only its author sees it. A change keeps what it does not name.';
+            . 'private: only its author sees it. repeat: daily, weekdays, weekly, monthly, yearly, or "" to stop — it needs a due day or '
+            . 'a reminder, and when it is done the next one opens by itself. A change keeps what it does not name.';
     }
 
     public function inputSchema(): array
@@ -47,6 +48,7 @@ final class TodosChangeTool implements McpToolInterface
             'status'      => ['type' => 'string', 'enum' => Todos::STATUSES],
             'link'        => ['type' => 'string'],
             'private'     => ['type' => 'boolean'],
+            'repeat'      => ['type' => 'string', 'enum' => [...Todos::REPEATS, '']],
         ]];
     }
 
@@ -63,7 +65,7 @@ final class TodosChangeTool implements McpToolInterface
             return 'Error: this plan has no to-dos.';
         }
         $zone    = \Pramnos\Metrics\Window::zoneOf($tenant);
-        $changes = array_intersect_key($input, array_flip(['title', 'due', 'status', 'link', 'private']));
+        $changes = array_intersect_key($input, array_flip(['title', 'due', 'status', 'link', 'private', 'repeat']));
         if (array_key_exists('assigned_to', $input)) {
             $who = mb_strtolower(trim((string) $input['assigned_to']));
             $to  = in_array($who, ['me', 'εγώ', 'εμένα'], true) ? $me : ($who === '' || $who === '0' ? 0 : TodosTool::person($who, $tenant));

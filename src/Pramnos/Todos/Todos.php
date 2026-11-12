@@ -52,6 +52,9 @@ final class Todos
     /** How long a closed item stays on the list. */
     public const CLOSED_DAYS = 7;
 
+    /** How an item may repeat: the next one opens when it is done. */
+    public const REPEATS = ['daily', 'weekdays', 'weekly', 'monthly', 'yearly'];
+
     /** The longest title, and the longest link. */
     public const TITLE = 4000;
     public const LINK  = 500;
@@ -65,7 +68,8 @@ final class Todos
      * @param array<string, mixed> $item `title` (a line: its first web address becomes the link
      *        unless `link` is given), `link`, `assigned_to` (the author by default; 0 for nobody),
      *        `private`, `due` (Y-m-d), `remind_at` (unix), `tenant`, `kind`, `source`,
-     *        `messageid`, `conversationid`, `tell` (false: the assignee was told already)
+     *        `messageid`, `conversationid`, `tell` (false: the assignee was told already),
+     *        `repeat` (one of {@see REPEATS}: done, the next opens — it needs a day or a reminder)
      * @param int $by Who adds it; 0 for the system
      * @throws \InvalidArgumentException For an empty title, a bad link or day, or an assignee who may not be given items
      */
@@ -78,12 +82,17 @@ final class Todos
         if ($assign !== null && $assign !== $by) {
             self::assignable($tenant, $assign);
         }
-        $now = time();
+        $now    = time();
+        $remind = isset($item['remind_at']) && (int) $item['remind_at'] > 0 ? (int) $item['remind_at'] : null;
+        $due    = self::due($item['due'] ?? null, $tenant);
+        $repeat = self::repeat($item['repeat'] ?? null, $due ?? $remind);
         $row = ['tenant' => $tenant, 'kind' => (string) ($item['kind'] ?? 'own'), 'source' => $item['source'] ?? null, 'title' => $title, 'link' => $link,
-            'status' => self::OPEN, 'assigned_to' => $assign, 'assigned_by_hand' => false, 'due_at' => self::due($item['due'] ?? null, $tenant),
-            'remind_at' => isset($item['remind_at']) && (int) $item['remind_at'] > 0 ? (int) $item['remind_at'] : null, 'private' => $private, 'sort' => 0,
+            'status' => self::OPEN, 'assigned_to' => $assign, 'assigned_by_hand' => false, 'due_at' => $due,
+            'remind_at' => $remind, 'private' => $private, 'sort' => 0,
             'messageid' => isset($item['messageid']) ? (int) $item['messageid'] : null, 'conversationid' => isset($item['conversationid']) ? (int) $item['conversationid'] : null,
-            'created_by' => $by ?: null, 'created_at' => $now, 'updated_at' => $now];
+            'created_by' => $by ?: null, 'created_at' => $now, 'updated_at' => $now]
+            // Written only where there is one: an installation that has not migrated keeps adding.
+            + ($repeat === null ? [] : ['repeat' => $repeat, 'repeat_from' => isset($item['repeat_from']) ? (int) $item['repeat_from'] : ($remind ?? $due)]);
         $db     = self::db();
         $insert = $db->queryBuilder()->table(self::TABLE);
         if ($db->type === 'postgresql') {
@@ -102,7 +111,7 @@ final class Todos
 
     /**
      * Change an item: `status`, `assigned_to` (0 for nobody), `due` (Y-m-d, '' clears it),
-     * `remind_at` (0 clears it), `link`, `sort`; `title` only of one's own; `private` only by its
+     * `remind_at` (0 clears it), `repeat` ('' stops it), `link`, `sort`; `title` only of one's own; `private` only by its
      * author. Done and dismissed set when it closed; opened again, that is cleared. `note`, a
      * line to whoever handed the item over (kind `assigned`): they are told it, and told when the
      * item is closed — the note kept in the item's history, not in a column.
@@ -142,6 +151,11 @@ final class Todos
         if (array_key_exists('link', $changes)) {
             $row['link'] = self::line('x', $changes['link'] ?: null)[1];
         }
+        if (array_key_exists('repeat', $changes)) {
+            $when = array_key_exists('remind_at', $row) ? ($row['remind_at'] ?? $item['reminded_at']) : ($item['remind_at'] ?? $item['reminded_at']);
+            $row['repeat']      = self::repeat($changes['repeat'], (array_key_exists('due_at', $row) ? $row['due_at'] : $item['due_at']) ?? $when);
+            $row['repeat_from'] = $row['repeat'] === null ? null : ($when ?? ($row['due_at'] ?? $item['due_at']));
+        }
         if (isset($changes['sort'])) {
             $row['sort'] = (int) $changes['sort'];
         }
@@ -170,6 +184,10 @@ final class Todos
         ChangelogWriter::event('todo', $id, 'changed', array_intersect_key($row, array_flip(['status', 'assigned_to', 'due_at', 'private'])) + ($note !== '' ? ['note' => $note] : []), by: $by ?: null);
         if (isset($row['closed_at'])) {
             self::settle($id);
+        }
+        // Done, from open: a repeating one opens its next at once.
+        if (($row['status'] ?? null) === self::DONE && $item['closed_at'] === null && ($row['repeat'] ?? $item['repeat']) !== null) {
+            self::again(self::get($id) ?? $item, $by);
         }
         $to = $row['assigned_to'] ?? null;
         if ($to !== null && $to !== $item['assigned_to'] && empty($row['private'])) {
@@ -335,6 +353,10 @@ final class Todos
         foreach (array_map([self::class, 'shape'], $rows) as $item) {
             if (!self::claim($item['id'], 'remind_at', $item['remind_at'], null)) {
                 continue;
+            }
+            // When it was sent stays: a repeating item counts its next from it.
+            if (array_key_exists('reminded_at', $item)) {
+                self::db()->queryBuilder()->table(self::TABLE)->where('todoid', $item['id'])->update(['reminded_at' => $item['remind_at']]);
             }
             $person = $item['assigned_to'] ?? $item['created_by'];
             if ($person === null || !in_array($item['status'], [self::OPEN, self::IN_PROGRESS], true)) {
@@ -821,6 +843,96 @@ final class Todos
         }
     }
 
+    /**
+     * The next occurrence of a repeating time: the first after `$now`, at the same time of day in
+     * the zone, so a change of clocks keeps 09:00 at 09:00. Done early, it is the one after, not
+     * the same; missed ones are not each made, the first still to come is. A month and a year count
+     * from `$from`'s day and keep it where the month has it (31 Jan → 28 Feb → 31 Mar; 29 Feb → 28
+     * Feb); weekdays skip Saturday and Sunday.
+     */
+    public static function nextOccurrence(int $from, string $repeat, int $now, ?\DateTimeZone $zone = null): int
+    {
+        if (!in_array($repeat, self::REPEATS, true)) {
+            throw new \InvalidArgumentException(t('A to-do repeats daily, on weekdays, weekly, monthly or yearly.'));
+        }
+        $start = (new \DateTimeImmutable('@' . $from))->setTimezone($zone ?? new \DateTimeZone('UTC'));
+        [$y, $m, $d] = array_map('intval', explode('-', $start->format('Y-n-j')));
+        $time  = [(int) $start->format('G'), (int) $start->format('i'), (int) $start->format('s')];
+        $step  = match ($repeat) { 'weekly' => 7, 'daily', 'weekdays' => 1, default => 0 };
+        // A day or a week: jump close to now, then step; a month or a year: count them from the start.
+        $k = $step > 0 ? max(1, intdiv(max(0, $now - $from), $step * 86400)) : 1;
+        for ($guard = 0; $guard < 100000; $guard++, $k++) {
+            if ($step > 0) {
+                $at = $start->modify('+' . ($k * $step) . ' days');
+            } else {
+                $months = $repeat === 'monthly' ? $k : 12 * $k;
+                $first  = $start->setDate($y, $m + $months, 1);
+                $at     = $first->setDate((int) $first->format('Y'), (int) $first->format('n'), min($d, (int) $first->format('t')))->setTime(...$time);
+            }
+            if ($repeat === 'weekdays' && (int) $at->format('N') >= 6) {
+                continue;
+            }
+            if ($at->getTimestamp() > $now) {
+                return $at->getTimestamp();
+            }
+        }
+        throw new \RuntimeException('No next occurrence found.');
+    }
+
+    /**
+     * A repeat as kept: one of {@see REPEATS}, or null for '' and none.
+     *
+     * @throws \InvalidArgumentException For one not known, or a repeat with no time to count from
+     */
+    private static function repeat(mixed $repeat, ?int $when): ?string
+    {
+        $repeat = $repeat === null ? '' : trim((string) $repeat);
+        if ($repeat === '') {
+            return null;
+        }
+        if (!in_array($repeat, self::REPEATS, true)) {
+            throw new \InvalidArgumentException(t('A to-do repeats daily, on weekdays, weekly, monthly or yearly.'));
+        }
+        if ($when === null) {
+            throw new \InvalidArgumentException(t('A repeating to-do needs a day or a reminder.'));
+        }
+
+        return $repeat;
+    }
+
+    /**
+     * A repeating item done: the next, at once — the same title, link, assignee, privacy and
+     * repeat; its reminder at the next occurrence and its day moved as many days. Nobody is told
+     * it is theirs: it is the same item again.
+     *
+     * @param array<string, mixed> $item
+     */
+    private static function again(array $item, int $by): void
+    {
+        $zone   = \Pramnos\Metrics\Window::zoneOf($item['tenant']);
+        $remind = $item['remind_at'] ?? $item['reminded_at'] ?? null;
+        $base   = $remind ?? $item['due_at'];
+        // A source's item comes back by its source, not by a repeat.
+        if ($base === null || $item['repeat'] === null || $item['source'] !== null) {
+            return;
+        }
+        $next = self::nextOccurrence($item['repeat_from'] ?? $base, $item['repeat'], max(time(), $base), $zone);
+        $day  = static fn (int $at): \DateTimeImmutable => (new \DateTimeImmutable('@' . $at))->setTimezone($zone)->setTime(0, 0);
+        $due  = null;
+        if ($item['due_at'] !== null) {
+            $days = (int) $day($base)->diff($day($next))->format('%r%a');
+            $due  = $day($item['due_at'])->modify(($days >= 0 ? '+' : '') . $days . ' days')->format('Y-m-d');
+        }
+        try {
+            self::add(['tenant' => $item['tenant'], 'kind' => $item['kind'], 'title' => $item['title'], 'link' => $item['link'] ?? '',
+                'assigned_to' => $item['assigned_to'] ?? 0, 'private' => $item['private'], 'due' => $due, 'remind_at' => $remind !== null ? $next : null,
+                'repeat' => $item['repeat'], 'repeat_from' => $item['repeat_from'] ?? $base, 'messageid' => $item['messageid'], 'conversationid' => $item['conversationid'],
+                'tell' => false], (int) ($item['created_by'] ?? 0));
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('todos: the next of ' . $item['id'] . ' not opened: ' . $e->getMessage(), 'todos');
+        }
+    }
+
     /** Sync before a read, at most once per interval. */
     private static function syncDue(int $tenant, int $now): void
     {
@@ -893,7 +1005,10 @@ final class Todos
             'assigned_by_hand' => (bool) $row['assigned_by_hand'], 'due_at' => $int('due_at'), 'remind_at' => $int('remind_at'),
             'due_told_at' => $int('due_told_at'), 'private' => (bool) $row['private'], 'sort' => (int) $row['sort'], 'messageid' => $int('messageid'),
             'conversationid' => $int('conversationid'), 'created_by' => $int('created_by'), 'created_at' => (int) $row['created_at'],
-            'updated_at' => (int) $row['updated_at'], 'closed_at' => $int('closed_at')];
+            'updated_at' => (int) $row['updated_at'], 'closed_at' => $int('closed_at')]
+            // Where the columns are: an installation that has not migrated has no repeats.
+            + (array_key_exists('repeat', $row) ? ['repeat' => ($row['repeat'] ?? '') === '' ? null : (string) $row['repeat'],
+                'repeat_from' => $int('repeat_from'), 'reminded_at' => $int('reminded_at')] : ['repeat' => null]);
     }
 
     /** @return array<string, mixed> The `todos` settings */

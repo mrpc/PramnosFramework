@@ -111,7 +111,7 @@ final class TodosTool implements McpToolInterface
             'assigned_name' => $i['assigned_to'] !== null ? ($names[$i['assigned_to']] ?? null) : null, 'due' => $day,
             'remind_at' => $i['remind_at'] !== null ? (new \DateTimeImmutable('@' . $i['remind_at']))->setTimezone($zone)->format('Y-m-d H:i') : null,
             'overdue' => $i['due_at'] !== null && $i['due_at'] < time() && in_array($i['status'], [Todos::OPEN, Todos::IN_PROGRESS], true),
-            'link' => $i['link'], 'kind' => $i['kind'], 'private' => $i['private']];
+            'link' => $i['link'], 'kind' => $i['kind'], 'private' => $i['private'], 'repeat' => $i['repeat'] ?? null];
     }
 
     /** A person by id or by one name among who may be given items; else why not. */

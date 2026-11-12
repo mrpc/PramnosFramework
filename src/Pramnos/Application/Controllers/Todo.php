@@ -82,6 +82,7 @@ class Todo extends Controller
                 'due'         => (string) ($_POST['due'] ?? '') ?: null,
                 'remind_at'   => $this->moment((string) ($_POST['remind'] ?? '')),
                 'private'     => !empty($_POST['private']),
+                'repeat'      => (string) ($_POST['repeat'] ?? ''),
             ], (int) $user->userid);
             $this->addMessage(t('Added.'));
         } catch (\InvalidArgumentException $e) {
@@ -102,7 +103,7 @@ class Todo extends Controller
         if ($item === null || $item['tenant'] !== Todos::tenantOf($user)) {
             return $this->json(['error' => t('There is no such to-do.')], 404);
         }
-        $changes = array_intersect_key($_POST, array_flip(['status', 'assigned_to', 'due', 'link', 'sort', 'title', 'private']));
+        $changes = array_intersect_key($_POST, array_flip(['status', 'assigned_to', 'due', 'link', 'sort', 'title', 'private', 'repeat']));
         try {
             if (array_key_exists('remind', $_POST)) {
                 $changes['remind_at'] = $this->moment((string) $_POST['remind']) ?? 0;

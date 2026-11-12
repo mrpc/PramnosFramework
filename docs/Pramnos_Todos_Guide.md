@@ -49,6 +49,34 @@ Todos::delete($id, by: 7);
 - **Assigning someone else** asks `todos.assignable`; nobody is refused without it.
 - Every add, change and delete is a `todo` event in the change log.
 
+## Repeating items
+
+```php
+Todos::add(['title' => 'Water the plants', 'remind_at' => $tomorrowAt9, 'repeat' => 'daily'], by: 7);
+Todos::update($id, ['repeat' => ''], by: 7);   // stops it
+```
+
+- **How often:** `repeat` is `daily`, `weekdays` (Monday to Friday), `weekly`, `monthly` or
+  `yearly` (`Todos::REPEATS`). Without one, an item is once.
+- **It needs a time to count from:** a day or a reminder. One without either, or a repeat not
+  known, is refused with an `InvalidArgumentException`.
+- **The next opens when it is done.** It is a copy of the item, with the same title, link,
+  assignee, privacy, repeat, message and conversation. The done one closes as any other does. Its
+  reminder is at the next occurrence, and its day moves by as many days. Nobody is told it is
+  theirs, because it is the same item again. Marking an item done again that is already closed
+  opens no second one.
+- **Missed occurrences:** an item not done stays overdue, and no copy is made for each occurrence
+  that passed. Dismissing or deleting an item stops its repeat. A source's item comes back by its
+  source and never repeats.
+- **The next occurrence** (`Todos::nextOccurrence($from, $repeat, $now, $zone)`):
+  - it is the first one after now, at the same time of day in the organisation's zone, so 09:00
+    stays 09:00 across a change of clocks;
+  - an item done early, before its time, goes to the following occurrence, not the same one;
+  - a month or a year is counted from the first occurrence (`repeat_from`) and keeps its day where
+    the month has it: 31 January → 28 February → 31 March, and 29 February → 28 February;
+  - a reminder that was sent keeps its time in `reminded_at`, so an item with only a reminder
+    still repeats from it.
+
 ## The list
 
 `Todos::list($tenant, $viewer)` gives what a person sees:
@@ -94,7 +122,7 @@ It runs:
 - **A reminder.** `remind_at` is sent to the minute by `todos:remind`, to the assignee, else the
   author: the bell, a push, and a line from "Reminders" in their conversation with the system
   where the conversations are installed. It is cleared before it is sent, so a failure is not
-  repeated every minute. A closed item's reminder is cleared without a word.
+  repeated every minute, and when it was sent stays in `reminded_at`. A closed item's reminder is cleared without a word.
 - **Due today, or overdue.** With `todos.due_notice` on, each item with an assignee is told once,
   from 08:05 in the organisation's zone, on its day or after it. Not to somebody who may no
   longer be given items (`todos.assignable`), nor in an organisation without to-dos
