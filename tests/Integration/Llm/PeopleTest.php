@@ -153,4 +153,39 @@ class PeopleTest extends LlmTestCase
         $this->assertNotEmpty(array_filter($audited, static fn (array $row): bool => (string) $row['target_id'] === (string) $maria));
         $this->assertNull($people->person(999999999));
     }
+
+    /**
+     * `GET {chat}/me` carries the application's own fields where its assistant has `meExtras()` —
+     * a photo, say — and never lets them over the framework's own.
+     */
+    #[DataProvider('databases')]
+    public function testMeCarriesTheApplicationsOwnFields(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => ['assistant' => MeExtrasAssistant::class]]);
+        ApiFixture::$scope = new Scope(1234567);
+        ApiFixture::$stop  = null;
+
+        // Act
+        $me = (new ApiFixture())->me();
+
+        // Assert
+        $this->assertSame('https://media.example/me.jpg', $me['data']['photo'], 'its own field');
+        $this->assertNotSame('Somebody else', $me['data']['name'], 'never over the framework\'s');
+    }
+}
+
+/** An application's assistant that adds its own fields to `/me`. */
+class MeExtrasAssistant extends \Pramnos\Llm\Chat\BaseAssistant
+{
+    /**
+     * A photo, and an attempt at the framework's name.
+     *
+     * @return array<string, mixed>
+     */
+    public function meExtras(Scope $scope): array
+    {
+        return ['photo' => 'https://media.example/me.jpg', 'name' => 'Somebody else'];
+    }
 }

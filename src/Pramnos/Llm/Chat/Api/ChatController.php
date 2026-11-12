@@ -699,10 +699,17 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         $first    = $meetings[\Pramnos\Llm\Chat\People::personaOf($scope->stored())] ?? null;
         $name     = trim((string) ($user->firstname ?? ''));
 
-        return ['status' => 200, 'data' => ['name' => $name !== '' ? $name : (string) ($user->username ?? ''), 'usertype' => (int) ($user->usertype ?? 0),
+        $data = ['name' => $name !== '' ? $name : (string) ($user->username ?? ''), 'usertype' => (int) ($user->usertype ?? 0),
             'persona' => \Pramnos\Llm\Chat\Personas::of($scope), 'first_meeting' => $first,
             // After an administrator reset the person's experience: the page starts over too, with no flag of its own.
-            'reset_at' => \Pramnos\Llm\Chat\People::resetAt($user), 'first_meetings' => $meetings]];
+            'reset_at' => \Pramnos\Llm\Chat\People::resetAt($user), 'first_meetings' => $meetings];
+        // The application's own fields — a photo, say — where its assistant has `meExtras(Scope): array`; never over the framework's.
+        $assistant = $this->conversations()->assistant();
+        if (method_exists($assistant, 'meExtras')) {
+            $data += array_diff_key((array) $assistant->meExtras($scope), $data);
+        }
+
+        return ['status' => 200, 'data' => $data];
     }
 
     /**

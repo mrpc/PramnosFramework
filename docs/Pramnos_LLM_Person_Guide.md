@@ -459,6 +459,8 @@ $people->erase($userId, $by);  // erase their history too; no screen offers it
 `GET {chat}/me` gives `reset_at` and `first_meetings` (`{persona: ISO 8601 | null}`, each the
 first conversation with that persona since the reset), and `first_meeting` the same for the
 persona in use. A page meets the person again after a reset without keeping a flag of its own.
+An application adds fields of its own, such as a photo, with a `meExtras(Scope $scope): array`
+method on its assistant. They never replace the framework's own fields.
 
 ### Reaching out on its own, with manners
 
