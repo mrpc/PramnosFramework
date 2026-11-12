@@ -271,6 +271,11 @@ message sent or something cancelled? Where it does, the model is sent back once
 - It is on by default. Turn it off with `'llm' => ['chat' => ['verify_claims' => false]]`, or
   decide per assistant with `fn (Assistant $assistant, Scope $scope): bool`.
 
+An answer that gives numbers after a tool marked `numeric` is held to that tool's figures the
+same way, without a model to read it. A message corrected for a number its figures did not bear
+out keeps `corrected: figures` (see
+[Numbers that come from the figures](Pramnos_LLM_Tools_Guide.md)).
+
 ## What the assistant does and wears in an answer
 
 An avatar set with hands and props can let the assistant pick, for each answer, what it does and

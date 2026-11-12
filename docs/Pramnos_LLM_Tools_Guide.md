@@ -88,12 +88,41 @@ $tools = $registry->tools(['userid' => $userId], skills: ['reporting']);
 | `idempotent` | false | with `writes` false, the tool runs at once with others |
 | `parallel` | `!writes && idempotent` | given explicitly, over the default |
 | `untrusted` | false | the result is data, not instructions |
+| `numeric` | false | the result is figures: the answer's numbers are held to them (below) |
 | `outbound` | none | the argument that leaves (`'url'`): once personal data is in the answer, only a value the person wrote |
 | `gated` | false | needs a grant though it does not write |
 | `permissions` | none | every ability, through `AdminAccess::allows()` unless the registry is given its own check |
 | `skills` | none | offered only while one of its skills is in use; a tool with none is always offered |
 | `tags` | none | data tags, as `Tools::tag()` |
 | `cost_weight`, `latency_tier` | `low`, `fast` | kept on the tool's `meta` |
+
+**Numbers that come from the figures.** A tool marked `'numeric' => true` (a report, a metric,
+a count) holds the answer that called it to what it returned (`Llm\Figures`). Every number the
+answer gives must be one of these:
+
+- a value in the result;
+- the total of one of its lists, or of a column across its rows;
+- the sum or difference of two of those;
+- written with a `%`, one as a share of another, or the change from one to another.
+
+A number that is none of these is said back to the model before the person reads it
+(`Client::FIGURES`), and the model writes the whole answer again. A number still not borne out
+after that is named under the answer (`Client::UNTRACED`). The result of `askWithTools()` then
+carries `figures` (`corrected` or `untraced`) and `untraced` (the numbers). A conversation's
+message keeps `corrected: figures` for the review.
+
+- Numbers are read as written: `1.234,5` and `1,234.5` both work, to the precision written. A
+  round hundred or more ("about 1,200") passes within 5%.
+- Not checked: dates and times, a year, a list's own numbering, and the numbers in the question
+  and in the call's arguments.
+- A JSON result is read as data. Any other text is read by its numbers alone, so it gets no
+  column totals.
+- An MCP tool says it with `public function numeric(): bool`. `Tools::fromMcp()` and
+  `ToolRegistry::registerMcp()` read it. The analyst's `metrics`, `visits`, `llm_spend` and `sql`
+  are marked (`Analyst::FIGURES`).
+- A number that matches a figure under the wrong label passes. So does arithmetic over three or
+  more values, which is said back. The check holds numbers to their source; it does not read
+  what they are said to mean.
 
 **Skills, a few at a time.** Offer the tools of no skill, the `use_skill` tool, and a line in the
 prompt naming the skills there are:

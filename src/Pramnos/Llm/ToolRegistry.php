@@ -26,6 +26,7 @@ use Pramnos\Mcp\McpToolInterface;
  * | `idempotent` | false | the same call gives the same answer and changes nothing; with `writes` false it runs at once with others (`parallel`) |
  * | `parallel` | `!writes && idempotent` | said outright, over the default |
  * | `untrusted` | false | returns words somebody else wrote: data, not instructions |
+ * | `numeric` | false | answers with figures (a report, a count): the answer's numbers are held to them — {@see Figures} |
  * | `gated` | false | needs a grant even though it does not write |
  * | `permissions` | none | abilities the person must hold, every one (`AdminAccess::allows()`, or the registry's own check) |
  * | `skills` | none | offered only while one of these skills is in use; a tool with none is always offered |
@@ -83,6 +84,9 @@ final class ToolRegistry
      */
     public function registerMcp(McpToolInterface $tool, array $meta = []): static
     {
+        // A tool that answers with figures says so: `public function numeric(): bool` ({@see Figures}).
+        $meta += method_exists($tool, 'numeric') && $tool->numeric() === true ? ['numeric' => true] : [];
+
         return $this->register($tool->name(), static fn (array $arguments): mixed => $tool->execute($arguments), $meta, $tool->description(), $tool->inputSchema());
     }
 
@@ -99,7 +103,7 @@ final class ToolRegistry
             if (!is_callable($tool['run'] ?? null)) {
                 continue;
             }
-            $flags = ['writes', 'idempotent', 'parallel', 'untrusted', 'gated', 'permissions', 'skills', 'tags', 'cost_weight', 'latency_tier'];
+            $flags = ['writes', 'idempotent', 'parallel', 'untrusted', 'numeric', 'gated', 'permissions', 'skills', 'tags', 'cost_weight', 'latency_tier'];
             $own   = array_intersect_key($tool, array_flip($flags));
             $this->tools[(string) $name] = [
                 'run'         => $tool['run'],
@@ -164,6 +168,7 @@ final class ToolRegistry
             'idempotent'   => (bool) ($meta['idempotent'] ?? false),
             'parallel'     => (bool) ($meta['parallel'] ?? (!$writes && !empty($meta['idempotent']))),
             'untrusted'    => (bool) ($meta['untrusted'] ?? false),
+            'numeric'      => (bool) ($meta['numeric'] ?? false),
             'gated'        => (bool) ($meta['gated'] ?? false),
             'permissions'  => array_values(array_map('strval', (array) ($meta['permissions'] ?? []))),
             'skills'       => array_values(array_map('strval', (array) ($meta['skills'] ?? []))),
@@ -234,6 +239,7 @@ final class ToolRegistry
                 'writes'      => $meta['writes'] ?: null,
                 'parallel'    => $meta['parallel'] ?: null,
                 'untrusted'   => $meta['untrusted'] ?: null,
+                'numeric'     => $meta['numeric'] ?: null,
                 'gated'       => $meta['gated'] ?: null,
                 'tags'        => $meta['tags'] ?: null,
             ], static fn ($v): bool => $v !== null) + ['meta' => $meta] + ($tool['own'] ?? []);

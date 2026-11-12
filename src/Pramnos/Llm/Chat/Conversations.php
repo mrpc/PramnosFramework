@@ -110,7 +110,7 @@ class Conversations
     /** What the claim check spent this turn, added to the turn's cost. */
     private float $checkCost = 0.0;
 
-    /** Why this turn's answer was corrected, kept on the message: `claimed`, or null. */
+    /** Why this turn's answer was corrected, kept on the message: `claimed`, or null (`figures` comes from the answer). */
     private ?string $corrected = null;
 
     /** @var (callable(string): void)|null Told the answer's text so far, as it is written */
@@ -726,7 +726,7 @@ class Conversations
             (array) ($answer['calls'] ?? []), $this->checkCost > 0 ? (float) ($answer['cost'] ?? 0) + $this->checkCost : $answer['cost'], $stamp, $answer['context'] ?? null,
             // With moods on, `mood` is always there — null when nothing is felt — so a reader tells
             // "no mood" from "a backend without moods".
-            array_filter(['steps' => $steps, 'stopped' => $stopped, 'source' => $this->console ? 'console' : null, 'corrected' => $this->corrected,
+            array_filter(['steps' => $steps, 'stopped' => $stopped, 'source' => $this->console ? 'console' : null, 'corrected' => $this->corrected ?? (isset($answer['figures']) ? 'figures' : null),
                 'mode' => Work::in($turn->tags) ? Work::MODE : null]) + ($mood === null ? [] : ['mood' => $feels])
             + ($acts ? ['act' => Acts::act($reply), 'wear' => Acts::worn($reply)] : [])
             + ($ending && Ending::ends($reply) ? ['ended' => true] : [])

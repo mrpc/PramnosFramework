@@ -118,6 +118,17 @@ class Client
     /** Put under an answer still cut off after asking for the rest. */
     public const CUT_OFF = 'The answer was cut off at the model\'s length limit; raise the token budget in the AI settings for longer answers.';
 
+    /**
+     * Said to a model whose answer gives numbers its figures do not bear out ({@see Figures}),
+     * after a tool marked `'numeric' => true`: it answers again before the person reads it.
+     */
+    public const FIGURES = 'These numbers in your answer are not in what your tools returned, nor a total, sum, difference '
+        . 'or percentage of it: %s. Write the whole answer again using only the figures the tools returned and '
+        . 'arithmetic on them; where a number is not there, say it is not known rather than estimate it.';
+
+    /** Put under an answer whose numbers are still not borne out after it was written again. */
+    public const UNTRACED = 'Not found in the figures the tools returned: %s. Check them before relying on them.';
+
     /** Why an answer stopped by {@see cancelWhen()} has none. */
     public const STOPPED = 'Stopped before it was finished.';
 
@@ -414,6 +425,11 @@ class Client
      * null. Once, the model is told so and given more rounds — to do what it said it did, or to
      * say it did not.
      *
+     * A tool marked `'numeric' => true` holds the answer to its figures ({@see Figures}): a number
+     * the answer gives that its results do not bear out is said back, and the model answers again,
+     * whole. One still not borne out then is named under the answer; `figures` says which happened —
+     * `corrected`, `untraced` — and `untraced` lists the numbers.
+     *
      * @param list<array<string, mixed>>          $messages
      * @param array<string, array<string, mixed>> $tools    See {@see Tools}
      * @param array<string, callable(list<array{name: string, arguments: array<string, mixed>}>): bool> $due
@@ -502,6 +518,16 @@ class Client
         $calls    = [];
         $verified = false;
         $mustCall = false;
+        // What the numeric tools returned, the answer's numbers held to them; whether it was told once.
+        $figures  = [];
+        $figured  = false;
+        $asked    = '';
+        foreach (array_reverse($messages) as $one) {
+            if (($one['role'] ?? '') === 'user' && is_string($one['content'] ?? null)) {
+                $asked = $one['content'];
+                break;
+            }
+        }
         // What the model wrote in rounds that also called tools. Part of the answer: a model
         // can write the whole of it and call once more, and its last round is then a postscript.
         $said     = [];
@@ -642,6 +668,10 @@ class Client
                         default => $this->run($tools[$name] ?? null, $name, $arguments),
                     };
                     [$result, $moved] = $this->governed($tools[$name] ?? [], $result, $arguments, $context);
+                    if (!isset($refused[$at]) && !empty($tools[$name]['numeric'])) {
+                        $figures[] = $result;
+                        $asked    .= "\n" . json_encode($arguments, JSON_UNESCAPED_UNICODE);
+                    }
                     // A tool that hands over more tools — a skill turned on: theirs from the next round.
                     if (!isset($refused[$at]) && is_callable($tools[$name]['expands'] ?? null)) {
                         // Run here, never on a worker: a worker builds the answer's first tools, not these.
@@ -770,6 +800,25 @@ class Client
                 continue;
             }
 
+            // Held to its figures: answered again once; still not, the numbers are named under it.
+            $untraced = $figures === [] ? [] : Figures::untraced($answer, $figures, $asked);
+            if ($untraced !== [] && !$figured && !$over) {
+                $figured    = true;
+                $messages[] = ['role' => 'assistant', 'content' => $reply];
+                $messages[] = ['role' => 'system', 'content' => sprintf(self::FIGURES, implode(', ', $untraced))];
+                // To read again what it needs, and the answer.
+                $rounds     = $round + 2;
+                $said       = [];
+                \Pramnos\Logs\Logger::log('llm figures corrected: ' . implode(', ', $untraced) . ': ' . mb_substr($answer, 0, 200), 'llm');
+
+                continue;
+            }
+            if ($untraced !== []) {
+                $note   = "\n\n_" . sprintf(self::UNTRACED, implode(', ', $untraced)) . '_';
+                $reply .= $note;
+                $answer .= $note;
+            }
+
             return [
                 'ok'       => true,
                 // The whole text, as callers have read it. `final` is the answer alone and
@@ -794,7 +843,7 @@ class Client
                 'out_of_rounds' => !$over && $tools !== [] && $round === $rounds && $round > 1,
                 'tags'     => $this->tags(),
                 'provider' => $this->connection->provider(),
-            ];
+            ] + ($figured || $untraced !== [] ? ['figures' => $untraced !== [] ? 'untraced' : 'corrected', 'untraced' => $untraced] : []);
         }
 
         // Only a model that ignored `tool_choice: none` on the last round gets here.

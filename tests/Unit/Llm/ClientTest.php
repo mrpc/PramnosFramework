@@ -894,6 +894,39 @@ class ClientTest extends LlmTestCase
     }
 
     /**
+     * A tool marked `numeric` holds the answer to its figures: "41 attempts", which no value, total,
+     * sum or difference of its result makes, is said back before the person reads it, and the
+     * answer written again stands; one that still invents a number has it named under it.
+     */
+    public function testAnInventedNumberIsAnsweredAgain(): void
+    {
+        // Arrange — the report; an answer with a number it never returned; the honest one
+        $this->answer([
+            [200, self::calls([['retention', ['from' => '2026-11-01']]])],
+            [200, self::says('41 attempts failed: 84 renewals, 107 checkouts.')],
+            [200, self::says('84 renewals and 107 checkouts failed, 191 in all.')],
+            [200, self::calls([['retention', []]])],
+            [200, self::says('41 attempts.')],
+            [200, self::says('Still 41.')],
+        ]);
+        $tools = ['retention' => ['description' => '', 'parameters' => [], 'numeric' => true,
+            'run' => static fn (): string => '{"renewals":[75,8,1],"checkouts":[75,29,2,1]}']];
+
+        // Act
+        $honest = (new Client(null, self::memoryLog()))->askWithTools('', [['role' => 'user', 'content' => 'November?']], $tools, 4);
+        $stuck  = (new Client(null, self::memoryLog()))->askWithTools('', [['role' => 'user', 'content' => 'November?']], $tools, 4);
+
+        // Assert
+        $this->assertSame('84 renewals and 107 checkouts failed, 191 in all.', $honest['reply'], 'the corrected answer, whole');
+        $this->assertSame(sprintf(Client::FIGURES, '41'), end($this->sent[2]['body']['messages'])['content']);
+        $this->assertSame('corrected', $honest['figures']);
+        $this->assertSame([], $honest['untraced']);
+        $this->assertStringEndsWith('_' . sprintf(Client::UNTRACED, '41') . '_', $stuck['reply'], 'told once; then named for the reader');
+        $this->assertSame('untraced', $stuck['figures']);
+        $this->assertSame(['41'], $stuck['untraced']);
+    }
+
+    /**
      * A tagged result moves the answer to a connection that may take it, before it is sent.
      *
      * The moved request goes to the other provider, without the first one's own fields, with

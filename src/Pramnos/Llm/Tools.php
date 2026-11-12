@@ -44,7 +44,8 @@ final class Tools
                 'description' => $tool->description(),
                 'parameters'  => self::schema($tool->inputSchema()),
                 'run'         => static fn (array $arguments): string => self::text($tool->execute($arguments)),
-            ];
+            // A tool that answers with figures says so: `public function numeric(): bool` (Figures).
+            ] + (method_exists($tool, 'numeric') && $tool->numeric() === true ? ['numeric' => true] : []);
         }
 
         return $out;

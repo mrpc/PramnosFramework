@@ -281,6 +281,9 @@ final class Analyst
         return $tools;
     }
 
+    /** The framework's tools that answer with figures: `'numeric' => true` ({@see \Pramnos\Llm\Figures}). */
+    public const FIGURES = ['metrics', 'visits', 'llm_spend', 'sql'];
+
     /**
      * The tools as the model takes them: every result through {@see Redactor}, and one person's
      * account tagged `personal` for the data rules.
@@ -296,6 +299,10 @@ final class Analyst
         foreach ($tools as $name => $tool) {
             // Read-only, and built from the administrator alone: several asked at once run at once.
             $tools[$name]['parallel'] = true;
+            // Figures: the answer's numbers are held to what these returned.
+            if (in_array($name, self::FIGURES, true)) {
+                $tools[$name]['numeric'] = true;
+            }
             if (!in_array($name, Redactor::SELF_REDACTING, true)) {
                 $run                 = $tool['run'];
                 $tools[$name]['run'] = static fn (array $arguments): string => Redactor::clean((string) $run($arguments));
