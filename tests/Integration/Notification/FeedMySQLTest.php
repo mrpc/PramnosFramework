@@ -509,6 +509,39 @@ class FeedMySQLTest extends TestCase
     }
 
     /**
+     * The history, narrowed (FW-488): by a type, by a span of days, either end open; the kinds a
+     * person has had, labelled where the application names them; through the endpoint too.
+     */
+    public function testTheHistoryNarrowedByTypeAndDays(): void
+    {
+        // Arrange
+        Application::getInstance()->applicationInfo['notifications']['types'] = ['App\\Notifications\\TaskAssigned' => 'A task given to me'];
+        $feed = new Feed(self::ME, $this->db);
+        $this->db->queryBuilder()->table('notifications')->insert(['id' => '50000000-0000-4000-8000-000000000001', 'type' => 'App\\Notifications\\TaskAssigned',
+            'notifiable_type' => 'App\\User', 'notifiable_id' => self::ME, 'data' => json_encode(['message' => 'Old', 'tag' => 'old']), 'created_at' => '2026-09-01 10:00:00']);
+        $me = new \Pramnos\User\User();
+        $me->userid = self::ME;
+        \Pramnos\Http\RequestIdentity::seal($me, 'test');
+
+        // Act
+        $tasks   = self::tags($feed->list(1, 20, false, null, [], false, ['type' => 'App\\Notifications\\TaskAssigned']));
+        $october = self::tags($feed->list(1, 20, false, null, [], false, ['from' => '2026-10-01', 'to' => '2026-10-31']));
+        $before  = self::tags($feed->list(1, 20, false, null, [], false, ['to' => '2026-09-30']));
+        $kinds   = $feed->typesSeen();
+        $_GET    = ['type' => 'App\\Notifications\\TaskAssigned', 'from' => '2026-10-01', 'types' => '1'];
+        $answer  = json_decode((string) (new NotificationsController(Application::getInstance()))->display()->getBody(), true);
+
+        // Assert
+        $this->assertSame(['m1', 'old'], $tasks, 'by a type');
+        $this->assertSame(['m5', 'm4', 'm3', 'm2', 'm1'], $october, 'by a span of days');
+        $this->assertSame(['old'], $before, 'either end open');
+        $this->assertSame('A task given to me', $kinds['App\\Notifications\\TaskAssigned'], 'labelled where the application names it');
+        $this->assertSame('Welcome', $kinds['App\\Notifications\\Welcome'], 'else its short name');
+        $this->assertSame(['m1'], self::tags($answer));
+        $this->assertArrayHasKey('App\\Notifications\\TaskAssigned', $answer['types']);
+    }
+
+    /**
      * Quiet hours (FW-488, do not disturb): what would interrupt — a push, an email — is held back
      * in a person's quiet hours, on their clock, and the bell keeps it; one that must be
      * acknowledged goes through; hours that wrap past midnight hold; a time that is not one is

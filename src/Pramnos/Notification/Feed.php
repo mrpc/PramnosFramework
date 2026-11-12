@@ -59,23 +59,34 @@ final class Feed
      * One page of the feed, newest first.
      *
      * @param list<string> $except Groups left out
+     * @param array{type?: string, from?: string, to?: string} $filter The history's: a notification class, days `Y-m-d`
      * @return array{items: list<array<string, mixed>>, total: int, unread: int, page: int, pages: int}
      */
-    public function list(int $page = 1, int $perPage = 20, bool $unreadOnly = false, ?string $group = null, array $except = [], bool $collapse = false): array
+    public function list(int $page = 1, int $perPage = 20, bool $unreadOnly = false, ?string $group = null, array $except = [], bool $collapse = false, array $filter = []): array
     {
         $page    = max(1, $page);
         $perPage = max(1, min(self::MAX_PER_PAGE, $perPage));
+        // The history's filters: a type, and a span of days (`Y-m-d`, either end open).
+        $narrow  = function (QueryBuilder $q) use ($unreadOnly, $filter): QueryBuilder {
+            if ($unreadOnly) {
+                $q->whereNull('read_at');
+            }
+            if (is_string($filter['type'] ?? null) && $filter['type'] !== '') {
+                $q->where('type', $filter['type']);
+            }
+            foreach (['from' => '>=', 'to' => '<'] as $end => $op) {
+                $day = is_string($filter[$end] ?? null) ? \DateTimeImmutable::createFromFormat('!Y-m-d', $filter[$end]) : false;
+                if ($day !== false) {
+                    $q->where('created_at', $op, ($end === 'to' ? $day->modify('+1 day') : $day)->format('Y-m-d H:i:s'));
+                }
+            }
 
-        $count = $this->query($group, $except);
-        if ($unreadOnly) {
-            $count->whereNull('read_at');
-        }
-        $total = (int) $count->count();
+            return $q;
+        };
 
-        $rows = $this->query($group, $except);
-        if ($unreadOnly) {
-            $rows->whereNull('read_at');
-        }
+        $total = (int) $narrow($this->query($group, $except))->count();
+
+        $rows = $narrow($this->query($group, $except));
         $result = $rows->orderBy('created_at', 'desc')->orderBy('id', 'desc')
             ->limit($perPage)->offset(($page - 1) * $perPage)->get();
 
@@ -95,6 +106,25 @@ final class Feed
             'page'   => $page,
             'pages'  => max(1, (int) ceil($total / $perPage)),
         ];
+    }
+
+    /**
+     * The types a person has had, for a history's filter: class => its label where the
+     * application gives one (`notifications.types`), else the class's own short name.
+     *
+     * @return array<string, string>
+     */
+    public function typesSeen(): array
+    {
+        $labels = Preferences::types();
+        $out    = [];
+        foreach ($this->db()->queryBuilder()->table('#PREFIX#notifications')->select(['type'])->distinct()->where('notifiable_id', $this->userId)->limit(100)->getAllOrFail() as $row) {
+            $type       = (string) $row['type'];
+            $out[$type] = isset($labels[$type]) ? self::t($labels[$type]) : (string) preg_replace('/^.*\\\\/', '', $type);
+        }
+        asort($out);
+
+        return $out;
     }
 
     /**

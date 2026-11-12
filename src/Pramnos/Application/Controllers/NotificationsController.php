@@ -12,6 +12,7 @@ use Pramnos\Notification\Feed;
  *
  *   - `GET  /Notifications?page=1&unread=1&group=tasks`  one page: items, total, unread
  *   - `GET  /Notifications/count`                        unread counts, in all and by group
+ *   - `GET  /Notifications?type=…&from=Y-m-d&to=Y-m-d&types=1`  the history, narrowed; `types` lists the kinds one has had
  *   - `GET  /Notifications?collapse=1`                   the first page with a group's unread as one item, where app.php collapses it
  *   - `POST /Notifications/read?id=…`                    mark one read, or several: `id=a,b` (a collapsed item's)
  *   - `POST /Notifications/readall?group=tasks`          mark every unread one read
@@ -54,8 +55,9 @@ class NotificationsController extends Controller
             !empty($_GET['unread']),
             isset($_GET['group']) ? (string) $_GET['group'] : null,
             $this->exceptedGroups(),
-            !empty($_GET['collapse'])
-        ));
+            !empty($_GET['collapse']),
+            array_filter(['type' => (string) ($_GET['type'] ?? ''), 'from' => (string) ($_GET['from'] ?? ''), 'to' => (string) ($_GET['to'] ?? '')])
+        ) + (!empty($_GET['types']) ? ['types' => (object) $feed->typesSeen()] : []));
     }
 
     /** Unread counts: `unread` in all, and `groups` by the groups app.php declares. */

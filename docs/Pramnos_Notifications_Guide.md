@@ -674,6 +674,7 @@ class Notifications extends \Pramnos\Application\Controllers\NotificationsContro
 |---|---|
 | `GET /Notifications?page=1&per_page=20&unread=1&group=tasks` | one page |
 | `GET /Notifications/count` | `{unread, groups: {tasks: 2, …}}` |
+| `GET /Notifications?type=…&from=Y-m-d&to=Y-m-d&types=1` | the history narrowed; `types`, the kinds one has had |
 | `GET /Notifications?collapse=1` | the first page, with a collapsed group as one item |
 | `POST /Notifications/read?id=…` | `{read, unread}`; `id=a,b` reads several, as a collapsed item's |
 | `POST /Notifications/readall?group=tasks` | `{marked, unread}` |
@@ -794,6 +795,20 @@ read by being in sight, and it is not folded into a collapsed item. On the feed 
   bell draws them as buttons. A click posts to the action's address with the page's token, and
   then the notification is read, all without leaving the page. Only a path on this site is
   kept. The action's own controller does the work and checks who may.
+
+### The history, narrowed
+
+A page listing every notification ("See all") narrows it with plain filters, a type and a span
+of days, with no query language:
+
+```php
+$feed->list(1, 20, filter: ['type' => \App\Notifications\TaskAssigned::class, 'from' => '2026-10-01', 'to' => '2026-10-31']);
+$feed->typesSeen();   // class => label, for the type's dropdown: the application's labels, else the short name
+```
+
+Either end of the span may be left open. Through the endpoint it is
+`GET /Notifications?type=…&from=Y-m-d&to=Y-m-d`, with `&types=1` adding the kinds the person has
+had.
 
 ### Tell me again later
 
