@@ -265,6 +265,29 @@ class MemoryLearningTest extends LlmTestCase
     }
 
     /**
+     * Who said what, and what was pretend: the learning call is told that a fact about the person
+     * comes from their own words alone — never from the assistant's reply, where "a small robot
+     * like me" is the assistant's — that what the assistant said of itself is `self` alone, and
+     * that a story or a game made up together is about nobody.
+     */
+    public function testLearningIsToldWhoSaidWhatAndThatAStoryIsAboutNobody(): void
+    {
+        // Arrange
+        $this->configure(['chat' => ['memory' => ['learn' => true, 'self' => true]]]);
+        $this->answer([[200, self::says('{"changes": []}')]]);
+
+        // Act
+        (new Memory(new Scope(424242, null)))->learnConversation(new Client(), 'Tell me about the cat-dog Μπαμπέρι', '…or maybe a small robot like me?');
+        $prompt = (string) $this->sent[0]['body']['messages'][0]['content'];
+
+        // Assert
+        $this->assertStringContainsString('from their own words in "said" alone', $prompt);
+        $this->assertStringContainsString('is never a fact about the person', $prompt, 'the reply is the assistant\'s');
+        $this->assertStringContainsString(Memory::PRETEND, $prompt, 'a story or a game is about nobody');
+        $this->assertStringContainsString('never as "keep"', $prompt, 'what it said of itself is self alone');
+    }
+
+    /**
      * The answer and the memory it is learned from, in the same `ask()`, are one turn: the same
      * `trace_id` in `llm_calls` ({@see \Pramnos\Llm\CallLog::trace()}). A second, unrelated `ask()`
      * is a different turn, and gets a different one.

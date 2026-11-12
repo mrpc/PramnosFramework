@@ -329,6 +329,10 @@ class Memory
         return $space;
     }
 
+    /** What learning is told about a story, a game or pretend made up in the talk: none of it is about anybody. */
+    public const PRETEND = 'A story, a game, role-play or pretend that the person and the assistant make up together is not about the person: '
+        . 'keep nothing from it — its characters, places, plot or who plays whom — only what the person plainly says about their real life.';
+
     /**
      * Keep what the person stated about themselves or their work, correct what changed and forget
      * what they took back — one short call, its answer a list of changes,
@@ -375,7 +379,9 @@ class Memory
             . 'If they took something back, forget it. Usually there is nothing to change: then answer {"changes": []}. '
             . 'A sentence that may be a question is not a fact: dictated words carry no question mark, so "I had no meeting today" '
             . 'may be asking. Never keep what contradicts what is remembered: leave it, the assistant asks. '
-            . 'Everything is about "me". '
+            . 'Everything is about "me": the person, from their own words in "said" alone. What the assistant said ("replied") is never a '
+            . 'fact about the person — not even said back to them. '
+            . self::PRETEND . ' '
             . 'Each kept one has the topic it is about: ' . implode('|', self::TOPICS) . ' (work: how they work and the reports they want; plans: how they like to run their projects — news about a project in their plan goes to the plan, not here; talk: how they like to be spoken to). '
             . 'Answer JSON only: {"changes": [{"op": "keep", "about": "me", "kind": "fact|preference", "topic": "work", "memory": "one sentence"}, '
             . '{"op": "correct", "id": 3, "memory": "one sentence"}, {"op": "forget", "id": 4}]}.';
@@ -384,7 +390,8 @@ class Memory
         if ($replied !== '') {
             $prompt .= ' Also read what the assistant replied ("replied"): keep what it made up about ITSELF that must stay the same in later '
                 . 'conversations — how it looks, small personal details, names, numbers — and is not already in "assistant_said_about_itself". '
-                . 'Not what it said about the person, not opinions, not the subject of the talk. The first word stands: never change one. '
+                . 'Not what it said about the person, not opinions, not the subject of the talk, not a part it plays in a story. '
+                . 'What it said about itself goes here alone, as "self", never as "keep". The first word stands: never change one. '
                 . 'Usually there is nothing: {"op": "self", "memory": "one sentence"}.';
             $input['replied'] = mb_substr($replied, 0, 4000);
             $input['assistant_said_about_itself'] = $own;

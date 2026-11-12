@@ -431,7 +431,10 @@ the limits; what it cannot read changes nothing, and a failure never fails the a
 keeps is marked `learned` and shown so on the memory list, where the person forgets it like any
 other. It keeps only what would still be true and useful in an unrelated conversation a month later.
 It does not keep a request or a task, a problem reported, the filter of one question ("only
-today's") or anything about one particular record. Those go into every prompt from then on, and
+today's") or anything about one particular record. A fact about the person comes from their own
+words alone, never from what the assistant replied, even said back to them. A story, a game or
+role-play made up together is about nobody (`Memory::PRETEND`), so its characters and plot are
+not kept as anybody's facts. Those go into every prompt from then on, and
 searching past conversations already finds them. `llm:eval --memory` scores the test against a model: each case is
 something said and whether anything should be kept about it (`nothing` or `keep`), from the
 framework's own cases (`resources/llm-eval/memory-learn.json`) or a file of the application's.
@@ -445,7 +448,8 @@ proposal, which the next answer asks them to confirm.
 ['self' => true]]]` turns it on, for a companion that makes up details about itself. The same
 learning call then also reads the assistant's replies, and keeps what it made up about itself that
 must stay the same: how it looks, small personal details, names, numbers. Opinions, what it said
-about the person, and the subject of the talk are not kept. These are memories of kind `self`
+about the person, the subject of the talk and a part it plays in a story are not kept, and what
+it said of itself is only ever kept as `self`, never as a fact about the person. These are memories of kind `self`
 (`Memory::SELF`), per person, and the first word stands: a later reply never changes one. They go
 into the prompt apart from what is remembered about the person, under *What you have said about
 yourself to this person — keep to it, never contradict it*. The person sees and forgets them on
