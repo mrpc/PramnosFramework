@@ -79,6 +79,8 @@ abstract class LlmTestCase extends TestCase
         }
         // Summaries, like learning, are a call a test asks for: off unless it does.
         $config['chat'] = (is_array($config['chat'] ?? null) ? $config['chat'] : []) + ['summarize' => false];
+        // And so is reading an answer for a claim no tool made: a test that wants it turns it on.
+        $config['chat'] += ['verify_claims' => false];
         Application::getInstance()->applicationInfo['llm'] = $config;
         Llm::reset();
     }

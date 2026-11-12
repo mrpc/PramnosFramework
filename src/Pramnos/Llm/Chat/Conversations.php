@@ -106,6 +106,12 @@ class Conversations
     /** One id for every call of the turn under way — the answer, a tier fallback, its fold and its learn. */
     private ?string $traceId = null;
 
+    /** What the claim check spent this turn, added to the turn's cost. */
+    private float $checkCost = 0.0;
+
+    /** Why this turn's answer was corrected, kept on the message: `claimed`, or null. */
+    private ?string $corrected = null;
+
     /** @var (callable(string): void)|null Told the answer's text so far, as it is written */
     private $onText = null;
 
@@ -716,10 +722,10 @@ class Conversations
         }
         $feels   = $mood?->now($conversationId);
         $message = $this->store($conversationId, 'assistant', self::withoutMark($this->polished($turn, $tagged ? Ending::strip(Acts::strip(Mood::strip($reply))) : $reply)),
-            (array) ($answer['calls'] ?? []), $answer['cost'], $stamp, $answer['context'] ?? null,
+            (array) ($answer['calls'] ?? []), $this->checkCost > 0 ? (float) ($answer['cost'] ?? 0) + $this->checkCost : $answer['cost'], $stamp, $answer['context'] ?? null,
             // With moods on, `mood` is always there — null when nothing is felt — so a reader tells
             // "no mood" from "a backend without moods".
-            array_filter(['steps' => $steps, 'stopped' => $stopped, 'source' => $this->console ? 'console' : null,
+            array_filter(['steps' => $steps, 'stopped' => $stopped, 'source' => $this->console ? 'console' : null, 'corrected' => $this->corrected,
                 'mode' => Work::in($turn->tags) ? Work::MODE : null]) + ($mood === null ? [] : ['mood' => $feels])
             + ($acts ? ['act' => Acts::act($reply), 'wear' => Acts::worn($reply)] : [])
             + ($ending && Ending::ends($reply) ? ['ended' => true] : [])
@@ -1238,13 +1244,64 @@ class Conversations
      */
     private function verifier(Turn $turn, array $tools): ?callable
     {
-        $own = $this->assistant->verify($turn);
-        if (!isset($tools['schedule_task'])) {
+        $own   = $this->assistant->verify($turn);
+        $claim = $this->claimCheck($turn);
+        $this->checkCost = 0.0;
+        $this->corrected = null;
+        if (!isset($tools['schedule_task']) && $claim === null) {
             return $own;
         }
+        $reminders = isset($tools['schedule_task']);
 
         return static fn (string $answer, array $calls): ?string => ($own === null ? null : $own($answer, $calls))
-            ?? Routines::unkept($answer, $calls) ?? Routines::unchecked($answer, $calls);
+            ?? ($reminders ? Routines::unkept($answer, $calls) ?? Routines::unchecked($answer, $calls) : null)
+            ?? ($claim === null ? null : $claim($answer, $calls));
+    }
+
+    /** What an answer is asked, on the cheapest model, to tell whether it says something was done. */
+    public const CLAIM_PROMPT = 'Read the assistant\'s reply below. Does it tell the person that an action has already been done or arranged — '
+        . 'a reminder, alarm or timer set, something saved, remembered or written down, a message sent, something cancelled, changed or booked? '
+        . 'Offering, planning or asking to do it is not; describing or answering is not. Answer with one word: YES or NO.';
+
+    /** What the model is told when it said something was done and called no tool to do it. */
+    public const CLAIM_CORRECTION = 'You told the person something was done or arranged, but you called no tool to do it, so nothing happened. '
+        . 'Do it now with the right tool, then confirm it; or, if you cannot, say plainly that it was not done.';
+
+    /**
+     * The check that an answer does not say something was done that no tool did — "Done, your
+     * reminder rings at 9:15" with no call — or null where it is off: `'chat' => ['verify_claims' =>
+     * false]`, or `fn (Assistant $assistant, Scope $scope): bool` to decide per assistant. An answer
+     * that called any tool is left alone; otherwise the cheapest model reads it, at the turn's cost,
+     * and where it does say so the model is corrected once, and the message keeps
+     * `corrected: claimed` for the review.
+     */
+    private function claimCheck(Turn $turn): ?callable
+    {
+        $on = ((array) \Pramnos\Llm\Llm::config('chat', []))['verify_claims'] ?? true;
+        if ($this->scope === null || !(is_callable($on) ? (bool) $on($this->assistant, $this->scope) : (bool) $on)) {
+            return null;
+        }
+
+        return function (string $answer, array $calls): ?string {
+            if ($calls !== [] || trim($answer) === '') {
+                return null;
+            }
+            try {
+                $read = $this->client($this->scope)->askCheaply(self::CLAIM_PROMPT, [['role' => 'user', 'content' => mb_substr($answer, 0, 2000)]]);
+            } catch (\Throwable $why) {
+                \Pramnos\Logs\Logger::log('llm claim check: ' . $why->getMessage(), 'llm');
+
+                return null;
+            }
+            $this->checkCost += (float) ($read['cost'] ?? 0);
+            if (!($read['ok'] ?? false) || preg_match('/^\W*yes\b/i', trim((string) ($read['reply'] ?? ''))) !== 1) {
+                return null;
+            }
+            $this->corrected = 'claimed';
+            \Pramnos\Logs\Logger::log('llm claim corrected: user ' . $this->scope->userId . ', ' . $this->scope->stored() . ': ' . mb_substr($answer, 0, 200), 'llm');
+
+            return self::CLAIM_CORRECTION;
+        };
     }
 
     /** Whether conversations can be ended here: the column exists. */

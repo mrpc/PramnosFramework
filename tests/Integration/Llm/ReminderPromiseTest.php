@@ -102,4 +102,48 @@ class ReminderPromiseTest extends LlmTestCase
         $this->db->queryBuilder()->table('pramnos.ai_routines')->where('userid', $person)->delete();
         $this->db->queryBuilder()->table('assist.chat_conversations')->where('userid', $person)->delete();
     }
+
+    /**
+     * An answer that says something was done with no tool called is read, on the cheapest model,
+     * and corrected once (FW-485): "Κανονίστηκε — θα σου χτυπήσει υπενθύμιση στις 9:15", which no
+     * word list caught, then scheduled; the same answer after schedule_task, or a greeting, is
+     * left alone; what the check spent is the turn's, and the message says it was corrected.
+     */
+    #[DataProvider('databases')]
+    public function testAnAnswerThatSaysItWasDoneWithNoToolIsCorrected(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => ['verify_claims' => true]]);
+        $person = random_int(100000, 999999);
+        $said   = 'Κανονίστηκε — θα σου χτυπήσει υπενθύμιση στις 9:15.';
+        $this->answer([
+            [200, self::says($said)],                                                       // claimed, no call
+            [200, self::says('YES')],                                                       // the check
+            [200, self::calls([['schedule_task', ['kind' => 'reminder', 'title' => 'Υπενθύμιση', 'prompt' => 'Υπενθύμιση', 'cadence' => 'once', 'in_minutes' => 30]]])],
+            [200, self::says($said)],                                                       // now done
+            [200, self::says('Καλημέρα!')],                                                 // a greeting
+            [200, self::says('NO')],                                                        // the check
+        ]);
+        $chat = (new Conversations(new BaseAssistant()))->as(new Scope($person, null));
+
+        // Act
+        $first    = $chat->ask(null, 'Θύμισέ μου στις 9:15 να πάρω τα φάρμακα');
+        $greeting = $chat->ask(null, 'Καλημέρα');
+        $routines = $this->db->queryBuilder()->table('pramnos.ai_routines')->where('userid', $person)->count();
+        $stored   = $this->db->queryBuilder()->table('assist.chat_messages')->where('message_id', (int) $first['message']['message_id'])->getAllOrFail()[0];
+        $this->configure(['chat' => ['verify_claims' => static fn ($assistant, Scope $scope): bool => false]]);
+        $this->answer([[200, self::says($said)]]);
+        $off      = (new Conversations(new BaseAssistant()))->as(new Scope($person, null))->ask(null, 'Θύμισέ μου');
+
+        // Assert
+        $this->assertStringContainsString(Conversations::CLAIM_PROMPT, json_encode($this->sent[1]['body'] ?? [], JSON_UNESCAPED_UNICODE) ?: '', 'read by the cheap call');
+        $this->assertSame(1, $routines, 'corrected, and the reminder written');
+        $this->assertSame($said, $first['message']['content'], 'the answer after the call stands: no second check');
+        $this->assertStringContainsString('"corrected":"claimed"', (string) $stored['extra'], 'kept for the review');
+        $this->assertSame('Καλημέρα!', $greeting['message']['content'], 'a greeting is left alone');
+        $this->assertSame($said, $off['message']['content'], 'off for this assistant: no check');
+        $this->db->queryBuilder()->table('pramnos.ai_routines')->where('userid', $person)->delete();
+        $this->db->queryBuilder()->table('assist.chat_conversations')->where('userid', $person)->delete();
+    }
 }

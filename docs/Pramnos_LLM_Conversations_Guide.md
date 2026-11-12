@@ -255,6 +255,22 @@ A scheduled answer, or one others read, neither asks for the tag nor changes the
 three columns of `assist.chat_conversations` (`mood`, `mood_intensity`, `mood_at`): state, with no
 history kept.
 
+## An answer that says it was done, when nothing did it
+
+An answer such as "Done, your reminder rings at 9:15" must have a tool behind it. When an answer
+in a turn with tools called none, the cheapest model reads it (`Conversations::CLAIM_PROMPT`):
+does it tell the person that an action was done or arranged, such as a reminder, a save, a
+message sent or something cancelled? Where it does, the model is sent back once
+(`CLAIM_CORRECTION`). It then does it with the right tool, or says plainly that it was not done.
+
+- It runs after the assistant's own `verify()` and the reminder checks, and only where they found
+  nothing.
+- An answer that called any tool is left alone, and so is one in a turn with no tools.
+- What the check spends is added to the turn's cost. A corrected message keeps
+  `corrected: claimed` in its extra, for the review, and the log says so.
+- It is on by default. Turn it off with `'llm' => ['chat' => ['verify_claims' => false]]`, or
+  decide per assistant with `fn (Assistant $assistant, Scope $scope): bool`.
+
 ## What the assistant does and wears in an answer
 
 An avatar set with hands and props can let the assistant pick, for each answer, what it does and

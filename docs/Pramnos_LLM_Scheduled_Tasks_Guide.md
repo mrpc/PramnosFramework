@@ -60,7 +60,9 @@ depend on the model opening a skill first. Without it, the model reaches for `se
 sends nothing. **A promised reminder must be scheduled.** An answer that says "I'll remind you"
 or «θα σου θυμίσω», while no `schedule_task` was called, is sent back once
 (`Routines::unkept()`, after the assistant's own `verify()`). The model then schedules the
-reminder, or says plainly that none was set.
+reminder, or says plainly that none was set. An answer that says something was done in words
+no pattern reads, such as «Κανονίστηκε», is caught by the claim check
+([Conversations guide](Pramnos_LLM_Conversations_Guide.md#an-answer-that-says-it-was-done-when-nothing-did-it)).
 
 **What is scheduled is known.** On the conversation page, zone 3 lists the person's tasks that run
 in the next 24 hours, in their time (`Routines::upcoming()`), or says nothing is scheduled.
