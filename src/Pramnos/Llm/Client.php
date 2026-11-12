@@ -126,6 +126,11 @@ class Client
         . 'or percentage of it: %s. Write the whole answer again using only the figures the tools returned and '
         . 'arithmetic on them; where a number is not there, say it is not known rather than estimate it.';
 
+    /** Told before an answer, of numbers in the question that the earlier figures do not bear out. */
+    public const DOUBTED = 'The person\'s message mentions %s, which none of the figures your tools returned earlier in this '
+        . 'conversation bears out. If it is meant as one of those figures — or one you gave earlier — tell them it is not, '
+        . 'and give the figure that is.';
+
     /** Put under an answer whose numbers are still not borne out after it was written again. */
     public const UNTRACED = 'Not found in the figures the tools returned: %s. Check them before relying on them.';
 
@@ -245,6 +250,24 @@ class Client
     public function answering(?string $key): static
     {
         $this->answering = $key;
+
+        return $this;
+    }
+
+    /** @var list<string> What numeric tools returned earlier in the conversation ({@see withFigures()}) */
+    private array $earlier = [];
+
+    /**
+     * What numeric tools returned earlier in the conversation, for an answer that calls none: its
+     * numbers are held to those too, once it gives one of them — a follow-up about the same
+     * figures. A number in the question that they do not bear out is pointed out to the model
+     * before it answers ({@see DOUBTED}). An empty list for none.
+     *
+     * @param list<string> $results
+     */
+    public function withFigures(array $results): static
+    {
+        $this->earlier = array_values(array_map('strval', $results));
 
         return $this;
     }
@@ -428,7 +451,8 @@ class Client
      * A tool marked `'numeric' => true` holds the answer to its figures ({@see Figures}): a number
      * the answer gives that its results do not bear out is said back, and the model answers again,
      * whole. One still not borne out then is named under the answer; `figures` says which happened —
-     * `corrected`, `untraced` — and `untraced` lists the numbers.
+     * `corrected`, `untraced` — and `untraced` lists the numbers; `figures_read` keeps what they
+     * returned, for the next answer ({@see withFigures()}).
      *
      * @param list<array<string, mixed>>          $messages
      * @param array<string, array<string, mixed>> $tools    See {@see Tools}
@@ -527,6 +551,10 @@ class Client
                 $asked = $one['content'];
                 break;
             }
+        }
+        $earlier = $this->earlier;
+        if ($earlier !== [] && ($doubted = Figures::untraced($asked, $earlier)) !== []) {
+            $messages[] = ['role' => 'system', 'content' => sprintf(self::DOUBTED, implode(', ', $doubted))];
         }
         // What the model wrote in rounds that also called tools. Part of the answer: a model
         // can write the whole of it and call once more, and its last round is then a postscript.
@@ -801,7 +829,11 @@ class Client
             }
 
             // Held to its figures: answered again once; still not, the numbers are named under it.
-            $untraced = $figures === [] ? [] : Figures::untraced($answer, $figures, $asked);
+            $untraced = $figures !== [] ? Figures::untraced($answer, [...$earlier, ...$figures], $asked) : [];
+            // Nothing read in this answer: held to the earlier figures once it gives one of them.
+            if ($figures === [] && $earlier !== [] && ($held = Figures::untraced($answer, $earlier, $asked)) !== Figures::untraced($answer, [], $asked)) {
+                $untraced = $held;
+            }
             if ($untraced !== [] && !$figured && !$over) {
                 $figured    = true;
                 $messages[] = ['role' => 'assistant', 'content' => $reply];
@@ -843,7 +875,9 @@ class Client
                 'out_of_rounds' => !$over && $tools !== [] && $round === $rounds && $round > 1,
                 'tags'     => $this->tags(),
                 'provider' => $this->connection->provider(),
-            ] + ($figured || $untraced !== [] ? ['figures' => $untraced !== [] ? 'untraced' : 'corrected', 'untraced' => $untraced] : []);
+            ] + ($figured || $untraced !== [] ? ['figures' => $untraced !== [] ? 'untraced' : 'corrected', 'untraced' => $untraced] : [])
+                // What the numeric tools returned, for the next question's answer (withFigures()).
+                + ($figures === [] ? [] : ['figures_read' => $figures]);
         }
 
         // Only a model that ignored `tool_choice: none` on the last round gets here.

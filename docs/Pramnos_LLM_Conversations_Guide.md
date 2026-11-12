@@ -273,7 +273,8 @@ message sent or something cancelled? Where it does, the model is sent back once
 
 An answer that gives numbers after a tool marked `numeric` is held to that tool's figures the
 same way, without a model to read it. A message corrected for a number its figures did not bear
-out keeps `corrected: figures` (see
+out keeps `corrected: figures`. What those tools returned is kept on the answer (`figures_read`), and
+the next answers in the conversation are held to it even when they call no tool (see
 [Numbers that come from the figures](Pramnos_LLM_Tools_Guide.md)).
 
 ## What the assistant does and wears in an answer

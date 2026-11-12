@@ -120,6 +120,14 @@ message keeps `corrected: figures` for the review.
 - An MCP tool says it with `public function numeric(): bool`. `Tools::fromMcp()` and
   `ToolRegistry::registerMcp()` read it. The analyst's `metrics`, `visits`, `llm_spend` and `sql`
   are marked (`Analyst::FIGURES`).
+- A follow-up is held to the figures too. `Client::withFigures($results)` hands an answer what
+  numeric tools returned earlier, and the result's `figures_read` is what this answer's returned.
+  An answer that calls no tool is held to the earlier figures once it gives one of them, so small
+  talk with a number in it ("see you at 5") is left alone. A number in the question that the
+  earlier figures do not bear out is pointed out to the model before it answers
+  (`Client::DOUBTED`). The model then tells the person instead of answering from that number.
+  A conversation does this by itself: it keeps `figures_read` on the answer, up to
+  `Client::RESULT_LIMIT` characters, and hands the latest to the next question.
 - A number that matches a figure under the wrong label passes. So does arithmetic over three or
   more values, which is said back. The check holds numbers to their source; it does not read
   what they are said to mean.

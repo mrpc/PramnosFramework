@@ -488,6 +488,8 @@ class Conversations
         $ids     = [];
         // How full the window was on the last answer, as the provider counted it.
         $lastContext = 0;
+        // What numeric tools last returned here: a follow-up's numbers are held to it (Figures).
+        $figures = [];
         $held    = [];
         $summary = '';
 
@@ -515,6 +517,9 @@ class Conversations
                 $history[] = ['role' => $turn['role'], 'content' => $turn['content'] . $this->whatItDid($turn['tools'] ?? []) . self::whereItStopped($turn)];
                 $ids[]     = (int) $turn['message_id'];
                 $lastContext = $turn['role'] === 'assistant' ? (int) ($turn['context'] ?? 0) : $lastContext;
+            }
+            foreach ($found['messages'] as $turn) {
+                $figures = is_array($turn['extra']['figures_read'] ?? null) ? $turn['extra']['figures_read'] : $figures;
             }
         }
 
@@ -637,8 +642,8 @@ class Conversations
 
         $sent = $zones->messages($turn, $semi, $messages);
         $onText = !$tagged || $this->onText === null ? $this->onText : fn (string $soFar) => ($this->onText)(Ending::strip(Acts::strip(Mood::strip($soFar))));
-        $run  = function (\Pramnos\Llm\Client $client, array $sent) use ($prefix, $tools, $turn, $parallel, $onText): array {
-            $answer = $client->onText($onText)->onTool($this->onTool)->cancelWhen($this->stopWhen)->inParallel($parallel)->answering($this->answerKey)->askWithTools(
+        $run  = function (\Pramnos\Llm\Client $client, array $sent) use ($prefix, $tools, $turn, $parallel, $onText, $figures): array {
+            $answer = $client->withFigures($figures)->onText($onText)->onTool($this->onTool)->cancelWhen($this->stopWhen)->inParallel($parallel)->answering($this->answerKey)->askWithTools(
                 $prefix,
                 $sent,
                 $tools,
@@ -646,7 +651,7 @@ class Conversations
                 $this->assistant->due($turn),
                 $this->verifier($turn, $tools)
             );
-            $client->onText(null)->onTool(null)->cancelWhen(null)->inParallel(null)->answering(null);
+            $client->withFigures([])->onText(null)->onTool(null)->cancelWhen(null)->inParallel(null)->answering(null);
 
             return $answer;
         };
@@ -730,6 +735,7 @@ class Conversations
                 'mode' => Work::in($turn->tags) ? Work::MODE : null]) + ($mood === null ? [] : ['mood' => $feels])
             + ($acts ? ['act' => Acts::act($reply), 'wear' => Acts::worn($reply)] : [])
             + ($ending && Ending::ends($reply) ? ['ended' => true] : [])
+            + (isset($answer['figures_read']) ? ['figures_read' => self::figuresKept((array) $answer['figures_read'])] : [])
             // What a tool changed of the person's settings, for the application to follow at once.
             + (($changed = Settings::taken($this->scope->userId)) !== [] ? ['settings' => ['changed' => $changed]] : []));
         if ($ending && Ending::ends($reply)) {
@@ -1557,6 +1563,28 @@ class Conversations
         $result = $this->scope->apply($this->table('assist.chat_conversations'))->where('conversation_id', $conversationId)->first();
 
         return $result && (int) $result->numRows > 0 ? $result->fields : null;
+    }
+
+    /**
+     * What numeric tools returned, kept on the answer for the next question's: the latest first
+     * reached, up to {@see \Pramnos\Llm\Client::RESULT_LIMIT} in all.
+     *
+     * @param list<mixed> $results
+     * @return list<string>
+     */
+    private static function figuresKept(array $results): array
+    {
+        $kept = [];
+        $room = \Pramnos\Llm\Client::RESULT_LIMIT;
+        foreach (array_reverse(array_map('strval', $results)) as $one) {
+            if ($room <= 0) {
+                break;
+            }
+            array_unshift($kept, mb_substr($one, 0, $room));
+            $room -= mb_strlen($one);
+        }
+
+        return $kept;
     }
 
     /**
