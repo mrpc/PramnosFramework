@@ -506,7 +506,8 @@ class Routines
         $policy    = $this->policy();
         $scope     = $policy->scope($routine);
         // What this run tells goes to the devices of the space it runs in (TellsItsApp).
-        $this->space = $scope->space;
+        // The stored space — persona and partition — so its notices reach that profile's devices.
+        $this->space = $scope->stored();
         $timezone  = $policy->timezone($routine);
         $started   = time();
 

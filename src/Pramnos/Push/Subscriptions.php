@@ -136,7 +136,8 @@ class Subscriptions
      */
     public static function tagApp(int $userId, string $endpoint, string $app): bool
     {
-        $app = substr((string) preg_replace('/[^a-z0-9_.-]/', '', strtolower($app)), 0, 32);
+        // `@` kept: a partition's app is `chat@3`.
+        $app = substr((string) preg_replace('/[^a-z0-9_.@-]/', '', strtolower($app)), 0, 32);
         if ($userId < 1 || $endpoint === '' || $app === '') {
             return false;
         }

@@ -34,10 +34,19 @@ trait TellsItsApp
         return self::appOf($this->space);
     }
 
-    /** The app a space's notifications go to: `chat` for the companion's, every persona's, where the application has an app for it. */
+    /**
+     * The app a space's notifications go to: `chat` for the companion's, every persona's, where the
+     * application has an app for it — `chat@<partition>` for a partition's, whose devices alone
+     * are told; the holder's `chat` reaches only the devices of no partition.
+     */
     public static function appOf(string $space): string
     {
-        return People::companion($space) && self::appUrl() !== '' ? Scope::CHAT : '';
+        if (!People::companion($space) || self::appUrl() === '') {
+            return '';
+        }
+        $partition = (new Scope(0, null, $space))->partition;
+
+        return Scope::CHAT . ($partition === null ? '' : '@' . $partition);
     }
 
     /** The assistant's own app, where the application has one: `'llm' => ['chat' => ['app_url' => …]]`. */

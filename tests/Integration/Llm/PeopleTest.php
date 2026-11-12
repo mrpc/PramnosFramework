@@ -227,6 +227,42 @@ class PeopleTest extends LlmTestCase
         $this->db->queryBuilder()->table('#PREFIX#userdetails')->where('userid', $id)->delete();
         $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $id)->delete();
     }
+
+    /**
+     * A device subscribed from a partition belongs to it (FW-490): tagged `chat@<partition>`, and
+     * moved to another profile when the same device is subscribed again from it; the holder's
+     * devices are `chat`; and a partition's notice reaches only its own devices.
+     */
+    #[DataProvider('databases')]
+    public function testADeviceBelongsToTheProfileItWasSubscribedFrom(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Notifications\CreatePushSubscriptionsTable::class,
+            \Pramnos\Framework\Migrations\Notifications\AddTrustedDeviceToPushSubscriptions::class, \Pramnos\Framework\Migrations\Notifications\AddClientToPushSubscriptions::class,
+            \Pramnos\Framework\Migrations\Notifications\AddAppToPushSubscriptions::class], $this->db);
+        $id     = random_int(100000, 999999);
+        $device = ['endpoint' => 'https://push.example/d/' . $id, 'keys' => ['p256dh' => 'BPkey', 'auth' => 'authkey']];
+        ApiFixture::$stop  = null;
+        ApiFixture::$input = $device;
+
+        // Act
+        ApiFixture::$scope = (new Scope($id))->withPartition(3);
+        $first  = (new ApiFixture())->pushSubscribe();
+        $three  = \Pramnos\Push\Subscriptions::exist($id, 'chat@3');
+        ApiFixture::$scope = (new Scope($id))->withPartition(5);
+        (new ApiFixture())->pushSubscribe();
+        $moved  = [\Pramnos\Push\Subscriptions::exist($id, 'chat@3'), \Pramnos\Push\Subscriptions::exist($id, 'chat@5'), \Pramnos\Push\Subscriptions::exist($id, 'chat')];
+        ApiFixture::$scope = new Scope($id);
+        $holder = (new ApiFixture())->pushSubscribe();
+
+        // Assert
+        $this->assertSame('chat@3', $first['data']['app']);
+        $this->assertTrue($three);
+        $this->assertSame([false, true, false], $moved, 'the same device moved to the other profile');
+        $this->assertSame('chat', $holder['data']['app'], 'the holder\'s');
+        $this->db->queryBuilder()->table('pramnos.pushsubscriptions')->where('userid', $id)->delete();
+    }
 }
 
 /** An application's assistant that keeps a persona per partition: partition 4 has Tesla, and none may choose Naya. */

@@ -97,4 +97,25 @@ final class TellsItsAppTest extends LlmTestCase
         $this->assertSame(['', [], []], $noApp, 'no app: nowhere at all, not the site\'s devices');
         $this->assertSame(['database'], $optedIn, 'the bell only where the application asks for it');
     }
+
+    /**
+     * Each device told of its own profile (FW-490): a partition's notices go to the app as
+     * `chat@<partition>`, every persona's of it too, so only that partition's devices are told; the
+     * holder's stay `chat`, the devices of no partition — old subscriptions among them. With the
+     * companion's own channel, a partition's app is the companion's as well.
+     */
+    public function testEachDeviceIsToldOfItsOwnProfile(): void
+    {
+        // Arrange
+        $this->configure(['chat' => ['app_url' => 'https://app.example/', 'notify' => ['channel' => 'app']]]);
+
+        // Act
+        $apps = array_map(static fn (string $space): string => RoutineReady::tag(new TaskReminder('x', ''), $space)->pushApp(null),
+            ['chat@3', 'chat:tesla@3', Scope::CHAT, 'chat:tesla', Scope::ADMIN]);
+        $channels = RoutineReady::channels((object) ['userid' => 0], 'chat@3');
+
+        // Assert
+        $this->assertSame(['chat@3', 'chat@3', 'chat', 'chat', ''], $apps, 'a partition\'s own app; the holder\'s; the administration\'s the site\'s');
+        $this->assertNotContains('database', $channels, 'a partition\'s app is the companion\'s: never the site\'s bell');
+    }
 }

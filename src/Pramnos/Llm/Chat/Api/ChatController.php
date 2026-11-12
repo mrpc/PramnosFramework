@@ -980,9 +980,11 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         if (!\Pramnos\Push\Subscriptions::store($scope->userId, $subscription, (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''))) {
             return self::error(422, 'That subscription is not usable — it needs an https endpoint and both keys.');
         }
-        \Pramnos\Push\Subscriptions::tagApp($scope->userId, (string) $subscription['endpoint'], $scope->space);
+        // The device belongs to the profile it was subscribed from — a partition's (`chat@3`), or the holder's (`chat`) — and moves with it when subscribed again from another.
+        $app = $scope->space . ($scope->partition === null ? '' : '@' . $scope->partition);
+        \Pramnos\Push\Subscriptions::tagApp($scope->userId, (string) $subscription['endpoint'], $app);
 
-        return ['status' => 200, 'data' => ['subscribed' => true, 'app' => $scope->space]];
+        return ['status' => 200, 'data' => ['subscribed' => true, 'app' => $app]];
     }
 
     /** Forget this device's subscription, by its `endpoint`; nothing to forget is not an error. */

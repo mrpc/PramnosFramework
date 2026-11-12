@@ -1060,7 +1060,7 @@ class Conversations
                 $name   = Personas::get((string) Personas::of($scope))['name'] ?? \Pramnos\Llm\Analyst\Analyst::name();
                 // Its words in the person's language, not the console's.
                 $notice = \Pramnos\Notification\Notifier::inLanguageOf($user,
-                    static fn (): object => RoutineReady::tag(new TaskReminder(sprintf(t('%s left you something 💌'), $name), $morning['url']), $scope->space));
+                    static fn (): object => RoutineReady::tag(new TaskReminder(sprintf(t('%s left you something 💌'), $name), $morning['url']), $scope->stored()));
                 // The application's assistant tells it its own way where it has `tellMorning(Scope, object): bool`
                 // — whom, and how; false for nobody — else the account's holder is told.
                 $sent = true;

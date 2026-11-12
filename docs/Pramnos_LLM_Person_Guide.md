@@ -262,6 +262,11 @@ What runs on its own, without a request, takes the partition from the stored spa
 - **Its own settings** (`Settings::of($user, $persona, $partition)`, `change(…, $partition)`):
   its own over the holder's, which it falls back on. Changing them in a partition leaves the
   holder's as they are.
+- **Its own devices:** a device subscribed to push from a partition (`{chat}/push/subscribe`)
+  belongs to it, as app `chat@<partition>`, and moves to another profile when the same device
+  subscribes again from it. A partition's notices, such as its morning, reminders, calendar and
+  shares, reach only its own devices. The holder's (`chat`) reach only the devices of no
+  partition, those subscribed before partitions among them.
 - **Its own first meetings:** `People::firstMeetings($userId, $partition)` and `first_meetings`
   on `{chat}/me` count its own conversations, and the holder's count only the holder's.
 - **Whom the morning is told to** is the account's holder, unless the assistant has

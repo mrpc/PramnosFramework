@@ -129,7 +129,7 @@ final class Calendar
                 // In the person's language: the reminder is built by a cron job, which has none.
                 $person  = new \Pramnos\User\User($scope->userId);
                 $notice  = \Pramnos\Notification\Notifier::inLanguageOf($person, static fn (): object => RoutineReady::tag(new TaskReminder(
-                    sprintf(t($minutes === 1 ? 'In %d minute: %s.' : 'In %d minutes: %s.'), $minutes, (string) $row['title']), ''), $scope->space));
+                    sprintf(t($minutes === 1 ? 'In %d minute: %s.' : 'In %d minutes: %s.'), $minutes, (string) $row['title']), ''), $scope->stored()));
                 $deliver !== null ? $deliver($scope->userId, $notice) : (new \Pramnos\User\User($scope->userId))->notify($notice);
                 $sent++;
             } catch (\Throwable $why) {
