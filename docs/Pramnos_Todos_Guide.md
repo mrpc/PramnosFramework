@@ -103,6 +103,9 @@ Todos::source('ticket', fn (int $tenant): iterable => [
 ```
 
 A source returns what it wants on the list now, by a key that names what the item stands for.
+An item with an exact time, such as a meeting, gives `due_at` (unix) instead of `due`, and a
+reminder as `remind_at`. Both are kept in step like the day, and a reminder already sent is not
+sent again.
 `Todos::sync()` keeps the list in step:
 - **New:** a key not on the list opens an item.
 - **Changed:** the title, the day and the assignee follow the source. An assignee a person chose
@@ -139,11 +142,14 @@ It runs:
 - **Settled.** A notice is about its item (`todo:ID`): closing or deleting the item settles it in
   every bell. `Todos::seen($viewer)` settles a person's to-do notices; a screen showing the list
   calls it.
-- **Handed over** (kind `assigned`, as when an artifact is assigned to someone from the Ask).
-  Whoever handed the item over is told when its assignee closes it. They are also told of a
+- **Handed over:** kind `assigned`, as when an artifact is assigned to someone from the Ask, or
+  one's own item given to somebody else. Whoever handed the item over is told when its assignee
+  closes it. They are also told of a
   `note` the assignee adds, `Todos::update($id, ['note' => '…'], $by)`, alone or with the closing.
   The note is kept in the item's history (`changelog_events`), not in a column.
-- **Where it leads:** `todos.url`, the list at `/admin/Todo` by default.
+- **Where it leads:** `todos.url`, the list at `/admin/Todo` by default. As
+  `fn (array $item, ?int $recipient): string` it leads each recipient their own way, such as the
+  administration for one and the conversations for another.
 
 ## In the conversations
 
@@ -257,6 +263,19 @@ go with them. The account's export carries the items they wrote for themselves, 
 `Todos::exportable($tenant, ?$person)` gives an organisation's own items, or a person's, for an
 export of the application's.
 
+## Turning it on a piece at a time
+
+Once `pramnos.todos` exists, every piece of the list appears by itself:
+- the assistant's `todos` tools, in the Ask and over MCP (`tools`);
+- the menu item and the header's button (`menu`);
+- the dashboard card (`dashboard`);
+- the rules' "Add a to-do" action (`rules`);
+- the conversations' to-dos (`chat`).
+
+An application moving onto the list from a list of its own turns each piece off, `'todos' =>
+['tools' => false, …]`, until it is ready, so the table and its data can arrive first with
+nothing visible. `Todos::offers($piece)` answers whether a piece is on.
+
 ## Settings
 
 ```php
@@ -265,7 +284,8 @@ export of the application's.
     'tenants'      => fn (): array => […],                      // the organisations a sync runs for
     'newest_first' => false,
     'sync_every'   => 5,                                        // minutes
-    'url'          => '/admin/Todo',                            // or fn (array $item): string
+    'url'          => '/admin/Todo',                            // or fn (array $item, ?int $recipient): string
+    'tools' => true, 'menu' => true, 'dashboard' => true, 'rules' => true, 'chat' => true, // each piece; false keeps it off
     'due_notice'   => false,                                    // "due today" at 08:05
     'allowed'      => fn (int $tenant): bool => …,              // an organisation has to-dos at all
     'successor'    => fn (int $tenant, int $user): ?int => …,   // who takes a leaving person's items

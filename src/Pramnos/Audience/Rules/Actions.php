@@ -214,7 +214,7 @@ final class Actions
                 'then'      => ['label' => t('Then'), 'type' => 'select', 'options' => ['notify' => t('Send the answer to that administrator'), 'attribute' => t('Keep the answer in an attribute')]],
                 'attribute' => $text(t('Attribute (for keeping the answer)'), 'attribute'),
             ], 'run' => self::askAi(...)],
-        ] : []) + (\Pramnos\Todos\Todos::installed() ? [
+        ] : []) + (\Pramnos\Todos\Todos::offers('rules') ? [
             'todo' => ['label' => t('Add a to-do'), 'channel' => null, 'params' => [
                 'title'       => $text(t('What is to be done — {firstname}, {userid} and the rest are filled in')),
                 'assigned_to' => $text(t('For (account id; 0 for nobody in particular)'), 'number'),

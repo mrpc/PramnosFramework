@@ -28,11 +28,12 @@ use Pramnos\Changelog\ChangelogWriter;
  *   - `tenants` fn (): list<int> — the organisations a sync runs for; [0] by default
  *   - `newest_first` bool — within a day, newest first; oldest first by default
  *   - `sync_every` int — minutes between syncs; 5 by default
- *   - `url` string|fn (array $item): string — where a notice leads; `/admin/Todo` by default
+ *   - `url` string|fn (array $item, ?int $recipient): string — where a notice leads its recipient; `/admin/Todo` by default
  *   - `due_notice` bool — tell assignees at 08:05 of items due that day or overdue; off by default
  *   - `allowed` fn (int $tenant): bool — whether an organisation has to-dos at all; yes by default
  *   - `successor` fn (int $tenant, int $user): ?int — who takes a removed account's open items; nobody by default
  *   - `photo` fn (int $user): ?string — a person's picture's address, beside their name on the list; none by default
+ *   - `tools`, `menu`, `dashboard`, `rules`, `chat` false — that piece stays off though the table is there ({@see offers()})
  */
 final class Todos
 {
@@ -71,7 +72,7 @@ final class Todos
      *
      * @param array<string, mixed> $item `title` (a line: its first web address becomes the link
      *        unless `link` is given), `link`, `assigned_to` (the author by default; 0 for nobody),
-     *        `private`, `due` (Y-m-d), `remind_at` (unix), `tenant`, `kind`, `source`,
+     *        `private`, `due` (Y-m-d), `due_at` (unix: an exact time, over `due`), `remind_at` (unix), `tenant`, `kind`, `source`,
      *        `messageid`, `conversationid`, `tell` (false: the assignee was told already),
      *        `repeat` (one of {@see REPEATS}: done, the next opens — it needs a day or a reminder)
      * @param int $by Who adds it; 0 for the system
@@ -88,7 +89,8 @@ final class Todos
         }
         $now    = time();
         $remind = isset($item['remind_at']) && (int) $item['remind_at'] > 0 ? (int) $item['remind_at'] : null;
-        $due    = self::due($item['due'] ?? null, $tenant);
+        // An exact time where one is given (a source's meeting), else the end of the day.
+        $due    = isset($item['due_at']) && (int) $item['due_at'] > 0 ? (int) $item['due_at'] : self::due($item['due'] ?? null, $tenant);
         $repeat = self::repeat($item['repeat'] ?? null, $due ?? $remind);
         $row = ['tenant' => $tenant, 'kind' => (string) ($item['kind'] ?? 'own'), 'source' => $item['source'] ?? null, 'title' => $title, 'link' => $link,
             'status' => self::OPEN, 'assigned_to' => $assign, 'assigned_by_hand' => false, 'due_at' => $due,
@@ -201,7 +203,9 @@ final class Todos
         // After its notices were settled: this one is new.
         // Handed over by somebody else: they hear of a note, and of it being closed.
         $from = (int) ($item['created_by'] ?? 0);
-        if ($item['kind'] === 'assigned' && $from > 0 && $from !== $by) {
+        // Handed over: kind `assigned`, or one's own item given to somebody else.
+        $handed = $item['kind'] === 'assigned' || ($item['kind'] === 'own' && $item['source'] === null && $item['assigned_to'] !== null && $item['assigned_to'] !== $from);
+        if ($handed && $from > 0 && $from !== $by) {
             $who  = $by > 0 ? self::nameOf($by) : '';
             $what = self::short((string) $item['title']);
             if (isset($row['closed_at']) && $item['closed_at'] === null) {
@@ -414,7 +418,8 @@ final class Todos
             self::tell($item, $person, $said);
             if (\Pramnos\Conversations\Conversations::installed()) {
                 try {
-                    \Pramnos\Conversations\SystemPost::post($person, $said . (self::url($item) !== '' ? "\n" . self::url($item) : ''), [],
+                    $where = self::url($item, $person);
+                    \Pramnos\Conversations\SystemPost::post($person, $said . ($where !== '' ? "\n" . $where : ''), [],
                         ['username' => t('Reminders'), 'source' => 'todo', 'externalid' => 'remind:' . $item['id'] . ':' . $item['remind_at']]);
                 } catch (\Throwable $e) {
                     \Pramnos\Logs\Logger::log('todos: reminder ' . $item['id'] . ' not posted: ' . $e->getMessage(), 'todos');
@@ -531,6 +536,18 @@ final class Todos
         }
     }
 
+    /**
+     * Whether a piece of the list is offered: the table is there and the application did not
+     * turn the piece off — `'todos' => ['tools' => false]` (the assistant's tools), `menu` (the
+     * menu item and the header's button), `dashboard` (the card), `rules` (the rules' action),
+     * `chat` (the conversations' to-dos). An application moving onto the list turns each on
+     * when it is ready.
+     */
+    public static function offers(string $piece): bool
+    {
+        return self::installed() && (self::config()[$piece] ?? true) !== false;
+    }
+
     /** @var bool|null Whether the table is there, asked once */
     private static ?bool $installed = null;
 
@@ -609,21 +626,25 @@ final class Todos
 
     /**
      * "To-dos about this": the open items a person sees whose link is a page — its path, with or
-     * without the site's address.
+     * without the site's address. Asked by a path alone, an item's link with a query or a fragment
+     * on that path is about it (`users/view/4?tab=validation` is about `users/view/4`); asked with
+     * a query, only that query is.
      *
      * @return list<array<string, mixed>>
      */
     public static function about(string $link, int $tenant, int $viewer): array
     {
-        $path = (string) (parse_url($link, PHP_URL_PATH) ?? $link) . (($q = parse_url($link, PHP_URL_QUERY)) ? '?' . $q : '');
+        $path  = '/' . ltrim((string) (parse_url($link, PHP_URL_PATH) ?? $link), '/');
+        $query = (string) (parse_url($link, PHP_URL_QUERY) ?? '');
 
-        return array_values(array_filter(self::list($tenant, $viewer), static function (array $i) use ($link, $path): bool {
+        return array_values(array_filter(self::list($tenant, $viewer), static function (array $i) use ($link, $path, $query): bool {
             if ($i['link'] === null || !in_array($i['status'], [self::OPEN, self::IN_PROGRESS], true)) {
                 return false;
             }
-            $their = (string) (parse_url($i['link'], PHP_URL_PATH) ?? '') . (($q = parse_url($i['link'], PHP_URL_QUERY)) ? '?' . $q : '');
+            $theirPath  = '/' . ltrim((string) (parse_url($i['link'], PHP_URL_PATH) ?? ''), '/');
+            $theirQuery = (string) (parse_url($i['link'], PHP_URL_QUERY) ?? '');
 
-            return $i['link'] === $link || ($path !== '' && $their === $path);
+            return $i['link'] === $link || ($path !== '/' && $theirPath === $path && ($query === '' || $theirQuery === $query));
         }));
     }
 
@@ -772,19 +793,24 @@ final class Todos
         try {
             $user = new \Pramnos\User\User($person);
             if ((int) ($user->userid ?? 0) === $person) {
-                $user->notify(new TodoNotification((int) $item['id'], $said, self::url($item)));
+                $user->notify(new TodoNotification((int) $item['id'], $said, self::url($item, $person)));
             }
         } catch (\Throwable $e) {
             \Pramnos\Logs\Logger::log('todos: ' . ($item['id'] ?? '?') . ': ' . $person . ' not told: ' . $e->getMessage(), 'todos');
         }
     }
 
-    /** Where a notice of an item leads: `todos.url`, the list by default. @param array<string, mixed> $item */
-    private static function url(array $item): string
+    /**
+     * Where a notice of an item leads its recipient: `todos.url` — words, or
+     * `fn (array $item, ?int $recipient): string` — the list by default.
+     *
+     * @param array<string, mixed> $item
+     */
+    private static function url(array $item, ?int $recipient = null): string
     {
         $url = self::config()['url'] ?? '/admin/Todo';
 
-        return is_callable($url) ? (string) $url($item) : (string) $url;
+        return is_callable($url) ? (string) $url($item, $recipient) : (string) $url;
     }
 
     /** A person's name: first and last, or the username. */
@@ -846,12 +872,14 @@ final class Todos
         $now = time();
         foreach ($wanted as $key => $want) {
             $title = mb_substr(trim((string) ($want['title'] ?? $key)), 0, self::TITLE);
-            $due   = self::due($want['due'] ?? null, $tenant);
+            $due   = isset($want['due_at']) && (int) $want['due_at'] > 0 ? (int) $want['due_at'] : self::due($want['due'] ?? null, $tenant);
+            $hasRemind = array_key_exists('remind_at', $want);
+            $remind    = $hasRemind && (int) $want['remind_at'] > 0 ? (int) $want['remind_at'] : null;
             $to    = isset($want['assigned_to']) ? ((int) $want['assigned_to'] ?: null) : null;
             $item  = $have[$key] ?? null;
             if ($item === null) {
                 self::add(['tenant' => $tenant, 'kind' => $kind, 'source' => $key, 'title' => $title, 'link' => $want['link'] ?? null,
-                    'assigned_to' => $to ?? 0, 'due' => $want['due'] ?? null, 'tell' => ($want['tell'] ?? true) !== false]);
+                    'assigned_to' => $to ?? 0, 'due' => $want['due'] ?? null, 'due_at' => $due, 'remind_at' => $remind, 'tell' => ($want['tell'] ?? true) !== false]);
                 $out['opened']++;
                 continue;
             }
@@ -861,6 +889,10 @@ final class Todos
             }
             if ($item['due_at'] !== $due) {
                 $row += ['due_at' => $due, 'due_told_at' => null];
+            }
+            // A reminder the source gives follows it — but one already sent stays sent; one it says nothing of is the person's.
+            if ($hasRemind && $item['remind_at'] !== $remind && ($remind === null || $remind !== ($item['reminded_at'] ?? null))) {
+                $row['remind_at'] = $remind;
             }
             if (!$item['assigned_by_hand'] && $item['assigned_to'] !== $to) {
                 $row['assigned_to'] = $to;

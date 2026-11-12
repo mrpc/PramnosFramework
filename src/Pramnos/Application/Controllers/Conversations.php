@@ -471,12 +471,21 @@ class Conversations extends Controller
     public function todolist(): mixed
     {
         return $this->answer(function (object $me): array {
+            self::todosHere();
             $filter = in_array($this->in('filter'), \Pramnos\Todos\Chat::FILTERS, true) ? (string) $this->in('filter') : 'all';
             \Pramnos\Todos\Todos::seen((int) $me->userid);
 
             return ['todos' => \Pramnos\Todos\Chat::list($me, $filter, $this->in('order') === 'newest' ? 'newest' : 'when'),
                 'presets' => \Pramnos\Todos\Chat::presets()];
         });
+    }
+
+    /** The conversations' to-dos, refused where the application keeps them off (`todos.chat`). */
+    private static function todosHere(): void
+    {
+        if (!\Pramnos\Todos\Todos::offers('chat')) {
+            throw new \InvalidArgumentException(t('There is no to-do list here.'));
+        }
     }
 
     /**
@@ -486,6 +495,7 @@ class Conversations extends Controller
     public function addtodo(): mixed
     {
         return $this->answer(function (object $me): array {
+            self::todosHere();
             $preset = $this->in('preset') !== null ? (string) $this->in('preset') : null;
             $at     = (int) ($this->in('remind_at') ?? 0) ?: null;
             $item   = (int) ($this->in('message') ?? 0) > 0
@@ -503,6 +513,7 @@ class Conversations extends Controller
     public function changetodo(): mixed
     {
         return $this->answer(function (object $me): array {
+            self::todosHere();
             $changes = [];
             foreach (['status', 'title', 'due'] as $key) {
                 if ($this->in($key) !== null) {
@@ -524,6 +535,7 @@ class Conversations extends Controller
     public function deletetodo(): mixed
     {
         return $this->answer(function (object $me): array {
+            self::todosHere();
             \Pramnos\Todos\Todos::delete($this->id(), (int) $me->userid);
 
             return ['ok' => true];
@@ -534,6 +546,7 @@ class Conversations extends Controller
     public function savetodo(): mixed
     {
         return $this->answer(function (object $me): array {
+            self::todosHere();
             \Pramnos\Todos\Chat::toSaved($this->id(), $me);
 
             return ['ok' => true];

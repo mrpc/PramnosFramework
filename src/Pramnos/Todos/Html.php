@@ -80,7 +80,7 @@ final class Html
     private static function reader(): ?object
     {
         $user = \Pramnos\User\User::current();
-        if (!is_object($user) || !Todos::installed() || !Todos::can($user, 'read')) {
+        if (!is_object($user) || !Todos::offers('menu') || !Todos::can($user, 'read')) {
             return null;
         }
 

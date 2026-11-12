@@ -150,7 +150,7 @@ final class Chat
         $among = array_values(array_filter(array_map('intval', $among)));
         // Asked on every conversation opened: where there is no to-do list, nothing is asked of
         // the database, rather than a query that fails and is logged each time.
-        if ($among === [] || !Todos::installed()) {
+        if ($among === [] || !Todos::offers('chat')) {
             return [];
         }
         try {

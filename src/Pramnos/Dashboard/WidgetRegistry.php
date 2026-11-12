@@ -111,7 +111,7 @@ final class WidgetRegistry
             }
         }
         // The to-do card, where the list is installed.
-        if (($config['todos'] ?? true) !== false && \Pramnos\Todos\Todos::installed()) {
+        if (($config['todos'] ?? true) !== false && \Pramnos\Todos\Todos::offers('dashboard')) {
             $widgets['todos'] ??= new \Pramnos\Todos\TodosWidget();
         }
         $widgets = array_replace($widgets, self::$registered);

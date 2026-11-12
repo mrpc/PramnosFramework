@@ -104,7 +104,8 @@ class TodosToldTest extends TestCase
         $seen        = Todos::seen($nikos);
 
         // Assert
-        $this->assertSame([], $this->bell($eleni), 'her own acts tell her nothing');
+        $this->assertSame(['Νίκος Π. closed: Call the supplier'], array_column($this->bell($eleni), 'message'),
+            'her own acts tell her nothing; her own item she gave away, closed by another, does (FW-487)');
         $this->assertCount(2, $beforeClose);
         $about = array_column($beforeClose, 'about', 'message');
         $this->assertSame(['todo:' . $call], $about['A to-do for you · from Ελένη Σ.: Call the supplier'] ?? null, 'about the item: what settles it');
@@ -114,6 +115,47 @@ class TodosToldTest extends TestCase
             'the new assignee told, the closed item\'s notice settled; the source that told already not told again');
         $this->assertSame([true, true], array_column($mariaBell, 'read'), 'one closed, one deleted: both settled');
         $this->assertSame(1, $seen, 'seeing the list settles what is left');
+    }
+
+    /**
+     * For an application moving onto the list (FW-487): a source gives an exact time and a
+     * reminder, and keeps them in step; a notice leads each recipient where `todos.url` says for
+     * them; "to-dos about this" by a path finds an item linked with a query on it; and each piece
+     * is turned off on its own (`todos.tools`, `menu`, `dashboard`, `rules`, `chat`).
+     */
+    #[DataProvider('databases')]
+    public function testWhatAnApplicationMovingOntoTheListNeeds(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->ready($type, $host, $port, $user, ['url' => static fn (array $item, ?int $to): string => '/to/' . $to . '#' . $item['id'],
+            'tools' => false, 'menu' => false, 'dashboard' => false, 'rules' => false, 'chat' => false]);
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        $at   = (int) (time() / 60) * 60 + 3600;
+        $when = $at;
+        Todos::source('meeting', static function () use (&$when, $maria): array {
+            return ['meeting:1' => ['title' => 'Meeting', 'assigned_to' => $maria, 'due_at' => $when, 'remind_at' => $when - 900]];
+        });
+
+        // Act
+        Todos::sync(0);
+        $first = Todos::list(0, $maria)[0];
+        $when  = $at + 1800;
+        Todos::sync(0);
+        $moved = Todos::list(0, $maria)[0];
+        $said  = $this->db->queryBuilder()->table('notifications')->where('notifiable_id', $maria)->getAllOrFail();
+        $tab   = Todos::add(['title' => 'Check the papers', 'link' => '/admin/users/view/4?tab=validation'], $eleni);
+        $about = array_column(Todos::about('/admin/users/view/4', 0, $eleni), 'id');
+        $other = array_column(Todos::about('/admin/users/view/4?tab=other', 0, $eleni), 'id');
+
+        // Assert
+        $this->assertSame([$at, $at - 900], [$first['due_at'], $first['remind_at']], 'an exact time and a reminder, not the end of the day');
+        $this->assertSame([$at + 1800, $at + 900], [$moved['due_at'], $moved['remind_at']], 'kept in step with the source');
+        $this->assertSame('/to/' . $maria . '#' . $first['id'], (string) json_decode((string) $said[0]['data'], true)['url'], 'led where the application says for her');
+        $this->assertSame([$tab], $about, 'a query on the path is about it');
+        $this->assertSame([], $other, 'asked with another query: not');
+        $this->assertSame([false, false, false, false, false], [Todos::offers('tools'), Todos::offers('menu'), Todos::offers('dashboard'), Todos::offers('rules'), Todos::offers('chat')]);
+        Application::getInstance()->applicationInfo['todos'] = [];
+        $this->assertTrue(Todos::offers('chat'), 'on by default, where the table is');
     }
 
     /**

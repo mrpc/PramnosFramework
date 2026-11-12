@@ -67,7 +67,7 @@ final class AnalystMcpTool implements ScopedMcpTool
             return match ($key) {
                 'visits'               => \Pramnos\Visits\Visits::sites() !== [],
                 'metrics', 'goals'     => \Pramnos\Metrics\Metrics::all() !== [],
-                'todos'                => \Pramnos\Todos\Todos::installed(),
+                'todos'                => \Pramnos\Todos\Todos::offers('tools'),
                 'conversation_summary' => \Pramnos\Conversations\Conversations::installed(),
                 default                => false,
             };

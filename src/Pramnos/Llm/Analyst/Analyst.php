@@ -238,7 +238,7 @@ final class Analyst
         }
 
         // The to-do list, where it is installed; adding and changing is a write.
-        if (\Pramnos\Todos\Todos::installed()) {
+        if (\Pramnos\Todos\Todos::offers('tools')) {
             $tools[] = new \Pramnos\Llm\Analyst\Tools\TodosTool($adminId);
             $tools[] = new \Pramnos\Llm\Analyst\Tools\TodosChangeTool($adminId);
         }

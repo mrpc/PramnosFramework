@@ -1600,7 +1600,7 @@ class Application extends Base
             'admin.todos', 'To-dos', $admin('Todo'),
             NavSection::Admin, 4, requireAuth: true, minUserType: $floor,
             icon: 'check',
-            when: static fn (): bool => \Pramnos\Todos\Todos::installed() && \Pramnos\Todos\Todos::can(\Pramnos\User\User::current(), 'read'),
+            when: static fn (): bool => \Pramnos\Todos\Todos::offers('menu') && \Pramnos\Todos\Todos::can(\Pramnos\User\User::current(), 'read'),
         ));
         NavRegistry::register(new NavItem(
             'admin.goals', 'Goals', $admin('Goals'),
