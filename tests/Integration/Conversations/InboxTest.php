@@ -192,4 +192,43 @@ class InboxTest extends TestCase
         $this->assertGreaterThan(1000, $kept, 'never moved back');
         \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#userdetails')->where('userid', $eleni)->where('fieldname', Inbox::ACTIVITY_SEEN)->delete();
     }
+
+    /**
+     * The badge counts what is still unread (FW-493): a mention read in its conversation — the
+     * read point past it — is not counted, though the activity was never opened; one still unread
+     * is; a reaction, which has no read point, counts until the activity is seen; seen, nothing
+     * is. The activity itself still lists all of them.
+     */
+    #[DataProvider('databases')]
+    public function testTheBadgeLeavesOutWhatWasReadInItsConversation(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class], Conversations::db());
+        $general = Conversations::create('channel', 'general', [$maria], $eleni);
+        $mine    = Messages::post($general, $eleni, 'Καλημέρα');
+        $first   = Messages::post($general, $maria, 'Γεια <@' . $eleni . '>');
+        $second  = Messages::post($general, $maria, 'Και πάλι <@' . $eleni . '>');
+
+        // Act
+        Conversations::markRead($general, $eleni, $first);
+        $oneRead  = Inbox::unseenActivity($eleni);
+        Conversations::markRead($general, $eleni, $second);
+        $allRead  = Inbox::unseenActivity($eleni);
+        Messages::react($mine, $maria, '👍');
+        $reaction = Inbox::unseenActivity($eleni);
+        $listed   = count(Inbox::activity($eleni));
+        Inbox::sawActivity($eleni, time() + 5);
+        \Pramnos\User\User::clearUserCache();
+        $seen     = Inbox::unseenActivity($eleni);
+
+        // Assert
+        $this->assertSame(1, $oneRead, 'the mention read in the channel is not counted; the unread one is');
+        $this->assertSame(0, $allRead, 'both read in the channel: none, the activity never opened');
+        $this->assertSame(1, $reaction, 'a reaction has no read point: counted until the activity is seen');
+        $this->assertSame(3, $listed, 'the activity still lists everything');
+        $this->assertSame(0, $seen);
+        \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#userdetails')->where('userid', $eleni)->where('fieldname', Inbox::ACTIVITY_SEEN)->delete();
+    }
 }
