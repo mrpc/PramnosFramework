@@ -58,7 +58,7 @@ final class Feed
      * @param list<string> $except Groups left out
      * @return array{items: list<array<string, mixed>>, total: int, unread: int, page: int, pages: int}
      */
-    public function list(int $page = 1, int $perPage = 20, bool $unreadOnly = false, ?string $group = null, array $except = []): array
+    public function list(int $page = 1, int $perPage = 20, bool $unreadOnly = false, ?string $group = null, array $except = [], bool $collapse = false): array
     {
         $page    = max(1, $page);
         $perPage = max(1, min(self::MAX_PER_PAGE, $perPage));
@@ -79,6 +79,10 @@ final class Feed
         $items = [];
         while ($result && $result->fetch()) {
             $items[] = $this->item($result->fields);
+        }
+
+        if ($collapse && $page === 1) {
+            $items = $this->collapsed($items, $group, $except);
         }
 
         return [
@@ -229,6 +233,56 @@ final class Feed
         }
 
         return $count;
+    }
+
+    /**
+     * The unread of a group shown as one item where app.php collapses it and there are enough —
+     * "You have 3 to-dos", linking to their list — in place of each:
+     * `'notifications' => ['collapse' => ['todo' => ['title' => 'You have %d to-dos', 'url' => '/Todo', 'min' => 2]]]`.
+     * The item's `id` is every one of theirs, comma-separated, so reading it reads them all; it is
+     * where the newest of them was, and carries `count` and `collapsed: true`.
+     *
+     * @param list<array<string, mixed>> $items
+     * @param list<string>               $except
+     * @return list<array<string, mixed>>
+     */
+    private function collapsed(array $items, ?string $group, array $except): array
+    {
+        $app   = \Pramnos\Application\Application::currentInstance();
+        $rules = is_object($app) ? ($app->applicationInfo['notifications']['collapse'] ?? []) : [];
+        foreach (is_array($rules) ? $rules : [] as $name => $rule) {
+            $name = (string) $name;
+            $rule = is_array($rule) ? $rule : [];
+            if (($group !== null && $group !== '' && $group !== $name) || in_array($name, $except, true)) {
+                continue;
+            }
+            $unread = $this->query($name, $except)->whereNull('read_at')->select(['id', 'created_at'])->orderBy('created_at', 'desc')->limit(500)->getAllOrFail();
+            if (count($unread) < max(2, (int) ($rule['min'] ?? 2))) {
+                continue;
+            }
+            $ids  = array_map(static fn (array $r): string => (string) $r['id'], $unread);
+            $at   = null;
+            $kept = [];
+            foreach ($items as $item) {
+                if (in_array($item['id'], $ids, true)) {
+                    $at ??= count($kept);
+                    continue;
+                }
+                $kept[] = $item;
+            }
+            $one = ['id' => implode(',', $ids), 'type' => '', 'group' => $name, 'count' => count($ids), 'collapsed' => true,
+                'title' => sprintf(self::t((string) ($rule['title'] ?? '%d new')), count($ids)), 'message' => '',
+                'url' => isset($rule['url']) ? (string) $rule['url'] : null, 'data' => [], 'read' => false, 'created_at' => (string) $unread[0]['created_at']];
+            array_splice($kept, $at ?? 0, 0, [$one]);
+            $items = $kept;
+        }
+
+        return $items;
+    }
+
+    private static function t(string $words): string
+    {
+        return function_exists('t') ? (string) t($words) : $words;
     }
 
     /**

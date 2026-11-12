@@ -12,8 +12,10 @@ use Pramnos\Notification\Feed;
  *
  *   - `GET  /Notifications?page=1&unread=1&group=tasks`  one page: items, total, unread
  *   - `GET  /Notifications/count`                        unread counts, in all and by group
- *   - `POST /Notifications/read?id=…`                    mark one read
+ *   - `GET  /Notifications?collapse=1`                   the first page with a group's unread as one item, where app.php collapses it
+ *   - `POST /Notifications/read?id=…`                    mark one read, or several: `id=a,b` (a collapsed item's)
  *   - `POST /Notifications/readall?group=tasks`          mark every unread one read
+ *   - `POST /Notifications/settle?about=todo:42,…`       mark read one's own about those (`data-pf-settles` on a page)
  *
  * Each takes `except=conversations,…` too: groups the bell leaves out, of its list, its counts and
  * its "mark all read".
@@ -29,9 +31,9 @@ class NotificationsController extends Controller
 {
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'count', 'read', 'readall']);
+        $this->addAuthAction(['display', 'count', 'read', 'readall', 'settle']);
         // A write: a POST with the page's token, refused otherwise before it runs.
-        $this->addWriteAction(['read', 'readall']);
+        $this->addWriteAction(['read', 'readall', 'settle']);
         parent::__construct($application);
     }
 
@@ -48,7 +50,8 @@ class NotificationsController extends Controller
             (int) ($_GET['per_page'] ?? 20),
             !empty($_GET['unread']),
             isset($_GET['group']) ? (string) $_GET['group'] : null,
-            $this->exceptedGroups()
+            $this->exceptedGroups(),
+            !empty($_GET['collapse'])
         ));
     }
 
@@ -66,16 +69,35 @@ class NotificationsController extends Controller
         return $this->answer(['unread' => $all, 'groups' => (object) $counts]);
     }
 
-    /** Mark one read: `?id=` or a posted `id`. */
+    /** Mark one read, or several — `?id=` or a posted `id`, comma-separated. */
     public function read(): mixed
     {
         $feed = $this->feed();
         if ($feed === null) {
             return $this->answer(['error' => 'Sign in to see your notifications.'], 401);
         }
-        $id = (string) ($_POST['id'] ?? $_GET['id'] ?? '');
+        $read = false;
+        foreach (array_slice(explode(',', (string) ($_POST['id'] ?? $_GET['id'] ?? '')), 0, 500) as $id) {
+            $read = $feed->markRead(trim($id)) || $read;
+        }
 
-        return $this->answer(['read' => $feed->markRead($id), 'unread' => $feed->unreadCount(null, $this->exceptedGroups())]);
+        return $this->answer(['read' => $read, 'unread' => $feed->unreadCount(null, $this->exceptedGroups())]);
+    }
+
+    /**
+     * Mark read the signed-in person's notifications about what a page shows — `about=todo:42,…`,
+     * as `data-pf-settles` on the page sends it ({@see Feed::settleAbout()}). Their own only.
+     */
+    public function settle(): mixed
+    {
+        $user = \Pramnos\User\User::current();
+        $id   = is_object($user) ? (int) ($user->userid ?? 0) : 0;
+        if ($id <= 1) {
+            return $this->answer(['error' => 'Sign in to see your notifications.'], 401);
+        }
+        $keys = array_slice(array_map('trim', explode(',', (string) ($_POST['about'] ?? $_GET['about'] ?? ''))), 0, 50);
+
+        return $this->answer(['settled' => Feed::settleAbout($keys, $id)]);
     }
 
     /** Mark every unread one read, in `?group=` or in all. */

@@ -40,6 +40,7 @@
  *   data-pf-omnibox             — cross-entity search box (see Html\SearchBox); the
  *                                 endpoint, minimum length, debounce and the loading /
  *                                 empty strings come from data-pf-omnibox-* attributes
+ *   data-pf-settles             — what a page shows ("todo:42"): one's notifications about it read
  *   data-pf-notifications       — the notification bell (see Html\NotificationBell): the
  *                                 count, the list, read and read-all, polled while the tab
  *                                 is visible and refreshed on `pf:notifications:refresh`
@@ -1959,6 +1960,7 @@
                 link.setAttribute('href', n.url || '#');
                 link.setAttribute('data-pf-notifications-item', n.id);
                 if (!n.read) { li.classList.add('is-unread'); }
+                if (n.collapsed) { li.classList.add('is-collapsed'); }
                 var fill = { title: n.title || n.message, message: n.title ? n.message : '', time: n.created_at };
                 Object.keys(fill).forEach(function (field) {
                     var part = li.querySelector('[data-field="' + field + '"]');
@@ -1970,14 +1972,42 @@
                 return li;
             }
 
+            // A group app.php collapses comes as one item ("You have 3 to-dos"), its id every one of
+            // theirs: reading it reads them all.
             function load() {
-                return get('?per_page=10' + (group ? '&group=' + encodeURIComponent(group) : '')).then(function (d) {
+                return get('?per_page=10&collapse=1' + (group ? '&group=' + encodeURIComponent(group) : '')).then(function (d) {
                     list.textContent = '';
                     (d.items || []).forEach(function (n) { list.appendChild(item(n)); });
                     if (empty) { empty.hidden = (d.items || []).length > 0; }
                     showCount(d.unread || 0);
+                    seeSoon();
                 }).catch(function () {});
             }
+
+            // data-read-on-view (ms, off by default): what stays in sight of the open list that
+            // long is read, as a glance at it is in most inboxes. Off, only a click reads.
+            var onView = parseInt(bell.getAttribute('data-read-on-view') || '0', 10);
+            var seeing = null;
+            function seeSoon() {
+                if (!(onView > 0)) { return; }
+                window.clearTimeout(seeing);
+                seeing = window.setTimeout(seen, onView);
+            }
+            function seen() {
+                if (panel.hidden) { return; }
+                var box = list.getBoundingClientRect();
+                var ids = [];
+                Array.prototype.forEach.call(list.querySelectorAll('.is-unread'), function (li) {
+                    var r = li.getBoundingClientRect();
+                    var link = li.querySelector('[data-pf-notifications-item]') || li;
+                    if (r.bottom > box.top && r.top < box.bottom && r.height > 0) {
+                        ids.push(link.getAttribute('data-pf-notifications-item'));
+                        li.classList.remove('is-unread');
+                    }
+                });
+                if (ids.length) { post('/read?id=' + encodeURIComponent(ids.join(','))).then(refreshCount); }
+            }
+            list.addEventListener('scroll', seeSoon);
 
             function setOpen(on) {
                 panel.hidden = !on;
@@ -2058,6 +2088,32 @@
 
             if (!document.hidden) { start(); }
         });
+    })();
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // data-pf-settles — "this page shows these": the signed-in person's notifications about them
+    // are read once it is open (Feed::settleAbout(), their own only). `data-pf-settles="todo:42
+    // comment:7"` on any element, as many as the page has; one request for all. The address is
+    // the bell's (data-url), or data-pf-settles-url where the page has no bell. The bell is told.
+    // ══════════════════════════════════════════════════════════════════════════
+    (function () {
+        var marks = document.querySelectorAll('[data-pf-settles]');
+        if (!marks.length) { return; }
+        var keys = [];
+        var url  = '';
+        Array.prototype.forEach.call(marks, function (el) {
+            (el.getAttribute('data-pf-settles') || '').split(/[\s,]+/).forEach(function (k) { if (k && keys.indexOf(k) < 0) { keys.push(k); } });
+            url = url || el.getAttribute('data-pf-settles-url') || '';
+        });
+        var bell = document.querySelector('[data-pf-notifications][data-url]');
+        url = (url || (bell ? bell.getAttribute('data-url') : '') || '').replace(/\/+$/, '');
+        if (!url || !keys.length) { return; }
+        fetch(url + '/settle?about=' + encodeURIComponent(keys.join(',')), {
+            method: 'POST', credentials: 'same-origin',
+            headers: pfApiHeaders({ 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' })
+        }).then(function (r) { return r.ok ? r.json() : {}; }).then(function (d) {
+            if (d && d.settled > 0) { document.dispatchEvent(new CustomEvent('pf:notifications:refresh')); }
+        }).catch(function () { /* the bell's own read still works */ });
     })();
 
     // ══════════════════════════════════════════════════════════════════════════

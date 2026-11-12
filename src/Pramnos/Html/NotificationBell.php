@@ -58,7 +58,7 @@ final class NotificationBell
     private static ?bool $hasFeed = null;
 
     /**
-     * @param array{url?: string, interval?: int, channel?: string, groups?: array<string, string>, except?: list<string>, class?: string, label?: string, empty?: string, readAll?: string, all?: string, allLabel?: string, titleFlash?: bool, sound?: bool|string} $options
+     * @param array{readOnView?: int, url?: string, interval?: int, channel?: string, groups?: array<string, string>, except?: list<string>, class?: string, label?: string, empty?: string, readAll?: string, all?: string, allLabel?: string, titleFlash?: bool, sound?: bool|string} $options
      *  - `url` — the feed's address: `/Notifications` on the site by default
      *  - `interval` — seconds between counts, while the tab is visible (60)
      *  - `channel` — a realtime channel whose `notification.created` and `notification.read`
@@ -76,6 +76,8 @@ final class NotificationBell
      *    a notification's title when one arrives, until the tab is looked at (on by default)
      *  - `sound` — played when one arrives, once per browser: `true` for a short tone made in
      *    the page, a sound's address, or `false` for none (the default)
+     *  - `readOnView` — milliseconds an unread notification stays in sight of the open list
+     *    before it is read; 0, only a click reads it (the default)
      */
     public static function render(array $options = []): string
     {
@@ -109,7 +111,8 @@ final class NotificationBell
             // An empty channel is none: `'channel' => ''` keeps a bell off the realtime connection.
             . ((string) ($options['channel'] ?? '') !== '' ? ' data-channel="' . self::e((string) $options['channel']) . '"' : '')
             . (($options['titleFlash'] ?? true) === false ? ' data-title-flash="0"' : '')
-            . self::soundAttribute($options['sound'] ?? false) . '>'
+            . self::soundAttribute($options['sound'] ?? false)
+            . ((int) ($options['readOnView'] ?? 0) > 0 ? ' data-read-on-view="' . (int) $options['readOnView'] . '"' : '') . '>'
             . '<button type="button" class="pf-notify-toggle ' . self::e((string) ($options['class'] ?? '')) . '"'
             . ' data-pf-notifications-toggle data-label="' . self::e($label) . '" aria-haspopup="true" aria-expanded="false"'
             . ' aria-label="' . self::e($label . ($unread > 0 ? ' (' . $unread . ')' : '')) . '">'

@@ -674,8 +674,10 @@ class Notifications extends \Pramnos\Application\Controllers\NotificationsContro
 |---|---|
 | `GET /Notifications?page=1&per_page=20&unread=1&group=tasks` | one page |
 | `GET /Notifications/count` | `{unread, groups: {tasks: 2, …}}` |
-| `POST /Notifications/read?id=…` | `{read, unread}` |
+| `GET /Notifications?collapse=1` | the first page, with a collapsed group as one item |
+| `POST /Notifications/read?id=…` | `{read, unread}`; `id=a,b` reads several, as a collapsed item's |
 | `POST /Notifications/readall?group=tasks` | `{marked, unread}` |
+| `POST /Notifications/settle?about=todo:42,…` | `{settled}`: one's own about those, read |
 
 Nobody signed in gets 401. A write without the token gets 403 and changes nothing.
 
@@ -692,6 +694,7 @@ Nobody signed in gets 401. A write without the token gets 403 and changes nothin
     'allLabel' => 'See all',
     'titleFlash' => true,                          // the tab's title on an arrival (the default)
     'sound'      => false,                         // true: a short tone; or a sound's address
+    'readOnView' => 0,                             // ms in sight of the open list before read; 0: a click only
 ]); ?>
 ```
 
@@ -703,7 +706,9 @@ shows 0 before the real number. `pf-utils.js` does the rest through the data att
   the background asks nothing, and is counted at once when it comes back.
 - **Opening:** opening the bell loads the latest ten, and a tab loads its group.
 - **Reading:** a click on an item marks it read, then follows its link. "Mark all read" marks
-  the group.
+  the group. With `readOnView`, an unread item that stays in sight of the open list that many
+  milliseconds is read too, as a glance is in most inboxes. It is off by default, so a page with
+  approvals that must be acted on keeps them click-only.
 - **Closing:** outside the bell, or Esc.
 - **Everything else:** with `all`, a link at the foot of the panel leads to the page listing every
   notification — under the list, and there when the list is empty too.
@@ -730,6 +735,37 @@ The scaffolded stylesheets style the `pf-notify-*` hooks. A theme can write its 
 the same `data-pf-notifications*` attributes. Each item can be its own too, as a
 `<template data-pf-notifications-item>` inside the bell whose parts carry
 `data-field="title|message|time"` and whose link gets the item's address.
+
+### One item for many: collapsed groups
+
+Where a group's unread pile up, such as ten to-dos, the bell can show them as one item:
+
+```php
+'notifications' => ['collapse' => [
+    'todo' => ['title' => 'You have %d to-dos', 'url' => '/Todo', 'min' => 2],
+]],
+```
+
+With at least `min` unread in the group (2 by default), the first page the bell loads shows one
+item in their place, where the newest of them was. Its title is `title` with the count, and it
+links to `url`. Its `id` is every one of theirs, comma-separated, so reading it, by a click or
+by sight, reads them all. The item carries `collapsed: true` and `count`, and the bell gives it
+the `is-collapsed` class. `Feed::list(…, collapse: true)` gives the same.
+
+### A page that shows the same thing: `data-pf-settles`
+
+A notification lists what it is about (`'about' => ['todo:42']`). Any page that shows that
+thing settles it by saying so once, instead of calling `Feed::settleAbout()` in each controller:
+
+```html
+<section data-pf-settles="todo:42 comment:7">…</section>
+```
+
+`pf-utils.js` collects every key on the page and posts them once to the bell's address,
+`/Notifications/settle`. The signed-in person's own notifications about them are read, nobody
+else's, and the bell refreshes. On a page without a bell, `data-pf-settles-url` gives the
+address. Settling everybody's, because the thing itself was dealt with, stays
+`Feed::settleAbout($keys)` on the server.
 
 ### Arriving at once
 

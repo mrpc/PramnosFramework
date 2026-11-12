@@ -23,7 +23,7 @@ const SOURCE = path.join(__dirname, '..', '..', 'scaffolding', 'assets', 'js', '
 const settle = async () => { for (let i = 0; i < 8; i++) { await new Promise((r) => setImmediate(r)); } };
 
 /** The bell's markup, as NotificationBell draws it, and the script over it. */
-function page({ realtime = null, hidden = false, except = null } = {}) {
+function page({ realtime = null, hidden = false, except = null, onView = null, items = null } = {}) {
     const { window, document } = createDom({ meta: { csrf: 't0ken' } });
     const el = (tag, attrs = {}, parent = null) => {
         const node = document.createElement(tag);
@@ -32,7 +32,7 @@ function page({ realtime = null, hidden = false, except = null } = {}) {
         return node;
     };
     const bell   = el('div', { class: 'pf-notify', 'data-pf-notifications': '', 'data-url': '/Notifications/', 'data-interval': '30', 'data-channel': 'users.5',
-        ...(except ? { 'data-except': except } : {}) });
+        ...(except ? { 'data-except': except } : {}), ...(onView ? { 'data-read-on-view': String(onView) } : {}) });
     const toggle = el('button', { 'data-pf-notifications-toggle': '', 'data-label': 'Notifications' }, bell);
     const count  = el('span', { 'data-pf-notifications-count': '' }, toggle);
     count.hidden = true;
@@ -49,8 +49,8 @@ function page({ realtime = null, hidden = false, except = null } = {}) {
     const item = (id, title, url = null, read = false) => ({ id, title, message: 'msg ' + id, url, read, created_at: '2026-10-15 10:00:00' });
     window.fetch = stubFetch({
         'GET /Notifications/count': { unread: 3, groups: { tasks: 2 } },
-        'GET /Notifications?per_page=10': { items: [item('a1', 'One', '/tasks/1'), item('a2', '', null, true)], unread: 3 },
-        'GET /Notifications?per_page=10&group=tasks': { items: [], unread: 3 },
+        'GET /Notifications?per_page=10&collapse=1': { items: items || [item('a1', 'One', '/tasks/1'), item('a2', '', null, true)], unread: 3 },
+        'GET /Notifications?per_page=10&collapse=1&group=tasks': { items: [], unread: 3 },
         'POST /Notifications/read': { read: true, unread: 2 },
         'POST /Notifications/readall': { marked: 2, unread: 1 },
     });
@@ -189,6 +189,74 @@ test('a bell that leaves groups out asks every request without them', async () =
     // Assert — the count, the list and read-all each carry it
     const paths = ui.window.fetch.calls.map((c) => c.method + ' ' + c.path);
     assert.ok(paths.includes('GET /Notifications/count?except=conversations'), paths.join(', '));
-    assert.ok(paths.includes('GET /Notifications?per_page=10&except=conversations'), paths.join(', '));
+    assert.ok(paths.includes('GET /Notifications?per_page=10&collapse=1&except=conversations'), paths.join(', '));
     assert.ok(paths.includes('POST /Notifications/readall?except=conversations'), paths.join(', '));
 });
+
+test('read on view: what stays in sight of the open list is read, all of a collapsed item at once', async () => {
+    // Arrange — data-read-on-view, and a group app.php collapses ("You have 2 to-dos")
+    const ui = page({ onView: 500, items: [
+        { id: 'b1,b2', title: 'You have 2 to-dos', message: '', url: '/Todo', read: false, collapsed: true, created_at: '2026-10-15 10:00:00' },
+        { id: 'a2', title: 'Old', message: '', url: null, read: true, created_at: '2026-10-15 09:00:00' },
+    ] });
+    const waits = [];
+    ui.window.setTimeout = (fn, ms) => { waits.push([fn, ms]); return waits.length; };
+    ui.window.clearTimeout = () => {};
+    ui.list.getBoundingClientRect = () => ({ top: 0, bottom: 300, height: 300 });
+
+    // Act
+    ui.toggle.click();
+    await settle();
+    ui.list.children.forEach((li) => { li.getBoundingClientRect = () => ({ top: 10, bottom: 40, height: 30 }); });
+    const collapsed = ui.list.children[0].classList.contains('is-collapsed');
+    const delay = waits.length ? waits[waits.length - 1][1] : null;
+    waits[waits.length - 1][0]();
+    await settle();
+
+    // Assert
+    const posts = ui.window.fetch.calls.filter((c) => c.method === 'POST').map((c) => c.path);
+    assert.equal(collapsed, true, 'drawn as one');
+    assert.equal(delay, 500, 'after the delay asked');
+    assert.deepEqual(posts, ['/Notifications/read?id=b1%2Cb2'], 'the unread in sight, every one a collapsed item stands for; the read one not again');
+    assert.equal(ui.list.children[0].classList.contains('is-unread'), false);
+});
+
+test('without read on view, opening reads nothing', async () => {
+    // Arrange
+    const ui = page();
+
+    // Act
+    ui.toggle.click();
+    await settle();
+
+    // Assert
+    assert.deepEqual(ui.window.fetch.calls.filter((c) => c.method === 'POST'), [], 'only a click reads');
+});
+
+test('data-pf-settles: what the page shows is settled once, by the bell\'s address, and the bell told', async () => {
+    // Arrange — two marks on the page, a key repeated
+    const { window, document } = createDom({ meta: { csrf: 't0ken' } });
+    const bell = document.createElement('div');
+    bell.setAttribute('data-pf-notifications', '');
+    bell.setAttribute('data-url', '/Notifications/');
+    document.body.appendChild(bell);
+    ['todo:42 comment:7', 'todo:42'].forEach((keys) => {
+        const el = document.createElement('section');
+        el.setAttribute('data-pf-settles', keys);
+        document.body.appendChild(el);
+    });
+    window.fetch = stubFetch({ 'POST /Notifications/settle': { settled: 2 } });
+    let told = 0;
+    document.addEventListener('pf:notifications:refresh', () => { told++; });
+
+    // Act
+    loadScript(SOURCE, window);
+    await settle();
+
+    // Assert
+    const posts = window.fetch.calls.filter((c) => c.method === 'POST');
+    assert.deepEqual(posts.map((c) => c.path), ['/Notifications/settle?about=todo%3A42%2Ccomment%3A7'], 'one request, each key once');
+    assert.equal(posts[0].headers['X-CSRF-Token'], 't0ken');
+    assert.equal(told, 1, 'the bell refreshes');
+});
+

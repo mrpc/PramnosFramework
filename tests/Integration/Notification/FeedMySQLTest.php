@@ -449,6 +449,57 @@ class FeedMySQLTest extends TestCase
     }
 
     /**
+     * A group app.php collapses comes as one item where there are enough unread of it (FW-486):
+     * "You have 2 tasks", at the newest of them, linking to their list, its id every one of
+     * theirs — so the endpoint reading it reads them all; fewer than asked, each as before.
+     * `settle` reads one's own about what a page shows, and nobody else's; and the bell carries
+     * read-on-view where asked.
+     */
+    public function testAGroupCollapsedAndWhatAPageShowsSettled(): void
+    {
+        // Arrange
+        Application::getInstance()->applicationInfo['notifications']['collapse'] = ['tasks' => ['title' => 'You have %d tasks', 'url' => '/tasks', 'min' => 2]];
+        $feed = new Feed(self::ME, $this->db);
+        foreach ([[self::ME, '20000000-0000-4000-8000-000000000001'], [self::SOMEBODY, '20000000-0000-4000-8000-000000000002']] as [$who, $id]) {
+            $this->db->queryBuilder()->table('notifications')->insert(['id' => $id, 'type' => 'App\\Notifications\\TodoWaiting', 'notifiable_type' => 'App\\User',
+                'notifiable_id' => $who, 'data' => json_encode(['message' => 'A to-do', 'about' => ['todo:42']]), 'created_at' => '2026-10-15 09:00:00']);
+        }
+        $controller = new NotificationsController(Application::getInstance());
+        $me = new \Pramnos\User\User();
+        $me->userid = self::ME;
+
+        // Act
+        $collapsed = $feed->list(1, 20, false, null, [], true)['items'];
+        $one       = array_values(array_filter($collapsed, static fn (array $i): bool => !empty($i['collapsed'])));
+        $at        = array_search(true, array_map(static fn (array $i): bool => !empty($i['collapsed']), $collapsed), true);
+        $plain     = $feed->list(1, 20)['items'];
+        Application::getInstance()->applicationInfo['notifications']['collapse']['tasks']['min'] = 3;
+        $fewer     = $feed->list(1, 20, false, null, [], true)['items'];
+        $refused   = $controller->settle();
+        \Pramnos\Http\RequestIdentity::seal($me, 'test');
+        $_POST     = ['id' => $one[0]['id']];
+        $read      = json_decode((string) $controller->read()->getBody(), true);
+        $_POST     = ['about' => 'todo:42, todo:43'];
+        $settled   = json_decode((string) $controller->settle()->getBody(), true);
+        $theirs    = (new Feed(self::SOMEBODY, $this->db))->unreadCount();
+        $bell      = \Pramnos\Html\NotificationBell::render(['readOnView' => 1200]);
+
+        // Assert
+        $this->assertCount(1, $one, 'one item');
+        $this->assertSame(['You have 2 tasks', '/tasks', 2], [$one[0]['title'], $one[0]['url'], $one[0]['count']]);
+        $this->assertSame(array_search('m3', array_map(static fn (array $i): string => (string) ($i['data']['tag'] ?? ''), $plain), true), $at, 'where the newest of them was');
+        $this->assertCount(count($plain) - 1, $collapsed, 'in place of the two');
+        $this->assertSame(2, count(explode(',', $one[0]['id'])), 'its id every one of theirs');
+        $this->assertSame(count($plain), count($fewer), 'fewer than asked: each as before');
+        $this->assertSame(401, $refused->getStatusCode(), 'nobody signed in settles nothing');
+        $this->assertTrue($read['read']);
+        $this->assertSame(0, $feed->unreadCount('tasks'), 'reading the one read them all');
+        $this->assertSame(1, $settled['settled'], 'one\'s own about what the page shows');
+        $this->assertSame(2, $theirs, 'nobody else\'s');
+        $this->assertStringContainsString('data-read-on-view="1200"', $bell);
+    }
+
+    /**
      * Read notifications past the age are removed and unread ones never are; with no age given
      * or configured, the command removes nothing and says how to set one.
      */
