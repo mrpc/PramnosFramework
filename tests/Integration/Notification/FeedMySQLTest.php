@@ -80,7 +80,10 @@ class FeedMySQLTest extends TestCase
     protected function tearDown(): void
     {
         $this->clean();
-        Application::getInstance()->applicationInfo = $this->info;
+        // Restored only where it was kept: a test skipped before then would otherwise wipe it.
+        if ($this->info !== []) {
+            Application::getInstance()->applicationInfo = $this->info;
+        }
         \Pramnos\Http\RequestIdentity::reset();
         $_GET = $_POST = [];
     }
@@ -101,6 +104,10 @@ class FeedMySQLTest extends TestCase
 
     private function clean(): void
     {
+        // A test skipped before it connected has nothing to clean.
+        if (!isset($this->db)) {
+            return;
+        }
         $this->db->queryBuilder()->table('notifications')->whereIn('notifiable_id', [self::ME, self::SOMEBODY])->delete();
     }
 
@@ -499,6 +506,35 @@ class FeedMySQLTest extends TestCase
         $this->assertSame(1, $settled['settled'], 'one\'s own about what the page shows');
         $this->assertSame(2, $theirs, 'nobody else\'s');
         $this->assertStringContainsString('data-read-on-view="1200"', $bell);
+    }
+
+    /**
+     * Why it is here and what can be done from the bell (FW-488): its own `why`, or the type's
+     * label where a person may turn it off, with where to; its `actions`, a path on this site
+     * alone — one elsewhere left out.
+     */
+    public function testWhyItIsHereAndWhatCanBeDone(): void
+    {
+        // Arrange
+        Application::getInstance()->applicationInfo['notifications']['types'] = ['App\\Notifications\\TaskAssigned' => 'A task given to me'];
+        Application::getInstance()->applicationInfo['notifications']['preferences_url'] = '/Myaccount/notifications';
+        $this->db->queryBuilder()->table('notifications')->insert(['id' => '40000000-0000-4000-8000-000000000001', 'type' => 'App\\Notifications\\Leave',
+            'notifiable_type' => 'App\\User', 'notifiable_id' => self::ME, 'created_at' => '2026-10-15 12:00:00', 'data' => json_encode(['message' => 'Maria asks for leave',
+            'why' => 'You approve leave', 'actions' => [['label' => 'Approve', 'url' => '/leave/9/approve', 'style' => 'primary'],
+                ['label' => 'Decline', 'url' => '/leave/9/decline', 'style' => 'danger'], ['label' => 'Elsewhere', 'url' => 'https://evil.example/x']]])]);
+        $items = array_column((new Feed(self::ME, $this->db))->list(1, 20)['items'], null, 'id');
+
+        // Act
+        $leave = $items['40000000-0000-4000-8000-000000000001'];
+        $task  = $items['00000000-0000-4000-8000-000000000001'];
+        $plain = $items['00000000-0000-4000-8000-000000000005'];
+
+        // Assert
+        $this->assertSame(['text' => 'You approve leave', 'url' => null], $leave['why'], 'its own words');
+        $this->assertSame(['text' => 'Because you get: A task given to me', 'url' => '/Myaccount/notifications'], $task['why'], 'the type\'s, with where to turn it off');
+        $this->assertNull($plain['why']);
+        $this->assertSame([['label' => 'Approve', 'url' => '/leave/9/approve', 'style' => 'primary'], ['label' => 'Decline', 'url' => '/leave/9/decline', 'style' => 'danger']],
+            $leave['actions'], 'a path on this site alone');
     }
 
     /**

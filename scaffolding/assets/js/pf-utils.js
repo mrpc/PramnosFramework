@@ -1979,6 +1979,24 @@
                 }
                 // One that must be acknowledged: its own mark, and read by a click on it alone.
                 if (n.ack && !n.read) { li.classList.add('is-ack'); }
+                // Why it is here, and where to turn its kind off.
+                if (n.why && n.why.text) {
+                    var why = document.createElement(n.why.url ? 'a' : 'span');
+                    why.className = 'pf-notify-why';
+                    why.textContent = n.why.text;
+                    if (n.why.url) { why.setAttribute('href', n.why.url); }
+                    li.appendChild(why);
+                }
+                // What can be done here, without going anywhere: approve, decline.
+                (n.actions || []).forEach(function (a) {
+                    var act = document.createElement('button');
+                    act.type = 'button';
+                    act.className = 'pf-notify-action' + (a.style ? ' is-' + a.style : '');
+                    act.setAttribute('data-pf-notifications-action', a.url);
+                    act.setAttribute('data-id', n.id);
+                    act.textContent = a.label;
+                    li.appendChild(act);
+                });
                 var fill = { title: n.title || n.message, message: n.title ? n.message : '', time: n.created_at };
                 Object.keys(fill).forEach(function (field) {
                     var part = li.querySelector('[data-field="' + field + '"]');
@@ -2048,6 +2066,18 @@
             });
 
             bell.addEventListener('click', function (e) {
+                var action = e.target.closest ? e.target.closest('[data-pf-notifications-action]') : null;
+                if (action) {
+                    e.preventDefault();
+                    action.disabled = true;
+                    // The action's own address, with the page's token; then the notification is read.
+                    fetch(action.getAttribute('data-pf-notifications-action'), { method: 'POST', credentials: 'same-origin',
+                        headers: pfApiHeaders({ 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }) })
+                        .then(function () { return post('/read?id=' + encodeURIComponent(action.getAttribute('data-id'))); })
+                        .then(function () { load(); refreshCount(); })
+                        .catch(function () { action.disabled = false; });
+                    return;
+                }
                 var snooze = e.target.closest ? e.target.closest('[data-pf-notifications-snooze]') : null;
                 if (snooze) {
                     e.preventDefault();

@@ -779,6 +779,18 @@ Such a notification is read only by a click on it. "Mark all read" leaves it unr
 read by being in sight, and it is not folded into a collapsed item. On the feed it carries
 `ack: true`, and the bell draws it with its own red mark (`is-ack`).
 
+### Why it is here, and what can be done from the bell
+
+- **Why:** each item can say why the person sees it, in a short line under it. That is its own
+  `why` (`toDatabase()` returns `'why' => 'You approve leave'`), or, for a type the person may
+  turn off, "Because you get: <its label>". The line links to
+  `notifications.preferences_url`, where they turn it off.
+- **Actions:** `toDatabase()` may return up to three `actions`, each
+  `['label' => 'Approve', 'url' => '/leave/9/approve', 'style' => 'primary' | 'danger']`. The
+  bell draws them as buttons. A click posts to the action's address with the page's token, and
+  then the notification is read, all without leaving the page. Only a path on this site is
+  kept. The action's own controller does the work and checks who may.
+
 ### Tell me again later
 
 Each unread item in the bell offers to put it off: in an hour, in three, or tomorrow at nine. Put

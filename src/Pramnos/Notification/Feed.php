@@ -466,8 +466,53 @@ final class Feed
             'read'       => $row['read_at'] !== null,
             // Read by a click on it alone: never by "mark all read", by being in sight, or in a collapsed item.
             'ack'        => !empty($data['requires_ack']),
+            'why'        => self::why($type, $data),
+            'actions'    => self::actions($data),
             'created_at' => (string) $row['created_at'],
         ];
+    }
+
+    /**
+     * Why a person sees one: its own `why`, or the type's label where they may turn it off
+     * (`notifications.types`) — with where to turn it off (`notifications.preferences_url`).
+     *
+     * @param array<string, mixed> $data
+     * @return array{text: string, url: ?string}|null
+     */
+    private static function why(string $type, array $data): ?array
+    {
+        $types = Preferences::types();
+        $text  = is_string($data['why'] ?? null) && trim($data['why']) !== '' ? trim($data['why'])
+            : (isset($types[$type]) ? sprintf(self::t('Because you get: %s'), self::t($types[$type])) : '');
+        if ($text === '') {
+            return null;
+        }
+        $app = \Pramnos\Application\Application::currentInstance();
+        $url = is_object($app) ? ($app->applicationInfo['notifications']['preferences_url'] ?? null) : null;
+
+        return ['text' => $text, 'url' => isset($types[$type]) && is_string($url) && $url !== '' ? $url : null];
+    }
+
+    /**
+     * What can be done from the bell without going anywhere: `actions` in its data, each
+     * `['label' => …, 'url' => '/a/path', 'style' => 'primary|danger']`, posted with the page's
+     * token. Only a path on this site: an address elsewhere is left out.
+     *
+     * @param array<string, mixed> $data
+     * @return list<array{label: string, url: string, style: string}>
+     */
+    private static function actions(array $data): array
+    {
+        $out = [];
+        foreach (array_slice((array) ($data['actions'] ?? []), 0, 3) as $action) {
+            $url = is_array($action) ? (string) ($action['url'] ?? '') : '';
+            if ($url === '' || preg_match('~^/(?!/)\S*$~', $url) !== 1 || trim((string) ($action['label'] ?? '')) === '') {
+                continue;
+            }
+            $out[] = ['label' => trim((string) $action['label']), 'url' => $url, 'style' => in_array($action['style'] ?? '', ['primary', 'danger'], true) ? (string) $action['style'] : ''];
+        }
+
+        return $out;
     }
 
     private static function likeSafe(string $text): string

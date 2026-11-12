@@ -54,6 +54,7 @@ function page({ realtime = null, hidden = false, except = null, onView = null, i
         'POST /Notifications/read': { read: true, unread: 2 },
         'POST /Notifications/readall': { marked: 2, unread: 1 },
         'POST /Notifications/snooze': { snoozed: true, unread: 2 },
+        'POST /leave/9/approve': { ok: true },
     });
     const timers = [];
     window.setInterval = (fn) => { timers.push(fn); return timers.length; };
@@ -279,5 +280,24 @@ test('an unread item is put off to a moment; a read one offers nothing', async (
     const posts = ui.window.fetch.calls.filter((c) => c.method === 'POST').map((c) => c.path);
     assert.deepEqual(offers, [3, 0], 'an hour, three, tomorrow — for the unread one alone');
     assert.deepEqual(posts, ['/Notifications/snooze?id=a1&for=1h']);
+});
+
+test('why it is here, and an action done from the bell before the item is read', async () => {
+    // Arrange
+    const ui = page({ items: [{ id: 'l1', title: 'Leave', message: '', url: null, read: false, created_at: '2026-10-15 10:00:00',
+        why: { text: 'You approve leave', url: '/Myaccount/notifications' }, actions: [{ label: 'Approve', url: '/leave/9/approve', style: 'primary' }] }] });
+    ui.toggle.click();
+    await settle();
+
+    // Act
+    const why = ui.list.children[0].querySelector('.pf-notify-why');
+    ui.list.children[0].querySelector('[data-pf-notifications-action]').click();
+    await settle();
+
+    // Assert
+    const posts = ui.window.fetch.calls.filter((c) => c.method === 'POST');
+    assert.deepEqual([why.textContent, why.getAttribute('href')], ['You approve leave', '/Myaccount/notifications']);
+    assert.deepEqual(posts.map((c) => c.path), ['/leave/9/approve', '/Notifications/read?id=l1'], 'the action, then read');
+    assert.equal(posts[0].headers['X-CSRF-Token'], 't0ken', 'with the page\'s token');
 });
 

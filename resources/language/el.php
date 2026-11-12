@@ -2653,4 +2653,5 @@ return [
     'Mark as read what I have seen in the bell' => 'Να γίνονται αναγνωσμένες όσες είδα στο καμπανάκι',
     'Tell me again later' => 'Θύμισέ μου αργότερα',
     'Tomorrow' => 'Αύριο',
+    'Because you get: %s' => 'Επειδή λαμβάνεις: %s',
 ];
