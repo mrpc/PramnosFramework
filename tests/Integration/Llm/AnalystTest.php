@@ -607,8 +607,12 @@ class AnalystTest extends LlmTestCase
             $closed = str_contains($e->getMessage(), '404');
         }
         $untouched = $this->rowsIn('assist.chat_conversations');
-        (new HoldingsScreen())->conversationsdelete();
+        $deleter = new HoldingsScreen();
+        $deleter->conversationsdelete();
         $_POST = [];
+        $_SESSION['_messages'] = ['2 conversations deleted.'];
+        $flashed = (string) (new HoldingsScreen())->all();
+        unset($_SESSION['_messages']);
         $left  = array_map('intval', array_column($this->db->queryBuilder()->table('assist.chat_conversations')->getAllOrFail(), 'conversation_id'));
         $audit = $this->db->queryBuilder()->table('authserver.audit_log')->where('event_type', 'ai.conversation_deleted')->getAllOrFail();
 
@@ -625,6 +629,8 @@ class AnalystTest extends LlmTestCase
         $this->assertSame(1, $this->rowsIn('assist.chat_messages'), 'their messages with them');
         $this->assertSame(0, $this->rowsIn('assist.chat_asks'), 'and their questions: nothing orphaned');
         $this->assertCount(2, $audit, 'each deletion audited');
+        $this->assertSame(['2 conversations deleted.'], $deleter->messages, 'said so');
+        $this->assertStringContainsString('pf-flash-message', $flashed, 'and the card shows the flash itself: an application\'s own admin header may not');
     }
 
     /**

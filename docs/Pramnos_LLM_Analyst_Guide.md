@@ -175,6 +175,8 @@ gear.
   (`Chat\Conversations::delete()`). Each is audited as `ai.conversation_deleted`. It is offered to
   whoever `AiController::deletesConversations(object $user): bool` allows, root by default. The
   form posts to `Ai/conversationsdelete` with the session's token, and anybody else gets a 404.
+  The card shows the flash itself (how many were deleted), since an application's own admin
+  header may not.
 - **The rest** about the assistants is linked from the same page: answers to review, memories,
   scheduled tasks, and costs and settings.
 - **In the application's own menu.** An application that keeps the assistants' management (this

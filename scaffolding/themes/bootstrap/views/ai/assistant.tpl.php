@@ -22,6 +22,8 @@ $name     = static fn (string $space): string => (string) ($channels[$space] ?? 
 $id       = (int) ($card['userid'] ?? 0); @endphp
 {!! \Pramnos\Theme\NeutralLayout::style() !!}
 <div class="container-fluid pf-l-page">
+    {{-- Here, not only in the theme's header: an application's own admin theme may not show the flash. --}}
+    {!! \Pramnos\Html\Flash::render() !!}
     <p><a href="{{ $u['all'] }}">‹ {{ t('The assistants') }}</a></p>
     <h1 class="{!! $c['h1'] !!}">{{ $card['name'] ?? '' }}</h1>
     <p class="{!! $c['muted'] !!}">{{ t('Persona') }}: {{ $persona($card['persona'] ?? null) }}@if (($card['reset_at'] ?? null) !== null) · {{ t('Experience reset') }}: {{ $when($card['reset_at']) }}@endif · {{ sprintf(t('%d push subscriptions'), count((array) ($card['push'] ?? []))) }}</p>
@@ -92,7 +94,7 @@ $id       = (int) ($card['userid'] ?? 0); @endphp
     </div>
     @php
         $titles = ['routines' => t('Routines, reminders and timers'), 'calendar' => t('Calendar'), 'artifacts' => t('Artifacts they made'), 'shared' => t('Artifacts shared with them'),
-            'shares' => t('Shares'), 'asks' => t('Questions'), 'dossier' => t('Dossier'), 'skills' => t('Skills')];
+            'shares' => t('Shares'), 'asks' => t('Questions'), 'dossier' => t('Dossier'), 'skills' => t('Their skills')];
         $cell   = static fn (mixed $v): string => $v === null || $v === '' ? '—' : (is_bool($v) ? ($v ? '✓' : '—') : mb_strimwidth((string) $v, 0, 160, '…'));
     @endphp
     @foreach ((array) ($this->holdings ?? []) as $section => $rows)
