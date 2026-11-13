@@ -733,6 +733,9 @@ refused: client cannot keep a secret and has no registered redirect URI | endpoi
 
 Nothing is issued and the `form-action` policy is not widened toward the requested address.
 
+The page itself is styled inline (a centred card, system-ui font), not with classes, because it
+renders inside whatever theme wraps the document on your server — it looks the same regardless.
+
 #### Fixing it
 
 Open the application in the admin area and, on the **OAuth2** tab, enter every address the

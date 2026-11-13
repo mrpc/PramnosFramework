@@ -1877,6 +1877,10 @@ class Oauth extends Controller
 
     /**
      * Show a plain HTML error page when the authorization request is invalid.
+     *
+     * Styled inline, rather than with classes, because this page renders inside whatever host
+     * theme wraps the document — Bootstrap, Tailwind, daisyUI or none — and a bare `<h1><p>`
+     * came out as an unstyled, flush-left strip in every one of them (FW-502).
      */
     private function showErrorPage(string $message): void
     {
@@ -1888,8 +1892,12 @@ class Oauth extends Controller
         // page the framework is about to render, so the error appeared above a
         // complete HTML document instead of inside one.
         $doc->addContent(
-            '<h1>Authorization Error</h1><p>'
-            . htmlspecialchars($message, ENT_QUOTES) . '</p>'
+            '<div style="max-width:420px;margin:72px auto;padding:32px;border:1px solid #ddd;'
+            . 'border-radius:8px;font-family:system-ui,-apple-system,\'Segoe UI\',Roboto,sans-serif;'
+            . 'text-align:center;color:#1a1a1a;background:#fff;">'
+            . '<h1 style="margin:0 0 12px;font-size:20px;font-weight:600;">' . htmlspecialchars(t('Authorization Error'), ENT_QUOTES) . '</h1>'
+            . '<p style="margin:0;color:#555;line-height:1.5;">' . htmlspecialchars($message, ENT_QUOTES) . '</p>'
+            . '</div>'
         );
     }
 
