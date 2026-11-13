@@ -95,30 +95,43 @@ final class ReadOnlySql
         $mysql   = !$caps->isPostgreSQL() && !$caps->isMariaDB();
         $count   = 0;
 
-        // Transaction control and session limits: statements the query builder does not express.
+        /*
+         * Every statement here goes through `querySessionControl()`, never the ordinary
+         * `query()`. `isWriteQuery()` classifies `BEGIN`, `SET` and `ROLLBACK` as writes — right
+         * for pool routing on an ordinary two-pool connection, where a transaction has to stay
+         * pinned to the pool its writes will use — but this transaction never writes anything,
+         * by `refusal()`'s own guarantee, so every statement in it belongs on the same
+         * connection regardless. Without this they do not: `BEGIN` would route to the write
+         * pool and the `SELECT` to the read pool, splitting one "read-only transaction" across
+         * two connections that have never heard of each other's `READ ONLY` — and on a
+         * dedicated read-only account or a {@see \Pramnos\Database\Database::replicaConnection()}
+         * replica, which have no write pool at all, `BEGIN` would simply throw (FW-496). A
+         * `WITH … SELECT` is read through the same door for the same reason: `WITH` is not in
+         * `isWriteQuery()`'s read-keyword list either.
+         */
         if ($caps->isPostgreSQL()) {
-            $db->query('BEGIN READ ONLY');
-            $db->query('SET LOCAL statement_timeout = ' . ($seconds * 1000));
+            $db->querySessionControl('BEGIN READ ONLY');
+            $db->querySessionControl('SET LOCAL statement_timeout = ' . ($seconds * 1000));
         } else {
-            $db->query('START TRANSACTION READ ONLY');
+            $db->querySessionControl('START TRANSACTION READ ONLY');
             if ($caps->isMariaDB()) {
                 $sql = 'SET STATEMENT max_statement_time = ' . $seconds . ' FOR ' . $sql;
             } else {
-                $db->query('SET SESSION MAX_EXECUTION_TIME = ' . ($seconds * 1000));
+                $db->querySessionControl('SET SESSION MAX_EXECUTION_TIME = ' . ($seconds * 1000));
             }
         }
 
         try {
-            $result = $db->query($sql);
+            $result = $db->querySessionControl($sql);
             while ($count < $limit && $result && $result->fetch()) {
                 // A credential is never handed on, whatever the statement selected.
                 $row(self::withhold(is_array($result->fields) ? $result->fields : []));
                 $count++;
             }
         } finally {
-            $db->query('ROLLBACK');
+            $db->querySessionControl('ROLLBACK');
             if ($mysql) {
-                $db->query('SET SESSION MAX_EXECUTION_TIME = 0');
+                $db->querySessionControl('SET SESSION MAX_EXECUTION_TIME = 0');
             }
         }
 

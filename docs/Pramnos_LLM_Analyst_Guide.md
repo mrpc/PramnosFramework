@@ -716,8 +716,13 @@ A statement is guarded four times, by `Analyst\ReadOnlySql`:
   MariaDB, `MAX_EXECUTION_TIME` on MySQL.
 
 A statement without `LIMIT` is given one. Where the installation set `database_readonly_dsn`,
-the statement runs through that account, as `db-inspect` does. Then the database's own
-privileges are the boundary.
+the statement runs through that account, as `db-inspect` does, and the database's own
+privileges are the boundary. Without one, `'llm' => ['analyst' => ['replica' => true]]` (FW-496)
+reads the database's own replica instead — the same `replica`/`read` settings block the
+[Metrics guide](Pramnos_Metrics_Guide.md) already reads through, never a second copy of the
+connection details. A replica that does not answer falls back to the database itself and says
+so in the log; it is where the read lands, not a privilege boundary, so losing it is not a
+reason to refuse the read the way a broken `database_readonly_dsn` is.
 
 Rows go through the redaction like every tool's answer. `sql` and `export_csv` are tagged
 `personal`, since a statement can read anybody's row.

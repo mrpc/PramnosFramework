@@ -476,6 +476,41 @@ class AnalystSqlTest extends LlmTestCase
         $this->assertStringContainsString('could not be used', (string) $refused);
     }
 
+    /**
+     * FW-496: without a dedicated account, the database's own replica — the same block Metrics
+     * reads through — when the analyst turns it on. Off (the default, and no DSN either): the
+     * main connection, unchanged. On, with a replica configured: a second connection, through
+     * which the same tables answer. On, with none configured (or one that cannot be reached):
+     * the main connection, and nothing thrown — a replica is not a privilege boundary, so losing
+     * it is not a reason to refuse the read.
+     */
+    #[DataProvider('databases')]
+    public function testTheReplicaIsReadWithoutADedicatedAccount(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $tool = new SqlTool();
+        // The database's own "replica" block, read via reflection: there is no public setter,
+        // because nothing but replicaConnection() is meant to read it.
+        $property = new \ReflectionProperty(Database::class, 'replicaConfig');
+
+        // Act — off: no config at all, so ReadOnlyConnection must not even look at the database's replica block
+        $off = $tool->execute(['sql' => 'SELECT COUNT(*) AS n FROM users']);
+
+        // On, but nothing configured for it to find
+        $this->configure(['analyst' => ['replica' => true]]);
+        $noBlock = $tool->execute(['sql' => 'SELECT COUNT(*) AS n FROM users']);
+
+        // On, pointed at the same database under another name — a stand-in for a real replica
+        $property->setValue($this->db, ['hostname' => $host, 'port' => $port]);
+        $onWithReplica = $tool->execute(['sql' => 'SELECT COUNT(*) AS n FROM users']);
+
+        // Assert
+        $this->assertSame(3, (int) $off['rows'][0]['n']);
+        $this->assertSame(3, (int) $noBlock['rows'][0]['n'], 'no replica to read: the database itself, not a failure');
+        $this->assertSame(3, (int) $onWithReplica['rows'][0]['n'], 'the replica answers the same tables');
+    }
+
     /** Nowhere to write the file is said, rather than a warning and a link to nothing. */
     public function testNowhereToWrite(): void
     {

@@ -335,6 +335,18 @@ class Database extends \Pramnos\Framework\Base
     private bool $readOnly = false;
 
     /**
+     * True for the one statement {@see querySessionControl()} is running — `BEGIN`, `SET`,
+     * `ROLLBACK` and the like, which `isWriteQuery()` classifies as a write (it is not a
+     * `SELECT`) purely for pool-routing in a split read/write setup, not because it writes
+     * data. On an ordinary two-pool connection that classification is correct: a transaction
+     * has to stay pinned to the pool its writes will use. On a connection where "read" and
+     * "write" are the same question anyway — a dedicated read-only account, or a replica from
+     * {@see replicaConnection()} — it is simply wrong, and this flag is how one caller that
+     * knows it is in exactly that situation says so for one statement.
+     */
+    private bool $sessionControlInProgress = false;
+
+    /**
      * Active prepared statements indexed by statement ID.
      * Used by prepare() / execute() for both MySQL and PostgreSQL.
      * @var array
@@ -1699,7 +1711,7 @@ class Database extends \Pramnos\Framework\Base
     {
         unset($this->queryResult);
         if ($query != "") {
-            $isWrite = $this->isWriteQuery($query);
+            $isWrite = !$this->sessionControlInProgress && $this->isWriteQuery($query);
             $connection = $this->getConnection($isWrite);
 
             $this->queriesCount++;
@@ -4622,6 +4634,35 @@ class Database extends \Pramnos\Framework\Base
         $replica->connect(true);
 
         return $replica;
+    }
+
+    /** True on an instance {@see replicaConnection()} returned: see that flag's own docblock. */
+    public function isReadOnly(): bool
+    {
+        return $this->readOnly;
+    }
+
+    /**
+     * Run transaction or session control — `BEGIN`, `SET`, `ROLLBACK` and the like — without
+     * `isWriteQuery()`'s routing: it classifies any of these as a write, which on an ordinary
+     * two-pool connection is exactly right (a transaction has to stay pinned to the pool its
+     * writes will use), and on a dedicated read-only account or a {@see replicaConnection()}
+     * replica is simply wrong, because there is no write pool there to pin anything to — only
+     * the one connection this statement and the reads around it both already use.
+     *
+     * For a caller that already knows which kind of connection it is holding, not a general
+     * escape from write detection: used by {@see \Pramnos\Llm\Analyst\ReadOnlySql} to wrap a
+     * read-only account's or a replica's own statement in `BEGIN READ ONLY` and a statement
+     * timeout, which are not writes but are not `SELECT` either.
+     */
+    public function querySessionControl(string $sql): Result
+    {
+        $this->sessionControlInProgress = true;
+        try {
+            return $this->query($sql);
+        } finally {
+            $this->sessionControlInProgress = false;
+        }
     }
 
     /**
