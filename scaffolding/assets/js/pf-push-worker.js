@@ -12,11 +12,13 @@
  * which on a phone is the installed app when the address is in its scope.
  *
  * `notificationclick` and `notificationclose` also report back to `data.report` (an absolute URL
- * the server already put there — see `PushChannel::payload()`) with `{pushid, action}`, which is
- * FW-495's hold-unopened rule's only way to know a push was seen: `pramnos.pushlog.opened_at` /
- * `dismissed_at`. Never for the self-closing `pf-quiet` one below, and never for a push with no
- * `data.pushid` — an installation that has not run the migration, or one with no site URL
- * configured, sends neither, and nothing here fails for its absence.
+ * the server already put there — see `PushChannel::payload()`) with `{pushid, token, action}`,
+ * which is FW-495's hold-unopened rule's only way to know a push was seen:
+ * `pramnos.pushlog.opened_at` / `dismissed_at`. `token` is the row's own one-time secret, carried
+ * alongside `pushid` — the server refuses a report whose token does not match, since the id
+ * alone is a guessable auto-increment. Never for the self-closing `pf-quiet` one below, and never
+ * for a push with no `data.pushid` — an installation that has not run the migration, or one with
+ * no site URL configured, sends neither, and nothing here fails for its absence.
  *
  * A worker that has its own handlers (the scaffolded `sw.js` has) does not import this, and
  * should report the same way if it wants FW-495's hold-unopened rule to see its own pushes.
@@ -69,7 +71,7 @@ function reportPush(action, notification) {
         method: 'POST',
         keepalive: true,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pushid: data.pushid, action: action }),
+        body: JSON.stringify({ pushid: data.pushid, token: data.token, action: action }),
     }).catch(() => undefined);
 }
 

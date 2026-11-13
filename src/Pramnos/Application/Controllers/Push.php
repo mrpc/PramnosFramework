@@ -257,16 +257,22 @@ class Push extends \Pramnos\Application\Controller
     /**
      * The service worker's receipt that a push was opened or dismissed (`data.report`, a push
      * payload's own address — see {@see \Pramnos\Notification\Channels\PushChannel::payload()}).
-     * No session, no CSRF: the worker may have neither, and a `pushid` is not a secret worth
-     * gating one behind. `ok: true` for any real id and a recognised action, whether or not that
-     * id still names a row — there is nothing here worth telling a stranger apart by; `false`
-     * only for no id at all or an action this does not recognise.
+     * No session, no CSRF: the worker may have neither.
+     *
+     * **`pushid` alone proves nothing** — it is a plain auto-increment, so a bare id would let
+     * anyone report against a push that was never theirs: skewed open rates for an account they
+     * are not, and the hold-unopened rule (FW-495) cleared for a device they do not hold. `token`
+     * is the payload's own one-time secret for this row ({@see \Pramnos\Push\Log::reserve()}),
+     * checked with {@see \Pramnos\Push\Log::verifyToken()} before anything is written. A wrong
+     * or missing token, no id at all, or an action this does not recognise: `ok: false`, and
+     * nothing changes — never which of those it was.
      */
     public function report(): mixed
     {
         $body   = $this->body();
         $pushId = is_numeric($body['pushid'] ?? null) ? (int) $body['pushid'] : 0;
-        $ok     = match ((string) ($body['action'] ?? '')) {
+        $token  = (string) ($body['token'] ?? '');
+        $ok     = \Pramnos\Push\Log::verifyToken($pushId, $token) && match ((string) ($body['action'] ?? '')) {
             'opened'    => \Pramnos\Push\Log::opened($pushId),
             'dismissed' => \Pramnos\Push\Log::dismissed($pushId),
             default     => false,

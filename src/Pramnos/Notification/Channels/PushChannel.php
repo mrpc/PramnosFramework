@@ -285,14 +285,20 @@ class PushChannel implements ChannelInterface
             $logged = is_array($logged) ? $logged : [];
 
             /*
-             * One row per subscription, reserved **before** queueing — its id has to already
-             * exist to ride inside the payload that subscription receives (`withPushId()`).
-             * Keyed by endpoint, which `flush()`'s reports are matched back by below.
+             * One row per subscription, reserved **before** queueing — its id and a token of its
+             * own have to already exist to ride inside the payload that subscription receives
+             * (`withPushId()`). The token, generated here rather than read back, is what stops
+             * `pushid` — a plain auto-increment — from letting a report against row 41 be made by
+             * guessing 42: `Log::verifyToken()` is the only thing that accepts a report, and it
+             * accepts nothing without one. Keyed by endpoint, which `flush()`'s reports are
+             * matched back by below.
              */
             $reserved = [];
             foreach ($subscriptions as $row) {
-                $endpoint            = (string) $row['endpoint'];
-                $reserved[$endpoint] = Log::reserve($userId, hash('sha256', $endpoint), $logged, $notification);
+                $endpoint = (string) $row['endpoint'];
+                $token    = bin2hex(random_bytes(16));
+                $pushId   = Log::reserve($userId, hash('sha256', $endpoint), $logged, $notification, $token);
+                $reserved[$endpoint] = $pushId;
 
                 $push->queueNotification(
                     $subscription::create([
@@ -301,7 +307,7 @@ class PushChannel implements ChannelInterface
                         'authToken'       => (string) $row['auth_secret'],
                         'contentEncoding' => (string) ($row['content_encoding'] ?: 'aes128gcm'),
                     ]),
-                    $this->withPushId($payload, $reserved[$endpoint])
+                    $this->withPushId($payload, $pushId, $token)
                 );
             }
 
@@ -401,12 +407,15 @@ class PushChannel implements ChannelInterface
     }
 
     /**
-     * `$payload` with this attempt's own row id folded into `data.pushid`, so the device that
-     * receives it can later say "this one was opened" or "closed" back to {@see
-     * \Pramnos\Push\Log::opened()} / {@see \Pramnos\Push\Log::dismissed()} — the only hook the
-     * server has, since nothing here keeps a connection to the browser once this returns.
+     * `$payload` with this attempt's own row id and its one-time token folded into
+     * `data.pushid` / `data.token`, so the device that receives it can later say "this one was
+     * opened" or "closed" back to {@see \Pramnos\Push\Log::opened()} / {@see
+     * \Pramnos\Push\Log::dismissed()} — the only hook the server has, since nothing here keeps a
+     * connection to the browser once this returns. The token is what the report endpoint checks
+     * ({@see \Pramnos\Push\Log::verifyToken()}): `pushid` is a plain auto-increment, and without
+     * it a report could be made against any row by guessing its neighbour's id.
      */
-    protected function withPushId(string $payload, int $pushId): string
+    protected function withPushId(string $payload, int $pushId, string $token = ''): string
     {
         if ($pushId < 1) {
             return $payload;
@@ -415,7 +424,7 @@ class PushChannel implements ChannelInterface
         if (!is_array($decoded)) {
             return $payload;
         }
-        $decoded['data'] = (array) ($decoded['data'] ?? []) + ['pushid' => $pushId];
+        $decoded['data'] = (array) ($decoded['data'] ?? []) + ['pushid' => $pushId] + ($token !== '' ? ['token' => $token] : []);
         $json = json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         return $json === false ? $payload : $json;

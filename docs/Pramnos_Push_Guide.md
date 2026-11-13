@@ -439,17 +439,26 @@ somebody is holding when they open the screen.
 Delivery is not the same question as *did anybody look*. `pushlog.opened_at` and `dismissed_at`
 answer it: the shipped service worker (`pf-push-worker.js`) reports `notificationclick` and
 `notificationclose` back to `data.report` — an absolute URL the server already put in every
-payload, beside `data.pushid`, the row's own id — with `POST /push/report`. Never for the
+payload, beside `data.pushid` and `data.token` — with `POST /push/report`. Never for the
 self-closing `pf-quiet` notification (it shows and closes itself while a tab is focused; nobody
-saw it, so it is not a report worth making), and never when either field is missing — an
-installation that has not run the migration, or has no site URL configured, simply reports
+saw it, so it is not a report worth making), and never when any of the three fields is missing —
+an installation that has not run the migration, or has no site URL configured, simply reports
 nothing, and nothing here fails for its absence. A custom `sw.js` that does not import the
 shipped worker needs the same two listeners to get this at all.
 
+**`pushid` alone is not a credential — `token` is.** It is a plain auto-increment, so without a
+check anybody could report against a row that was never theirs: skewed open rates for an account
+they are not, and the hold-unopened rule cleared for a device they do not hold. `Log::reserve()`
+stores a random token beside the row, the same payload carries it, and `Log::verifyToken()`
+(`hash_equals`) is the only thing `POST /push/report` accepts before writing anything. A row
+reserved without a token — a direct caller that is not the public endpoint — can never be
+verified against, by design.
+
 ```php
-Log::opened($pushId);       // the worker's own call, first report wins
-Log::dismissed($pushId);    // same
-Log::unresolved($hash, $notificationClass);  // the most recent delivered-but-unanswered one, or null
+Log::opened($pushId);                         // the worker's own call, first report wins
+Log::dismissed($pushId);                      // same
+Log::verifyToken($pushId, $token);            // hash_equals; false on any mismatch, or none stored
+Log::unresolved($hash, $notificationClass);   // the most recent delivered-but-unanswered one, or null
 ```
 
 **The hold-unopened rule** (FW-495) is what this is for: a phone buried under notifications
@@ -730,7 +739,7 @@ an IP address on your LAN.
 | `POST /push/test` | Sends a test notification to the signed-in account's browsers, or only to the one whose `{"endpoint": …}` is in the body. Answers each test's `token`. POST only, signed in. See [Testing a device](#testing-a-device). |
 | `POST /push/testack?token=` | A test's receipt, sent by the worker as the push arrives. The token is the credential. |
 | `GET /push/teststatus?token=` | `{received, received_at, expired}` for one of the signed-in account's own tests. |
-| `POST /push/report` | `{pushid, action: 'opened'\|'dismissed'}`, sent by the worker on `notificationclick` / `notificationclose`. No session: `data.report` in every push payload already carries this address, and `data.pushid` the row's own id — see [Opened, dismissed, and the hold-unopened rule](#opened-dismissed-and-the-hold-unopened-rule). |
+| `POST /push/report` | `{pushid, token, action: 'opened'\|'dismissed'}`, sent by the worker on `notificationclick` / `notificationclose`. No session: `data.report`/`data.pushid`/`data.token` in every push payload already carry the address, the row's id, and its one-time secret — `token` is checked (`Log::verifyToken()`) because `pushid` alone is a guessable auto-increment. See [Opened, dismissed, and the hold-unopened rule](#opened-dismissed-and-the-hold-unopened-rule). |
 
 `subscribe` also links the subscription to the browser's **trusted device**
 (`pushsubscriptions.trusted_device_id`) when it carries the trust cookie — that link is

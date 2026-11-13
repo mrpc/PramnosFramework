@@ -80,6 +80,7 @@ trait ConversationsProbe
         require_once ROOT . '/database/migrations/framework/core/2020_01_01_000002_create_framework_policies_table.php';
         require_once ROOT . '/database/migrations/framework/notifications/2026_08_29_000003_create_pushlog_table.php';
         require_once ROOT . '/database/migrations/framework/notifications/2026_11_13_000001_add_opened_dismissed_to_pushlog.php';
+        require_once ROOT . '/database/migrations/framework/notifications/2026_11_13_000002_add_token_to_pushlog.php';
         require_once ROOT . '/database/migrations/framework/conversations/2026_11_07_000001_create_conversation_scheduled_table.php';
         require_once ROOT . '/database/migrations/framework/conversations/2026_11_07_000002_create_conversation_drafts_table.php';
         require_once ROOT . '/database/migrations/framework/conversations/2026_11_07_000003_add_starorder_to_conversation_members.php';
@@ -151,6 +152,7 @@ trait ConversationsProbe
             \Pramnos\Framework\Migrations\Core\CreateFrameworkPoliciesTable::class,
             \Pramnos\Framework\Migrations\Notifications\CreatePushLogTable::class,
             \Pramnos\Framework\Migrations\Notifications\AddOpenedDismissedToPushlog::class,
+            \Pramnos\Framework\Migrations\Notifications\AddTokenToPushlog::class,
             // Messages written to be sent later.
             \Pramnos\Framework\Migrations\Conversations\CreateConversationScheduledTable::class,
             // What somebody has begun writing, on every device.

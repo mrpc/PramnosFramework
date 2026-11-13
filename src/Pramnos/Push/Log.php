@@ -91,6 +91,12 @@ class Log
      * same as any attempt that genuinely didn't, and no worse than the gap `record()` already
      * tolerated by writing after the fact instead.
      *
+     * `$token`, when given, is stored beside the row and must then accompany it in the payload
+     * (`data.token`) for {@see verifyToken()} to accept a report against this id — `pushid` is a
+     * plain auto-increment, not a secret, so a report endpoint that trusted it alone could be
+     * driven against any row by guessing. Left empty, the row can never be verified against —
+     * `opened()`/`dismissed()` still work directly, for callers that are not the public endpoint.
+     *
      * @param array<string, mixed> $payload The decoded push payload
      * @return int The row's id, or 0 when it could not be written
      */
@@ -98,7 +104,8 @@ class Log
         int $userId,
         string $endpointHash,
         array $payload,
-        string $notification = ''
+        string $notification = '',
+        string $token = ''
     ): int {
         $row = [
             'userid'        => $userId,
@@ -114,6 +121,9 @@ class Log
 
         try {
             $db = \Pramnos\Framework\Factory::getDatabase();
+            if ($db->schema()->hasColumn('pramnos.pushlog', 'token')) {
+                $row['token'] = substr($token, 0, 32);
+            }
             $row['sent'] = self::instant(time());
             $db->queryBuilder()->table('pramnos.pushlog')->insert($row);
 
@@ -123,6 +133,31 @@ class Log
 
             return 0;
         }
+    }
+
+    /**
+     * Whether `$token` is this row's own — `hash_equals()`, so the comparison takes the same
+     * time whether it matches or not. False on no id, no token, a row with none stored (an
+     * installation that has not run the migration, or a row from before it), or one that does
+     * not match — never which of those it was, which is exactly what a guesser would use.
+     */
+    public static function verifyToken(int $pushId, string $token): bool
+    {
+        if ($pushId < 1 || $token === '') {
+            return false;
+        }
+
+        try {
+            $db = \Pramnos\Framework\Factory::getDatabase();
+            if (!$db->schema()->hasColumn('pramnos.pushlog', 'token')) {
+                return false;
+            }
+            $row = $db->queryBuilder()->table('pramnos.pushlog')->select(['token'])->where('pushid', $pushId)->first()?->fetch();
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return is_array($row) && (string) ($row['token'] ?? '') !== '' && hash_equals((string) $row['token'], $token);
     }
 
     /** {@see reserve()}'s row, once the push service has answered. */

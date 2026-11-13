@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
 use Pramnos\Framework\Migrations\Notifications\AddOpenedDismissedToPushlog;
+use Pramnos\Framework\Migrations\Notifications\AddTokenToPushlog;
 use Pramnos\Framework\Migrations\Notifications\CreatePushLogTable;
 use Pramnos\Framework\Testing\BaseTestCase;
 use Pramnos\Push\Log;
@@ -53,6 +54,7 @@ class PushLogTest extends BaseTestCase
             \Pramnos\Framework\Migrations\Core\CreateFrameworkPoliciesTable::class,
             CreatePushLogTable::class,
             AddOpenedDismissedToPushlog::class,
+            AddTokenToPushlog::class,
         ], $this->db);
 
         // A user id nothing else in the suite uses, so the filters can be asserted exactly.
@@ -498,6 +500,25 @@ class PushLogTest extends BaseTestCase
      * null — the hold-unopened rule (FW-495) reads both as "was this seen at all", and a push
      * that was both opened and later dismissed must not look like neither happened.
      */
+    /** `verifyToken()` itself: `hash_equals`, not `===`, and false on anything that is not an exact match. */
+    public function testVerifyTokenIsExactAndTimingSafe(): void
+    {
+        // Arrange
+        $token  = bin2hex(random_bytes(16));
+        $pushId = Log::reserve($this->userId, str_repeat('m', 64), ['title' => 'x'], '', $token);
+        $noToken = Log::reserve($this->userId, str_repeat('n', 64), ['title' => 'y']);
+
+        // Assert
+        $this->assertTrue(Log::verifyToken($pushId, $token));
+        $wrongLastChar = substr($token, 0, -1) . (substr($token, -1) === '0' ? '1' : '0');
+        $this->assertFalse(Log::verifyToken($pushId, $wrongLastChar));
+        $this->assertFalse(Log::verifyToken($pushId, ''));
+        $this->assertFalse(Log::verifyToken(0, $token));
+        $this->assertFalse(Log::verifyToken($noToken, ''), 'nothing was ever stored for this row');
+        $this->assertFalse(Log::verifyToken($noToken, 'anything'));
+        $this->assertFalse(Log::verifyToken(PHP_INT_MAX, $token), 'no such row');
+    }
+
     public function testOpenedAndDismissedAreRecordedOnce(): void
     {
         // Arrange
@@ -593,25 +614,59 @@ class PushLogTest extends BaseTestCase
     public function testTheReportActionSetsItsOwnColumn(): void
     {
         // Arrange
-        $pushId = Log::reserve($this->userId, str_repeat('j', 64), ['title' => 'x']);
+        $token  = bin2hex(random_bytes(16));
+        $pushId = Log::reserve($this->userId, str_repeat('j', 64), ['title' => 'x'], '', $token);
         Log::complete($pushId, 201);
-        $controller = $this->reportController(['pushid' => $pushId, 'action' => 'opened']);
-        $unknown    = $this->reportController(['pushid' => 999999999, 'action' => 'opened']);
-        $noId       = $this->reportController(['pushid' => 0, 'action' => 'opened']);
-        $badAction  = $this->reportController(['pushid' => $pushId, 'action' => 'nonsense']);
+        $controller = $this->reportController(['pushid' => $pushId, 'token' => $token, 'action' => 'opened']);
+        $badAction  = $this->reportController(['pushid' => $pushId, 'token' => $token, 'action' => 'nonsense']);
 
         // Act
         $controller->report();
-        $unknown->report();
-        $noId->report();
         $badAction->report();
 
         // Assert
         $this->assertSame(['ok' => true], $controller->payload);
         $this->assertNotNull(Log::find($pushId)['opened_at']);
-        $this->assertSame(['ok' => true], $unknown->payload, 'no such row: nothing changes, but nothing worth telling a stranger either');
-        $this->assertSame(['ok' => false], $noId->payload, 'no id at all');
         $this->assertSame(['ok' => false], $badAction->payload, 'an action it does not recognise');
+    }
+
+    /**
+     * FW-495 follow-up (security): `pushid` is a plain auto-increment, so a report against it
+     * has to prove it, or anybody could mark any account's push opened — skewing their open
+     * rates and clearing the hold-unopened rule for a device that is not theirs. A wrong token,
+     * no token, or a row with none stored (reserved without one, or before the migration ran)
+     * all refuse — and change nothing.
+     */
+    public function testAWrongOrMissingTokenChangesNothing(): void
+    {
+        // Arrange
+        $token    = bin2hex(random_bytes(16));
+        $pushId   = Log::reserve($this->userId, str_repeat('k', 64), ['title' => 'x'], '', $token);
+        Log::complete($pushId, 201);
+        $noToken  = Log::reserve($this->userId, str_repeat('l', 64), ['title' => 'y']); // reserved without one
+        Log::complete($noToken, 201);
+        $wrong    = $this->reportController(['pushid' => $pushId, 'token' => bin2hex(random_bytes(16)), 'action' => 'opened']);
+        $missing  = $this->reportController(['pushid' => $pushId, 'action' => 'opened']);
+        $unknown  = $this->reportController(['pushid' => 999999999, 'token' => $token, 'action' => 'opened']);
+        $neverSet = $this->reportController(['pushid' => $noToken, 'token' => '', 'action' => 'opened']);
+
+        // Act
+        $wrong->report();
+        $missing->report();
+        $unknown->report();
+        $neverSet->report();
+
+        // Assert
+        $this->assertSame(['ok' => false], $wrong->payload, 'a token that does not match');
+        $this->assertSame(['ok' => false], $missing->payload, 'no token at all');
+        $this->assertSame(['ok' => false], $unknown->payload, 'no such row, so nothing to match against');
+        $this->assertSame(['ok' => false], $neverSet->payload, 'reserved without a token: never verifiable, by design');
+        $this->assertNull(Log::find($pushId)['opened_at'], 'the real row: untouched by the wrong-token attempts');
+        $this->assertNull(Log::find($noToken)['opened_at'], 'the token-less row: untouched too');
+
+        // The real token still works afterwards
+        $this->reportController(['pushid' => $pushId, 'token' => $token, 'action' => 'opened'])->report();
+        $this->assertNotNull(Log::find($pushId)['opened_at']);
     }
 
     /** A `Push` controller whose body is the given array, with `json()` captured rather than sent. */
