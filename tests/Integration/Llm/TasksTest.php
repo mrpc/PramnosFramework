@@ -526,6 +526,36 @@ class TasksTest extends LlmTestCase
         $this->assertTrue($broken['ok'] && $broken['queued'] === false, $broken['says']);
         $this->assertFalse($tasks->byId($made['routine_id'])['running']);
     }
+
+    /**
+     * `task_runs` reads back a task's history, newest first, so it is asked to compare one run
+     * against another ("compare the latest report with last week's") without a file in sight —
+     * and refuses a routine that is not this person's.
+     */
+    #[DataProvider('databases')]
+    public function testTaskRunsReadsBackPastRuns(string $type, string $host, int $port): void
+    {
+        // Arrange — the same task run twice, each time with a different answer
+        $this->connectDatabase($type, $host, $port);
+        $this->answer([[200, self::says('Αθήνα: 10')], [200, self::says('Αθήνα: 12')]]);
+        $tasks = $this->tasks();
+        $scope = new Scope(7, null);
+        $made  = $tasks->create($scope, ['kind' => 'ask', 'title' => 'Daily', 'prompt' => 'Report', 'cadence' => 'daily', 'at' => '08:00']);
+        $task  = $tasks->byId($made['routine_id']);
+
+        // Act
+        $tasks->run($task, time());
+        $tasks->run($task, time());
+        $tools   = $tasks->toolsFor($scope, 'UTC', null);
+        $latest  = json_decode($tools['task_runs']['run'](['routine_id' => $made['routine_id'], 'limit' => 1]), true);
+        $both    = json_decode($tools['task_runs']['run'](['routine_id' => $made['routine_id']]), true);
+        $someone = $tools['task_runs']['run'](['routine_id' => $made['routine_id'] + 1]);
+
+        // Assert — newest first, the limit respected, each run's own answer kept, and nothing of somebody else's
+        $this->assertSame(['Αθήνα: 12'], array_column($latest, 'content'));
+        $this->assertSame(['Αθήνα: 12', 'Αθήνα: 10'], array_column($both, 'content'));
+        $this->assertSame('Error: no such task of theirs. list_scheduled_tasks or list_reports finds its id.', $someone);
+    }
 }
 
 /** Tasks whose notifications are recorded rather than sent, and whose queue is the test's. */

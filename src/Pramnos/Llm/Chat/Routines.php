@@ -1228,6 +1228,28 @@ class Routines
                     $this->mine($scope)
                 ), JSON_UNESCAPED_UNICODE),
             ],
+            'task_runs' => [
+                'description' => 'Past runs of one of this person\'s scheduled tasks or reports, newest first — each run\'s own '
+                    . 'answer, to read back or compare one run against another ("compare the latest report with last week\'s"). '
+                    . 'list_scheduled_tasks or list_reports finds the id.',
+                'parameters'  => ['type' => 'object', 'properties' => [
+                    'routine_id' => ['type' => 'integer'],
+                    'limit'      => ['type' => 'integer', 'description' => 'At most this many runs, newest first. 5 by default, 20 at most.'],
+                ], 'required' => ['routine_id']],
+                'run' => function (array $a) use ($scope): string {
+                    $routineId = (int) ($a['routine_id'] ?? 0);
+                    $ids       = [...array_column($this->mine($scope), 'routine_id'), ...array_column($this->reports($scope), 'routine_id')];
+                    if (!in_array($routineId, $ids, true)) {
+                        return 'Error: no such task of theirs. list_scheduled_tasks or list_reports finds its id.';
+                    }
+                    $limit = max(1, min(20, (int) ($a['limit'] ?? 5)));
+
+                    return (string) json_encode(array_map(
+                        static fn (array $r): array => array_intersect_key($r, array_flip(['run_id', 'status', 'content', 'error', 'started_at', 'finished_at'])),
+                        $this->runs($routineId, $limit)
+                    ), JSON_UNESCAPED_UNICODE);
+                },
+            ],
             'list_reports' => [
                 'description' => 'The reports shared here that this person may receive, and whether they already do.',
                 'parameters'  => ['type' => 'object', 'properties' => new \stdClass()],

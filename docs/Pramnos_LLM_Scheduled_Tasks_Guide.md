@@ -43,7 +43,7 @@ out. `mine()`, `find()`, `setActive()` and `delete()` act within a person's scop
 a task's history: each run's outcome, content, cost and conversation, newest first.
 
 **What the model can do.** In a conversation, never in a scheduled run (a task that schedules
-tasks has no end), the model has four tools:
+tasks has no end), the model has these tools:
 
 | Tool | What it does |
 |---|---|
@@ -51,6 +51,7 @@ tasks has no end), the model has four tools:
 | `update_scheduled_task` | Change one by id: its words, time or cadence, or pause and resume it |
 | `list_scheduled_tasks` | This person's tasks, with when each runs next and any that stopped and why |
 | `cancel_scheduled_task` | Delete one by id |
+| `task_runs` | Past runs of one of this person's own tasks or reports, newest first, each with its own answer — so "compare the latest report with last week's" is read straight from history rather than a file. `limit` caps how many, 5 by default, 20 at most. Refused for a routine that is not theirs |
 | `list_reports` | The shared reports here this person may receive, and whether they do |
 | `subscribe_report`, `unsubscribe_report` | Receive a shared report by id, or stop. `email: true` sends the report itself by email too ("send it to me by email"); asked again, it turns email on or off on the existing subscription |
 
