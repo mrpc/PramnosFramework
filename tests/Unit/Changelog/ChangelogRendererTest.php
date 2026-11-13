@@ -105,6 +105,90 @@ class ChangelogRendererTest extends TestCase
     }
 
     /**
+     * A value that looks like `serialize()`'s own output is redacted outright, not shown
+     * truncated — the one thing every application using this forgets to exclude via
+     * `$changeIgnoreFields` sooner or later: a gateway's raw response, a cache blob, landing
+     * verbatim in front of whoever reads the history.
+     */
+    public function testASerializedLookingValueIsRedacted(): void
+    {
+        // Arrange — the shapes serialize() actually produces: a string, an array, an object
+        $row = static fn (string $old, string $new): array => [
+            'origin' => 'feed', 'entity' => 'wcm-device', 'op' => ModelChange::UPDATED,
+            'changes' => ['payload' => ['old' => $old, 'new' => $new]],
+        ];
+
+        // Act & Assert
+        $this->assertSame(
+            'payload: (serialized data, not shown — add the field to $changeIgnoreFields) → (none)',
+            ChangelogRenderer::describe($row('s:40:"gateway blob that happens to be a string";', ''))
+        );
+        $this->assertStringContainsString(
+            '(serialized data, not shown — add the field to $changeIgnoreFields)',
+            ChangelogRenderer::describe($row('', 'a:2:{s:3:"foo";s:3:"bar";s:3:"baz";s:3:"qux";}'))
+        );
+        $this->assertStringContainsString(
+            '(serialized data, not shown — add the field to $changeIgnoreFields)',
+            ChangelogRenderer::describe($row('', 'O:8:"stdClass":1:{s:3:"foo";s:3:"bar";}'))
+        );
+    }
+
+    /**
+     * A value merely too long — not serialized, just long — is truncated with a byte count
+     * rather than redacted outright: unlike a serialized blob, the prefix is still readable.
+     */
+    public function testAnOverlongValueIsTruncatedWithItsLength(): void
+    {
+        // Arrange
+        $long = str_repeat('x', 600);
+        $row  = [
+            'origin' => 'feed', 'entity' => 'wcm-device', 'op' => ModelChange::UPDATED,
+            'changes' => ['notes' => ['old' => '', 'new' => $long]],
+        ];
+
+        // Act
+        $described = ChangelogRenderer::describe($row);
+
+        // Assert
+        $this->assertStringContainsString(str_repeat('x', 500) . '… (600 bytes, truncated)', $described);
+        $this->assertStringNotContainsString(str_repeat('x', 501), $described, 'cut at the limit, not past it');
+    }
+
+    /**
+     * A value just short of the limit is shown whole — the guard is a ceiling, not a general
+     * eagerness to trim.
+     */
+    public function testAValueAtTheLimitIsNotTouched(): void
+    {
+        // Arrange
+        $exact = str_repeat('y', 500);
+        $row   = [
+            'origin' => 'feed', 'entity' => 'wcm-device', 'op' => ModelChange::UPDATED,
+            'changes' => ['notes' => ['old' => '', 'new' => $exact]],
+        ];
+
+        // Act & Assert
+        $this->assertSame('notes: (none) → ' . $exact, ChangelogRenderer::describe($row));
+    }
+
+    /**
+     * A changed value that is not a scalar — an array decoded from JSON, say — is rendered as
+     * JSON, through the same guard (`guarded()`) as any other value: short and ordinary, so it
+     * passes through untouched.
+     */
+    public function testANonScalarValueIsJsonEncoded(): void
+    {
+        // Arrange
+        $row = [
+            'origin' => 'feed', 'entity' => 'wcm-device', 'op' => ModelChange::UPDATED,
+            'changes' => ['tags' => ['old' => ['a', 'b'], 'new' => ['a', 'b', 'c']]],
+        ];
+
+        // Act & Assert
+        $this->assertSame('tags: ["a","b"] → ["a","b","c"]', ChangelogRenderer::describe($row));
+    }
+
+    /**
      * Several changed fields are joined.
      */
     public function testSeveralFieldsAreJoined(): void

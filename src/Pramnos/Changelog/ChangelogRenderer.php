@@ -35,6 +35,12 @@ namespace Pramnos\Changelog;
 class ChangelogRenderer
 {
     /**
+     * A rendered value longer than this is truncated rather than shown whole — a line of
+     * history is read, not scrolled.
+     */
+    protected const MAX_VALUE_LENGTH = 500;
+
+    /**
      * Registered labels, keyed by entity then by field or event code.
      *
      * @var array<string, array<string, string>>
@@ -155,9 +161,34 @@ class ChangelogRenderer
             return $value ? 'true' : 'false';
         }
         if (is_scalar($value)) {
-            return (string) $value;
+            return static::guarded((string) $value);
         }
 
-        return json_encode($value, JSON_UNESCAPED_SLASHES) ?: '(unreadable)';
+        return static::guarded(json_encode($value, JSON_UNESCAPED_SLASHES) ?: '(unreadable)');
+    }
+
+    /**
+     * A value guarded against the one thing every application using this ends up doing once:
+     * forgetting a noisy or sensitive column in `$changeIgnoreFields`
+     * ({@see \Pramnos\Application\Concerns\EmitsModelChanges}), so a whole serialized payload —
+     * a gateway's raw response, a cache blob — lands verbatim in front of whoever reads the
+     * history.
+     *
+     * Two cheap, naive checks rather than a real inspection of the column: a value that starts
+     * with `serialize()`'s own prefix (`s:5:"…`, `a:2:{…`, `O:8:"stdClass"…`) is redacted
+     * outright, since a truncated fragment of it is unreadable anyway; anything else merely
+     * long is truncated with a byte count, so a reader sees that something was cut rather than
+     * a sentence that quietly stops.
+     */
+    protected static function guarded(string $text): string
+    {
+        if (preg_match('/^[sibadOC]:[\d.-]+[:;]/', $text) === 1) {
+            return '(serialized data, not shown — add the field to $changeIgnoreFields)';
+        }
+        if (strlen($text) > static::MAX_VALUE_LENGTH) {
+            return substr($text, 0, static::MAX_VALUE_LENGTH) . '… (' . number_format(strlen($text)) . ' bytes, truncated)';
+        }
+
+        return $text;
     }
 }

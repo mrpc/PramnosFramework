@@ -438,6 +438,13 @@ foreach (ChangelogReader::history('wcm-device', 42) as $row) {
 `history()` defaults to **application events only**. The automatic feed is one row
 per save and would bury them; ask for `['events', 'feed']` in a diagnostic view.
 
+**A changed value `describe()` cannot trust.** A column holding a serialized blob or a large
+payload — a gateway's raw response, a cache entry — belongs in `$changeIgnoreFields`, but every
+application using this forgets one sooner or later, so `describe()` guards the value it is handed
+rather than trusting the caller: a value that starts with `serialize()`'s own prefix (`s:5:"…`,
+`a:2:{…`, `O:8:"stdClass"…`) is redacted outright rather than shown as an unreadable fragment, and
+anything else over 500 bytes is truncated with a byte count. Ordinary values are never touched.
+
 For a screen that lists the log, `listing()` gives a page and the total the pager needs:
 
 ```php
