@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Pramnos\Llm\Chat\BaseAssistant;
 use Pramnos\Llm\Chat\Conversations;
+use Pramnos\Llm\Chat\Ending;
 use Pramnos\Llm\Chat\Memory;
 use Pramnos\Llm\Chat\Scope;
 use Pramnos\Llm\Chat\Turn;
@@ -482,6 +483,64 @@ class ConversationsTest extends LlmTestCase
         $this->assertSame('Sales; October was 41.', $chat->find($id)['summary'], 'the old one as it was');
         $this->assertSame('There is no such conversation.', $notHers);
         $this->assertTrue($nothing, 'a /compact with no conversation is a question like any other');
+    }
+
+    /**
+     * `/clear` or `/new` (FW-500) ends the conversation on the person's own word — the same
+     * `ended_at` {@see \Pramnos\Llm\Chat\Ending} writes after abuse, but deliberate: nothing is
+     * asked of the model, a plain confirmation comes back, and the next question on that same
+     * conversation id is refused exactly as an abuse-ended one would be.
+     */
+    #[DataProvider('databases')]
+    public function testClearEndsTheConversationDeliberately(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $chat = $this->chat(new Scope(7, null));
+        $this->answer([[200, self::says('One')]]);
+        $id = $chat->ask(null, 'First')['conversation_id'];
+
+        // Act
+        $cleared   = $chat->ask($id, '/clear');
+        $sentSoFar = count($this->sent);
+        $again     = $chat->ask($id, 'Second');
+        $twice     = $chat->ask($id, '/new');
+        $notHers   = $this->chat(new Scope(8, null))->ask($id, '/new');
+
+        // Assert
+        $this->assertSame(['cleared', 'This conversation has started over.', $id], [$cleared['why'], $cleared['says'], $cleared['conversation_id']]);
+        $this->assertTrue($chat->find($id)['ended'], 'ended_at is set, the same column Ending writes');
+        $this->assertSame(1, $sentSoFar, '/clear never asks the model — only "First" was sent');
+        $this->assertSame('ended', $again['why']);
+        $this->assertSame(['ended', Ending::SAYS], [$twice['why'], $twice['says']], '/new on an already-ended one: the same refusal, not a second ending');
+        $this->assertSame(['missing', 'There is no such conversation.'], [$notHers['why'], $notHers['says']], 'not theirs to end either');
+    }
+
+    /**
+     * A folded summary longer than its hard ceiling (FW-500) is cut at the front, the oldest part
+     * dropped rather than carried forward in full — the backstop for drift the model's own
+     * "at most 300 words" instruction does not always hold to over hundreds of folds.
+     */
+    #[DataProvider('databases')]
+    public function testAFoldedSummaryPastItsCeilingDropsTheOldestPart(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $chat     = $this->chat(new Scope(7, null));
+        $overlong = str_repeat('ab', 1100); // 2200 chars: over Conversations::SUMMARY_CAP (2000)
+        $this->answer([[200, self::says('One')], [200, self::says('Two')], [200, self::says('Three')], [200, self::says($overlong)]]);
+        $id = $chat->ask(null, 'First')['conversation_id'];
+        $chat->ask($id, 'Second');
+        $chat->ask($id, 'Third');
+
+        // Act
+        $chat->ask($id, '/compact');
+        $summary = (string) $chat->find($id)['summary'];
+
+        // Assert
+        $this->assertSame(1 + Conversations::SUMMARY_CAP, mb_strlen($summary), 'an ellipsis, then exactly the ceiling — never the whole thing');
+        $this->assertStringStartsWith('…', $summary);
+        $this->assertSame(mb_substr($overlong, -Conversations::SUMMARY_CAP), mb_substr($summary, 1), 'the newest part kept, the oldest dropped');
     }
 }
 

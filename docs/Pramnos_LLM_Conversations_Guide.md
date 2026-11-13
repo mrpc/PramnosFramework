@@ -7,6 +7,7 @@ use_cases:
   - Sharing an AI conversation or one of its results with a colleague
   - Turning an attached Word, OpenDocument or email file into text for a model
   - Asking users' agreement before their data goes to a provider
+  - Letting a person deliberately end a conversation and start fresh, with /clear or /new
 ---
 
 # Conversations
@@ -105,11 +106,23 @@ because a handful of long ones fill it as surely as many short ones. A summary t
 `turns()` only, and the next one tries again. `'llm' => ['chat' => ['summarize' => false]]` sends
 the last `turns()` and leaves the start out.
 
+**The summary has a hard ceiling.** `fold()` asks the model for "at most 300 words", but that is
+a soft instruction — across hundreds of folds over months, a model's own drift from it is how a
+summary accumulates stale, irrelevant material rather than staying current. `Conversations::SUMMARY_CAP`
+(2000 characters) backs it: a folded summary past the ceiling has its *oldest* part dropped, not
+the newest, so a long-lived conversation forgets what it no longer needs rather than carrying it
+forward forever.
+
 **Compacted on the person's word.** Before a change of topic, a person can fold the older
 messages, all but the last exchange, into the summary at once:
 
 - `/compact`, optionally with what to keep (`/compact keep October's figures`), as a question;
 - or `Conversations::compact($id, $keep)`, which the API exposes as `POST {chat}/{id}/compact`.
+- `/clear` or `/new`, also as a question, ends the conversation outright rather than folding it —
+  the same `ended_at` [Ending](#ending-a-conversation-when-the-person-keeps-insulting-the-assistant)
+  writes, but deliberate. Nothing is asked of the model; the reply is a plain confirmation, "This
+  conversation has started over." The next question on that chat opens a conversation of its own,
+  with a clean summary, rather than resuming this one.
 
 `continueAnew($id)` (`POST {chat}/{id}/continue`) starts a new conversation seeded with the old
 one in short, naming where it came from, and leaves the old one as it is. `find()` gives the
@@ -324,6 +337,9 @@ A companion can end a conversation in which it is abused (`Chat\Ending`). It is 
   says `ended: true`. A further question there is refused with `why: ended`, a 409 through the
   API, before anything is queued or sent to the model. The person can start a new conversation
   at any time; nobody is blocked.
+
+The same `ended_at` ends a conversation the person asked for, not only one the model decided to
+end: `/clear`/`/new`, above under *Compacted on the person's word*.
 
 ## Personas: more than one character on the conversation page
 

@@ -146,6 +146,7 @@ trait ConversationsProbe
             \Pramnos\Framework\Migrations\Llm\CreateChatAsksTable::class,
             \Pramnos\Framework\Migrations\Llm\AddSpaceToChatTables::class,
             \Pramnos\Framework\Migrations\Llm\MakeOrganizationIdNullableOnChatTables::class,
+            \Pramnos\Framework\Migrations\Llm\AddEndedAtToChatConversations::class,
             // The bell and the browsers subscribed to push: what a message notifies.
             \Pramnos\Framework\Migrations\Notifications\CreateNotificationsTable::class,
             \Pramnos\Framework\Migrations\Notifications\CreatePushSubscriptionsTable::class,

@@ -141,12 +141,19 @@ final class Ask
      * conversation that is gone failed every question after it with "There is no such
      * conversation", and the failure, pointing to the same one, kept it so. With none left, the
      * question starts a conversation of its own.
+     *
+     * One that has **ended** ({@see \Pramnos\Llm\Chat\Ending} after abuse, or a deliberate
+     * `/clear`/`/new`) is never resumed either — but unlike a deleted one, it is not passed over
+     * to an older conversation behind it: ending it on purpose means starting clean, not quietly
+     * falling back to whatever came before. `null` here is exactly what makes the next question
+     * open a conversation of its own.
      */
     private static function analystConversation(int $conversationId, int $person): ?int
     {
         $asks  = Conversations::db()->queryBuilder()->table('chat.conversation_messages')->select(['externalid'])
             ->where('conversationid', $conversationId)->where('source', 'ask')->orderBy('messageid', 'desc')->limit(10)->getAllOrFail();
         $scope = \Pramnos\Llm\Analyst\Analyst::scope($person);
+        $ended = Conversations::db()->schema()->hasColumn('assist.chat_conversations', 'ended_at');
         // ponytail: a question sent before the last one is answered starts a conversation of its own; a pending-ask lookup if that matters.
         foreach ($asks as $row) {
             $askId = (int) ($row['externalid'] ?? 0);
@@ -155,10 +162,17 @@ final class Ask
             }
             $id = (int) ($scope->apply(Conversations::db()->queryBuilder()->table('assist.chat_asks'))
                 ->select(['conversation_id'])->where('ask_id', $askId)->limit(1)->getAllOrFail()[0]['conversation_id'] ?? 0);
-            if ($id > 0 && $scope->apply(Conversations::db()->queryBuilder()->table('assist.chat_conversations'))
-                ->where('conversation_id', $id)->count() > 0) {
-                return $id;
+            if ($id <= 0) {
+                continue;
             }
+            $found = $scope->apply(Conversations::db()->queryBuilder()->table('assist.chat_conversations'))
+                ->where('conversation_id', $id)->select($ended ? ['conversation_id', 'ended_at'] : ['conversation_id'])
+                ->limit(1)->getAllOrFail();
+            if ($found === []) {
+                continue; // gone: an earlier conversation may still be there
+            }
+
+            return $ended && !empty($found[0]['ended_at']) ? null : $id;
         }
 
         return null;

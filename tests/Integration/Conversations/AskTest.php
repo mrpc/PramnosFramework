@@ -298,6 +298,47 @@ class AskTest extends TestCase
     }
 
     /**
+     * An analyst conversation that has ended — by abuse ({@see \Pramnos\Llm\Chat\Ending}) or a
+     * deliberate `/clear` — is never resumed. Unlike a deleted one (FW-405, above), the next
+     * question does not fall back to an older conversation either: ending it on purpose means
+     * starting clean, not quietly resuming whatever came before it.
+     */
+    #[DataProvider('databases')]
+    public function testAnEndedAnalystConversationIsNotResumedOrFallenBackTo(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
+        Settings::setSetting('llm_openai_api_key', 'sk-test', false);
+        $eleni = $this->ids['eleni'];
+        $asked = [];
+        Ask::queueWith(function (int $userId, string $question, array $extra, ?int $goesOn) use (&$asked): int {
+            $asked[] = [$userId, $question, $extra, $goesOn];
+
+            return count($asked);
+        });
+        $dm = Ask::conversationFor($this->user('eleni'));
+        Ask::start(Messages::post($dm, $eleni, 'πρώτη ερώτηση;'), $this->user('eleni'));
+
+        // The analyst answered it in conversation 77, which is there but already ended.
+        $this->db->queryBuilder()->table('assist.chat_conversations')->where('conversation_id', 77)->delete();
+        $this->db->queryBuilder()->table('assist.chat_conversations')->insert(['conversation_id' => 77, 'organization_id' => null, 'userid' => $eleni,
+            'space' => 'admin', 'title' => 'Κλεισμένη', 'created_at' => '2026-11-14 10:00:00', 'updated_at' => '2026-11-14 10:00:00',
+            'ended_at' => '2026-11-14 10:05:00']);
+        $this->db->queryBuilder()->table('assist.chat_asks')->insert(['organization_id' => null, 'userid' => $eleni, 'space' => 'admin',
+            'conversation_id' => 77, 'status' => 'answered', 'created_at' => '2026-11-14 10:00:00', 'updated_at' => '2026-11-14 10:00:00']);
+        $askId = (int) $this->db->queryBuilder()->table('assist.chat_asks')->orderBy('ask_id', 'desc')->first()->fields['ask_id'];
+        Ask::answered(['ask_id' => $askId, 'extra' => $asked[0][2]], ['ok' => true, 'conversation_id' => 77, 'message' => ['content' => 'This conversation has ended.']]);
+
+        // Act
+        $next = Ask::start(Messages::post($dm, $eleni, 'δεύτερη ερώτηση;'), $this->user('eleni'));
+
+        // Assert
+        $this->assertNotNull($next, 'the question itself still goes through');
+        $this->assertNull($asked[1][3], 'ended on purpose: a conversation of its own, not the ended one, and not an older one either');
+    }
+
+    /**
      * `@Ask` where others read the answer is answered with the rights of its least privileged
      * reader — the members of a closed conversation; everybody who may use the conversations in an
      * open one, a member or not — the lowest usertype, the asker among them.

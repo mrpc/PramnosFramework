@@ -50,6 +50,15 @@ class Conversations
     /** How much of the first question becomes the conversation's title. */
     public const TITLE = 80;
 
+    /**
+     * A folded summary's hard ceiling, in characters — well above the ~300 words `fold()` asks
+     * the model for, so this only bites when the model's own compliance drifts: carried forward
+     * and rewritten across hundreds of folds over months, a summary with no code-enforced limit
+     * accumulates stale material the model keeps rather than the "forget the oldest part" this
+     * caps for.
+     */
+    public const SUMMARY_CAP = 2000;
+
     /** How the framework notes the tools an earlier answer wrote with. Only this class writes it. */
     /** Questions a conversation stays on the tier it was given before it is decided again. */
     public const CASCADE_HOLD = 4;
@@ -323,6 +332,33 @@ class Conversations
     }
 
     /**
+     * The conversation ended on the person's own word, deliberately — the same `ended_at`
+     * {@see Ending} writes after abuse, nothing asked of the model. The next question on this
+     * chat starts a conversation of its own, with a clean summary, rather than resuming this one
+     * ({@see \Pramnos\Conversations\Ask::analystConversation()} passes an ended one over, and does
+     * not fall back to an older one behind it).
+     *
+     * @return true|string True once ended; why not, otherwise.
+     */
+    private function clear(int $conversationId): bool|string
+    {
+        $found = $this->find($conversationId);
+        if ($found === null) {
+            return 'There is no such conversation.';
+        }
+        if (!empty($found['ended'])) {
+            return Ending::SAYS;
+        }
+        if (!$this->ends()) {
+            return 'This installation cannot start over yet: run migrate.';
+        }
+        $this->scope->apply($this->table('assist.chat_conversations'))->where('conversation_id', $conversationId)
+            ->update(['ended_at' => CallLog::instant(time())]);
+
+        return true;
+    }
+
+    /**
      * A conversation's summary corrected by the person: what the assistant goes on from.
      */
     public function correctSummary(int $conversationId, string $summary): bool
@@ -463,6 +499,19 @@ class Conversations
             return is_string($done) ? self::refusal('compact', $done)
                 : ['ok' => true, 'says' => sprintf('The older %d messages are now a summary.', $done['folded']), 'why' => 'compacted',
                     'conversation_id' => $conversationId, 'message' => null, 'summary' => $done['summary']];
+        }
+        // `/clear` or `/new`: this conversation ends here, on purpose, nothing asked of the model —
+        // the next question starts one of its own, with a clean summary.
+        if ($conversationId !== null && preg_match('#^/(clear|new)\b#iu', $question) === 1) {
+            $done = $this->clear($conversationId);
+
+            return $done === true
+                ? ['ok' => true, 'says' => 'This conversation has started over.', 'why' => 'cleared', 'conversation_id' => $conversationId, 'message' => null]
+                : self::refusal(match ($done) {
+                    'There is no such conversation.' => 'missing',
+                    Ending::SAYS                      => 'ended',
+                    default                           => 'clear',
+                }, $done);
         }
         // Said first by the person: a check waiting on it is not asked.
         if (FollowUps::on($this->scope) && $question !== '') {
@@ -1228,6 +1277,11 @@ class Conversations
         $folded = trim((string) ($answer['reply'] ?? ''));
         if (!($answer['ok'] ?? false) || $folded === '') {
             return null;
+        }
+        if (mb_strlen($folded) > self::SUMMARY_CAP) {
+            // ponytail: the oldest part is dropped outright, not re-summarized again — asking the
+            // model to shrink a summary that already overran is the same drift happening twice.
+            $folded = '…' . mb_substr($folded, -self::SUMMARY_CAP);
         }
         if ($mark) {
             $this->mark($conversationId, ['summary' => $folded, 'summary_upto' => $upto]);
