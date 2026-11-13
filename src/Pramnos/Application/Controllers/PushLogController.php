@@ -115,7 +115,7 @@ class PushLogController extends Controller
         }
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Push notification #' . $pushId;
+        $doc->title = t('Push notification #%s', (string) $pushId);
 
         $hash = (string) ($row['endpoint_hash'] ?? '');
 
@@ -124,6 +124,7 @@ class PushLogController extends Controller
         $view->outcome      = Log::outcome($row);
         $view->subscription = $this->subscription((int) ($row['userid'] ?? 0), $hash);
         $view->history      = $hash === '' ? [] : $this->rows(20, ['endpoint_hash' => $hash]);
+        $view->names        = $this->names([(int) ($row['userid'] ?? 0)]);
         // A test notification's receipt: whether the device itself said it arrived.
         $token              = \Pramnos\Push\TestPush::tokenOf($row);
         $view->receipt      = $token === null ? null : $this->testPush()->status($token);

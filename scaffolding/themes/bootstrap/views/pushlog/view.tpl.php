@@ -29,6 +29,7 @@ $css = ['delivered' => 'text-bg-success', 'gone' => 'text-bg-warning', 'not_sent
 $badge = static fn (array $what): string => '<span class="badge ' . ($css[$what['kind']] ?? '') . '">'
     . htmlspecialchars($what['label'], ENT_QUOTES, 'UTF-8') . '</span>';
 $receipt = is_array($this->receipt ?? null) ? $this->receipt : null;
+$names   = is_array($this->names ?? null) ? $this->names : [];
 $userId = (int) ($row['userid'] ?? 0);
 $hash   = (string) ($row['endpoint_hash'] ?? ''); @endphp
 <div class="container-fluid py-4">
@@ -72,7 +73,7 @@ $hash   = (string) ($row['endpoint_hash'] ?? ''); @endphp
                 <tr><th>{{ t('Sent') }}</th><td>{{ $when($row) }}</td></tr>
                 <tr><th>{{ t('Account') }}</th><td>
                     @if ($userId > 0)
-                        <a href="{{ adminUrl('Users/view/') . $userId }}">#{!! $userId !!}</a>
+                        <a href="{{ adminUrl('Users/view/') . $userId }}">{{ $names[$userId] ?? ('#' . $userId) }}</a>
                         · <a href="{{ adminUrl('PushLog') . '?userid=' . $userId }}">{{ t('every push to this account') }}</a>
                     @else—@endif
                 </td></tr>

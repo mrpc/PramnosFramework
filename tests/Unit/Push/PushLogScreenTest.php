@@ -424,6 +424,7 @@ class PushLogScreenTest extends TestCase
         $this->assertSame('Chrome on Android', $controller->view->subscription['user_agent']);
         $this->assertSame(['endpoint_hash' => 'abc'], $controller->filter);
         $this->assertSame(20, $controller->limit);
+        $this->assertSame([42 => 'Maria K.'], $controller->view->names, 'the account column: a name, not a bare id');
     }
 
     /**
