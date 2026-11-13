@@ -160,6 +160,12 @@ class ChangelogRenderer
         if (is_bool($value)) {
             return $value ? 'true' : 'false';
         }
+        if (is_float($value)) {
+            // A raw float's string cast carries its full binary precision ("3.6774193548387"),
+            // never what anybody stored or meant — money after a split, a percentage. Two
+            // decimals reads as the number it is.
+            return static::guarded(number_format($value, 2));
+        }
         if (is_scalar($value)) {
             return static::guarded((string) $value);
         }

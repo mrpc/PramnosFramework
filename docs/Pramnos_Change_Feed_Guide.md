@@ -443,7 +443,9 @@ payload — a gateway's raw response, a cache entry — belongs in `$changeIgnor
 application using this forgets one sooner or later, so `describe()` guards the value it is handed
 rather than trusting the caller: a value that starts with `serialize()`'s own prefix (`s:5:"…`,
 `a:2:{…`, `O:8:"stdClass"…`) is redacted outright rather than shown as an unreadable fragment, and
-anything else over 500 bytes is truncated with a byte count. Ordinary values are never touched.
+anything else over 500 bytes is truncated with a byte count. Ordinary values are never touched —
+except a raw `float` (money after a split, a percentage), rounded to two decimals rather than
+printed at its full binary precision ("tax: 0 → 3.68", never "3.6774193548387").
 
 For a screen that lists the log, `listing()` gives a page and the total the pager needs:
 

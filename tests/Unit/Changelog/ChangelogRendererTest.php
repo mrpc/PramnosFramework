@@ -105,6 +105,25 @@ class ChangelogRendererTest extends TestCase
     }
 
     /**
+     * A raw float — tax after a coupon split, a percentage — is rounded to two decimals rather
+     * than printed at its full binary precision ("3.6774193548387"), which reads as a bug and
+     * says nothing nobody stored meant to say.
+     */
+    public function testAFloatIsRoundedToTwoDecimals(): void
+    {
+        // Arrange
+        $row = [
+            'origin'  => 'feed',
+            'entity'  => 'wcm-device',
+            'op'      => ModelChange::UPDATED,
+            'changes' => ['tax' => ['old' => 0.0, 'new' => 3.6774193548387]],
+        ];
+
+        // Act & Assert
+        $this->assertSame('tax: 0.00 → 3.68', ChangelogRenderer::describe($row));
+    }
+
+    /**
      * A value that looks like `serialize()`'s own output is redacted outright, not shown
      * truncated — the one thing every application using this forgets to exclude via
      * `$changeIgnoreFields` sooner or later: a gateway's raw response, a cache blob, landing
