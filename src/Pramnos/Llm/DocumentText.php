@@ -16,12 +16,13 @@ use Pramnos\Email\MailMessage;
  * pictures — a press release's own photos — are read apart, by
  * {@see pictures()}, and listed after the words under {@see PICTURES}. Plain text and Markdown are what they are. A saved
  * email (.eml) is its subject, sender and words, with the documents it carries
- * read too and its pictures taken ({@see MailMessage}). PDF is not read:
- * it would need a parser the framework does not carry.
+ * read too and its pictures taken ({@see MailMessage}). CSV and TSV are read as
+ * plain text, rows and all, so two of them attached together can be compared.
+ * PDF is not read: it would need a parser the framework does not carry.
  */
 class DocumentText
 {
-    public const TYPES = ['docx', 'odt', 'txt', 'md', 'eml'];
+    public const TYPES = ['docx', 'odt', 'txt', 'md', 'csv', 'tsv', 'eml'];
 
     /** The most a document may weigh, before reading. */
     public const MAX_BYTES = 5_000_000;

@@ -39,4 +39,26 @@ class AttachmentsTest extends TestCase
         // Without a store, a picture cannot reach the model: refused rather than dropped silently.
         $this->assertStringStartsWith('“chart.png” could not be read.', (string) $picture);
     }
+
+    /**
+     * Two CSV files sent with the same question both reach the model, each under its own name,
+     * so it can compare one against the other — not just read one at a time.
+     */
+    public function testTwoCsvFilesAreBothRead(): void
+    {
+        // Arrange
+        $keepNothing = static fn (string $path, string $filename): ?string => null;
+
+        // Act
+        $built = Attachments::build([
+            ['name' => 'november.csv', 'bytes' => "area,total\nAthens,10"],
+            ['name' => 'october.csv', 'bytes' => "area,total\nAthens,8"],
+        ], $keepNothing);
+
+        // Assert — both files' words are present, each introduced by its own name, so the model
+        // can tell which rows came from which month.
+        $this->assertIsArray($built);
+        $this->assertStringContainsString("--- november.csv ---\narea,total\nAthens,10", (string) $built['text']);
+        $this->assertStringContainsString("--- october.csv ---\narea,total\nAthens,8", (string) $built['text']);
+    }
 }

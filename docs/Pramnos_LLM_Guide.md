@@ -125,7 +125,7 @@ one is there; a `number` is a number as people write it (`1.240,50` and `1,240.5
 What fails is reported by field in `missing` / `invalid` and kept out of `data`.
 `Extractor::check($values, $fields)` runs the same checks on what a person corrected.
 
-A file is read for its text by `DocumentText` (docx, odt, txt, md, eml); a PDF where `pdftotext`
+A file is read for its text by `DocumentText` (docx, odt, txt, md, csv, tsv, eml); a PDF where `pdftotext`
 (poppler-utils) is installed on the server, and otherwise the answer says that is what it needs. The
 document goes to the provider the client is connected to: pass a `Client` of a feature and
 connection that may receive it.

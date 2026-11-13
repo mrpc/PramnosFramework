@@ -73,6 +73,17 @@ class DocumentTextTest extends LlmTestCase
     }
 
     /**
+     * CSV and TSV are read as plain text, rows and header included — so two files attached to
+     * the same question can be told apart and compared by the model, without a CSV parser here.
+     */
+    public function testCsvAndTsvAreReadAsText(): void
+    {
+        // Act / Assert
+        $this->assertSame("name,total\nmarket,10\nother,5", DocumentText::from('report.csv', "name,total\r\nmarket,10\r\nother,5"));
+        $this->assertSame("name\ttotal\nmarket\t10", DocumentText::from('report.tsv', "name\ttotal\nmarket\t10"));
+    }
+
+    /**
      * A document's pictures, a picture on its own, and none for anything else.
      */
     public function testPictures(): void

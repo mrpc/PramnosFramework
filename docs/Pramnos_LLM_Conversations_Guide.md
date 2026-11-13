@@ -5,7 +5,7 @@ use_cases:
   - Laying out the prompt so the provider's cache keeps most of it
   - Letting the AI propose changes that a person approves, and rating its answers
   - Sharing an AI conversation or one of its results with a colleague
-  - Turning an attached Word, OpenDocument or email file into text for a model
+  - Turning an attached Word, OpenDocument, CSV or email file into text for a model
   - Asking users' agreement before their data goes to a provider
   - Letting a person deliberately end a conversation and start fresh, with /clear or /new
 ---
@@ -137,11 +137,16 @@ by much, since most of that is the rules, the tools and the tools' results, not 
 on the connection's own.
 
 An attachment is a document's words: `ask(…, attachment: ['name' => 'release.docx', 'text' => …])`.
-`Pramnos\Llm\DocumentText::from($name, $bytes)` reads `.docx`, `.odt`, `.txt`, `.md` and `.eml`
-(the email's subject, sender and words, and the documents it carries); `pictures()` takes a
-document's photos, and `keepPictures($name, $bytes, $store)` keeps them through
+`Pramnos\Llm\DocumentText::from($name, $bytes)` reads `.docx`, `.odt`, `.txt`, `.md`, `.csv`/`.tsv`
+and `.eml` (the email's subject, sender and words, and the documents it carries); `pictures()` takes
+a document's photos, and `keepPictures($name, $bytes, $store)` keeps them through
 `$store(string $path, string $filename): ?string` — the application's media library — and lists
 their addresses after the words.
+
+`Chat\Attachments::build()`, the chat page's own path, takes up to ten files sent with one question
+(`Attachments::FILES`, `Attachments::BYTES` together) and reads each with `DocumentText`, each under
+its own name — so two CSV exports attached to the same question ("compare these two") both reach the
+model, told apart by name, rather than only the first.
 
 ## The context, in three zones
 
