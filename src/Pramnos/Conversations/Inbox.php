@@ -22,6 +22,10 @@ final class Inbox
      * The threads somebody takes part in — they wrote the root or a reply — newest reply first,
      * each with how many replies came from others since their own last word there, and the latest.
      *
+     * `newReplies` counts past the later of their own last word there and the thread's own read
+     * point ({@see Threads}, FW-498): merely reading a thread, without replying, used to leave
+     * every reply in it "new" for ever.
+     *
      * @return list<array{root: array<string, mixed>, latest: ?array<string, mixed>, replies: int, newReplies: int}>
      */
     public static function threads(int $person, int $limit = 30): array
@@ -32,13 +36,18 @@ final class Inbox
         }
         $rows = self::messages()->select(['messageid'])->whereIn('messageid', $roots)->whereIn('conversationid', self::mine($person))
             ->where('replycount', '>', 0)->orderBy('lastreplyat', 'desc')->limit(max(1, min(self::LIMIT, $limit)))->getAllOrFail();
-        $ids  = array_map('intval', array_column($rows, 'messageid'));
+        $ids         = array_map('intval', array_column($rows, 'messageid'));
+        $threadReads = Threads::readMany($ids, $person);
         $out  = [];
         foreach (Messages::many($ids) as $root) {
             // Their own newest reply, by when written; else the root, if it is theirs.
             $mine = (int) (Messages::inOrder(self::messages()->select(['messageid'])->where('threadrootid', $root['id'])
                 ->where('authorid', $person), 'desc')->limit(1)->getAllOrFail()[0]['messageid'] ?? 0);
             $since = $mine ?: ($root['authorId'] === $person ? $root['id'] : 0);
+            $threadRead = $threadReads[$root['id']]['lastReadId'] ?? 0;
+            if ($threadRead > 0 && ($since === 0 || Messages::isAfter($threadRead, $since))) {
+                $since = $threadRead;
+            }
             $new   = (int) (Messages::beyond(self::messages()->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->where('threadrootid', $root['id']), $since)
                 ->whereNull('deletedat')->where(self::others($person))->getAllOrFail()[0]['n'] ?? 0);
             $latest = Messages::inOrder(self::messages()->select(['messageid'])->where('threadrootid', $root['id'])->whereNull('deletedat'), 'desc')
@@ -136,13 +145,15 @@ final class Inbox
 
     /**
      * How many of somebody's activity they have not seen yet, for a badge: newer than
-     * {@see activitySeen()}, and — a mention or a reply — still unread in its conversation, past
-     * their read point there: read in the conversation, it was seen. A reaction has no message of
-     * its own to be "unread", so it counts past `readat` instead (FW-497) — the moment
-     * {@see \Pramnos\Conversations\Conversations::markRead()} last ran there, whether or not that
-     * moved `lastreadid`: a reaction arriving while they are already caught up on every message
-     * would otherwise count for ever, since nothing about it is ever "read". Counted over the
-     * newest {@see LIMIT}; the activity itself still lists everything.
+     * {@see activitySeen()}, and — a mention or a reply — still unread past their read point,
+     * which is the conversation's own (`lastreadid`) for a mention, and a thread's own
+     * ({@see Threads}, FW-498) for a reply in one — falling back to the conversation's when the
+     * thread has never been read at all, which is what happens before this existed. Read there,
+     * it was seen. A reaction has no message of its own to be "unread", so it counts past
+     * `readat` instead (FW-497) — the moment {@see Conversations::markRead()} last ran there,
+     * whether or not that moved `lastreadid`: a reaction arriving while they are already caught
+     * up on every message would otherwise count for ever, since nothing about it is ever "read".
+     * Counted over the newest {@see LIMIT}; the activity itself still lists everything.
      *
      * @param list<array<string, mixed>>|null $activity Their activity, where it was read already
      */
@@ -160,15 +171,23 @@ final class Inbox
             $read[(int) $row['conversationid']]   = (int) $row['lastreadid'];
             $readAt[(int) $row['conversationid']] = (int) ($row['readat'] ?? 0);
         }
-        $at = Messages::positions([...array_values($read), ...array_map(static fn (array $a): int => (int) $a['message']['id'], $new)]);
+        $roots       = array_values(array_unique(array_filter(array_map(
+            static fn (array $a): int => $a['kind'] === 'reply' ? (int) ($a['message']['threadRootId'] ?? 0) : 0,
+            $new
+        ))));
+        $threadReads = Threads::readMany($roots, $person);
+        $at          = Messages::positions([...array_values($read),
+            ...array_map(static fn (array $r): int => $r['lastReadId'], $threadReads),
+            ...array_map(static fn (array $a): int => (int) $a['message']['id'], $new)]);
 
-        return count(array_filter($new, static function (array $a) use ($read, $readAt, $at): bool {
+        return count(array_filter($new, static function (array $a) use ($read, $readAt, $threadReads, $at): bool {
             $conversationId = (int) $a['message']['conversationId'];
             if ($a['kind'] === 'reaction') {
                 return (int) $a['at'] > ($readAt[$conversationId] ?? 0);
             }
             $id   = (int) $a['message']['id'];
-            $upto = $read[$conversationId] ?? 0;
+            $root = $a['kind'] === 'reply' ? (int) ($a['message']['threadRootId'] ?? 0) : 0;
+            $upto = $root > 0 && isset($threadReads[$root]) ? $threadReads[$root]['lastReadId'] : ($read[$conversationId] ?? 0);
 
             return Messages::standsAfter($id, $at[$id] ?? null, $upto, $at[$upto] ?? null);
         }));

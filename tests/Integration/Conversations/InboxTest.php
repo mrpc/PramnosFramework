@@ -11,6 +11,7 @@ use Pramnos\Application\Application;
 use Pramnos\Conversations\Conversations;
 use Pramnos\Conversations\Inbox;
 use Pramnos\Conversations\Messages;
+use Pramnos\Conversations\Threads;
 
 /**
  * The views above the conversations on each backend: the threads somebody takes part in, what
@@ -19,6 +20,7 @@ use Pramnos\Conversations\Messages;
  */
 #[CoversClass(Inbox::class)]
 #[CoversClass(Messages::class)]
+#[CoversClass(Threads::class)]
 class InboxTest extends TestCase
 {
     use ConversationsProbe;
@@ -288,5 +290,52 @@ class InboxTest extends TestCase
         $this->assertSame(1, $beforeMarkRead, 'arrived after the last real read: counted');
         $this->assertSame(0, $afterMarkRead, 'markRead() moved the read point past it, though lastreadid itself did not move');
         $this->assertSame(1, $afterNewReaction, 'a reaction after the new read point still counts');
+    }
+
+    /**
+     * FW-498: a thread has its own read point, separate from the conversation's own `lastreadid`
+     * — which moves with top-level messages, never a reply. `Threads::markRead()` on the thread
+     * clears a reply from both the Activity badge ({@see Inbox::unseenActivity()}) and the
+     * thread's own `newReplies` ({@see Inbox::threads()}); marking only the top-level
+     * conversation read does neither — the thread was never opened.
+     */
+    #[DataProvider('databases')]
+    public function testAThreadHasItsOwnReadPoint(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        $general = Conversations::create('channel', 'general', [$maria], $eleni);
+        $root    = Messages::post($general, $eleni, 'Ποιος κοιτάζει το τιμολόγιο;');
+        $reply   = Messages::post($general, $maria, 'Εγώ', ['thread' => $root]);
+
+        // Act — the reply is unread, in both places
+        $beforeActivity = Inbox::unseenActivity($eleni);
+        $beforeThreads  = array_values(array_filter(Inbox::threads($eleni), static fn (array $t): bool => $t['root']['id'] === $root))[0]['newReplies'];
+
+        // The thread itself is read
+        Threads::markRead($root, $eleni, $reply);
+        $afterActivity = Inbox::unseenActivity($eleni);
+        $afterThreads  = array_values(array_filter(Inbox::threads($eleni), static fn (array $t): bool => $t['root']['id'] === $root))[0]['newReplies'];
+
+        // A second reply, after the thread's own read point: unread again
+        $second = Messages::post($general, $maria, 'Και κάτι ακόμα', ['thread' => $root]);
+        $withSecond = Inbox::unseenActivity($eleni);
+
+        // Reading only the top-level conversation — never opening the thread — does nothing for it
+        Conversations::markRead($general, $eleni, $second);
+        $conversationReadOnly = Inbox::unseenActivity($eleni);
+        $stillNewReplies      = array_values(array_filter(Inbox::threads($eleni), static fn (array $t): bool => $t['root']['id'] === $root))[0]['newReplies'];
+
+        // Assert
+        $this->assertSame(1, $beforeActivity, 'the reply is unread activity');
+        $this->assertSame(1, $beforeThreads, 'and an unread reply in the thread list');
+        $this->assertSame(0, $afterActivity, 'the thread was read: no longer activity');
+        $this->assertSame(0, $afterThreads, 'nor a new reply in the thread list');
+        $this->assertSame(1, $withSecond, 'a reply after the thread\'s own read point: unread again');
+        $this->assertSame(1, $conversationReadOnly, 'the conversation was read, but the thread never was: the reply still counts');
+        $this->assertSame(1, $stillNewReplies, 'same, in the thread list');
+        $this->assertNull(Threads::read($root, $maria), 'nobody else\'s read point moved');
     }
 }

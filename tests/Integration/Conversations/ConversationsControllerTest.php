@@ -189,6 +189,37 @@ class ConversationsControllerTest extends TestCase
     }
 
     /**
+     * FW-498: `threadread/<root>` marks a thread's own read point, not the conversation's —
+     * which does nothing for a reply in a thread nobody opened.
+     */
+    #[DataProvider('databases')]
+    public function testThreadReadMarksTheThreadsOwnPoint(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
+        Application::getInstance()->applicationInfo['features'] = ['conversations'];
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        $made  = $this->ask('eleni', 'create', null, ['kind' => 'channel', 'name' => 'ops', 'members' => [$maria]]);
+        $id    = $made['body']['id'];
+        $root  = $this->ask('eleni', 'post', $id, ['body' => 'Ποιος κοιτάζει το τιμολόγιο;'])['body']['id'];
+        $reply = $this->ask('maria', 'post', $id, ['body' => 'Εγώ', 'thread' => $root])['body']['id'];
+
+        // Act
+        $before = \Pramnos\Conversations\Threads::read($root, $eleni);
+        $missing = $this->ask('eleni', 'threadread', 999999999, ['message' => $reply]);
+        $ok     = $this->ask('eleni', 'threadread', $root, ['message' => $reply]);
+        $after  = \Pramnos\Conversations\Threads::read($root, $eleni);
+
+        // Assert
+        $this->assertNull($before, 'never opened');
+        $this->assertSame(404, $missing['status']);
+        $this->assertSame(['ok' => true], $ok['body']);
+        $this->assertSame($reply, $after['lastReadId']);
+        $this->assertNull(\Pramnos\Conversations\Threads::read($root, $maria), 'her own read point, nobody else\'s');
+    }
+
+    /**
      * The views above the conversations through the controller: threads, activity, every unread
      * message, what was sent, saving a message and the saved ones, a conversation's files — and a
      * message or conversation the asker cannot read is 404, never saved, never listed.
@@ -320,7 +351,7 @@ class ConversationsControllerTest extends TestCase
         $this->assertSame([422, 'A message needs something in it.'], [$empty['status'], $empty['body']['error']]);
         $this->assertSame([422, 'There is a channel called #finance already.'], [$twice['status'], $twice['body']['error']]);
         $this->assertSame(403, $off['status'], 'an application without the conversations');
-        $this->assertSame(['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'activityseen', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away', 'rename', 'setimage', 'clearimage', 'addtodo', 'changetodo', 'deletetodo', 'savetodo', 'describe', 'setprivate', 'archive', 'unarchive', 'removemember', 'setrole', 'destroy', 'settings', 'addtab', 'removetab', 'hidetab', 'ordertabs', 'newcanvas', 'savecanvas', 'lockcanvas', 'unlockcanvas', 'restorecanvas', 'deletecanvas', 'summarize', 'addautomation', 'changeautomation', 'pauseautomation', 'deleteautomation'], $writes,
+        $this->assertSame(['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'threadread', 'activityseen', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away', 'rename', 'setimage', 'clearimage', 'addtodo', 'changetodo', 'deletetodo', 'savetodo', 'describe', 'setprivate', 'archive', 'unarchive', 'removemember', 'setrole', 'destroy', 'settings', 'addtab', 'removetab', 'hidetab', 'ordertabs', 'newcanvas', 'savecanvas', 'lockcanvas', 'unlockcanvas', 'restorecanvas', 'deletecanvas', 'summarize', 'addautomation', 'changeautomation', 'pauseautomation', 'deleteautomation'], $writes,
             'every write checks the session\'s token');
     }
 

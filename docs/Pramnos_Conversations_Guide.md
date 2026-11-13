@@ -137,6 +137,24 @@ would count against the Activity badge for ever, since nothing else ever marks i
 (FW-497). `Inbox::unseenActivity()` counts a reaction past its conversation's `readat`, the
 same way it counts a mention or a reply past `lastReadId`.
 
+**A thread has its own read point too** (`Pramnos\Conversations\Threads`, FW-498), because a
+conversation's own `lastReadId` moves with its top-level messages, never a reply:
+
+```php
+Threads::markRead($root, $me, $replyId);  // never back on lastReadId; readAt always moves
+Threads::read($root, $me);                // ['lastReadId' => …, 'readAt' => …], or null: never opened
+```
+
+`POST threadread/<root>` (`{message}`) is the endpoint — the same shape as `read`, told on the
+person's own channel as `thread.read` (`{conversationId, rootId, lastReadId}`) rather than
+`conversation.read`, which is about the conversation's own top-level stream. `Inbox` uses the
+thread's own read point for a reply — in `unseenActivity()` (past its thread's `readat`, falling
+back to the conversation's when the thread was never read, as before this existed) and in
+`threads()`'s `newReplies` (past the *later* of the reader's own last word there and the
+thread's read point). A client calls it when a thread opens, and when a reply arrives in a
+thread that is open and in front — the same moment it would otherwise call `read` for the
+conversation.
+
 **Opening at a message.** A link to a message, or a to-do from one, opens its conversation there:
 `Messages::around($id, $messageId, $limit)` gives about half the page up to the message and the
 rest after it, with `older` and `newer` saying whether there is more each way — the client then
@@ -1076,7 +1094,7 @@ A message is written first and told second, through Broadcasting:
 | `private-conversation.{id}` | `message.posted`, `message.edited`, `message.deleted`, `message.reacted`, `message.pinned`, `message.unfurled` (its link previews read, or one taken off) — each with the message as a reader sees it (name, HTML, reactions, files, link previews) |
 | `private-conversation.{id}` | `canvas.changed` `{conversationId, canvasId, what, by}`: one of its canvases was created, saved, locked, unlocked or deleted ([Tabs and canvases](#tabs-and-canvases)) |
 | `private-conversation.{id}` | `assistant.thinking` `{thread, name, until}` when the analyst begins on a question there — `thread` null for the conversation itself — and `assistant.done` `{thread}` when it has finished, answered or not: the server says it, since a worker cannot whisper |
-| each member's own (`private-users.{id}`, or `broadcasting.notifications_channel`) | `conversation.activity`: a message in one of their conversations — its ids, its writer, whether it mentions them — for a sidebar's unread and a window that opens; `conversation.read`: what they have read there moved — read on another page, or marked unread — `{conversationId, lastReadId, unread, mentions}`; `conversation.changed` `{conversationId, mergedFrom}`: who is in it changed under them (`claimFormer()`); `conversation.draft` `{conversationId, thread, body, updatedAt}`: their draft there changed, on another device; `todo.changed` `{id, deleted}`: one of their to-dos was added, changed or deleted ([To-dos](Pramnos_Todos_Guide.md#in-the-conversations)); `activity.seen` `{seenAt}`: they saw their activity on another device |
+| each member's own (`private-users.{id}`, or `broadcasting.notifications_channel`) | `conversation.activity`: a message in one of their conversations — its ids, its writer, whether it mentions them — for a sidebar's unread and a window that opens; `conversation.read`: what they have read there moved — read on another page, or marked unread — `{conversationId, lastReadId, unread, mentions}`; `thread.read` `{conversationId, rootId, lastReadId}`: what they have read in one thread moved (FW-498), separately — a conversation's own read point moves with its top-level messages, never a reply; `conversation.changed` `{conversationId, mergedFrom}`: who is in it changed under them (`claimFormer()`); `conversation.draft` `{conversationId, thread, body, updatedAt}`: their draft there changed, on another device; `todo.changed` `{id, deleted}`: one of their to-dos was added, changed or deleted ([To-dos](Pramnos_Todos_Guide.md#in-the-conversations)); `activity.seen` `{seenAt}`: they saw their activity on another device |
 | `presence-chat` | who of the team is connected, with their name |
 
 For the conversations to be live, three things have to hold; each fails silently when it does not:
@@ -1343,6 +1361,7 @@ described by its docblock, and it answers as it is, with its own `me()`:
 | `gifs` | GET | `q` | `{gifs}`: GIFs for a search, or the trending ones, asked with the application's key; 404 where there are none |
 | `gif/{id}` | POST | `url`, `title` | `{id, name, size, mime}`: a GIF the picker offered, kept as a file of the conversation |
 | `read/{id}` | POST | `message` | `{ok}` — the conversation's notifications in the reader's bell are read too |
+| `threadread/{root}` | POST | `message` | `{ok}` — a thread's own read point (FW-498), separate from the conversation's; told as `thread.read`, not `conversation.read`; 404 to a message that no longer exists |
 | `unread/{id}` | POST | `message` | `{ok}` — unread from that message on, a reply from its root; 404 to somebody not in it |
 | `notify/{id}` | POST | `notify` (`all`, `mentions`, `none`), `muted` | `{ok}` |
 | `star/{id}` | POST | `on`, `before` | `{ok}` — `before`, a starred conversation it is placed before, in the reader's own order |

@@ -85,6 +85,7 @@ trait ConversationsProbe
         require_once ROOT . '/database/migrations/framework/conversations/2026_11_07_000002_create_conversation_drafts_table.php';
         require_once ROOT . '/database/migrations/framework/conversations/2026_11_07_000003_add_starorder_to_conversation_members.php';
         require_once ROOT . '/database/migrations/framework/conversations/2026_11_13_000001_add_readat_to_conversation_members.php';
+        require_once ROOT . '/database/migrations/framework/conversations/2026_11_13_000002_create_thread_reads_table.php';
         require_once ROOT . '/database/migrations/framework/conversations/2026_11_09_000001_create_conversation_clients_table.php';
         require_once ROOT . '/database/migrations/framework/conversations/2026_11_10_000002_add_app_to_conversation_clients.php';
         require_once ROOT . '/database/migrations/framework/notifications/2026_11_09_000002_add_client_to_pushsubscriptions.php';
@@ -161,6 +162,7 @@ trait ConversationsProbe
             // The reader's own order of their starred conversations.
             \Pramnos\Framework\Migrations\Conversations\AddStarorderToConversationMembers::class,
             \Pramnos\Framework\Migrations\Conversations\AddReadatToConversationMembers::class,
+            \Pramnos\Framework\Migrations\Conversations\CreateThreadReadsTable::class,
             // Where each person is, and the tab each push subscription was made in.
             \Pramnos\Framework\Migrations\Conversations\CreateConversationClientsTable::class,
             // The desktop application's own report, kept apart from the last client.

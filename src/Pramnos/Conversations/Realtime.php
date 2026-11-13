@@ -12,7 +12,7 @@ use Pramnos\Broadcasting\Auth\ChannelRegistry;
  * | channel                         | events                                                     |
  * |---------------------------------|------------------------------------------------------------|
  * | `private-conversation.{id}`     | `message.posted`, `message.edited`, `message.deleted`, `message.reacted`, `message.pinned` — and `client-typing`, which browsers whisper to each other |
- * | each member's own (`private-users.{id}`) | `conversation.activity`: a message in one of their conversations — a reply also sent to it marked `broadcast` — whether it mentions them, and `notify`: the client to show a notification (the one they were last active in) or `all`; `conversation.read`: what they have read there moved — read, or marked unread — with what is left; `conversation.draft`: their draft somewhere changed; `activity.seen`: they saw their activity |
+ * | each member's own (`private-users.{id}`) | `conversation.activity`: a message in one of their conversations — a reply also sent to it marked `broadcast` — whether it mentions them, and `notify`: the client to show a notification (the one they were last active in) or `all`; `conversation.read`: what they have read there moved — read, or marked unread — with what is left; `thread.read`: what they have read in one thread moved (FW-498), separately — a conversation's own read point moves with its top-level messages, never a reply; `conversation.draft`: their draft somewhere changed; `activity.seen`: they saw their activity |
  * | `presence-chat`                 | who of the team is connected                               |
  *
  * A message is written first and told second, so a browser that missed a telling asks for what came
@@ -81,6 +81,17 @@ final class Realtime
         $lastRead = (int) (Conversations::member($conversationId, $person)['lastReadId'] ?? 0);
         self::tell(self::userChannel($person), 'conversation.read', ['conversationId' => $conversationId, 'lastReadId' => $lastRead]
             + Conversations::counts($conversationId, $person, $lastRead));
+    }
+
+    /**
+     * What a person has read in one thread moved (FW-498) — told on their own channel, so their
+     * other pages and the dock stop counting a reply they have, in fact, just read: the
+     * conversation-level `conversation.read` is about its top-level messages, not a thread's own.
+     */
+    public static function threadRead(int $conversationId, int $root, int $person): void
+    {
+        $lastRead = (int) (Threads::read($root, $person)['lastReadId'] ?? 0);
+        self::tell(self::userChannel($person), 'thread.read', ['conversationId' => $conversationId, 'rootId' => $root, 'lastReadId' => $lastRead]);
     }
 
     /**

@@ -72,7 +72,7 @@ use Pramnos\Http\Response;
 class Conversations extends Controller
 {
     /** The writes: each a POST with the session's token. */
-    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'activityseen', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away', 'rename', 'setimage', 'clearimage', 'addtodo', 'changetodo', 'deletetodo', 'savetodo',
+    private const WRITES = ['create', 'join', 'leave', 'add', 'post', 'edit', 'delete', 'react', 'pin', 'unfurl', 'gif', 'read', 'threadread', 'activityseen', 'notify', 'star', 'save', 'upload', 'command', 'withask', 'unread', 'nudge', 'schedule', 'reschedule', 'unschedule', 'draft', 'starorder', 'active', 'away', 'rename', 'setimage', 'clearimage', 'addtodo', 'changetodo', 'deletetodo', 'savetodo',
         'describe', 'setprivate', 'archive', 'unarchive', 'removemember', 'setrole', 'destroy', 'settings',
         'addtab', 'removetab', 'hidetab', 'ordertabs', 'newcanvas', 'savecanvas', 'lockcanvas', 'unlockcanvas', 'restorecanvas', 'deletecanvas', 'summarize',
         'addautomation', 'changeautomation', 'pauseautomation', 'deleteautomation'];
@@ -1065,6 +1065,26 @@ class Conversations extends Controller
             \Pramnos\Conversations\Realtime::read($this->id(), (int) $me->userid);
             // Its notifications in the bell are read too.
             \Pramnos\Conversations\Notify::settle($this->id(), (int) $me->userid);
+
+            return ['ok' => true];
+        });
+    }
+
+    /**
+     * Mark one thread read up to a reply (FW-498): `/threadread/<root>` — a conversation's own
+     * `lastReadId` moves with its top-level messages, never a reply, so a thread needs its own
+     * read point rather than borrowing the conversation's.
+     */
+    public function threadread(): mixed
+    {
+        return $this->answer(function (object $me): array {
+            $root = $this->id();
+            $message = Messages::get($root);
+            if ($message === null) {
+                throw new \DomainException(t('That thread no longer exists.'));
+            }
+            \Pramnos\Conversations\Threads::markRead($root, (int) $me->userid, (int) $this->in('message'));
+            \Pramnos\Conversations\Realtime::threadRead($message['conversationId'], $root, (int) $me->userid);
 
             return ['ok' => true];
         });
