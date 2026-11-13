@@ -196,8 +196,9 @@ class InboxTest extends TestCase
     /**
      * The badge counts what is still unread (FW-493): a mention read in its conversation — the
      * read point past it — is not counted, though the activity was never opened; one still unread
-     * is; a reaction, which has no read point, counts until the activity is seen; seen, nothing
-     * is. The activity itself still lists all of them.
+     * is; a reaction arriving after the conversation's read point counts until the activity is
+     * seen (FW-497 gives it a read point of its own — {@see testAReactionIsNotCountedOnceTheConversationWasReadAfterIt});
+     * seen, nothing is. The activity itself still lists all of them.
      */
     #[DataProvider('databases')]
     public function testTheBadgeLeavesOutWhatWasReadInItsConversation(string $type, string $host, int $port, string $user): void
@@ -217,6 +218,10 @@ class InboxTest extends TestCase
         Conversations::markRead($general, $eleni, $second);
         $allRead  = Inbox::unseenActivity($eleni);
         Messages::react($mine, $maria, '👍');
+        // `readat` is unix-second, and the reaction above can land in the very same second as the
+        // markRead() just before it — pushed a second ahead so the two are never a tie.
+        Conversations::db()->queryBuilder()->table('chat.conversation_reactions')->where('messageid', $mine)->where('participantid', $maria)
+            ->update(['createdat' => time() + 1]);
         $reaction = Inbox::unseenActivity($eleni);
         $listed   = count(Inbox::activity($eleni));
         Inbox::sawActivity($eleni, time() + 5);
@@ -226,9 +231,62 @@ class InboxTest extends TestCase
         // Assert
         $this->assertSame(1, $oneRead, 'the mention read in the channel is not counted; the unread one is');
         $this->assertSame(0, $allRead, 'both read in the channel: none, the activity never opened');
-        $this->assertSame(1, $reaction, 'a reaction has no read point: counted until the activity is seen');
+        $this->assertSame(1, $reaction, 'a reaction after the conversation was read: still counted until the activity is seen');
         $this->assertSame(3, $listed, 'the activity still lists everything');
         $this->assertSame(0, $seen);
         \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#userdetails')->where('userid', $eleni)->where('fieldname', Inbox::ACTIVITY_SEEN)->delete();
+    }
+
+    /**
+     * FW-497: a reaction has a read point too — `conversation_members.readat`, set by
+     * `markRead()` every time it runs, whatever it does to `lastreadid`. A reaction that arrives
+     * while the reader is already caught up on every message moves `lastreadid` nowhere, and
+     * used to count for ever because nothing else marked it read; now `markRead()` — called with
+     * the same, unmoved, last message — still bumps `readat`, and the reaction stops counting.
+     * One that arrives *after* that read point still counts, same as before.
+     */
+    #[DataProvider('databases')]
+    public function testAReactionIsNotCountedOnceTheConversationWasReadAfterIt(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class], Conversations::db());
+        $db      = Conversations::db();
+        $general = Conversations::create('channel', 'general', [$maria], $eleni);
+        $mine    = Messages::post($general, $eleni, 'Καλημέρα');
+        // `time()` alone, a second apart at best, is not reliable ordering for a test that cares
+        // which of two events came first — every timestamp below is set by hand instead.
+        $readAt = static function (int $at) use ($db, $general, $eleni): void {
+            $db->queryBuilder()->table('chat.conversation_members')->where('conversationid', $general)
+                ->where('participanttype', 'user')->where('participantid', $eleni)->update(['readat' => $at]);
+        };
+        $reactAt = static function (int $at) use ($db, $mine, $maria): void {
+            $db->queryBuilder()->table('chat.conversation_reactions')->where('messageid', $mine)->where('participantid', $maria)
+                ->update(['createdat' => $at]);
+        };
+
+        // Act — read first (T1000); the reaction arrives after it (T2000), while eleni is already
+        // caught up on every message: lastreadid does not move
+        Conversations::markRead($general, $eleni, $mine);
+        $readAt(1000);
+        Messages::react($mine, $maria, '👍');
+        $reactAt(2000);
+        $beforeMarkRead = Inbox::unseenActivity($eleni);
+        // markRead() again, with the same last message: lastreadid is unchanged, readat moves past
+        // the reaction (T3000)
+        Conversations::markRead($general, $eleni, $mine);
+        $readAt(3000);
+        $afterMarkRead = Inbox::unseenActivity($eleni);
+        // A second reaction, after that read point (T4000): still counts
+        Messages::react($mine, $maria, '🎉');
+        $db->queryBuilder()->table('chat.conversation_reactions')->where('messageid', $mine)->where('participantid', $maria)
+            ->where('emoji', '🎉')->update(['createdat' => 4000]);
+        $afterNewReaction = Inbox::unseenActivity($eleni);
+
+        // Assert
+        $this->assertSame(1, $beforeMarkRead, 'arrived after the last real read: counted');
+        $this->assertSame(0, $afterMarkRead, 'markRead() moved the read point past it, though lastreadid itself did not move');
+        $this->assertSame(1, $afterNewReaction, 'a reaction after the new read point still counts');
     }
 }

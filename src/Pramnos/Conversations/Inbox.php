@@ -137,9 +137,12 @@ final class Inbox
     /**
      * How many of somebody's activity they have not seen yet, for a badge: newer than
      * {@see activitySeen()}, and — a mention or a reply — still unread in its conversation, past
-     * their read point there: read in the conversation, it was seen. A reaction has no read point
-     * and counts until the activity is seen. Counted over the newest {@see LIMIT}; the activity
-     * itself still lists everything.
+     * their read point there: read in the conversation, it was seen. A reaction has no message of
+     * its own to be "unread", so it counts past `readat` instead (FW-497) — the moment
+     * {@see \Pramnos\Conversations\Conversations::markRead()} last ran there, whether or not that
+     * moved `lastreadid`: a reaction arriving while they are already caught up on every message
+     * would otherwise count for ever, since nothing about it is ever "read". Counted over the
+     * newest {@see LIMIT}; the activity itself still lists everything.
      *
      * @param list<array<string, mixed>>|null $activity Their activity, where it was read already
      */
@@ -147,21 +150,27 @@ final class Inbox
     {
         $seen = self::activitySeen($person) ?? 0;
         $new  = array_filter($activity ?? self::activity($person), static fn (array $a): bool => (int) $a['at'] > $seen);
-        if (array_filter($new, static fn (array $a): bool => $a['kind'] !== 'reaction') === []) {
-            return count($new);
+        if ($new === []) {
+            return 0;
         }
-        $read = [];
-        foreach (Conversations::db()->queryBuilder()->table('chat.conversation_members')->select(['conversationid', 'lastreadid'])
+        $read   = [];
+        $readAt = [];
+        foreach (Conversations::db()->queryBuilder()->table('chat.conversation_members')->select(['conversationid', 'lastreadid', 'readat'])
             ->where('participantid', $person)->getAllOrFail() as $row) {
-            $read[(int) $row['conversationid']] = (int) $row['lastreadid'];
+            $read[(int) $row['conversationid']]   = (int) $row['lastreadid'];
+            $readAt[(int) $row['conversationid']] = (int) ($row['readat'] ?? 0);
         }
         $at = Messages::positions([...array_values($read), ...array_map(static fn (array $a): int => (int) $a['message']['id'], $new)]);
 
-        return count(array_filter($new, static function (array $a) use ($read, $at): bool {
+        return count(array_filter($new, static function (array $a) use ($read, $readAt, $at): bool {
+            $conversationId = (int) $a['message']['conversationId'];
+            if ($a['kind'] === 'reaction') {
+                return (int) $a['at'] > ($readAt[$conversationId] ?? 0);
+            }
             $id   = (int) $a['message']['id'];
-            $upto = $read[(int) $a['message']['conversationId']] ?? 0;
+            $upto = $read[$conversationId] ?? 0;
 
-            return $a['kind'] === 'reaction' || Messages::standsAfter($id, $at[$id] ?? null, $upto, $at[$upto] ?? null);
+            return Messages::standsAfter($id, $at[$id] ?? null, $upto, $at[$upto] ?? null);
         }));
     }
 

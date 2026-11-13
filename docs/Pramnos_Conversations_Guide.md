@@ -129,6 +129,14 @@ repeats one. What somebody has read is a message too: history written before it 
 and `markRead()` never moves back, by the same order. The index behind it is
 `idx_conversation_messages_time` (`conversationid, created_at, messageid`).
 
+**`readat` is not `lastReadId`.** `markRead()` sets it every time it runs — unix seconds, on
+`conversation_members` — whatever it does to `lastReadId`. Something that is not a message, a
+reaction, has no id to read "up to": a reaction arriving while the reader is already caught up
+on every message leaves `lastReadId` exactly where it was, and without a read point of its own
+would count against the Activity badge for ever, since nothing else ever marks it read
+(FW-497). `Inbox::unseenActivity()` counts a reaction past its conversation's `readat`, the
+same way it counts a mention or a reply past `lastReadId`.
+
 **Opening at a message.** A link to a message, or a to-do from one, opens its conversation there:
 `Messages::around($id, $messageId, $limit)` gives about half the page up to the message and the
 rest after it, with `older` and `newer` saying whether there is more each way — the client then
@@ -1276,7 +1284,7 @@ described by its docblock, and it answers as it is, with its own `me()`:
 | `conversations` | GET | — | `{me, conversations, browse, people, avatars}`: one's own with unread, mentions and a `title`, the open ones to join, the names of the people in direct and group ones |
 | `messages/{id}` | GET | `before`, `after`, `thread`, `around`, `limit` | `{conversation, handles, members, messages, pinned, saved, draft}` — `saved`, which of these messages the reader kept; `draft`, what the reader has begun writing there (in `thread`, when asked for one); with `around` (a message id) the stream around it and `around: {messageId, threadRootId}`, `older`, `newer` — none of the three when the message is no anchor, and the newest are shown |
 | `threads` | GET | — | `{threads}`: the threads one takes part in, newest reply first — `{root, latest, replies, newReplies}` |
-| `activity` | GET | — | `{activity, seenAt, unseen}`: mentions of one, reactions to what one wrote, replies in one's threads — `{kind, at, message, by, byName, emoji}` — with when one last saw them, kept on the server, and how many came since that one has not read (`unseen`): a mention or a reply read in its conversation, past one's read point there, is not counted; a reaction, which has no read point, counts until the activity is seen. The list itself shows all of them |
+| `activity` | GET | — | `{activity, seenAt, unseen}`: mentions of one, reactions to what one wrote, replies in one's threads — `{kind, at, message, by, byName, emoji}` — with when one last saw them, kept on the server, and how many came since that one has not read (`unseen`): a mention or a reply read in its conversation, past one's read point there, is not counted; a reaction counts past that same read point too (`readat`, below) rather than only until the activity is seen. The list itself shows all of them |
 | `activityseen` | POST | `at` (now by default) | `{ok, seenAt}`: one saw their activity — every device's badge clears (`activity.seen` on their own channel); never moved back |
 | `unreads` | GET | — | `{unreads, activityUnseen}`: every unread message, conversation by conversation, but those of the quiet sources; and how much of one's activity is unseen and unread, for its badge (`Inbox::unseenActivity()`, as `activity`'s `unseen`): fetch it again on `conversation.read` |
 | `sent` | GET | — | `{messages}`: what one wrote, newest first |

@@ -383,15 +383,26 @@ final class Conversations
         return $out;
     }
 
-    /** Somebody has read up to a message: never back. */
+    /**
+     * Somebody has read up to a message: `lastreadid` never moves back, by where the messages
+     * stand, so reading history brought in later moves nothing — but `readat`, their read point
+     * (FW-497), is set every time regardless, including the message they are pointed at
+     * already: a reaction arriving while they are caught up on every message leaves
+     * `lastreadid` where it was, and `readat` is the only thing that tells a reader apart from
+     * a reaction nobody has looked at since.
+     */
     public static function markRead(int $id, int $person, int $messageId): void
     {
-        // Never back: by where the messages stand, so reading history brought in later moves nothing.
         $read = self::member($id, $person)['lastReadId'] ?? null;
-        if ($read !== null && Messages::isAfter($messageId, $read)) {
-            self::members_()->where('conversationid', $id)->where('participanttype', 'user')->where('participantid', $person)
-                ->update(['lastreadid' => $messageId]);
+        if ($read === null) {
+            return;
         }
+        $update = ['readat' => time()];
+        if (Messages::isAfter($messageId, $read)) {
+            $update['lastreadid'] = $messageId;
+        }
+        self::members_()->where('conversationid', $id)->where('participanttype', 'user')->where('participantid', $person)
+            ->update($update);
     }
 
     /**
