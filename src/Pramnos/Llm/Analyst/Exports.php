@@ -11,11 +11,20 @@ namespace Pramnos\Llm\Analyst;
  * admin's own id, so a link handed to somebody else opens nothing; the title, when there is one,
  * so the file says what it is; and fewer than 32 hex digits, which the redaction would take for a
  * token and mask. Served by `/admin/Ai/export/<name>`, without
- * `.csv`, which the router would read as a format. Gone after {@see DAYS} days.
+ * `.csv`, which the router would read as a format. Gone after {@see DAYS} days, or
+ * `'llm' => ['analyst' => ['export_days' => …]]` where the application wants them kept longer.
  */
 final class Exports
 {
     public const DAYS = 7;
+
+    /** {@see DAYS}, or the application's own `export_days`. */
+    public static function days(): int
+    {
+        $config = \Pramnos\Llm\Llm::config('analyst', []);
+
+        return max(1, (int) (is_array($config) && isset($config['export_days']) ? $config['export_days'] : self::DAYS));
+    }
 
     /** @var string|null Where the files are kept; null for `var/analyst-exports` */
     private static ?string $directory = null;
@@ -68,7 +77,7 @@ final class Exports
 
         $file = self::directory() . '/' . $name . '.csv';
 
-        return is_file($file) && filemtime($file) >= time() - self::DAYS * 86400 ? $file : null;
+        return is_file($file) && filemtime($file) >= time() - self::days() * 86400 ? $file : null;
     }
 
     /**
@@ -85,7 +94,7 @@ final class Exports
     public static function prune(): void
     {
         foreach (glob(self::directory() . '/*.csv') ?: [] as $file) {
-            if (filemtime($file) < time() - self::DAYS * 86400) {
+            if (filemtime($file) < time() - self::days() * 86400) {
                 @unlink($file);
             }
         }

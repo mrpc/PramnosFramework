@@ -671,6 +671,7 @@ For a question no tool answers, the analyst can write SQL — when the applicati
     'sql_seconds' => 30,     // how long a statement may run
     'sql_rows'    => fn (\Pramnos\User\User $u): int => $u->usertype >= 99 ? 2000 : 200,  // a number, or per role
     'export_rows' => 20000,  // the same ceiling for export_csv, separately — MAX_ROWS otherwise
+    'export_days' => 30,     // how long a CSV export is kept — Exports::DAYS (7) otherwise
     'rounds'      => 20,     // tool rounds before the model must answer with what it has — 16 otherwise
     'schema'      => [       // what the catalogue cannot say
         'orders' => ['about' => 'One customer order.', 'columns' => ['status' => '1 open, 2 paid, 3 refunded']],
@@ -704,8 +705,15 @@ it as a table beside the link. A longer one gives the model only the link, the c
 rows. An optional `title` names the file, in Latin letters when it was written in Greek:
 `7-energa-meli-2a91…`, saved as `energa-meli-<date>.csv`. The file has a UTF-8 byte-order mark, so a
 spreadsheet reads non-Latin text. It is kept seven days outside the web root, in
-`var/analyst-exports/`, and downloads from `/admin/Ai/export/<name>` only for the administrator
-it was made for.
+`var/analyst-exports/` — longer with `export_days` — and downloads from `/admin/Ai/export/<name>`
+only for the administrator it was made for.
+
+**While it still exists, `read_export` reads one back** — the link `export_csv` gave, or a past
+report's own answer (`task_runs` in the [scheduled tasks guide](Pramnos_LLM_Scheduled_Tasks_Guide.md)),
+bare name or full URL — as text, up to 200,000 bytes, cut with a byte count past that. This is for
+"compare this export against the one from last week": the model reads the actual rows of both,
+rather than only the narrative text a past run kept. Gone past `export_days` (or the default seven)
+like any other export, and refused for one that is not this administrator's.
 
 The link is built in the queue worker, which has no request to take a host from and often runs the
 site's application, not the area's. So the question carries the area's URL as its request saw it

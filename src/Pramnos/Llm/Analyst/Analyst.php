@@ -269,6 +269,7 @@ final class Analyst
         }
         if ($export) {
             $tools[] = new \Pramnos\Llm\Analyst\Tools\ExportCsvTool($adminId, $area);
+            $tools[] = new \Pramnos\Llm\Analyst\Tools\ReadExportTool($adminId);
         }
 
         foreach ((array) Llm::config('admin_tools', []) as $tool) {
@@ -310,7 +311,7 @@ final class Analyst
         }
 
         // A statement of the model's own can read anybody's row.
-        foreach (['user', 'sql', 'export_csv', 'audience_why'] as $name) {
+        foreach (['user', 'sql', 'export_csv', 'read_export', 'audience_why'] as $name) {
             Tools::tag($tools, $name, 'personal');
         }
 

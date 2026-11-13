@@ -12,6 +12,7 @@ use Pramnos\Llm\Analyst\Analyst;
 use Pramnos\Llm\Analyst\Exports;
 use Pramnos\Llm\Analyst\ReadOnlySql;
 use Pramnos\Llm\Analyst\Tools\ExportCsvTool;
+use Pramnos\Llm\Analyst\Tools\ReadExportTool;
 use Pramnos\Llm\Analyst\Tools\SchemaTool;
 use Pramnos\Llm\Analyst\Tools\SqlTool;
 use Pramnos\Tests\Support\ReusesProbeDatabase;
@@ -25,6 +26,7 @@ use Pramnos\Tests\Unit\Llm\LlmTestCase;
 #[CoversClass(ReadOnlySql::class)]
 #[CoversClass(SqlTool::class)]
 #[CoversClass(ExportCsvTool::class)]
+#[CoversClass(ReadExportTool::class)]
 #[CoversClass(SchemaTool::class)]
 #[CoversClass(Exports::class)]
 #[CoversClass(Analyst::class)]
@@ -323,6 +325,74 @@ class AnalystSqlTest extends LlmTestCase
     }
 
     /**
+     * `read_export` reads an export's own rows back, from either the full link or its bare
+     * name, so "compare this export with the last one" has real numbers to work from — refused
+     * for a gone export, another administrator's, or a link that names no export at all.
+     */
+    #[DataProvider('databases')]
+    public function testReadExportReadsItsRowsBack(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $made = (new ExportCsvTool(7, 'https://example.com/admin/'))->execute(['sql' => 'SELECT userid, lastname FROM users WHERE userid > 1 ORDER BY userid']);
+        $name = basename((string) parse_url($made['link'], PHP_URL_PATH));
+
+        // Act
+        $byLink    = (new ReadExportTool(7))->execute(['link' => $made['link']]);
+        $byName    = (new ReadExportTool(7))->execute(['link' => $name]);
+        $notTheirs = (new ReadExportTool(8))->execute(['link' => $made['link']]);
+        $noSuch    = (new ReadExportTool(7))->execute(['link' => '7-' . str_repeat('0', 16)]);
+        $garbage   = (new ReadExportTool(7))->execute(['link' => '../etc/passwd']);
+
+        // Assert — the BOM is stripped, rows and header read back exactly as exported
+        $this->assertSame("userid,lastname\n7,Γλάρου\n8,Glaros\n9,Glaros\n", $byLink);
+        $this->assertSame($byLink, $byName, 'the bare name works the same as the full link');
+        $this->assertStringStartsWith('Error:', (string) $notTheirs, 'another administrator\'s export opens nothing');
+        $this->assertStringStartsWith('Error:', (string) $noSuch);
+        $this->assertStringStartsWith('Error:', (string) $garbage);
+    }
+
+    /** Past its rows ceiling, the text is cut with a byte count rather than grown without bound. */
+    #[DataProvider('databases')]
+    public function testReadExportIsBoundedInSize(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $name = Exports::name(7);
+        mkdir($this->exports, recursive: true);
+        file_put_contents($this->exports . '/' . $name . '.csv', "\xEF\xBB\xBF" . str_repeat('x', ReadExportTool::MAX_BYTES + 10));
+
+        // Act
+        $text = (new ReadExportTool(7))->execute(['link' => $name]);
+
+        // Assert
+        $this->assertStringContainsString('truncated at', $text);
+        $this->assertLessThan(ReadExportTool::MAX_BYTES + 100, strlen($text));
+    }
+
+    /** `export_days` keeps a file past the framework's own default of seven, configurably. */
+    public function testExportRetentionIsConfigurable(): void
+    {
+        // Arrange — ten days old: gone under the default, still there once the application asks for longer
+        $this->exports = sys_get_temp_dir() . '/pf-exports-' . bin2hex(random_bytes(4));
+        Exports::useDirectory($this->exports);
+        mkdir($this->exports);
+        $name = Exports::name(7);
+        file_put_contents($this->exports . '/' . $name . '.csv', 'x');
+        touch($this->exports . '/' . $name . '.csv', time() - 10 * 86400);
+
+        // Act
+        $underDefault = Exports::path($name, 7);
+        $this->configure(['analyst' => ['export_days' => 30]]);
+        $underLonger = Exports::path($name, 7);
+
+        // Assert
+        $this->assertSame(7, Exports::DAYS, 'the constant stays the framework\'s own default');
+        $this->assertNull($underDefault);
+        $this->assertNotNull($underLonger);
+    }
+
+    /**
      * A list longer than the answer shows is the link and five rows; a title names the file, in
      * Latin letters when it was written in Greek, and the download is saved under it.
      */
@@ -430,8 +500,10 @@ class AnalystSqlTest extends LlmTestCase
         $this->assertArrayHasKey('schema', $sql);
         $this->assertSame(['personal' => true], $sql['sql']['tags']);
         $this->assertContains('export_csv', $export);
+        $this->assertContains('read_export', $export);
         $this->assertNotContains('sql', $export);
         $this->assertNotContains('export_csv', $noAdmin, 'an export is for somebody');
+        $this->assertNotContains('read_export', $noAdmin, 'an export is for somebody');
     }
 
     /** A statement's own LIMIT is its own: `LIMIT 1` means one, not the tool's ceiling. */
