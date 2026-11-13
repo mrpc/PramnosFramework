@@ -218,6 +218,20 @@ final class Feed
     private static ?bool $snoozes = null;
 
     /**
+     * Forget whether `snoozed_until` exists, so the next call asks again.
+     *
+     * A live process never needs this: the schema it runs against does not change under it, and
+     * asking once per process is the point. A test process is the one place it does — a suite
+     * that runs thousands of tests in one process, some against a database that does not have
+     * the column yet, would otherwise cache "no" for every test that runs after, on any
+     * connection, for good. Called from a test's own `setUp()`/`tearDown()`, not production code.
+     */
+    public static function resetSnoozeCache(): void
+    {
+        self::$snoozes = null;
+    }
+
+    /**
      * Mark every unread one read — in a group, or in all, but those in `$except`, and those that
      * must be acknowledged (`requires_ack` in their data): a click on each reads those. Returns how many.
      *

@@ -46,6 +46,10 @@ class FeedMySQLTest extends TestCase
         require_once ROOT . '/database/migrations/framework/notifications/2026_11_12_000002_add_snoozed_until_to_notifications.php';
         \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Notifications\CreateNotificationsTable::class,
             \Pramnos\Framework\Migrations\Notifications\AddSnoozedUntilToNotifications::class], $this->db);
+        // Whatever an earlier test, on another connection, cached about this column: this test's
+        // own migration just ran, so it asks again rather than trust a stale "no" from across
+        // the suite — see Feed::resetSnoozeCache().
+        \Pramnos\Notification\Feed::resetSnoozeCache();
         $this->clean();
 
         $this->info = Application::getInstance()->applicationInfo;
@@ -85,6 +89,7 @@ class FeedMySQLTest extends TestCase
             Application::getInstance()->applicationInfo = $this->info;
         }
         \Pramnos\Http\RequestIdentity::reset();
+        \Pramnos\Notification\Feed::resetSnoozeCache();
         $_GET = $_POST = [];
     }
 

@@ -61,10 +61,10 @@ final class PushTool extends AdminTool
         return $this->tracksOpens() ? $out + $this->openRates($rows) : $out;
     }
 
-    /** Whether `opened_at`/`dismissed_at`/`token` exist at all (FW-495's migrations). */
+    /** Whether `opened_at`/`dismissed_at`/`report_token` exist at all (FW-495's migrations). */
     private function tracksOpens(): bool
     {
-        return \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn(self::TABLE, 'token');
+        return \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn(self::TABLE, 'report_token');
     }
 
     /**
@@ -78,7 +78,7 @@ final class PushTool extends AdminTool
      */
     private function openRates(callable $rows): array
     {
-        $trackable = static fn () => $rows()->where('status', '>=', 200)->where('status', '<', 300)->where('token', '!=', '');
+        $trackable = static fn () => $rows()->where('status', '>=', 200)->where('status', '<', 300)->where('report_token', '!=', '');
         $delivered = $trackable()->count();
         $opened    = $trackable()->whereNotNull('opened_at')->count();
         // Dismissed without ever having been opened: opening and then dismissing counts as opened.

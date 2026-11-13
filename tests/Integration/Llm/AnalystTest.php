@@ -176,9 +176,9 @@ class AnalystTest extends LlmTestCase
         $this->insert('pramnos.pushlog', ['userid' => 8, 'notification' => 'news', 'title' => 'Hi Nikos', 'body' => 'b', 'status' => 410, 'error' => "Gone for nikos@example.org\nmore", 'sent' => $ts(3600)]);
         // FW-495: these three carry a token, so they count toward opened/dismissed/open_rate —
         // the two above, from before that tracking existed, must not.
-        $this->insert('pramnos.pushlog', ['userid' => 7, 'notification' => 'news', 'title' => 'Opened', 'body' => 'b', 'status' => 201, 'token' => 'tok1', 'opened_at' => $ts(1800), 'sent' => $ts(3600)]);
-        $this->insert('pramnos.pushlog', ['userid' => 8, 'notification' => 'news', 'title' => 'Dismissed', 'body' => 'b', 'status' => 201, 'token' => 'tok2', 'dismissed_at' => $ts(1800), 'sent' => $ts(3600)]);
-        $this->insert('pramnos.pushlog', ['userid' => 9, 'notification' => 'other', 'title' => 'Neither', 'body' => 'b', 'status' => 201, 'token' => 'tok3', 'sent' => $ts(3600)]);
+        $this->insert('pramnos.pushlog', ['userid' => 7, 'notification' => 'news', 'title' => 'Opened', 'body' => 'b', 'status' => 201, 'report_token' => 'tok1', 'opened_at' => $ts(1800), 'sent' => $ts(3600)]);
+        $this->insert('pramnos.pushlog', ['userid' => 8, 'notification' => 'news', 'title' => 'Dismissed', 'body' => 'b', 'status' => 201, 'report_token' => 'tok2', 'dismissed_at' => $ts(1800), 'sent' => $ts(3600)]);
+        $this->insert('pramnos.pushlog', ['userid' => 9, 'notification' => 'other', 'title' => 'Neither', 'body' => 'b', 'status' => 201, 'report_token' => 'tok3', 'sent' => $ts(3600)]);
 
         $this->insert('queueitems', ['type' => 'email', 'payload' => '{}', 'status' => 'pending', 'createdat' => $ts(60), 'updatedat' => $ts(60)]);
         $this->insert('queueitems', ['type' => 'email', 'payload' => '{}', 'status' => 'failed', 'error' => "SMTP refused eleni@example.net\ntrace", 'createdat' => $ts(600), 'updatedat' => $ts(300)]);

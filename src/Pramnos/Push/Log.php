@@ -121,8 +121,8 @@ class Log
 
         try {
             $db = \Pramnos\Framework\Factory::getDatabase();
-            if ($db->schema()->hasColumn('pramnos.pushlog', 'token')) {
-                $row['token'] = substr($token, 0, 32);
+            if ($db->schema()->hasColumn('pramnos.pushlog', 'report_token')) {
+                $row['report_token'] = substr($token, 0, 32);
             }
             $row['sent'] = self::instant(time());
             $db->queryBuilder()->table('pramnos.pushlog')->insert($row);
@@ -149,15 +149,15 @@ class Log
 
         try {
             $db = \Pramnos\Framework\Factory::getDatabase();
-            if (!$db->schema()->hasColumn('pramnos.pushlog', 'token')) {
+            if (!$db->schema()->hasColumn('pramnos.pushlog', 'report_token')) {
                 return false;
             }
-            $row = $db->queryBuilder()->table('pramnos.pushlog')->select(['token'])->where('pushid', $pushId)->first()?->fetch();
+            $row = $db->queryBuilder()->table('pramnos.pushlog')->select(['report_token'])->where('pushid', $pushId)->first()?->fetch();
         } catch (\Throwable) {
             return false;
         }
 
-        return is_array($row) && (string) ($row['token'] ?? '') !== '' && hash_equals((string) $row['token'], $token);
+        return is_array($row) && (string) ($row['report_token'] ?? '') !== '' && hash_equals((string) $row['report_token'], $token);
     }
 
     /** {@see reserve()}'s row, once the push service has answered. */
@@ -519,7 +519,7 @@ class Log
     {
         try {
             $db = \Pramnos\Framework\Factory::getDatabase();
-            if (!$db->schema()->hasColumn('pramnos.pushlog', 'token')) {
+            if (!$db->schema()->hasColumn('pramnos.pushlog', 'report_token')) {
                 return [];
             }
             $rows = $db->queryBuilder()->table('pramnos.pushlog')
@@ -529,7 +529,7 @@ class Log
                     new \Pramnos\Database\Expression('SUM(CASE WHEN opened_at IS NOT NULL THEN 1 ELSE 0 END) AS opened'),
                     new \Pramnos\Database\Expression('SUM(CASE WHEN opened_at IS NULL AND dismissed_at IS NOT NULL THEN 1 ELSE 0 END) AS dismissed'),
                 ])
-                ->where('status', '>=', 200)->where('status', '<', 300)->where('token', '!=', '')
+                ->where('status', '>=', 200)->where('status', '<', 300)->where('report_token', '!=', '')
                 ->groupBy(['userid', 'endpoint_hash'])->orderBy('delivered', 'desc')->limit(max(1, $limit))
                 ->getAllOrFail();
         } catch (\Throwable) {

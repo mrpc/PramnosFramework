@@ -17,8 +17,8 @@ namespace Pramnos\Llm\Analyst;
  *
  * A callable is read with the account asking — {@see ReadOnlySql::seconds()}'s own
  * `sql_seconds` is the one of these that already existed; this is the same idea, generalised so
- * `sql_rows`/`export_rows`/{@see \Pramnos\Llm\Analyst\Tools\DeepAnalysisTool}'s own rounds and
- * cost ceiling can all be set the same way, once, per role rather than per feature.
+ * `sql_rows`/`export_rows`/{@see \Pramnos\Llm\Subagent}'s own rounds and cost ceiling can all be
+ * set the same way, once, per role rather than per feature.
  */
 final class Limits
 {
