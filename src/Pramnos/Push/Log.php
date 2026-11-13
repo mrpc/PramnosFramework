@@ -508,6 +508,50 @@ class Log
     }
 
     /**
+     * {@see openRate()}, for every account at once — one row per account and browser, delivered,
+     * opened, dismissed and the open rate already worked out — in one grouped query rather than
+     * one per person: a screen listing every device wants this, not a loop that asks `openRate()`
+     * once per account it already knows about. Delivered rows with a token only, largest first.
+     *
+     * @return list<array{userid: int, endpoint_hash: string, delivered: int, opened: int, dismissed: int, open_rate: float}>
+     */
+    public static function deviceSummary(int $limit = 50): array
+    {
+        try {
+            $db = \Pramnos\Framework\Factory::getDatabase();
+            if (!$db->schema()->hasColumn('pramnos.pushlog', 'token')) {
+                return [];
+            }
+            $rows = $db->queryBuilder()->table('pramnos.pushlog')
+                ->select([
+                    'userid', 'endpoint_hash',
+                    new \Pramnos\Database\Expression('COUNT(*) AS delivered'),
+                    new \Pramnos\Database\Expression('SUM(CASE WHEN opened_at IS NOT NULL THEN 1 ELSE 0 END) AS opened'),
+                    new \Pramnos\Database\Expression('SUM(CASE WHEN opened_at IS NULL AND dismissed_at IS NOT NULL THEN 1 ELSE 0 END) AS dismissed'),
+                ])
+                ->where('status', '>=', 200)->where('status', '<', 300)->where('token', '!=', '')
+                ->groupBy(['userid', 'endpoint_hash'])->orderBy('delivered', 'desc')->limit(max(1, $limit))
+                ->getAllOrFail();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        return array_map(static function (array $row): array {
+            $delivered = (int) $row['delivered'];
+            $opened    = (int) $row['opened'];
+
+            return [
+                'userid'        => (int) $row['userid'],
+                'endpoint_hash' => (string) $row['endpoint_hash'],
+                'delivered'     => $delivered,
+                'opened'        => $opened,
+                'dismissed'     => (int) $row['dismissed'],
+                'open_rate'     => $delivered > 0 ? round($opened / $delivered * 100, 1) : 0.0,
+            ];
+        }, $rows);
+    }
+
+    /**
      * Drop rows older than `$days`.
      *
      * **For an installation without TimescaleDB.** With it, the retention policy declared in the

@@ -138,6 +138,8 @@ class PushLogScreenTest extends TestCase
         $this->assertSame('', $controller->view->only);
         $this->assertSame(PushLogController::PAGE, $controller->limit);
         $this->assertSame([], $controller->filter, 'no filter unless one was asked for');
+        $this->assertSame(['Phone · Android Chrome'], array_column($controller->view->summary, 'device'), 'by-device summary, with its device label');
+        $this->assertSame([42 => 'Maria K.'], $controller->view->names, 'names for every id the rows and the summary carry');
     }
 
     /**
@@ -259,6 +261,25 @@ class PushLogScreenTest extends TestCase
                         'failed' => 0];
             }
 
+            protected function deviceSummary(): array
+            {
+                return [['userid' => 42, 'endpoint_hash' => 'a', 'delivered' => 3, 'opened' => 2, 'dismissed' => 1, 'open_rate' => 66.7]];
+            }
+
+            protected function withDevices(array $summary): array
+            {
+                foreach ($summary as &$row) {
+                    $row['device'] = 'Phone · Android Chrome';
+                }
+
+                return $summary;
+            }
+
+            protected function names(array $userIds): array
+            {
+                return $userIds === [] ? [] : [42 => 'Maria K.'];
+            }
+
             /** @var array<string, mixed>|null What find() answers */
             public ?array $found = ['pushid' => 7, 'userid' => 42, 'title' => 'Editorial report',
                 'status' => 201, 'error' => '', 'endpoint_hash' => 'abc', 'notification' => 'App\\Report',
@@ -346,6 +367,10 @@ class PushLogScreenTest extends TestCase
                     public int $userId = 0;
 
                     public string $only = '';
+
+                    public array $names = [];
+
+                    public array $summary = [];
 
                     public mixed $row = null;
 
@@ -483,6 +508,29 @@ class PushLogScreenTest extends TestCase
         $this->assertSame($kind, $outcome['kind']);
         $this->assertNotSame('', $outcome['label']);
         $this->assertGreaterThan(40, strlen($outcome['explanation']), 'an explanation, not a word');
+    }
+
+    /**
+     * `describeUserAgent()`: phone or computer, OS, browser — good enough for the summary's
+     * device column, never the raw string.
+     */
+    public function testDescribeUserAgent(): void
+    {
+        // Assert
+        $this->assertSame(t('Unknown device'), PushLogController::describeUserAgent(''), 'no user agent at all');
+        $this->assertSame('Phone · Android Chrome', PushLogController::describeUserAgent(
+            'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36'
+        ));
+        $this->assertSame('Phone · iOS Safari', PushLogController::describeUserAgent(
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+        ));
+        $this->assertSame('Computer · Windows Chrome', PushLogController::describeUserAgent(
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
+        ));
+        $this->assertSame('Computer · macOS Firefox', PushLogController::describeUserAgent(
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) Gecko/20100101 Firefox/120.0'
+        ));
+        $this->assertSame('Computer', PushLogController::describeUserAgent('something unrecognisable'), 'neither OS nor browser matched: no dangling separator');
     }
 
     /** @return array<string, array{string}> */

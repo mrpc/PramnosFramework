@@ -331,7 +331,16 @@ Log::recent(20, ['endpoint_hash' => $hash]);        // one browser's pushes
 Log::find($pushId);                                 // one attempt, or null
 Log::outcome($row);                                 // kind, label, and what it means
 Log::openRate($userId);                             // one account's own, by device: delivered/opened/dismissed
+Log::deviceSummary();                               // every account's, grouped once: delivered/opened/dismissed/open_rate
 ```
+
+The list carries two more things once opened/dismissed are tracked (see
+[above](#opened-dismissed-and-the-hold-unopened-rule)): each row's own **Opened**/**Dismissed**
+column, and a **By device**
+table above it — `Log::deviceSummary()`'s rows, the account's name linked to its card
+(`PushLogController::names()`, not `Conversations\People`: this screen has no dependency on that
+feature) and a plain-English device (`PushLogController::describeUserAgent()`: phone or
+computer, OS, browser — a sniff for a summary table, not a security decision).
 
 ### One push in full: `/admin/PushLog/view/{id}`
 

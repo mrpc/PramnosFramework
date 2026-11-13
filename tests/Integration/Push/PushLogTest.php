@@ -607,6 +607,36 @@ class PushLogTest extends BaseTestCase
     }
 
     /**
+     * `deviceSummary()`: {@see testOpenRateIsPerDevice}'s answer, for every account at once — a
+     * screen listing every device wants this grouped once, not `openRate()` looped per account.
+     */
+    public function testDeviceSummaryGroupsEveryAccountAtOnce(): void
+    {
+        // Arrange — two accounts, one browser each, and a third that is not delivered at all
+        $other = $this->userId + 1;
+        $a     = str_repeat('o', 64);
+        $b     = str_repeat('p', 64);
+        $id1   = Log::reserve($this->userId, $a, ['title' => '1'], '', bin2hex(random_bytes(8)));
+        Log::complete($id1, 201);
+        Log::opened($id1);
+        $id2 = Log::reserve($other, $b, ['title' => '2'], '', bin2hex(random_bytes(8)));
+        Log::complete($id2, 201);
+        $id3 = Log::reserve($other, $b, ['title' => '3'], '', bin2hex(random_bytes(8)));
+        Log::complete($id3, 410); // not delivered: out of the summary
+
+        // Act
+        $summary = Log::deviceSummary();
+        $byHash  = array_combine(array_column($summary, 'endpoint_hash'), $summary);
+
+        // Assert
+        $this->assertSame(['userid' => $this->userId, 'delivered' => 1, 'opened' => 1, 'dismissed' => 0, 'open_rate' => 100.0],
+            array_intersect_key($byHash[$a], ['userid' => 0, 'delivered' => 0, 'opened' => 0, 'dismissed' => 0, 'open_rate' => 0]));
+        $this->assertSame(['userid' => $other, 'delivered' => 1, 'opened' => 0, 'dismissed' => 0, 'open_rate' => 0.0],
+            array_intersect_key($byHash[$b], ['userid' => 0, 'delivered' => 0, 'opened' => 0, 'dismissed' => 0, 'open_rate' => 0]));
+        $this->db->queryBuilder()->table('pramnos.pushlog')->where('userid', $other)->delete();
+    }
+
+    /**
      * `Push::report()`, against the real table: the service worker's receipt is what sets
      * `opened_at` / `dismissed_at` at all, and it answers the same shape whether the id or the
      * action was good or not — nothing here is worth telling a stranger apart by.
