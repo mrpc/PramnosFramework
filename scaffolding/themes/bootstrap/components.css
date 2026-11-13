@@ -451,6 +451,34 @@ a.pf-stat-tile:hover { border-color: var(--bs-primary, #0d6efd); }
 .pf-chart-data th, .pf-chart-data td { padding: .25rem .5rem; border-bottom: 1px solid color-mix(in oklab, currentColor 15%, transparent); text-align: left; }
 .pf-chart-data td { text-align: right; }
 
+/* Chart annotations (pfNotes, pf-utils.js): the dashed line and the axis marker stay always
+   visible, faint; the label card is a DOM overlay over the canvas, revealed only on hover/focus
+   of its marker via an opacity transition, so notes close together on the X axis stop
+   overlapping. The marker is a real <button>, so Tab reaches it and :focus-visible works with
+   no extra tabindex; its title attribute is the screen-reader/no-CSS fallback. */
+.pf-chart-notes-overlay { position: absolute; inset: 0; pointer-events: none; }
+.pf-chart-note { position: absolute; }
+.pf-chart-note-marker {
+    position: absolute; top: 0; left: 0; width: 12px; height: 12px; margin: -6px 0 0 -6px;
+    padding: 0; border: 0; background: transparent; cursor: pointer; pointer-events: auto;
+    opacity: .55;
+}
+.pf-chart-note-marker::before {
+    content: ""; position: absolute; left: 1px; top: 2px; width: 0; height: 0;
+    border-left: 5px solid transparent; border-right: 5px solid transparent;
+    border-top: 6px solid currentColor;
+}
+.pf-chart-note-marker:hover, .pf-chart-note-marker:focus-visible { opacity: 1; }
+.pf-chart-note-label {
+    position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%);
+    white-space: nowrap; font-size: .6875rem; line-height: 1.3; padding: .15rem .4rem;
+    border-radius: .25rem; background: rgba(0, 0, 0, .85); color: #fff;
+    opacity: 0; transition: opacity .15s ease; pointer-events: none;
+}
+.pf-chart-note-marker:hover + .pf-chart-note-label,
+.pf-chart-note-marker:focus-visible + .pf-chart-note-label { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .pf-chart-note-label { transition: none; } }
+
 /* Data tables — Pramnos\Html\Datatable. DataTables writes its own DOM, so these reach it under
    the table's .pf-datatable wrapper: the buttons, the length and the search on one line, the count and
    the page buttons on the next, a processing note over the table, and sort marks that need no

@@ -234,6 +234,44 @@ test('a __proto__ key in the figure\'s own options pollutes nothing', () => {
 });
 
 /**
+ * Notes (`cfg.annotations`) are a faint dashed line plus a small, always-visible marker — never
+ * permanent text on the canvas, which is what let two close-together notes overlap. The full
+ * label is a DOM card over the canvas, tied to its marker by `aria-describedby` and a native
+ * `title` — the screen-reader and no-CSS fallback — revealed only on hover/focus by the themes'
+ * CSS (`.pf-chart-note-marker:hover + .pf-chart-note-label`), not by this script.
+ */
+test('an annotation is a line and a marker, with its label tied on by aria-describedby and title', () => {
+    // Arrange — a bar chart with one annotation; Chart.js itself is faked (see fakeChartJs()),
+    // so the plugin it was handed is called by hand, the way Chart.js calls it after a render.
+    const cfg = Object.assign({}, BARS, { annotations: [{ at: 'Jan', text: 'Deploy v2' }] });
+    const { charts, box } = page(cfg, { '--color-base-content': 'black' });
+    const marks = charts.drawn[0].config.plugins[0];
+    assert.equal(marks.id, 'pfNotes');
+    const strokes = [];
+    const ctx = {
+        save() {}, restore() {}, beginPath() {}, moveTo() {}, lineTo() {},
+        stroke() { strokes.push(this.strokeStyle); },
+        setLineDash() {},
+    };
+
+    // Act — Chart.js would call this once per render, with the scale it just laid out.
+    marks.afterDatasetsDraw({
+        ctx,
+        chartArea: { top: 0, bottom: 200 },
+        scales: { x: { getPixelForValue: () => 42 } },
+    });
+
+    // Assert — the line is drawn (faint, not the full text colour), and the overlay carries a
+    // marker/label pair: the title is the no-hover/no-screen-reader fallback, aria-describedby
+    // is what makes a screen reader read the label when the marker gets focus.
+    assert.equal(strokes.length, 1, 'the dashed line is still drawn, once per note');
+    const overlay = box.querySelector('.pf-chart-notes-overlay').innerHTML;
+    assert.match(overlay, /class="pf-chart-note-marker"[^>]*title="Deploy v2"/, 'the native title is the fallback');
+    const labelId = /aria-describedby="([^"]+)"/.exec(overlay)[1];
+    assert.match(overlay, new RegExp('id="' + labelId + '"[^>]*role="tooltip">Deploy v2<'), 'the marker points at its own label');
+});
+
+/**
  * A figure inserted after the page loaded — a dashboard card fetched after a change — is drawn
  * as it arrives, and `pfCharts.draw(root)` draws one a page inserted itself; a figure already
  * drawn is not drawn twice.

@@ -1173,8 +1173,11 @@ Annotations::between($from, $to, $tenant);   // the notes that touch a range: an
 
 - **On the charts.** Report charts and metric cards draw the notes of their periods
   (`Annotations::forPeriods()`, and `Html\Chart::render()`'s `annotations` option). Each note is a
-  dashed line at the period it begins in, named at the top, and also listed under the chart for a
-  screen reader and without JavaScript.
+  faint dashed line with a small marker at the period it begins in; the full text appears only on
+  hover or keyboard focus of the marker, so notes close together on the X axis never overlap. The
+  marker is a real `<button>` with a `title`, so it is reachable by Tab and announced by a screen
+  reader without JavaScript's hover behaviour. The same notes are also listed under the chart, for
+  a screen reader and without JavaScript at all.
 - **Deploys.** The daemon orchestrator notes each deploy it notices: `deploy`, "Deployed" and the
   commit.
 - **Where they are kept.** Notes are kept in `stats.annotations`. Why a table and not the

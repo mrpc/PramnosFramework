@@ -2311,27 +2311,41 @@
             if (fig._pfChart) { fig._pfChart.destroy(); }
             box.hidden = false;
             box.style.height = cfg.height + 'px';
-            // Notes on the figures — a deploy, a campaign — a dashed line at their period, named at the top.
+            // Notes on the figures — a deploy, a campaign: a faint dashed line and a small marker at
+            // the axis stay always visible; the full label is a DOM card revealed only on hover/focus
+            // of the marker (CSS opacity, not text drawn permanently on the canvas), so notes close
+            // together on the X axis stop overlapping each other.
             var notes = (cfg.annotations || []).filter(function () { return !round && cfg.type !== 'radar'; });
+            var overlay = box.querySelector('.pf-chart-notes-overlay');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.className = 'pf-chart-notes-overlay';
+                box.appendChild(overlay);
+            }
+            var noteId = fig.id || (fig.id = 'pf-chart-' + Math.random().toString(36).slice(2, 9));
             var marks = { id: 'pfNotes', afterDatasetsDraw: function (chart) {
-                if (!notes.length || !chart.scales || !chart.scales.x) { return; }
+                if (!notes.length || !chart.scales || !chart.scales.x) { overlay.innerHTML = ''; return; }
                 var ctx = chart.ctx;
                 var area = chart.chartArea;
                 ctx.save();
-                ctx.strokeStyle = alpha(text, 0.45);
-                ctx.fillStyle = text;
+                ctx.strokeStyle = alpha(text, 0.5);
                 ctx.setLineDash([4, 3]);
-                ctx.font = '11px sans-serif';
-                notes.forEach(function (note) {
+                var html = '';
+                notes.forEach(function (note, i) {
                     var x = chart.scales.x.getPixelForValue(note.at);
                     if (!isFinite(x)) { return; }
                     ctx.beginPath();
                     ctx.moveTo(x, area.top);
                     ctx.lineTo(x, area.bottom);
                     ctx.stroke();
-                    ctx.fillText(note.text, x + 3, area.top + 10);
+                    var labelId = noteId + '-note-' + i;
+                    html += '<span class="pf-chart-note" style="left:' + x + 'px;top:' + area.bottom + 'px;color:' + text + '">'
+                        + '<button type="button" class="pf-chart-note-marker" aria-describedby="' + labelId + '" title="' + escapeHtml(note.text) + '"></button>'
+                        + '<span class="pf-chart-note-label" id="' + labelId + '" role="tooltip">' + escapeHtml(note.text) + '</span>'
+                        + '</span>';
                 });
                 ctx.restore();
+                overlay.innerHTML = html;
             } };
             fig._pfChart = new window.Chart(canvas, {
                 type: cfg.type,
