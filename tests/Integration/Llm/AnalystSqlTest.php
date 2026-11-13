@@ -85,6 +85,8 @@ class AnalystSqlTest extends LlmTestCase
 
         $this->db = $this->openProbe($admin, self::PROBE, static fn (string $name): Database => self::connection($type, $host, $port, $user, $name), [
             \Pramnos\Framework\Migrations\Auth\CreateUsersTable::class,
+            // Loading an account by id (FW-496's per-role Limits) reads its details beside it.
+            \Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class,
         ]);
         $admin->close();
 
@@ -445,6 +447,70 @@ class AnalystSqlTest extends LlmTestCase
         // Assert
         $this->assertSame(['maria'], array_column($one['rows'], 'username'));
         $this->assertFalse($one['truncated']);
+    }
+
+    /**
+     * FW-496: `sql_rows`/`export_rows` cap the tools' own ceiling, per account when the
+     * application made it a function of one — `SqlTool::MAX_ROWS`/`ExportCsvTool::MAX_ROWS`
+     * otherwise.
+     */
+    #[DataProvider('databases')]
+    public function testSqlRowsAndExportRowsArePerAccount(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — maria (7) gets 2 rows, anybody else gets the default
+        $this->boot($type, $host, $port, $user);
+        $this->configure(['analyst' => ['export' => true, 'sql_rows' => static fn ($u): int => (int) $u->userid === 7 ? 2 : SqlTool::MAX_ROWS,
+            'export_rows' => static fn ($u): int => (int) $u->userid === 7 ? 2 : ExportCsvTool::MAX_ROWS]]);
+
+        // Act
+        $maria = (new SqlTool(7))->execute(['sql' => 'SELECT username FROM users ORDER BY userid']);
+        $nikos = (new SqlTool(8))->execute(['sql' => 'SELECT username FROM users ORDER BY userid']);
+        $exported = (new ExportCsvTool(7))->execute(['sql' => 'SELECT username FROM users ORDER BY userid']);
+
+        // Assert
+        $this->assertSame(['maria', 'nikos'], array_column($maria['rows'], 'username'), 'capped at 2 for this account');
+        $this->assertTrue($maria['truncated']);
+        $this->assertSame(['maria', 'nikos', 'eleni'], array_column($nikos['rows'], 'username'), 'uncapped for this one');
+        $this->assertFalse($nikos['truncated']);
+        $this->assertSame(2, $exported['rows'], 'the export tool reads the same per-account ceiling');
+        $this->assertTrue($exported['truncated']);
+    }
+
+    /** FW-496: `rounds` is configurable too, a plain number or a function of the account. */
+    public function testRoundsIsConfigurable(): void
+    {
+        // Arrange
+        $assistant = new \Pramnos\Llm\Analyst\AnalystAssistant();
+        $this->configure(['analyst' => ['rounds' => 4]]);
+
+        // Act
+        $plain = $assistant->rounds();
+        $this->configure(['analyst' => []]);
+        $default = $assistant->rounds();
+
+        // Assert
+        $this->assertSame(4, $plain);
+        $this->assertSame(16, $default, 'the framework\'s own default when nothing is configured');
+    }
+
+    /**
+     * FW-496: `deep_analysis` — a subagent with this answer's own read-only tools — exists only
+     * once the application turns subagents on, never offers a write or gated tool to itself,
+     * and is tagged `personal` like `sql`/`export_csv`.
+     */
+    public function testDeepAnalysisOnlyWhenTurnedOn(): void
+    {
+        // Arrange / Act
+        $off = array_keys(Analyst::tools(7));
+        $this->configure(['analyst' => ['subagents' => true]]);
+        $on = Analyst::tools(7);
+
+        // Assert
+        $this->assertNotContains('deep_analysis', $off, 'off by default');
+        $this->assertArrayHasKey('deep_analysis', $on);
+        $this->assertSame(['personal' => true], $on['deep_analysis']['tags']);
+        $this->assertTrue($on['deep_analysis']['parallel']);
+        $this->assertStringContainsString('model of its own', $on['deep_analysis']['description']);
     }
 
     /**

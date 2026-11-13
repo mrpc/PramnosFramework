@@ -265,7 +265,7 @@ final class Analyst
             $tools[] = new \Pramnos\Llm\Analyst\Tools\SchemaTool();
         }
         if ($sql) {
-            $tools[] = new \Pramnos\Llm\Analyst\Tools\SqlTool();
+            $tools[] = new \Pramnos\Llm\Analyst\Tools\SqlTool($adminId);
         }
         if ($export) {
             $tools[] = new \Pramnos\Llm\Analyst\Tools\ExportCsvTool($adminId, $area);
@@ -314,6 +314,64 @@ final class Analyst
             Tools::tag($tools, $name, 'personal');
         }
 
+        // Subagents (FW-496): a multi-step question handed to a model of its own, with this
+        // same read-only toolset — never deep_analysis itself, which would recurse.
+        $config = Llm::config('analyst', []);
+        if (is_array($config) && !empty($config['subagents'])) {
+            $tools['deep_analysis']             = self::deepAnalysisTool($tools, $adminId);
+            $tools['deep_analysis']['parallel'] = true;
+            Tools::tag($tools, 'deep_analysis', 'personal');
+        }
+
         return $tools;
+    }
+
+    /**
+     * `deep_analysis`: {@see \Pramnos\Llm\Subagent} given every one of this answer's own tools
+     * that neither writes nor is gated — the same boundary {@see \Pramnos\Llm\Subagent::asTool()}
+     * already enforces for a tool it is handed — with its own rounds and cost ceiling
+     * (`subagent_rounds`/`subagent_cost`, a number or `fn(User): int|float` — {@see Limits}),
+     * separate from the answer's own `rounds`.
+     *
+     * @param array<string, array<string, mixed>> $tools
+     * @return array<string, mixed>
+     */
+    private static function deepAnalysisTool(array $tools, int $adminId): array
+    {
+        $readOnly   = array_filter($tools, static fn (array $tool): bool => empty($tool['writes']) && empty($tool['gated']));
+        $connection = new \Pramnos\Llm\Connection(null, isset(\Pramnos\Llm\Connection::features()['analyst']) ? 'analyst' : null);
+        $client     = (new \Pramnos\Llm\Client($connection))->withTurnBudget(maxCost: self::subagentCost($adminId));
+        $subagent   = new \Pramnos\Llm\Subagent(
+            'You are the analyst\'s own assistant for one multi-step question, with the same '
+            . 'read-only tools. Cross-check figures across tools where they could disagree, then '
+            . 'answer once you are sure, in the language the question was asked in.',
+            $readOnly,
+            self::subagentRounds($adminId),
+            $client
+        );
+        $tool       = $subagent->asTool(
+            'Hand a multi-step question to a model of its own, with your same read-only tools: use it '
+            . 'when answering needs several reads cross-checked against each other — a trend across '
+            . 'tools, a figure one tool disagrees with another about — rather than one call. Give it the '
+            . 'question whole: it sees nothing else of this conversation.'
+        );
+        $run        = $tool['run'];
+        $tool['run'] = static fn (array $arguments): string => Redactor::clean((string) $run($arguments));
+
+        return $tool;
+    }
+
+    /** Tool rounds a subagent gets: `subagent_rounds`, or {@see \Pramnos\Llm\Subagent}'s own default. */
+    private static function subagentRounds(int $adminId): int
+    {
+        return max(1, (int) Limits::of('subagent_rounds', 8, $adminId));
+    }
+
+    /** The cost ceiling a subagent's own turn gets, or null for none: `subagent_cost`. */
+    private static function subagentCost(int $adminId): ?float
+    {
+        $cost = Limits::of('subagent_cost', 0.0, $adminId);
+
+        return $cost > 0 ? (float) $cost : null;
     }
 }

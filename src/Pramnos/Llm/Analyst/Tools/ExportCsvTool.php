@@ -6,14 +6,17 @@ namespace Pramnos\Llm\Analyst\Tools;
 
 use Pramnos\Framework\Factory;
 use Pramnos\Llm\Analyst\Exports;
+use Pramnos\Llm\Analyst\Limits;
 use Pramnos\Llm\Analyst\ReadOnlySql;
 use Pramnos\Mcp\McpToolInterface;
 
 /**
  * The same SELECT as `sql`, written to a CSV file the administrator downloads — up to
- * {@see MAX_ROWS} rows. A short list — up to `'llm' => ['analyst' => ['export_inline' => 100]]`
- * rows — comes back whole as well, to be shown as a table in the answer beside the link; a longer
- * one reaches the model as the link, the count and five rows to describe it by.
+ * {@see MAX_ROWS} rows, or `'llm' => ['analyst' => ['export_rows' => …]]` (a number, or
+ * `fn(User): int` for a per-role ceiling — {@see Limits}). A short list — up to `'llm' =>
+ * ['analyst' => ['export_inline' => 100]]` rows — comes back whole as well, to be shown as a
+ * table in the answer beside the link; a longer one reaches the model as the link, the count
+ * and five rows to describe it by.
  *
  * With a UTF-8 byte-order mark, so a spreadsheet reads Greek as Greek. Off unless the application
  * turns it on: `'llm' => ['analyst' => ['export' => true]]`.
@@ -38,7 +41,7 @@ final class ExportCsvTool implements McpToolInterface
     public function description(): string
     {
         return 'Write the rows of one read-only SELECT to a CSV file the administrator downloads, when '
-            . 'they ask for a list or a file rather than an answer — up to ' . self::MAX_ROWS . ' rows. '
+            . 'they ask for a list or a file rather than an answer — up to ' . self::maxRows($this->adminId) . ' rows. '
             . 'You get the link, the row count and five sample rows. Give the link as a Markdown link. '
             . 'The file is theirs alone and is kept ' . Exports::DAYS . ' days. Use it for more rows than an artifact holds '
             . '(' . \Pramnos\Llm\Chat\Artifacts::ROWS . '), or rows whose columns come from the database, written in one SELECT '
@@ -67,6 +70,7 @@ final class ExportCsvTool implements McpToolInterface
 
         $name   = Exports::name($this->adminId, (string) ($input['title'] ?? ''));
         $inline = self::inline();
+        $max    = self::maxRows($this->adminId);
         $rows   = [];
         $file   = $directory . '/' . $name . '.csv';
         $handle = fopen($file, 'w');
@@ -74,7 +78,7 @@ final class ExportCsvTool implements McpToolInterface
         fwrite($handle, "\xEF\xBB\xBF");
 
         try {
-            $count = ReadOnlySql::each(Factory::getDatabase(), (string) ($input['sql'] ?? ''), self::MAX_ROWS, static function (array $row) use ($handle, &$sample, &$rows, $inline): void {
+            $count = ReadOnlySql::each(Factory::getDatabase(), (string) ($input['sql'] ?? ''), $max, static function (array $row) use ($handle, &$sample, &$rows, $inline): void {
                 if ($sample === []) {
                     fputcsv($handle, array_keys($row), ',', '"', '');
                 }
@@ -102,7 +106,7 @@ final class ExportCsvTool implements McpToolInterface
             // The same rows as a spreadsheet, for whoever asks for Excel.
             'xlsx'      => Exports::url($name, $this->area) . '?as=xlsx',
             'rows'      => $count,
-            'truncated' => $count >= self::MAX_ROWS,
+            'truncated' => $count >= $max,
             'expires'   => gmdate('Y-m-d', time() + Exports::DAYS * 86400),
         ];
 
@@ -118,5 +122,11 @@ final class ExportCsvTool implements McpToolInterface
         $config = \Pramnos\Llm\Llm::config('analyst', []);
 
         return max(0, (int) (is_array($config) && isset($config['export_inline']) ? $config['export_inline'] : self::INLINE));
+    }
+
+    /** The row ceiling: `export_rows`, or {@see MAX_ROWS}. */
+    private static function maxRows(int $adminId): int
+    {
+        return max(1, (int) Limits::of('export_rows', self::MAX_ROWS, $adminId));
     }
 }

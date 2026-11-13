@@ -187,6 +187,16 @@ class AnalystAssistant extends BaseAssistant
         return 'The analyst does not run scheduled reports.';
     }
 
+    /**
+     * Tool rounds before the model must answer with what it has: `'llm' => ['analyst' =>
+     * ['rounds' => …]]` (a number, or `fn(User): int` for a per-role ceiling — {@see Limits}),
+     * or the framework's own default.
+     */
+    public function rounds(): int
+    {
+        return max(1, (int) Limits::of('rounds', parent::rounds()));
+    }
+
     /** An analyst conversation — {@see areaUrl()}. */
     public function conversationUrl(?int $conversationId): string
     {

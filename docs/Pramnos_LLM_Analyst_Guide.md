@@ -669,11 +669,20 @@ For a question no tool answers, the analyst can write SQL — when the applicati
     'sql'         => true,   // `schema` and `sql`: one SELECT, up to 200 rows to the model
     'export'      => true,   // `schema` and `export_csv`: up to 100,000 rows to a CSV file
     'sql_seconds' => 30,     // how long a statement may run
+    'sql_rows'    => fn (\Pramnos\User\User $u): int => $u->usertype >= 99 ? 2000 : 200,  // a number, or per role
+    'export_rows' => 20000,  // the same ceiling for export_csv, separately — MAX_ROWS otherwise
+    'rounds'      => 20,     // tool rounds before the model must answer with what it has — 16 otherwise
     'schema'      => [       // what the catalogue cannot say
         'orders' => ['about' => 'One customer order.', 'columns' => ['status' => '1 open, 2 paid, 3 refunded']],
     ],
 ]],
 ```
+
+**Every one of `sql_rows`, `export_rows`, `rounds`, `subagent_rounds` and `subagent_cost`**
+(below) takes a plain number for everybody, or a function of the account asking —
+`fn(\Pramnos\User\User $u): int|float` — for a ceiling by role, through one place,
+`Analyst\Limits::of()`. A function that cannot be resolved (nothing signed in, say) falls back
+to the default rather than failing the read it was meant to narrow.
 
 **Credentials are never read.**
 - A column whose name says it holds one (`password`, `token`, `secret`, `api_key`, `salt`,
@@ -726,6 +735,29 @@ reason to refuse the read the way a broken `database_readonly_dsn` is.
 
 Rows go through the redaction like every tool's answer. `sql` and `export_csv` are tagged
 `personal`, since a statement can read anybody's row.
+
+## Subagents: a multi-step question handed to a model of its own
+
+Some questions are not one tool call but several reads cross-checked against each other — a
+trend across tools, a figure one tool disagrees with another about, a list filtered by
+something a second tool knows. `'llm' => ['analyst' => ['subagents' => true]]` gives the model
+`deep_analysis`, built on `Pramnos\Llm\Subagent`: a task handed to a model of its own, with
+this same answer's own read-only tools — never a tool that writes or is gated, and never
+`deep_analysis` itself, which would recurse — its own rounds and its own cost ceiling, separate
+from the answer's own:
+
+```php
+'llm' => ['analyst' => [
+    'subagents'       => true,
+    'subagent_rounds' => 8,     // Subagent's own default otherwise
+    'subagent_cost'   => 0.50,  // USD per deep_analysis call; unbounded otherwise
+]],
+```
+
+The subagent sees nothing of the conversation that asked it — only the task, given whole — and
+answers once, through the same redaction every tool's answer goes through, tagged `personal`
+like `sql` and `export_csv` since its own tools can read anybody's row. It never writes: every
+tool it is handed is filtered to the ones with no `writes`/`gated` flag first.
 
 ## From any administration page
 
