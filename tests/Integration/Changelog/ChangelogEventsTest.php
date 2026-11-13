@@ -421,6 +421,9 @@ class ChangelogEventsTest extends TestCase
         $refused = ($route->action)();
         $_GET   = ['entity' => 'user', 'itemid' => '990321', 'event' => 'user.login,user.logout', 'per_page' => '1', 'order' => 'asc', 'origins' => 'events', 'from' => (string) (time() - 3600)];
         $page   = ($route->action)();
+        \Pramnos\Changelog\History::allowUsing(static fn (?object $user): bool => $user !== null);
+        $_GET    = ['userid' => '990321'];
+        $noEntity = ($route->action)();
         $this->db->queryBuilder()->table(ChangelogWriter::EVENTS_TABLE)->where('entity', 'user')->where('itemid', '990321')->delete();
 
         // Assert
@@ -429,6 +432,8 @@ class ChangelogEventsTest extends TestCase
         $this->assertSame(200, $page['status']);
         $this->assertSame([2, 2], [$page['data']['total'], $page['data']['pages']]);
         $this->assertSame('user.login', $page['data']['lines'][0]['what'], 'oldest first, as asked');
+        $this->assertEqualsCanonicalizing(['user.login', 'user.logout'], $page['data']['events'], 'the record\'s own codes, for a filter control');
+        $this->assertSame([], $noEntity['data']['events'], 'no single record named: nothing to list codes for');
     }
 
     /**
@@ -460,5 +465,44 @@ class ChangelogEventsTest extends TestCase
         $this->assertStringContainsString('href="?tab=history&amp;history_page=1"', $paged, 'newer, keeping the page\'s query');
         $this->assertStringContainsString('<span>2 / 2</span>', $paged);
         $this->assertStringContainsString('<p class="pf-history-empty">Nothing yet</p>', $empty);
+    }
+
+    /**
+     * The panel's event filter: chips for "All" and the record's own codes once there is more
+     * than one, picking a code narrows the list to it, a code that is not genuinely one of the
+     * record's own is ignored rather than trusted, and every chip's link resets the pager to
+     * page 1 — the filtered total is a different count than the one the reader was paging
+     * through.
+     */
+    public function testTheHistoryPanelFiltersByEventType(): void
+    {
+        // Arrange — two "step" events, older, and three "note" events, newer, on one record
+        ChangelogWriter::event(self::ENTITY, 55, 'thing.step', by: 0, at: time() - 500);
+        ChangelogWriter::event(self::ENTITY, 55, 'thing.step', by: 0, at: time() - 400);
+        for ($i = 0; $i < 3; $i++) {
+            ChangelogWriter::event(self::ENTITY, 55, 'thing.note', by: 0, at: time() - 300 + $i * 60);
+        }
+        \Pramnos\Changelog\History::allowUsing(static fn (?object $user): bool => $user !== null);
+        $reader = new \Pramnos\User\User();
+        $reader->userid = 990321;
+        \Pramnos\Http\RequestIdentity::seal($reader, 'test');
+
+        // Act — a reader three pages into the unfiltered list sees both chips and their links;
+        // picking "thing.note" narrows the list; a code that is not really one of the record's
+        // own is ignored, back to "All".
+        $_GET      = ['history_page' => '3'];
+        $chips     = \Pramnos\Html\HistoryPanel::render(self::ENTITY, 55);
+        $_GET      = ['history_event' => 'thing.note'];
+        $filtered  = \Pramnos\Html\HistoryPanel::render(self::ENTITY, 55);
+        $_GET      = ['history_event' => 'not-a-real-code'];
+        $stale     = \Pramnos\Html\HistoryPanel::render(self::ENTITY, 55);
+
+        // Assert
+        $this->assertStringContainsString('<nav class="pf-history-filter"', $chips, 'two codes: the chips appear');
+        $this->assertStringContainsString('href="?history_page=1" aria-current="true">All</a>', $chips, 'the chip resets the pager, not only the filter');
+        $this->assertStringContainsString('href="?history_page=1&amp;history_event=thing.note">thing.note</a>', $chips, 'not the current one: no aria-current attribute');
+        $this->assertStringContainsString('<span class="pf-history-what">thing.note</span>', $filtered);
+        $this->assertStringNotContainsString('<span class="pf-history-what">thing.step</span>', $filtered, 'filtered to one code only — the other chip still names it, the list does not');
+        $this->assertStringContainsString('<span class="pf-history-what">thing.step</span>', $stale, 'a stale/guessed code is not trusted: back to the unfiltered list');
     }
 }

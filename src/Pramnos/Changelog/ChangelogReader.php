@@ -152,6 +152,53 @@ class ChangelogReader
     }
 
     /**
+     * The distinct event codes recorded for one record, most recently used first — what a
+     * filter control offers, so it never lists a code that would find nothing.
+     *
+     * ```php
+     * ChangelogReader::events('professional', 42);   // ['verification.completed', 'profile.updated', …]
+     * ```
+     *
+     * Capped at the newest 1000 rows: enough to find every code a real record has used, without
+     * scanning a history that never ends.
+     *
+     * @param  list<string> $origins `events`, `feed`, or both — as {@see history()}
+     * @return list<string>
+     */
+    public static function events(string $entity, string|int $itemid, array $origins = ['events']): array
+    {
+        $origins = array_values(array_intersect($origins, ['feed', 'events']));
+        if ($origins === []) {
+            return [];
+        }
+
+        $database = \Pramnos\Database\Database::getInstance();
+        $view     = $database->schema()->resolveTableName(self::VIEW);
+
+        $result = $database->queryBuilder()
+            ->table($view)
+            ->select(['event'])
+            ->where('entity', $entity)
+            ->where('itemid', (string) $itemid)
+            ->whereIn('origin', $origins)
+            ->whereNotNull('event')
+            ->orderBy('created_at', 'DESC')
+            ->orderBy('id', 'DESC')
+            ->limit(1000)
+            ->get();
+
+        $seen = [];
+        while ($result && $result->fetch()) {
+            $event = (string) ($result->fields['event'] ?? '');
+            if ($event !== '') {
+                $seen[$event] = true;
+            }
+        }
+
+        return array_keys($seen);
+    }
+
+    /**
      * What happened in one tenant, newest first — an organisation's activity log.
      *
      * ```php

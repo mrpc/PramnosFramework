@@ -510,6 +510,21 @@ signed out). An application with other rules says so once:
 );
 ```
 
+**Filtered by event type.** Once a record has more than one distinct event code
+(`ChangelogReader::events('post', $post->postid)`), a row of chips appears above the list — "All"
+and one per code, named through `ChangelogRenderer::eventLabel()` — so a long, mixed history
+(saves and several kinds of application event) can be narrowed to one kind without paging through
+everything else:
+
+- On a server-rendered page, each chip is a plain link, `?history_event=post.pinned`, and resets
+  the pager to page 1 — the filtered total is a different count than the one the reader was
+  paging through. A stale or guessed code — not genuinely one of the record's own — is ignored
+  rather than trusted, back to "All".
+- In a SPA, each chip is a button; picking one re-asks `GET /history` from page 1 with
+  `event=post.pinned`. The options come from `data.events` in every response — the record's own
+  codes regardless of which one is currently chosen, so the row of chips never collapses once one
+  is picked.
+
 ### One tenant's events
 
 A multi-tenant application asks "what happened in this organisation". Have the model

@@ -674,6 +674,19 @@ a.pf-stat-tile:hover { border-color: var(--bs-primary, #0d6efd); }
 /* A record's history: Html\HistoryPanel and HistoryPanel.svelte. */
 .pf-history { margin: 1rem 0; }
 .pf-history-title { font-size: 1rem; font-weight: 600; margin: 0 0 .5rem; }
+/* The event-type filter chips (Html\HistoryPanel, only once a record has more than one code):
+   plain links, so picking one is a navigation like the pager beside it, not a script. */
+.pf-history-filter { display: flex; flex-wrap: wrap; gap: .375rem; margin: 0 0 .75rem; }
+.pf-history-filter a, .pf-history-filter button {
+    display: inline-block; padding: .15rem .6rem; border-radius: 999px; font-size: .8rem;
+    font-family: inherit; text-decoration: none; color: inherit; opacity: .75; cursor: pointer;
+    background: none; border: 1px solid color-mix(in oklab, currentColor 25%, transparent);
+}
+.pf-history-filter a:hover, .pf-history-filter button:hover { opacity: 1; }
+.pf-history-filter a[aria-current="true"], .pf-history-filter button[aria-current="true"] {
+    opacity: 1; font-weight: 600; border-color: currentColor;
+    background: color-mix(in oklab, currentColor 12%, transparent);
+}
 .pf-history-list { list-style: none; margin: 0; padding: 0; border-left: 2px solid color-mix(in oklab, currentColor 15%, transparent); }
 .pf-history-line { position: relative; padding: .375rem 0 .375rem .875rem; }
 .pf-history-line::before { content: ""; position: absolute; left: -5px; top: .75rem; width: 8px; height: 8px; border-radius: 999px; background: color-mix(in oklab, currentColor 40%, transparent); }

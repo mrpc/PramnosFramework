@@ -221,4 +221,19 @@ class ChangelogRendererTest extends TestCase
         // Act & Assert
         $this->assertSame('status: 1 → 2', ChangelogRenderer::describe($row));
     }
+
+    /**
+     * `eventLabel()` is the same lookup `describe()` uses for an event code, exposed so a
+     * filter built before any row names a code — `Html\HistoryPanel`'s event chips — can
+     * show the registered name rather than the bare code.
+     */
+    public function testEventLabelIsTheSameLookupDescribeUses(): void
+    {
+        // Arrange
+        ChangelogRenderer::label('wcm-device', ['device.assigned_on_finalize' => 'Assigned on finalize']);
+
+        // Act & Assert
+        $this->assertSame('Assigned on finalize', ChangelogRenderer::eventLabel('wcm-device', 'device.assigned_on_finalize'));
+        $this->assertSame('device.unregistered', ChangelogRenderer::eventLabel('wcm-device', 'device.unregistered'), 'no label: the code itself');
+    }
 }

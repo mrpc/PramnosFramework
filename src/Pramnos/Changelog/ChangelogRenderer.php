@@ -103,6 +103,16 @@ class ChangelogRenderer
     }
 
     /**
+     * A human name for one event code — the same lookup {@see describe()} uses for an
+     * application event, exposed for a filter control that lists codes before any row names
+     * them (`Html\HistoryPanel`'s event filter).
+     */
+    public static function eventLabel(string $entity, string $event): string
+    {
+        return static::translate($entity, $event);
+    }
+
+    /**
      * A human name for a field or event code.
      *
      * Language file first, registered labels second, the identifier itself last. Falling

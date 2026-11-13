@@ -18,6 +18,10 @@ use Pramnos\Routing\Router;
  * The other filters of {@see ChangelogReader::listing()} — `origins` (comma-separated), `event`,
  * `userid`, `source`, `from`, `to`, `scope` — as query parameters, and `order=asc` for oldest first.
  * Read only by whom {@see History::allows()}: 401 for nobody signed in, 403 for somebody else.
+ *
+ * `data.events`: the record's own distinct event codes ({@see ChangelogReader::events()}), of
+ * `entity`/`itemid`/`origins` alone — never narrowed by a chosen `event` — so a filter control
+ * built from it, `HistoryPanel.svelte`'s chips, keeps every option once one is picked.
  */
 class HistoryApi
 {
@@ -53,11 +57,15 @@ class HistoryApi
             return ['status' => 403, 'error' => 'This history is not yours to read.'];
         }
 
+        $events = isset($filters['entity'], $filters['itemid'])
+            ? ChangelogReader::events((string) $filters['entity'], (string) $filters['itemid'], (array) ($filters['origins'] ?? ['events']))
+            : [];
+
         return ['status' => 200, 'data' => History::page(
             $filters,
             (int) ($_GET['page'] ?? 1),
             (int) ($_GET['per_page'] ?? 20),
             ($_GET['order'] ?? '') === 'asc' ? 'asc' : 'desc'
-        )];
+        ) + ['events' => $events]];
     }
 }

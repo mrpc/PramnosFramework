@@ -25,9 +25,11 @@ beforeEach(() => {
         const address = new URL(url, 'http://localhost');
         const query   = Object.fromEntries(address.searchParams);
         calls.push(query);
-        const page = Number(query.page ?? 1);
+        const page  = Number(query.page ?? 1);
+        const lines = query.event === 'post.pinned' ? [line('Pinned', 'anna')]
+            : page === 1 ? [line('Published', 'anna'), line('Edited', null)] : [line('Created', 'anna')];
         const body = status === 200
-            ? { status: 200, data: { lines: page === 1 ? [line('Published', 'anna'), line('Edited', null)] : [line('Created', 'anna')], total: 3, page, pages: 2 } }
+            ? { status: 200, data: { lines, total: 3, page, pages: 2, events: ['post.published', 'post.pinned'] } }
             : { status, error: 'This history is not yours to read.' };
 
         return { status, ok: status < 300, json: async () => body };
@@ -76,5 +78,23 @@ describe('HistoryPanel', () => {
         // Assert
         await waitFor(() => expect(calls).toHaveLength(1));
         await waitFor(() => expect(container.querySelector('.pf-history')).toBeNull());
+    });
+
+    it('offers a chip per event code, and picking one re-asks the API from page 1', async () => {
+        // Arrange
+        const { container } = render(HistoryPanel, { entity: 'post', itemid: 42 });
+        await screen.findByText('Published');
+
+        // Act — more than one code: the chips are there, "All" the current one
+        const nav = container.querySelector('.pf-history-filter');
+        expect(nav.querySelector('button[aria-current="true"]').textContent).toBe('All');
+        await fireEvent.click(screen.getByText('post.pinned'));
+
+        // Assert — the second request asked for that code alone, from page 1, and the list it
+        // drew is the filtered one — "Published"/"Edited" from the first call are gone
+        await screen.findByText('Pinned');
+        expect(calls[1]).toMatchObject({ page: '1', event: 'post.pinned' });
+        expect(screen.queryByText('Published')).toBeNull();
+        expect(nav.querySelector('button[aria-current="true"]').textContent).toBe('post.pinned');
     });
 });

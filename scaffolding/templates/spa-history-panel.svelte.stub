@@ -17,16 +17,23 @@
      * somebody the server will not show it to: a 401 or 403 is the history not being theirs, not
      * an error to put on the screen.
      *
+     * **Filtered by event type.** Once the record has more than one distinct event code
+     * (`data.events`, from `HistoryApi`), a row of chips appears above the list — "All" and one
+     * per code — the same filter `Pramnos\Html\HistoryPanel` draws as plain links; here, picking
+     * one re-asks the API from page 1, since the filtered total is a different count.
+     *
      * @type {{ entity: string, itemid: string|number, changes?: boolean, perPage?: number, title?: string }}
      */
     let { entity, itemid, changes = false, perPage = 20, title = 'History' } = $props();
 
-    let lines   = $state([]);
-    let page    = $state(0);
-    let pages   = $state(1);
-    let hidden  = $state(false);
-    let loading = $state(false);
-    let failed  = $state(false);
+    let lines       = $state([]);
+    let page        = $state(0);
+    let pages       = $state(1);
+    let events      = $state([]);
+    let eventFilter = $state('');
+    let hidden      = $state(false);
+    let loading     = $state(false);
+    let failed      = $state(false);
 
     async function load(next) {
         loading = true;
@@ -35,10 +42,14 @@
             if (changes) {
                 query.origins = 'events,feed';
             }
+            if (eventFilter) {
+                query.event = eventFilter;
+            }
             const found = (await api.get('/history', query))?.data ?? {};
-            lines = next === 1 ? (found.lines ?? []) : [...lines, ...(found.lines ?? [])];
-            page  = found.page ?? next;
-            pages = found.pages ?? 1;
+            lines  = next === 1 ? (found.lines ?? []) : [...lines, ...(found.lines ?? [])];
+            page   = found.page ?? next;
+            pages  = found.pages ?? 1;
+            events = found.events ?? events;
         } catch (error) {
             if (error?.status === 401 || error?.status === 403) {
                 hidden = true;
@@ -50,11 +61,18 @@
         }
     }
 
-    // Again whenever the record changes.
+    /** A chip picked: filter to that code (or back to "All"), from the first page again. */
+    function pick(code) {
+        eventFilter = code;
+        load(1);
+    }
+
+    // Again whenever the record changes — a different record starts unfiltered.
     $effect(() => {
         if (entity && itemid !== undefined && itemid !== null && itemid !== '') {
             hidden = false;
             failed = false;
+            eventFilter = '';
             load(1);
         }
     });
@@ -72,6 +90,14 @@
 {#if !hidden}
     <section class="pf-history" aria-label={t(title)}>
         <h3 class="pf-history-title">{t(title)}</h3>
+        {#if events.length > 1}
+            <nav class="pf-history-filter" aria-label={t('Filter history')}>
+                <button type="button" aria-current={eventFilter === '' ? 'true' : undefined} onclick={() => pick('')}>{t('All')}</button>
+                {#each events as code (code)}
+                    <button type="button" aria-current={eventFilter === code ? 'true' : undefined} onclick={() => pick(code)}>{t(code)}</button>
+                {/each}
+            </nav>
+        {/if}
         {#if failed}
             <p class={ui('error.text')} role="alert">{t('The history could not be read.')}</p>
         {:else if loading && lines.length === 0}

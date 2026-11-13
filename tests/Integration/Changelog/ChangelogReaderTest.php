@@ -384,6 +384,59 @@ class ChangelogReaderTest extends BaseTestCase
         $this->assertTrue($this->db->schema()->hasColumn(ChangelogWriter::EVENTS_TABLE, 'scope'));
     }
 
+    // ── Distinct event codes, for a filter control ─────────────────────────────
+
+    /**
+     * The distinct codes a record has used, most recently used first and never repeated — what
+     * `Html\HistoryPanel`'s filter chips are built from, so the list is exactly as long as the
+     * record's own variety and in the order a reader would expect to scan it.
+     */
+    public function testDistinctEventCodesComeBackNewestUsedFirst(): void
+    {
+        // Arrange — "seen" used twice, oldest and newest; "made" and "kept" once each, between
+        $this->seedEvent('seen', 'Seen', 400);
+        $this->seedEvent('made', 'Made', 300);
+        $this->seedEvent('kept', 'Kept', 200);
+        $this->seedEvent('seen', 'Seen again', 100);
+
+        // Act
+        $codes = ChangelogReader::events(self::ENTITY, self::ITEM);
+
+        // Assert — "seen" appears once, at its most recent use, not twice
+        $this->assertSame(['seen', 'kept', 'made'], $codes);
+    }
+
+    /**
+     * The automatic feed carries no event code — a save's row is described by `op`, not `event`
+     * — so a filter built from `events()` never offers a code that would find nothing.
+     */
+    public function testTheFeedContributesNoEventCode(): void
+    {
+        // Arrange
+        $this->seedFeed('updated', 100);
+        $this->seedEvent('activated', 'Activated', 50);
+
+        // Act
+        $eventsOnly = ChangelogReader::events(self::ENTITY, self::ITEM);
+        $both       = ChangelogReader::events(self::ENTITY, self::ITEM, ['events', 'feed']);
+        $feedOnly   = ChangelogReader::events(self::ENTITY, self::ITEM, ['feed']);
+
+        // Assert
+        $this->assertSame(['activated'], $eventsOnly);
+        $this->assertSame(['activated'], $both, 'the feed rows mixed in contribute nothing of their own');
+        $this->assertSame([], $feedOnly, 'nothing but feed rows, none of them with a code');
+    }
+
+    /** An origin list that names nothing returns nothing, the same contract as history(). */
+    public function testEventsWithAnUnrecognisedOriginReturnsNothing(): void
+    {
+        // Arrange
+        $this->seedEvent('activated', 'Activated');
+
+        // Act & Assert
+        $this->assertSame([], ChangelogReader::events(self::ENTITY, self::ITEM, ['nonsense']));
+    }
+
     // ── The trace ─────────────────────────────────────────────────────────────
 
     /**
