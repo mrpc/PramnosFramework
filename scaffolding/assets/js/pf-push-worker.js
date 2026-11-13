@@ -11,7 +11,15 @@
  * address is focused and moved there, any other is left alone, and with none a window is opened,
  * which on a phone is the installed app when the address is in its scope.
  *
- * A worker that has its own handlers (the scaffolded `sw.js` has) does not import this.
+ * `notificationclick` and `notificationclose` also report back to `data.report` (an absolute URL
+ * the server already put there — see `PushChannel::payload()`) with `{pushid, action}`, which is
+ * FW-495's hold-unopened rule's only way to know a push was seen: `pramnos.pushlog.opened_at` /
+ * `dismissed_at`. Never for the self-closing `pf-quiet` one below, and never for a push with no
+ * `data.pushid` — an installation that has not run the migration, or one with no site URL
+ * configured, sends neither, and nothing here fails for its absence.
+ *
+ * A worker that has its own handlers (the scaffolded `sw.js` has) does not import this, and
+ * should report the same way if it wants FW-495's hold-unopened rule to see its own pushes.
  */
 /* global self, clients */
 'use strict';
@@ -50,11 +58,28 @@ self.addEventListener('push', (event) => {
     })());
 });
 
+// FW-495: the only way the server learns a push was opened or closed, so a device buried under
+// unopened ones stops being sent more — never for 'pf-quiet' (it closes itself, unseen) and never
+// without data.pushid (no site URL configured, or the migration has not run: nothing to report).
+function reportPush(action, notification) {
+    const data = notification.data || {};
+    if (notification.tag === 'pf-quiet' || !data.report || !data.pushid) { return Promise.resolve(); }
+
+    return fetch(data.report, {
+        method: 'POST',
+        keepalive: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pushid: data.pushid, action: action }),
+    }).catch(() => undefined);
+}
+
 self.addEventListener('notificationclick', (event) => {
-    event.notification.close();
-    const url = new URL((event.notification.data || {}).url || self.registration.scope, self.registration.scope).href;
+    const notification = event.notification;
+    notification.close();
+    const url = new URL((notification.data || {}).url || self.registration.scope, self.registration.scope).href;
     const page = url.split('#')[0];
     event.waitUntil((async () => {
+        await reportPush('opened', notification);
         const open = await clients.matchAll({ type: 'window', includeUncontrolled: true });
         const same = open.find((client) => client.url.split('#')[0] === page);
         if (!same) {
@@ -68,4 +93,8 @@ self.addEventListener('notificationclick', (event) => {
             await same.navigate(url).catch(() => undefined);
         }
     })());
+});
+
+self.addEventListener('notificationclose', (event) => {
+    event.waitUntil(reportPush('dismissed', event.notification));
 });

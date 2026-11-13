@@ -123,6 +123,21 @@ class PushChannel implements ChannelInterface
             }
         }
 
+        /*
+         * FW-495: a notification that opts in (`heldFor()`, a conversation's) is not sent to a
+         * device that already has an earlier one of its own kind sitting there unopened —
+         * piling more on top of one nobody has looked at is how Chrome on Android ends up
+         * auto-revoking the permission.
+         */
+        if (method_exists($notification, 'heldFor')) {
+            $subscriptions = array_values(array_filter($subscriptions, static fn (array $one): bool => !$notification->heldFor($one, $userId)));
+            if ($subscriptions === []) {
+                $this->refuse($userId, Log::HELD_UNOPENED, $data, $name);
+
+                return;
+            }
+        }
+
         $vapid = $this->vapid();
 
         if ($vapid === null) {
@@ -221,24 +236,6 @@ class PushChannel implements ChannelInterface
     }
 
     /**
-     * Write one attempt to the push log.
-     *
-     * A seam, and the reason it is one is that this is called from inside a send: a test that
-     * asserts what was delivered must not need a `pushlog` table to do it.
-     *
-     * @param array<string, mixed> $payload
-     */
-    protected function log(
-        int $userId,
-        string $endpoint,
-        array $payload,
-        int $status,
-        string $notification
-    ): void {
-        Log::record($userId, hash('sha256', $endpoint), $payload, $status, $notification);
-    }
-
-    /**
      * Write the reason a send stopped before it reached anybody.
      *
      * @param array<string, mixed> $payload
@@ -284,27 +281,36 @@ class PushChannel implements ChannelInterface
 
             $push->setDefaultOptions(['TTL' => static::TTL, 'urgency' => $this->urgency()]);
 
+            $logged = json_decode($payload, true);
+            $logged = is_array($logged) ? $logged : [];
+
+            /*
+             * One row per subscription, reserved **before** queueing — its id has to already
+             * exist to ride inside the payload that subscription receives (`withPushId()`).
+             * Keyed by endpoint, which `flush()`'s reports are matched back by below.
+             */
+            $reserved = [];
             foreach ($subscriptions as $row) {
+                $endpoint            = (string) $row['endpoint'];
+                $reserved[$endpoint] = Log::reserve($userId, hash('sha256', $endpoint), $logged, $notification);
+
                 $push->queueNotification(
                     $subscription::create([
-                        'endpoint'        => (string) $row['endpoint'],
+                        'endpoint'        => $endpoint,
                         'publicKey'       => (string) $row['p256dh'],
                         'authToken'       => (string) $row['auth_secret'],
                         'contentEncoding' => (string) ($row['content_encoding'] ?: 'aes128gcm'),
                     ]),
-                    $payload
+                    $this->withPushId($payload, $reserved[$endpoint])
                 );
             }
-
-            $logged = json_decode($payload, true);
-            $logged = is_array($logged) ? $logged : [];
 
             foreach ($push->flush() as $report) {
                 $endpoint = (string) $report->getEndpoint();
                 $status   = $this->statusOf($report);
 
                 $this->record($endpoint, $status);
-                $this->log($userId, $endpoint, $logged, $status, $notification);
+                Log::complete($reserved[$endpoint] ?? 0, $status);
             }
         } catch (\Throwable $exception) {
             // One failed batch must not take down whatever queued it.
@@ -379,9 +385,40 @@ class PushChannel implements ChannelInterface
             $payload['silent'] = 'ifOpen';
         }
 
+        /*
+         * Where the worker posts `notificationclick` / `notificationclose` back to (FW-495) — an
+         * absolute URL, the same way `data.ack` already carries one for a sign-in approval: a
+         * service worker has no page to build one from. `withPushId()` adds the row's own id
+         * beside it once it exists, which is after this payload is built.
+         */
+        if (\Pramnos\Http\SiteUrl::isConfigured()) {
+            $payload['data'] = (array) ($payload['data'] ?? []) + ['report' => \Pramnos\Http\SiteUrl::to('push/report')];
+        }
+
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         return $json === false ? '' : $json;
+    }
+
+    /**
+     * `$payload` with this attempt's own row id folded into `data.pushid`, so the device that
+     * receives it can later say "this one was opened" or "closed" back to {@see
+     * \Pramnos\Push\Log::opened()} / {@see \Pramnos\Push\Log::dismissed()} — the only hook the
+     * server has, since nothing here keeps a connection to the browser once this returns.
+     */
+    protected function withPushId(string $payload, int $pushId): string
+    {
+        if ($pushId < 1) {
+            return $payload;
+        }
+        $decoded = json_decode($payload, true);
+        if (!is_array($decoded)) {
+            return $payload;
+        }
+        $decoded['data'] = (array) ($decoded['data'] ?? []) + ['pushid' => $pushId];
+        $json = json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        return $json === false ? $payload : $json;
     }
 
     /**

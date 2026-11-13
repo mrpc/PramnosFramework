@@ -559,6 +559,46 @@ class PushChannelTest extends TestCase
     }
 
     /**
+     * FW-495: a notification that opts into `heldFor()` is not sent to a subscription it says is
+     * held, and is sent, as always, to the others — a notification that does not implement the
+     * method at all is never held, which is how a reminder or anything else stays outside the
+     * rule without declaring so explicitly.
+     */
+    public function testAHeldSubscriptionIsSkippedTheOthersAreNot(): void
+    {
+        // Arrange — a phone (held) and a desktop (not) on the same account
+        $channel = new SendingPushChannel(
+            [
+                ['held' => true] + $this->subscription('https://phone.example/1'),
+                ['held' => false] + $this->subscription('https://desktop.example/2'),
+            ],
+            ['publicKey' => 'p', 'privateKey' => 'k', 'subject' => 'mailto:a@b.c']
+        );
+
+        // Act
+        $channel->send((object) ['userid' => 1], new HeldAwareNotification());
+
+        // Assert
+        $this->assertSame(['https://desktop.example/2'], array_column($channel->sent, 'endpoint'), 'the held one is skipped, the other sent');
+    }
+
+    /** With every subscription held, nothing is sent and the refusal says why. */
+    public function testEverySubscriptionHeldIsARefusalNotASilentDrop(): void
+    {
+        // Arrange
+        $channel = new SendingPushChannel(
+            [['held' => true] + $this->subscription()],
+            ['publicKey' => 'p', 'privateKey' => 'k', 'subject' => 'mailto:a@b.c']
+        );
+
+        // Act
+        $channel->send((object) ['userid' => 1], new HeldAwareNotification());
+
+        // Assert
+        $this->assertSame([], $channel->sent);
+    }
+
+    /**
      * `silent` and `unlessFocused` reach the worker only when asked for: a notification that does
      * not ask sends neither, so the worker keeps the system's sound and always shows it.
      * `silent: 'ifOpen'` reaches it as it is, for the worker to decide by the pages open.
@@ -756,4 +796,14 @@ class AppPushNotification extends PushableNotification
 
     /** The app whose subscriptions it goes to. */
     public function pushApp(mixed $notifiable): string { return $this->app; }
+}
+
+/** FW-495: a notification that opts into the hold-unopened rule, reading each subscription's own flag. */
+class HeldAwareNotification extends PushableNotification
+{
+    /** @param array<string, mixed> $subscription */
+    public function heldFor(array $subscription, int $userId): bool
+    {
+        return (bool) ($subscription['held'] ?? false);
+    }
 }

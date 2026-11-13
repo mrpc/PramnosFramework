@@ -52,6 +52,9 @@ class Log
 
     public const SWITCHED_OFF = 'Push is switched off for this installation (`push.send`)';
 
+    /** FW-495: an earlier push to this browser is still unopened and undismissed. */
+    public const HELD_UNOPENED = 'Held: an earlier conversation notification on this device is still unopened';
+
     /**
      * One delivery attempt against one subscription.
      *
@@ -76,6 +79,133 @@ class Log
             'status'        => $status,
             'error'         => '',
         ]);
+    }
+
+    /**
+     * One delivery attempt, reserved **before** it is sent — so its id can ride inside the
+     * payload the browser receives, `data.pushid`, which is the only way the service worker can
+     * later say "this one was opened" or "closed" back to {@see opened()} / {@see dismissed()}.
+     * Written with `status = 0`; {@see complete()} sets the real one moments later.
+     *
+     * A crash between the two leaves a stray row that reads as "never reached a server" — the
+     * same as any attempt that genuinely didn't, and no worse than the gap `record()` already
+     * tolerated by writing after the fact instead.
+     *
+     * @param array<string, mixed> $payload The decoded push payload
+     * @return int The row's id, or 0 when it could not be written
+     */
+    public static function reserve(
+        int $userId,
+        string $endpointHash,
+        array $payload,
+        string $notification = ''
+    ): int {
+        $row = [
+            'userid'        => $userId,
+            'endpoint_hash' => $endpointHash,
+            'notification'  => static::shorten($notification, 160),
+            'title'         => static::shorten((string) ($payload['title'] ?? ''), 200),
+            'body'          => static::shorten((string) ($payload['body'] ?? ''), 500),
+            'url'           => static::shorten((string) ($payload['url'] ?? ''), 500),
+            'tag'           => static::shorten((string) ($payload['tag'] ?? ''), 80),
+            'status'        => 0,
+            'error'         => '',
+        ];
+
+        try {
+            $db = \Pramnos\Framework\Factory::getDatabase();
+            $row['sent'] = self::instant(time());
+            $db->queryBuilder()->table('pramnos.pushlog')->insert($row);
+
+            return (int) $db->getInsertId();
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log('Could not reserve a push log row: ' . $exception->getMessage(), 'push');
+
+            return 0;
+        }
+    }
+
+    /** {@see reserve()}'s row, once the push service has answered. */
+    public static function complete(int $pushId, int $status): bool
+    {
+        if ($pushId < 1) {
+            return false;
+        }
+
+        try {
+            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('pramnos.pushlog')
+                ->where('pushid', $pushId)->update(['status' => $status]);
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * The service worker reported `notificationclick` for this push (never for a self-closing
+     * `pf-quiet` one, which the worker does not report at all). First report wins.
+     */
+    public static function opened(int $pushId): bool
+    {
+        return self::touch($pushId, 'opened_at');
+    }
+
+    /** The service worker reported `notificationclose` without a prior click. First report wins. */
+    public static function dismissed(int $pushId): bool
+    {
+        return self::touch($pushId, 'dismissed_at');
+    }
+
+    /**
+     * The most recent push to this browser, of this notification class, delivered and still
+     * neither opened nor dismissed — what the hold-unopened rule (FW-495) checks before sending
+     * another. Null on an installation that has not run {@see AddOpenedDismissedToPushlog}.
+     *
+     * @return array{pushid: int, sent: int, tag: string}|null
+     */
+    public static function unresolved(string $endpointHash, string $notificationClass): ?array
+    {
+        if ($endpointHash === '') {
+            return null;
+        }
+
+        try {
+            $db = \Pramnos\Framework\Factory::getDatabase();
+            if (!$db->schema()->hasColumn('pramnos.pushlog', 'opened_at')) {
+                return null;
+            }
+            $row = $db->queryBuilder()->table('pramnos.pushlog')
+                ->where('endpoint_hash', $endpointHash)->where('notification', $notificationClass)
+                ->where('status', '>=', 200)->where('status', '<', 300)
+                ->whereNull('opened_at')->whereNull('dismissed_at')
+                ->orderBy('sent', 'desc')->first()?->fetch();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return is_array($row) ? ['pushid' => (int) $row['pushid'], 'sent' => self::sentAt($row), 'tag' => (string) ($row['tag'] ?? '')] : null;
+    }
+
+    /** {@see opened()} / {@see dismissed()}: sets the column once, the first report. */
+    private static function touch(int $pushId, string $column): bool
+    {
+        if ($pushId < 1) {
+            return false;
+        }
+
+        try {
+            $db = \Pramnos\Framework\Factory::getDatabase();
+            if (!$db->schema()->hasColumn('pramnos.pushlog', $column)) {
+                return false;
+            }
+            $db->queryBuilder()->table('pramnos.pushlog')->where('pushid', $pushId)->whereNull($column)
+                ->update([$column => self::instant(time())]);
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**
@@ -256,19 +386,23 @@ class Log
     }
 
     /**
-     * How the last `$days` of pushes went.
+     * How the last `$days` of pushes went — delivery, and, of those delivered, how many were
+     * ever opened or dismissed: what tells «notifications are arriving but nobody looks» apart
+     * from «they are not arriving».
      *
-     * @return array{total: int, delivered: int, gone: int, refused: int, failed: int}
+     * @return array{total: int, delivered: int, gone: int, refused: int, failed: int, opened: int, dismissed: int}
      */
     public static function stats(int $days = 7): array
     {
-        $empty = ['total' => 0, 'delivered' => 0, 'gone' => 0, 'refused' => 0, 'failed' => 0];
+        $empty = ['total' => 0, 'delivered' => 0, 'gone' => 0, 'refused' => 0, 'failed' => 0, 'opened' => 0, 'dismissed' => 0];
 
         try {
-            $since  = self::instant(time() - max(1, $days) * 86400);
-            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+            $db      = \Pramnos\Framework\Factory::getDatabase();
+            $tracked = $db->schema()->hasColumn('pramnos.pushlog', 'opened_at');
+            $since   = self::instant(time() - max(1, $days) * 86400);
+            $result  = $db->queryBuilder()
                 ->table('pramnos.pushlog')
-                ->select(['status', 'endpoint_hash'])
+                ->select($tracked ? ['status', 'endpoint_hash', 'opened_at', 'dismissed_at'] : ['status', 'endpoint_hash'])
                 ->where('sent', '>=', $since)
                 ->get();
 
@@ -280,6 +414,11 @@ class Log
 
                 if ($status >= 200 && $status < 300) {
                     $stats['delivered']++;
+                    if ($tracked && ($row['opened_at'] ?? null) !== null) {
+                        $stats['opened']++;
+                    } elseif ($tracked && ($row['dismissed_at'] ?? null) !== null) {
+                        $stats['dismissed']++;
+                    }
                 } elseif ($status === 404 || $status === 410) {
                     $stats['gone']++;
                 } elseif ((string) ($row['endpoint_hash'] ?? '') === '') {
@@ -293,6 +432,44 @@ class Log
         } catch (\Throwable) {
             return $empty;
         }
+    }
+
+    /**
+     * One account's open rate, by device — each browser's `endpoint_hash`, how many pushes it
+     * was delivered and how many of those it ever opened or dismissed, since the migration ran
+     * (earlier rows carry no answer either way). What answers "is it this phone, or everyone's".
+     *
+     * @return list<array{endpoint_hash: string, delivered: int, opened: int, dismissed: int}>
+     */
+    public static function openRate(int $userId, int $days = 30): array
+    {
+        try {
+            $db = \Pramnos\Framework\Factory::getDatabase();
+            if (!$db->schema()->hasColumn('pramnos.pushlog', 'opened_at')) {
+                return [];
+            }
+            $rows = $db->queryBuilder()->table('pramnos.pushlog')
+                ->select(['endpoint_hash', 'opened_at', 'dismissed_at'])
+                ->where('userid', $userId)->where('status', '>=', 200)->where('status', '<', 300)
+                ->where('sent', '>=', self::instant(time() - max(1, $days) * 86400))
+                ->getAllOrFail();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $by = [];
+        foreach ($rows as $row) {
+            $hash = (string) ($row['endpoint_hash'] ?? '');
+            if ($hash === '') {
+                continue;
+            }
+            $by[$hash] ??= ['endpoint_hash' => $hash, 'delivered' => 0, 'opened' => 0, 'dismissed' => 0];
+            $by[$hash]['delivered']++;
+            $by[$hash]['opened']    += $row['opened_at'] !== null ? 1 : 0;
+            $by[$hash]['dismissed'] += $row['opened_at'] === null && $row['dismissed_at'] !== null ? 1 : 0;
+        }
+
+        return array_values($by);
     }
 
     /**

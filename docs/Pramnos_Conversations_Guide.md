@@ -969,6 +969,16 @@ client is a browser tab or the desktop application. The bell is told of every me
 
 `Clients::target($userId)` answers the client a notification goes to, or null for every one.
 
+### Held while unopened
+
+`'push' => ['hold_unopened' => 'mobile']` (or `'all'`) stops a second conversation push from
+piling onto a device that still has an earlier one sitting there unopened — a phone buried under
+unopened notifications is how Chrome on Android ends up revoking the site's permission outright.
+It clears on opening or dismissing the held one, on any activity on any client since it was sent,
+or on catching up on that push's own conversation. The full mechanics —
+`pushlog.opened_at`/`dismissed_at`, the service worker's report, `ConversationNotification::heldFor()`
+— are in the [Push Guide](Pramnos_Push_Guide.md#opened-dismissed-and-the-hold-unopened-rule).
+
 ## Scheduled messages
 
 A message written to be sent later, as Slack's *Schedule message* (`Pramnos\Conversations\Scheduled`):

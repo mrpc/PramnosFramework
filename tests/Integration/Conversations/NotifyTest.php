@@ -308,6 +308,78 @@ class NotifyTest extends TestCase
         $this->assertSame(['database'], $bellOnly);
         $this->assertSame('Ελένη Σ.: Sent a file', (new ConversationNotification($file, 'message'))->toPush($mariaUser)['body'], 'nothing written: what it is');
     }
+
+    /**
+     * FW-495: with `push.hold_unopened` on, a device that still has an earlier conversation push
+     * sitting there unopened is held off a second one — and let through again once it is opened,
+     * once the person does anything on any client, or once they catch up on that conversation.
+     * Off, or on a browser it does not apply to (`'mobile'` on a desktop user agent), nothing is
+     * ever held — the state a `TaskReminder` or anything else that never implements `heldFor()`
+     * is already in, by never being asked.
+     */
+    #[DataProvider('databases')]
+    public function testTheHoldUnopenedRule(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30];
+        $general = Conversations::create('channel', 'general', [$maria], $eleni);
+        $first   = Messages::post($general, $eleni, 'πρώτο');
+        $notification = new ConversationNotification($first, 'message');
+        $phone  = ['endpoint' => 'https://push.test/phone', 'endpoint_hash' => hash('sha256', 'https://push.test/phone'), 'user_agent' => 'Mozilla/5.0 (Linux; Android 14) Chrome Mobile'];
+        $desktop = ['endpoint' => 'https://push.test/desktop', 'endpoint_hash' => hash('sha256', 'https://push.test/desktop'), 'user_agent' => 'Mozilla/5.0 (Windows NT 10.0) Chrome'];
+
+        // Act & Assert — off by default: never held, on either device
+        unset(Application::getInstance()->applicationInfo['push']);
+        $this->assertFalse($notification->heldFor($phone, $maria), 'off by default');
+
+        // A push to the phone, delivered, unopened
+        Application::getInstance()->applicationInfo['push'] = ['hold_unopened' => 'mobile'];
+        $pushId = \Pramnos\Push\Log::reserve($maria, $phone['endpoint_hash'], ['tag' => 'conversation-' . $general], ConversationNotification::class);
+        \Pramnos\Push\Log::complete($pushId, 201);
+
+        // Assert — the phone is held: the mode is 'mobile', and nothing of its own sits on the desktop yet
+        $this->assertTrue($notification->heldFor($phone, $maria), 'an unopened conversation push sits on this phone');
+        $this->assertFalse($notification->heldFor($desktop, $maria), 'nothing unresolved on this device yet');
+
+        // An unopened push of the desktop's own: 'mobile' leaves it alone, 'all' holds it too
+        $desktopPush = \Pramnos\Push\Log::reserve($maria, $desktop['endpoint_hash'], ['tag' => 'conversation-' . $general], ConversationNotification::class);
+        \Pramnos\Push\Log::complete($desktopPush, 201);
+        $this->assertFalse($notification->heldFor($desktop, $maria), '"mobile": a desktop user agent is never held');
+        Application::getInstance()->applicationInfo['push']['hold_unopened'] = 'all';
+        $this->assertTrue($notification->heldFor($desktop, $maria), '"all": every kind of device');
+        Application::getInstance()->applicationInfo['push']['hold_unopened'] = 'mobile';
+        \Pramnos\Push\Log::opened($desktopPush);
+
+        // Unlocked by opening it
+        \Pramnos\Push\Log::opened($pushId);
+        $this->assertFalse($notification->heldFor($phone, $maria), 'opened: no longer held');
+
+        // A second, unlocked instead by catching up on its own conversation — before any client
+        // activity is recorded, so that unlock cannot be the one doing the clearing here.
+        $pushId2 = \Pramnos\Push\Log::reserve($maria, $phone['endpoint_hash'], ['tag' => 'conversation-' . $general], ConversationNotification::class);
+        \Pramnos\Push\Log::complete($pushId2, 201);
+        $this->assertTrue($notification->heldFor($phone, $maria));
+        Conversations::markRead($general, $maria, $first);
+        $this->assertFalse($notification->heldFor($phone, $maria), 'caught up on the conversation it was about');
+
+        // A third, in a second conversation: not cleared by having read the first one
+        $other  = Conversations::create('channel', 'other', [$maria], $eleni);
+        $second = Messages::post($other, $eleni, 'δεύτερο');
+        $pushId3 = \Pramnos\Push\Log::reserve($maria, $phone['endpoint_hash'], ['tag' => 'conversation-' . $other], ConversationNotification::class);
+        \Pramnos\Push\Log::complete($pushId3, 201);
+        $this->assertTrue((new ConversationNotification($second, 'message'))->heldFor($phone, $maria), 'a different conversation: still held');
+
+        // Last: unlocked by activity on any client — a future moment, so it cannot be mistaken
+        // for coincidental same-second timing against the push just reserved above.
+        \Pramnos\Conversations\Clients::active($maria, 'tab-a', now: time() + 3600);
+        $this->assertFalse(
+            (new ConversationNotification($second, 'message'))->heldFor($phone, $maria),
+            'activity on any client since it was sent'
+        );
+        unset(Application::getInstance()->applicationInfo['push']);
+    }
 }
 
 /** An application's own notification class whose message cannot be told. */

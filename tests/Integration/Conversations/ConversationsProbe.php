@@ -77,6 +77,9 @@ trait ConversationsProbe
         require_once ROOT . '/database/migrations/framework/llm/2026_10_13_000012_make_organization_id_nullable_on_chat_tables.php';
         require_once ROOT . '/database/migrations/framework/notifications/2026_05_26_000060_create_notifications_table.php';
         require_once ROOT . '/database/migrations/framework/notifications/2026_08_29_000001_create_pushsubscriptions_table.php';
+        require_once ROOT . '/database/migrations/framework/core/2020_01_01_000002_create_framework_policies_table.php';
+        require_once ROOT . '/database/migrations/framework/notifications/2026_08_29_000003_create_pushlog_table.php';
+        require_once ROOT . '/database/migrations/framework/notifications/2026_11_13_000001_add_opened_dismissed_to_pushlog.php';
         require_once ROOT . '/database/migrations/framework/conversations/2026_11_07_000001_create_conversation_scheduled_table.php';
         require_once ROOT . '/database/migrations/framework/conversations/2026_11_07_000002_create_conversation_drafts_table.php';
         require_once ROOT . '/database/migrations/framework/conversations/2026_11_07_000003_add_starorder_to_conversation_members.php';
@@ -143,6 +146,11 @@ trait ConversationsProbe
             // The bell and the browsers subscribed to push: what a message notifies.
             \Pramnos\Framework\Migrations\Notifications\CreateNotificationsTable::class,
             \Pramnos\Framework\Migrations\Notifications\CreatePushSubscriptionsTable::class,
+            // The push audit log: what FW-495's hold-unopened rule reads to tell a still-unopened
+            // push apart from one that was seen.
+            \Pramnos\Framework\Migrations\Core\CreateFrameworkPoliciesTable::class,
+            \Pramnos\Framework\Migrations\Notifications\CreatePushLogTable::class,
+            \Pramnos\Framework\Migrations\Notifications\AddOpenedDismissedToPushlog::class,
             // Messages written to be sent later.
             \Pramnos\Framework\Migrations\Conversations\CreateConversationScheduledTable::class,
             // What somebody has begun writing, on every device.

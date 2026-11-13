@@ -16,6 +16,7 @@ use Pramnos\Push\Vapid;
  *   browser is *supposed* to hold, and `subscribe()` cannot be called without it.
  * - `POST /push/subscribe` — record this browser for the signed-in account.
  * - `POST /push/unsubscribe` — forget it.
+ * - `POST /push/report` — the service worker's own receipt: a push opened or dismissed (FW-495).
  *
  * The last two require a session, because a subscription belongs to an account: without one there
  * is nobody to notify — and a request from this site ({@see fromThisSite()}), because the
@@ -28,7 +29,7 @@ use Pramnos\Push\Vapid;
  */
 class Push extends \Pramnos\Application\Controller
 {
-    public $actions = ['key', 'subscribe', 'unsubscribe', 'ack', 'respond', 'test', 'testack', 'teststatus'];
+    public $actions = ['key', 'subscribe', 'unsubscribe', 'ack', 'respond', 'test', 'testack', 'teststatus', 'report'];
 
     /**
      * The VAPID public key, for `PushManager.subscribe()`.
@@ -251,6 +252,27 @@ class Push extends \Pramnos\Application\Controller
             'received_at' => $status['received_at'],
             'expired'     => $status['expired'],
         ]);
+    }
+
+    /**
+     * The service worker's receipt that a push was opened or dismissed (`data.report`, a push
+     * payload's own address — see {@see \Pramnos\Notification\Channels\PushChannel::payload()}).
+     * No session, no CSRF: the worker may have neither, and a `pushid` is not a secret worth
+     * gating one behind. `ok: true` for any real id and a recognised action, whether or not that
+     * id still names a row — there is nothing here worth telling a stranger apart by; `false`
+     * only for no id at all or an action this does not recognise.
+     */
+    public function report(): mixed
+    {
+        $body   = $this->body();
+        $pushId = is_numeric($body['pushid'] ?? null) ? (int) $body['pushid'] : 0;
+        $ok     = match ((string) ($body['action'] ?? '')) {
+            'opened'    => \Pramnos\Push\Log::opened($pushId),
+            'dismissed' => \Pramnos\Push\Log::dismissed($pushId),
+            default     => false,
+        };
+
+        return $this->json(['ok' => $ok]);
     }
 
     /** The test sender, as a seam. */

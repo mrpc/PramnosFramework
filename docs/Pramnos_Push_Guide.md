@@ -325,11 +325,12 @@ use Pramnos\Push\Log;
 Log::recent(100);                                   // newest first
 Log::recent(100, ['userid' => 42]);                 // one account
 Log::recent(100, ['failed' => true]);               // everything that did not arrive
-Log::stats(7);                                      // delivered / gone / refused / failed
+Log::stats(7);                                      // delivered / gone / refused / failed / opened / dismissed
 Log::prune(90);                                     // it only grows otherwise
 Log::recent(20, ['endpoint_hash' => $hash]);        // one browser's pushes
 Log::find($pushId);                                 // one attempt, or null
 Log::outcome($row);                                 // kind, label, and what it means
+Log::openRate($userId);                             // one account's own, by device: delivered/opened/dismissed
 ```
 
 ### One push in full: `/admin/PushLog/view/{id}`
@@ -432,6 +433,53 @@ recognise the same browser twice, which is all this table is asked.
 A **Recent pushes** panel beside **Push devices**, and a link to that account's own history. The
 devices panel says a browser subscribed; this says what was sent — which is the question
 somebody is holding when they open the screen.
+
+## Opened, dismissed, and the hold-unopened rule
+
+Delivery is not the same question as *did anybody look*. `pushlog.opened_at` and `dismissed_at`
+answer it: the shipped service worker (`pf-push-worker.js`) reports `notificationclick` and
+`notificationclose` back to `data.report` — an absolute URL the server already put in every
+payload, beside `data.pushid`, the row's own id — with `POST /push/report`. Never for the
+self-closing `pf-quiet` notification (it shows and closes itself while a tab is focused; nobody
+saw it, so it is not a report worth making), and never when either field is missing — an
+installation that has not run the migration, or has no site URL configured, simply reports
+nothing, and nothing here fails for its absence. A custom `sw.js` that does not import the
+shipped worker needs the same two listeners to get this at all.
+
+```php
+Log::opened($pushId);       // the worker's own call, first report wins
+Log::dismissed($pushId);    // same
+Log::unresolved($hash, $notificationClass);  // the most recent delivered-but-unanswered one, or null
+```
+
+**The hold-unopened rule** (FW-495) is what this is for: a phone buried under notifications
+nobody opened is how Chrome on Android ends up auto-revoking the site's permission to send any
+at all. `'push' => ['hold_unopened' => 'mobile']` (or `'all'`, or left unset — off) stops a
+device that already has an earlier **conversation** push sitting there unopened from being sent
+another, before the channel does anything else with it: no VAPID lookup, no encryption, nothing
+to log but the refusal, `Log::HELD_UNOPENED`. `'mobile'` reads the subscription's own
+`user_agent`; a desktop browser is never held under it.
+
+It clears on any of:
+- opening or dismissing the held push;
+- the person doing anything at all, in any client, after it was sent (`Clients::activeSince()`)
+  — the same "not away" signal used elsewhere for presence;
+- catching up on *that push's own* conversation — read as "nothing unread there any more", not
+  the exact message: a held push from a different conversation is not cleared by reading this
+  one.
+
+**Opting in is a method, not a setting a notification class reads for itself.**
+`ConversationNotification` implements `heldFor(array $subscription, int $userId): bool`; the
+channel calls it with `method_exists()` and never assumes. A reminder, a to-do, a sign-in
+approval — anything that should never be held, including an application's own notification
+class — is already outside the rule by simply not implementing the method:
+
+```php
+public function heldFor(array $subscription, int $userId): bool
+{
+    // Your own rule, or `return false;` to opt out explicitly rather than by omission.
+}
+```
 
 ## The security alerts that send one
 
@@ -682,6 +730,7 @@ an IP address on your LAN.
 | `POST /push/test` | Sends a test notification to the signed-in account's browsers, or only to the one whose `{"endpoint": …}` is in the body. Answers each test's `token`. POST only, signed in. See [Testing a device](#testing-a-device). |
 | `POST /push/testack?token=` | A test's receipt, sent by the worker as the push arrives. The token is the credential. |
 | `GET /push/teststatus?token=` | `{received, received_at, expired}` for one of the signed-in account's own tests. |
+| `POST /push/report` | `{pushid, action: 'opened'\|'dismissed'}`, sent by the worker on `notificationclick` / `notificationclose`. No session: `data.report` in every push payload already carries this address, and `data.pushid` the row's own id — see [Opened, dismissed, and the hold-unopened rule](#opened-dismissed-and-the-hold-unopened-rule). |
 
 `subscribe` also links the subscription to the browser's **trusted device**
 (`pushsubscriptions.trusted_device_id`) when it carries the trust cookie — that link is

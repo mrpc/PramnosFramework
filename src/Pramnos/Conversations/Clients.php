@@ -213,6 +213,26 @@ final class Clients
         return (string) $row['client'];
     }
 
+    /**
+     * Whether the person reported activity on any client — a tab, the desktop application — at
+     * or after `$since`: unlocks the hold-unopened rule (FW-495) without the person having
+     * touched the notification at all, the way doing anything in the app would mark them "not
+     * away" for any other purpose.
+     */
+    public static function activeSince(int $userId, int $since): bool
+    {
+        try {
+            $row = Conversations::db()->queryBuilder()->table(self::TABLE)->where('userid', $userId)->first()?->fetch();
+        } catch (\Throwable) {
+            return false;
+        }
+        if (!is_array($row)) {
+            return false;
+        }
+
+        return max((int) ($row['seenat'] ?? 0), (int) ($row['appseenat'] ?? 0)) >= $since;
+    }
+
     /** An id as a client may give it: letters, digits, `-` and `_`, up to 64. */
     public static function clean(string $clientId): string
     {

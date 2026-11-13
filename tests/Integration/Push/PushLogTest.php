@@ -7,6 +7,7 @@ namespace Pramnos\Tests\Integration\Push;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
+use Pramnos\Framework\Migrations\Notifications\AddOpenedDismissedToPushlog;
 use Pramnos\Framework\Migrations\Notifications\CreatePushLogTable;
 use Pramnos\Framework\Testing\BaseTestCase;
 use Pramnos\Push\Log;
@@ -51,6 +52,7 @@ class PushLogTest extends BaseTestCase
         $this->runMigrations([
             \Pramnos\Framework\Migrations\Core\CreateFrameworkPoliciesTable::class,
             CreatePushLogTable::class,
+            AddOpenedDismissedToPushlog::class,
         ], $this->db);
 
         // A user id nothing else in the suite uses, so the filters can be asserted exactly.
@@ -325,7 +327,7 @@ class PushLogTest extends BaseTestCase
             $this->assertFalse(Log::refused($this->userId, Log::NO_KEYS));
             $this->assertSame([], Log::recent(10, ['userid' => $this->userId]));
             $this->assertSame(
-                ['total' => 0, 'delivered' => 0, 'gone' => 0, 'refused' => 0, 'failed' => 0],
+                ['total' => 0, 'delivered' => 0, 'gone' => 0, 'refused' => 0, 'failed' => 0, 'opened' => 0, 'dismissed' => 0],
                 Log::stats()
             );
             $this->assertSame(0, Log::prune(90));
@@ -466,5 +468,170 @@ class PushLogTest extends BaseTestCase
 
         // Assert
         $this->assertSame(['to c again', 'to c'], array_column($rows, 'title'));
+    }
+
+    /**
+     * FW-495: a row is reserved **before** the send, with the id it gets usable right away — the
+     * payload the browser receives has to carry it — and `complete()` only ever sets the status
+     * of that same row rather than writing a second one.
+     */
+    public function testAReservedRowIsCompletedNotDuplicated(): void
+    {
+        // Act
+        $pushId = Log::reserve($this->userId, str_repeat('e', 64), ['title' => 'Νέο μήνυμα'], 'Pramnos\\Conversations\\ConversationNotification');
+        $before = Log::find($pushId);
+        $completed = Log::complete($pushId, 201);
+        $after  = Log::find($pushId);
+
+        // Assert
+        $this->assertGreaterThan(0, $pushId);
+        $this->assertSame(0, $before['status'], 'reserved with a placeholder status');
+        $this->assertTrue($completed);
+        $this->assertSame(201, $after['status']);
+        $this->assertSame($pushId, Log::recent(10, ['userid' => $this->userId])[0]['pushid'], 'one row, not two');
+        $this->assertTrue(Log::complete($pushId, 500), 'completing twice is harmless');
+        $this->assertFalse(Log::complete(0, 201), 'no id, nothing to complete');
+    }
+
+    /**
+     * `opened()` / `dismissed()` set their own column once, the first report; the other stays
+     * null — the hold-unopened rule (FW-495) reads both as "was this seen at all", and a push
+     * that was both opened and later dismissed must not look like neither happened.
+     */
+    public function testOpenedAndDismissedAreRecordedOnce(): void
+    {
+        // Arrange
+        $opened    = Log::reserve($this->userId, str_repeat('f', 64), ['title' => 'a']);
+        $dismissed = Log::reserve($this->userId, str_repeat('f', 64), ['title' => 'b']);
+
+        // Act
+        $this->assertTrue(Log::opened($opened));
+        $this->assertTrue(Log::opened($opened), 'reported twice: still true, still one row');
+        $this->assertTrue(Log::dismissed($dismissed));
+
+        // Assert
+        $this->assertNotNull(Log::find($opened)['opened_at']);
+        $this->assertNull(Log::find($opened)['dismissed_at']);
+        $this->assertNotNull(Log::find($dismissed)['dismissed_at']);
+        $this->assertNull(Log::find($dismissed)['opened_at']);
+        $this->assertFalse(Log::opened(0));
+        $this->assertFalse(Log::dismissed(0));
+    }
+
+    /**
+     * `unresolved()` finds the most recent delivered push to this browser, of this notification
+     * class, that is neither opened nor dismissed — and nothing once it is either, or once a
+     * newer one of the same kind was delivered and resolved.
+     */
+    public function testUnresolvedFindsOnlyWhatIsStillSitting(): void
+    {
+        // Arrange
+        $hash = str_repeat('g', 64);
+        $class = 'Pramnos\\Conversations\\ConversationNotification';
+
+        // Nothing yet
+        $this->assertNull(Log::unresolved($hash, $class));
+
+        $first = Log::reserve($this->userId, $hash, ['title' => 'first', 'tag' => 'conversation-1'], $class);
+        Log::complete($first, 201);
+
+        // Act & Assert — delivered, unopened: found
+        $found = Log::unresolved($hash, $class);
+        $this->assertSame($first, $found['pushid']);
+        $this->assertSame('conversation-1', $found['tag']);
+
+        // Opening it clears it
+        Log::opened($first);
+        $this->assertNull(Log::unresolved($hash, $class));
+
+        // A different notification class on the same browser does not count
+        $second = Log::reserve($this->userId, $hash, ['title' => 'other'], 'App\\OtherNotification');
+        Log::complete($second, 201);
+        $this->assertNull(Log::unresolved($hash, $class));
+
+        // Never delivered (status 0): not "unresolved", just never sent
+        $third = Log::reserve($this->userId, $hash, ['title' => 'failed'], $class);
+        $this->assertNull(Log::unresolved($hash, $class));
+    }
+
+    /**
+     * The open rate, by device: delivered, opened and dismissed counted per `endpoint_hash`, one
+     * account's own only, and within the window — not another account's, and not stale.
+     */
+    public function testOpenRateIsPerDevice(): void
+    {
+        // Arrange — two browsers, one account
+        $a = str_repeat('h', 64);
+        $b = str_repeat('i', 64);
+        $id1 = Log::reserve($this->userId, $a, ['title' => '1']);
+        Log::complete($id1, 201);
+        Log::opened($id1);
+        $id2 = Log::reserve($this->userId, $a, ['title' => '2']);
+        Log::complete($id2, 201);
+        $id3 = Log::reserve($this->userId, $b, ['title' => '3']);
+        Log::complete($id3, 201);
+        Log::dismissed($id3);
+        // Somebody else's device must not show up here
+        $theirs = Log::reserve($this->userId + 1, $a, ['title' => 'theirs']);
+        Log::complete($theirs, 201);
+
+        // Act
+        $rate = Log::openRate($this->userId);
+        $byHash = array_combine(array_column($rate, 'endpoint_hash'), $rate);
+
+        // Assert
+        $this->assertSame(['delivered' => 2, 'opened' => 1, 'dismissed' => 0], array_intersect_key($byHash[$a], ['delivered' => 0, 'opened' => 0, 'dismissed' => 0]));
+        $this->assertSame(['delivered' => 1, 'opened' => 0, 'dismissed' => 1], array_intersect_key($byHash[$b], ['delivered' => 0, 'opened' => 0, 'dismissed' => 0]));
+        $this->db->queryBuilder()->table('pramnos.pushlog')->where('pushid', $theirs)->delete();
+    }
+
+    /**
+     * `Push::report()`, against the real table: the service worker's receipt is what sets
+     * `opened_at` / `dismissed_at` at all, and it answers the same shape whether the id or the
+     * action was good or not — nothing here is worth telling a stranger apart by.
+     */
+    public function testTheReportActionSetsItsOwnColumn(): void
+    {
+        // Arrange
+        $pushId = Log::reserve($this->userId, str_repeat('j', 64), ['title' => 'x']);
+        Log::complete($pushId, 201);
+        $controller = $this->reportController(['pushid' => $pushId, 'action' => 'opened']);
+        $unknown    = $this->reportController(['pushid' => 999999999, 'action' => 'opened']);
+        $noId       = $this->reportController(['pushid' => 0, 'action' => 'opened']);
+        $badAction  = $this->reportController(['pushid' => $pushId, 'action' => 'nonsense']);
+
+        // Act
+        $controller->report();
+        $unknown->report();
+        $noId->report();
+        $badAction->report();
+
+        // Assert
+        $this->assertSame(['ok' => true], $controller->payload);
+        $this->assertNotNull(Log::find($pushId)['opened_at']);
+        $this->assertSame(['ok' => true], $unknown->payload, 'no such row: nothing changes, but nothing worth telling a stranger either');
+        $this->assertSame(['ok' => false], $noId->payload, 'no id at all');
+        $this->assertSame(['ok' => false], $badAction->payload, 'an action it does not recognise');
+    }
+
+    /** A `Push` controller whose body is the given array, with `json()` captured rather than sent. */
+    private function reportController(array $body): object
+    {
+        return new class ($body) extends \Pramnos\Application\Controllers\Push {
+            public array $payload = [];
+
+            public function __construct(private array $requestBody)
+            {
+            }
+
+            protected function body(): array { return $this->requestBody; }
+
+            protected function json(array $data, int $status = 200): mixed
+            {
+                $this->payload = $data;
+
+                return null;
+            }
+        };
     }
 }

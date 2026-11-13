@@ -13,7 +13,9 @@ use Pramnos\Notification\NotificationInterface;
  *
  * `'conversations' => ['notification' => …]` names a class of the application's own, constructed
  * with the same arguments — the message, why, and where it opens; `'conversations' => ['notify_via' => ['database']]` keeps them to
- * the bell.
+ * the bell. `'push' => ['hold_unopened' => 'mobile'|'all']` holds a push off a device that
+ * already has an earlier one of these sitting unopened ({@see heldFor()}, FW-495) — a phone
+ * buried under unopened notifications is how Chrome on Android ends up revoking the permission.
  */
 class ConversationNotification implements NotificationInterface
 {
@@ -59,6 +61,72 @@ class ConversationNotification implements NotificationInterface
     public function pushClient(mixed $notifiable): ?string
     {
         return Clients::target((int) ($notifiable->userid ?? 0));
+    }
+
+    /**
+     * FW-495: whether an earlier conversation push on this one browser is still sitting there
+     * unopened and undismissed, so this message must not pile another on top of it.
+     *
+     * `'push' => ['hold_unopened' => 'mobile'|'all'|false]`, off by default. Unlocked by opening
+     * or dismissing the held one, by the person doing anything on any client since it was sent
+     * ({@see Clients::activeSince()}), or by having caught up on *its own* conversation — read
+     * as "nothing unread there any more", not the exact message it was about: a held push from a
+     * different conversation is not cleared by reading this one.
+     *
+     * Reminders and anything else outside this rule simply do not implement this method — it is
+     * read with `method_exists()`, never assumed.
+     *
+     * @param array<string, mixed> $subscription One row of {@see \Pramnos\Push\Subscriptions::forUser()}
+     */
+    public function heldFor(array $subscription, int $userId): bool
+    {
+        $mode = self::holdMode();
+        if ($mode === false || ($mode === 'mobile' && !self::isMobile((string) ($subscription['user_agent'] ?? '')))) {
+            return false;
+        }
+        $hash = (string) ($subscription['endpoint_hash'] ?? hash('sha256', (string) ($subscription['endpoint'] ?? '')));
+        $held = \Pramnos\Push\Log::unresolved($hash, static::class);
+        if ($held === null || Clients::activeSince($userId, $held['sent'])) {
+            return false;
+        }
+
+        return !self::caughtUpOn($held['tag'], $userId);
+    }
+
+    /** Whether the person has nothing unread left in the conversation a held push's tag names. */
+    private static function caughtUpOn(string $tag, int $userId): bool
+    {
+        if (preg_match('/^conversation-(\d+)$/', $tag, $m) !== 1) {
+            // Not a conversation's own tag (an application's own notification class, say):
+            // nothing here knows how to tell "caught up", so only opening/dismissing/activity clears it.
+            return false;
+        }
+        $conversationId = (int) $m[1];
+        $lastMessageId  = Conversations::get($conversationId)['lastMessageId'] ?? null;
+        $member         = Conversations::member($conversationId, $userId);
+
+        return $lastMessageId === null || $member === null || !Messages::isAfter((int) $lastMessageId, $member['lastReadId']);
+    }
+
+    /** `'push' => ['hold_unopened' => …]`: `'mobile'`, `'all'`, or `false` (off, the default) for anything else. */
+    private static function holdMode(): string|false
+    {
+        $app   = \Pramnos\Application\Application::currentInstance();
+        $value = is_object($app) ? ($app->applicationInfo['push']['hold_unopened'] ?? false) : false;
+
+        return in_array($value, ['mobile', 'all'], true) ? $value : false;
+    }
+
+    /**
+     * A phone or tablet, by its subscription's user agent.
+     *
+     * ponytail: a user-agent sniff, not a client hint — good enough to tell a phone from a
+     * desktop for this; add `navigator.userAgentData.mobile` sent at subscribe time if it ever
+     * needs to be exact.
+     */
+    private static function isMobile(string $userAgent): bool
+    {
+        return preg_match('/Mobi|Android|iPhone|iPad|iPod/i', $userAgent) === 1;
     }
 
     /** @return array{message: string, url: string, group: string, about: list<string>} */
