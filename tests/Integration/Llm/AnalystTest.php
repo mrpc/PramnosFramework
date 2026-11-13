@@ -115,6 +115,8 @@ class AnalystTest extends LlmTestCase
             \Pramnos\Framework\Migrations\Messaging\CreateMailingListSubscribersTable::class,
             \Pramnos\Framework\Migrations\Messaging\CreateEmailTrackingTables::class,
             \Pramnos\Framework\Migrations\Notifications\CreatePushLogTable::class,
+            \Pramnos\Framework\Migrations\Notifications\AddOpenedDismissedToPushlog::class,
+            \Pramnos\Framework\Migrations\Notifications\AddTokenToPushlog::class,
             \Pramnos\Framework\Migrations\Queue\CreateQueueitemsTable::class,
             \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverAuditLogTable::class,
             ...$llm,
@@ -172,6 +174,11 @@ class AnalystTest extends LlmTestCase
 
         $this->insert('pramnos.pushlog', ['userid' => 7, 'notification' => 'news', 'title' => 'Hi Maria', 'body' => 'b', 'status' => 201, 'sent' => $ts(3600)]);
         $this->insert('pramnos.pushlog', ['userid' => 8, 'notification' => 'news', 'title' => 'Hi Nikos', 'body' => 'b', 'status' => 410, 'error' => "Gone for nikos@example.org\nmore", 'sent' => $ts(3600)]);
+        // FW-495: these three carry a token, so they count toward opened/dismissed/open_rate —
+        // the two above, from before that tracking existed, must not.
+        $this->insert('pramnos.pushlog', ['userid' => 7, 'notification' => 'news', 'title' => 'Opened', 'body' => 'b', 'status' => 201, 'token' => 'tok1', 'opened_at' => $ts(1800), 'sent' => $ts(3600)]);
+        $this->insert('pramnos.pushlog', ['userid' => 8, 'notification' => 'news', 'title' => 'Dismissed', 'body' => 'b', 'status' => 201, 'token' => 'tok2', 'dismissed_at' => $ts(1800), 'sent' => $ts(3600)]);
+        $this->insert('pramnos.pushlog', ['userid' => 9, 'notification' => 'other', 'title' => 'Neither', 'body' => 'b', 'status' => 201, 'token' => 'tok3', 'sent' => $ts(3600)]);
 
         $this->insert('queueitems', ['type' => 'email', 'payload' => '{}', 'status' => 'pending', 'createdat' => $ts(60), 'updatedat' => $ts(60)]);
         $this->insert('queueitems', ['type' => 'email', 'payload' => '{}', 'status' => 'failed', 'error' => "SMTP refused eleni@example.net\ntrace", 'createdat' => $ts(600), 'updatedat' => $ts(300)]);
@@ -228,7 +235,11 @@ class AnalystTest extends LlmTestCase
         $this->assertSame(['Weekly digest' => 3], $email['subjects']);
         $this->assertSame(['https://example.com/offer' => 1], $email['links'], 'the query string is not a link');
         $push = $read('push');
-        $this->assertSame([2, 1, 1], [$push['sent'], $push['delivered'], $push['failed']]);
+        $this->assertSame([5, 4, 1], [$push['sent'], $push['delivered'], $push['failed']]);
+        // FW-495: only the three with a token count — the two from before that tracking existed
+        // are not read as "nobody ever opens these".
+        $this->assertEquals([1, 1, 33.3], [$push['opened'], $push['dismissed'], $push['open_rate']]);
+        $this->assertEquals(['news' => 50.0, 'other' => 0.0], $push['open_rate_by_kind'], 'a whole number survives the JSON round-trip as an int rather than 50.0');
         $queue = $read('queue');
         $this->assertSame([['email' => 1], 1, 1.5], [$queue['waiting'], $queue['failed']['email']['count'], $queue['seconds']['longest']]);
         $spend = $read('llm_spend');
