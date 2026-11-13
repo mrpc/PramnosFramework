@@ -61,6 +61,7 @@ class WebChangelogWriter extends ChangelogWriter
 #[CoversClass(\Pramnos\Changelog\History::class)]
 #[CoversClass(\Pramnos\Changelog\HistoryApi::class)]
 #[CoversClass(\Pramnos\Html\HistoryPanel::class)]
+#[CoversClass(\Pramnos\Html\HistoryBrowser::class)]
 class ChangelogEventsTest extends TestCase
 {
     protected Database $db;
@@ -504,5 +505,82 @@ class ChangelogEventsTest extends TestCase
         $this->assertStringContainsString('<span class="pf-history-what">thing.note</span>', $filtered);
         $this->assertStringNotContainsString('<span class="pf-history-what">thing.step</span>', $filtered, 'filtered to one code only — the other chip still names it, the list does not');
         $this->assertStringContainsString('<span class="pf-history-what">thing.step</span>', $stale, 'a stale/guessed code is not trusted: back to the unfiltered list');
+    }
+
+    /**
+     * The browser lists changes across every record — unlike the panel, there is no single
+     * `entity`/`itemid` to carry the "my own account" shortcut, so by default it is an admin
+     * screen: nobody signed in gets nothing, same as the panel. Each of `entity`, `source` and
+     * a date range (`to`) read from the query string narrows the list to just what matches.
+     */
+    public function testTheHistoryBrowserListsAndFiltersAcrossRecords(): void
+    {
+        // Arrange — two different entities, two sources, a day apart
+        $yesterday = time() - 86400;
+        ChangelogWriter::event(self::ENTITY . '-a', 1, 'thing.created', by: 0, source: 'web', at: $yesterday);
+        ChangelogWriter::event(self::ENTITY . '-b', 2, 'thing.imported', logtype: 7, by: 0, source: 'cli', at: time() - 100);
+        \Pramnos\Changelog\History::allowUsing(static fn (?object $user): bool => $user !== null);
+        $reader = new \Pramnos\User\User();
+        $reader->userid = 990321;
+
+        // Act
+        $_GET      = [];
+        $signedOut = \Pramnos\Html\HistoryBrowser::render();
+        \Pramnos\Http\RequestIdentity::seal($reader, 'test');
+
+        $_GET            = [];
+        $all             = \Pramnos\Html\HistoryBrowser::render();
+        $_GET            = ['entity' => self::ENTITY . '-a'];
+        $byEntity        = \Pramnos\Html\HistoryBrowser::render();
+        $_GET            = ['source' => 'cli'];
+        $bySource        = \Pramnos\Html\HistoryBrowser::render();
+        $_GET            = ['logtype' => '7'];
+        $byLogtype       = \Pramnos\Html\HistoryBrowser::render();
+        $_GET            = ['to' => date('Y-m-d', $yesterday - 86400)];
+        $beforeEverything = \Pramnos\Html\HistoryBrowser::render();
+
+        // Assert
+        $this->assertSame('', $signedOut, 'nobody signed in: nothing, same as the panel');
+        $this->assertStringContainsString(self::ENTITY . '-a #1', $all);
+        $this->assertStringContainsString(self::ENTITY . '-b #2', $all);
+        $this->assertStringContainsString(self::ENTITY . '-a #1', $byEntity);
+        $this->assertStringNotContainsString(self::ENTITY . '-b #2', $byEntity, 'filtered to one entity');
+        $this->assertStringContainsString(self::ENTITY . '-b #2', $bySource);
+        $this->assertStringNotContainsString(self::ENTITY . '-a #1', $bySource, 'filtered to one source');
+        $this->assertStringContainsString(self::ENTITY . '-b #2', $byLogtype);
+        $this->assertStringNotContainsString(self::ENTITY . '-a #1', $byLogtype, 'filtered to one logtype');
+        $this->assertStringContainsString('pf-history-browser-empty', $beforeEverything, '"to" before either row: nothing matches');
+    }
+
+    /**
+     * The filter form offers a `<select>` once `entities` is given, "Clear" appears only once a
+     * filter is actually set, and the pager's links keep the filters currently applied — not
+     * only the page number, or picking "Older" would silently drop them.
+     */
+    public function testTheHistoryBrowserFormAndPagerKeepFilters(): void
+    {
+        // Arrange — six rows on one record, more than fit on a page of two
+        for ($i = 0; $i < 6; $i++) {
+            ChangelogWriter::event(self::ENTITY . '-c', 9, 'thing.step', by: 0, source: 'web', at: time() - $i * 60);
+        }
+        \Pramnos\Changelog\History::allowUsing(static fn (?object $user): bool => $user !== null);
+        $reader = new \Pramnos\User\User();
+        $reader->userid = 990321;
+        \Pramnos\Http\RequestIdentity::seal($reader, 'test');
+
+        // Act
+        $options  = ['perPage' => 2, 'entities' => [self::ENTITY . '-c', self::ENTITY . '-d']];
+        $_GET     = [];
+        $plain    = \Pramnos\Html\HistoryBrowser::render($options);
+        $_GET     = ['source' => 'web', 'tab' => 'changelog'];
+        $filtered = \Pramnos\Html\HistoryBrowser::render($options);
+
+        // Assert
+        $this->assertStringContainsString('<option value="' . self::ENTITY . '-c"', $plain, 'the entity choices are offered as a select');
+        $this->assertStringNotContainsString('>Clear<', $plain, 'no filter set: nothing to clear');
+        $this->assertStringContainsString('>Clear<', $filtered, 'a filter is set: offered a way out');
+        $this->assertStringContainsString('href="?source=web&amp;tab=changelog&amp;log_page=2"', $filtered, 'the pager link keeps the filter and the unrelated param, not only the page');
+        $this->assertStringContainsString('href="?tab=changelog">' . 'Clear', $filtered, 'the filter is removed by name; an unrelated param (tab) survives');
+        $this->assertStringContainsString('<input type="hidden" name="tab" value="changelog">', $filtered, 'the same unrelated param rides along as a hidden field, for the form itself');
     }
 }

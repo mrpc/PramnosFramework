@@ -532,6 +532,27 @@ everything else:
   codes regardless of which one is currently chosen, so the row of chips never collapses once one
   is picked.
 
+### Browsing every change
+
+`HistoryPanel` is one record's own tab. `Html\HistoryBrowser` is the whole log, filtered and
+paged — an admin screen that lists every change across every record, not only one:
+
+```php
+<?php echo \Pramnos\Html\HistoryBrowser::render(); ?>
+<?php echo \Pramnos\Html\HistoryBrowser::render(['entities' => ['post', 'invoice', 'package']]); ?>
+```
+
+A form reads `entity`, `event`, `logtype`, `source`, `from` and `to` from the query string — the
+same filters `ChangelogReader::listing()` already takes, each optional and all of them together —
+and resubmits as a plain GET, so the result is a bookmarkable address and no script is needed.
+`entities` offers the entity field as a `<select>` instead of free text. Older pages are links
+that keep whatever is currently filtered, `?log_page=2`, the same way the panel's pager does.
+
+**Who may read it.** The same `History::allows()`/`allowUsing()` as the panel — but a listing with
+no single `entity`/`itemid` is never "my own account's history", so the shortcut that lets a
+person read their own `user` row never applies here: by default this is whoever may open the
+administration, full stop.
+
 ### One tenant's events
 
 A multi-tenant application asks "what happened in this organisation". Have the model

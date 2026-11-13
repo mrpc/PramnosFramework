@@ -696,6 +696,21 @@ a.pf-stat-tile:hover { border-color: var(--bs-primary, #0d6efd); }
 .pf-history-empty { opacity: .7; margin: 0; }
 .pf-history-pager { display: flex; align-items: center; gap: .75rem; margin-top: .5rem; font-size: .875rem; }
 .pf-history-more { background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; padding: .25rem 0; }
+/* The cross-entity "all changes" browser (Html\HistoryBrowser) — a form, a flat list of
+   entity-tagged lines, reusing the single-record panel's pf-history-what/meta/who/when/source
+   classes above for each line's own sentence. */
+.pf-history-browser { margin: 1rem 0; }
+.pf-history-browser-title { font-size: 1rem; font-weight: 600; margin: 0 0 .5rem; }
+.pf-history-browser-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .5rem .75rem; margin: 0 0 1rem; }
+.pf-history-browser-field { display: flex; flex-direction: column; gap: .15rem; font-size: .8rem; }
+.pf-history-browser-field input, .pf-history-browser-field select { font: inherit; padding: .25rem .4rem; }
+.pf-history-browser-list { list-style: none; margin: 0; padding: 0; }
+.pf-history-browser-line {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem; padding: .375rem 0;
+    border-bottom: 1px solid color-mix(in oklab, currentColor 10%, transparent);
+}
+.pf-history-browser-record { font-family: monospace; font-size: .75rem; opacity: .65; flex: 0 0 auto; }
+.pf-history-browser-empty { opacity: .7; margin: 0; }
 
 /* The message composer's toolbar — Html\MessageComposer, wired by pf-utils.js: the controls in a
    row that wraps, the fields' dropdown, and the save and write panels on a line of their own. */
