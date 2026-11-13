@@ -374,7 +374,7 @@ class Log
         if ($status >= 200 && $status < 300) {
             return [
                 'kind'        => 'delivered',
-                'label'       => 'Delivered',
+                'label'       => t('Delivered'),
                 'explanation' => 'The push service accepted it for this browser. Whether it was shown is up to the '
                     . 'device: if the person saw nothing, check that notifications are allowed for this site '
                     . 'and for the browser, that battery optimisation or Do Not Disturb is not holding it back, '
@@ -385,7 +385,7 @@ class Log
         if ($status === 404 || $status === 410) {
             return [
                 'kind'        => 'gone',
-                'label'       => 'Subscription gone',
+                'label'       => t('Subscription gone'),
                 'explanation' => 'The browser no longer accepts notifications from this site: it was unsubscribed, '
                     . 'its data was cleared, or permission was revoked. The subscription was deleted; the person '
                     . 'has to allow notifications again on that device.',
@@ -395,7 +395,7 @@ class Log
         if ((string) ($row['endpoint_hash'] ?? '') === '') {
             return [
                 'kind'        => 'not_sent',
-                'label'       => 'Not sent',
+                'label'       => t('Not sent'),
                 'explanation' => 'Nothing was sent, for the reason below. Usually the account has no browser '
                     . 'subscribed to notifications.',
             ];
@@ -404,7 +404,7 @@ class Log
         if ($status === 429 || ($status >= 500 && $status < 600)) {
             return [
                 'kind'        => 'busy',
-                'label'       => 'Push service busy (' . $status . ')',
+                'label'       => t('Push service busy (%s)', (string) $status),
                 'explanation' => 'The push service could not take it at that moment. It is the service\'s '
                     . 'problem, not the subscription\'s, and the next notification will be tried normally.',
             ];
@@ -412,7 +412,7 @@ class Log
 
         return [
             'kind'        => 'failed',
-            'label'       => $status > 0 ? 'Failed (' . $status . ')' : 'Never reached a server',
+            'label'       => $status > 0 ? t('Failed (%s)', (string) $status) : t('Never reached a server'),
             'explanation' => $status > 0
                 ? 'The push service refused it. The error below is its answer.'
                 : 'The request did not reach the push service: a network problem, DNS, or a firewall '
