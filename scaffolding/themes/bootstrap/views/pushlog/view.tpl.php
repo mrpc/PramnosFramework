@@ -34,89 +34,86 @@ $hash   = (string) ($row['endpoint_hash'] ?? ''); @endphp
 <div class="container-fluid py-4">
     @php $this->activeNav = 'pushlog'; $this->insert('../partials/admin_breadcrumb'); @endphp
 
-    <p><a href="{{ adminUrl('PushLog') }}">&larr; All push notifications</a></p>
+    <p><a href="{{ adminUrl('PushLog') }}">&larr; {{ t('All push notifications') }}</a></p>
 
-    <h2 class="h4 mb-3">Push notification #{!! (int) ($row['pushid'] ?? 0) !!} {!! $badge($outcome) !!}</h2>
+    <h2 class="h4 mb-3">{{ t('Push notification #%s', (string) (int) ($row['pushid'] ?? 0)) }} {!! $badge($outcome) !!}</h2>
 
     <div role="status" class="alert alert-light border mb-3">
         <strong>{{ $outcome['label'] }}.</strong>
         {{ $outcome['explanation'] }}
         @if ((string) ($row['error'] ?? '') !== '')
-            <div class="small text-muted">Reason: {{ $row['error'] }}</div>
+            <div class="small text-muted">{{ t('Reason:') }} {{ $row['error'] }}</div>
         @endif
     </div>
 
     @if ($receipt !== null)
         @if ($receipt['received_at'] !== null)
             <div role="status" class="alert alert-success">
-                <strong>The device received this test</strong> at {{ localDateTime($receipt['received_at']) }}.
-                If nothing appeared on its screen, the cause is on the device: notifications for this site
-                or for the browser, battery optimisation, or Do Not Disturb.
+                <strong>{{ t('The device received this test') }}</strong> {{ t('at %s.', localDateTime($receipt['received_at'])) }}
+                {{ t('If nothing appeared on its screen, the cause is on the device: notifications for this site or for the browser, battery optimisation, or Do Not Disturb.') }}
             </div>
         @elseif ($receipt['expired'])
             <div role="status" class="alert alert-warning">
-                <strong>The device never confirmed this test.</strong> It did not reach the browser: the
-                phone may have been off or offline for the hour the receipt was accepted, or the browser
-                was closed and is not woken for pushes.
+                <strong>{{ t('The device never confirmed this test.') }}</strong>
+                {{ t('It did not reach the browser: the phone may have been off or offline for the hour the receipt was accepted, or the browser was closed and is not woken for pushes.') }}
             </div>
         @else
             <div role="status" class="alert alert-warning">
-                <strong>Waiting for the device to confirm.</strong> Its service worker sends a receipt the
-                moment the push arrives; reload in a moment.
+                <strong>{{ t('Waiting for the device to confirm.') }}</strong>
+                {{ t('Its service worker sends a receipt the moment the push arrives; reload in a moment.') }}
             </div>
         @endif
     @endif
 
     <div class="card p-3 mb-3">
-        <h3 class="h6 mb-2">The message</h3>
+        <h3 class="h6 mb-2">{{ t('The message') }}</h3>
         <table class="table table-sm mb-0">
             <tbody>
-                <tr><th>Sent</th><td>{{ $when($row) }}</td></tr>
-                <tr><th>Account</th><td>
+                <tr><th>{{ t('Sent') }}</th><td>{{ $when($row) }}</td></tr>
+                <tr><th>{{ t('Account') }}</th><td>
                     @if ($userId > 0)
                         <a href="{{ adminUrl('Users/view/') . $userId }}">#{!! $userId !!}</a>
-                        · <a href="{{ adminUrl('PushLog') . '?userid=' . $userId }}">every push to this account</a>
+                        · <a href="{{ adminUrl('PushLog') . '?userid=' . $userId }}">{{ t('every push to this account') }}</a>
                     @else—@endif
                 </td></tr>
-                <tr><th>Notification</th><td><code>{{ ($row['notification'] ?? '') ?: '—' }}</code></td></tr>
-                <tr><th>Title</th><td>{{ ($row['title'] ?? '') ?: '—' }}</td></tr>
-                <tr><th>Text</th><td>{!! nl2br($e(($row['body'] ?? '') ?: '—')) !!}</td></tr>
-                <tr><th>Opens</th><td>
+                <tr><th>{{ t('Notification') }}</th><td><code>{{ ($row['notification'] ?? '') ?: '—' }}</code></td></tr>
+                <tr><th>{{ t('Title') }}</th><td>{{ ($row['title'] ?? '') ?: '—' }}</td></tr>
+                <tr><th>{{ t('Text') }}</th><td>{!! nl2br($e(($row['body'] ?? '') ?: '—')) !!}</td></tr>
+                <tr><th>{{ t('Opens') }}</th><td>
                     @if ((string) ($row['url'] ?? '') !== '')
                         <a href="{{ $row['url'] }}" target="_blank" rel="noopener">{{ $row['url'] }}</a>
                     @else—@endif
                 </td></tr>
-                <tr><th>Tag</th><td>{{ ($row['tag'] ?? '') ?: '—' }}
+                <tr><th>{{ t('Tag') }}</th><td>{{ ($row['tag'] ?? '') ?: '—' }}
                     @if ((string) ($row['tag'] ?? '') !== '')
-                        <span class="small text-muted">— a newer notification with the same tag replaces this one on the device</span>
+                        <span class="small text-muted">— {{ t('a newer notification with the same tag replaces this one on the device') }}</span>
                     @endif
                 </td></tr>
-                <tr><th>Push service answer</th><td>{!! (int) ($row['status'] ?? 0) > 0 ? 'HTTP ' . (int) $row['status'] : 'none' !!}</td></tr>
+                <tr><th>{{ t('Push service answer') }}</th><td>{!! (int) ($row['status'] ?? 0) > 0 ? 'HTTP ' . (int) $row['status'] : t('none') !!}</td></tr>
             </tbody>
         </table>
     </div>
 
     <div class="card p-3 mb-3">
-        <h3 class="h6 mb-2">The device</h3>
+        <h3 class="h6 mb-2">{{ t('The device') }}</h3>
         @if ($hash === '')
-            <p class="small text-muted">None: nothing was sent, so no device was chosen.</p>
+            <p class="small text-muted">{{ t('None: nothing was sent, so no device was chosen.') }}</p>
         @elseif ($device === null)
-            <p class="small text-muted">This subscription no longer exists. It is deleted when the push service says it is
-                gone, or when the person turns notifications off on that device.</p>
+            <p class="small text-muted">{{ t('This subscription no longer exists. It is deleted when the push service says it is gone, or when the person turns notifications off on that device.') }}</p>
         @else
             <table class="table table-sm mb-0">
                 <tbody>
-                    <tr><th>Browser</th><td>{{ $device['user_agent'] ?: 'not recorded' }}</td></tr>
-                    <tr><th>Subscribed</th><td>{!! $device['created_at'] > 0 ? $e(localDateTime($device['created_at'])) : '—' !!}</td></tr>
-                    <tr><th>Last delivered</th><td>{!! $device['last_success_at'] ? $e(localDateTime($device['last_success_at'])) : 'never' !!}</td></tr>
-                    <tr><th>Failures since</th><td>{!! (int) $device['failure_count'] !!}</td></tr>
+                    <tr><th>{{ t('Browser') }}</th><td>{{ $device['user_agent'] ?: t('not recorded') }}</td></tr>
+                    <tr><th>{{ t('Subscribed') }}</th><td>{!! $device['created_at'] > 0 ? $e(localDateTime($device['created_at'])) : '—' !!}</td></tr>
+                    <tr><th>{{ t('Last delivered') }}</th><td>{!! $device['last_success_at'] ? $e(localDateTime($device['last_success_at'])) : t('never') !!}</td></tr>
+                    <tr><th>{{ t('Failures since') }}</th><td>{!! (int) $device['failure_count'] !!}</td></tr>
                 </tbody>
             </table>
             <form method="post" action="{{ adminUrl('PushLog/test/') . (int) ($row['pushid'] ?? 0) }}" style="margin-top:12px">
                 {!! \Pramnos\Http\Session::getInstance()->getTokenField() !!}
-                <button type="submit" class="btn btn-sm btn-outline-primary">Send a test to this device</button>
+                <button type="submit" class="btn btn-sm btn-outline-primary">{{ t('Send a test to this device') }}</button>
                 <span class="small text-muted">
-                    A fixed notification; its page shows whether the device confirms it.
+                    {{ t('A fixed notification; its page shows whether the device confirms it.') }}
                 </span>
             </form>
         @endif
@@ -124,9 +121,9 @@ $hash   = (string) ($row['endpoint_hash'] ?? ''); @endphp
 
     @if ($history !== [])
     <div class="card p-3 mb-3">
-        <h3 class="h6 mb-2">Recent pushes to this device</h3>
+        <h3 class="h6 mb-2">{{ t('Recent pushes to this device') }}</h3>
         <table class="table table-sm mb-0">
-            <thead><tr><th>Sent</th><th>Title</th><th>Outcome</th></tr></thead>
+            <thead><tr><th>{{ t('Sent') }}</th><th>{{ t('Title') }}</th><th>{{ t('Outcome') }}</th></tr></thead>
             <tbody>
                 @foreach ($history as $other)
                     <tr{!! (int) ($other['pushid'] ?? 0) === (int) ($row['pushid'] ?? 0) ? ' class="table-active"' : '' !!}>

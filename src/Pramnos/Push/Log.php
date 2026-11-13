@@ -375,10 +375,10 @@ class Log
             return [
                 'kind'        => 'delivered',
                 'label'       => t('Delivered'),
-                'explanation' => 'The push service accepted it for this browser. Whether it was shown is up to the '
+                'explanation' => t('The push service accepted it for this browser. Whether it was shown is up to the '
                     . 'device: if the person saw nothing, check that notifications are allowed for this site '
                     . 'and for the browser, that battery optimisation or Do Not Disturb is not holding it back, '
-                    . 'and that this is the device they were looking at.',
+                    . 'and that this is the device they were looking at.'),
             ];
         }
 
@@ -386,9 +386,9 @@ class Log
             return [
                 'kind'        => 'gone',
                 'label'       => t('Subscription gone'),
-                'explanation' => 'The browser no longer accepts notifications from this site: it was unsubscribed, '
+                'explanation' => t('The browser no longer accepts notifications from this site: it was unsubscribed, '
                     . 'its data was cleared, or permission was revoked. The subscription was deleted; the person '
-                    . 'has to allow notifications again on that device.',
+                    . 'has to allow notifications again on that device.'),
             ];
         }
 
@@ -396,8 +396,8 @@ class Log
             return [
                 'kind'        => 'not_sent',
                 'label'       => t('Not sent'),
-                'explanation' => 'Nothing was sent, for the reason below. Usually the account has no browser '
-                    . 'subscribed to notifications.',
+                'explanation' => t('Nothing was sent, for the reason below. Usually the account has no browser '
+                    . 'subscribed to notifications.'),
             ];
         }
 
@@ -405,8 +405,8 @@ class Log
             return [
                 'kind'        => 'busy',
                 'label'       => t('Push service busy (%s)', (string) $status),
-                'explanation' => 'The push service could not take it at that moment. It is the service\'s '
-                    . 'problem, not the subscription\'s, and the next notification will be tried normally.',
+                'explanation' => t('The push service could not take it at that moment. It is the service\'s '
+                    . 'problem, not the subscription\'s, and the next notification will be tried normally.'),
             ];
         }
 
@@ -414,9 +414,9 @@ class Log
             'kind'        => 'failed',
             'label'       => $status > 0 ? t('Failed (%s)', (string) $status) : t('Never reached a server'),
             'explanation' => $status > 0
-                ? 'The push service refused it. The error below is its answer.'
-                : 'The request did not reach the push service: a network problem, DNS, or a firewall '
-                    . 'between this server and the browser vendor\'s service.',
+                ? t('The push service refused it. The error below is its answer.')
+                : t('The request did not reach the push service: a network problem, DNS, or a firewall '
+                    . 'between this server and the browser vendor\'s service.'),
         ];
     }
 
