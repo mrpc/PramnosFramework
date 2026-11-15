@@ -812,16 +812,25 @@ which is why the default ceiling is 512 MB rather than something smaller. A fork
 happen through `os.fork()`: WebAssembly has no such syscall, so Pyodide raises `OSError`
 immediately, nothing to cap.
 
-**What this prototype still does not do.** No network namespace is set up around the sandbox —
-Pyodide's own socket shim under Node.js was measured not to move real bytes (a `connect()`
-succeeds without one, `recv()` never returns data, with or without a real route), which is a
-property of a dependency this does not control, not a guarantee the framework makes. Packages
-(`pandas`, `numpy`…) are fetched from a CDN the first time one is asked for and cached in
-`resources/js/sandbox-runner/node_modules/` after that — a worker meant to run fully offline
-needs that cache pre-warmed, which nothing here does automatically yet. Where `systemd-run` is
-not reachable at all, the sandbox still runs, unbounded in memory, stopped only by its wall-clock
-timeout. None of this is hidden behind the word "sandboxed" — read `PyodideRunner`'s own docblock
-before pointing a production worker at it.
+**The sandbox runs inside its own network namespace** (`unshare --net --map-root-user`), where the
+worker's own kernel allows an unprivileged one — the ordinary case on Linux; see
+`/proc/sys/kernel/unprivileged_userns_clone` where it does not, and a container's own seccomp
+profile can refuse it outright regardless of that setting, measured running `code_exec`'s own
+tests inside this framework's `./dockertest` image. **This is not about Python's own
+`socket`/`urllib`** — both were measured not to move real bytes under Node.js at all, isolated or
+not (`connect()` succeeds without performing one, `recv()` never returns data) — but about
+`js.fetch(...)`, Pyodide's own escape hatch into Node's **real** `fetch()` through its JavaScript
+interop (`import js`): confirmed reaching a real site without this, and failing with `TypeError:
+fetch failed` with it. Where an unprivileged namespace cannot be made at all, `code_exec` still
+runs — the worker calling it unisolated, which its own test asserts honestly either way — rather
+than refusing outright.
+
+**What this prototype still does not do.** Packages (`pandas`, `numpy`…) are fetched from a CDN
+the first time one is asked for and cached in `resources/js/sandbox-runner/node_modules/` after
+that — a worker meant to run fully offline needs that cache pre-warmed, which nothing here does
+automatically yet. Where `systemd-run` is not reachable at all, the sandbox still runs, unbounded
+in memory, stopped only by its wall-clock timeout. None of this is hidden behind the word
+"sandboxed" — read `PyodideRunner`'s own docblock before pointing a production worker at it.
 
 **No access to the database, or to any other tool.** The code given to `code_exec` reads only
 what the question already gave it (a `csv` argument, read from `/tmp/input.csv`) and whatever its

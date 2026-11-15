@@ -204,10 +204,28 @@ class CodeExecTest extends LlmTestCase
         );
         $stopped = $runner->run('while True: pass', null, 2, PyodideRunner::DEFAULT_MEMORY_MB);
 
+        // `js.fetch` is Pyodide's own escape hatch into Node's real network, unlike Python's own
+        // socket module (never functional under Node.js, isolated or not — see PyodideRunner's
+        // docblock). Whether it is blocked here depends on whether this host can actually make an
+        // unprivileged network namespace — measured directly, the same way PyodideRunner itself
+        // measures it, rather than assumed from `unshare` merely being on the `PATH`.
+        $jsFetch = $runner->run(
+            "import js\ntry:\n    r = await js.fetch('https://example.com')\n    print('REACHED', r.status)\nexcept Exception as e:\n    print('BLOCKED', type(e).__name__)",
+            null,
+            10,
+            PyodideRunner::DEFAULT_MEMORY_MB
+        );
+        exec('unshare --net --map-root-user -- true 2>/dev/null', $unused, $canIsolate);
+
         // Assert
         $this->assertSame(['ok' => true, 'result' => "2\n"], $plain);
         $this->assertSame(['ok' => true, 'result' => "15\n"], $pandas);
         $this->assertSame(['ok' => false, 'error' => 'Stopped: took longer than 2 seconds.'], $stopped);
+        $this->assertSame(
+            $canIsolate === 0 ? "BLOCKED JsException\n" : "REACHED 200\n",
+            $jsFetch['result'],
+            $canIsolate === 0 ? 'this host can isolate network access, and PyodideRunner did' : 'this host cannot make its own network namespace at all — nothing to isolate with'
+        );
     }
 }
 

@@ -6,21 +6,36 @@ namespace Pramnos\Llm\Sandbox;
 
 /**
  * One Python script, run in Pyodide (CPython compiled to WebAssembly) under Node.js
- * (`resources/js/sandbox-runner/run.mjs`), wrapped in a memory/CPU-bounded `systemd-run --user
- * --scope` where one is reachable, and killed outright past its wall-clock seconds either way.
+ * (`resources/js/sandbox-runner/run.mjs`), inside an empty network namespace (`unshare --net`)
+ * wrapped in a memory/CPU-bounded `systemd-run --user --scope`, where each is reachable, and
+ * killed outright past its wall-clock seconds either way.
  *
  * **A prototype, not a hardened sandbox** — see docs/Pramnos_LLM_Analyst_Guide.md, "code_exec",
- * for what this still does not do (network isolation, pre-bundled packages for an offline worker,
- * a fallback when `systemd-run` itself is not reachable). Needs on the worker it runs on: Node.js,
- * `npm install` run once in `resources/js/sandbox-runner/`, and a user session `systemd-run
- * --user` can reach (`loginctl enable-linger`, where the worker is not an interactive login).
+ * for what this still does not do (pre-bundled packages for an offline worker, a fallback when
+ * `systemd-run` or `unshare` are themselves not reachable). Needs on the worker it runs on:
+ * Node.js, `npm install` run once in `resources/js/sandbox-runner/`, a user session `systemd-run
+ * --user` can reach (`loginctl enable-linger`, where the worker is not an interactive login), and
+ * an unprivileged user able to make its own network namespace (`unshare --net --map-root-user`;
+ * the ordinary case on Linux — see `/proc/sys/kernel/unprivileged_userns_clone` where it is not).
  *
- * Measured, not assumed: `node --max-old-space-size` does **not** bound Pyodide's own WebAssembly
- * memory (a script was seen past 4 GB with it set to 128 MB) — only a cgroup
- * (`systemd-run … -p MemoryMax=…`) actually stops it, with a clean kill at the limit. `ulimit -v`
- * does not work with Node at all: V8 reserves a large virtual address space up front and aborts
- * before running anything. A fork bomb cannot happen through Pyodide's `os.fork()` — WebAssembly
- * has no such syscall, so `os.fork()` raises `OSError` immediately, with nothing to cap.
+ * Measured, not assumed, each of these — not one taken on faith:
+ *
+ * - `node --max-old-space-size` does **not** bound Pyodide's own WebAssembly memory (a script was
+ *   seen past 4 GB with it set to 128 MB) — only a cgroup (`systemd-run … -p MemoryMax=…`)
+ *   actually stops it, with a clean kill at the limit. `ulimit -v` does not work with Node at
+ *   all: V8 reserves a large virtual address space up front and aborts before running anything.
+ * - A fork bomb cannot happen through Pyodide's `os.fork()` — WebAssembly has no such syscall, so
+ *   it raises `OSError` immediately, with nothing to cap.
+ * - Python's own `socket`/`urllib` do not reach the real network under Node.js at all —
+ *   `connect()` succeeds without performing one, and `recv()` never returns real bytes, isolated
+ *   or not — so a network namespace buys that path nothing. What a network namespace does stop:
+ *   **`js.fetch(...)`**, Pyodide's own escape hatch into Node's real `fetch()` through its
+ *   JavaScript interop (`import js`) — confirmed reaching a real site without isolation, and
+ *   failing with `TypeError: fetch failed` once wrapped in `unshare --net --map-root-user`, with
+ *   the cgroup scope's wall-clock kill unaffected by the extra process in between. The order
+ *   matters: `systemd-run` outside, `unshare` inside — the other way round, `systemd-run --user`
+ *   talks to the systemd user manager over its own socket and the child it starts inherits
+ *   *that* process's network namespace, not the caller's.
  */
 final class PyodideRunner
 {
@@ -79,9 +94,10 @@ final class PyodideRunner
     }
 
     /**
-     * The command line: wrapped in a cgroup scope where `systemd-run --user` is reachable (a
-     * clean failure there — no lingering session — falls back to the bare command, unbounded in
-     * memory, which {@see run()}'s own wall-clock timeout still stops).
+     * The command line: `node` itself, wrapped in an empty network namespace where `unshare` can
+     * make one, that whole thing wrapped in a memory/CPU-bounded cgroup scope where `systemd-run
+     * --user` is reachable. Either wrapper missing is a clean fallback to what remains — never a
+     * refusal to run at all — since {@see run()}'s own wall-clock timeout stops it either way.
      *
      * @return list<string>
      */
@@ -89,15 +105,19 @@ final class PyodideRunner
     {
         $node = ['node', $this->runnerDir . '/run.mjs', $dir];
 
+        $sandboxed = self::canUnshareNet()
+            ? ['unshare', '--net', '--map-root-user', '--', ...$node]
+            : $node;
+
         if (!self::has('systemd-run')) {
-            return $node;
+            return $sandboxed;
         }
 
         return [
             'systemd-run', '--user', '--scope', '--quiet',
             '-p', 'MemoryMax=' . max(64, $memoryMb) . 'M',
             '-p', 'MemorySwapMax=0',
-            '--', ...$node,
+            '--', ...$sandboxed,
         ];
     }
 
@@ -178,6 +198,25 @@ final class PyodideRunner
         @exec('command -v ' . escapeshellarg($binary) . ' 2>/dev/null', $found, $code);
 
         return $code === 0 && $found !== [];
+    }
+
+    /**
+     * Whether an unprivileged network namespace can actually be made here, cached for the rest
+     * of the process — a binary on the `PATH` is not enough to know. Measured: a container's own
+     * seccomp profile, or `kernel.unprivileged_userns_clone = 0`, lets `unshare` run at all and
+     * still refuses it `unshare failed: Operation not permitted` the moment it is asked to make
+     * one — found running this very check inside this framework's own `./dockertest` image.
+     */
+    private static function canUnshareNet(): bool
+    {
+        static $can = null;
+        if ($can === null) {
+            $code = 1;
+            @exec('unshare --net --map-root-user -- true 2>/dev/null', $unused, $code);
+            $can = $code === 0;
+        }
+
+        return $can;
     }
 
     /** The work directory and whatever was written to it. */
