@@ -174,6 +174,15 @@ talking.` Under a day it counts hours, after that days. A scheduled answer, or o
 gets no note. `'llm' => ['chat' => ['gap_note' => 7200]]` sets the threshold in seconds, and `0`
 turns the note off.
 
+**A client-side wrapper's own device state (FW-504).** A desktop or mobile shell that keeps
+state the server never sees — downloading a model, running a script the person asked for — tells
+it for this question alone with `extra['local']`: override `TakesQuestions::extra()` to add it
+from whatever `$input` the app's own channel carries, and zone 3 gets `Happening on the person's
+own device right now, not said by them: …`, cut at `ContextAssembler::MAX_LOCAL` (200 characters).
+Like the time and the page, it is never part of the conversation's own history — only this
+question's context — and the model is told plainly that the person did not say it, so it is
+never answered as though they had.
+
 ```php
 final class SupportAssistant extends \Pramnos\Llm\Chat\BaseAssistant
 {

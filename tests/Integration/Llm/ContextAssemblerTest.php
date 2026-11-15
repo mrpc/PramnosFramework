@@ -107,6 +107,36 @@ class ContextAssemblerTest extends LlmTestCase
     }
 
     /**
+     * `extra['local']` (FW-504) — a client-side wrapper's own device state, "downloading the
+     * voice model, 42%" — is told in zone 3 for this turn alone, cut at
+     * {@see ContextAssembler::MAX_LOCAL} rather than grown without bound, and said nothing when
+     * it is not a string at all.
+     */
+    public function testLocalDeviceStateIsInTheTailForThisTurnAlone(): void
+    {
+        // Arrange
+        $chat  = new Conversations(new BaseAssistant());
+        $zones = new ContextAssembler(new BaseAssistant());
+        $long  = str_repeat('x', ContextAssembler::MAX_LOCAL + 50);
+
+        // Act
+        $said    = $zones->dynamicTail(new Turn(new Scope(7, null), null, false, [], [], ['local' => 'Downloading the voice model, 42%.'], $chat));
+        $cut     = $zones->dynamicTail(new Turn(new Scope(7, null), null, false, [], [], ['local' => $long], $chat));
+        $ignored = $zones->dynamicTail(new Turn(new Scope(7, null), null, false, [], [], ['local' => ['not' => 'a string']], $chat));
+        $none    = $zones->dynamicTail(new Turn(new Scope(7, null), null, false, [], [], [], $chat));
+
+        // Assert
+        $this->assertStringContainsString(
+            'Happening on the person\'s own device right now, not said by them: Downloading the voice model, 42%.',
+            $said
+        );
+        $this->assertStringContainsString(str_repeat('x', ContextAssembler::MAX_LOCAL), $cut);
+        $this->assertStringNotContainsString(str_repeat('x', ContextAssembler::MAX_LOCAL + 1), $cut, 'cut at the limit, not past it');
+        $this->assertStringNotContainsString('device right now', $ignored, 'not a string: said nothing rather than a notice about an array');
+        $this->assertStringNotContainsString('device right now', $none);
+    }
+
+    /**
      * A static prompt that changes between two questions of a conversation, while the code and the
      * settings did not, is logged with the first line that differs; a new conversation, or the
      * same prompt, is not.

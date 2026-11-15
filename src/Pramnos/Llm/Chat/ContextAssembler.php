@@ -110,6 +110,23 @@ final class ContextAssembler
         . 'a blank line before any detail, which the reader sees but is not read out. Dictated words carry no punctuation: '
         . 'a sentence may be a question though it has no question mark.';
 
+    /** The most of `extra['local']` told to the model — long enough to say what, not a transcript. */
+    public const MAX_LOCAL = 200;
+
+    /**
+     * What a client-side wrapper reports about its own device right now (FW-504) — a model
+     * downloading, a script it is running on the person's own word — told for this turn alone,
+     * the way the time and the page are: never part of the conversation's history, and never
+     * something to answer as though the person had said it.
+     */
+    private static function localState(mixed $given): string
+    {
+        $text = trim((string) (is_string($given) ? $given : ''));
+
+        return $text === '' ? '' : 'Happening on the person\'s own device right now, not said by them: '
+            . mb_substr($text, 0, self::MAX_LOCAL);
+    }
+
     /**
      * Zone 3: what is true only now — the time in the assistant's zone, what the assistant adds
      * for this question, and the notice for an attached document.
@@ -131,6 +148,7 @@ final class ContextAssembler
             . ($note === '' ? '' : "\n\n" . $note)
             . (empty($turn->extra['voice']) ? '' : "\n\n" . self::SPOKEN)
             . (is_array($turn->extra['speaker'] ?? null) ? "\n\n" . self::speaking($turn->extra['speaker']) : '')
+            . (($local = self::localState($turn->extra['local'] ?? null)) === '' ? '' : "\n\n" . $local)
             // The audience's own rules, where the application gives it some (Audience).
             . (($said = Audience::rules(Audience::of($turn->scope, is_array($turn->extra['speaker'] ?? null) ? $turn->extra['speaker'] : null))) !== '' ? "\n\n" . $said : '')
             . ($own !== '' ? "\n\n" . $own : '')
