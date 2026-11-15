@@ -768,6 +768,17 @@ class Conversations
             $reply = implode("\n\n", $steps) . ($reply === '' ? '' : "\n" . $reply);
             $steps = [];
         }
+        // A capability gap is asked about before a leaked protocol dump could replace $reply
+        // below — the admin's own words ("I don't have a tool for…") are what is tagged, not
+        // whatever a sanitised fallback says instead.
+        $gap = \Pramnos\Llm\AnswerTags::matches($reply, (array) (((array) \Pramnos\Llm\Llm::config('chat', []))['capability_gap_patterns'] ?? []));
+        // A provider's own tool-call protocol, dumped as plain text (AnswerTags::leaked()'s own
+        // docblock) rather than parsed: shown and stored as a plain, safe refusal instead of raw
+        // JSON and reserved-token markers — never silently, which is how it reached production.
+        $malformed = \Pramnos\Llm\AnswerTags::leaked($reply);
+        if ($malformed) {
+            $reply = t('Something in the answer did not come through correctly. Please ask again.');
+        }
         $felt    = $mood === null ? null : Mood::parse($reply);
         // Felt before the answer is stored, so the answer keeps the mood it was given in — unless
         // the model only said back the mood that reached it from another conversation: kept, it
@@ -781,7 +792,7 @@ class Conversations
             // With moods on, `mood` is always there — null when nothing is felt — so a reader tells
             // "no mood" from "a backend without moods".
             array_filter(['steps' => $steps, 'stopped' => $stopped, 'source' => $this->console ? 'console' : null, 'corrected' => $this->corrected ?? (isset($answer['figures']) ? 'figures' : null),
-                'mode' => Work::in($turn->tags) ? Work::MODE : null]) + ($mood === null ? [] : ['mood' => $feels])
+                'mode' => Work::in($turn->tags) ? Work::MODE : null, 'malformed' => $malformed ?: null, 'capability_gap' => $gap ?: null]) + ($mood === null ? [] : ['mood' => $feels])
             + ($acts ? ['act' => Acts::act($reply), 'wear' => Acts::worn($reply)] : [])
             + ($ending && Ending::ends($reply) ? ['ended' => true] : [])
             + (isset($answer['figures_read']) ? ['figures_read' => self::figuresKept((array) $answer['figures_read'])] : [])

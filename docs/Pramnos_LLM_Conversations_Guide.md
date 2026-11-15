@@ -8,6 +8,8 @@ use_cases:
   - Turning an attached Word, OpenDocument, CSV or email file into text for a model
   - Asking users' agreement before their data goes to a provider
   - Letting a person deliberately end a conversation and start fresh, with /clear or /new
+  - Finding answers where the assistant said it lacked a tool, without reading every conversation by hand
+  - Keeping a provider's leaked tool-call protocol from ever being shown as an answer
 ---
 
 # Conversations
@@ -675,6 +677,36 @@ the audit log as `ai.answer_reviewed`. A new verdict puts it back. The screen is
 everybody's Ask conversations (`admin.ai.all`), since it shows their questions, and opens an
 analyst conversation read only. `Chat\Ratings` is the same in code: `rate($scope, $messageId,
 $rating, $note)`, `queue()`, `reviewed($messageId, $reviewer)`, `summary($days)`.
+
+## Tagging an answer by its own words, after it is written
+
+A bad answer somebody rated 👎 waits in the review queue above; one nobody rated, because the
+question was answered well enough that nobody thought to press anything, does not — and "the
+model said plainly it has no tool for this" (its own system prompt already asks it to say so) is
+exactly the kind of answer nobody presses 👎 on. `Pramnos\Llm\AnswerTags::matches()` checks an
+answer's own text, once it is written, against a list of patterns — never asked of the model, so
+it works the same whichever provider answered:
+
+```php
+'llm' => ['chat' => ['capability_gap_patterns' => ['δεν έχω εργαλείο', 'δεν μπορώ να', '~\bno tool for\b~i']]],
+```
+
+A plain string is read case-insensitively (no accent-folding: a missing accent misses); one
+starting with `~` is a regular expression. A match sets `extra.capability_gap` on the stored
+message — true, nothing else — without changing a word the person reads. Empty by default, so
+nothing is tagged until an application names its own words for "I don't have what's needed for
+this". Finding these turns from reading a conversation export by hand into a query:
+`WHERE extra->>'capability_gap' IS NOT NULL`.
+
+**A leaked tool-call protocol is tagged the same way, and also fixed.** A self-hosted model's own
+serving layer marks its reserved tokens with a fullwidth pipe
+(`<｜tool▁calls▁begin｜>` and similar); when its grammar misfires and those tokens land in the
+ordinary answer instead of the structured tool-call field `Client::askWithTools()` reads, nobody
+should see raw JSON and reserved-token markers in place of an answer. `AnswerTags::leaked()`
+knows this shape by default — `'llm' => ['leaked_patterns' => ['~<\|tool_call\|>~']]` adds an
+application's own local model's spelling of it, beside the built-in one. A match replaces the
+answer with a plain refusal before it is shown or stored, and sets `extra.malformed` — a fix for
+what the person sees and a trace for whoever reviews it, not merely a tag.
 
 ## Changes the model proposes, and a person approves
 
