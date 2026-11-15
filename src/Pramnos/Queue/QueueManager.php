@@ -87,6 +87,30 @@ class QueueManager
     // ── Enqueue ───────────────────────────────────────────────────────────────
 
     /**
+     * `$priority` left at its default (10) while a worker is running another task, with
+     * `'queue' => ['priority_inheritance' => true]` on, inherits from it — `min(parent + 1, 10)`,
+     * {@see AmbientPriority} — rather than falling flat to the back of the queue behind every
+     * ordinary task. A priority asked for explicitly, 10 or otherwise, is never touched: only the
+     * literal default is read as "nothing asked for". Off by default, additive where it is not.
+     */
+    private function resolvePriority(int $priority): int
+    {
+        if ($priority !== 10) {
+            return $priority;
+        }
+        $ambient = AmbientPriority::current();
+        if ($ambient === null) {
+            return $priority;
+        }
+        $app = $this->controller->application ?? \Pramnos\Application\Application::currentInstance();
+        if (!is_object($app) || empty($app->applicationInfo['queue']['priority_inheritance'])) {
+            return $priority;
+        }
+
+        return min($ambient + 1, 10);
+    }
+
+    /**
      * Add a task to the queue.
      *
      * When $unique is true and a non-terminal task with the same type+payload
@@ -95,7 +119,9 @@ class QueueManager
      *
      * @param  string     $taskType    Registered handler type name
      * @param  mixed      $data        Task payload (array, object, or scalar)
-     * @param  int        $priority    Dispatch priority — lower = sooner
+     * @param  int        $priority    Dispatch priority — lower = sooner; left at 10, the
+     *                                 default, it inherits from a task this is queued inside of —
+     *                                 see {@see resolvePriority()}
      * @param  int        $maxAttempts Maximum retry attempts before permanent failure
      * @param  bool       $unique      Reject duplicates that are still pending/processing
      * @return int|null   Task ID, or null if a duplicate was detected
@@ -130,7 +156,7 @@ class QueueManager
         $item->type        = $taskType;
         $item->payload     = json_encode($data);
         $item->status      = 'pending';
-        $item->priority    = $priority;
+        $item->priority    = $this->resolvePriority($priority);
         $item->attempts    = 0;
         $item->maxattempts = $maxAttempts;
         $item->task_hash   = $taskHash;
@@ -219,7 +245,7 @@ class QueueManager
             'type'        => $taskType,
             'payload'     => $payload,
             'status'      => 'pending',
-            'priority'    => $priority,
+            'priority'    => $this->resolvePriority($priority),
             'attempts'    => 0,
             'maxattempts' => $maxAttempts,
             'task_hash'   => $hash,

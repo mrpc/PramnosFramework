@@ -1911,6 +1911,42 @@ class QueueManagerMySQLTest extends TestCase
     }
 
     /**
+     * A child task left at the default priority inherits one from the task that queued it —
+     * `min(parent + 1, 10)`, {@see \Pramnos\Queue\AmbientPriority} — once `priority_inheritance`
+     * is on; off, or asked for explicitly, falls flat to 10 as it always did. Cleared once the
+     * worker is done with the parent, success or not.
+     */
+    public function testAChildTaskInheritsPriorityWhenTurnedOn(): void
+    {
+        // Arrange
+        $this->app->applicationInfo = ['queue' => ['priority_inheritance' => true, 'handlers' => ['spawn' => SpawningTask::class]]];
+        $this->manager->addTask('spawn', ['go' => true], priority: 2);
+        $worker = new \Pramnos\Queue\Worker($this->controller, 'priority-worker');
+
+        try {
+            // Act
+            $info  = $worker->processNextTask(['spawn']);
+            $child = $this->db->queryBuilder()->table('queueitems')->where('type', 'spawned_child')->first();
+            $after = \Pramnos\Queue\AmbientPriority::current();
+
+            // Off: a second parent, same priority, queues a flat-10 child as always
+            $this->app->applicationInfo = ['queue' => ['handlers' => ['spawn' => SpawningTask::class]]];
+            $this->manager->addTask('spawn', ['go' => true], priority: 2);
+            $worker->processNextTask(['spawn']);
+            $offChild = $this->db->queryBuilder()->table('queueitems')
+                ->where('type', 'spawned_child')->where('taskid', '!=', (int) $child->fields['taskid'])->first();
+        } finally {
+            $this->app->applicationInfo = [];
+        }
+
+        // Assert
+        $this->assertSame('completed', $info['status'], (string) ($info['message'] ?? ''));
+        $this->assertSame(3, (int) $child->fields['priority'], 'one step below the parent, capped at the default');
+        $this->assertNull($after, 'cleared once the parent task finished');
+        $this->assertSame(10, (int) $offChild->fields['priority'], 'off: the ordinary flat default');
+    }
+
+    /**
      * A worker not told which types takes only those it can run: a task of a type it has no
      * handler for stays pending, attempts untouched, for the worker that has one. It used to be
      * claimed and failed with "No handler registered", an attempt of another worker's task spent.
@@ -2414,6 +2450,22 @@ class QueueManagerMySQLTest extends TestCase
  * Busy rather than asleep, which is the whole point: a `usleep()` would accrue wall clock
  * and no CPU and prove the opposite of what this fixture is for.
  */
+/** Queues one child task, at the default priority — for testing {@see \Pramnos\Queue\AmbientPriority} inheritance. */
+class SpawningTask extends \Pramnos\Queue\AbstractTask
+{
+    public function getDescription(\Pramnos\Queue\QueueItem $queueItem): string
+    {
+        return 'Queues a child task at the default priority';
+    }
+
+    public function execute(\Pramnos\Queue\QueueItem $task): mixed
+    {
+        (new \Pramnos\Queue\QueueManager($this->controller))->addTask('spawned_child', ['from' => (int) $task->taskid]);
+
+        return true;
+    }
+}
+
 class BusyProbeTask extends \Pramnos\Queue\AbstractTask
 {
     public function getDescription(\Pramnos\Queue\QueueItem $queueItem): string

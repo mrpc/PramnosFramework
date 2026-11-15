@@ -139,6 +139,8 @@ class Worker
 
         // An event fired while a task runs says so: its source is the queue, not the console.
         \Pramnos\Event\QueuedEvents::working(true);
+        // A child task this one queues inherits a priority of its own from it — AmbientPriority.
+        AmbientPriority::set((int) $task->priority);
         try {
             /** @var TaskInterface $handler */
             $handler = new $handlerClass($this->controller);
@@ -200,6 +202,7 @@ class Worker
             $this->queueManager->markTaskAsFailed($task, $errorMessage, $executionTime);
         } finally {
             \Pramnos\Event\QueuedEvents::working(false);
+            AmbientPriority::set(null);
         }
 
         return $taskInfo;

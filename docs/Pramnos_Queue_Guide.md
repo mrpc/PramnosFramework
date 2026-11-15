@@ -1,6 +1,7 @@
 ---
 use_cases:
   - Dispatching work to a queue, immediately or delayed
+  - Keeping a chain of queued tasks from drifting to the back of the queue behind ordinary work
   - Splitting a scheduled pass into one queued task per item, for a pool of workers
   - Choosing a queue driver
   - Running or supervising a queue worker
@@ -93,6 +94,34 @@ cannot run stays pending, attempts untouched, for the worker that can. `--type` 
 further. A worker whose handlers are found some other way — by naming convention, in an
 overridden `getTaskHandler()` — overrides `handledTaskTypes()` too: with its types, or with `null`
 to claim every type.
+
+### A child task's own priority
+
+A task a handler queues from inside its own `execute()` — one step of a pipeline spawning the
+next — left at the default priority (10) inherits one from the task running it, where the
+application turns this on:
+
+```php
+'queue' => ['priority_inheritance' => true],
+```
+
+`Pramnos\Queue\AmbientPriority::current()` is what a worker's own `processNextTask()` sets around
+a task's `execute()` and clears after, success or failure alike — the priority of whichever task
+is running in this process right now, or null outside one. `QueueManager::addTask()`/`addKeyed()`
+read it: a call left at the literal default (10) with an ambient priority available becomes
+`min(parent + 1, 10)` — one step below the parent, never past the ordinary default. A priority
+asked for explicitly, 10 or otherwise, is never touched; only "nothing asked for" is.
+
+**Why the cap, not a flat copy.** A task of priority 1 (urgent) spawning a child wants that child
+ahead of the ordinary backlog — not at the very back of the queue behind thousands of
+default-priority tasks — but a flat inheritance would let an innocuous-looking child of a
+priority-1 task also run at priority 1, racing ahead of the parent's own siblings and everything
+else as urgent. One step down each time a chain goes a layer deeper, capped at the default, keeps
+a long chain from drifting toward the front of the queue on its own.
+
+Off by default, since most tasks are queued from a web request or the console — nothing running,
+nothing to inherit — and a worker of a third-party task type that never meant to hand down its own
+priority should not start doing so merely by sharing this queue.
 
 ### Columns of the application's own
 
