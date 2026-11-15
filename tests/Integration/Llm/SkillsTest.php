@@ -76,9 +76,11 @@ class SkillsTest extends LlmTestCase
         $this->connectDatabase($type, $host, $port);
         $this->answer([[200, self::says('Hi')]]);
 
-        // Act
+        // Act — off said outright, both times: the framework's own tool count already sits close
+        // to SKILLS_FROM (FW-505's json_query, among others, counts here) and the web's two tools
+        // would push it past on their own, which turns skills on by itself where it is not said.
+        $this->configure(['chat' => ['skills' => false]]);
         (new Conversations(self::assistant()))->as(new Scope(7, null))->ask(null, 'Hi');
-        // Off said outright: the web's two tools would take the count past SKILLS_FROM, which turns skills on by itself.
         $this->configure(['chat' => ['web' => true, 'skills' => false]]);
         (new Conversations(self::assistant()))->as(new Scope(7, null))->ask(null, 'Hi');
 

@@ -131,7 +131,9 @@ class ConnectionsTest extends LlmTestCase
         $provider = $this->provider();
         Http::fake([self::SERVER => $this->server('tok-1'), '*' => $provider]);
         $off = Connections::on();
-        $this->configure(['chat' => ['connections' => true]]);
+        // skills: false — said outright, since a per-user connection's own tools are exactly the
+        // kind of addition that can push the framework's tool count past SKILLS_FROM on its own.
+        $this->configure(['chat' => ['connections' => true, 'skills' => false]]);
         $connections = new Connections($scope);
 
         // Act
