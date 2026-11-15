@@ -392,7 +392,10 @@ shared by the mic and every answer's 🔊 button:
   `MediaRecorder` and asks for the microphone with echo cancellation and noise suppression. A
   silence after speech ends the recording (`silenceMs`, 1200 by default; `silenceLevel`, the RMS
   under which it is quiet, 0.02; `maxMs`, 60 s). The words come back through the same
-  `onTranscript`, `onSilence` and `onEnd`. A recording with no speech in it is not sent;
+  `onTranscript`, `onSilence` and `onEnd` — `onSilence` before `onEnd`, as with the browser's own
+  recognition, so a caller whose `onEnd` reads a flag `onSilence` just cleared (the ordinary
+  `onEnd: () => { if (listening) endConversation(); }` pattern) sees it already false rather than
+  ending a conversation that only just restarted. A recording with no speech in it is not sent;
   `stopDictation()` by hand sends what was said. `startDictation({ viaServer: true })` uses the
   server even where the browser recognises speech itself. `canDictate` says whether dictation
   works here at all.

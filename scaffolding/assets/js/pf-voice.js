@@ -798,10 +798,15 @@
                 if (text && opts.onTranscript) {
                     opts.onTranscript({ fullFinal: text, interimPart: '', text: text });
                 }
-                ended();
+                // onSilence before onEnd, same order as the browser's own recognition path
+                // (stopDictation()+onSilence() together, onend async afterward) — a caller
+                // whose onEnd reads a `listening` flag that onSilence just cleared (the
+                // ordinary `onEnd: () => { if (listening) endConversation(); }` pattern)
+                // otherwise sees onEnd fire first and acts on a flag not yet cleared.
                 if (text && opts.onSilence) {
                     opts.onSilence();
                 }
+                ended();
             }, function (err) {
                 dictationError = 'Speech recognition error: ' + ((err && err.message) || 'the server did not answer');
                 if (opts.onError) {

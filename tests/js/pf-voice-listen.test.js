@@ -112,7 +112,8 @@ test('no browser recognition: speech, then a silence, and the words come back as
     assert.equal(sent.length, 1, 'the recording went to the server once');
     assert.equal(sent[0].blob.type, 'audio/webm;codecs=opus');
     assert.ok(sent[0].info.seconds >= 2, 'how long it was, for the log\'s cost');
-    assert.deepEqual(told, [['transcript', 'Καλημέρα'], ['end'], ['silence']]);
+    assert.deepEqual(told, [['transcript', 'Καλημέρα'], ['silence'], ['end']],
+        'onSilence before onEnd — a caller\'s onEnd that reads the flag onSilence just cleared must see it already false');
     assert.equal(released, 1, 'the microphone let go');
 });
 
