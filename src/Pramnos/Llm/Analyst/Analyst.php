@@ -248,9 +248,10 @@ final class Analyst
             $tools[] = new \Pramnos\Llm\Analyst\Tools\VisitsTool($adminId);
         }
 
-        // What was said in a conversation the person reads, summed up.
+        // What was said in a conversation the person reads, summed up — and a file sent in one, read.
         if (\Pramnos\Conversations\Conversations::installed()) {
             $tools[] = new \Pramnos\Llm\Analyst\Tools\ConversationSummaryTool($adminId);
+            $tools[] = new \Pramnos\Llm\Analyst\Tools\ReadStorageDocumentTool($adminId);
         }
 
         // The installation's help pages, with the `help` feature.
