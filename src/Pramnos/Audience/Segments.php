@@ -83,6 +83,14 @@ final class Segments
             $row['filter'] = self::json($checked);
         }
         self::db()->queryBuilder()->table('#PREFIX#segments')->where('segmentid', $id)->update($row);
+        if (isset($row['filter'])) {
+            $name = $row['name'] ?? (self::get($id)['name'] ?? (string) $id);
+            try {
+                \Pramnos\Metrics\Annotations::add(time(), sprintf(t("A segment's filter changed: %s"), $name), 'segment');
+            } catch (\Throwable) {
+                // no annotations table: nothing drawn, nothing lost
+            }
+        }
     }
 
     /**

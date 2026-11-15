@@ -71,6 +71,7 @@ trait AudienceProbe
         require_once ROOT . '/database/migrations/framework/changelog/2026_08_25_000001_create_changelog_tables.php';
         require_once ROOT . '/database/migrations/framework/changelog/2026_10_04_000001_add_scope_to_changelog_events.php';
         require_once ROOT . '/database/migrations/framework/changelog/2026_10_22_000001_add_event_index_to_changelog_events.php';
+        require_once ROOT . '/database/migrations/framework/stats/2026_11_09_000006_create_annotations_table.php';
         if (!defined('LOG_PATH')) {
             define('LOG_PATH', ROOT . \DS . 'var');
         }
@@ -124,6 +125,7 @@ trait AudienceProbe
             \Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class,
             \Pramnos\Framework\Migrations\Messaging\AddUseridToMails::class,
             \Pramnos\Framework\Migrations\Messaging\CreateEmailTrackingTables::class,
+            \Pramnos\Framework\Migrations\Stats\CreateAnnotationsTable::class,
         ]);
         $schema = $this->db->schema();
         if (!$schema->hasColumn('users', 'smsoffers')) {

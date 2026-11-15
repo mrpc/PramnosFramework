@@ -166,6 +166,8 @@ final class Alerts
                 $user = new \Pramnos\User\User($person);
                 if ((int) ($user->userid ?? 0) === $person) {
                     $user->notify(new AlertNotification($id, $said));
+                    // Also a plain event: an audience rule triggered on 'metric.alert' takes this person in.
+                    \Pramnos\Event\Event::dispatch(new MetricAlertFired($id, $person, (string) $rule['metric'], $said, $now));
                 }
             } catch (\Throwable $e) {
                 \Pramnos\Logs\Logger::log('Alert ' . $id . ': ' . $person . ' not told: ' . $e->getMessage(), 'metrics');

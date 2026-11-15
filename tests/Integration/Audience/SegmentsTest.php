@@ -182,6 +182,10 @@ class SegmentsTest extends TestCase
         $this->assertSame([$built, $greek], array_column($panel, 'id'), 'the person card: by name');
         $this->assertSame(['Greek professionals', 'Greek speakers'], array_column($panel, 'name'));
         $this->assertGreaterThan(0, $panel[0]['since']);
+        // A changed filter is a note on the charts (BI phase 7e, FW-516); the segment's own
+        // creation, which takes no filter change through update(), is not.
+        $notes = array_column(\Pramnos\Metrics\Annotations::between(0, time() + 1), 'words');
+        $this->assertSame(["A segment's filter changed: Greek professionals"], $notes);
     }
 
     /**

@@ -378,6 +378,13 @@ final class Experiments
         \Pramnos\Auth\AuditLog::change('experiment.' . (isset($values['winner']) ? 'decided' : $status), $by, 'experiment', $id,
             ['status' => $test['status'], 'winner' => $test['winner']], ['status' => $status, 'winner' => $values['winner'] ?? $test['winner']]);
         self::$known = [];
+        $words = isset($values['winner']) ? sprintf(t('Test decided: %s — %s won'), $test['name'], $values['winner'])
+            : ($status === 'running' ? sprintf(t('Test started: %s'), $test['name']) : sprintf(t('Test stopped: %s'), $test['name']));
+        try {
+            \Pramnos\Metrics\Annotations::add(time(), $words, 'test', by: $by);
+        } catch (\Throwable) {
+            // no annotations table: nothing drawn, nothing lost
+        }
     }
 
     /**

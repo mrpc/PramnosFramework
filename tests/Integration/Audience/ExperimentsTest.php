@@ -15,6 +15,7 @@ use Pramnos\Audience\PersonEvents;
 use Pramnos\Audience\Rules\Engine;
 use Pramnos\Audience\Rules\Rules;
 use Pramnos\Audience\Segments;
+use Pramnos\Metrics\Widgets\ExperimentWidget;
 
 /**
  * A/B tests on MySQL, prefixed MySQL and PostgreSQL: a variant for good per person or visitor, by
@@ -26,6 +27,7 @@ use Pramnos\Audience\Segments;
 #[CoversClass(Filter::class)]
 #[CoversClass(Explained::class)]
 #[CoversClass(PersonEvents::class)]
+#[CoversClass(ExperimentWidget::class)]
 class ExperimentsTest extends TestCase
 {
     use AudienceProbe {
@@ -130,6 +132,9 @@ class ExperimentsTest extends TestCase
         $this->assertNull($stopped);
         $this->assertSame('B', $decided);
         $this->assertSame('draft', Experiments::get($draft)['status']);
+        // Starting, stopping and deciding are each a note on the charts (BI phase 7e, FW-516).
+        $notes = array_column(\Pramnos\Metrics\Annotations::between(0, time() + 1), 'words');
+        $this->assertSame(['Test started: Annual first', 'Test stopped: Annual first', 'Test decided: Annual first — B won'], $notes);
         $this->expectExceptionMessage('The test has no variant Z.');
         Experiments::decide($id, 'Z');
     }
@@ -212,6 +217,46 @@ class ExperimentsTest extends TestCase
         $this->assertSame(0.0, round((float) $even['confidence'], 6));
         $this->assertNull($even['needed']);
         $this->assertSame(['confidence' => null, 'needed' => null], $empty);
+    }
+
+    /**
+     * BI phase 7e (FW-516): the test's own report card over `Experiments::results()` — each
+     * variant's row, the control marked; no test chosen, or one that no longer exists, a note
+     * instead of a table.
+     */
+    #[DataProvider('databases')]
+    public function testTheReportCardShowsEachVariant(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $id = $this->test();
+        foreach (['anna', 'bob', 'cara'] as $name) {
+            Experiments::variant('annual-first', $this->ids[$name]);
+        }
+        Experiments::variant('annual-first', null, str_repeat('b', 32));
+        $noGoal = Experiments::create('nogoal', 'No goal', [['key' => 'A', 'share' => 50], ['key' => 'B', 'share' => 50]]);
+        Experiments::start($noGoal);
+
+        // Act
+        $card    = (new ExperimentWidget())->configure(['experiment' => (string) $id])->render();
+        $none    = (new ExperimentWidget())->configure([])->render();
+        $gone    = (new ExperimentWidget())->configure(['experiment' => '999999'])->render();
+        $noGoalCard = (new ExperimentWidget())->configure(['experiment' => (string) $noGoal])->render();
+        $options = (new ExperimentWidget())->options();
+        $widget  = new ExperimentWidget();
+
+        // Assert
+        $this->assertStringContainsString('As today', $card, 'the control variant\'s label');
+        $this->assertStringContainsString('(control)', $card);
+        $this->assertStringContainsString('Annual first', $card, 'the second variant\'s label');
+        $this->assertStringContainsString('visitor', $card, 'a visitor not yet signed in is counted apart');
+        $this->assertStringContainsString('Choose a test', $none, 'no test chosen');
+        $this->assertStringContainsString('Choose a test', $gone, 'a test that does not exist');
+        $this->assertStringContainsString('only people and shares are counted', $noGoalCard, 'no goal: nothing to convert');
+        $this->assertArrayHasKey((string) $id, $options['experiment']['values'], 'offered by name');
+        $this->assertSame('report.experiment', $widget->id());
+        $this->assertNotSame('', $widget->description());
+        $this->assertSame('A/B test', $widget->title(), 'no heading set: the card\'s own name');
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Pramnos\Audience;
 
+use Pramnos\Audience\Rules\Rules;
 use Pramnos\Database\Database;
 use Pramnos\Metrics\Catalogue;
 use Pramnos\Metrics\Dimension;
@@ -33,6 +34,9 @@ final class AudienceMetrics implements Catalogue
     /** The segments' stays. */
     private const STAYS = 'pramnos.segment_members';
 
+    /** Every step of every rule run ({@see \Pramnos\Audience\Rules\Engine}). */
+    private const RULE_LOG = 'pramnos.rule_log';
+
     /** @return iterable<Metric|Dimension> */
     public function metrics(): iterable
     {
@@ -49,6 +53,19 @@ final class AudienceMetrics implements Catalogue
             yield Metric::flow('audience.segment.left', t('Left a segment'))->dimensions(['segment'])
                 ->describe(t('The people who left each segment in the period'))->source(static fn (Window $w, array $by, Database $db) => self::moved('left_at', $w, $by, $db))
                 ->rows(static fn (Window $w, array $filters, Database $db): array => self::people('left_at', $w, $filters, $db));
+        }
+        if ($schema->hasTable(self::RULE_LOG)) {
+            yield Dimension::of('rule', t('Rule'))->values(static fn (): array => array_column(array_map(
+                static fn (array $r): array => ['id' => (string) $r['id'], 'name' => $r['name']], Rules::all()), 'name', 'id'));
+            yield Dimension::of('channel', t('Channel'));
+            yield Metric::flow('audience.rule.entered', t('Entered a rule'))->dimensions(['rule', 'version'])
+                ->describe(t('People taken into each rule and version, from pramnos.rule_log'))->source(static fn (Window $w, array $by, Database $db) => self::ruleLog('entered', $w, $db));
+            yield Metric::flow('audience.rule.sent', t('Messages sent by a rule'))->dimensions(['rule', 'version', 'channel'])
+                ->describe(t('Messages a rule sent, by channel'))->source(static fn (Window $w, array $by, Database $db) => self::ruleLog('sent', $w, $db, true));
+            yield Metric::flow('audience.rule.goal', t("Reached a rule's goal"))->dimensions(['rule', 'version'])
+                ->describe(t('People who reached the goal of each rule and version'))->source(static fn (Window $w, array $by, Database $db) => self::ruleLog('goal', $w, $db));
+            yield Metric::flow('audience.rule.exited', t('Exited a rule'))->dimensions(['rule', 'version'])
+                ->describe(t('People who exited each rule and version before its goal'))->source(static fn (Window $w, array $by, Database $db) => self::ruleLog('exited', $w, $db));
         }
         if ($schema->hasTable(PersonEvents::LOG)) {
             foreach (PersonEvents::all() as $key => $event) {
@@ -139,5 +156,26 @@ final class AudienceMetrics implements Catalogue
         }
 
         return $query->select([$query->raw('segment_members.segmentid AS segment'), $query->raw('COUNT(*) AS value')])->groupBy(['segment_members.segmentid'])->getAllOrFail();
+    }
+
+    /**
+     * One outcome of `pramnos.rule_log` in the period, by rule and version — by channel too for
+     * `sent`, since that is the figure a channel breaks down.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function ruleLog(string $outcome, Window $window, Database $db, bool $byChannel = false): array
+    {
+        $query = $db->queryBuilder()->table(self::RULE_LOG)->where('outcome', $outcome)
+            ->where('at', '>=', $window->startsAt())->where('at', '<', $window->endsAt());
+        $select = [$query->raw('ruleid AS rule'), $query->raw('version AS version')];
+        $group  = ['ruleid', 'version'];
+        if ($byChannel) {
+            $select[] = $query->raw('channel AS channel');
+            $group[]  = 'channel';
+        }
+        $select[] = $query->raw('COUNT(*) AS value');
+
+        return $query->select($select)->groupBy($group)->getAllOrFail();
     }
 }

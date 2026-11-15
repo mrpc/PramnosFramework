@@ -55,6 +55,7 @@ final class WidgetRegistry
         \Pramnos\Metrics\Widgets\TopWidget::class,
         \Pramnos\Metrics\Widgets\GoalWidget::class,
         \Pramnos\Metrics\Widgets\CohortWidget::class,
+        \Pramnos\Metrics\Widgets\ExperimentWidget::class,
         \Pramnos\Metrics\Widgets\MapWidget::class,
         \Pramnos\Metrics\Widgets\AnalysisWidget::class,
         \Pramnos\Metrics\Widgets\TextWidget::class,

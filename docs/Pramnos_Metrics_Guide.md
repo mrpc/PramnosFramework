@@ -515,11 +515,22 @@ declared (`Pramnos\Audience\AudienceMetrics`):
 | `audience.segment.left` | Who left each segment in the period |
 | `event.<key>` | A person event's occurrences, from the change log |
 | `event.<key>.people` | The people who did it |
+| `audience.rule.entered` | People taken into a rule, by `rule` and `version`, from `pramnos.rule_log` |
+| `audience.rule.sent` | Messages a rule sent, by `rule`, `version` and `channel` |
+| `audience.rule.goal` | People who reached a rule's goal, by `rule` and `version` |
+| `audience.rule.exited` | People who exited a rule before its goal, by `rule` and `version` |
 
 A segment's size is then a chart, a goal or an alert. A segment's past goes back as far as its
 stays are kept (`audience.segment_history_days`), and an event's as far as the change log keeps
-it. `'metrics' => ['audience' => false]` leaves them out, and a metric the application registers
+it. A rule's own log keeps `audience.rule_log_days` (90 by default; see the Audience Guide).
+`'metrics' => ['audience' => false]` leaves them out, and a metric the application registers
 under the same name wins.
+
+**An alert can start a rule.** Firing an alert (`Metrics\Alerts::fire()`) dispatches
+`MetricAlertFired` (`metric.alert`) once for each person it tells in `notify.users` — not for a
+conversation it posts to. An audience rule triggered on `{"type": "event", "event":
+"metric.alert"}` takes that person in like any other event; see [the Audience
+Guide](Pramnos_Audience_Guide.md#the-rules-and-the-metrics).
 
 ### A segment or an attribute as a dimension
 
@@ -622,6 +633,7 @@ every theme lines them up the same.
 | Analysis | `report.analysis` | The assistant's reading of the report's numbers, written when the report is drawn for sending from the tables its CSV holds, with what to look at in the card's own words. It is kept for the period (`reports` cache), so opening the report does not ask again. The page shows what was written; before the first send, a note says when it will be. |
 | Map | `report.map` | A metric by place: a circle at each value of a dimension that has places (`Dimension::geo()`), sized by its figure, over OpenStreetMap. It is drawn with Leaflet where the page has it, and the figures are a table under it, or alone without Leaflet. |
 | Cohorts | `report.cohorts` | A cohort metric as a grid: each of the last periods a row, its cohort's size and the share that reached the event within each span. |
+| A/B test | `report.experiment` | One of the audience's tests (`Audience\Experiments::results()`): each variant's people, conversion rate and how sure the difference from the first variant is. |
 | Text | `report.text` | Words in markdown, escaped and then formatted as the assistant's answers are. |
 | Records | `report.rows` | The records behind a metric that declares `rows()`, the first ones as a table, with a link to all of them. |
 
@@ -1226,6 +1238,11 @@ Annotations::between($from, $to, $tenant);   // the notes that touch a range: an
   a screen reader and without JavaScript at all.
 - **Deploys.** The daemon orchestrator notes each deploy it notices: `deploy`, "Deployed" and the
   commit.
+- **The audience, automatically.** A rule's changed definition or a status that moves, a test
+  started, stopped or decided, and a segment's changed filter each write their own note (kind
+  `rule`, `test` or `segment`) the moment they happen — `Rules::update()`/`setStatus()`,
+  `Experiments::start()`/`stop()`/`decide()`, `Segments::update()`. An unchanged definition and a
+  refused status change write nothing: the note marks a real move, not every call.
 - **Where they are kept.** Notes are kept in `stats.annotations`. Why a table and not the
   changelog: they are the business's own notes, written and edited by people, read by time range
   across every metric, and kept as long as the figures are.

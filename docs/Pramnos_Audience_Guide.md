@@ -819,3 +819,32 @@ are the same people:
 {"type": "split", "experiment": "annual-first", "variants": [{"key": "A", "next": null}, {"key": "B", "next": "offer"}]}
 ```
 
+A test's own report card, `Experiments::results()` drawn as a table — people, converted, rate,
+confidence per variant — is offered where reports are (`report.experiment`, see
+[the Metrics guide](Pramnos_Metrics_Guide.md)).
+
+## The rules and the metrics
+
+Rules and tests join the metrics (`Pramnos\Metrics`) three ways, each with no declaration of its
+own:
+
+- **An alert can start a rule.** Firing an alert (`Metrics\Alerts::fire()`) is also a plain event,
+  `MetricAlertFired` (`metric.alert`), dispatched once for each person the alert's `notify.users`
+  tells — not for a conversation it posts to, which names nobody. An audience rule whose trigger
+  is `{"type": "event", "event": "metric.alert"}` takes that person in exactly as it would for any
+  other event, through `$e->ruleId`, `$e->personId`, `$e->metric`, `$e->said`, `$e->at`.
+- **A rule and a test are measured.** Where `pramnos.rule_log` exists, four metrics read it with
+  no declaration: `audience.rule.entered`, `.sent` (by channel too), `.goal`, `.exited` — each by
+  `rule` and `version`, so a report answers "how many reached rule X's goal this month, on its
+  current version, against last". A rule's own name is the `rule` dimension's label.
+- **Rules, tests and segments annotate the charts.** `Rules::update()` (a changed definition only)
+  and `setStatus()` (a status that actually moves), `Experiments::start()`/`stop()`/`decide()`,
+  and `Segments::update()` (a changed filter only) each write a note (`Metrics\Annotations`,
+  kind `rule`, `test` or `segment`) at the moment it happens — drawn on a chart's periods beside a
+  deploy's.
+
+Not built: an alert's own default notify (the bell, the conversation line) is not re-expressed as
+a stored rule of its own — it already does what one would, so an application wanting
+`webhook`/`ai`/`conversation_post` beyond that plain notify writes a rule triggered on
+`metric.alert`, as above, instead.
+

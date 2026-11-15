@@ -15,6 +15,7 @@ use Pramnos\Audience\Rules\Engine;
 use Pramnos\Audience\Rules\Rules;
 use Pramnos\Audience\Segments;
 use Pramnos\Event\Event;
+use Pramnos\Metrics\Annotations;
 
 /**
  * Rules on MySQL, prefixed MySQL and PostgreSQL: people taken in by a trigger, through actions,
@@ -447,7 +448,9 @@ class RulesTest extends TestCase
     /**
      * The store: a changed definition is a new version, an unchanged one is not; statuses and
      * changes are audited; a running rule is not deleted; a segment or consent list a rule reads
-     * is not either; a definition that does not check is refused.
+     * is not either; a definition that does not check is refused. A changed definition and a
+     * status that actually moves are also a chart annotation (BI phase 7e, FW-516); an unchanged
+     * definition and a refused status are not.
      */
     #[DataProvider('databases')]
     public function testVersionsAuditAndUse(string $type, string $host, int $port, string $user): void
@@ -484,6 +487,10 @@ class RulesTest extends TestCase
         $this->assertSame(['rule.created', 'rule.status', 'rule.updated', 'rule.updated', 'rule.status', 'rule.status', 'rule.deleted'], $events);
         $this->assertNull(Rules::get($id));
         $this->assertSame([], $this->db->queryBuilder()->table('rule_versions')->where('ruleid', $id)->getAll());
+        // A changed definition and a status that moves are a note on the charts; the unchanged
+        // update and the refused status change are not.
+        $notes = array_column(Annotations::between(0, time() + 1), 'words');
+        $this->assertSame(['Rule changed: Welcome back (v2)', 'Rule Welcome back: draft → active', 'Rule Welcome back: active → paused'], $notes);
     }
 
     /**

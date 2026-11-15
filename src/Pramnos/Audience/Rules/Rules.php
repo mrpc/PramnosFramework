@@ -79,6 +79,9 @@ final class Rules
             ['name' => $rule['name'], 'version' => $rule['version'], 'definition' => $rule['definition']],
             ['name' => $row['name'] ?? $rule['name'], 'version' => $version, 'definition' => isset($row['definition']) ? json_decode($row['definition'], true) : $rule['definition']]);
         self::forgetEvents();
+        if ($version !== $rule['version']) {
+            self::annotate(sprintf(t('Rule changed: %s (v%d)'), $row['name'] ?? $rule['name'], $version), $by);
+        }
 
         return $version;
     }
@@ -96,9 +99,22 @@ final class Rules
         self::db()->queryBuilder()->table('#PREFIX#rules')->where('ruleid', $id)->update(['status' => $status, 'updatedat' => time()]);
         \Pramnos\Auth\AuditLog::change('rule.status', $by, 'rule', $id, ['status' => $rule['status']], ['status' => $status]);
         self::forgetEvents();
+        if ($status !== $rule['status']) {
+            self::annotate(sprintf(t('Rule %s: %s → %s'), $rule['name'], $rule['status'], $status), $by);
+        }
         if (in_array($status, self::RUNNING, true) && !in_array($rule['status'], self::RUNNING, true)
             && $rule['definition']['trigger']['type'] === 'once') {
             Engine::schedule(['kind' => 'everybody', 'rule' => $id]);
+        }
+    }
+
+    /** A note on the charts: a rule switched on, off, or changed — never thrown into the caller. */
+    private static function annotate(string $words, ?int $by): void
+    {
+        try {
+            \Pramnos\Metrics\Annotations::add(time(), $words, 'rule', by: $by);
+        } catch (\Throwable) {
+            // no annotations table: nothing drawn, nothing lost
         }
     }
 

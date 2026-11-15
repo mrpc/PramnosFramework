@@ -10,6 +10,7 @@ use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
 use Pramnos\Audience\AudienceMetrics;
 use Pramnos\Audience\PersonEvents;
+use Pramnos\Audience\Rules\Rules;
 use Pramnos\Audience\Segments;
 use Pramnos\Metrics\Metric;
 use Pramnos\Metrics\Metrics;
@@ -177,5 +178,52 @@ class AudienceMetricsTest extends TestCase
             \Pramnos\Metrics\Store::forget($this->db, 'test.%');
             $schema->dropTableIfExists('metrics_test_payments');
         }
+    }
+
+    /**
+     * BI phase 7e: a rule's own run log ({@see \Pramnos\Audience\Rules\Engine}) measured, with no
+     * declaration of the application's — entered, sent (by channel), reached its goal, exited —
+     * each by rule and version, straight from `pramnos.rule_log`'s own outcomes.
+     */
+    #[DataProvider('databases')]
+    public function testARulesLogIsMeasuredByRuleAndVersion(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — a rule with no steps of its own: only its log rows, hand-written, matter here.
+        $this->boot($type, $host, $port, $user);
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Stats\CreateMetricValuesTable::class], $this->db);
+        $id   = Rules::create('Welcome', ['trigger' => ['type' => 'once']], owner: 2);
+        $at   = static fn (string $when): int => (int) strtotime($when . ' UTC');
+        $log  = $this->db->queryBuilder()->table('pramnos.rule_log');
+        foreach ([
+            ['entered', null, null], ['entered', null, null], ['sent', 'step', 'email'], ['sent', 'step', 'push'],
+            ['goal', null, null], ['exited', null, null],
+        ] as [$outcome, $step, $channel]) {
+            $log->insert(['runid' => 1, 'ruleid' => $id, 'version' => 1, 'personid' => $this->ids['anna'], 'step' => $step,
+                'outcome' => $outcome, 'channel' => $channel, 'detail' => null, 'at' => $at('2026-09-05 10:00')]);
+        }
+        // A second version's own row: kept apart by the 'version' dimension.
+        $log->insert(['runid' => 2, 'ruleid' => $id, 'version' => 2, 'personid' => $this->ids['bob'], 'step' => null,
+            'outcome' => 'entered', 'channel' => null, 'detail' => null, 'at' => $at('2026-09-06 10:00')]);
+        Metrics::reset();
+
+        // Act
+        $names    = array_keys(Metrics::all());
+        $computed = Metrics::compute(['audience.rule.entered', 'audience.rule.sent', 'audience.rule.goal', 'audience.rule.exited'],
+            ['month'], '2026-09-01', '2026-09-30', false, $at('2026-11-06 12:00'));
+        $read      = static fn (string $metric, array $where = []): ?float => Metrics::query($metric)->grain('month')->at('2026-09-01')->where($where)->value();
+        $byChannel = Metrics::query('audience.rule.sent')->grain('month')->at('2026-09-01')->by('channel')->series()['values'];
+        $byVersion = Metrics::query('audience.rule.entered')->grain('month')->at('2026-09-01')->by('version')->series()['values'];
+        $label     = Metrics::dimensionOf('rule')->labelOf((string) $id);
+
+        // Assert
+        $this->assertSame([], $computed['failed'], 'computed');
+        $this->assertContains('audience.rule.entered', $names);
+        $this->assertSame('Welcome', $label);
+        $this->assertSame(3.0, $read('audience.rule.entered'), 'two in version 1, one in version 2');
+        $this->assertSame(2.0, $read('audience.rule.sent', ['rule' => (string) $id]));
+        $this->assertSame(1.0, $read('audience.rule.goal'));
+        $this->assertSame(1.0, $read('audience.rule.exited'));
+        $this->assertEqualsCanonicalizing(['email' => [1.0], 'push' => [1.0]], $byChannel);
+        $this->assertEqualsCanonicalizing(['1' => [2.0], '2' => [1.0]], $byVersion, 'version 1 twice, version 2 once');
     }
 }

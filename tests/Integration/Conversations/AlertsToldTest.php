@@ -13,6 +13,7 @@ use Pramnos\Conversations\Messages;
 use Pramnos\Metrics\AlertNotification;
 use Pramnos\Metrics\Alerts;
 use Pramnos\Metrics\Metric;
+use Pramnos\Metrics\MetricAlertFired;
 use Pramnos\Metrics\Metrics;
 
 /**
@@ -21,6 +22,7 @@ use Pramnos\Metrics\Metrics;
  */
 #[CoversClass(Alerts::class)]
 #[CoversClass(AlertNotification::class)]
+#[CoversClass(MetricAlertFired::class)]
 class AlertsToldTest extends TestCase
 {
     use ConversationsProbe {
@@ -53,6 +55,13 @@ class AlertsToldTest extends TestCase
         Metrics::compute(['test.payments'], ['day'], '2026-11-05', '2026-11-05', false, (int) strtotime('2026-11-06 10:00 UTC'));
         $rule = Alerts::create(['metric' => 'test.payments', 'kind' => 'threshold', 'op' => 'below', 'value' => 1, 'name' => 'Payments',
             'notify' => ['users' => [$maria, 999999], 'conversation' => $ops]]);
+        // Firing is also a plain event (BI phase 7e, FW-516): an audience rule triggered on it would
+        // take maria in — here just listened for directly, the same way testAGoalThatTurnsIsToldOnce
+        // listens for GoalTurned below.
+        $heard = [];
+        \Pramnos\Event\Event::listen(MetricAlertFired::EVENT, static function (MetricAlertFired $e) use (&$heard): void {
+            $heard[] = $e->ruleId . ':' . $e->personId;
+        });
 
         // Act
         $fired = Alerts::evaluate((int) strtotime('2026-11-06 10:00 UTC'));
@@ -65,6 +74,7 @@ class AlertsToldTest extends TestCase
         $this->assertStringContainsString('Payments was 0', (string) json_encode($bell[0], JSON_UNESCAPED_UNICODE));
         $this->assertCount(1, $lines);
         $this->assertStringContainsString('Payments was 0 in 2026-11-05', $lines[0]);
+        $this->assertSame([$rule . ':' . $maria], $heard, 'dispatched for maria, who has an account; not for the one who does not, nor for the conversation');
     }
 
     /**
