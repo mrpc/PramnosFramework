@@ -147,6 +147,23 @@ class ToolGateTest extends LlmTestCase
     }
 
     /**
+     * A hard floor — marked on the tool itself, or named to the gate — is refused even where a
+     * grant matches the call completely, and even where the tool is not `writes`/`gated` at all:
+     * no grant, present or future, is ever read for one. An ordinary gated call, with no hard
+     * floor, still runs within its grant as before.
+     */
+    public function testAHardFloorIsNeverCoveredByAGrant(): void
+    {
+        // Arrange
+        $gate = new GrantGate([new ToolGrant('wire', free: ['amount']), new ToolGrant('delete', free: ['id'])], hardFloors: ['wire']);
+
+        // Act / Assert
+        $this->assertSame(sprintf(GrantGate::HARD_FLOOR, 'wire'), $gate->before('wire', ['amount' => 10], ['writes' => true], []), 'named to the gate');
+        $this->assertSame(sprintf(GrantGate::HARD_FLOOR, 'confirm'), $gate->before('confirm', [], ['hard_floor' => true], []), 'marked on a tool that is not writes/gated at all');
+        $this->assertNull($gate->before('delete', ['id' => 1], ['writes' => true], []), 'an ordinary gated call still runs within its own grant');
+    }
+
+    /**
      * A call the gate refuses is never run — not alone, not with the reads run at once — and the
      * model is told why in its place; the gate is asked with the call's context.
      */

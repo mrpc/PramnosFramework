@@ -5,6 +5,7 @@ use_cases:
   - Capping what one answer may spend, and falling back when a provider is down
   - Keeping data of one kind away from a provider that may not have it, and choosing a model per question
   - Plugging an application's plans, quotas or consent into model calls
+  - Making an action always wait for the person's own word, however trusted the model or the grant
   - Measuring a prompt, model or tool change against eval fixtures, and failing CI on a regression
   - Working out what model calls cost, which failed, and why
 ---
@@ -449,6 +450,22 @@ A call no grant covers is told `GrantGate::NEEDS_APPROVAL`: the model says what 
 does it when the person confirms. An application whose grants are stored, or depend on the
 person, overrides `GrantGate::grants(array $context)`; one that gates other tools overrides
 `gated()`. An argument matcher of its own implements `Grants\ArgumentMatcher`.
+
+**A hard floor is never covered by a grant, however exactly it matches** — a tool marked
+`'hard_floor' => true`, or named to the gate:
+
+```php
+Llm::use('tool_gate', new GrantGate($grants, hardFloors: ['wire_transfer', 'delete_account']));
+```
+
+An idea borrowed from reading [openworker](https://github.com/andrewyng/openworker)'s own
+sandboxed tool runner for comparison: some actions always wait for the person's word said right
+now, no standing approval ever substituting for it — the call is told `GrantGate::HARD_FLOOR`
+regardless of what any `ToolGrant` would otherwise allow, checked before `gated()` so a hard floor
+needs no `writes`/`gated` flag of its own to mean it. Every refusal of one is written to
+`Auth\AuditLog` under `GrantGate::AUDITED` (`ai.hard_floor_refused`) — who was asking, the call and
+its arguments — a permanent trail of the attempt whether or not the person goes on to approve it
+some other way (`Chat\Proposals`, or an application's own equivalent).
 
 `Llm::listen(callable)` is told about every call after it is logged — for what an application
 keeps per call beside the log, such as what an article cost to write. A listener that throws is

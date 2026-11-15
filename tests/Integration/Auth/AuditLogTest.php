@@ -11,6 +11,8 @@ use Pramnos\Auth\AuditLog;
 use Pramnos\Console\Commands\AuditPrune;
 use Pramnos\Database\Database;
 use Pramnos\Framework\Factory;
+use Pramnos\Llm\Policy\GrantGate;
+use Pramnos\Llm\Policy\Grants\ToolGrant;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
 
@@ -22,6 +24,7 @@ use Symfony\Component\Console\Tester\CommandTester;
 #[CoversClass(AuditLog::class)]
 #[CoversClass(AuditPrune::class)]
 #[CoversClass(\Pramnos\Database\Instant::class)]
+#[CoversClass(GrantGate::class)]
 final class AuditLogTest extends TestCase
 {
     private ?Database $db = null;
@@ -44,6 +47,8 @@ final class AuditLogTest extends TestCase
     {
         if ($this->db !== null) {
             $this->db->queryBuilder()->table(AuditLog::TABLE)->where('event_type', 'like', $this->mark . '%')->delete();
+            // A hard floor's own event name is fixed, not marked — scoped by its object_id instead.
+            $this->db->queryBuilder()->table(AuditLog::TABLE)->where('object_id', 'like', $this->mark . '%')->delete();
         }
         if ($this->previous !== null) {
             $singleton = &Factory::getDatabase();
@@ -102,6 +107,31 @@ final class AuditLogTest extends TestCase
         $this->assertSame(['clientSecret' => AuditLog::REDACTED], $change['old_values']);
         $this->assertEquals(['clientSecret' => AuditLog::REDACTED, 'name' => 'Ψ'], $change['new_values'], 'JSON columns keep keys, not their order');
         $this->assertEquals(['via' => ['api_key' => AuditLog::REDACTED, 'ip' => '10.0.0.1']], $change['metadata'], 'at any depth');
+    }
+
+    /**
+     * A hard floor refuses a call even when a grant matches it completely — the point of it, since
+     * an ordinary {@see ToolGrant} would otherwise let this one through — and the refusal is
+     * written here permanently, who was asking and with what arguments, whether or not they go on
+     * to approve it some other way.
+     */
+    #[DataProvider('databases')]
+    public function testAHardFloorIsRefusedAndAuditedEvenWithAGrant(string $type, string $host, int $port): void
+    {
+        // Arrange — a grant that would, on its own, cover this call completely
+        $this->connect($type, $host, $port);
+        $tool = $this->mark . 'wire_transfer';
+        $gate = new GrantGate([new ToolGrant($tool, free: ['amount'])], hardFloors: [$tool]);
+
+        // Act
+        $refused = $gate->before($tool, ['amount' => 10000], [], ['userid' => 7, 'purpose' => 'test']);
+        $rows    = AuditLog::query(['event' => GrantGate::AUDITED, 'object_type' => 'ai_tool', 'object_id' => $tool]);
+
+        // Assert
+        $this->assertSame(sprintf(GrantGate::HARD_FLOOR, $tool), $refused);
+        $this->assertCount(1, $rows);
+        $this->assertSame([7, 'ai_tool', $tool], [(int) $rows[0]['actor_userid'], $rows[0]['object_type'], $rows[0]['object_id']]);
+        $this->assertEquals(['tool' => $tool, 'arguments' => ['amount' => 10000], 'purpose' => 'test'], $rows[0]['metadata']);
     }
 
     /**
