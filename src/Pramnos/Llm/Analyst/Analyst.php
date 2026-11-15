@@ -273,6 +273,15 @@ final class Analyst
             $tools[] = new \Pramnos\Llm\Analyst\Tools\ReadExportTool($adminId);
         }
 
+        // A sandboxed code_exec, where the application turned it on and the table is there —
+        // answers only once a worker able to run it claims the row; see CodeExecTool's own docblock.
+        if (is_array($analyst) && !empty($analyst['code_exec']) && $adminId > 0 && \Pramnos\Llm\Sandbox\Exec::available()) {
+            $tools[] = new \Pramnos\Llm\Analyst\Tools\CodeExecTool(
+                $adminId,
+                max(1, (int) ($analyst['code_exec_wait'] ?? \Pramnos\Llm\Analyst\Tools\CodeExecTool::DEFAULT_WAIT))
+            );
+        }
+
         foreach ((array) Llm::config('admin_tools', []) as $tool) {
             $tool = is_string($tool) && class_exists($tool) ? new $tool() : $tool;
             if ($tool instanceof McpToolInterface) {

@@ -1,0 +1,9 @@
+{
+  "name": "pramnos-sandbox-runner",
+  "private": true,
+  "description": "code_exec's own half: Pyodide (Python-in-WebAssembly) run under Node.js, invoked by Pramnos\\Llm\\Sandbox\\PyodideRunner. Not published; `npm install` here on a code_exec worker host.",
+  "type": "module",
+  "dependencies": {
+    "pyodide": "314.0.8"
+  }
+}

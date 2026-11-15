@@ -3,6 +3,7 @@ use_cases:
   - Letting administrators ask questions about the installation's own figures
   - Letting the AI explain, in plain words, a change in the code behind "it worked yesterday"
   - Giving the analyst its own SQL, files to download and the application's figures
+  - Letting the analyst run sandboxed Python for analysis SQL alone cannot do
   - Keeping personal data out of what the analyst reads
   - Adding a microphone and read-aloud to the Ask AI page
   - Checking from the console how the analyst answers after fixing a tool or the help
@@ -755,6 +756,78 @@ reason to refuse the read the way a broken `database_readonly_dsn` is.
 
 Rows go through the redaction like every tool's answer. `sql` and `export_csv` are tagged
 `personal`, since a statement can read anybody's row.
+
+## `code_exec`: sandboxed Python (prototype)
+
+For analysis none of the above can do — comparing numbers across a file, a pandas-style groupby
+or pivot — `'llm' => ['analyst' => ['code_exec' => true]]` gives the model one more tool: Python,
+run in an isolated sandbox, never the database.
+
+```php
+'llm' => ['analyst' => [
+    'code_exec'            => true,  // schema/export/sql above still decide what it may read first
+    'code_exec_wait'       => 25,    // seconds the answer waits for a sandbox worker — CodeExecTool::DEFAULT_WAIT otherwise
+    'code_exec_seconds'    => 20,    // seconds the sandbox itself may run — PyodideRunner::DEFAULT_TIMEOUT_SECONDS otherwise
+    'code_exec_memory_mb'  => 512,   // the sandbox's own memory ceiling — PyodideRunner::DEFAULT_MEMORY_MB otherwise
+]]],
+```
+
+**Why not a provider's own code-execution tool.** The assistant is multi-provider on purpose
+(OpenAI, Google, Mistral, a local model — whichever a conversation's `Policy\Cascade` or fallback
+reaches), and a provider's own sandboxed code tool is that provider's alone: built once more for
+each, or the assistant stops being provider-agnostic the moment this one capability is used.
+`code_exec` is the framework's own, the same tool regardless of which provider answered.
+
+**How it runs.** `Pyodide` — CPython compiled to WebAssembly, under Node.js
+(`resources/js/sandbox-runner/`) — not a second language the sandbox has to speak on the model's
+behalf, and not a container image to build and ship: `npm install` once, in that directory, on
+whichever worker is meant to run this. A call never runs in the request answering the question:
+`CodeExecTool` only writes a row to `pramnos.llm_code_exec_runs`, queues a `code_exec` task, and
+polls the row until a worker finishes it or `code_exec_wait` runs out — refused outright past
+that, never falling back to running the script itself. That is deliberate: the sandbox's own
+runtime has no business being installed on every server answering Ask AI, only on the one or two
+workers given it.
+
+**An application must point a worker at it, explicitly** — `code_exec` is not in
+`Worker::FRAMEWORK_HANDLERS` the way `ParallelTools`'s own task is, because that one is safe for
+*any* worker to run (it reads and changes nothing) and this one needs Node.js, `pyodide` and the
+cgroup tooling below, which most workers will not have:
+
+```php
+'queue' => ['handlers' => ['code_exec' => \Pramnos\Llm\Sandbox\CodeExecTask::class]],
+```
+
+Nothing answers a `code_exec` call until some worker, somewhere, is started with that handler
+registered — a plain `queue:process` on an ordinary worker will not claim it.
+
+**Resource limits, measured rather than assumed.** `PyodideRunner` wraps the Node process in
+`systemd-run --user --scope -p MemoryMax=…` where `systemd-run` is reachable (the worker's own
+user needs a lingering session: `loginctl enable-linger`, where it is not an interactive login),
+and kills it outright — `SIGKILL`, not the catchable default — past `code_exec_seconds` either
+way. `node --max-old-space-size` was tried first and does **not** bound Pyodide's own WebAssembly
+memory: a script was measured well past 4 GB with it set to 128 MB. `ulimit -v` does not work
+with Node at all — V8 reserves a large virtual address space up front and aborts before running
+anything. Loading pandas alone — before a line of the asked-for code runs — uses close to 400 MB,
+which is why the default ceiling is 512 MB rather than something smaller. A fork bomb cannot
+happen through `os.fork()`: WebAssembly has no such syscall, so Pyodide raises `OSError`
+immediately, nothing to cap.
+
+**What this prototype still does not do.** No network namespace is set up around the sandbox —
+Pyodide's own socket shim under Node.js was measured not to move real bytes (a `connect()`
+succeeds without one, `recv()` never returns data, with or without a real route), which is a
+property of a dependency this does not control, not a guarantee the framework makes. Packages
+(`pandas`, `numpy`…) are fetched from a CDN the first time one is asked for and cached in
+`resources/js/sandbox-runner/node_modules/` after that — a worker meant to run fully offline
+needs that cache pre-warmed, which nothing here does automatically yet. Where `systemd-run` is
+not reachable at all, the sandbox still runs, unbounded in memory, stopped only by its wall-clock
+timeout. None of this is hidden behind the word "sandboxed" — read `PyodideRunner`'s own docblock
+before pointing a production worker at it.
+
+**No access to the database, or to any other tool.** The code given to `code_exec` reads only
+what the question already gave it (a `csv` argument, read from `/tmp/input.csv`) and whatever its
+own `print()` calls answer with — it cannot call `sql`, `export_csv` or anything else the model
+might otherwise reach. Not tagged `personal`: it reads no row the question did not already give
+it.
 
 ## Subagents: a multi-step question handed to a model of its own
 
