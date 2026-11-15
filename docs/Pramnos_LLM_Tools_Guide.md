@@ -173,7 +173,7 @@ and what it is for. The framework's own tools are already marked (`Conversations
 | Skill | Tools |
 |---|---|
 | `tasks` | scheduling questions, reminders and reports |
-| `artifacts` | `read_artifact`, `update_artifact`, `list_artifacts`, `pin_artifact` (`save_artifact` stays) |
+| `artifacts` | `read_artifact`, `json_query`, `update_artifact`, `list_artifacts`, `pin_artifact` (`save_artifact` stays) |
 | `profile`, `calendar`, `journal` | the [person's own](Pramnos_LLM_Person_Guide.md#the-persons-own-a-profile-a-calendar-a-journal) profile, calendar and journal (`set_busy` stays) |
 | `web` | `web_search`, `fetch_url` |
 

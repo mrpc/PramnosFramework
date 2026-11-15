@@ -112,6 +112,38 @@ class LivingArtifactsTest extends LlmTestCase
     }
 
     /**
+     * `json_query` (FW-505): a table's rows filtered by `where` and projected by `select`,
+     * without reading it whole — never somebody else's, and refused for a kind that is not a
+     * table, since a list or a chart is short enough for `read_artifact` to read whole already.
+     */
+    #[DataProvider('databases')]
+    public function testQueryingATableArtifact(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $mine   = new Artifacts(new Scope(7, null));
+        $table  = $mine->create(['kind' => 'table', 'title' => 'Orders', 'columns' => ['Customer', 'Status', 'Total'],
+            'rows' => [['Ann', 'open', 10], ['Bob', 'PAID', 20], ['Cid', 'open', 30]]]);
+        $text   = $mine->create(['kind' => 'text', 'title' => 'Notes', 'text' => 'Nothing to query here.']);
+        $theirs = (new Artifacts(new Scope(8, null)))->create(['kind' => 'table', 'title' => 'Secret', 'columns' => ['x'], 'rows' => [[1]]]);
+
+        // Act — a case-insensitive match on Status, projected to one column
+        $open     = json_decode(self::call($mine, 'json_query', ['id' => $table['artifact_id'], 'where' => ['Status' => 'open'], 'select' => ['Customer']]), true);
+        $all      = json_decode(self::call($mine, 'json_query', ['id' => $table['artifact_id']]), true);
+        $limited  = json_decode(self::call($mine, 'json_query', ['id' => $table['artifact_id'], 'limit' => 1]), true);
+        $wrongKind = self::call($mine, 'json_query', ['id' => $text['artifact_id']]);
+        $notMine   = self::call($mine, 'json_query', ['id' => $theirs['artifact_id']]);
+
+        // Assert
+        $this->assertSame(['columns' => ['Customer'], 'rows' => [['Ann'], ['Cid']], 'matched' => 2, 'of' => 3], $open, 'case-insensitive where, projected columns');
+        $this->assertSame(['Customer', 'Status', 'Total'], $all['columns'], 'every column when select is not given');
+        $this->assertSame(3, $all['matched'], 'every row when where is not given');
+        $this->assertSame('at least 1', $limited['matched'], 'the limit, not the true count, once it is reached');
+        $this->assertSame('Error: json_query works on a table artifact\'s rows; read_artifact reads this one whole.', $wrongKind);
+        $this->assertSame('Error: there is no such artifact.', $notMine);
+    }
+
+    /**
      * Each mode of change: replace, append, and patch — a title, a find-and-replace in a text, ids
      * off a list, rows off a table. Every change is checked whole, and a change that cannot be
      * made says why and leaves the artifact as it was.

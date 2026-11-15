@@ -599,9 +599,16 @@ work on what this person kept earlier, from any conversation:
 | Tool | Does |
 |---|---|
 | `read_artifact` | reads one by `id`, or by `title`, preferring an exact title to one that only contains the words; at most `Artifacts::READ` characters |
+| `json_query` | a table artifact's rows, filtered by `where` (column => value, exact, case-insensitive) and projected by `select`, without reading it whole; `limit` caps how many, 50 by default, 500 at most |
 | `update_artifact` | changes one: `mode` `replace` (its kind's fields anew), `append` (table rows, list ids and labels, or text at the end), or `patch` (a new `title`; `find`/`replace` in a text, exactly once; `remove` ids from a list; `remove_rows` from a table, numbered from 1) |
 | `list_artifacts` | finds them by `kind`, `entity`, `tag` or words in the title (`query`), newest change first |
 | `pin_artifact` | pins one, or takes it off (`pinned: false`) |
+
+**`json_query` is for a table too big to read whole.** `read_artifact` cuts at `read` characters
+(below); a table of hundreds of rows past that point is better asked for in pieces: "rows where
+Status is open, just the Customer column" rather than the whole table cut mid-row. It refuses a
+list or a chart — short enough for `read_artifact` to read in full already — and, like every
+other artifact tool, answers nothing for one that is not this person's own or shared with them.
 
 A change is checked whole, against the same limits as a new artifact. A list that would name an
 id twice, or a table past 1,000 rows, is refused with the reason and left as it was. A chart is

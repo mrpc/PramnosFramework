@@ -204,6 +204,55 @@ final class Artifacts
                     return is_string($changed) ? 'Error: ' . $changed : 'Changed artifact ' . $changed['artifact_id'] . '.';
                 },
             ],
+            'json_query' => [
+                'description' => 'Filtered, projected rows of a table artifact this person kept, without reading it whole '
+                    . '(read_artifact cuts at ' . self::limit('read') . ' characters) — by its id or its title. where: '
+                    . 'column => value, exact match, case-insensitive; every pair given must match. select: which columns '
+                    . 'to keep, the rest left out. limit: at most this many rows, 50 by default, 500 at most. Works on a '
+                    . 'table\'s rows only — a list or a chart is short enough for read_artifact to read whole.',
+                'parameters'  => ['type' => 'object', 'properties' => [
+                    'id'     => $id,
+                    'title'  => ['type' => 'string', 'description' => 'Its title, or a part of it.'],
+                    'where'  => ['type' => 'object', 'description' => 'column => value; every pair must match.'],
+                    'select' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Columns to keep.'],
+                    'limit'  => ['type' => 'integer', 'description' => 'At most 500, 50 by default.'],
+                ]],
+                'run'         => function (array $a): string {
+                    $found = $this->lookUp($a);
+                    if ($found === null) {
+                        return 'Error: there is no such artifact.';
+                    }
+                    if ($found['kind'] !== 'table') {
+                        return 'Error: json_query works on a table artifact\'s rows; read_artifact reads this one whole.';
+                    }
+                    $columns = array_values((array) ($found['content']['columns'] ?? []));
+                    $rows    = (array) ($found['content']['rows'] ?? []);
+                    $where   = is_array($a['where'] ?? null) ? $a['where'] : [];
+                    $matches = static function (array $row) use ($columns, $where): bool {
+                        foreach ($where as $column => $value) {
+                            $at = array_search((string) $column, $columns, true);
+                            if ($at === false || mb_strtolower((string) ($row[$at] ?? '')) !== mb_strtolower((string) $value)) {
+                                return false;
+                            }
+                        }
+
+                        return true;
+                    };
+                    $picked = array_values(array_intersect($columns, is_array($a['select'] ?? null) && $a['select'] !== [] ? $a['select'] : $columns));
+                    $limit  = max(1, min(500, (int) ($a['limit'] ?? 50)));
+                    $kept   = [];
+                    foreach ($rows as $row) {
+                        if ($matches($row)) {
+                            $kept[] = array_map(static fn (string $c): mixed => $row[array_search($c, $columns, true)] ?? null, $picked);
+                            if (count($kept) >= $limit) {
+                                break;
+                            }
+                        }
+                    }
+
+                    return (string) json_encode(['columns' => $picked, 'rows' => $kept, 'matched' => count($kept) === $limit ? 'at least ' . $limit : count($kept), 'of' => count($rows)], JSON_UNESCAPED_UNICODE);
+                },
+            ],
             'list_artifacts' => [
                 'description' => 'Find artifacts this person kept, newest change first, by kind, entity, tag or words in the title.',
                 'parameters'  => ['type' => 'object', 'properties' => [
