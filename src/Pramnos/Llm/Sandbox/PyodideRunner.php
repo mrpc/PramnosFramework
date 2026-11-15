@@ -11,12 +11,15 @@ namespace Pramnos\Llm\Sandbox;
  * killed outright past its wall-clock seconds either way.
  *
  * **A prototype, not a hardened sandbox** — see docs/Pramnos_LLM_Analyst_Guide.md, "code_exec",
- * for what this still does not do (pre-bundled packages for an offline worker, a fallback when
- * `systemd-run` or `unshare` are themselves not reachable). Needs on the worker it runs on:
- * Node.js, `npm install` run once in `resources/js/sandbox-runner/`, a user session `systemd-run
- * --user` can reach (`loginctl enable-linger`, where the worker is not an interactive login), and
- * an unprivileged user able to make its own network namespace (`unshare --net --map-root-user`;
- * the ordinary case on Linux — see `/proc/sys/kernel/unprivileged_userns_clone` where it is not).
+ * for what this still does not do (pre-bundled packages for an offline worker). Both `systemd-run`
+ * and `unshare` are probed for real before use, not assumed from being on the `PATH` — neither
+ * being reachable is a clean fall-through to what remains, down to the wall-clock timeout alone,
+ * never a refusal to run at all. Best on a worker with: Node.js, `npm install` run once in
+ * `resources/js/sandbox-runner/`, a user session `systemd-run --user` can reach (`loginctl
+ * enable-linger`, where the worker is not an interactive login), and an unprivileged user able to
+ * make its own network namespace (`unshare --net --map-root-user`; the ordinary case on Linux —
+ * see `/proc/sys/kernel/unprivileged_userns_clone` where it is not, and note that an ordinary
+ * container runs no `systemd` at all, so `systemd-run` there never reaches one either).
  *
  * Measured, not assumed, each of these — not one taken on faith:
  *
@@ -109,7 +112,7 @@ final class PyodideRunner
             ? ['unshare', '--net', '--map-root-user', '--', ...$node]
             : $node;
 
-        if (!self::has('systemd-run')) {
+        if (!self::canRunScoped()) {
             return $sandboxed;
         }
 
@@ -213,6 +216,28 @@ final class PyodideRunner
         if ($can === null) {
             $code = 1;
             @exec('unshare --net --map-root-user -- true 2>/dev/null', $unused, $code);
+            $can = $code === 0;
+        }
+
+        return $can;
+    }
+
+    /**
+     * Whether `systemd-run --user --scope` can actually start something here, cached for the
+     * rest of the process — a binary on the `PATH` is, again, not enough to know: an ordinary
+     * container runs no `systemd` at all, so `systemd-run` fails outright with nothing to reach
+     * (no `init` to act as the system manager, no session bus for `--user`), not merely with the
+     * cgroup it asked for refused the way an unprivileged namespace can be. Without this check,
+     * `systemd-run`'s own binary present but unreachable meant **every** `code_exec` call failed
+     * outright, rather than running uncapped in memory with the wall-clock timeout as the only
+     * limit left — the same class of mistake {@see canUnshareNet()} exists to avoid.
+     */
+    private static function canRunScoped(): bool
+    {
+        static $can = null;
+        if ($can === null) {
+            $code = 1;
+            @exec('systemd-run --user --scope --quiet -- true 2>/dev/null', $unused, $code);
             $can = $code === 0;
         }
 
