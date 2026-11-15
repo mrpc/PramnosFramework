@@ -33,6 +33,16 @@ final class Exec
         }
     }
 
+    /**
+     * How many calls, across every person, are waiting for a worker or being run right now —
+     * what {@see Tools\CodeExecTool}'s own ceiling counts against, since every one of them is a
+     * request still holding its own PHP worker while it waits (FW-508: a peer's review).
+     */
+    public static function pending(): int
+    {
+        return (int) self::rows()->whereIn('status', ['pending', 'running'])->count();
+    }
+
     /** A new row, pending a worker. */
     public static function create(int $userId, string $code, ?string $input): int
     {

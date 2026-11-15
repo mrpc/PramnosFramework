@@ -151,6 +151,33 @@ class CodeExecTest extends LlmTestCase
     }
 
     /**
+     * `maxPending` (a peer's review, FW-508): once that many calls are already waiting or running
+     * across everybody, a new one is refused before a row is even written — never queued, never
+     * blocking the request that asked for it — rather than one more PHP worker joining them with
+     * nothing to show for it.
+     */
+    #[DataProvider('databases')]
+    public function testTooManyPendingIsRefusedAtOnce(string $type, string $host, int $port): void
+    {
+        // Arrange — two calls left running, nobody ever finishing them
+        $this->connectDatabase($type, $host, $port);
+        Exec::claim(Exec::create(7, 'print(1)', null), 'stuck-1');
+        Exec::claim(Exec::create(8, 'print(2)', null), 'stuck-2');
+        $queue = new FakeCodeExecQueue(answer: ['ok' => true, 'result' => 'unused']);
+
+        // Act
+        $started = microtime(true);
+        $said    = (new CodeExecTool(7, 5, $queue, maxPending: 2))->execute(['code' => 'print(3)']);
+        $took    = microtime(true) - $started;
+
+        // Assert
+        $this->assertSame('Error: too many sandbox runs waiting already — try again shortly.', $said);
+        $this->assertLessThan(1, $took, 'refused at once, never polled');
+        $this->assertSame([], $queue->tasks, 'never queued');
+        $this->assertCount(2, $this->rows(Exec::TABLE), 'the two stuck runs, and nothing of this refused one');
+    }
+
+    /**
      * Off the `analyst` tools until the application turns `code_exec` on — the table existing is
      * not enough by itself, the way `export` already needs `$adminId > 0`.
      */

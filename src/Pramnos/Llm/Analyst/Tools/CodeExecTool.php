@@ -20,9 +20,15 @@ use Pramnos\Queue\QueueManager;
  * server. Nothing answers unless an application has pointed a worker at `code_exec` explicitly
  * (see {@see \Pramnos\Llm\Sandbox\CodeExecTask}) — refused outright otherwise, past the wait.
  *
+ * **The wait itself is a PHP worker held open**, not a cost without a ceiling (a peer's review,
+ * FW-508): every call blocks the request asking it for up to `$waitSeconds`, so enough callers at
+ * once — a missing worker, or one busier than `code_exec_max_pending` expects — can hold open that
+ * many of the web tier's own worker slots for nothing, never reaching the sandbox at all. `$maxPending`
+ * refuses a call outright, before a row is even written, once that many are already waiting or
+ * running across everybody — a circuit breaker on the web tier's own exposure, not on the sandbox.
+ *
  * **A prototype.** See docs/Pramnos_LLM_Analyst_Guide.md, "code_exec (prototype)", for what this
- * still does not do before it is production-grade: network isolation, pre-bundled packages for an
- * offline worker, and a `systemd-run` fallback for a host it cannot reach.
+ * still does not do before it is production-grade: pre-bundled packages for an offline worker.
  */
 final class CodeExecTool implements McpToolInterface
 {
@@ -35,10 +41,19 @@ final class CodeExecTool implements McpToolInterface
     /** Seconds the answer waits for a worker, by default — separate from the sandbox's own `code_exec_seconds`. */
     public const DEFAULT_WAIT = 25;
 
+    /**
+     * Calls waiting or running at once, across everybody, before a new one is refused outright —
+     * by default. Past this, a missing or overloaded worker could hold that many of the web
+     * tier's own PHP workers open for the whole wait, for nothing: better a fast, honest refusal
+     * than one more request quietly joining them.
+     */
+    public const DEFAULT_MAX_PENDING = 5;
+
     public function __construct(
         private readonly int $userId,
         private readonly int $waitSeconds = self::DEFAULT_WAIT,
         private readonly ?QueueManager $queue = null,
+        private readonly int $maxPending = self::DEFAULT_MAX_PENDING,
     ) {
     }
 
@@ -52,7 +67,7 @@ final class CodeExecTool implements McpToolInterface
         return 'Python, run in an isolated sandbox — no network, bounded memory/CPU/time — for analysis plain tools cannot: '
             . 'comparing numbers across a file, pandas-style grouping or a pivot. csv: a CSV\'s text, when the question gave '
             . 'one, read from /tmp/input.csv by the code. print() whatever should come back — nothing else of the run is '
-            . 'kept. Refused if no sandbox worker claims it in time.';
+            . 'kept. Refused if no sandbox worker claims it in time, or if too many are already waiting — try again shortly then.';
     }
 
     public function inputSchema(): array
@@ -74,6 +89,9 @@ final class CodeExecTool implements McpToolInterface
         $code = (string) ($input['code'] ?? '');
         if (trim($code) === '') {
             return 'Error: nothing to run.';
+        }
+        if (Exec::pending() >= max(1, $this->maxPending)) {
+            return 'Error: too many sandbox runs waiting already — try again shortly.';
         }
 
         $runId = Exec::create($this->userId, $code, isset($input['csv']) ? (string) $input['csv'] : null);

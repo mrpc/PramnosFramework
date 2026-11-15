@@ -769,6 +769,7 @@ run in an isolated sandbox, never the database.
     'code_exec_wait'       => 25,    // seconds the answer waits for a sandbox worker — CodeExecTool::DEFAULT_WAIT otherwise
     'code_exec_seconds'    => 20,    // seconds the sandbox itself may run — PyodideRunner::DEFAULT_TIMEOUT_SECONDS otherwise
     'code_exec_memory_mb'  => 512,   // the sandbox's own memory ceiling — PyodideRunner::DEFAULT_MEMORY_MB otherwise
+    'code_exec_max_pending' => 5,    // calls waiting or running at once, across everybody — CodeExecTool::DEFAULT_MAX_PENDING otherwise
 ]]],
 ```
 
@@ -787,6 +788,15 @@ polls the row until a worker finishes it or `code_exec_wait` runs out — refuse
 that, never falling back to running the script itself. That is deliberate: the sandbox's own
 runtime has no business being installed on every server answering Ask AI, only on the one or two
 workers given it.
+
+**The wait itself holds a PHP worker open — a peer's review, FW-508.** Every call blocks the
+request answering the question for up to `code_exec_wait` seconds, which is the price of never
+running the script inline. A missing `code_exec` worker, or one with less capacity than the admins
+asking for it, does not fail fast on its own — every such call sits there the whole wait, and
+enough of them at once can hold that many of the web tier's own PHP workers open for nothing,
+never reaching the sandbox at all. `code_exec_max_pending` is the circuit breaker: once that many
+calls are already waiting or running across every person, a new one is refused at once, before a
+row is even written — `Exec::pending()`'s own count, checked ahead of `Exec::create()`.
 
 **An application must point a worker at it, explicitly** — `code_exec` is not in
 `Worker::FRAMEWORK_HANDLERS` the way `ParallelTools`'s own task is, because that one is safe for

@@ -278,7 +278,9 @@ final class Analyst
         if (is_array($analyst) && !empty($analyst['code_exec']) && $adminId > 0 && \Pramnos\Llm\Sandbox\Exec::available()) {
             $tools[] = new \Pramnos\Llm\Analyst\Tools\CodeExecTool(
                 $adminId,
-                max(1, (int) ($analyst['code_exec_wait'] ?? \Pramnos\Llm\Analyst\Tools\CodeExecTool::DEFAULT_WAIT))
+                max(1, (int) ($analyst['code_exec_wait'] ?? \Pramnos\Llm\Analyst\Tools\CodeExecTool::DEFAULT_WAIT)),
+                null,
+                max(1, (int) ($analyst['code_exec_max_pending'] ?? \Pramnos\Llm\Analyst\Tools\CodeExecTool::DEFAULT_MAX_PENDING))
             );
         }
 
