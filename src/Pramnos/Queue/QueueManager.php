@@ -1682,6 +1682,85 @@ class QueueManager
     }
 
     /**
+     * {@see history()}'s rows, one per type per hour, summarised per type over the whole window
+     * — busiest first.
+     *
+     * The one piece of arithmetic a queue statistics page needs that is easy to get silently
+     * wrong: the buckets already carry their own means, so averaging the hourly means looks
+     * entirely plausible and lets a quiet hour with four tasks weigh the same as a busy one with
+     * sixteen thousand, dragging the figure toward whatever the idle hours did. The means here
+     * are weighted by each bucket's own task count instead — carried as a running weighted sum in
+     * the `exec_mean`/`wait_mean` keys while the rows are walked, divided through once at the end.
+     *
+     * Sorted on `tasks` explicitly: sorting the arrays themselves (`arsort()`) compares them
+     * element by element in declaration order, which happens to start with `buckets` and is not
+     * what anybody meant.
+     *
+     * @param  array<int, array<string, mixed>> $rows As {@see history()} returns
+     * @return array<string, array{type: string, buckets: int, tasks: int, warning: int,
+     *     retried: int, exec_mean: float, exec_max: float, wait_mean: float, wait_max: float}>
+     *     Keyed by task type, busiest first
+     */
+    public static function summariseHistory(array $rows): array
+    {
+        $types = [];
+
+        foreach ($rows as $row) {
+            $type = (string) ($row['type'] ?? '');
+            if ($type === '') {
+                continue;
+            }
+
+            $types[$type] ??= [
+                'type' => $type, 'buckets' => 0, 'tasks' => 0,
+                'warning' => 0, 'retried' => 0,
+                'exec_mean' => 0.0, 'exec_max' => 0.0,
+                'wait_mean' => 0.0, 'wait_max' => 0.0,
+            ];
+
+            $tasks = (int) ($row['tasks'] ?? 0);
+
+            $types[$type]['buckets']++;
+            $types[$type]['tasks']   += $tasks;
+            $types[$type]['warning'] += (int) ($row['warning'] ?? 0);
+            $types[$type]['retried'] += (int) ($row['retried'] ?? 0);
+            // A running weighted sum, carried in the mean keys and divided through below.
+            $types[$type]['exec_mean'] += ((float) ($row['exec_mean'] ?? 0)) * $tasks;
+            $types[$type]['wait_mean'] += ((float) ($row['wait_mean'] ?? 0)) * $tasks;
+            $types[$type]['exec_max']   = max($types[$type]['exec_max'], (float) ($row['exec_max'] ?? 0));
+            $types[$type]['wait_max']   = max($types[$type]['wait_max'], (float) ($row['wait_max'] ?? 0));
+        }
+
+        foreach ($types as $type => $summary) {
+            $tasks = $summary['tasks'];
+            $types[$type]['exec_mean'] = $tasks > 0 ? round($summary['exec_mean'] / $tasks, 3) : 0.0;
+            $types[$type]['wait_mean'] = $tasks > 0 ? round($summary['wait_mean'] / $tasks, 3) : 0.0;
+        }
+
+        uasort($types, static fn (array $a, array $b): int => $b['tasks'] <=> $a['tasks']);
+
+        return $types;
+    }
+
+    /**
+     * {@see history()}'s rows, the ones that waited longest — worst first, capped at `$limit`.
+     *
+     * Its own list rather than a field of {@see summariseHistory()}'s answer, because a window's
+     * summary answers "how does this type behave" and cannot answer "when did it hurt": a single
+     * bad hour disappears into a window's weighted mean the moment enough ordinary hours surround
+     * it, which is exactly the night this was built to stop happening unnoticed.
+     *
+     * @param  array<int, array<string, mixed>> $rows As {@see history()} returns
+     * @return array<int, array<string, mixed>>
+     */
+    public static function worstWaits(array $rows, int $limit = 8): array
+    {
+        usort($rows, static fn (array $a, array $b): int => ((float) ($b['wait_mean'] ?? 0)) <=> ((float) ($a['wait_mean'] ?? 0)));
+
+        return array_slice($rows, 0, max(1, $limit));
+    }
+
+    /**
      * Delete old terminal-state tasks to keep the table lean — after summarising them.
      *
      * **The queue measured itself and then deleted the measurements.** `execution_time` and

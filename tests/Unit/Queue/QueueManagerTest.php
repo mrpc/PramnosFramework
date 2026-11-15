@@ -910,4 +910,85 @@ class QueueManagerTest extends TestCase
             public function load($id, $key = null, $debug = false): static { return $this; }
         };
     }
+
+    /**
+     * A window's mean is weighted by task count, not an average of the hourly means.
+     *
+     * The buckets already carry their own means, so summarising a window by averaging them is
+     * the obvious thing to write — and it lets a quiet hour with four tasks weigh the same as a
+     * busy one with sixteen thousand, dragging the figure toward whatever the idle hours did.
+     * The numbers below are chosen so the two answers differ a lot: averaging the means gives
+     * 5.05 s, and the weighted truth is 0.198 s.
+     */
+    public function testSummariseHistoryWeighsMeansByTaskCount(): void
+    {
+        // Arrange — one busy hour and one nearly idle one, the idle one much slower
+        $rows = [
+            ['type' => 'fetch_status', 'bucket' => '2026-09-09 12:00:00',
+                'tasks' => 10000, 'warning' => 0, 'retried' => 0,
+                'exec_mean' => 0.010, 'exec_max' => 0.80, 'wait_mean' => 0.100, 'wait_max' => 2.0],
+            ['type' => 'fetch_status', 'bucket' => '2026-09-09 03:00:00',
+                'tasks' => 100, 'warning' => 100, 'retried' => 5,
+                'exec_mean' => 0.500, 'exec_max' => 1.50, 'wait_mean' => 10.000, 'wait_max' => 40.0],
+        ];
+
+        // Act
+        $type = QueueManager::summariseHistory($rows)['fetch_status'];
+
+        // Assert — (10000*0.1 + 100*10) / 10100 = 0.198, not (0.1 + 10) / 2 = 5.05
+        $this->assertSame(0.198, $type['wait_mean'], 'the mean must be weighted by tasks; averaging the two hourly means gives 5.05');
+        $this->assertSame(0.015, $type['exec_mean'], '(10000*0.01 + 100*0.5) / 10100 = 0.015; averaging the means gives 0.255');
+        // Maxima are extremes already and are taken as-is, from whichever hour had them
+        $this->assertSame(1.5, $type['exec_max']);
+        $this->assertSame(40.0, $type['wait_max']);
+        // Counts add
+        $this->assertSame(10100, $type['tasks']);
+        $this->assertSame(2, $type['buckets']);
+        $this->assertSame(100, $type['warning']);
+        $this->assertSame(5, $type['retried']);
+    }
+
+    /**
+     * The busiest type comes first, and it is sorted on purpose: `uasort()` comparing the arrays
+     * themselves would compare element by element in declaration order, which starts with
+     * `buckets` — a quiet type with more buckets than a busy one would then sort first, which is
+     * not what anybody meant.
+     */
+    public function testSummariseHistoryIsOrderedByTaskCount(): void
+    {
+        // Arrange — the quiet type has MORE buckets, so a sort on buckets would invert
+        $bucket = ['exec_mean' => 0, 'wait_mean' => 0, 'exec_max' => 0, 'wait_max' => 0, 'warning' => 0, 'retried' => 0];
+        $rows   = [
+            ['type' => 'quiet', 'tasks' => 5] + $bucket,
+            ['type' => 'quiet', 'tasks' => 5] + $bucket,
+            ['type' => 'quiet', 'tasks' => 5] + $bucket,
+            ['type' => 'busy', 'tasks' => 9000] + $bucket,
+        ];
+
+        // Act / Assert
+        $this->assertSame(['busy', 'quiet'], array_keys(QueueManager::summariseHistory($rows)));
+    }
+
+    /**
+     * The worst hours are the worst by wait, and the list is bounded — its own list rather than a
+     * field of `summariseHistory()`'s answer, because a window's summary answers "how does this
+     * type behave" and cannot answer "when did it hurt": a single bad hour disappears into a
+     * window's weighted mean the moment enough ordinary hours surround it.
+     */
+    public function testWorstWaitsPicksTheSlowestHoursAndCapsTheList(): void
+    {
+        // Arrange
+        $rows = [];
+        foreach ([0.5, 9.5, 0.6, 3.0, 0.4] as $index => $wait) {
+            $rows[] = ['type' => 'send_email', 'bucket' => 'h' . $index, 'wait_mean' => $wait];
+        }
+
+        // Act
+        $worst = QueueManager::worstWaits($rows, 2);
+
+        // Assert
+        $this->assertCount(2, $worst);
+        $this->assertSame(9.5, $worst[0]['wait_mean'], 'the worst hour comes first');
+        $this->assertSame(3.0, $worst[1]['wait_mean']);
+    }
 }

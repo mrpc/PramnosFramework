@@ -178,6 +178,16 @@ max. It reads `queuestats`, which `queue:cleanup` fills as it removes finished t
 for longer than the table keeps them. `Queue/stats` stays as JSON for a monitor; no page links to
 it.
 
+**Summarising `history()`'s rows, correctly.** `QueueManager::summariseHistory($rows)` rolls
+`history()`'s per-bucket rows up into one row per task type over the whole window, busiest first —
+weighted by each bucket's own task count, not an average of the hourly means (which would let a
+quiet hour with four tasks weigh the same as a busy one with sixteen thousand). And
+`QueueManager::worstWaits($rows, $limit = 8)` is the buckets that waited longest, worst first — its
+own list, because a window's summary answers "how does this type behave" and a single bad hour
+disappears into a weighted mean the moment enough ordinary hours surround it. Both are pure
+functions over `history()`'s own return shape — no database, no `$this` — for a statistics screen
+of an application's own to build on past the raw per-bucket rows `Queue/history` shows today.
+
 Each row, and the task page, carries what its status allows: **retry** a failed task, **stop** a
 pending or processing one, **duplicate** any (a new pending copy: same type, payload, priority and
 attempts allowed, and the application's columns below), **delete** one not already deleted. All
