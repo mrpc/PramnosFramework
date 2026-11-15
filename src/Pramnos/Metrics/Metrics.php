@@ -52,6 +52,9 @@ final class Metrics
     /** @var array<string, Dimension> */
     private static array $dimensions = [];
 
+    /** @var array<string, \Closure(\Pramnos\Database\QueryBuilder, string, Window, Database): string> By breakdown name ({@see personDimension()}) */
+    private static array $personDimensions = [];
+
     /** Whether app.php's catalogue has been read. */
     private static bool $loaded = false;
 
@@ -72,10 +75,32 @@ final class Metrics
     /** Forget every metric and dimension, so the next read takes app.php's again. */
     public static function reset(): void
     {
-        self::$metrics    = [];
-        self::$dimensions = [];
-        self::$loaded     = false;
-        self::$area       = null;
+        self::$metrics          = [];
+        self::$dimensions       = [];
+        self::$personDimensions = [];
+        self::$loaded           = false;
+        self::$area             = null;
+    }
+
+    /**
+     * How a metric that declared `person()` joins in a segment or an audience attribute to break
+     * down or filter by it ({@see Metric::person()}): `fn (QueryBuilder $query, string $person,
+     * Window $window, Database $db): string` — joins whatever it needs into `$query` and answers
+     * the GROUP BY expression. Registered by the framework for `segment` and every audience
+     * attribute that can be broken down by ({@see \Pramnos\Audience\Attribute::toArray()}'s
+     * `breakdown`); an application's own under the same name wins.
+     */
+    public static function personDimension(string $name, \Closure $resolve): void
+    {
+        self::$personDimensions[$name] = $resolve;
+    }
+
+    /** The resolver registered for a breakdown name ({@see personDimension()}), or null. */
+    public static function resolvePersonDimension(string $name): ?\Closure
+    {
+        self::load();
+
+        return self::$personDimensions[$name] ?? null;
     }
 
     /** What the administration's file (`app/admin.php`) says under `metrics`, read once. @var array<string, mixed>|null */
@@ -1004,6 +1029,13 @@ final class Metrics
             } catch (\Throwable $e) {
                 \Pramnos\Logs\Logger::log('The audience\'s metrics were left out: ' . $e->getMessage(), 'metrics');
             }
+            // Its own try: an attribute needs no database at all, unlike the segment/person-event
+            // metrics above — one failing (no database, in a unit test) does not cost the other.
+            try {
+                self::loadPersonDimensions();
+            } catch (\Throwable $e) {
+                \Pramnos\Logs\Logger::log('Segment/attribute breakdowns were left out: ' . $e->getMessage(), 'metrics');
+            }
         }
         // The site's own traffic, where it is counted, unless app.php says not.
         if ((self::config()['visits'] ?? true) !== false) {
@@ -1021,6 +1053,80 @@ final class Metrics
         }
         // Registered in code wins over app.php's, as with dashboard widgets.
         self::$metrics = array_replace(self::$metrics, $registered);
+    }
+
+    /**
+     * BI phase 7d: `segment`, and every audience attribute that can be broken down by (not a
+     * date, and not a one-to-many kept on anything but the person), as a dimension and its join
+     * resolver — for a metric that declared `person()` ({@see Metric::person()}). An application's
+     * own dimension or resolver under the same name wins (`??=`).
+     */
+    private static function loadPersonDimensions(): void
+    {
+        // Its own try: a database that cannot even say whether the table is there (a unit test,
+        // no connection) still gets every attribute dimension below, which needs none.
+        try {
+            $hasSegments = \Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('pramnos.segment_members');
+        } catch (\Throwable) {
+            $hasSegments = false;
+        }
+        if ($hasSegments) {
+            self::$personDimensions['segment'] ??= static function (\Pramnos\Database\QueryBuilder $query, string $person, Window $window, Database $db): string {
+                $end = $window->endsAt();
+                // A LEFT JOIN, so a person in no segment keeps their row — grouped under a null
+                // segment — instead of vanishing from a total that also breaks down by it. The
+                // as-of condition is bound inside the subquery (a JOIN's own ON takes no values).
+                $stays = $db->queryBuilder()->table('pramnos.segment_members')->select(['userid', 'segmentid'])
+                    ->where('entered_at', '<', $end)->where(static function (\Pramnos\Database\QueryBuilder $q) use ($end): void {
+                        $q->whereNull('left_at')->orWhere('left_at', '>=', $end);
+                    });
+                $query->leftJoinSub($stays, 'pf_segment_members', 'pf_segment_members.userid', '=', $person);
+
+                return 'pf_segment_members.segmentid';
+            };
+        }
+        foreach (\Pramnos\Audience\Attributes::all() as $key => $attribute) {
+            // Dated attributes have too many values to group by; a many-to-many one fans a row
+            // out per value, which a SUM would double-count — the same reason segments are
+            // handled on their own above instead of through this generic join.
+            if ($key === \Pramnos\Audience\Attributes::KEY || in_array($attribute->type(), [\Pramnos\Audience\Attribute::DATE, \Pramnos\Audience\Attribute::MANY], true)) {
+                continue;
+            }
+            self::$dimensions[$key] ??= Dimension::of($key, $attribute->labelText())->ability($attribute->requiredAbility())
+                ->values(static fn (): array => $attribute->valueLabels());
+            self::$personDimensions[$key] ??= static function (\Pramnos\Database\QueryBuilder $query, string $person, Window $window, Database $db) use ($attribute): string {
+                // The attribute's own SQL is always qualified against `users` ({@see
+                // \Pramnos\Audience\Attribute::sql()}), as Filter's own queries already start
+                // from — joined here on the metric's person column instead. Two attributes asked
+                // for together (`usertype` and `pillar`, say) share one `users` join, and share a
+                // side table's join where they read the same one — never joined twice.
+                self::ensureJoined($query, \Pramnos\Audience\Attributes::FROM, static function () use ($query, $person): void {
+                    $query->leftJoin(\Pramnos\Audience\Attributes::FROM, static function (\Pramnos\Database\JoinClause $join) use ($person): void {
+                        $join->on('users.' . \Pramnos\Audience\Attributes::KEY, '=', $person);
+                    });
+                });
+                if ($attribute->table() !== null) {
+                    self::ensureJoined($query, $attribute->table(), static function () use ($query, $attribute): void {
+                        $query->leftJoin($attribute->table(), static function (\Pramnos\Database\JoinClause $join) use ($attribute): void {
+                            $join->on($attribute->alias() . '.' . $attribute->foreignKey(), '=', 'users.' . \Pramnos\Audience\Attributes::KEY);
+                        });
+                    });
+                }
+
+                return $attribute->sql($db->type);
+            };
+        }
+    }
+
+    /** Joins a table into a query once: a second attribute asked for in the same breakdown that reads the same table does not join it again. */
+    private static function ensureJoined(\Pramnos\Database\QueryBuilder $query, string $table, \Closure $join): void
+    {
+        foreach ($query->getJoins() as $existing) {
+            if (($existing['table'] ?? null) === $table) {
+                return;
+            }
+        }
+        $join();
     }
 
     /** Where the values are kept. */

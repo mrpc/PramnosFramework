@@ -11,15 +11,21 @@ use Pramnos\Application\Application;
 use Pramnos\Audience\AudienceMetrics;
 use Pramnos\Audience\PersonEvents;
 use Pramnos\Audience\Segments;
+use Pramnos\Metrics\Metric;
 use Pramnos\Metrics\Metrics;
+use Pramnos\Metrics\Window;
 
 /**
  * The audience as metrics, with nothing declared: a segment's size at the end of each period, who
  * entered it — its first working out not counted, as the library does not count it — and who left;
  * a person event's occurrences and the people who did it. Left out with `'audience' => false`.
+ *
+ * Also BI phase 7d: a metric of its own, over its own table, broken down or filtered by a segment
+ * or an audience attribute once it names its person column ({@see Metric::person()}).
  */
 #[CoversClass(AudienceMetrics::class)]
 #[CoversClass(Metrics::class)]
+#[CoversClass(Metric::class)]
 class AudienceMetricsTest extends TestCase
 {
     use AudienceProbe {
@@ -103,5 +109,73 @@ class AudienceMetricsTest extends TestCase
         $this->assertSame('2026-09-20 10:00', $left[0]['left']);
         $this->assertSame([$this->ids['bob'], $this->ids['anna'], $this->ids['anna']], array_map('intval', array_column($payers, 'userid')), 'each payment, the newest first');
         $this->assertSame([], array_values($without), 'left out where app.php says so');
+    }
+
+    /**
+     * BI phase 7d: a metric over its own table, not the audience's, is broken down by a segment —
+     * read as of the period's end, like `audience.segment.members` above — or by an audience
+     * attribute (usertype), the same qualified SQL a filter already uses, once it declares which
+     * column names the person (`person('userid')`). Refused on the one-breakdown path without it;
+     * the PostgreSQL many-breakdown prefetch skips such a breakdown instead of computing it wrong.
+     */
+    #[DataProvider('databases')]
+    public function testASegmentOrAnAttributeBreaksDownAMetricThatDeclaresItsPerson(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Stats\CreateMetricValuesTable::class], $this->db);
+        $at = static fn (string $when): int => (int) strtotime($when . ' UTC');
+        $schema = $this->db->schema();
+        $schema->dropTableIfExists('metrics_test_payments');
+        $schema->createTable('metrics_test_payments', static function ($table): void {
+            $table->increments('id');
+            $table->integer('userid');
+            $table->decimal('amount', 10, 2);
+            $table->integer('paid_at');
+        });
+        try {
+            foreach ([['anna', 10], ['anna', 5], ['bob', 7], ['cara', 3]] as [$name, $amount]) {
+                $this->db->queryBuilder()->table('metrics_test_payments')->insert(['userid' => $this->ids[$name], 'amount' => $amount, 'paid_at' => $at('2026-09-03 10:00')]);
+            }
+            // anna and bob are in the segment; cara is not — a sum over it does not add up to the whole.
+            $id = Segments::create('Payers probe', ['conditions' => [['attribute' => 'language', 'op' => 'is', 'value' => 'el']]]);
+            $this->db->queryBuilder()->table('pramnos.segment_members')->where('segmentid', $id)->delete();
+            foreach (['anna', 'bob'] as $name) {
+                $this->db->queryBuilder()->table('pramnos.segment_members')->insert(['segmentid' => $id, 'userid' => $this->ids[$name], 'entered_at' => $at('2026-09-01 00:00'), 'left_at' => null]);
+            }
+            $withPerson = Metric::flow('test.payments', 'Payments')->from('metrics_test_payments')->at('paid_at', unix: true)->sum('amount')->person('userid')
+                ->dimensions(['segment', 'usertype', 'pillar']);
+            $withoutOne = Metric::flow('test.payments_noperson', 'Payments, no person()')->from('metrics_test_payments')->at('paid_at', unix: true)->sum('amount');
+            Metrics::register($withPerson);
+
+            // Act
+            $computed  = Metrics::compute(['test.payments'], ['month'], '2026-09-01', '2026-09-30', false, $at('2026-11-06 12:00'));
+            $bySegment = Metrics::query('test.payments')->grain('month')->at('2026-09-01')->by('segment')->series()['values'];
+            $byType    = Metrics::query('test.payments')->grain('month')->at('2026-09-01')->by('usertype')->series()['values'];
+            // 'pillar' lives on a side table (audtest_profiles) — bob and cara have one, anna does not.
+            $byPillar  = Metrics::query('test.payments')->grain('month')->at('2026-09-01')->by('pillar')->series()['values'];
+            $total     = Metrics::query('test.payments')->grain('month')->at('2026-09-01')->value();
+            $refused   = null;
+            try {
+                $withoutOne->measure(Window::of('month', '2026-09-01'), ['segment'], $this->db);
+            } catch (\LogicException $e) {
+                $refused = $e->getMessage();
+            }
+            $prefetched = $withPerson->prefetchSets(Window::of('month', '2026-09-01'), [['segment'], ['usertype'], []], $this->db);
+            $prefetchedAhead = $withPerson->prefetch([Window::of('month', '2026-08-01'), Window::of('month', '2026-09-01')], $this->db);
+
+            // Assert
+            $this->assertSame([], $computed['failed'], 'computed');
+            $this->assertSame(25.0, $total, 'all four payments, not narrowed by the segment breakdown existing too');
+            $this->assertSame(['' => [3.0], (string) $id => [22.0]], $bySegment, 'cara\'s payment kept, under no segment — a LEFT JOIN, not dropped by one in no segment at all');
+            $this->assertEqualsCanonicalizing(['1' => [15.0], '2' => [10.0]], $byType, 'usertype 1 (anna) and 2 (bob + cara)');
+            $this->assertEqualsCanonicalizing(['' => [15.0], '3' => [7.0], '1' => [3.0]], $byPillar, 'pillar lives on a side table — anna has none, bob\'s is 3, cara\'s is 1');
+            $this->assertStringContainsString('person()', (string) $refused, 'refused: no column names the person');
+            $this->assertFalse($prefetched, 'the PostgreSQL many-breakdown path does not build the join; one query per breakdown does, in declaredSource()');
+            $this->assertFalse($prefetchedAhead, 'the PostgreSQL many-period prefetch does not build it either');
+        } finally {
+            \Pramnos\Metrics\Store::forget($this->db, 'test.%');
+            $schema->dropTableIfExists('metrics_test_payments');
+        }
     }
 }

@@ -52,7 +52,9 @@ class MetricsCatalogueTest extends TestCase
         $this->assertSame('From code', $all['orders.count']->label());
         $this->assertSame('Region', Metrics::dimensionOf('region')->label);
         $this->assertSame('plan', Metrics::dimensionOf('plan')->label, 'never declared: its name');
-        $this->assertSame(['region'], array_keys(Metrics::dimensions()));
+        // 'region' is app.php's own; the rest are the audience's own attributes, auto-registered
+        // as dimensions (BI phase 7d) — 'regdate'/'lastlogin' (dated) and 'groups' (many) are not.
+        $this->assertSame(['region', 'usertype', 'language', 'active', 'validated'], array_keys(Metrics::dimensions()));
         $this->assertSame('Active customers', Metrics::get('customers.active')->label());
         $this->expectException(\InvalidArgumentException::class);
         Metrics::get('nothing.here');
@@ -156,6 +158,34 @@ class MetricsCatalogueTest extends TestCase
 
         // Act
         Metrics::value('loop.a', 'month', '2026-09-01');
+    }
+
+    /**
+     * BI phase 7d: `Metric::person()`'s breakdowns are resolved through `Metrics::personDimension()`
+     * — registered by the framework for every audience attribute that can be broken down by, as
+     * soon as the catalogue is read, `userid` itself never among them — and an application's own
+     * resolver registered under the same name wins over the framework's.
+     */
+    public function testPersonDimensionsAreRegisteredAndAnApplicationsOwnWins(): void
+    {
+        // Arrange
+        $mine = static function ($query, $person, $window, $db): string {
+            return 'mine';
+        };
+        Metrics::personDimension('usertype', $mine);
+
+        // Act
+        $theirs   = Metrics::resolvePersonDimension('usertype');
+        $language = Metrics::resolvePersonDimension('language');
+        $nothing  = Metrics::resolvePersonDimension('userid');
+        $dims     = Metrics::dimensions();
+
+        // Assert
+        $this->assertSame('mine', $theirs(null, null, null, null), 'registered before the catalogue loads, so the framework\'s own does not replace it');
+        $this->assertNotNull($language, 'every audience attribute that can be broken down by, auto-registered');
+        $this->assertNull($nothing, 'userid is never a dimension — every person is their own value');
+        $this->assertArrayHasKey('language', $dims);
+        $this->assertArrayNotHasKey('userid', $dims);
     }
 }
 

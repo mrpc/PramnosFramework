@@ -521,6 +521,52 @@ stays are kept (`audience.segment_history_days`), and an event's as far as the c
 it. `'metrics' => ['audience' => false]` leaves them out, and a metric the application registers
 under the same name wins.
 
+### A segment or an attribute as a dimension
+
+A metric that says which column of its own declared query names the person each row is of can be
+broken down or filtered by a segment, or by any audience attribute — the same ones a filter
+already uses, under the same name:
+
+```php
+Metric::flow('payments.amount', 'Revenue')->from('invoices')->at('date', unix: true)->sum('total')
+    ->person('userid')->dimensions(['segment', 'usertype']);
+
+Metrics::query('payments.amount')->grain('month')->at('2026-09-01')->by('segment')->series();
+Metrics::query('payments.amount')->grain('month')->at('2026-09-01')->where(['usertype' => 2])->value();
+```
+
+- **`segment`** is read as of each period's end, from the segment's stays — not as of today —
+  with a LEFT JOIN: a person in no segment keeps their row, grouped under no segment, rather than
+  vanishing from a total that also breaks down by it. A person in two segments at once is counted
+  in both, so a sum by segment does not add up to the metric's own total — segments are not an
+  exclusive partition, here or anywhere else in the audience module.
+- **Any other name** is tried against the audience's own attributes (`Attributes::all()`): the
+  same qualified SQL `Filter` already reads it with, LEFT JOINed on the person column, so "25 and
+  over" or "a professional" means the same thing in a report as it does in a filter or a segment.
+  A dated attribute, and a one-to-many one (`groups`, `interests`), are not offered: one has too
+  many values to group by, the other would fan a row out per value and double-count a sum.
+  `Dimension::ability()` still applies — an attribute with one restricts the breakdown the same
+  way any other dimension would.
+- **Without `person()`**, breaking down or filtering by either is refused with a clear message —
+  the join needs to know which column to join on. Every other dimension works exactly as it did
+  before; `person()` only adds this one capability.
+- **Not built**: the audience's own scope (who counts as a person at all, `Attributes::scope()`)
+  is not applied to the join — a metric's own `where()` conditions are what narrow its rows.
+  The PostgreSQL many-breakdown prefetch does not build this join either; such a breakdown is
+  always one query, computed the plain way instead.
+
+**From a number to its people, as a segment.** `rows()`'s own records already carry the person
+column asked for; turning a cell's people into a segment needs nothing new — a `userid` attribute
+is always there to filter by it:
+
+```php
+Segments::create('From a report', ['conditions' => [
+    ['attribute' => 'userid', 'op' => 'one_of', 'value' => array_column($rows, 'userid')],
+]]);
+```
+
+A rule for that segment is then an ordinary rule, targeting it like any other.
+
 ### The site's traffic
 
 Where the site's own traffic is counted, its page views, visits, visitors and the rest are metrics

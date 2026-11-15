@@ -128,6 +128,9 @@ final class Metric
 
     /** The source's column that names the organisation a row is of; null for none. */
     private ?string $tenantColumn = null;
+
+    /** The declared query's column that names the person each row is of; null for none. */
+    private ?string $personColumn = null;
     private ?\Closure $rows    = null;
     private ?\Closure $allowed = null;
 
@@ -731,6 +734,65 @@ final class Metric
         return $column;
     }
 
+    /** `table`, or its alias from `table AS alias` — what a column of it is qualified with. */
+    private static function tableAlias(string $table): string
+    {
+        $parts = preg_split('/\s+/', trim($table)) ?: [];
+
+        return (string) end($parts);
+    }
+
+    /**
+     * One breakdown's group-by expression: the declared `dimension()` column, or — for a metric
+     * that declared `person()` — a segment or an audience attribute, joined in by `Metrics`'
+     * registered resolver ({@see Metrics::personDimension()}). Anything else is assumed to be a
+     * column of its own name, as before `person()` existed.
+     *
+     * @param array<string, string> $columns
+     * @throws \LogicException For a segment/attribute breakdown without `person()` declared
+     */
+    private static function groupExpression(
+        \Pramnos\Database\QueryBuilder $query,
+        string $name,
+        array $columns,
+        ?string $person,
+        Window $window,
+        \Pramnos\Database\Database $db,
+        string $metricName,
+    ): string {
+        if (isset($columns[$name])) {
+            return $columns[$name];
+        }
+        $resolve = Metrics::resolvePersonDimension($name);
+        if ($resolve === null) {
+            return $name;
+        }
+        if ($person === null) {
+            throw new \LogicException('Metric ' . $metricName . ': declare person() before breaking down or filtering by "' . $name . '".');
+        }
+
+        return $resolve($query, $person, $window, $db);
+    }
+
+    /**
+     * Whether any of these breakdown names needs a segment/attribute join ({@see
+     * groupExpression()}) rather than a plain column — the many-period PostgreSQL prefetch paths
+     * do not build one, and fall back to one query per breakdown instead.
+     *
+     * @param list<string>          $names
+     * @param array<string, string> $columns
+     */
+    private static function needsPersonDimension(array $names, array $columns): bool
+    {
+        foreach ($names as $name) {
+            if (!isset($columns[$name]) && Metrics::resolvePersonDimension($name) !== null) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * The declared query as a source: the window's rows of the table, counted, grouped by the
      * dimensions asked — each its column or expression — and the organisation's column.
@@ -749,12 +811,17 @@ final class Metric
             return static fn (Window $w, array $by, \Pramnos\Database\Database $db): array => self::counterRows($q, $w, $by, $db);
         }
 
-        return static function (Window $w, array $by, \Pramnos\Database\Database $db) use ($q): array {
+        // Qualified with the table (or its alias): unqualified, a JOIN for a segment or an
+        // attribute would be ambiguous the moment the joined table has a column of the same name.
+        $person     = $this->personColumn === null ? null : self::tableAlias($q['table']) . '.' . $this->personColumn;
+        $metricName = $this->name;
+
+        return static function (Window $w, array $by, \Pramnos\Database\Database $db) use ($q, $person, $metricName): array {
             $query  = $db->queryBuilder()->table($q['table']);
             $select = [];
             $group  = [];
             foreach ($by as $name) {
-                $expression = $q['columns'][$name] ?? $name;
+                $expression = self::groupExpression($query, $name, $q['columns'], $person, $w, $db, $metricName);
                 // Raw: a dimension may be an expression the application declared, aliased to its name.
                 $select[] = $query->raw($expression . ' AS ' . self::identifier($name));
                 $group[]  = $query->raw($expression);
@@ -847,7 +914,13 @@ final class Metric
         if ($q === null || $db->type !== 'postgresql' || $q['time'] === '' || in_array($q['fn'], ['', 'LAST', 'COUNTER', 'COHORT'], true)) {
             return false;
         }
-        $names  = array_values(array_unique(array_merge(...$sets)));
+        $names = array_values(array_unique(array_merge(...$sets)));
+        if (self::needsPersonDimension($names, $q['columns'])) {
+            // ponytail: this many-breakdown-at-once path is a PostgreSQL optimisation only; a
+            // segment/attribute breakdown falls back to declaredSource()'s one-query-per-breakdown,
+            // which already knows how to join them. Add a prefetched join here if that is ever slow.
+            return false;
+        }
         $query  = $db->queryBuilder()->table($q['table']);
         $select = [];
         foreach ($names as $name) {
@@ -925,7 +998,12 @@ final class Metric
         }
         $first = $windows[0]->startsAt();
         $last  = end($windows)->endsAt();
-        foreach ($this->storedSets() as $set) {
+        $sets  = $this->storedSets();
+        if (self::needsPersonDimension($sets === [] ? [] : array_merge(...$sets), $q['columns'])) {
+            // ponytail: see prefetchSets() — the same PostgreSQL optimisation, same fallback.
+            return false;
+        }
+        foreach ($sets as $set) {
             $by     = $this->tenantColumn !== null ? [...$set, $this->tenantColumn] : $set;
             $query  = $db->queryBuilder()->table($q['table']);
             // Raw: the period of each row in the metrics' zone is PostgreSQL's date_trunc.
@@ -984,6 +1062,19 @@ final class Metric
     public function tenant(string $column): self
     {
         $this->tenantColumn = $column;
+
+        return $this;
+    }
+
+    /**
+     * The declared query's column that names the person each row is of —
+     * `->person('userid')`. Without it, breaking down or filtering by a segment or an audience
+     * attribute is refused: the join needs to know which column to join on.
+     */
+    public function person(string $column): self
+    {
+        $this->needsTable('person');
+        $this->personColumn = self::identifier($column);
 
         return $this;
     }

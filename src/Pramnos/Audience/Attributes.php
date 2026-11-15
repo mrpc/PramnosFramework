@@ -136,6 +136,11 @@ final class Attributes
     {
         $account = t('Account');
         $list    = [
+            // One of these ids — never a dimension to break a metric down by (every person is
+            // their own value); what turns a number's own people into a segment (BI phase 7d:
+            // `Segments::create($name, ['conditions' => [['attribute' => 'userid', 'op' =>
+            // 'one_of', 'value' => $ids]]])`).
+            Attribute::column('userid', 'userid', Attribute::NUMBER)->label(t('Account id')),
             Attribute::column('usertype', 'usertype', Attribute::NUMBER)->label(t('Account type'))->group($account),
             Attribute::column('language', 'language', Attribute::TEXT)->label(t('Language'))->group($account),
             Attribute::column('regdate', 'regdate', Attribute::DATE)->label(t('Registered'))->group($account),
