@@ -172,6 +172,65 @@ class TodayTest extends LlmTestCase
     }
 
     /**
+     * A "goodmorning" and a "goodnight" (FW-514): each at its own hour, told once a day, apart
+     * from each other and from the morning's thought — its words never sent, unlike the thought's
+     * teaser. The application's `tellGreeting(Scope, object, string): bool` is tried, told which
+     * kind; turning `notify.greetings` off stops both at once.
+     */
+    #[DataProvider('databases')]
+    public function testAGoodmorningAndGoodnightAreToldOnceEachApartFromTheThought(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => ['memory' => ['learn' => false],
+            'today' => ['thought' => true, 'morning' => ['at' => '00:00', 'notify' => true]],
+            'greetings' => ['morning' => ['at' => '00:00', 'notify' => true, 'url' => 'https://app.test/?am=1'], 'night' => ['at' => '00:00', 'notify' => true, 'url' => 'https://app.test/?pm=1']]]]);
+        $user = new \Pramnos\User\User();
+        $user->username = 'greet' . random_int(100000, 999999);
+        $user->email    = $user->username . '@example.test';
+        $user->save();
+        $this->person = (int) $user->userid;
+        $scope        = new Scope($this->person);
+        $this->answer([[200, self::says('Γεια!')], [200, self::says('Καλημέρα, καλή μέρα!')], [200, self::says('Καληνύχτα, όνειρα γλυκά.')]]);
+        $told      = [];
+        $assistant = new class ($told) extends \Pramnos\Llm\Chat\BaseAssistant {
+            /** @param list<string> $told */
+            public function __construct(private array &$told)
+            {
+            }
+
+            /** The application tells a greeting its own way, the kind kept with it. */
+            public function tellGreeting(Scope $scope, object $notice, string $kind): bool
+            {
+                $this->told[] = [$kind, $notice->toPush(null)];
+
+                return true;
+            }
+        };
+        $chat = new \Pramnos\Llm\Chat\Conversations($assistant);
+        $chat->as($scope)->ask(null, 'Γεια');
+
+        // Act
+        $first  = $chat->writeGreetings(time());
+        \Pramnos\User\User::clearUserCache();
+        $again  = $chat->writeGreetings(time());
+        \Pramnos\Llm\Chat\Settings::change(new \Pramnos\User\User($this->person), null, ['notify' => ['greetings' => false]]);
+        \Pramnos\User\User::clearUserCache();
+        $off    = $chat->writeGreetings(time());
+
+        // Assert
+        $this->assertSame([2, 0, 0], [$first, $again, $off], 'both kinds once, never again the same day, none with notify.greetings off');
+        $this->assertCount(2, $told, 'the application tells it, its own way');
+        $this->assertSame('morning', $told[0][0]);
+        $this->assertSame('night', $told[1][0]);
+        $this->assertSame('Καλημέρα, καλή μέρα!', $told[0][1]['title'], 'the words themselves, not a teaser like the thought\'s');
+        $this->assertStringContainsString('am=1', $told[0][1]['url']);
+        $this->assertSame('Καληνύχτα, όνειρα γλυκά.', $told[1][1]['title']);
+        $this->assertStringContainsString('pm=1', $told[1][1]['url']);
+        $this->assertCount(3, $this->sent, 'the greeting and the thought count apart: one call to ask, one for each greeting, never again');
+    }
+
+    /**
      * Partitions under one account: each one's thought and diary call it by the name the
      * application's assistant gives (`personName()`), not the holder's; each one's morning is told
      * once of its own — one partition's never stands for another's — the application's way

@@ -1079,6 +1079,104 @@ class Conversations
     }
 
     /**
+     * A short, warm "goodmorning"/"goodnight" in the moment, said directly to the person — never
+     * kept, never the morning's thought ({@see thought()}). Null where it cannot be written.
+     */
+    public function greeting(Scope $scope, string $kind): ?string
+    {
+        $known = trim(implode("\n\n", array_filter([
+            Profile::on($scope) && Profile::available() ? (new Profile($scope))->context() : '',
+            Calendar::on($scope) && Calendar::available() ? (new Calendar($scope, $this->assistant->timezone($scope)))->context() : '',
+        ])));
+        $name   = Personas::get((string) Personas::of($scope))['name'] ?? \Pramnos\Llm\Analyst\Analyst::name();
+        $person = $this->personName($scope);
+        $answer = $this->client($scope)->askCheaply(Today::greetingPrompt($name, $person, $kind), [['role' => 'user', 'content' => $known !== '' ? $known : '(nothing yet)']]);
+        $text   = trim((string) ($answer['reply'] ?? ''));
+
+        return empty($answer['ok']) || $text === '' ? null : $text;
+    }
+
+    /**
+     * A "goodmorning"/"goodnight" for each person who talked to the companion in the last
+     * `chat.greetings.days` (default 14), at its hour on each person's clock, told once a day —
+     * two kinds ({@see greeting()}), each on only where `'llm' => ['chat' => ['greetings' =>
+     * ['morning' => ['at' => '08:30', 'notify' => true, 'url' => …], 'night' => [...]]]]` has it.
+     * The person's own `goodmorning_at`/`goodnight_at` move the hour or turn a kind off; their
+     * quiet hours and `notify.greetings` ({@see Settings}) apply to both. The application's
+     * assistant tells it its own way where it has `tellGreeting(Scope, object, string): bool` —
+     * `$kind` is `'morning'` or `'night'` — else the account's holder is told. Answers how many
+     * were told. `llm:routines` calls it.
+     *
+     * @param (callable(int, object): void)|null $deliver A seam: tell a person, by id
+     */
+    public function writeGreetings(int $now, ?callable $deliver = null, int $limit = 200): int
+    {
+        $config = ((array) \Pramnos\Llm\Llm::config('chat', []))['greetings'] ?? [];
+        $kinds  = is_array($config) ? array_values(array_filter(['morning', 'night'], static fn (string $k): bool => is_array($config[$k] ?? null))) : [];
+        if ($kinds === []) {
+            return 0;
+        }
+        $days   = max(1, (int) ($config['days'] ?? 14));
+        $result = $this->table('assist.chat_conversations')->select(['organization_id', 'userid', 'space'])->distinct()
+            ->where('updated_at', '>=', CallLog::instant($now - $days * 86400))->whereLike('space', Scope::CHAT . '%')
+            ->orderBy('userid')->limit(max(1, $limit))->get();
+        $told = 0;
+        while ($result && ($row = $result->fetch()) !== null) {
+            if (!People::companion((string) $row['space'])) {
+                continue;
+            }
+            $scope = new Scope((int) $row['userid'], $row['organization_id'] === null ? null : (int) $row['organization_id'], (string) $row['space']);
+            foreach ($kinds as $kind) {
+                $told += $this->tellGreeting($scope, $kind, $now, $deliver) ? 1 : 0;
+            }
+        }
+
+        return $told;
+    }
+
+    /** One kind of greeting for one scope ({@see writeGreetings()}): true where it was told. */
+    private function tellGreeting(Scope $scope, string $kind, int $now, ?callable $deliver): bool
+    {
+        try {
+            $user  = new \Pramnos\User\User($scope->userId);
+            $set   = Settings::of($user, $scope->persona, $scope->partition);
+            $at    = $set[$kind === 'morning' ? 'goodmorning_at' : 'goodnight_at'];
+            $local = (new \DateTimeImmutable('@' . $now))->setTimezone(new \DateTimeZone($this->assistant->timezone($scope)));
+            $day   = $local->format('Y-m-d');
+            if ($at === null || $at === 'off' || $local->format('H:i') < $at || !$set['notify']['greetings']) {
+                return false;
+            }
+            // Per stored space and kind: a goodmorning never stands for a goodnight, or one persona's for another's.
+            $mark = 'ask' . $kind . 'greeting' . ($scope->persona === null ? '' : '-' . $scope->persona) . ($scope->partition === null ? '' : '@' . $scope->partition);
+            if ((string) ($user->{$mark} ?? '') === $day || Settings::quietAt($set['quiet'], $local->format('H:i'))) {
+                return false;
+            }
+            $words = $this->greeting($scope, $kind);
+            if ($words === null) {
+                return false;
+            }
+            $notice = \Pramnos\Notification\Notifier::inLanguageOf($user, static fn (): object => RoutineReady::tag(
+                new TaskReminder($words, Settings::greeting($kind)['url']), $scope->stored(), $kind === 'morning' ? 'goodmorning' : 'goodnight'));
+            $sent = true;
+            if (method_exists($this->assistant, 'tellGreeting')) {
+                $sent = (bool) $this->assistant->tellGreeting($scope, $notice, $kind);
+            } else {
+                $deliver !== null ? $deliver($scope->userId, $notice) : $user->notify($notice);
+            }
+            // Marked either way: told, or nobody to tell today — not asked again every minute.
+            $user->{$mark} = $day;
+            $user->save();
+
+            return $sent;
+        } catch (\Throwable $why) {
+            // One person's greeting that cannot go does not stop the others'.
+            \Pramnos\Logs\Logger::log($kind . ' greeting for ' . $scope->userId . ': ' . $why->getMessage(), 'llm');
+
+            return false;
+        }
+    }
+
+    /**
      * The morning's thought, written at its hour on each person's clock and told once — a gift
      * they open, never its words in the notification (`'today' => ['thought' => true, 'morning' =>
      * ['at' => '08:30', 'notify' => true, 'url' => …, 'quiet' => ['22:00', '08:00'], 'days' => 14]]`):

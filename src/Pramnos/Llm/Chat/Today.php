@@ -48,6 +48,19 @@ final class Today
     }
 
     /**
+     * What the model is told to write for a "goodmorning"/"goodnight" — short, said directly to
+     * the person, unlike {@see prompt()}'s thought kept behind a teaser.
+     */
+    public static function greetingPrompt(string $name, string $person, string $kind): string
+    {
+        $when = $kind === 'morning' ? 'the start of their day' : 'the end of their day, wishing them a good night';
+
+        return 'You are ' . $name . '. Write one short, warm sentence to ' . ($person !== '' ? $person : 'the person') . ' for ' . $when
+            . ', from what you know of them below — never a list, never advice they did not ask for, never anything you do not know. '
+            . 'Write in the language of what you know of them; Greek where there is nothing.';
+    }
+
+    /**
      * The day's cards, the thought first.
      *
      * @param callable(Scope, string): ?string $think Writes the day's thought: {@see Conversations::thought()}

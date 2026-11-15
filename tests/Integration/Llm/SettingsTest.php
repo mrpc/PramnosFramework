@@ -96,15 +96,18 @@ class SettingsTest extends LlmTestCase
         ApiFixture::$scope = new Scope($this->person, null, Scope::CHAT, 'tesla');
         $hers    = $this->call('GET', '/chat/settings');
         $refused = [Settings::change(new \Pramnos\User\User($this->person), null, ['thought_at' => '25:00']), Settings::change(new \Pramnos\User\User($this->person), null, ['colour' => 'red']),
-            Settings::change(new \Pramnos\User\User($this->person), null, ['voice' => 'nobody']), Settings::change(new \Pramnos\User\User($this->person), null, ['persona' => 'nobody'])];
+            Settings::change(new \Pramnos\User\User($this->person), null, ['voice' => 'nobody']), Settings::change(new \Pramnos\User\User($this->person), null, ['persona' => 'nobody']),
+            Settings::change(new \Pramnos\User\User($this->person), null, ['goodnight_at' => 'soon'])];
+        $greeted = Settings::change(new \Pramnos\User\User($this->person), null, ['goodmorning_at' => '07:15']);
         (new People())->reset($this->person, 1);
         ApiFixture::$scope = new Scope($this->person);
         $reset   = $this->call('GET', '/chat/settings');
         $message = (new Conversations(new BaseAssistant()))->as(new Scope($this->person))->find((int) $asked['data']['conversation_id'])['messages'][1];
 
         // Assert
-        $this->assertSame(['persona' => 'naya', 'voice' => null, 'style' => null, 'thought_at' => '08:30', 'quiet' => ['from' => '22:00', 'to' => '08:00'],
-            'notify' => ['thought' => true, 'diary' => true, 'reminders' => true], 'app' => ['place' => 'hill']], $before['data'], 'the application\'s defaults');
+        $this->assertSame(['persona' => 'naya', 'voice' => null, 'style' => null, 'thought_at' => '08:30', 'goodmorning_at' => null, 'goodnight_at' => null,
+            'quiet' => ['from' => '22:00', 'to' => '08:00'],
+            'notify' => ['thought' => true, 'diary' => true, 'reminders' => true, 'greetings' => true], 'app' => ['place' => 'hill']], $before['data'], 'the application\'s defaults');
         $this->assertSame(['from' => '23:00', 'to' => '07:30'], $changed['data']['quiet']);
         $this->assertFalse($changed['data']['notify']['diary']);
         $this->assertSame('beach', $changed['data']['app']['place']);
@@ -119,6 +122,8 @@ class SettingsTest extends LlmTestCase
         $this->assertSame(['thought_at: a time, H:i, or "off".', 'colour: not a setting.'], array_slice($refused, 0, 2));
         $this->assertStringStartsWith('voice:', $refused[2]);
         $this->assertStringStartsWith('persona:', $refused[3]);
+        $this->assertSame('goodnight_at: a time, H:i, or "off".', $refused[4]);
+        $this->assertSame(['goodmorning_at' => '07:15'], $greeted, 'the same mechanics as thought_at');
         $this->assertSame($before['data'], $reset['data'], 'the experience reset: every setting back to its default');
         $this->assertTrue(Settings::quietAt(['from' => '22:00', 'to' => '08:00'], '23:15'));
         $this->assertTrue(Settings::quietAt(['from' => '22:00', 'to' => '08:00'], '07:59'));

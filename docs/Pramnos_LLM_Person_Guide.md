@@ -391,6 +391,34 @@ each person's clock and tells them once that something is waiting:
   (`Conversations::writeThoughts()`). Calendar reminders keep the same quiet hours and
   `notify.reminders`.
 
+### A good morning, a good night
+
+Two short, warm words a companion can say that are never a task and never the morning's thought
+above — said directly, not kept behind a teaser (`Chat\Conversations::greeting()`,
+`writeGreetings()`):
+
+```php
+'llm' => ['chat' => ['greetings' => [
+    'days'    => 14,                                  // for whoever talked to the companion in them
+    'morning' => ['at' => '08:00', 'notify' => true, 'url' => 'https://app.example/'],
+    'night'   => ['at' => '21:30', 'notify' => true, 'url' => 'https://app.example/'],
+]]],
+```
+
+- **Either, both, or neither.** Each kind is its own and only runs where it is configured; an
+  application that wants only a goodnight leaves `morning` out.
+- **One short sentence**, from what the assistant knows of the person — never the stored thought,
+  never a list, written once at the time asked for and not kept afterwards.
+- **The notice carries the words themselves** (unlike the thought's *something is waiting*), with
+  the kind's own `url`.
+- **The person's own settings** (below) move either hour or turn a kind off (`goodmorning_at`,
+  `goodnight_at`), and `notify.greetings` turns both off at once; their quiet hours apply to both.
+- **Once a day, each kind apart** — a goodmorning never stands for the goodnight, and vice versa —
+  however often `llm:routines` runs.
+- **Whom it is told to** is the account's holder, unless the assistant has
+  `tellGreeting(Scope $scope, object $notice, string $kind): bool` (`$kind` is `'morning'` or
+  `'night'`) — the same convention as `tellMorning()`/`tellReminder()` above.
+
 ### Settings, in one place
 
 A person's companion settings are read and changed in one place, each persona's own where that
@@ -400,8 +428,9 @@ makes sense (`Chat\Settings`):
 |---|---|
 | `persona`, `voice`, `style` | whom they talk to, and that persona's voice and pose |
 | `thought_at` | when the morning's thought comes, `H:i`, `off`, or null for the application's |
+| `goodmorning_at`, `goodnight_at` | when each greeting comes, `H:i`, `off`, or null for the application's |
 | `quiet` | `{from, to}`, nothing sent in between (it may cross midnight), or null for the application's |
-| `notify` | `{thought, diary, reminders}`, each true or false |
+| `notify` | `{thought, diary, reminders, greetings}`, each true or false |
 | `app` | the application's own, declared with their values |
 
 ```php

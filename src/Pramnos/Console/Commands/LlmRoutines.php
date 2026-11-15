@@ -56,6 +56,12 @@ class LlmRoutines extends Command
             $output->writeln('Told ' . $thoughts . ' morning thought' . ($thoughts === 1 ? '' : 's') . '.');
         }
 
+        // A "goodmorning"/"goodnight", at its hour and told once (Chat\Settings, Chat\Conversations::greeting()).
+        $greetings = $routines->conversations()->writeGreetings(time());
+        if ($greetings > 0) {
+            $output->writeln('Told ' . $greetings . ' greeting' . ($greetings === 1 ? '' : 's') . '.');
+        }
+
         $learned = $routines->conversations()->learnQuiet(time());
         if ($learned > 0) {
             $output->writeln('Learned from ' . $learned . ' quiet conversation' . ($learned === 1 ? '' : 's') . '.');

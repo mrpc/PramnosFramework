@@ -12,9 +12,12 @@ namespace Pramnos\Llm\Chat;
  * - `voice`, `style` — the persona's voice and pose ({@see \Pramnos\Llm\Speech\Speech}, {@see Acts});
  * - `thought_at` — when the morning's thought is written and told (`H:i`), `off` for never, null
  *   for the application's (`today.morning.at`);
+ * - `goodmorning_at`, `goodnight_at` — when a short "goodmorning"/"goodnight" is told, never the
+ *   thought's own words ({@see Conversations::greeting()}), null for the application's
+ *   (`chat.greetings.morning.at`/`.night.at`);
  * - `quiet` — `{from, to}`, the hours nothing is sent in, null for the application's
  *   (`today.morning.quiet`);
- * - `notify` — `{thought, diary, reminders}`, each on or off;
+ * - `notify` — `{thought, diary, reminders, greetings}`, each on or off;
  * - `app` — the application's own, declared with their values and kept without the framework
  *   knowing what they mean:
  *
@@ -31,7 +34,7 @@ final class Settings
     public const DETAIL = 'askset';
 
     /** What a person is told of, each on or off. */
-    public const NOTIFY = ['thought', 'diary', 'reminders'];
+    public const NOTIFY = ['thought', 'diary', 'reminders', 'greetings'];
 
     /** What a tool changed in the answer under way, by user: the answer carries it. @var array<int, array<string, mixed>> */
     private static array $changed = [];
@@ -40,7 +43,7 @@ final class Settings
      * A person's settings for a persona (null: the default one), defaults filled in — in a
      * partition of their account, its own over the holder's.
      *
-     * @return array{persona: ?string, voice: ?string, style: ?string, thought_at: ?string, quiet: ?array{from: string, to: string}, notify: array<string, bool>, app: array<string, string>}
+     * @return array{persona: ?string, voice: ?string, style: ?string, thought_at: ?string, goodmorning_at: ?string, goodnight_at: ?string, quiet: ?array{from: string, to: string}, notify: array<string, bool>, app: array<string, string>}
      */
     public static function of(object $user, ?string $persona = null, ?int $partition = null): array
     {
@@ -59,7 +62,9 @@ final class Settings
             'persona'    => Personas::on() ? Personas::chosen($user) : null,
             'voice'      => \Pramnos\Llm\Speech\Speech::chosen($user, $persona, $partition),
             'style'      => Acts::style($user, $persona, $partition),
-            'thought_at' => array_key_exists('thought_at', $kept) ? $kept['thought_at'] : ($morning['at'] ?? null),
+            'thought_at'     => array_key_exists('thought_at', $kept) ? $kept['thought_at'] : ($morning['at'] ?? null),
+            'goodmorning_at' => array_key_exists('goodmorning_at', $kept) ? $kept['goodmorning_at'] : self::greeting('morning')['at'],
+            'goodnight_at'   => array_key_exists('goodnight_at', $kept) ? $kept['goodnight_at'] : self::greeting('night')['at'],
             'quiet'      => array_key_exists('quiet', $kept) ? $kept['quiet'] : ($morning['quiet'] ?? null),
             'notify'     => $notify,
             'app'        => $app,
@@ -89,6 +94,14 @@ final class Settings
                         return 'thought_at: a time, H:i, or "off".';
                     }
                     $kept['thought_at'] = $value === null || $value === 'off' ? $value : self::time($value);
+                    break;
+                case 'goodmorning_at':
+                case 'goodnight_at':
+                    $value = $value === null || $value === '' ? null : (string) $value;
+                    if ($value !== null && $value !== 'off' && self::time($value) === null) {
+                        return $field . ': a time, H:i, or "off".';
+                    }
+                    $kept[$field] = $value === null || $value === 'off' ? $value : self::time($value);
                     break;
                 case 'quiet':
                     if ($value !== null && (!is_array($value) || self::time((string) ($value['from'] ?? '')) === null || self::time((string) ($value['to'] ?? '')) === null)) {
@@ -171,16 +184,19 @@ final class Settings
 
         return ['change_setting' => [
             'description' => 'Change one of the person\'s own settings, when they ask: when you send the morning\'s thought (thought_at, H:i, or "off"), '
-                . 'the hours nothing is sent (quiet {from, to}), what they are told of (notify {thought, diary, reminders}: true or false)'
+                . 'when you say good morning / good night (goodmorning_at, goodnight_at, H:i, or "off"), '
+                . 'the hours nothing is sent (quiet {from, to}), what they are told of (notify {thought, diary, reminders, greetings}: true or false)'
                 . ($app !== [] ? ', and ' . implode(', ', array_keys($app)) . ' (in app)' : '') . '. Then say in your answer what you changed.',
             'parameters'  => ['type' => 'object', 'properties' => [
-                'thought_at' => ['type' => 'string'],
+                'thought_at'     => ['type' => 'string'],
+                'goodmorning_at' => ['type' => 'string'],
+                'goodnight_at'   => ['type' => 'string'],
                 'quiet'      => ['type' => 'object', 'properties' => ['from' => ['type' => 'string'], 'to' => ['type' => 'string']]],
                 'notify'     => ['type' => 'object', 'properties' => array_fill_keys(self::NOTIFY, ['type' => 'boolean'])],
             ] + ($app !== [] ? ['app' => ['type' => 'object', 'properties' => $app]] : [])],
             'run'         => static function (array $a) use ($scope): string {
                 $user = new \Pramnos\User\User($scope->userId);
-                $done = self::change($user, $scope->persona, array_intersect_key($a, array_flip(['thought_at', 'quiet', 'notify', 'app'])));
+                $done = self::change($user, $scope->persona, array_intersect_key($a, array_flip(['thought_at', 'goodmorning_at', 'goodnight_at', 'quiet', 'notify', 'app'])));
                 if (is_string($done)) {
                     return 'Error: ' . $done;
                 }
@@ -238,6 +254,20 @@ final class Settings
 
         return ['at' => self::time((string) ($morning['at'] ?? '')), 'quiet' => $from !== null && $to !== null ? ['from' => $from, 'to' => $to] : null,
             'notify' => !empty($morning['notify']), 'url' => (string) ($morning['url'] ?? '')];
+    }
+
+    /**
+     * The application's "goodmorning"/"goodnight": `chat.greetings.morning`/`.night` — when it is
+     * told and its notice's link. Off (`at: null`) where not configured.
+     *
+     * @return array{at: ?string, notify: bool, url: string}
+     */
+    public static function greeting(string $kind): array
+    {
+        $greetings = ((array) \Pramnos\Llm\Llm::config('chat', []))['greetings'] ?? [];
+        $given     = is_array($greetings) && is_array($greetings[$kind] ?? null) ? $greetings[$kind] : [];
+
+        return ['at' => self::time((string) ($given['at'] ?? '')), 'notify' => !empty($given['notify']), 'url' => (string) ($given['url'] ?? '')];
     }
 
     /** Whether a moment on the person's clock (`H:i`) falls in their quiet hours, which may cross midnight. */

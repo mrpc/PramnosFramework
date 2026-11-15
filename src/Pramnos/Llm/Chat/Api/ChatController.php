@@ -748,8 +748,9 @@ class ChatController extends \Pramnos\Application\ApiCrudController
 
     /**
      * The person's companion settings, this persona's (`Chat\Settings`): `GET {chat}/settings` →
-     * `{persona, voice, style, thought_at, quiet: {from, to}, notify: {thought, diary, reminders},
-     * app: {…}}`; `PUT {chat}/settings` with any of them changes those — all or none, 422 naming
+     * `{persona, voice, style, thought_at, goodmorning_at, goodnight_at, quiet: {from, to},
+     * notify: {thought, diary, reminders, greetings}, app: {…}}`; `PUT {chat}/settings` with any
+     * of them changes those — all or none, 422 naming
      * the field that is wrong — and answers them all. `{chat}/voice`, `/style` and `/persona` write
      * to the same place.
      */
