@@ -14,7 +14,12 @@ namespace Pramnos\Llm\Sandbox;
  * for what this still does not do (pre-bundled packages for an offline worker). Both `systemd-run`
  * and `unshare` are probed for real before use, not assumed from being on the `PATH` — neither
  * being reachable is a clean fall-through to what remains, down to the wall-clock timeout alone,
- * never a refusal to run at all. Best on a worker with: Node.js, `npm install` run once in
+ * never a refusal to run at all, **unless `$requireIsolation` is asked for** on a call: an idea
+ * borrowed from openworker's own sandboxed runner (andrewyng/openworker), which fails closed
+ * rather than degrading silently. Every call's own `run()` answers whether each protection
+ * actually applied (`isolated`, `scoped`) — openworker's own practice of saying which enforcement
+ * a result came back under, rather than leaving the caller to assume the strongest case. Best on a
+ * worker with: Node.js, `npm install` run once in
  * `resources/js/sandbox-runner/`, a user session `systemd-run --user` can reach (`loginctl
  * enable-linger`, where the worker is not an interactive login), and an unprivileged user able to
  * make its own network namespace (`unshare --net --map-root-user`; the ordinary case on Linux —
@@ -72,17 +77,36 @@ final class PyodideRunner
     /**
      * Run `$code`, with `$input` written to `/tmp/input.csv` first where it is given.
      *
-     * @return array{ok: bool, result?: string, error?: string}
+     * `$requireIsolation` — an idea borrowed from openworker's own sandboxed tool runner, which
+     * refuses a call outright rather than running it unsandboxed: where this worker cannot make
+     * its own network namespace at all, refuses before anything runs, instead of the ordinary
+     * fallback (this call, run without it, said so in `isolated`). Off by default, since most of
+     * what a network namespace adds here is a second line of defence past an already-measured
+     * stub (see this class's own docblock) — on where that second line matters enough to refuse
+     * rather than degrade.
+     *
+     * @return array{ok: bool, result?: string, error?: string, isolated: bool, scoped: bool}
      */
-    public function run(string $code, ?string $input, int $timeoutSeconds = self::DEFAULT_TIMEOUT_SECONDS, int $memoryMb = self::DEFAULT_MEMORY_MB): array
-    {
+    public function run(
+        string $code,
+        ?string $input,
+        int $timeoutSeconds = self::DEFAULT_TIMEOUT_SECONDS,
+        int $memoryMb = self::DEFAULT_MEMORY_MB,
+        bool $requireIsolation = false,
+    ): array {
+        $isolated = self::canUnshareNet();
+        $scoped   = self::canRunScoped();
+
         if (!$this->available()) {
-            return ['ok' => false, 'error' => 'There is no sandbox runtime here — Node.js and resources/js/sandbox-runner/node_modules are needed on this worker.'];
+            return ['ok' => false, 'error' => 'There is no sandbox runtime here — Node.js and resources/js/sandbox-runner/node_modules are needed on this worker.', 'isolated' => $isolated, 'scoped' => $scoped];
+        }
+        if ($requireIsolation && !$isolated) {
+            return ['ok' => false, 'error' => 'Refused: this worker cannot make its own network namespace, and isolation was required.', 'isolated' => false, 'scoped' => $scoped];
         }
 
         $dir = sys_get_temp_dir() . '/pf-code-exec-' . bin2hex(random_bytes(8));
         if (!@mkdir($dir, 0700, true)) {
-            return ['ok' => false, 'error' => 'Nowhere to write the script.'];
+            return ['ok' => false, 'error' => 'Nowhere to write the script.', 'isolated' => $isolated, 'scoped' => $scoped];
         }
         file_put_contents($dir . '/code.py', $code);
         if ($input !== null) {
@@ -90,7 +114,7 @@ final class PyodideRunner
         }
 
         try {
-            return $this->exec($this->command($dir, $memoryMb), max(1, $timeoutSeconds));
+            return $this->exec($this->command($dir, $memoryMb), max(1, $timeoutSeconds)) + ['isolated' => $isolated, 'scoped' => $scoped];
         } finally {
             self::removeDir($dir);
         }

@@ -770,6 +770,7 @@ run in an isolated sandbox, never the database.
     'code_exec_seconds'    => 20,    // seconds the sandbox itself may run — PyodideRunner::DEFAULT_TIMEOUT_SECONDS otherwise
     'code_exec_memory_mb'  => 512,   // the sandbox's own memory ceiling — PyodideRunner::DEFAULT_MEMORY_MB otherwise
     'code_exec_max_pending' => 5,    // calls waiting or running at once, across everybody — CodeExecTool::DEFAULT_MAX_PENDING otherwise
+    'code_exec_require_isolation' => false,  // refuse a call outright rather than run it unisolated — off by default
 ]]],
 ```
 
@@ -833,7 +834,15 @@ not (`connect()` succeeds without performing one, `recv()` never returns data) �
 interop (`import js`): confirmed reaching a real site without this, and failing with `TypeError:
 fetch failed` with it. Where an unprivileged namespace cannot be made at all, `code_exec` still
 runs — the worker calling it unisolated, which its own test asserts honestly either way — rather
-than refusing outright.
+than refusing outright, **unless `code_exec_require_isolation` is on**: an idea borrowed from
+[openworker](https://github.com/andrewyng/openworker)'s own sandboxed tool runner, which fails
+closed rather than degrading silently. Off by default, since the second line of defence it drops
+is past an already-measured stub (Python's own networking, above); on, a worker that cannot
+isolate refuses every call outright rather than running any of them unprotected. Either way,
+`PyodideRunner::run()` answers whether each protection actually applied — `isolated`, `scoped` —
+rather than leaving the caller to assume the strongest case, openworker's own practice too; a
+`code_exec` answer carries a `[sandbox note: ran without …]` line when either was missing, silent
+on the ordinary path.
 
 **What this prototype still does not do.** Packages (`pandas`, `numpy`…) are fetched from a CDN
 the first time one is asked for and cached in `resources/js/sandbox-runner/node_modules/` after

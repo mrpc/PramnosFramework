@@ -34,19 +34,31 @@ class CodeExecTask extends AbstractTask
             return true;
         }
 
-        $config  = \Pramnos\Llm\Llm::config('analyst', []);
-        $seconds = max(1, (int) (is_array($config) ? ($config['code_exec_seconds'] ?? PyodideRunner::DEFAULT_TIMEOUT_SECONDS) : PyodideRunner::DEFAULT_TIMEOUT_SECONDS));
-        $memory  = max(64, (int) (is_array($config) ? ($config['code_exec_memory_mb'] ?? PyodideRunner::DEFAULT_MEMORY_MB) : PyodideRunner::DEFAULT_MEMORY_MB));
+        $config   = \Pramnos\Llm\Llm::config('analyst', []);
+        $seconds  = max(1, (int) (is_array($config) ? ($config['code_exec_seconds'] ?? PyodideRunner::DEFAULT_TIMEOUT_SECONDS) : PyodideRunner::DEFAULT_TIMEOUT_SECONDS));
+        $memory   = max(64, (int) (is_array($config) ? ($config['code_exec_memory_mb'] ?? PyodideRunner::DEFAULT_MEMORY_MB) : PyodideRunner::DEFAULT_MEMORY_MB));
+        $required = is_array($config) && !empty($config['code_exec_require_isolation']);
 
         $row = Exec::find($runId, (int) ($payload['user_id'] ?? 0));
         if ($row === null) {
             return true;
         }
 
-        $answer = PyodideRunner::default()->run((string) $row['code'], $row['input'] !== null ? (string) $row['input'] : null, $seconds, $memory);
+        $answer = PyodideRunner::default()->run(
+            (string) $row['code'],
+            $row['input'] !== null ? (string) $row['input'] : null,
+            $seconds,
+            $memory,
+            $required
+        );
 
         if (!empty($answer['ok'])) {
-            Exec::finish($runId, (string) ($answer['result'] ?? ''));
+            // Said only when a protection the ordinary case has was missing here — never noise on
+            // the common path, the same practice openworker's own sandboxed runner follows for
+            // which enforcement a result actually came back under.
+            $missing = [...(empty($answer['isolated']) ? ['network isolation'] : []), ...(empty($answer['scoped']) ? ['its memory/CPU ceiling'] : [])];
+            $note    = $missing === [] ? '' : "\n\n[sandbox note: ran without " . implode(' or ', $missing) . ']';
+            Exec::finish($runId, (string) ($answer['result'] ?? '') . $note);
         } else {
             Exec::fail($runId, (string) ($answer['error'] ?? 'The sandbox did not say why.'));
         }

@@ -243,16 +243,31 @@ class CodeExecTest extends LlmTestCase
             PyodideRunner::DEFAULT_MEMORY_MB
         );
         exec('unshare --net --map-root-user -- true 2>/dev/null', $unused, $canIsolate);
+        exec('systemd-run --user --scope --quiet -- true 2>/dev/null', $unused, $canScope);
+        $isolated = $canIsolate === 0;
+        $scoped   = $canScope === 0;
+
+        // requireIsolation: refused outright where isolation cannot actually be made, run as
+        // usual where it can — openworker's own "fail closed" practice, as an opt-in rather than
+        // the default (most of what isolation adds here is a second line of defence past an
+        // already-measured stub — Python's own socket module, see the class's own docblock).
+        $required = $runner->run('print(1)', null, 10, PyodideRunner::DEFAULT_MEMORY_MB, true);
 
         // Assert
-        $this->assertSame(['ok' => true, 'result' => "2\n"], $plain);
-        $this->assertSame(['ok' => true, 'result' => "15\n"], $pandas);
-        $this->assertSame(['ok' => false, 'error' => 'Stopped: took longer than 2 seconds.'], $stopped);
+        $this->assertSame(['ok' => true, 'result' => "2\n", 'isolated' => $isolated, 'scoped' => $scoped], $plain);
+        $this->assertSame(['ok' => true, 'result' => "15\n", 'isolated' => $isolated, 'scoped' => $scoped], $pandas);
+        $this->assertSame(['ok' => false, 'error' => 'Stopped: took longer than 2 seconds.', 'isolated' => $isolated, 'scoped' => $scoped], $stopped);
         $this->assertSame(
-            $canIsolate === 0 ? "BLOCKED JsException\n" : "REACHED 200\n",
+            $isolated ? "BLOCKED JsException\n" : "REACHED 200\n",
             $jsFetch['result'],
-            $canIsolate === 0 ? 'this host can isolate network access, and PyodideRunner did' : 'this host cannot make its own network namespace at all — nothing to isolate with'
+            $isolated ? 'this host can isolate network access, and PyodideRunner did' : 'this host cannot make its own network namespace at all — nothing to isolate with'
         );
+        if ($isolated) {
+            $this->assertSame(['ok' => true, 'result' => "1\n", 'isolated' => true, 'scoped' => $scoped], $required);
+        } else {
+            $this->assertSame('Refused: this worker cannot make its own network namespace, and isolation was required.', $required['error']);
+            $this->assertFalse($required['ok']);
+        }
     }
 }
 
