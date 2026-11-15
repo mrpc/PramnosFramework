@@ -188,6 +188,56 @@ class TasksTest extends LlmTestCase
     }
 
     /**
+     * A reminder tries the application's own `tellReminder(Scope, object): bool` first — the same
+     * hook `askedMorning()` already offers for a morning thought — so a reminder can reach one
+     * profile of a shared account or device rather than the account as a whole, with the routine's
+     * own partition on the scope it is given. Taking it (`true`) sends no ordinary push beside it;
+     * declining (`false`) falls back to the ordinary push, as before the hook existed at all.
+     */
+    #[DataProvider('databases')]
+    public function testAReminderTriesTheApplicationsOwnHookFirst(string $type, string $host, int $port): void
+    {
+        // Arrange — partition 2's hook takes it; partition 9's declines
+        $this->connectDatabase($type, $host, $port);
+        $told      = [];
+        $assistant = new class ($told) extends BaseAssistant {
+            /** @param list<array{0: int, 1: ?int}> $told */
+            public function __construct(private array &$told)
+            {
+            }
+
+            public function tellReminder(Scope $scope, object $notice): bool
+            {
+                $this->told[] = [$scope->userId, $scope->partition];
+
+                return $scope->partition === 2;
+            }
+        };
+        $tasks  = $this->tasks($assistant);
+        $taken  = $tasks->create(new Scope(7, null, 'chat', null, 2), ['kind' => 'reminder', 'title' => 'Pills', 'prompt' => 'Take the morning pills', 'cadence' => 'once', 'in_minutes' => 60]);
+        $this->due($taken['routine_id']);
+
+        // Act
+        $tasks->runDue(time());
+
+        // Assert — offered, taken, nothing pushed as well
+        $this->assertSame([[7, 2]], $told);
+        $this->assertSame([], $tasks->delivered, 'taken: no ordinary push beside it');
+
+        // Arrange — a second reminder, a partition the hook declines
+        $declined = $tasks->create(new Scope(7, null, 'chat', null, 9), ['kind' => 'reminder', 'title' => 'Water', 'prompt' => 'Drink water', 'cadence' => 'once', 'in_minutes' => 60]);
+        $this->due($declined['routine_id']);
+
+        // Act
+        $tasks->runDue(time());
+
+        // Assert — offered again, declined, falls back to the ordinary push
+        $this->assertSame([[7, 2], [7, 9]], $told);
+        $this->assertCount(1, $tasks->delivered, 'declined: the ordinary push still goes');
+        $this->assertSame(7, $tasks->delivered[0][0]);
+    }
+
+    /**
      * A one-off at a time is that time on the asker's clock; one already past is refused, and so
      * is a one-off with no time at all.
      */

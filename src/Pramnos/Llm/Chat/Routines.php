@@ -593,7 +593,7 @@ class Routines
                     (string) ($run['content'] ?? ''), in_array($userId, $byEmail, true), self::runDay($policy->timezone($routine)), (int) $routine['routine_id']);
             }
         } elseif ($routine['kind'] === self::REMINDER) {
-            $this->remind($audience, (string) $routine['prompt'], $policy->link($routine, $run));
+            $this->remind($audience, (string) $routine['prompt'], $policy->link($routine, $run), $scope);
         } else {
             $why = $ok ? '' : (string) $answer['says'] . ($pause ? ' It was paused after ' . $failures . ' failures in a row; resume it when this is fixed.' : '');
             foreach ($audience as $userId) {
@@ -729,7 +729,7 @@ class Routines
 
         if ($moved !== []) {
             $words = count($moved) === 1 ? 'A scheduled task was passed to you.' : count($moved) . ' scheduled tasks were passed to you.';
-            $this->remind([$toUserId], $words . ($paused === [] ? '' : ' ' . count($paused) . ' of them are paused: open them to see why.'), $this->chat->assistant()->conversationUrl(null));
+            $this->remind([$toUserId], $words . ($paused === [] ? '' : ' ' . count($paused) . ' of them are paused: open them to see why.'), $this->chat->assistant()->conversationUrl(null), new Scope($toUserId));
         }
 
         return ['moved' => $moved, 'paused' => $paused];
@@ -1510,16 +1510,31 @@ class Routines
         }
     }
 
-    /** A reminder, in its owner's words, to each of its audience. */
-    private function remind(array $audience, string $words, string $link): void
+    /**
+     * A reminder, in its owner's words, to each of its audience — the routine's own scope tried
+     * first for its own owner.
+     */
+    private function remind(array $audience, string $words, string $link, ?Scope $scope = null): void
     {
         $chat  = \Pramnos\Llm\Llm::config('chat', []);
         $class = is_array($chat) && is_string($chat['reminder_notification'] ?? null) && class_exists($chat['reminder_notification'])
             ? $chat['reminder_notification'] : TaskReminder::class;
 
         foreach ($audience as $userId) {
+            $userId = (int) $userId;
             try {
-                $this->deliver((int) $userId, RoutineReady::tag(new $class($words, self::linkable($link)), $this->space, 'reminder'));
+                $notification = RoutineReady::tag(new $class($words, self::linkable($link)), $this->space, 'reminder');
+                // The application's assistant tells its own owner its own way where it has
+                // `tellReminder(Scope, object): bool` — the same hook `askedMorning()` already
+                // offers for a morning thought — so a reminder reaches one profile of a shared
+                // account or device rather than the account as a whole. A subscriber who is not
+                // the routine's own owner has no partition of this routine's own to apply, and is
+                // told plainly either way.
+                if ($scope !== null && $userId === $scope->userId && method_exists($this->chat->assistant(), 'tellReminder')
+                    && (bool) $this->chat->assistant()->tellReminder($scope, $notification)) {
+                    continue;
+                }
+                $this->deliver($userId, $notification);
             } catch (\Throwable $why) {
                 \Pramnos\Logs\Logger::log('llm reminder notification: ' . $why->getMessage());
             }

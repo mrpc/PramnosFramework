@@ -283,6 +283,13 @@ What runs on its own, without a request, takes the partition from the stored spa
 - **Whom the morning is told to** is the account's holder, unless the assistant has
   `tellMorning(Scope $scope, object $notice): bool`. That method tells whom it decides, in its own
   way, and answers false where there was nobody to tell. Either way the day is marked.
+- **Whom a reminder is told to** is the same: the ordinary push, unless the assistant has
+  `tellReminder(Scope $scope, object $notice): bool` — tried for the routine's own owner only, with
+  its own partition on the scope. `true` sends nothing else; `false` falls back to the ordinary
+  push, as if the hook did not exist. A reminder shared with somebody who is not the routine's own
+  owner is always told plainly: this routine's own partition is not theirs to apply. Built for a
+  reminder that must reach one profile of a shared account or device, and that may need to decide
+  more than which device to push to — an escalation across several steps, say, not only routing.
 An account's erasure takes every partition's rows with the account's.
 
 ### A check a few hours later
