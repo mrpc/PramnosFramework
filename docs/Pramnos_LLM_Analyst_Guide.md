@@ -676,6 +676,7 @@ For a question no tool answers, the analyst can write SQL — when the applicati
     'sql_rows'    => fn (\Pramnos\User\User $u): int => $u->usertype >= 99 ? 2000 : 200,  // a number, or per role
     'export_rows' => 20000,  // the same ceiling for export_csv, separately — MAX_ROWS otherwise
     'export_days' => 30,     // how long a CSV export is kept — Exports::DAYS (7) otherwise
+    'schemas'     => ['public', 'authserver'],  // PostgreSQL: `schema` sees these too, not just the connection's own
     'rounds'      => 20,     // tool rounds before the model must answer with what it has — 16 otherwise
     'schema'      => [       // what the catalogue cannot say
         'orders' => ['about' => 'One customer order.', 'columns' => ['status' => '1 open, 2 paid, 3 refunded']],
@@ -702,7 +703,14 @@ database rather than from a tool's answer, goes in `export_csv`, which writes it
 Never both for the same rows. The two tools' descriptions say so to the model.
 
 `schema` lists the tables, or one table's columns with their keys, and the application's notes,
-keyed without the table prefix. `sql` answers rows. `export_csv` writes them to a file. It
+keyed without the table prefix. On PostgreSQL, `'llm' => ['analyst' => ['schemas' => ['public',
+'authserver', 'billing']]]` widens that listing across the schemas named — for an application
+split into several on purpose, not the public-vs-private kind — rather than just the connection's
+own; a table of another one comes back as `schema.table` (the same qualified name `sql` already
+reads without this), a table of the connection's own schema keeps its bare name so existing
+`schema` notes keyed without one still match, and a system schema is never listed even if named.
+Without `schemas`, nothing changes. MySQL has no second schema the way this is — `schemas` does
+nothing there. `sql` answers rows. `export_csv` writes them to a file. It
 answers with its `link`, and with `xlsx`, the same file as a spreadsheet (`?as=xlsx`). A list of
 up to `export_inline` rows (100 by default) also comes back whole, and the model is told to show
 it as a table beside the link. A longer one gives the model only the link, the count and five

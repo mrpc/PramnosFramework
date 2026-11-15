@@ -12,12 +12,18 @@ use Pramnos\Mcp\McpToolInterface;
  * application says they mean, which the catalogue cannot:
  *
  * ```php
- * 'llm' => ['analyst' => ['schema' => [
- *     'orders' => ['about' => 'One customer order.', 'columns' => ['status' => '1 open, 2 paid, 3 refunded']],
+ * 'llm' => ['analyst' => [
+ *     'schema'  => ['orders' => ['about' => 'One customer order.', 'columns' => ['status' => '1 open, 2 paid, 3 refunded']]],
+ *     'schemas' => ['public', 'authserver', 'billing'],   // PostgreSQL only; a table of a schema
+ *                                                           // beyond the first is seen as "schema.table"
  * ]]],
  * ```
  *
- * Read with `SchemaBuilder`, which pins `information_schema` to this database.
+ * Read with `SchemaBuilder`, which pins `information_schema` to this database — or, with
+ * `schemas`, to the ones named (FW-507): an application split across several PostgreSQL schemas
+ * on purpose, not the public-vs-private kind, otherwise has no way to make `schema` (or `sql`,
+ * which already reads any schema it is told by a qualified name) find a table the model does not
+ * already know to ask for by name.
  */
 final class SchemaTool implements McpToolInterface
 {
@@ -41,10 +47,12 @@ final class SchemaTool implements McpToolInterface
 
     public function execute(array $input): mixed
     {
-        $db     = Factory::getDatabase();
-        $schema = $db->schema();
-        $notes  = self::notes((string) $db->prefix);
-        $tables = $schema->tableNames();
+        $db      = Factory::getDatabase();
+        $schema  = $db->schema();
+        $notes   = self::notes((string) $db->prefix);
+        $config  = \Pramnos\Llm\Llm::config('analyst', []);
+        $schemas = is_array($config) && is_array($config['schemas'] ?? null) ? array_map('strval', $config['schemas']) : [];
+        $tables  = $schema->tableNamesIn($schemas);
         $table  = trim((string) ($input['table'] ?? ''));
 
         if ($table === '') {
@@ -87,7 +95,7 @@ final class SchemaTool implements McpToolInterface
 
         foreach (is_array($config) && is_array($config['schema'] ?? null) ? $config['schema'] : [] as $table => $note) {
             $table = (string) $table;
-            $notes[$prefix !== '' && !str_starts_with($table, $prefix) ? $prefix . $table : $table] = is_array($note) ? $note : [];
+            $notes[$prefix !== '' && !str_contains($table, '.') && !str_starts_with($table, $prefix) ? $prefix . $table : $table] = is_array($note) ? $note : [];
         }
 
         return $notes;

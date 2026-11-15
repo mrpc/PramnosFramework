@@ -481,6 +481,42 @@ class AnalystSqlTest extends LlmTestCase
     }
 
     /**
+     * `schemas` (FW-507): an application split across several PostgreSQL schemas on purpose gets
+     * a table of another one listed as `schema.table`, its columns read the same way `sql` already
+     * could by a qualified name; a table of the connection's own schema keeps its bare name, so
+     * existing `schema` notes still match; a system schema is never listed even when named; and
+     * the bare name alone no longer finds a table that is not addressed that way. PostgreSQL
+     * only — MySQL has no second schema the way this is and `schemas` does nothing there.
+     */
+    public function testCrossSchemaTablesArePostgresOnly(): void
+    {
+        // Arrange
+        $this->boot('postgresql', 'timescaledb', 5432, 'postgres');
+        $this->db->query('CREATE SCHEMA IF NOT EXISTS billing');
+        $this->db->query('CREATE TABLE billing.invoices (id serial PRIMARY KEY, total integer)');
+        $this->configure(['analyst' => ['schemas' => ['public', 'billing', 'pg_catalog']]]);
+        $tool = new SchemaTool();
+
+        try {
+            // Act
+            $tables    = $tool->execute([]);
+            $invoice   = $tool->execute(['table' => 'billing.invoices']);
+            $bareFails = $tool->execute(['table' => 'invoices']);
+
+            // Assert
+            $this->assertArrayHasKey('users', $tables['tables'], 'the connection\'s own schema, bare name');
+            $this->assertArrayHasKey('billing.invoices', $tables['tables'], 'another schema, qualified');
+            $this->assertArrayNotHasKey('invoices', $tables['tables'], 'not bare: ambiguous with another schema\'s table');
+            $this->assertArrayNotHasKey('pg_class', $tables['tables'], 'pg_catalog named, but a system schema is never listed');
+            $this->assertTrue($invoice['columns']['id']['primary']);
+            $this->assertStringStartsWith('There is no table called invoices', $bareFails, 'not addressed by the bare name');
+        } finally {
+            $this->db->query('DROP TABLE IF EXISTS billing.invoices');
+            $this->db->query('DROP SCHEMA IF EXISTS billing');
+        }
+    }
+
+    /**
      * Off until the application turns each on; on, the model's rows are tagged personal and
      * redacted like every other tool's.
      */

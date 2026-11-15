@@ -497,6 +497,65 @@ class SchemaBuilder
         return $names;
     }
 
+    /** PostgreSQL schemas a cross-schema listing never returns, named or not. */
+    private const SYSTEM_SCHEMAS = ['information_schema', 'pg_catalog', 'pg_toast', 'topology'];
+
+    /**
+     * Every table across one or more PostgreSQL schemas — for an application that organises
+     * itself into several on purpose (FW-507), not the public-vs-private kind {@see tableNames()}
+     * already handles. A table of the connection's own schema keeps its bare name, so a caller
+     * already matching {@see tableNames()}'s names against its own notes is unaffected; a table of
+     * any other schema given comes back as `schema.table`, which {@see columnDetails()} and every
+     * other caller here already reads (`resolveTable()` leaves a dotted name as it is on
+     * PostgreSQL). A system schema is left out whether or not it was named.
+     *
+     * MySQL has no second schema the way PostgreSQL does — `$schemas` is ignored there, and this
+     * is {@see tableNames()}. An empty list is the connection's own schema alone, the same as
+     * {@see tableNames()}.
+     *
+     * @param  list<string> $schemas
+     * @return list<string>
+     */
+    public function tableNamesIn(array $schemas = []): array
+    {
+        $wanted = $this->capabilities->isPostgreSQL()
+            ? array_values(array_unique(array_filter($schemas, static fn (string $s): bool =>
+                $s !== '' && !in_array($s, self::SYSTEM_SCHEMAS, true) && !str_starts_with($s, '_timescaledb'))))
+            : [];
+        if ($wanted === []) {
+            return $this->tableNames();
+        }
+
+        $default = $this->resolveSchema();
+        try {
+            $result = $this->db->query($this->db->prepareQuery(
+                'SELECT table_schema AS tschema, table_name AS tname
+                   FROM information_schema.tables
+                  WHERE table_schema IN (' . implode(',', array_fill(0, count($wanted), '%s')) . ')
+                    AND table_type = \'BASE TABLE\'
+                  ORDER BY 1, 2',
+                $wanted
+            ));
+        } catch (\Throwable) {
+            return [];
+        }
+
+        if (!$result) {
+            return [];
+        }
+
+        $names = [];
+        while ($result->fetch()) {
+            $tableSchema = (string) ($result->fields['tschema'] ?? '');
+            $name        = (string) ($result->fields['tname'] ?? '');
+            if ($name !== '') {
+                $names[] = $tableSchema === $default || $tableSchema === '' ? $name : $tableSchema . '.' . $name;
+            }
+        }
+
+        return $names;
+    }
+
     /**
      * Tell the connection that a table's schema has changed.
      *
