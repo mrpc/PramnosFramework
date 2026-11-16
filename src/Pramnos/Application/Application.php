@@ -1594,6 +1594,13 @@ class Application extends Base
             icon: 'chart',
             when: static fn (): bool => \Pramnos\Metrics\Metrics::all() !== [],
         ));
+        // A metric defined on the screen (phase 7i), where the application allowed any table at all.
+        NavRegistry::register(new NavItem(
+            'admin.reports.nocode', 'Metrics defined on the screen', $admin('MetricDefinitions'),
+            NavSection::Admin, 1, requireAuth: true, minUserType: $floor,
+            icon: 'chart', parent: 'admin.reports', ability: 'admin.reports',
+            when: static fn (): bool => \Pramnos\Metrics\NoCodeMetrics::allowedTables() !== [],
+        ));
         // The to-do list, where it is installed, for whoever may read it (`todos.can`); an
         // organisation's member below the floor reaches it from the application's own menu.
         NavRegistry::register(new NavItem(

@@ -1144,6 +1144,18 @@ final class Metrics
                 \Pramnos\Logs\Logger::log('The site traffic\'s metrics were left out: ' . $e->getMessage(), 'metrics');
             }
         }
+        // A metric defined on the screen (phase 7i), where its table is there, unless app.php says not.
+        if ((self::config()['no_code'] ?? true) !== false) {
+            try {
+                if (\Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('pramnos.metric_declarations')) {
+                    foreach ((new NoCodeMetrics())->metrics() as $item) {
+                        self::$metrics[$item->name] ??= $item;
+                    }
+                }
+            } catch (\Throwable $e) {
+                \Pramnos\Logs\Logger::log('No-code metrics were left out: ' . $e->getMessage(), 'metrics');
+            }
+        }
         // Registered in code wins over app.php's, as with dashboard widgets.
         self::$metrics = array_replace(self::$metrics, $registered);
     }

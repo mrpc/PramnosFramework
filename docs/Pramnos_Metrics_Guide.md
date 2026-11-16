@@ -1554,6 +1554,43 @@ class OrdersTest extends TestCase
   nothing is faked, the same assertion either way, so a test written against a fake still reads
   as an ordinary integration test once the fake call is dropped.
 
+## A metric defined on the screen
+
+For "paid orders per store" without a developer — an administrator picks a table, a time column
+and what to count, each only from what the application already allowed:
+
+```php
+'metrics' => ['no_code' => ['tables' => [
+    'invoices' => ['time' => ['date', 'created_at'], 'unix' => false, 'columns' => ['total', 'status', 'market']],
+]]],
+```
+
+`/admin/MetricDefinitions` (nested under Reports in the menu, where any table is allowed) lists
+them, and its form checks a declaration, shows what its query would cost before it writes
+anything, and asks to confirm:
+
+- **Only a table, a time column and a column this named.** A declaration never reaches a query
+  with anything an administrator typed freely — every table, every time column, every value,
+  dimension or condition column is checked against `no_code.tables` first, and refused by name
+  (`source_table: not one of the tables allowed here.`, and the same for each of the others) the
+  moment it is not.
+- **Six safe aggregations.** `sum`, `count`, `countDistinct`, `avg`, `min`, `max` — the rest
+  `Metric` itself can do (`last()`, `counter()`, a cohort) are not offered here, by design: this
+  is the ordinary case, not the whole declared-query surface.
+- **One condition shape.** `where` is a column equal to a value, or one of several — the same
+  shape `Metric::where()` already takes — never a free-text filter, which would undo the point of
+  the allowlist.
+- **`NoCodeMetrics::cost($checked)`** runs the declared query's own `EXPLAIN` over the last day
+  before anything is saved: how many rows the planner expects to read, and whether it uses an
+  index.
+- **A real `Metric`, not a second engine.** A declaration becomes the same declared-query
+  `Metric::flow()->from()->at()->sum()...` a PHP catalogue would write, read by every reader a
+  PHP-declared metric already has — a report, the JSON API, an export, the assistant. Loaded like
+  `Audience\AudienceMetrics`'s own, where `pramnos.metric_declarations` has rows: `'metrics' =>
+  ['no_code' => false]` turns it off.
+- **Turned off, not deleted.** A declaration with `active: false` leaves the catalogue without
+  losing what it said; it still shows in the list, ready to turn back on.
+
 ## Related
 
 - [Dashboard](Pramnos_Dashboard_Guide.md): the cards that can show a metric
