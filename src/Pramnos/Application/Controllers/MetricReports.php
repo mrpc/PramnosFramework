@@ -10,6 +10,7 @@ use Pramnos\Metrics\Metrics;
 use Pramnos\Metrics\Report;
 use Pramnos\Metrics\ReportBoard;
 use Pramnos\Metrics\Reports;
+use Pramnos\Metrics\SharedLinks;
 use Pramnos\Metrics\Window;
 
 /**
@@ -27,6 +28,10 @@ use Pramnos\Metrics\Window;
  *   - delete()  — POST: the owner's, or anybody's for an administrator
  *   - menu()    — POST: show a report in the menu, or not (`Reports::editsMenu()`)
  *   - customise() / uncustomise() — POST: a person's own copy of a report in its place, or the original again
+ *   - share()   — POST: a signed link that opens the report without an account ({@see SharedLinks})
+ *   - unshare() — POST: takes a link away
+ *   - shared()  — **public**, no sign-in: `?token=…` opens the report read-only, with the scope of
+ *                 whoever made the link
  *
  * Every number is read through the metric's own `allowed()`, so a shared report shows each person
  * only the rows they may see.
@@ -39,11 +44,14 @@ class MetricReports extends Controller
     /** The most records the drill-down lists. */
     private const ROWS = 500;
 
-    /** Registers the actions: all behind sign-in, the writes POSTs with the session's token. */
+    /** `shared()` alone: a link opens with no account, so it is never behind the admin floor. */
+    protected array $adminPublicActions = ['shared'];
+
+    /** Registers the actions: all behind sign-in but `shared()`, the writes POSTs with the session's token. */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'show', 'csv', 'xlsx', 'rows', 'edit', 'save', 'delete', 'menu', 'customise', 'uncustomise']);
-        $this->addWriteAction(['save', 'delete', 'menu', 'customise', 'uncustomise']);
+        $this->addAuthAction(['display', 'show', 'csv', 'xlsx', 'rows', 'edit', 'save', 'delete', 'menu', 'customise', 'uncustomise', 'share', 'unshare']);
+        $this->addWriteAction(['save', 'delete', 'menu', 'customise', 'uncustomise', 'share', 'unshare']);
         parent::__construct($application);
     }
 
@@ -367,6 +375,68 @@ class MetricReports extends Controller
         $this->redirect($this->urls()['show'] . '?report=' . rawurlencode($id));
     }
 
+    /** A signed link to the report, without an account: `report` and `days` (optional, blank never expires) in the form. */
+    public function share(): void
+    {
+        if ($this->refused()) {
+            return;
+        }
+        $id    = (string) ($_POST['report'] ?? '');
+        $days  = ctype_digit((string) ($_POST['days'] ?? '')) ? (int) $_POST['days'] : null;
+        $token = SharedLinks::create($this->user(), $id, $days);
+        if ($token === null) {
+            $this->addError(t('There is no such report of yours.'));
+        } else {
+            $this->addMessage(t('Link made: ') . $this->urls()['shared'] . '?token=' . $token);
+        }
+        $this->redirect($this->urls()['show'] . '?report=' . rawurlencode($id));
+    }
+
+    /** Takes a link away: `token` in the form. */
+    public function unshare(): void
+    {
+        if ($this->refused()) {
+            return;
+        }
+        $id = (string) ($_POST['report'] ?? '');
+        SharedLinks::revoke((string) ($_POST['token'] ?? ''), $this->user())
+            ? $this->addMessage(t('Link taken away.'))
+            : $this->addError(t('There is no such link of yours.'));
+        $this->redirect($this->urls()['show'] . '?report=' . rawurlencode($id));
+    }
+
+    /**
+     * A report opened without an account, `?token=…`: read with the scope of whoever made the
+     * link ({@see SharedLinks::resolve()}), never the viewer's — there is no viewer. A plain,
+     * self-contained page: it is meant to be opened outside the application entirely, so it does
+     * not borrow the admin theme.
+     */
+    public function shared(): mixed
+    {
+        $row   = SharedLinks::resolve((string) ($_GET['token'] ?? ''));
+        $entry = null;
+        if ($row !== null) {
+            $maker = new \Pramnos\User\User($row['made_by']);
+            $entry = $this->store()->find($row['report_id'], $maker);
+        }
+        if ($row === null || $entry === null) {
+            return \Pramnos\Http\Response::make('<!doctype html><meta charset="utf-8"><title>' . t('Not found')
+                . '</title><p>' . htmlspecialchars(t('This link does not work any more.'), ENT_QUOTES, 'UTF-8') . '</p>', 404);
+        }
+        $at = self::day((string) ($_GET['at'] ?? ''));
+        \Pramnos\Auth\AuditLog::record('metrics.shared_link.opened', null, null, ['report' => $entry['id']], 'metric_link', $row['token']);
+        try {
+            $body = ReportBoard::html($entry, $at, $maker);
+        } finally {
+            ReportBoard::leave();
+        }
+
+        return \Pramnos\Http\Response::make('<!doctype html><meta charset="utf-8"><title>'
+            . htmlspecialchars($entry['name'], ENT_QUOTES, 'UTF-8') . '</title>'
+            . '<style>body{font:14px/1.5 system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem}</style>'
+            . '<h1>' . htmlspecialchars($entry['name'], ENT_QUOTES, 'UTF-8') . '</h1>' . $body, 200);
+    }
+
     /** Below the administration floor, or no metrics declared: the request stops here. */
     protected function refused(): bool
     {
@@ -412,7 +482,7 @@ class MetricReports extends Controller
     {
         $base = adminUrl('MetricReports');
 
-        return ['list' => $base, 'show' => $base . '/show', 'csv' => $base . '/csv', 'xlsx' => $base . '/xlsx', 'rows' => $base . '/rows', 'edit' => $base . '/edit', 'save' => $base . '/save', 'delete' => $base . '/delete', 'menu' => $base . '/menu', 'customise' => $base . '/customise', 'uncustomise' => $base . '/uncustomise'];
+        return ['list' => $base, 'show' => $base . '/show', 'csv' => $base . '/csv', 'xlsx' => $base . '/xlsx', 'rows' => $base . '/rows', 'edit' => $base . '/edit', 'save' => $base . '/save', 'delete' => $base . '/delete', 'menu' => $base . '/menu', 'customise' => $base . '/customise', 'uncustomise' => $base . '/uncustomise', 'share' => $base . '/share', 'unshare' => $base . '/unshare', 'shared' => $base . '/shared'];
     }
 
     /** A day as given, or today. */

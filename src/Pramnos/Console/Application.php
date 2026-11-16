@@ -272,6 +272,7 @@ class Application extends \Symfony\Component\Console\Application
         // The shared dashboard cards worked out ahead of anybody waiting for them, from cron.
         $this->add(new \Pramnos\Console\Commands\DashboardPrecompute());
         $this->add(new \Pramnos\Console\Commands\MetricsCompute());
+        $this->add(new \Pramnos\Console\Commands\MetricsStatus());
         $this->add(new \Pramnos\Console\Commands\HelpEval());
         $this->add(new \Pramnos\Console\Commands\HelpQuestions());
         $this->add(new \Pramnos\Console\Commands\HelpGaps());

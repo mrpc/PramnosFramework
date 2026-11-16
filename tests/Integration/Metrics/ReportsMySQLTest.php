@@ -12,7 +12,11 @@ use Pramnos\Application\Settings;
 use Pramnos\Dashboard\Presets;
 use Pramnos\Database\Database;
 use Pramnos\Framework\Factory;
+use Pramnos\Http\Client;
+use Pramnos\Http\ClientResponse;
+use Pramnos\Storage\Storage;
 use Pramnos\Framework\Migrations\Stats\CreateMetricValuesTable;
+use Pramnos\Framework\Migrations\Stats\CreateMetricLinksTable;
 use Pramnos\Framework\Migrations\Stats\CreateReportsTable;
 use Pramnos\Metrics\Dimension;
 use Pramnos\Metrics\Metric;
@@ -59,8 +63,9 @@ class ReportsMySQLTest extends TestCase
         Settings::loadSettings(ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php');
         $this->db = $this->connect();
         // The owner of a mailed report is loaded to read it as they would.
-        \Pramnos\Framework\Testing\Schema::ensure([CreateMetricValuesTable::class, CreateReportsTable::class,
-            \Pramnos\Framework\Migrations\Auth\CreateUsersTable::class, \Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class], $this->db);
+        \Pramnos\Framework\Testing\Schema::ensure([CreateMetricValuesTable::class, CreateReportsTable::class, CreateMetricLinksTable::class,
+            \Pramnos\Framework\Migrations\Auth\CreateUsersTable::class, \Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class,
+            \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverAuditLogTable::class], $this->db);
         $this->clean();
         $this->info = Application::getInstance()->applicationInfo;
         Application::getInstance()->applicationInfo['metrics'] = ['timezone' => 'UTC'];
@@ -112,6 +117,7 @@ class ReportsMySQLTest extends TestCase
     {
         \Pramnos\Metrics\Store::forget($this->db, 'test.%');
         $this->db->queryBuilder()->table(Reports::TABLE)->where('name', 'like', 'Test %')->delete();
+        $this->db->queryBuilder()->table(\Pramnos\Metrics\SharedLinks::TABLE)->delete();
     }
 
     /** The connection under test. */
@@ -310,6 +316,25 @@ class ReportsMySQLTest extends TestCase
     }
 
     /**
+     * BI phase 7f — destinations: a bare token is a mail address as it always was; `webhook:`,
+     * `conversation:` and the bare keyword `storage` are the others; an invalid token (a bad
+     * email, a non-http webhook, an empty channel) is dropped the same way a bad address was.
+     */
+    public function testDestinationsParsing(): void
+    {
+        // Act
+        $parsed = Reports::destinations(' a@example.com, not-an-address, WEBHOOK:https://hooks.example/x, webhook:ftp://no, conversation:#team, conversation:, storage ');
+
+        // Assert
+        $this->assertSame([
+            ['kind' => 'mail', 'target' => 'a@example.com'],
+            ['kind' => 'webhook', 'target' => 'https://hooks.example/x'],
+            ['kind' => 'conversation', 'target' => '#team'],
+            ['kind' => 'storage', 'target' => ''],
+        ], $parsed, 'an invalid address, a non-http webhook and an empty channel are dropped; the bare keyword is storage with no target');
+    }
+
+    /**
      * `metrics:reports-send`: a due report is mailed to each address, as its owner sees it, and
      * marked; the next run sends nothing; a mail the outbox refuses leaves it due and exits 1.
      */
@@ -368,7 +393,7 @@ class ReportsMySQLTest extends TestCase
 
         // Assert
         $this->assertSame(0, $first);
-        $this->assertStringContainsString('Mailed 1 reports.', $output);
+        $this->assertStringContainsString('Sent 1 reports.', $output);
         $this->assertSame(2, $afterFirst, 'one mail to each address');
         $this->assertSame(0, $second);
         $this->assertSame(2, $afterSecond, 'nothing the second time');
@@ -377,6 +402,202 @@ class ReportsMySQLTest extends TestCase
         $this->assertSame(1, $fourth);
         $this->assertStringContainsString('the outbox refused the mail to a@example.com', $tester->getDisplay());
         $this->assertSame('', (string) $this->db->queryBuilder()->table(Reports::TABLE)->where('reportid', $id)->first()->fields['sent_period'], 'still due');
+    }
+
+    /**
+     * BI phase 7f — destinations: a report sent to a mail address, a webhook and the application's
+     * storage all at once — one sender, several destinations — the mail gets the CSV attached
+     * (never had one before), the webhook is POSTed the title and the CSV, the storage disk gets
+     * the same CSV under the report's own path; a webhook that answers an error status fails the
+     * whole run the same way a refused mail does.
+     */
+    public function testSendingToAWebhookAndStorageWithTheCsvAttachedToMail(): void
+    {
+        // Arrange
+        $id = (new Reports())->save(self::reader(), ['name' => 'Test sent', 'sections' => [['rows' => [['metric' => 'test.sales']]]]],
+            Presets::PRIVATE, null, Reports::MONTHLY, 'a@example.com, webhook:https://hooks.example/ok, storage');
+        $attachments = [];
+        $command     = new class ($attachments) extends \Pramnos\Console\Commands\MetricsReportsSend {
+            public function __construct(public array &$attachments)
+            {
+                parent::__construct();
+            }
+
+            protected function mail(): \Pramnos\Email\Email
+            {
+                $seen = &$this->attachments;
+
+                return new class ($seen) extends \Pramnos\Email\Email {
+                    public function __construct(private array &$seen)
+                    {
+                        parent::__construct();
+                    }
+
+                    public function addAttachmentData(string $bytes, string $name, ?string $mime = null): static
+                    {
+                        $this->seen[] = [$name, $mime, $bytes];
+
+                        return parent::addAttachmentData($bytes, $name, $mime);
+                    }
+
+                    public function queue(): bool
+                    {
+                        return true;
+                    }
+                };
+            }
+        };
+        $tester = new \Symfony\Component\Console\Tester\CommandTester($command);
+        $calls  = [];
+        Client::fake(['https://hooks.example/ok' => function (Client $client) use (&$calls) {
+            $calls[] = $client->url();
+
+            return ClientResponse::make('', 204);
+        }]);
+
+        // Act
+        $ok          = $tester->execute([]);
+        $stored      = Storage::get('metrics-reports/' . $id . '/2026-10-01.csv');
+        $attachedOk  = $attachments;
+        $this->db->queryBuilder()->table(Reports::TABLE)->where('reportid', $id)->update(['sent_period' => '']);
+        Client::fake(['https://hooks.example/ok' => fn () => ClientResponse::make('', 503)]);
+        $failed = $tester->execute([]);
+
+        // Assert
+        $this->assertSame(0, $ok);
+        $this->assertCount(1, $attachedOk, 'the mail got the CSV attached');
+        $this->assertSame('text/csv', $attachedOk[0][1]);
+        $this->assertNotSame('', $attachedOk[0][2]);
+        $this->assertSame(['https://hooks.example/ok'], $calls);
+        $this->assertSame($attachedOk[0][2], $stored, 'the very same CSV the mail got, saved to storage');
+        $this->assertSame(1, $failed, 'a webhook answering an error status fails the run');
+        $this->assertStringContainsString('the webhook answered 503', $tester->getDisplay());
+
+        // Cleanup: the storage write is a real file on the local disk.
+        Storage::delete('metrics-reports/' . $id . '/2026-10-01.csv');
+        Client::resetFakes();
+    }
+
+    /**
+     * BI phase 7f — destinations, the rest: a chart's image is carried inline in the mail as
+     * ever; `reports_access` keeping a report from its own owner skips it entirely — sent to
+     * nobody, nothing thrown, the next run tries again.
+     */
+    public function testAChartImageIsCarriedInlineAndAnAccessDenialSkipsTheWholeReport(): void
+    {
+        // Arrange
+        $layout = [['id' => 'report.chart~c1', 'settings' => ['title' => 'Chart', 'series' => [['metric' => 'test.sales', 'label' => 'Sales']], 'periods' => 1]]];
+        $id = (new Reports())->save(self::reader(), ['name' => 'Test chart sent', 'layout' => $layout], Presets::PRIVATE, null, Reports::MONTHLY, 'a@example.com');
+        \Pramnos\Metrics\ChartImage::convertWith(static fn (string $svg): string => "\x89PNG" . strlen($svg));
+        Application::getInstance()->applicationInfo['metrics']['reports_access'] = static fn (object $u, array $e): bool => false;
+        $images  = [];
+        $command = new class ($images) extends \Pramnos\Console\Commands\MetricsReportsSend {
+            public function __construct(public array &$images)
+            {
+                parent::__construct();
+            }
+
+            protected function mail(): \Pramnos\Email\Email
+            {
+                $seen = &$this->images;
+
+                return new class ($seen) extends \Pramnos\Email\Email {
+                    public function __construct(private array &$seen)
+                    {
+                        parent::__construct();
+                    }
+
+                    public function addInlineImageData(string $bytes, string $name, string $mime = 'image/png'): static
+                    {
+                        $this->seen[] = $name;
+
+                        return parent::addInlineImageData($bytes, $name, $mime);
+                    }
+
+                    public function queue(): bool
+                    {
+                        return true;
+                    }
+                };
+            }
+        };
+        $tester = new \Symfony\Component\Console\Tester\CommandTester($command);
+
+        // Act
+        $denied        = $tester->execute([]);
+        $imagesDenied  = $images;
+        unset(Application::getInstance()->applicationInfo['metrics']['reports_access']);
+        $sent = $tester->execute([]);
+
+        // Assert
+        try {
+            $this->assertSame(0, $denied);
+            $this->assertSame([], $imagesDenied, 'denied: the owner never sees the report, so nothing is drawn');
+            $this->assertSame(0, $sent);
+            $this->assertStringContainsString('Sent 1 reports.', $tester->getDisplay());
+            $this->assertNotSame([], $images, 'the chart\'s image carried inline, as ever');
+        } finally {
+            \Pramnos\Metrics\ChartImage::convertWith(null);
+        }
+    }
+
+    /**
+     * BI phase 7f — shared links: a signed link opens its report without an account, read with
+     * the scope of whoever made it; a wrong or revoked token is a 404, never the report.
+     */
+    public function testASharedLinkOpensTheReportThenCanBeRevoked(): void
+    {
+        // Arrange: a real, saved account — `shared()` loads its maker from the database.
+        $owner = new \Pramnos\User\User();
+        $owner->username = 'shares' . random_int(100000, 999999);
+        $owner->email    = $owner->username . '@example.test';
+        $owner->save();
+        $ownerId = (int) $owner->userid;
+        $id      = (new Reports())->save(self::reader(98, $ownerId), ['name' => 'Test shared', 'sections' => [['rows' => [['metric' => 'test.sales']]]]]);
+        $this->signIn(98, $ownerId);
+        $screen = $this->screen(MetricReports::class);
+
+        // Act — made, opened with no sign-in, then revoked
+        $this->request('POST', null, [], ['report' => (string) $id]);
+        $screen->share();
+        $link    = (string) ($screen->flash[0][1] ?? '');
+        $token   = (string) preg_replace('~^.*token=~', '', $link);
+        $wrong   = (string) preg_replace('~.$~', 'x', $token);
+        Application::getInstance()->currentUser = null;
+        $anonymous = $this->screen(MetricReports::class);
+        $this->request('GET', null, ['token' => $token]);
+        $opened = $anonymous->shared();
+        $this->request('GET', null, ['token' => $wrong]);
+        $badToken = $anonymous->shared();
+        $this->signIn(98, $ownerId);
+        $this->request('POST', null, [], ['report' => (string) $id, 'token' => $token]);
+        $screen->unshare();
+        $this->request('GET', null, ['token' => $token]);
+        $afterRevoke = $anonymous->shared();
+        // Not theirs to make or revoke: a different, unrelated account.
+        $stranger       = new \Pramnos\User\User();
+        $stranger->username = 'strange' . random_int(100000, 999999);
+        $stranger->email    = $stranger->username . '@example.test';
+        $stranger->save();
+        $deniedCreate = \Pramnos\Metrics\SharedLinks::create((object) ['userid' => (int) $stranger->userid, 'usertype' => 1], (string) $id);
+        $second       = \Pramnos\Metrics\SharedLinks::create(self::reader(98, $ownerId), (string) $id);
+        $deniedRevoke = \Pramnos\Metrics\SharedLinks::revoke((string) $second, (object) ['userid' => (int) $stranger->userid, 'usertype' => 1]);
+
+        // Assert
+        $this->assertStringContainsString('MetricReports/shared?token=', $link, 'the link given back');
+        $this->assertSame(200, $opened->getStatusCode());
+        $this->assertStringContainsString('Test shared', $opened->getBody(), 'the report\'s own name');
+        $this->assertSame(404, $badToken->getStatusCode(), 'a token that is not the one made');
+        $this->assertSame(['message', 'Link taken away.'], $screen->flash[1] ?? null);
+        $this->assertSame(404, $afterRevoke->getStatusCode(), 'revoked: the same token no longer opens it');
+        $this->assertNull($deniedCreate, 'a private report is not this account\'s to share');
+        $this->assertFalse($deniedRevoke, 'nor a stranger\'s to revoke');
+
+        // Cleanup
+        foreach ([(int) $stranger->userid, $ownerId] as $cleanupId) {
+            $this->db->queryBuilder()->table('#PREFIX#userdetails')->where('userid', $cleanupId)->delete();
+            $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', $cleanupId)->delete();
+        }
     }
 
     /**

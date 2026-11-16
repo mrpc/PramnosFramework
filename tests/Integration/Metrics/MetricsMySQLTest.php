@@ -10,6 +10,7 @@ use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
 use Pramnos\Database\Database;
 use Pramnos\Framework\Factory;
+use Pramnos\Framework\Migrations\Stats\CreateMetricsHealthTable;
 use Pramnos\Framework\Migrations\Stats\CreateMetricValuesTable;
 use Pramnos\Metrics\Metric;
 use Pramnos\Metrics\Metrics;
@@ -54,7 +55,9 @@ class MetricsMySQLTest extends TestCase
         require_once ROOT . '/database/migrations/framework/stats/2026_11_09_000005_create_alert_rules_table.php';
         require_once ROOT . '/database/migrations/framework/stats/2026_11_09_000006_create_annotations_table.php';
         \Pramnos\Framework\Testing\Schema::ensure([CreateMetricValuesTable::class, \Pramnos\Framework\Migrations\Stats\CreateGoalsTable::class,
-            \Pramnos\Framework\Migrations\Stats\CreateAlertRulesTable::class, \Pramnos\Framework\Migrations\Stats\CreateAnnotationsTable::class], $this->db);
+            \Pramnos\Framework\Migrations\Stats\CreateAlertRulesTable::class, \Pramnos\Framework\Migrations\Stats\CreateAnnotationsTable::class,
+            CreateMetricsHealthTable::class], $this->db);
+        $this->db->queryBuilder()->table('pramnos.metrics_health')->whereLike('metric', 'test.%')->delete();
         $this->db->queryBuilder()->table(\Pramnos\Metrics\Annotations::TABLE)->delete();
         $this->db->queryBuilder()->table(\Pramnos\Metrics\Alerts::TABLE)->where('metric', 'like', 'test.%')->delete();
         $this->db->queryBuilder()->table(\Pramnos\Metrics\Goals::TABLE)->where('metric', 'like', 'test.%')->delete();
@@ -306,6 +309,95 @@ class MetricsMySQLTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         Metrics::value('test.nothing', 'month', '2026-09-01');
     }
+    /**
+     * BI phase 7f — health: a run's own timing and failure are kept in `pramnos.metrics_health`
+     * ({@see \Pramnos\Metrics\Store::health()}), read back by `Metrics::health()`, `metrics:status`
+     * and the `metrics_health` check — a late metric (`expect()`) and a failed one are told apart
+     * from an ordinary one, and a run that succeeds clears a previous failure.
+     */
+    public function testHealthTracksTheLastRunsTimingFailureAndLateness(): void
+    {
+        // Arrange: one metric that asks to be computed every hour, one that fails.
+        Metrics::register(
+            Metric::flow('test.watched', 'Watched')->source(fn (): int => 1)->expect('1 hour'),
+            Metric::flow('test.broken', 'Broken')->source(static fn (): never => throw new \RuntimeException('no table')),
+        );
+
+        // Act: computed long ago — late against its own hourly expect() — then a failing run.
+        $longAgo = self::at('2026-01-01 00:00');
+        Metrics::compute(['test.watched'], ['month'], '2026-01-01', '2026-01-31', false, $longAgo);
+        $failed = Metrics::compute(['test.broken'], ['month'], '2026-09-01', '2026-09-30', false, self::at('2026-09-05 12:00'));
+        $health = Metrics::health(self::at('2026-11-06 12:00'));
+        $check  = (new \Pramnos\Health\Checks\MetricsHealthCheck())->run();
+        $tester = new \Symfony\Component\Console\Tester\CommandTester(new \Pramnos\Console\Commands\MetricsStatus());
+        $code   = $tester->execute([]);
+
+        // A metric that then succeeds clears its own earlier failure.
+        Metrics::register(Metric::flow('test.broken')->source(fn (): int => 1));
+        $recovered = Metrics::compute(['test.broken'], ['month'], '2026-09-01', '2026-09-30', true, self::at('2026-09-05 12:00'));
+        $after     = Metrics::health(self::at('2026-11-06 12:00'))['test.broken']['month'];
+
+        // Assert
+        $this->assertSame(['test.broken@month' => 'no table'], $failed['failed'], 'sanity: the broken run did fail');
+        $this->assertTrue($health['test.watched']['month']['late'], 'computed in January, asked about in November, hourly expect()');
+        $this->assertNull($health['test.watched']['month']['error']);
+        $this->assertIsInt($health['test.watched']['month']['duration_ms']);
+        $this->assertSame('no table', $health['test.broken']['month']['error']);
+        $this->assertIsInt($health['test.broken']['month']['failed_at']);
+        $this->assertSame(\Pramnos\Health\HealthStatus::Degraded, $check->status);
+        $this->assertStringContainsString('late', json_encode($check->details, JSON_UNESCAPED_SLASHES));
+        $this->assertSame(1, $code, 'a late and a failed metric both make it exit 1');
+        $this->assertStringContainsString('test.watched@month', $tester->getDisplay());
+        $this->assertStringContainsString('late', $tester->getDisplay());
+        $this->assertStringContainsString('failed: no table', $tester->getDisplay());
+        $this->assertSame([], $recovered['failed'], 'computed successfully this time');
+        $this->assertNull($after['error'], 'a success clears the earlier failure');
+        $this->assertNull($after['failed_at']);
+    }
+
+    /**
+     * `metrics_health`'s other verdicts: **ok** with nothing declared, **ok** with a healthy
+     * metric (no `expect()`, nothing missing), **degraded** naming a missing period, **down**
+     * where reading health itself throws (an application's own `missing()` closure, say).
+     */
+    public function testMetricsHealthCheckOkMissingAndDown(): void
+    {
+        // Arrange — nothing declared, past setUp()'s own metrics, and the audience's/the site's own auto-registered
+        Application::getInstance()->applicationInfo['metrics']['audience'] = false;
+        Application::getInstance()->applicationInfo['metrics']['visits']  = false;
+        Metrics::reset();
+        $none = (new \Pramnos\Health\Checks\MetricsHealthCheck())->run();
+        $tester = new \Symfony\Component\Console\Tester\CommandTester(new \Pramnos\Console\Commands\MetricsStatus());
+        $noneCommand = $tester->execute([]);
+        $noneOutput  = $tester->getDisplay();
+
+        Metrics::register(Metric::flow('test.healthy', 'Healthy')->source(fn (): int => 1));
+        Metrics::compute(['test.healthy'], ['month'], '2026-09-01', '2026-09-30', false, self::at('2026-09-05 12:00'));
+        $ok = (new \Pramnos\Health\Checks\MetricsHealthCheck())->run();
+
+        Metrics::register(Metric::flow('test.gapped', 'Gapped')->source(fn (): int => 1)->missing(static fn (): string => 'no data yet'));
+        $missing     = (new \Pramnos\Health\Checks\MetricsHealthCheck())->run();
+        $gappedCode   = $tester->execute([]);
+        $gappedOutput = $tester->getDisplay();
+
+        Metrics::register(Metric::flow('test.throws', 'Throws')->source(fn (): int => 1)->missing(static fn (): never => throw new \RuntimeException('broken gap check')));
+        $down = (new \Pramnos\Health\Checks\MetricsHealthCheck())->run();
+
+        // Assert
+        $this->assertSame(\Pramnos\Health\HealthStatus::Ok, $none->status);
+        $this->assertStringContainsString('No metric', $none->message);
+        $this->assertSame(0, $noneCommand);
+        $this->assertStringContainsString('No metrics are declared.', $noneOutput);
+        $this->assertSame(\Pramnos\Health\HealthStatus::Ok, $ok->status, 'nothing late, failed or missing');
+        $this->assertSame(\Pramnos\Health\HealthStatus::Degraded, $missing->status);
+        $this->assertStringContainsString('missing', json_encode($missing->details, JSON_UNESCAPED_SLASHES));
+        $this->assertSame(1, $gappedCode, 'a missing period makes it exit 1 too');
+        $this->assertStringContainsString('test.gapped@month', $gappedOutput);
+        $this->assertStringContainsString('missing:', $gappedOutput);
+        $this->assertSame(\Pramnos\Health\HealthStatus::Down, $down->status);
+        $this->assertStringContainsString('broken gap check', json_encode($down->details, JSON_UNESCAPED_SLASHES));
+    }
+
     /**
      * `metrics:compute`: what it was given checked first — a grain, a day, a metric that exist —
      * then the periods computed and counted; a failing metric makes it exit 1.

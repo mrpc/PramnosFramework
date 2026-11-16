@@ -322,6 +322,28 @@ It is computed again at every run, so a late record still counts. Only after tha
 and become final, left alone until `--recompute` or a new `version()`. By default a period closes
 at its end. A level always closes at its end, because it is how things stood then.
 
+## Health
+
+```bash
+php bin/pramnos metrics:status
+```
+
+For each declared metric, at each grain it is kept at: when it was last computed, how long the
+last run took, what it failed with, whether it is late, and which of the last three periods have
+no figure. A source that breaks is otherwise found only when a report's number looks wrong.
+
+- **Late** compares the newest period's own `computed_at` against `->expect('1 hour')` — how
+  often new data should arrive. A metric with no `expect()` is never late.
+- **Missing** is `Metric::gapOf()` over the last three periods — the same reason a reader already
+  sees instead of a nought (`Query::gaps()`).
+- `Metrics::health(): array` is the data both read; a dashboard card or a report can read it
+  directly.
+- The `metrics_health` health check (`/health`, and the operators' dashboard's Health card)
+  reports **degraded**, naming every metric that is late, failed, or missing a period. Nothing to
+  say with no metric declared.
+
+`metrics:status` exits `1` under the same condition, for a monitor that only reads exit codes.
+
 ## Importing history
 
 ```php
@@ -975,26 +997,75 @@ People can change and delete their own reports, and copy any report they can ope
 administrator can delete anybody's. The views are `.tpl.php` templates in the framework's
 template engine, the same in the three themes.
 
-### Mailing
+### Destinations
 
-A saved report with a schedule (`day`, `week` or `month`) and recipients is mailed once for each
-period that closes:
+A saved report with a schedule (`day`, `week` or `month`) and at least one destination is sent
+once for each period that closes — one sender, several destinations
+(`Reports::destinations()`, BI phase 7f):
 
-- **What is sent:** the report of that period, read as its owner would see it, in the body of
-  the mail: each card in turn, under its heading (`ReportBoard::html()`).
-- **Charts:** as PNG images carried inside the mail, because no mail client runs a script or
-  shows an SVG. The server draws the chart as SVG (`ChartImage::svg()`) and converts it with the
-  `imagick` extension (ImageMagick with its SVG delegate, `apt install php-imagick librsvg2-2`) or
-  the `rsvg-convert` program (`apt install librsvg2-bin`). Neither keeps anything running. Without
-  either, or when one fails, the chart is sent as a table of its numbers and the mail still goes.
-  `ChartImage::convertWith()` sets a converter of the application's own.
-- **How:** `metrics:reports-send` sends it through the outbox. The framework's schedule runs it
-  daily at 07:30.
+```
+a@example.com, b@example.com            # mail, as it always was — a bare address
+webhook:https://hooks.example/reports   # POSTed as JSON: {report, csv}
+conversation:#reports                   # a channel (or an account id) in the conversations module
+storage                                 # a CSV saved in the application's own Storage, no target
+```
 
-The mail carries no CSV attachment; the CSV is one click away on the report's page. The CSV holds
-the report's tables one under another, each line its table's heading (or its section's) and row.
-**XLSX**, next to it, is the same rows as a spreadsheet (`MetricReports/xlsx`). Numbers are
+Several of each, any mix, comma- or space-separated; an invalid one (a bad address, a webhook
+that is not `http(s)://`, an empty channel) is dropped the same way a bad mail address always
+was, silently.
+
+- **What is sent:** the report of that period, read as its owner would see it.
+  - **Mail** gets the full report in its body (`ReportBoard::html()`) — charts as PNG images,
+    because no mail client runs a script or shows an SVG; the server draws the chart as SVG
+    (`ChartImage::svg()`) and converts it with the `imagick` extension (ImageMagick with its SVG
+    delegate, `apt install php-imagick librsvg2-2`) or the `rsvg-convert` program
+    (`apt install librsvg2-bin`). Without either, or when one fails, the chart is sent as a table
+    of its numbers and the mail still goes. `ChartImage::convertWith()` sets a converter of the
+    application's own. The mail also gets the report's **CSV attached** — it no longer has to be
+    one click away on the report's page to leave the inbox.
+  - **A webhook** is POSTed `{"report": "<title>", "csv": "<the same CSV>"}`. A status outside
+    2xx fails the send, tried again next run.
+  - **A conversation channel** gets the report's title, posted the way a rule's own
+    `conversation_post` action does (`SystemPost::post()`) — a `#name` or an account id.
+  - **Storage** writes the same CSV to `metrics-reports/<report id>/<period>.csv` on the
+    application's default disk (`Storage::put()`) — a plain archive, not served anywhere on its
+    own.
+- **How:** `metrics:reports-send` sends every destination of a due report, through the outbox,
+  the application's HTTP client, the conversations module, or `Storage`. The framework's schedule
+  runs it daily at 07:30. One destination failing (a closed outbox, a down webhook) fails the
+  whole run for that report — the next run tries every destination again, not only the one that
+  failed, since the period is marked sent only once all of them succeed.
+
+Outside a scheduled send, the CSV is one click away on the report's page regardless. The CSV
+holds the report's tables one under another, each line its table's heading (or its section's) and
+row. **XLSX**, next to it, is the same rows as a spreadsheet (`MetricReports/xlsx`). Numbers are
 written as numbers, so they add up.
+
+### Shared links
+
+A report opened by somebody without an account, through a signed, revocable link
+(`Pramnos\Metrics\SharedLinks`):
+
+```php
+$token = SharedLinks::create($user, $reportId, 7);   // a week; null never expires
+$row   = SharedLinks::resolve($token);               // null: wrong, expired, or revoked
+SharedLinks::revoke($token, $user);                  // its own maker, or an administrator
+```
+
+- **`POST MetricReports/share`** (`report`, `days` optional) makes one for a report the person may
+  open, and flashes the link back; **`POST MetricReports/unshare`** (`report`, `token`) takes it
+  away.
+- **`GET MetricReports/shared?token=…`** is the only action of the screen with no sign-in
+  (`$adminPublicActions`). It reads the report **with the scope of whoever made the link** —
+  `Reports::find()` as they would see it, never the viewer's, since there is none — so a maker
+  whose own access narrows later narrows what the link shows, the next time it is opened.
+- **A plain page.** It does not borrow the admin theme: a link is meant to be opened outside the
+  application, by somebody who signs in nowhere, so a neutral page is the right one, not the admin
+  chrome a stranger would not recognise.
+- **Every open is in the audit log** (`metrics.shared_link.opened`), token and report id, whether
+  or not it still worked.
+- A link is **state, not history** (rule 14): the row is the link itself, taken away by `revoke()`
+  or ignored once past `expires_at`. What happened each time it was opened is the audit log's job.
 
 ### A spreadsheet of anything
 

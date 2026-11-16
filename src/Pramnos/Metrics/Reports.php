@@ -247,9 +247,9 @@ final class Reports
         if (!in_array($schedule, self::SCHEDULES, true)) {
             throw new \InvalidArgumentException('A report is mailed daily, weekly or monthly, not "' . $schedule . '".');
         }
-        $addresses = self::addresses($recipients);
-        if ($schedule !== self::NEVER && $addresses === []) {
-            throw new \InvalidArgumentException('Say who the report is mailed to.');
+        $destinations = self::destinations($recipients);
+        if ($schedule !== self::NEVER && $destinations === []) {
+            throw new \InvalidArgumentException('Say where the report goes: a mail address, webhook:<url>, conversation:<channel or id>, or storage.');
         }
         $values = [
             'name'       => $name,
@@ -257,7 +257,7 @@ final class Reports
             'visibility' => $visibility,
             'audience'   => Presets::audience($visibility, $audience),
             'schedule'   => $schedule,
-            'recipients' => implode(', ', $addresses),
+            'recipients' => implode(', ', array_map(static fn (array $d): string => $d['kind'] === 'mail' ? $d['target'] : $d['kind'] . ($d['target'] !== '' ? ':' . $d['target'] : ''), $destinations)),
             'updated_at' => time(),
         ];
         if ($id !== null) {
@@ -355,6 +355,44 @@ final class Reports
         foreach (preg_split('/[\s,;]+/', trim($text)) ?: [] as $address) {
             if ($address !== '' && filter_var($address, FILTER_VALIDATE_EMAIL)) {
                 $out[strtolower($address)] = $address;
+            }
+        }
+
+        return array_values($out);
+    }
+
+    /**
+     * Where a report goes, one entry per token of a comma- or space-separated list: a bare
+     * address is a mail address, as `recipients` always was; `webhook:https://…`,
+     * `conversation:<channel or account id>` and the bare keyword `storage` (a CSV in the
+     * application's own storage, no target) are the others. An invalid token is dropped, same as
+     * {@see addresses()} already drops an invalid address.
+     *
+     * @return list<array{kind: string, target: string}>
+     */
+    public static function destinations(string $text): array
+    {
+        $out = [];
+        foreach (preg_split('/[\s,;]+/', trim($text)) ?: [] as $one) {
+            if ($one === '') {
+                continue;
+            }
+            if (!str_contains($one, ':')) {
+                [$kind, $target] = strtolower($one) === 'storage' ? ['storage', ''] : ['mail', $one];
+            } else {
+                [$kind, $target] = array_pad(explode(':', $one, 2), 2, '');
+                $kind = strtolower($kind);
+            }
+            $ok = match ($kind) {
+                'mail'         => filter_var($target, FILTER_VALIDATE_EMAIL) !== false,
+                'webhook'      => preg_match('~^https?://~i', $target) === 1,
+                'conversation' => $target !== '',
+                'storage'      => true,
+                default        => false,
+            };
+            if ($ok) {
+                // Deduped the same way addresses() already deduped a repeated mail address.
+                $out[$kind . ':' . strtolower($target)] = ['kind' => $kind, 'target' => $target];
             }
         }
 

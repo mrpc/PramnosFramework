@@ -183,5 +183,10 @@ class HealthRegistry
         // node has no session, and being signed out at random reads as an expiry rather
         // than as a load balancer. Reads two ini settings and nothing else.
         $registry::register(new \Pramnos\Health\Checks\SessionStorageCheck());
+
+        // Whether the application's own declared metrics are computing on time. Resolves
+        // nothing here either — it reads the store and each metric's own expect()/gapOf()
+        // when it runs, so an installation with no metric declared stays silent.
+        $registry::register(new \Pramnos\Health\Checks\MetricsHealthCheck());
     }
 }

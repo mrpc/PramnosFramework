@@ -231,6 +231,53 @@ final class Metrics
     }
 
     /**
+     * Every declared metric's health, at each grain it is kept at (`live` for a live one): when
+     * it was last computed (the newest period's own `computed_at`, not merely when a run last
+     * tried), how long the last run took, what it failed with, which of the last few periods are
+     * missing ({@see Metric::gapOf()}), and whether it is late against `expect()`. Read by
+     * `metrics:status` and the `metrics_health` check.
+     *
+     * @return array<string, array<string, array{last_computed: ?int, duration_ms: ?int, error: ?string, failed_at: ?int, late: bool, missing: list<string>}>>
+     */
+    public static function health(int $now = 0, int $recentPeriods = 3): array
+    {
+        $now    = $now > 0 ? $now : time();
+        $runs   = Store::healthReport(self::db());
+        $out    = [];
+        foreach (self::all() as $metric) {
+            $grains = $metric->isLive() ? ['live'] : ($metric->getGrains() ?? self::grains());
+            foreach ($grains as $grain) {
+                $run           = $runs[$metric->name][$grain] ?? null;
+                $lastComputed  = $grain === 'live' ? null : self::db()->queryBuilder()->table(Store::table($grain))
+                    ->where('metric', $metric->name)->where('version', $metric->getVersion())->max('computed_at');
+                $lastComputed  = $lastComputed !== null ? (new \DateTimeImmutable((string) $lastComputed, new \DateTimeZone('UTC')))->getTimestamp() : null;
+                $every         = $metric->getExpect() !== null ? strtotime('+' . $metric->getExpect(), 0) : false;
+                $missing       = [];
+                if ($grain !== 'live') {
+                    $window = Window::of($grain, $now)->previous();
+                    for ($i = 0; $i < max(0, $recentPeriods); $i++) {
+                        $why = $metric->gapOf($window);
+                        if ($why !== null) {
+                            $missing[] = $window->key();
+                        }
+                        $window = $window->previous();
+                    }
+                }
+                $out[$metric->name][$grain] = [
+                    'last_computed' => $lastComputed,
+                    'duration_ms'   => $run['duration_ms'] ?? null,
+                    'error'         => $run['error'] ?? null,
+                    'failed_at'     => $run['failed_at'] ?? null,
+                    'late'          => $every !== false && $every > 0 && ($lastComputed === null || $lastComputed < $now - $every),
+                    'missing'       => $missing,
+                ];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * {@see compute()}, the store's lock held.
      *
      * @param array{computed: int, closed: int, skipped: int, failed: array<string, string>, busy: bool} $report
@@ -245,9 +292,12 @@ final class Metrics
             // A live metric is read from its source when asked: nothing to keep — at most its hourly
             // aggregate to make, once, where TimescaleDB can keep one.
             if ($metric->isLive()) {
+                $started = microtime(true);
                 try {
                     Store::liveAggregate(self::db(), $metric);
+                    Store::health(self::db(), $metric->name, 'live', (int) round((microtime(true) - $started) * 1000), null, $now);
                 } catch (\Throwable $e) {
+                    Store::health(self::db(), $metric->name, 'live', (int) round((microtime(true) - $started) * 1000), $e->getMessage(), $now);
                     \Pramnos\Logs\Logger::log('Live metric ' . $metric->name . ': no aggregate made: ' . $e->getMessage(), 'metrics');
                 }
                 continue;
@@ -258,6 +308,7 @@ final class Metrics
             // The grains asked, of those the metric is kept at: an hour only where it asks for hours.
             $kept = $metric->getGrains() ?? self::grains();
             foreach (array_values(array_intersect($grains ?? $kept, $kept)) as $grain) {
+                $started = microtime(true);
                 try {
                     $last    = $to ?? date('Y-m-d', $now);
                     // Days asked of hours: every hour of the last day too.
@@ -277,8 +328,10 @@ final class Metrics
                     } finally {
                         $metric->forgetAhead();
                     }
+                    Store::health(self::db(), $metric->name, $grain, (int) round((microtime(true) - $started) * 1000), null, $now);
                 } catch (\Throwable $e) {
                     $report['failed'][$metric->name . '@' . $grain] = $e->getMessage();
+                    Store::health(self::db(), $metric->name, $grain, (int) round((microtime(true) - $started) * 1000), $e->getMessage(), $now);
                     \Pramnos\Logs\Logger::log('Metric ' . $metric->name . ' (' . $grain . ') not computed: ' . $e->getMessage(), 'metrics');
                 }
             }

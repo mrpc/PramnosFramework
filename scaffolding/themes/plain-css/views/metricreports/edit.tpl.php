@@ -48,7 +48,8 @@ $schedules = ['' => t('Never'), 'day' => t('Daily'), 'week' => t('Weekly'), 'mon
             <div class="pf-field"><label class="pf-label" for="pf-report-schedule">{{ t('Mail it') }}</label>
                 <select id="pf-report-schedule" name="schedule" class="pf-select">@foreach ($schedules as $value => $label)<option value="{{ $value }}"{{ ($saved['schedule'] ?? '') === $value ? ' selected' : '' }}>{{ $label }}</option>@endforeach</select></div>
             <div class="pf-field"><label class="pf-label" for="pf-report-to">{{ t('To') }}</label>
-                <input id="pf-report-to" type="text" name="recipients" value="{{ $saved['recipients'] ?? '' }}" class="pf-input" placeholder="name@example.com, …"></div>
+                <input id="pf-report-to" type="text" name="recipients" value="{{ $saved['recipients'] ?? '' }}" class="pf-input" placeholder="name@example.com, webhook:https://…, conversation:#name, storage">
+                <p class="pf-hint">{{ t('A mail address, webhook:<url>, conversation:<channel or account id>, or the word storage for a CSV kept with the application — any number, comma-separated.') }}</p></div>
         </div>
         <div><button type="submit" class="pf-btn pf-btn-primary">{{ t('Save') }}</button> <a class="pf-btn pf-btn-ghost" href="{{ $this->urls['list'] }}">{{ t('Cancel') }}</a></div>
     </div></form>

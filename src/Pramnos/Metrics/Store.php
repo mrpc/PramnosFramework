@@ -460,6 +460,47 @@ final class Store
         return $done;
     }
 
+    /**
+     * A metric and grain's last compute run, kept in `pramnos.metrics_health` — read by
+     * `metrics:status` and the operators' health check. `$error` null on success, which also
+     * clears a previous failure's `failed_at`.
+     */
+    public static function health(Database $db, string $metric, string $grain, int $durationMs, ?string $error, int $now): void
+    {
+        if (!$db->schema()->hasTable('pramnos.metrics_health')) {
+            return;
+        }
+        $db->queryBuilder()->table('pramnos.metrics_health')->upsert(
+            ['metric' => $metric, 'grain' => $grain, 'ran_at' => $now, 'duration_ms' => max(0, $durationMs),
+                'error' => $error, 'failed_at' => $error !== null ? $now : null],
+            ['metric', 'grain'],
+            ['ran_at', 'duration_ms', 'error', 'failed_at']
+        );
+    }
+
+    /**
+     * Every metric and grain's last run, by metric then grain — only those `pramnos.metrics_health`
+     * actually has a row for (a metric never computed has none).
+     *
+     * @return array<string, array<string, array{ran_at: int, duration_ms: int, error: ?string, failed_at: ?int}>>
+     */
+    public static function healthReport(Database $db): array
+    {
+        if (!$db->schema()->hasTable('pramnos.metrics_health')) {
+            return [];
+        }
+        $out = [];
+        foreach ($db->queryBuilder()->table('pramnos.metrics_health')->get()->fetchAll() as $row) {
+            $out[(string) $row['metric']][(string) $row['grain']] = [
+                'ran_at' => (int) $row['ran_at'], 'duration_ms' => (int) $row['duration_ms'],
+                'error' => $row['error'] !== null ? (string) $row['error'] : null,
+                'failed_at' => $row['failed_at'] !== null ? (int) $row['failed_at'] : null,
+            ];
+        }
+
+        return $out;
+    }
+
     /** md5 of the dimensions' JSON, written as a uuid: 16 bytes in PostgreSQL. */
     public static function hash(string $json): string
     {
