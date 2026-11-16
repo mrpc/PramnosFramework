@@ -84,6 +84,45 @@ final class Attribute
         return new self($key, $type, $sql, true);
     }
 
+    /**
+     * An organisation's own figure, read from the metrics store ({@see \Pramnos\Metrics\Store})
+     * by `$byColumn` — SQL over the users table (or a joined table named with {@see from()})
+     * that names the organisation id the metric's own `->tenant()` groups by — at its latest
+     * closed period. One indexed read of what is already kept, never computed per person.
+     *
+     * ```php
+     * Attribute::metric('org_revenue', 'organizationid', 'revenue', Window::MONTH);
+     * // "organisations whose revenue fell": this period's value minus the one before.
+     * Attribute::metric('org_revenue_fell', 'organizationid', 'revenue', Window::MONTH, trend: true);
+     * ```
+     */
+    public static function metric(string $key, string $byColumn, string $metric, string $grain = \Pramnos\Metrics\Window::MONTH, int $version = \Pramnos\Metrics\Store::VERSION, bool $trend = false): self
+    {
+        $table = \Pramnos\Metrics\Store::table($grain);
+        $where = "metric = '" . str_replace("'", "''", $metric) . "' AND tenant = {$byColumn} AND dims_hash = '" . \Pramnos\Metrics\Store::hash('{}') . "' AND version = {$version}";
+        $read  = static fn (string $quotedTable, int $offset): string => '(SELECT value FROM ' . $quotedTable . ' WHERE ' . $where
+            . ' ORDER BY period_start DESC LIMIT 1' . ($offset > 0 ? ' OFFSET ' . $offset : '') . ')';
+        $sql   = static fn (string $driver): string => $trend
+            ? '(' . $read(self::quotedStoreTable($table, $driver), 0) . ' - ' . $read(self::quotedStoreTable($table, $driver), 1) . ')'
+            : $read(self::quotedStoreTable($table, $driver), 0);
+
+        return self::expression($key, ['mysql' => $sql('mysql'), 'postgresql' => $sql('postgresql')], self::NUMBER);
+    }
+
+    /**
+     * `schema.table` resolved into one driver's own quoted reference, without a live connection:
+     * on PostgreSQL the schema is the namespace, unprefixed; on MySQL it flattens into the table
+     * name behind the `#PREFIX#` token, left for the query builder's own {@see
+     * \Pramnos\Database\QueryBuilder::toSql()} to substitute when this expression's query
+     * compiles — the same mechanism {@see Attributes::FROM} already relies on.
+     */
+    private static function quotedStoreTable(string $table, string $driver): string
+    {
+        [$schema, $name] = explode('.', $table, 2);
+
+        return $driver === 'postgresql' ? '"' . $schema . '"."' . $name . '"' : '`#PREFIX#' . $schema . '_' . $name . '`';
+    }
+
     /** Values in a one-to-many table — interests, groups: a person has none, one or many. */
     public static function many(string $key, string $table, string $valueColumn, string $foreignKey = 'userid'): self
     {

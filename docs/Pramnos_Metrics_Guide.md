@@ -441,6 +441,25 @@ can be a function of the organisation. `metrics.tenants` then lists the organisa
 - **An unknown zone.** A zone the function names that does not exist falls back to the
   installation's.
 
+**An organisation's own figure, as an attribute.** For a filter or a segment built on the
+audience's own `Attribute` (`Pramnos_Audience_Guide.md`), BI phase 7h (15.2.8):
+
+```php
+use Pramnos\Audience\Attribute;
+use Pramnos\Metrics\Window;
+
+Attributes::define(Attribute::metric('org_revenue', 'organizationid', 'payments.revenue', Window::MONTH)->label('Revenue'));
+// "organisations whose revenue fell": this period's value minus the one before, compared with `lt(0)`.
+Attributes::define(Attribute::metric('org_revenue_fell', 'organizationid', 'payments.revenue', Window::MONTH, trend: true)->label('Revenue change'));
+```
+
+`$byColumn` is SQL over the users table (or a joined one named with `->from()`) naming the
+organisation id — the same id the metric's own `->tenant()` groups by. One indexed read of the
+metric's latest kept period, never a computation over the person's own rows; a tenant with no row
+at all reads as empty, never zero. `trend: true` reads the period before it too and answers the
+difference, so a segment such as "revenue fell" needs no comparison operator of its own —
+`lt(0)` on the ordinary number attribute is the whole filter.
+
 ### A viewer's scope: their part of each dimension
 
 Some viewers may read only part of the figures: a regional manager reads one region, a store
@@ -1394,6 +1413,31 @@ values 7–9 times smaller. `--recompute` and `Metrics::import()` rewrite closed
 compressed chunks directly (TimescaleDB 2.11+). A rewrite lifts
 `timescaledb.max_tuples_decompressed_per_dml_transaction` for its own transaction, because a
 closed month of a large metric decompresses more than the default 100 000 tuples.
+
+### MySQL and PostgreSQL
+
+Every metric computes and reads correctly on either database — this whole guide holds for both —
+but a few things that cost nothing extra on PostgreSQL/TimescaleDB cost a query per period on
+MySQL instead of one for many, or are not built for it at all. BI phase 7h (15.1.7):
+
+| | PostgreSQL / TimescaleDB | MySQL |
+|---|---|---|
+| Many periods read at once (`Metric::prefetch()`) | Any zone, every grain, via `date_trunc(…, zone)` | An hour's or a day's grain, the UTC zone only (the epoch truncated directly — no zone table needed); a week, a month, a quarter, or any other zone falls back to one query a period |
+| Every breakdown of one period at once (`prefetchSets()`) | Yes, `GROUPING SETS` | Falls back to one query a breakdown — correct, just not batched |
+| Live metrics | Read from an hourly continuous aggregate, made once | Read as a plain query over the source each time — correct, slower on a very large source |
+| Compression | 7–9 times smaller once a period is old enough | None: rows are kept as they are |
+
+**Why the UTC limit on prefetch.** `date_trunc('day', …, 'Europe/Athens')` buckets each row
+correctly across a DST change because PostgreSQL's own zone tables know when it falls. MySQL has
+no equivalent that is both zone-correct and free of its own time zone tables being loaded (not
+guaranteed on every installation) — so rather than bucket by a fixed UTC offset and silently
+mis-bucket the hour DST moves twice a year, the framework only takes the shortcut where no zone
+conversion is needed at all: the UTC zone, bucketed straight from the epoch. Every other case
+reads one period at a time, which is slower, never wrong.
+
+A metric on a non-UTC zone on MySQL is exactly as correct as on PostgreSQL — only its many-period
+reads cost one query each instead of one for all of them. For a metric with many periods read
+often, `metrics.timezone` of `UTC` is the one setting that closes the gap.
 
 ### The store's lock
 

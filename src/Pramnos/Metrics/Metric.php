@@ -978,8 +978,12 @@ final class Metric
     /**
      * Read many periods of a declared source at once — one query per breakdown, grouped by the
      * period in the metrics' zone — instead of one query per period, where it can be done exactly:
-     * PostgreSQL, a unix-time column. {@see measure()} then answers from what was read. Elsewhere
-     * nothing is read ahead and each period is queried on its own.
+     * PostgreSQL (any zone, every grain), or MySQL (an hour or a day's grain, the UTC zone only —
+     * `date_trunc(…, zone)` has no MySQL equivalent that is both zone-correct across a DST change
+     * and free of the server's own time zone tables, so a week, a month, a quarter, or any other
+     * zone on MySQL falls back instead of risking a wrong bucket twice a year). {@see measure()}
+     * then answers from what was read. Elsewhere nothing is read ahead and each period is queried
+     * on its own — correct either way, only slower.
      *
      * @param list<Window> $windows
      * @return bool Whether it was read ahead
@@ -988,26 +992,33 @@ final class Metric
     {
         $this->ahead = [];
         $q = $this->query;
-        if ($q === null || $windows === [] || $db->type !== 'postgresql' || !$q['unix'] || $q['time'] === '' || $q['fn'] === '' || in_array($q['fn'], ['LAST', 'COUNTER', 'COHORT'], true)) {
+        if ($q === null || $windows === [] || !$q['unix'] || $q['time'] === '' || $q['fn'] === '' || in_array($q['fn'], ['LAST', 'COUNTER', 'COHORT'], true)) {
             return false;
         }
         $grain = $windows[0]->grain;
         $zone  = $windows[0]->start->getTimezone()->getName();
-        if (preg_match('~^[A-Za-z0-9_/+-]+$~', $zone) !== 1) {
+        $mysql = $db->type === 'mysql' && $zone === 'UTC' && in_array($grain, [Window::HOUR, Window::DAY], true);
+        if ($db->type !== 'postgresql' && !$mysql) {
+            return false;
+        }
+        if ($db->type === 'postgresql' && preg_match('~^[A-Za-z0-9_/+-]+$~', $zone) !== 1) {
             return false;
         }
         $first = $windows[0]->startsAt();
         $last  = end($windows)->endsAt();
         $sets  = $this->storedSets();
         if (self::needsPersonDimension($sets === [] ? [] : array_merge(...$sets), $q['columns'])) {
-            // ponytail: see prefetchSets() — the same PostgreSQL optimisation, same fallback.
+            // ponytail: see prefetchSets() — the same PostgreSQL/MySQL optimisation, same fallback.
             return false;
         }
+        // Raw: the period of each row — PostgreSQL's date_trunc in the metrics' zone, or on MySQL
+        // (UTC, hour/day only) the epoch itself truncated, which needs no zone conversion at all.
+        $bucket = $mysql
+            ? $q['time'] . ' - MOD(' . $q['time'] . ', ' . ($grain === Window::HOUR ? 3600 : 86400) . ')'
+            : "date_trunc('" . $grain . "', to_timestamp(" . $q['time'] . ") AT TIME ZONE '" . $zone . "')";
         foreach ($sets as $set) {
             $by     = $this->tenantColumn !== null ? [...$set, $this->tenantColumn] : $set;
             $query  = $db->queryBuilder()->table($q['table']);
-            // Raw: the period of each row in the metrics' zone is PostgreSQL's date_trunc.
-            $bucket = "date_trunc('" . $grain . "', to_timestamp(" . $q['time'] . ") AT TIME ZONE '" . $zone . "')";
             $select = [$query->raw($bucket . ' AS pf_period')];
             $group  = [$query->raw($bucket)];
             foreach ($by as $name) {
@@ -1028,7 +1039,9 @@ final class Metric
                 is_array($value) ? $query->whereIn($column, array_values($value)) : $query->where($column, $value);
             }
             foreach ($query->groupBy($group)->getAllOrFail() as $row) {
-                $key = Window::of($grain, substr((string) $row['pf_period'], 0, 19), new \DateTimeZone($zone))->key();
+                $key = $mysql
+                    ? Window::of($grain, (int) $row['pf_period'], new \DateTimeZone('UTC'))->key()
+                    : Window::of($grain, substr((string) $row['pf_period'], 0, 19), new \DateTimeZone($zone))->key();
                 unset($row['pf_period']);
                 $this->ahead[$key . '|' . implode(',', $by)][] = $row;
             }

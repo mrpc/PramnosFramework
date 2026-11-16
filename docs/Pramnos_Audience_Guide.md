@@ -107,6 +107,9 @@ Attributes::define(Attribute::expression('age',
 // Only accounts with an ability may see or filter by it
 Attributes::define(Attribute::column('revenue', 'revenue', Attribute::NUMBER)
     ->from('customer_totals')->ability('reports.revenue'));
+
+// An organisation's own figure, read from the metrics store (Pramnos_Metrics_Guide.md "Organisations")
+Attributes::define(Attribute::metric('org_revenue', 'organizationid', 'payments.revenue', Window::MONTH));
 ```
 
 - **One-to-one tables** (`->from()`) are LEFT JOINed under their own name, once, and only when a

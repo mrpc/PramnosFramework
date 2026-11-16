@@ -1241,6 +1241,49 @@ class MetricsMySQLTest extends TestCase
     }
 
     /**
+     * BI phase 7h: MySQL also reads many periods at once for an hour's or a day's grain, in the
+     * UTC zone — the one case `date_trunc()` can be replicated exactly without a zone table, by
+     * truncating the epoch itself. A week's grain, UTC or not, still falls back to one query a
+     * period: no MySQL equivalent is attempted for it.
+     */
+    public function testManyDaysAreReadAtOnceOnMysqlToo(): void
+    {
+        // Arrange
+        Application::getInstance()->applicationInfo['metrics'] = ['timezone' => 'UTC'];
+        $schema = $this->db->schema();
+        $schema->dropTableIfExists('metrics_test_sales');
+        $schema->createTable('metrics_test_sales', function ($table) {
+            $table->integer('at');
+            $table->string('region', 10);
+            $table->integer('amount');
+        });
+        $at = static fn (string $when): int => (new \DateTimeImmutable($when, new \DateTimeZone('UTC')))->getTimestamp();
+        foreach ([['2026-09-07 10:00', 'north', 5], ['2026-09-07 23:30', 'north', 7], ['2026-09-08 00:10', 'south', 3]] as [$when, $region, $amount]) {
+            $this->db->queryBuilder()->table('metrics_test_sales')->insert(['at' => $at($when), 'region' => $region, 'amount' => $amount]);
+        }
+        $metric = Metric::flow('test.sales_utc', 'Sales')->from('metrics_test_sales')->at('at', unix: true)->sum('amount')->dimension('region', 'region');
+        Metrics::register($metric);
+
+        try {
+            // Act
+            $days  = $metric->prefetch(Window::range('day', '2026-09-07', '2026-09-08'), $this->db);
+            $metric->forgetAhead();
+            $weeks = $metric->prefetch(Window::range('week', '2026-09-07', '2026-09-08'), $this->db);
+            $metric->forgetAhead();
+            Metrics::compute(['test.sales_utc'], ['day'], '2026-09-07', '2026-09-08', false, $at('2026-11-06 12:00'));
+            $values = Metrics::series('test.sales_utc', 'day', '2026-09-07', '2026-09-08')['values'][''];
+
+            // Assert
+            $this->assertTrue($days, 'a day, UTC: read at once on MySQL too, and already so on PostgreSQL');
+            $this->assertSame($this->db->type === 'postgresql', $weeks, 'a week has no MySQL equivalent — falls back there, does not guess wrong; PostgreSQL still reads it at once');
+            $this->assertSame([12.0, 3.0], $values, 'the same totals either way');
+        } finally {
+            $schema->dropTableIfExists('metrics_test_sales');
+            Application::getInstance()->applicationInfo['metrics'] = ['timezone' => 'Europe/Athens'];
+        }
+    }
+
+    /**
      * Late data: a metric with a lateness keeps an ended period open, and computes it again at each
      * run, until the lateness has passed too; then it closes, and an order that comes later still is
      * left out unless recomputed.
