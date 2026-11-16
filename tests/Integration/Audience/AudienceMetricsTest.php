@@ -226,4 +226,31 @@ class AudienceMetricsTest extends TestCase
         $this->assertEqualsCanonicalizing(['email' => [1.0], 'push' => [1.0]], $byChannel);
         $this->assertEqualsCanonicalizing(['1' => [2.0], '2' => [1.0]], $byVersion, 'version 1 twice, version 2 once');
     }
+
+    /**
+     * FW-516 regression (reported by an integration's own characterization suite after it adopted
+     * the metric): with no breakdown and no row in `pramnos.rule_log` for the period, a rule metric
+     * is a plain zero — one row, `value => 0` — the same contract every other source in this class
+     * already keeps ({@see members()}, {@see moved()}), not an empty result set.
+     */
+    #[DataProvider('databases')]
+    public function testARuleMetricWithNoRowsIsZeroNotMissing(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange — the rule exists, but `pramnos.rule_log` has no row for it in the period.
+        $this->boot($type, $host, $port, $user);
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Stats\CreateMetricValuesTable::class], $this->db);
+        Rules::create('Empty', ['trigger' => ['type' => 'once']], owner: 2);
+        Metrics::reset();
+
+        // Act — measure() directly (bypassing compute/store) with no breakdown: it must not come
+        // back [] the way every other source in this class with by=[] returns one total row.
+        $direct   = Metrics::get('audience.rule.entered')->measure(Window::of('month', '2026-09-01'), [], $this->db);
+        $computed = Metrics::compute(['audience.rule.entered'], ['month'], '2026-09-01', '2026-09-30', false, strtotime('2026-11-06 12:00 UTC'));
+        $value    = Metrics::query('audience.rule.entered')->grain('month')->at('2026-09-01')->value();
+
+        // Assert
+        $this->assertSame([], $computed['failed'], 'computed cleanly even with zero rule_log rows');
+        $this->assertSame([['dims' => [], 'value' => 0.0, 'tenant' => 0]], $direct, 'measure() with no breakdown is one zero row, not an empty list');
+        $this->assertSame(0.0, $value, 'zero rows is a real zero, not a missing value');
+    }
 }

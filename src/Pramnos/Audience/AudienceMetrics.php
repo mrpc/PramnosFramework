@@ -59,13 +59,13 @@ final class AudienceMetrics implements Catalogue
                 static fn (array $r): array => ['id' => (string) $r['id'], 'name' => $r['name']], Rules::all()), 'name', 'id'));
             yield Dimension::of('channel', t('Channel'));
             yield Metric::flow('audience.rule.entered', t('Entered a rule'))->dimensions(['rule', 'version'])
-                ->describe(t('People taken into each rule and version, from pramnos.rule_log'))->source(static fn (Window $w, array $by, Database $db) => self::ruleLog('entered', $w, $db));
+                ->describe(t('People taken into each rule and version, from pramnos.rule_log'))->source(static fn (Window $w, array $by, Database $db) => self::ruleLog('entered', $w, $by, $db));
             yield Metric::flow('audience.rule.sent', t('Messages sent by a rule'))->dimensions(['rule', 'version', 'channel'])
-                ->describe(t('Messages a rule sent, by channel'))->source(static fn (Window $w, array $by, Database $db) => self::ruleLog('sent', $w, $db, true));
+                ->describe(t('Messages a rule sent, by channel'))->source(static fn (Window $w, array $by, Database $db) => self::ruleLog('sent', $w, $by, $db, true));
             yield Metric::flow('audience.rule.goal', t("Reached a rule's goal"))->dimensions(['rule', 'version'])
-                ->describe(t('People who reached the goal of each rule and version'))->source(static fn (Window $w, array $by, Database $db) => self::ruleLog('goal', $w, $db));
+                ->describe(t('People who reached the goal of each rule and version'))->source(static fn (Window $w, array $by, Database $db) => self::ruleLog('goal', $w, $by, $db));
             yield Metric::flow('audience.rule.exited', t('Exited a rule'))->dimensions(['rule', 'version'])
-                ->describe(t('People who exited each rule and version before its goal'))->source(static fn (Window $w, array $by, Database $db) => self::ruleLog('exited', $w, $db));
+                ->describe(t('People who exited each rule and version before its goal'))->source(static fn (Window $w, array $by, Database $db) => self::ruleLog('exited', $w, $by, $db));
         }
         if ($schema->hasTable(PersonEvents::LOG)) {
             foreach (PersonEvents::all() as $key => $event) {
@@ -160,14 +160,20 @@ final class AudienceMetrics implements Catalogue
 
     /**
      * One outcome of `pramnos.rule_log` in the period, by rule and version — by channel too for
-     * `sent`, since that is the figure a channel breaks down.
+     * `sent`, since that is the figure a channel breaks down. An empty `$by` (no breakdown asked)
+     * is the plain total, one row, no `GROUP BY` — the same contract {@see members()}/{@see moved()}
+     * already keep.
      *
-     * @return list<array<string, mixed>>
+     * @param list<string> $by
+     * @return int|list<array<string, mixed>>
      */
-    private static function ruleLog(string $outcome, Window $window, Database $db, bool $byChannel = false): array
+    private static function ruleLog(string $outcome, Window $window, array $by, Database $db, bool $byChannel = false): int|array
     {
         $query = $db->queryBuilder()->table(self::RULE_LOG)->where('outcome', $outcome)
             ->where('at', '>=', $window->startsAt())->where('at', '<', $window->endsAt());
+        if ($by === []) {
+            return (int) ($query->select([$query->raw('COUNT(*) AS value')])->getAllOrFail()[0]['value'] ?? 0);
+        }
         $select = [$query->raw('ruleid AS rule'), $query->raw('version AS version')];
         $group  = ['ruleid', 'version'];
         if ($byChannel) {
