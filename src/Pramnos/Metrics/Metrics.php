@@ -58,6 +58,9 @@ final class Metrics
     /** Whether app.php's catalogue has been read. */
     private static bool $loaded = false;
 
+    /** @var array<string, array<string, array<string, float>>>|null metric => period key => filters key => value; null: the real database */
+    private static ?array $fake = null;
+
     /** Add metrics or replace those under their names. */
     public static function register(Metric ...$metrics): void
     {
@@ -80,6 +83,39 @@ final class Metrics
         self::$personDimensions = [];
         self::$loaded           = false;
         self::$area             = null;
+        self::$fake             = null;
+    }
+
+    /**
+     * Keep these values in memory instead of reading the database — for an application's own
+     * test, not a real table and a real `metrics:compute` just to check one number
+     * ({@see \Pramnos\Metrics\Testing\AssertsMetrics}). An empty call turns it off again.
+     *
+     * ```php
+     * Metrics::fake(['orders' => [['period' => '2026-09', 'value' => 12.0, 'filters' => ['region' => 'north']]]]);
+     * Metrics::value('orders', 'month', '2026-09', ['region' => 'north']);   // 12.0, never the database
+     * Metrics::fake();   // off again
+     * ```
+     *
+     * @param array<string, list<array{period: string, value: float, filters?: array<string, string|list<string>>, grain?: string}>> $values
+     */
+    public static function fake(array $values = []): void
+    {
+        self::$fake = null;
+        foreach ($values as $metric => $rows) {
+            foreach ($rows as $row) {
+                $grain = (string) ($row['grain'] ?? Window::DAY);
+                self::$fake[(string) $metric][Window::of($grain, (string) $row['period'])->key()][self::fakeKey((array) ($row['filters'] ?? []))] = (float) $row['value'];
+            }
+        }
+    }
+
+    /** A filters array, canonical for {@see fake()}'s lookup — order does not matter. */
+    private static function fakeKey(array $filters): string
+    {
+        ksort($filters);
+
+        return json_encode($filters, JSON_UNESCAPED_UNICODE) ?: '[]';
     }
 
     /**
@@ -581,6 +617,10 @@ final class Metrics
      */
     public static function value(string $metric, string $grain, string $at, array $filters = []): ?float
     {
+        if (self::$fake !== null) {
+            return self::$fake[$metric][Window::of($grain, $at)->key()][self::fakeKey($filters)] ?? null;
+        }
+
         return self::query($metric)->grain($grain)->at($at)->where($filters)->value();
     }
 

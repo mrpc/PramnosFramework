@@ -21,6 +21,9 @@ namespace Pramnos\Metrics;
  *   a fraction (-0.3 is a fall of 30 %);
  * - **stopped**: the metric at nought — nothing came — for the last `value` seconds of completed
  *   hours. It reads the metric by the hour.
+ * - **unusual**: the last completed hour outside the band of the same weekday and hour over the
+ *   last {@see Goals::WEEKS} weeks — its mean, `value` standard deviations either side (2.0 where
+ *   left out). No reference hour yet computed means no band to judge by, so it does not fire.
  *
  * `hours` keeps a rule to those hours of the day, in the metrics' zone (`9-23`). A rule that fires
  * tells its users (the bell, and a push) and posts in its conversation, then waits `every` seconds
@@ -33,6 +36,7 @@ final class Alerts
     public const THRESHOLD = 'threshold';
     public const CHANGE    = 'change';
     public const STOPPED   = 'stopped';
+    public const UNUSUAL   = 'unusual';
 
     /**
      * A rule; its id.
@@ -43,9 +47,9 @@ final class Alerts
     {
         $metric = Metrics::get((string) ($rule['metric'] ?? ''));
         $kind   = (string) ($rule['kind'] ?? '');
-        $grain  = $kind === self::STOPPED ? Window::HOUR : (string) ($rule['grain'] ?? Window::DAY);
-        if (!in_array($kind, [self::THRESHOLD, self::CHANGE, self::STOPPED], true)) {
-            throw new \InvalidArgumentException(t('An alert is a threshold, a change or data that stopped.'));
+        $grain  = in_array($kind, [self::STOPPED, self::UNUSUAL], true) ? Window::HOUR : (string) ($rule['grain'] ?? Window::DAY);
+        if (!in_array($kind, [self::THRESHOLD, self::CHANGE, self::STOPPED, self::UNUSUAL], true)) {
+            throw new \InvalidArgumentException(t('An alert is a threshold, a change, data that stopped, or something unusual.'));
         }
         if (!in_array($grain, Window::GRAINS, true) || !in_array($rule['op'] ?? 'above', ['above', 'below'], true)) {
             throw new \InvalidArgumentException(t('An alert needs a grain and above or below.'));
@@ -58,7 +62,7 @@ final class Alerts
         $db->queryBuilder()->table(self::TABLE)->insert([
             'name' => mb_substr((string) ($rule['name'] ?? ''), 0, 150), 'metric' => $metric->name, 'grain' => $grain,
             'filters' => empty($rule['filters']) ? null : json_encode($rule['filters'], JSON_UNESCAPED_UNICODE), 'tenant' => (int) ($rule['tenant'] ?? 0),
-            'kind' => $kind, 'op' => (string) ($rule['op'] ?? 'above'), 'value' => (float) ($rule['value'] ?? 0),
+            'kind' => $kind, 'op' => (string) ($rule['op'] ?? 'above'), 'value' => (float) ($rule['value'] ?? ($kind === self::UNUSUAL ? 2.0 : 0)),
             'against' => (string) ($rule['against'] ?? Metrics::PREVIOUS), 'hours' => $hours,
             'notify' => json_encode((object) ($rule['notify'] ?? []), JSON_UNESCAPED_UNICODE), 'every' => max(60, (int) ($rule['every'] ?? 3600)),
             'lastfired' => 0, 'enabled' => 1, 'createdby' => $rule['by'] ?? null, 'createdat' => time(),
@@ -133,6 +137,16 @@ final class Alerts
 
             return $sum == 0.0 ? sprintf(t('%s: nothing for %s hours, since %s.'), $label, (string) count($hours), $first->label()) : null;
         }
+        if ($rule['kind'] === self::UNUSUAL) {
+            $hour    = Window::of(Window::HOUR, $now)->previous();
+            $current = $query->grain(Window::HOUR)->at($hour->key())->value();
+            $band    = $current === null ? null : self::band($metric->name, $hour, $filters, (int) $rule['tenant'], $value);
+            if ($band === null || ($current >= $band['low'] && $current <= $band['high'])) {
+                return null;
+            }
+
+            return sprintf(t('%s was %s at %s: outside its usual %s–%s.'), $label, (string) round($current, 2), $hour->label(), (string) round($band['low'], 2), (string) round($band['high'], 2));
+        }
         $period = Window::of((string) $rule['grain'], $now)->previous();
         $query->grain($period->grain)->at($period->key());
         if ($rule['kind'] === self::THRESHOLD) {
@@ -182,6 +196,36 @@ final class Alerts
         }
         \Pramnos\Changelog\ChangelogWriter::event('alert', $id, 'alert.fired', ['metric' => $rule['metric'], 'said' => $said], at: $now);
         Metrics::connection()->queryBuilder()->table(self::TABLE)->where('ruleid', $id)->update(['lastfired' => $now]);
+    }
+
+    /**
+     * The band a metric usually falls in at this hour's weekday — the mean of the same weekday
+     * and hour over the last {@see Goals::WEEKS} weeks, `$widths` standard deviations either
+     * side — or null where any of those weeks has no value yet (a hole is not a band to judge by).
+     *
+     * @param array<string, mixed> $filters
+     * @return array{mean: float, low: float, high: float}|null
+     */
+    private static function band(string $metric, Window $hour, array $filters, int $tenant, float $widths): ?array
+    {
+        $values = [];
+        for ($weeks = 1; $weeks <= Goals::WEEKS; $weeks++) {
+            $at    = Window::of(Window::HOUR, $hour->start->modify('-' . (7 * $weeks) . ' days'))->key();
+            $query = Metrics::query($metric)->grain(Window::HOUR)->at($at)->where($filters);
+            if ($tenant > 0) {
+                $query->tenant($tenant);
+            }
+            $value = $query->value();
+            if ($value === null) {
+                return null;
+            }
+            $values[] = $value;
+        }
+        $mean     = array_sum($values) / count($values);
+        $variance = array_sum(array_map(static fn (float $v): float => ($v - $mean) ** 2, $values)) / count($values);
+        $spread   = sqrt($variance) * $widths;
+
+        return ['mean' => $mean, 'low' => $mean - $spread, 'high' => $mean + $spread];
     }
 
     /** Whether now is within a rule's hours of the day (`9-23`), in the metrics' zone; empty: always. */

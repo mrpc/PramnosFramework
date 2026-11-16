@@ -600,6 +600,29 @@ Segments::create('From a report', ['conditions' => [
 
 A rule for that segment is then an ordinary rule, targeting it like any other.
 
+### Funnels
+
+Steps over person events, in order — a card and a query over the event log
+(`Pramnos\Audience\Funnels`), not a stored metric:
+
+```php
+Funnels::run(['signup', 'profile.completed', 'payment.made']);
+Funnels::run(['signup', 'payment.made'], ['from' => $since, 'to' => time(), 'by' => 'usertype']);
+Funnels::run(['signup', 'payment.made'], ['by' => 'segment:12']);
+```
+
+- **The same cohort, narrowed.** A step counts a person once they have done it at all in the
+  window — the log keeps only when an event happened, not a session's own order. Its `people` is
+  of those who also did every step before it, its `share` their part of the first step's own.
+- **Time between steps** is the median of the gap from the step before's own first occurrence to
+  this one's — a mean is pulled far by the slow few.
+- **`by`** breaks the first step's own people down: `segment:<id>` a plain membership split, an
+  audience attribute's own key its values, through the same `Filter::breakdown()` every other
+  count of people in the audience module goes through — restricted to this cohort by its own
+  `userid` attribute, the same mechanism as "a number to its people" above.
+- **The report card** (`report.funnel`) takes `events` (comma-separated, in order, at most six)
+  and `by`, for the board's own period.
+
 ### The site's traffic
 
 Where the site's own traffic is counted, its page views, visits, visitors and the rest are metrics
@@ -1281,6 +1304,10 @@ Alerts::create(['metric' => 'registrations', 'grain' => 'day', 'kind' => Alerts:
     `value`, a fraction.
   - **stopped**: the metric is at nought, with nothing coming, for the last `value` seconds of
     completed hours. It reads the metric by the hour.
+  - **unusual**: the last completed hour is outside the band it usually falls in at the same
+    weekday and hour — the mean of the last four weeks, `value` standard deviations either side
+    (`Alerts::UNUSUAL`, `value` defaults to 2.0). It reads the metric by the hour too; a week
+    never yet computed means no band to judge by, so it does not fire.
 - **When.** `hours` keeps a rule to those hours of the day, in the metrics' zone (`9-23`).
 - **Who is told.** A rule that fires tells its users in the bell, and as a push where they have
   one (`AlertNotification`). It also posts the line in its conversation, the team's channel. It
@@ -1453,6 +1480,35 @@ every metric by the hour names `hour` in `metrics.grains`. `metrics.retention` k
 short: after each computation, older ones are dropped, as whole chunks on TimescaleDB
 (`Store::prune()`). Computing a day of hours with `--from`/`--to` days covers every hour of the
 last day.
+
+## Testing an application's metrics
+
+Checking one number without a real table, a real `metrics:compute`, or a database the test never
+set up:
+
+```php
+use Pramnos\Metrics\Testing\AssertsMetrics;
+
+class OrdersTest extends TestCase
+{
+    use AssertsMetrics;
+
+    public function testThePlacedOrdersAreCounted(): void
+    {
+        Metrics::fake(['orders' => [['period' => '2026-09', 'value' => 12.0, 'filters' => ['region' => 'north']]]]);
+        $this->assertMetric('orders', '2026-09', 12.0, ['region' => 'north'], Window::MONTH);
+        Metrics::fake();   // off again: back to the database
+    }
+}
+```
+
+- **`Metrics::fake()`** keeps values in memory, by metric, period and filters — the metric need
+  not even be registered. A value is read back only by the exact grain, period and filters it was
+  given under; anything else is null, never the real database, while faking. An empty call turns
+  it off.
+- **`AssertsMetrics::assertMetric()`** checks one value — against the fake, or the database when
+  nothing is faked, the same assertion either way, so a test written against a fake still reads
+  as an ordinary integration test once the fake call is dropped.
 
 ## Related
 

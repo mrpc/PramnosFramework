@@ -1773,8 +1773,9 @@ class MetricsMySQLTest extends TestCase
     /**
      * Alerts: a threshold crossed by the last completed period; a fall against a year earlier;
      * data that stopped — nought for the last two completed hours — only within its hours of the
-     * day; a rule that fired waits before it may fire again; a kind, a direction or hours it does
-     * not know are refused.
+     * day; a spike outside the usual band of the same weekday and hour over the last four weeks;
+     * a rule that fired waits before it may fire again; a kind, a direction or hours it does not
+     * know are refused.
      */
     public function testAlertsFireOnWhatTheyWatch(): void
     {
@@ -1785,14 +1786,24 @@ class MetricsMySQLTest extends TestCase
         for ($i = 0; $i < 10; $i++) {
             $this->order('2025-09-10 10:00:00', 'north', 2);
         }
+        // One order at 15:00 on each of the four Fridays before 6 November (also a Friday) — a
+        // quiet hour's usual band, away from the stopped alert's own 10:00-12:00 window — five
+        // that Friday is well outside it.
+        foreach (['2026-10-09 15:00:00', '2026-10-16 15:00:00', '2026-10-23 15:00:00', '2026-10-30 15:00:00'] as $i => $at) {
+            $this->order($at, 'north', 100 + $i);
+        }
+        for ($i = 0; $i < 5; $i++) {
+            $this->order('2026-11-06 15:00:00', 'north', 200 + $i);
+        }
         Metrics::register(Metric::flow('test.hourly_orders', 'Orders')->grains(['hour'])->source(function (Window $w, array $by, Database $db): int {
             return (int) $db->queryBuilder()->table(self::ORDERS)->where('placed_at', '>=', $w->startsAt())->where('placed_at', '<', $w->endsAt())->count();
         }));
         Metrics::compute(['test.orders'], ['month'], '2025-09-01', '2026-10-31', false, self::at('2026-11-06 12:00'));
-        Metrics::compute(['test.hourly_orders'], ['hour'], '2026-11-06', '2026-11-06', false, self::at('2026-11-06 12:30'));
+        Metrics::compute(['test.hourly_orders'], ['hour'], '2026-10-09', '2026-11-06', false, self::at('2026-11-06 16:30'));
         $threshold = \Pramnos\Metrics\Alerts::create(['metric' => 'test.orders', 'grain' => 'month', 'kind' => 'threshold', 'op' => 'below', 'value' => 5]);
         $fall      = \Pramnos\Metrics\Alerts::create(['metric' => 'test.orders', 'grain' => 'month', 'kind' => 'change', 'op' => 'below', 'value' => -0.5, 'against' => Metrics::YEAR_EARLIER, 'name' => 'Orders']);
         $stopped   = \Pramnos\Metrics\Alerts::create(['metric' => 'test.hourly_orders', 'kind' => 'stopped', 'value' => 7200, 'hours' => '9-23']);
+        $unusual   = \Pramnos\Metrics\Alerts::create(['metric' => 'test.hourly_orders', 'kind' => 'unusual', 'hours' => '9-23', 'name' => 'Hourly orders']);
         $refused   = 0;
         foreach ([['kind' => 'mood'], ['kind' => 'threshold', 'op' => 'sideways'], ['kind' => 'threshold', 'hours' => 'mornings']] as $bad) {
             try {
@@ -1802,9 +1813,13 @@ class MetricsMySQLTest extends TestCase
             }
         }
 
-        // Act — September's figures checked on 5 October; the hours at 12:30, then at 08:30 (outside 9-23)
+        // Act — September's figures checked on 5 October; the spike hour at 16:05; noon, then 08:30 (outside 9-23)
         $september = \Pramnos\Metrics\Alerts::evaluate(self::at('2026-10-05 10:00'));
         $again     = \Pramnos\Metrics\Alerts::evaluate(self::at('2026-10-05 10:20'));
+        // 23 October: this hour has an order, but its own 3- and 4-weeks-back reference falls
+        // before the computed range — a hole, so there is no band to judge by.
+        $hole      = \Pramnos\Metrics\Alerts::evaluate(self::at('2026-10-23 16:05'));
+        $spike     = \Pramnos\Metrics\Alerts::evaluate(self::at('2026-11-06 16:05'));
         $noon      = \Pramnos\Metrics\Alerts::evaluate(self::at('2026-11-06 12:30'));
         \Pramnos\Metrics\Alerts::enable($stopped);
         $this->db->queryBuilder()->table(\Pramnos\Metrics\Alerts::TABLE)->where('ruleid', $stopped)->update(['lastfired' => 0]);
@@ -1815,6 +1830,9 @@ class MetricsMySQLTest extends TestCase
         $this->assertSame([$threshold, $fall, $stopped], array_keys($september), 'three is below five; three against ten is -70 %; and no orders those October hours');
         $this->assertStringContainsString('-70.0%', $september[$fall]);
         $this->assertSame([], $again, 'not again within the hour');
+        $this->assertArrayNotHasKey($unusual, $hole, 'a hole in its own reference weeks is not a band to judge by');
+        $this->assertArrayHasKey($unusual, $spike, 'five at 15:00 is well outside the usual one');
+        $this->assertStringContainsString('outside its usual 1', $spike[$unusual]);
         $this->assertArrayHasKey($stopped, $noon, 'nothing at 10:00 and 11:00');
         $this->assertSame([], $morning, 'outside its hours');
         $this->assertSame(0, $this->db->queryBuilder()->table(\Pramnos\Metrics\Alerts::TABLE)->where('ruleid', $threshold)->count());
