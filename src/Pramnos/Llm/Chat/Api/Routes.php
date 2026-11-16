@@ -33,6 +33,7 @@ final class Routes
         'runs'     => '/chat/runs',
         'reports'  => '/chat/reports',
         'consent'  => '/chat/consent',
+        'audio_consent' => '/chat/audio-consent',
         'artifacts' => '/chat/artifacts',
         'shared'   => '/chat/shared',
         'shares'   => '/chat/shares',
@@ -150,6 +151,10 @@ final class Routes
         $r->get($p['consent'], static fn () => $make()->consent())->describeFrom([$controller, 'consent']);
         $r->post($p['consent'], static fn () => $make()->giveConsent())->describeFrom([$controller, 'giveConsent']);
         $r->delete($p['consent'], static fn () => $make()->withdrawConsent())->describeFrom([$controller, 'withdrawConsent']);
+
+        $r->get($p['audio_consent'], static fn () => $make()->audioConsent())->describeFrom([$controller, 'audioConsent']);
+        $r->put($p['audio_consent'], static fn () => $make()->giveAudioConsent())->describeFrom([$controller, 'giveAudioConsent']);
+        $r->delete($p['audio_consent'], static fn () => $make()->withdrawAudioConsent())->describeFrom([$controller, 'withdrawAudioConsent']);
 
         $r->get($p['chat'], static fn () => $make()->list())->describeFrom([$controller, 'list']);
         $r->post($p['chat'], static fn () => $make()->ask())->describeFrom([$controller, 'ask']);

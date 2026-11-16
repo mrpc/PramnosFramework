@@ -411,6 +411,10 @@
                 });
             } } : undefined)
             : null;
+        // llm.voice_conversation: speak() reopens dictation on its own once this is on.
+        if (voice && root.getAttribute('data-pf-chat-voice-conversation') !== null) {
+            voice.conversationMode = true;
+        }
 
         function words(name, fallback) {
             return root.getAttribute('data-say-' + name) || fallback;

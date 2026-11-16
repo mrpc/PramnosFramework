@@ -1299,6 +1299,20 @@ test('the mic button is not wired when data-pf-chat-voice is absent', () => {
 });
 
 /**
+ * llm.voice_conversation reaches pf-voice.js as one flag, data-pf-chat-voice-conversation: on
+ * sets voice.conversationMode, off (the default) leaves it as createVoiceState() made it.
+ */
+test('data-pf-chat-voice-conversation turns on voice.conversationMode; absent leaves it alone', () => {
+    const on = { conversationMode: false };
+    run({ answers: [], attributes: { 'data-pf-chat-voice': '', 'data-pf-chat-voice-conversation': '' }, pfVoice: { createVoiceState: () => on } });
+    assert.equal(on.conversationMode, true);
+
+    const off = { conversationMode: false };
+    run({ answers: [], attributes: { 'data-pf-chat-voice': '' }, pfVoice: { createVoiceState: () => off } });
+    assert.equal(off.conversationMode, false);
+});
+
+/**
  * The composer's model picker: a change is kept with the person's account — POSTed as `choice`
  * to its own address, '' for Automatic — and the question itself carries nothing about it, since
  * the server reads the kept choice and checks it again.

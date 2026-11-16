@@ -544,7 +544,7 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             return $stop;
         }
         $input  = $this->input();
-        $spoken = \Pramnos\Llm\Speech\Speech::speak((string) ($input['text'] ?? ''), null, $this->voiceFor((string) ($input['voice'] ?? '')));
+        $spoken = \Pramnos\Llm\Speech\Speech::speak((string) ($input['text'] ?? ''), null, $this->voiceFor((string) ($input['voice'] ?? '')), $this->scope()?->userId ?? 0);
         if (!$spoken['ok']) {
             return self::error($spoken['status'], $spoken['says']);
         }
@@ -619,6 +619,10 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         if (($stop = $this->refusal('ask')) !== null) {
             return $stop;
         }
+        $scope = $this->scope();
+        if (($stop = $this->audioConsentRefusal($scope)) !== null) {
+            return $stop;
+        }
         $input = $this->input();
         $file  = $_FILES['audio'] ?? null;
         if (is_array($file) && is_string($file['tmp_name'] ?? null) && is_uploaded_file($file['tmp_name'])) {
@@ -629,9 +633,76 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             $type  = (string) ($input['type'] ?? 'audio/webm');
         }
         $seconds = is_numeric($input['seconds'] ?? null) ? (float) $input['seconds'] : null;
-        $heard   = \Pramnos\Llm\Speech\Listening::hear($audio, $type, $seconds);
+        $heard   = \Pramnos\Llm\Speech\Listening::hear($audio, $type, $seconds, null, $scope?->userId ?? 0);
 
         return $heard['ok'] ? ['status' => 200, 'data' => ['text' => $heard['text']]] : self::error($heard['status'], $heard['says']);
+    }
+
+    /**
+     * Whether a recording needs agreement first, and whether this person gave it, for the
+     * listening provider in use: `GET {chat}/audio-consent` → `{required, given}` (FW-522).
+     */
+    public function audioConsent(): array
+    {
+        if (($stop = $this->refusal('consent')) !== null) {
+            return $stop;
+        }
+
+        return ['status' => 200, 'data' => $this->audioConsentState($this->scope())];
+    }
+
+    /** Agree to send recordings for transcription. `PUT {chat}/audio-consent`. */
+    public function giveAudioConsent(): array
+    {
+        return $this->changeAudioConsent(true);
+    }
+
+    /** Withdraw agreement. `DELETE {chat}/audio-consent`. */
+    public function withdrawAudioConsent(): array
+    {
+        return $this->changeAudioConsent(false);
+    }
+
+    /** A refusal to answer because audio consent is required and missing — null to go ahead. */
+    private function audioConsentRefusal(?Scope $scope): ?array
+    {
+        $state = $this->audioConsentState($scope);
+        if (!$state['required'] || $state['given']) {
+            return null;
+        }
+
+        return self::error(428, 'Recording needs your agreement first: PUT {chat}/audio-consent.');
+    }
+
+    /** @return array{required: bool, given: bool} */
+    private function audioConsentState(?Scope $scope): array
+    {
+        $config   = \Pramnos\Llm\Speech\Listening::config();
+        $required = $config !== null && !empty($config['requires_consent']);
+        $given    = $required && $scope !== null && $scope->userId > 0
+            && (new StoredConsent())->has($scope->organizationId, $scope->userId, 'listen:' . $config['provider']);
+
+        return ['required' => $required, 'given' => $given];
+    }
+
+    private function changeAudioConsent(bool $give): array
+    {
+        if (($stop = $this->refusal('consent')) !== null) {
+            return $stop;
+        }
+        $scope = $this->scope();
+        if ($scope === null || $scope->userId < 1) {
+            return self::error(403, 'This needs somebody signed in.');
+        }
+        $config = \Pramnos\Llm\Speech\Listening::config();
+        if ($config === null) {
+            return self::error(422, 'There is no listening provider set up.');
+        }
+        $store = new StoredConsent();
+        $key   = 'listen:' . $config['provider'];
+        $give ? $store->give($scope->organizationId, $scope->userId, $key) : $store->withdraw($scope->organizationId, $scope->userId, $key);
+
+        return $this->audioConsent();
     }
 
     /**

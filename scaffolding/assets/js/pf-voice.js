@@ -1235,6 +1235,20 @@
 
         function speak(id, rawText, options) {
             var opts = options || {};
+            // Continuous conversation (llm.voice_conversation): purely mechanical — reopen
+            // dictation once speech ends, nothing more. No farewell/mute guessing here; an
+            // application layers that judgement call on top of this loop itself.
+            if (conversationMode) {
+                var userOnEnd = opts.onEnd;
+                opts.onEnd = function () {
+                    if (userOnEnd) {
+                        userOnEnd();
+                    }
+                    if (conversationMode) {
+                        startDictation();
+                    }
+                };
+            }
             var started;
             if (server && typeof window.Audio === 'function') {
                 if (!opts.keepDictation) {

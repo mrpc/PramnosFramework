@@ -40,43 +40,38 @@ minute spoken — costs ten to twenty times the text answer itself. Spoken local
    `pf-speech-sanitizer.js` + `pf-voice-fillers.js` ([guide](Pramnos_LLM_Analyst_Guide.md#voice)).
    Only the vanilla-JS chat page has it; an application's own SPA component still wires its own
    mic/read buttons to the same scripts.
-2. ~~**Transcription and speech on the server.**~~ — **mostly shipped**: `Speech\Listening` +
-   `Speech`, each a provider setting the way model providers are (`'llm' => ['listen' =>
-   ['provider' => 'google'|'whisper', ...]]]`, `'llm' => ['speech' => [...]]]`), both off unless
-   configured. `whisper`/`google`/`piper` all reach an OpenAI-compatible or vendor endpoint through
-   the existing transport; `base_url` points any of them at a self-hosted server (a whisper.cpp or
+2. ~~**Transcription and speech on the server.**~~ — **shipped**: `Speech\Listening` + `Speech`,
+   each a provider setting the way model providers are (`'llm' => ['listen' => ['provider' =>
+   'google'|'whisper', ...]]]`, `'llm' => ['speech' => [...]]]`), both off unless configured.
+   `whisper`/`google`/`piper` all reach an OpenAI-compatible or vendor endpoint through the
+   existing transport; `base_url` points any of them at a self-hosted server (a whisper.cpp or
    faster-whisper instance speaking the OpenAI shape, a Piper HTTP server) — not an in-process
    `local` runtime the framework manages itself, which is a difference from how this phase was
    first worded, not a gap in what it does. `Listening::MAX_BYTES` caps an upload (10 MB, 422 past
-   it or empty). Still missing against the original wording:
-     - **No queue dispatch.** Every call runs inline in the request/worker that asked for it,
-       unlike `code_exec`'s own cgroup-isolated queue dispatch for comparably heavy local work
-       (FW-508) — a self-hosted transcription server absorbs its own CPU cost, but nothing here
-       protects *this* process's request budget while it waits on one.
-     - **Logged to a text file, not the call log.** `speech` (`Logger::info()`: bytes, ms, cost at
-       `per_minute`), not `llm_calls` — so a speech call, unlike every model call, does not appear
-       in `/admin/Ai/settings`'s own log screen.
-     - **No audio-specific consent.** Only the existing (text) provider agreement applies; nothing
-       asks separately before audio leaves for a provider, as this phase's own wording asked for.
-3. ~~**Voice conversation.**~~ — **mostly shipped**: sentence-by-sentence streamed speech
+   it or empty). A self-hosted call is queued to a worker of its own when turned on (FW-522,
+   mirroring `code_exec`'s queue dispatch, FW-508), falling back to running inline the moment
+   anything about queueing does not go cleanly; every call also lands beside the `speech` log, in
+   `llm_calls`, so it shows in `/admin/Ai/settings` like any model call; and a provider can ask
+   for its own agreement before a recording leaves for it (`requires_consent`, `{chat}/audio-consent`),
+   separate from the text provider agreement.
+3. ~~**Voice conversation.**~~ — **shipped**: sentence-by-sentence streamed speech
    (`splitSentences()`, the next sentence asked for while one plays), end-of-speech silence
    detection for a dictation turn (`silenceMs`/`silenceLevel`, both the native-recognition and
    server-dictation paths), and barge-in broader than first planned — by an interrupt word *and*
    by voice level (`bargeIn`, with an optional `dictate` that restarts listening on its own). A
    table or chart answer is kept from the spoken opening at the model level
    (`ContextAssembler::SPOKEN`), not the player. No literal "realtime socket" involved anywhere —
-   plain client state turned out to be enough, simpler than this phase first assumed. Still
-   missing: a single **continuous-conversation switch** — today an application chains
-   `speak()`'s/dictation's own `onEnd` into the next `startDictation()` itself; nothing here does
-   that loop automatically under one `llm.voice.conversation`-style flag.
+   plain client state turned out to be enough, simpler than this phase first assumed. A single
+   **continuous-conversation switch** (`llm.voice_conversation`, FW-522) reopens dictation on its
+   own once `speak()` ends — purely mechanical, no farewell/mute guessing built in here: an
+   application's own conversation mode layers that judgement call on top, the way it already had
+   to before this switch existed.
 
 A speech-to-speech model can later sit in front of this as the voice only, with one tool that
 hands each question to the assistant, if an application needs lower latency and accepts the cost.
 Nothing above is thrown away by that.
 
-**Done requires:** phase 2's three gaps (queue dispatch for a self-hosted provider, call-log
-entries beside the `speech` log, audio consent) and phase 3's continuous-conversation switch,
-each documented in the LLM guide, with tests.
+**Done.** Every phase shipped, each documented in the LLM guide, with tests.
 
 ---
 

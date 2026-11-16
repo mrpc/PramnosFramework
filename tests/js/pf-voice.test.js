@@ -525,3 +525,26 @@ test('onPart tells each part as it starts to be heard, the caller\'s own parts t
     assert.deepEqual(fellBack.map((p) => [p.index, p.count, p.text]), [[0, 3, 'Πρώτο κομμάτι εδώ.'], [1, 3, 'Δεύτερο κομμάτι.'], [2, 3, 'Τρίτο κομμάτι.']], 'the rest, from where it stopped');
     assert.deepEqual(alone.map((p) => [p.index, p.count]), [[0, 1]], 'the browser: one part');
 });
+
+test('conversationMode (llm.voice_conversation) reopens dictation once speech ends, nothing more', () => {
+    const { window, captured } = page({ voices: [{ name: 'Microsoft Athina', lang: 'el-GR', voiceURI: 'athina' }] });
+    const voice = window.PfVoice.createVoiceState();
+    voice.conversationMode = true;
+    let onEndCalled = false;
+
+    voice.speak('a', 'Καλησπέρα.', { onEnd: () => { onEndCalled = true; } });
+    window.speechSynthesis.spoken[0].onend();
+
+    assert.equal(onEndCalled, true, 'the caller\'s own onEnd still runs');
+    assert.equal(captured.instance.started, true, 'dictation reopened on its own');
+});
+
+test('conversationMode off: speech ending never starts dictation on its own', () => {
+    const { window, captured } = page({ voices: [{ name: 'Microsoft Athina', lang: 'el-GR', voiceURI: 'athina' }] });
+    const voice = window.PfVoice.createVoiceState();
+
+    voice.speak('a', 'Καλησπέρα.');
+    window.speechSynthesis.spoken[0].onend();
+
+    assert.equal(captured.instance, undefined, 'off by default — no farewell/mute guessing added here either, dictation never even starts');
+});

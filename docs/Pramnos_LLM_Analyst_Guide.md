@@ -408,7 +408,27 @@ shared by the mic and every answer's 🔊 button:
   the application's (`base_url`). `POST {chat}/listen` takes `{audio: base64, type, seconds}` or
   a multipart file `audio`, and answers `{text}`, or 501 (not set up), 422 (empty or over 10 MB)
   or 502. Each call writes a `listen` line to the `speech` log, with its bytes, milliseconds, the
-  seconds the client reported and their cost at the provider's `per_minute`.
+  seconds the client reported and their cost at the provider's `per_minute` — and, beside it,
+  a `listen`/`speak` row in `llm_calls`, so `/admin/Ai/settings` shows a speech call the same as
+  any model call.
+- **Queued to a worker of its own, for a self-hosted provider** (FW-522, mirroring `code_exec`'s
+  own reasoning, FW-508): `'llm' => ['listen' => ['queue' => true]], 'speech' => ['queue' =>
+  true]]`, with a worker registered for it —
+  `'queue' => ['handlers' => ['speech' => \Pramnos\Llm\Speech\SpeechQueueTask::class]]]`. A call
+  whose provider's `base_url` is not Google's or OpenAI's own is then written to
+  `pramnos.llm_speech_runs`, queued, and read back once a worker finishes it, instead of this
+  process making the call itself and holding its own request budget open on it — the self-hosted
+  server (a whisper.cpp/faster-whisper instance, a Piper HTTP server) absorbs its own CPU cost
+  either way. Queueing is purely a performance choice: with no worker registered, too many calls
+  already waiting, or anything else about it not going cleanly, the call still runs inline and
+  still answers — it is never a new way for a call that would otherwise have worked to fail. A
+  hosted provider (Google, OpenAI) is never queued; it has nothing of its own to protect.
+- **Audio consent**, separate from the text provider agreement: `'llm' => ['listen' =>
+  ['providers' => ['google' => ['requires_consent' => true]]]]]` asks before a recording leaves
+  for that provider, the same `ai_consents` table a model provider's agreement uses, under its
+  own `listen:<provider>` key so the two never collide. `GET {chat}/audio-consent` →
+  `{required, given}`; `PUT`/`DELETE` give or withdraw it. `{chat}/listen` answers 428 while it is
+  required and missing, naming the endpoint to agree through first.
 - **Barge-in by voice level** — `speak(id, text, { bargeIn: { threshold, minMs, onBargeIn,
   dictate } })` keeps the microphone open while the voice speaks, with echo cancellation, noise
   suppression and gain control, so the voice itself is not heard. A sound over `threshold` (RMS,
@@ -435,6 +455,14 @@ shared by the mic and every answer's 🔊 button:
   original, each said cleaned and told back as given, so a page shows the original's words
   rather than a transliteration it would have to match. A server that fails partway hands the
   browser the rest as one part, with the index where it stopped.
+- **Continuous conversation** (FW-522): `'llm' => ['voice_conversation' => true]` — a sibling of
+  `llm.voice`, not nested under it, since that one is a plain bool applications already set. On
+  the chat pages this reaches the client as `data-pf-chat-voice-conversation`, and
+  `createVoiceState()`'s `conversationMode` (settable directly where a page builds its own voice
+  state without the chat pages' wiring) makes `speak()` call `startDictation()` on its own once
+  speech ends — nothing more. No farewell detection, no mute-state guessing: that judgement call
+  stays the application's, layered on top of this same mechanical loop with its own business
+  rules.
 - **Asked aloud, answered aloud.** A question dictated on the chat pages is sent with `voice=1`.
   Every way of asking takes it (`TakesQuestions`), and the assistant is told, just before the
   question (`ContextAssembler::SPOKEN`), to open with one or two plain sentences that stand by
@@ -479,7 +507,7 @@ natural rather than spelled out or mis-gendered:
 while an answer is still being worked out, never immediately repeating itself.
 
 **Still to come** (not built): the framework's own chat pages handing the voice a `listen` of
-their own, as they hand it a speech `server`; a continuous voice-conversation mode.
+their own, as they hand it a speech `server`.
 
 ## The floating companion
 

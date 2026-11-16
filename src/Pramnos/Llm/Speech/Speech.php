@@ -99,11 +99,14 @@ final class Speech
      * `$voice` is one of {@see voices()}, by its key — with its provider, where it names one — or
      * else the provider's own name for a voice. The fallback reads in its own voice.
      *
+     * `$userId` is who the call is for — queued to a self-hosted provider's own worker when the
+     * application has turned that on ({@see speakWith()}); without one it always runs inline.
+     *
      * @return array{ok: bool, status: int, audio?: string, type?: string, says?: string}
      *         `status` is the one to answer with: 501 with no server, 422 for a text that cannot
      *         be read, 502 when the server fails — the first provider's, when the fallback fails too
      */
-    public static function speak(string $text, ?string $provider = null, ?string $voice = null): array
+    public static function speak(string $text, ?string $provider = null, ?string $voice = null, int $userId = 0): array
     {
         $text = trim($text);
         if ($text === '' || mb_strlen($text) > self::MAX_TEXT) {
@@ -116,7 +119,7 @@ final class Speech
             $voice    = $listed['voice'];
         }
         $text   = self::pronounce($text);
-        $spoken = self::speakWith($text, $provider, $voice);
+        $spoken = self::speakWith($text, $provider, $voice, $userId);
         if ($spoken['ok'] || $named) {
             return $spoken;
         }
@@ -125,7 +128,7 @@ final class Speech
         if ($fallback === '' || $fallback === ($provider ?? (string) ($section['provider'] ?? 'piper'))) {
             return $spoken;
         }
-        $second = self::speakWith($text, $fallback);
+        $second = self::speakWith($text, $fallback, null, $userId);
 
         return $second['ok'] ? $second : $spoken;
     }
@@ -216,12 +219,27 @@ final class Speech
         return $text;
     }
 
+    /** Seconds a queued call waits for a worker before it is run inline instead. */
+    public const QUEUE_WAIT_SECONDS = 5;
+
+    /** Seconds between looks at a queued run a worker may still be claiming. */
+    public const QUEUE_LOOK_EVERY = 0.2;
+
+    /** Calls waiting or running at once, across everybody, before a new one runs inline instead of queueing. */
+    public const QUEUE_MAX_PENDING = 5;
+
+    /** Test seam: how the queue is reached. Null is the real {@see \Pramnos\Queue\QueueManager}. */
+    public static ?\Closure $queueFactory = null;
+
     /**
-     * Read a text aloud with one provider, and log the call.
+     * Read a text aloud with one provider, and log the call — queued to a worker pointed at the
+     * self-hosted provider when `'llm' => ['speech' => ['queue' => true]]]` is on and this call's
+     * provider is one ({@see Listening::hear()}'s own reasoning, FW-508). `$userId` is who the
+     * call is for; without one it always runs inline.
      *
      * @return array{ok: bool, status: int, audio?: string, type?: string, says?: string}
      */
-    private static function speakWith(string $text, ?string $provider, ?string $voice = null): array
+    private static function speakWith(string $text, ?string $provider, ?string $voice = null, int $userId = 0): array
     {
         $config = self::config($provider);
         if ($config === null) {
@@ -230,14 +248,107 @@ final class Speech
         if ($voice !== null && $voice !== '') {
             $config['voice'] = $voice;
         }
+
+        return $userId > 0 && self::queued($config)
+            ? self::speakQueued($text, $config, $userId)
+            : self::speakNow($text, $config);
+    }
+
+    /**
+     * The actual call to the provider, and its log line — called inline, or by {@see SpeechQueueTask}
+     * once a worker has claimed a queued one.
+     *
+     * @param array<string, mixed> $config
+     * @return array{ok: bool, status: int, audio?: string, type?: string, says?: string}
+     */
+    public static function speakNow(string $text, array $config, ?string $voice = null): array
+    {
+        if ($voice !== null && $voice !== '') {
+            $config['voice'] = $voice;
+        }
         $started = hrtime(true);
         [$status, $audio, $type] = (new $config['transport']())->speak($config, $text);
         $ok = $status === 200 && $audio !== '';
         Logger::info('speak', ['provider' => $config['provider'], 'voice' => (string) ($config['voice'] ?? ''), 'chars' => mb_strlen($text),
             'ms' => (int) ((hrtime(true) - $started) / 1e6), 'bytes' => $ok ? strlen($audio) : 0, 'status' => $status], 'speech');
+        self::logCall($config, $ok, $status);
 
         return $ok ? ['ok' => true, 'status' => 200, 'audio' => $audio, 'type' => $type]
             : ['ok' => false, 'status' => 502, 'says' => 'The speech server did not answer'
                 . ($status > 0 ? ' (' . $status . ')' . (str_starts_with($type, 'audio/') || trim($audio) === '' ? '.' : ': ' . mb_substr(trim($audio), 0, 200)) : ': ' . mb_substr($audio, 0, 200))];
+    }
+
+    /** Whether this call's provider is self-hosted and the application turned queueing on. */
+    private static function queued(array $config): bool
+    {
+        $section = Llm::config('speech', []);
+        $on      = is_array($section) && !empty($section['queue']);
+        $cloud   = str_contains((string) $config['base_url'], 'googleapis.com');
+
+        return $on && !$cloud && SpeechQueue::available();
+    }
+
+    /**
+     * Dispatched to the `speech` queue pool; run inline instead the moment anything about
+     * queueing does not go cleanly.
+     *
+     * @param array<string, mixed> $config
+     * @return array{ok: bool, status: int, audio?: string, type?: string, says?: string}
+     */
+    private static function speakQueued(string $text, array $config, int $userId): array
+    {
+        if (SpeechQueue::pending() >= self::QUEUE_MAX_PENDING) {
+            return self::speakNow($text, $config);
+        }
+
+        $runId = SpeechQueue::create($userId, 'speak', $text, ['provider' => $config['provider'], 'voice' => (string) ($config['voice'] ?? '')]);
+
+        try {
+            self::queue()->addTask(SpeechQueue::TASK, ['run_id' => $runId, 'user_id' => $userId], 1, 1);
+        } catch (\Throwable) {
+            SpeechQueue::forget($runId);
+
+            return self::speakNow($text, $config);
+        }
+
+        $deadline = microtime(true) + self::QUEUE_WAIT_SECONDS;
+        while (true) {
+            $row = SpeechQueue::find($runId, $userId);
+            if ($row === null || (string) $row['status'] === 'error') {
+                SpeechQueue::forget($runId);
+
+                return $row === null ? self::speakNow($text, $config)
+                    : ['ok' => false, 'status' => 502, 'says' => (string) $row['error']];
+            }
+            if ((string) $row['status'] === 'done') {
+                SpeechQueue::forget($runId);
+
+                return (array) json_decode((string) $row['result'], true);
+            }
+            if (microtime(true) >= $deadline) {
+                SpeechQueue::forget($runId);
+
+                return self::speakNow($text, $config);
+            }
+            usleep((int) (self::QUEUE_LOOK_EVERY * 1_000_000));
+        }
+    }
+
+    /** The queue manager the dispatch above reaches — overridden by {@see $queueFactory} in tests. */
+    private static function queue(): \Pramnos\Queue\QueueManager
+    {
+        return self::$queueFactory !== null ? (self::$queueFactory)() : new \Pramnos\Queue\QueueManager(
+            \Pramnos\Queue\QueueManager::controllerOrPlain(\Pramnos\Application\Application::currentInstance(), 'queue')
+        );
+    }
+
+    /** Beside the `speech` log: the same call in `llm_calls`, so it shows in `/admin/Ai/settings` too (FW-521). */
+    private static function logCall(array $config, bool $ok, int $status): void
+    {
+        (new \Pramnos\Llm\CallLog())->record([
+            'purpose' => 'speak', 'provider' => (string) $config['provider'], 'model' => (string) ($config['voice'] ?? ''),
+            'http_status' => $status, 'duration_ms' => null,
+            'error' => $ok ? null : 'The speech server did not answer' . ($status > 0 ? ' (' . $status . ').' : '.'),
+        ]);
     }
 }
