@@ -270,7 +270,9 @@ Once `pramnos.todos` exists, every piece of the list appears by itself:
 - the menu item and the header's button (`menu`);
 - the dashboard card (`dashboard`);
 - the rules' "Add a to-do" action (`rules`);
-- the conversations' to-dos (`chat`).
+- the conversations' to-dos, and a reminder's line in the person's "Reminders" conversation
+  (`chat`) — off where an application already has its own todos↔chat integration and wants no
+  line from this one on top of it; the bell and the push still reach them either way.
 
 An application moving onto the list from a list of its own turns each piece off, `'todos' =>
 ['tools' => false, …]`, until it is ready, so the table and its data can arrive first with

@@ -193,6 +193,30 @@ class TodosToldTest extends TestCase
     }
 
     /**
+     * `todos.chat => false` (FW-524): an application with its own todos↔chat integration gets no
+     * line from this one on top of it — the bell still rings, {@see Todos::offers()} is what
+     * decides, the same check {@see \Pramnos\Conversations\Chat} already makes.
+     */
+    #[DataProvider('databases')]
+    public function testAReminderDoesNotPostToChatWhenTheApplicationOwnsItsOwnIntegration(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->ready($type, $host, $port, $user, ['chat' => false]);
+        $maria = $this->ids['maria'];
+        $now   = time();
+        Todos::add(['title' => 'Send the invoice', 'remind_at' => $now - 30], $maria);
+
+        // Act
+        $sent = Todos::remind($now);
+        $chat = Conversations::botFor($maria, 'Reminders');
+
+        // Assert
+        $this->assertSame(1, $sent, 'still sent: the bell, not the chat line, is what this counts');
+        $this->assertSame(['Reminder: Send the invoice'], array_column($this->bell($maria), 'message'), 'the bell still rings');
+        $this->assertNull($chat, 'no "Reminders" conversation created on her behalf');
+    }
+
+    /**
      * Due today, or overdue: once per item, from 08:05 in the organisation's zone, only to an
      * assignee; not where `todos.due_notice` is off, nor to someone who may no longer be given
      * items, nor in an organisation without to-dos. A new day lets it be told again.

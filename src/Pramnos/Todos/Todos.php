@@ -392,8 +392,10 @@ final class Todos
     /**
      * Send the reminders that are due: each item's `remind_at` reached — to its assignee, else its
      * author — in the bell, as a push, and as a line from "Reminders" in their conversation with
-     * the system where the conversations are installed. The time is cleared before anything is
-     * sent, so a failure is not sent again every minute, and two runners do not both send it.
+     * the system, where the conversations are installed and {@see offers()} `'chat'` — an
+     * application with its own todos↔chat integration (`'todos' => ['chat' => false]`) gets no
+     * line from this one on top of it. The time is cleared before anything is sent, so a failure
+     * is not sent again every minute, and two runners do not both send it.
      *
      * @return int How many were sent
      */
@@ -416,7 +418,7 @@ final class Todos
             }
             $said = sprintf(t('Reminder: %s'), self::short($item['title']));
             self::tell($item, $person, $said);
-            if (\Pramnos\Conversations\Conversations::installed()) {
+            if (self::offers('chat') && \Pramnos\Conversations\Conversations::installed()) {
                 try {
                     $where = self::url($item, $person);
                     \Pramnos\Conversations\SystemPost::post($person, $said . ($where !== '' ? "\n" . $where : ''), [],
