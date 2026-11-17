@@ -341,8 +341,10 @@ should sit among a person's unread like a colleague's words. The application nam
 
 `unreads` leaves their messages out and does not count them, and does not list a conversation that
 has only those unread. `activity` leaves them out too: a reminder stays in its conversation, and
-the bell and the to-do list are where it is told. The conversation's own unread count in the sidebar still counts
-them: the message is still there to be read.
+the bell and the to-do list are where it is told. The sidebar's own per-conversation unread count
+(`Conversations::forPerson()`, `Conversations::counts()`) leaves them out as well, for the same
+reason — a reminder already counted as due in the to-do list should not also inflate the chat
+badge. The message is still there, in its conversation, to be read; it is only never "unread".
 
 ## Posting from the application — in place of a chat webhook
 

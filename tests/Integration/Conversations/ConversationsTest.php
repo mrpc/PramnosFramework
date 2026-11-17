@@ -293,6 +293,36 @@ class ConversationsTest extends TestCase
     }
 
     /**
+     * A quiet source's message (FW-522) — a reminder a bot posts, {@see Inbox::quietSources()} —
+     * does not count as unread anywhere {@see Conversations::counts()} and {@see
+     * Conversations::forPerson()} are asked, just as {@see Inbox::unreads()} already left it out of
+     * its own aggregate: the sidebar/badge and the single-conversation count must agree with it,
+     * not count the reminder a second time on top of whatever counts it as due elsewhere (the
+     * to-do list).
+     */
+    #[DataProvider('databases')]
+    public function testQuietSourcesAreNotUnreadInTheSidebarOrCounts(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        Application::getInstance()->applicationInfo['conversations'] = ['usertype' => 30, 'quiet_sources' => ['todo']];
+        [$eleni, $maria] = [$this->ids['eleni'], $this->ids['maria']];
+        $general = Conversations::create('channel', 'general', [$maria], $eleni);
+        $said    = Messages::post($general, $maria, 'γεια');
+        Messages::post($general, $maria, 'Υπενθύμιση: γάλα', ['source' => 'todo', 'externalid' => 'todo:1']);
+
+        // Act
+        $counts = Conversations::counts($general, $eleni, (int) Conversations::member($general, $eleni)['lastReadId']);
+        $side   = array_column(Conversations::forPerson($eleni), null, 'id')[$general];
+
+        // Assert — one, the plain message; not two, with the reminder on top
+        $this->assertSame(1, $counts['unread'], 'the reminder is not counted by counts()');
+        $this->assertSame(1, $side['unread'], 'nor by forPerson(), which feeds the sidebar badge');
+        Conversations::markRead($general, $eleni, $said);
+        $this->assertSame(0, Conversations::counts($general, $eleni, $said)['unread'], 'reading the plain message clears it, reminder or not');
+    }
+
+    /**
      * A conversation opened at a message — a link to it, a to-do from it — shows the stream around
      * it, not the newest page, and says whether there is more each way (FW-393).
      *

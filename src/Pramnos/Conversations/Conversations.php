@@ -434,11 +434,18 @@ final class Conversations
     {
         $db       = self::db();
         $position = Messages::position($after);
-        $unread = (int) (Messages::inStream($db->queryBuilder()->table('chat.conversation_messages'))->select([new Expression('COUNT(*) AS n')])
+        $quiet       = Inbox::quietSources();
+        $unreadQuery = Messages::inStream($db->queryBuilder()->table('chat.conversation_messages'))->select([new Expression('COUNT(*) AS n')])
             ->where('conversationid', $id)->where(static fn ($q) => Messages::beyondPosition($q, $after, $position))->whereNull('deletedat')
             ->where(static function ($q) use ($person): void {
                 $q->whereNull('authorid')->orWhere('authorid', '!=', $person);
-            })->getAllOrFail()[0]['n'] ?? 0);
+            });
+        if ($quiet !== []) {
+            $unreadQuery->where(static function ($q) use ($quiet): void {
+                $q->whereNull('source')->orWhereNotIn('source', $quiet);
+            });
+        }
+        $unread = (int) ($unreadQuery->getAllOrFail()[0]['n'] ?? 0);
         $mentions = (int) ($db->queryBuilder()->table('chat.conversation_mentions AS mn')
             ->join('chat.conversation_messages AS m', 'm.messageid', '=', 'mn.messageid')->select([new Expression('COUNT(*) AS n')])
             ->where('mn.conversationid', $id)->where(static fn ($q) => Messages::beyondPosition($q, $after, $position, true, 'm.'))
@@ -520,6 +527,7 @@ final class Conversations
         if ($behind === []) {
             return [];
         }
+        $quiet = Inbox::quietSources();
         $query = Messages::inStream(self::db()->queryBuilder()->table('chat.conversation_messages'))
             ->select(['conversationid', new Expression('COUNT(*) AS n')])
             ->whereIn('conversationid', array_keys($behind))->whereNull('deletedat')
@@ -535,6 +543,11 @@ final class Conversations
                 }
             })
             ->groupBy('conversationid');
+        if ($quiet !== []) {
+            $query->where(static function ($q) use ($quiet): void {
+                $q->whereNull('source')->orWhereNotIn('source', $quiet);
+            });
+        }
         $out = [];
         foreach ($query->getAllOrFail() as $row) {
             $out[(int) $row['conversationid']] = (int) $row['n'];

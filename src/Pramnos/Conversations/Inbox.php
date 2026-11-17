@@ -225,13 +225,6 @@ final class Inbox
             }
             $unread = static fn (): \Pramnos\Database\QueryBuilder => Messages::beyond(Messages::inStream(self::messages())
                 ->where('conversationid', $c['id']), $c['lastReadId'])->whereNull('deletedat')->where(self::others($person));
-            $count = $c['unread'];
-            if ($quiet !== []) {
-                $count -= (int) ($unread()->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->whereIn('source', $quiet)->getAllOrFail()[0]['n'] ?? 0);
-                if ($count <= 0) {
-                    continue;
-                }
-            }
             $query = $unread()->select(['messageid']);
             if ($quiet !== []) {
                 $query->where(static function ($q) use ($quiet): void {
@@ -239,7 +232,7 @@ final class Inbox
                 });
             }
             $ids = array_map('intval', array_column(Messages::inOrder($query, 'desc')->limit(max(1, min(self::LIMIT, $each)))->getAllOrFail(), 'messageid'));
-            $out[] = ['id' => $c['id'], 'title' => Conversations::names([$c['id']])[$c['id']] ?? '', 'unread' => $count,
+            $out[] = ['id' => $c['id'], 'title' => Conversations::names([$c['id']])[$c['id']] ?? '', 'unread' => $c['unread'],
                 'lastMessageId' => $c['lastMessageId'], 'messages' => Messages::many(array_reverse($ids))];
         }
 
