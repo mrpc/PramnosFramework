@@ -1187,7 +1187,7 @@ table;
         var \$list = pf40_exportModal_{$jsVar}.find('.pf40-export-my-downloads-list');
         \$list.show().text('…');
         jQuery.getJSON(
-            pf40_exportBase_{$jsVar} + '/myexports?exportBase=' + encodeURIComponent(pf40_exportBase_{$jsVar})
+            pf40_exportBase_{$jsVar} + '/myExports?exportBase=' + encodeURIComponent(pf40_exportBase_{$jsVar})
         ).done(function (resp) {
             var exports = (resp && resp.exports) || [];
             if (exports.length === 0) {

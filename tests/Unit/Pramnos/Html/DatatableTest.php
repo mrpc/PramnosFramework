@@ -392,6 +392,33 @@ class DatatableTest extends TestCase
     }
 
     /**
+     * The "My downloads" link's request must match `myExports()`'s real case exactly.
+     * This shipped calling `/myexports` (all lowercase) against a method named
+     * `myExports()` — routing to a controller action by name is not guaranteed
+     * case-insensitive (it was not, for the application that found this), so the
+     * request fell through to the controller's default action and returned a full
+     * HTML page instead of JSON. `jQuery.getJSON()` then failed to parse it and
+     * reported "Export failed" for what was actually a working endpoint reached by
+     * the wrong URL — no PHP-side test caught it because every existing test calls
+     * `DatatableExportActions::myExports()` directly, never through its route name.
+     */
+    public function testMyDownloadsLinkCallsMyExportsWithExactCase(): void
+    {
+        // Arrange
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->addColumn('Name');
+
+        // Act
+        $js = $dt->renderJs();
+
+        // Assert — exact case, not /myexports
+        $this->assertStringContainsString("'/myExports?exportBase='", $js);
+        $this->assertStringNotContainsString("'/myexports?exportBase='", $js);
+    }
+
+    /**
      * `Column::$exportKey` overrides the default positional key, for a model whose
      * `exportBatch()` returns assoc rows keyed by field name instead of delegating to
      * `Datasource::getList()`'s numeric-indexed ones.
