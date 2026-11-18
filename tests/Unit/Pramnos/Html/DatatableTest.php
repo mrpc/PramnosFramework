@@ -400,6 +400,35 @@ class DatatableTest extends TestCase
         $this->assertStringContainsString("status.progress + ' ' + \"rows so far\"", $js);
     }
 
+    /**
+     * The "all filtered rows" / "current page only" radios must share a
+     * `name`, or the browser never treats them as one group: without it,
+     * clicking the second one just checks it too, leaving both checked at
+     * once (and `.pf40-export-scope:checked`, which both still match,
+     * ambiguous about which the person actually picked).
+     */
+    public function testScopeRadiosShareAName(): void
+    {
+        // Arrange
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->addColumn('Name');
+
+        // Act
+        $js = $dt->renderJs();
+
+        // Assert — both radios declare the same name
+        $this->assertStringContainsString(
+            'name="pf40-export-scope-users" class="pf40-export-scope" value="all"',
+            $js
+        );
+        $this->assertStringContainsString(
+            'name="pf40-export-scope-users" class="pf40-export-scope" value="page"',
+            $js
+        );
+    }
+
     public function testBackgroundExportPostsTheFieldsTheControllerReads(): void
     {
         // Arrange — one exportable column, one excluded like native tableTools excludes it
