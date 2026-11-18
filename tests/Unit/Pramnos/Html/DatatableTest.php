@@ -279,6 +279,47 @@ class DatatableTest extends TestCase
     }
 
     /**
+     * `backgroundExport`'s button must POST what `DatatableExportActions::queueexport()`
+     * actually reads: a top-level `class`, a `columns` list built from `aoColumns` (not
+     * from DataTables' own `ajax.params().columns[]`, which has no label), and `filters`
+     * carrying the table's own AJAX params. FW-526 shipped with the button posting
+     * `ajax.params()` as the whole body — no `class`, no `filters` key — so every click
+     * failed with a 403 that no PHP-side unit test could see, because none of them
+     * rendered this JS and inspected the actual payload it builds.
+     */
+    public function testBackgroundExportPostsTheFieldsTheControllerReads(): void
+    {
+        // Arrange — one exportable column, one excluded like native tableTools excludes it
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->addColumn('Name');
+        $dt->addColumn('Actions');
+        $dt->aoColumns['Actions']->sClass = 'pf-no-export';
+        $dt->addColumn('Hidden', false);
+
+        // Act
+        $dt->renderTable();
+        $js = $dt->renderJs();
+
+        // Assert — the model class reaches the POST body as a JS string literal
+        $this->assertStringContainsString(
+            "class: " . json_encode('App\\Models\\Users'),
+            $js
+        );
+        // Assert — only the one exportable column is in the posted list, with its label
+        $this->assertStringContainsString(
+            'columns: ' . json_encode([['key' => 'Name', 'label' => 'Name']]),
+            $js
+        );
+        // "Actions" (pf-no-export) and "Hidden" (not visible) must not appear in it
+        $this->assertStringNotContainsString('"key":"Actions"', $js);
+        $this->assertStringNotContainsString('"key":"Hidden"', $js);
+        // Assert — filters is the table's own AJAX request object, not posted flat
+        $this->assertStringContainsString('filters: ' . $dt->name . '.api().ajax.params()', $js);
+    }
+
+    /**
      * A table built under `$theme`, its markup and its script.
      *
      * @return array{0: string, 1: string}

@@ -1026,20 +1026,39 @@ table;
             $readyLbl        = self::js($lang->_('Download CSV'));
             $failedLbl       = self::js($lang->_('Export failed'));
             $exportBaseJs    = self::js($exportBase);
+            $exportClassJs   = self::js($this->exportModelClass);
+            // Built from aoColumns (same pf-no-export convention as the native
+            // tableTools exportOptions above), not from DataTables' own
+            // ajax.params().columns[] — those carry {data,name,...}, never a label.
+            $exportColumns = [];
+            foreach ($this->aoColumns as $key => $column) {
+                if (!$column->bVisible || str_contains(' ' . $column->sClass . ' ', ' pf-no-export ')) {
+                    continue;
+                }
+                $exportColumns[] = ['key' => (string) $key, 'label' => (string) $column->sTitle];
+            }
+            $exportColumnsJs = json_encode(
+                $exportColumns,
+                JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            );
             $exportJs = <<<exportjs
 
-    var pf40_exportBase_{$tableVar} = {$exportBaseJs};
-    var pf40_exportBtn_{$tableVar} = jQuery(
+    var pf40_exportBase_{$jsVar} = {$exportBaseJs};
+    var pf40_exportBtn_{$jsVar} = jQuery(
         '<button type="button" class="pf40-export-csv" style="margin-bottom:6px;">'
         + {$exportLabel} + '</button>'
     );
-    pf40_exportBtn_{$tableVar}.insertBefore(jQuery('#{$tableId}'));
-    pf40_exportBtn_{$tableVar}.on('click', function () {
+    pf40_exportBtn_{$jsVar}.insertBefore(jQuery('#{$this->name}'));
+    pf40_exportBtn_{$jsVar}.on('click', function () {
         var \$btn = jQuery(this);
         \$btn.prop('disabled', true).text({$exportingLbl});
         jQuery.post(
-            pf40_exportBase_{$tableVar} + '/queueexport',
-            {$tableVar}.api().ajax.params()
+            pf40_exportBase_{$jsVar} + '/queueexport',
+            {
+                class: {$exportClassJs},
+                columns: {$exportColumnsJs},
+                filters: {$jsVar}.api().ajax.params()
+            }
         ).done(function (resp) {
             var taskid = resp && resp.taskid;
             if (!taskid) {
@@ -1048,12 +1067,12 @@ table;
             }
             var poll = function () {
                 jQuery.getJSON(
-                    pf40_exportBase_{$tableVar} + '/exportstatus/' + taskid
+                    pf40_exportBase_{$jsVar} + '/exportstatus/' + taskid
                 ).done(function (status) {
                     if (status.status === 'completed') {
                         \$btn.prop('disabled', false).text({$exportLabel});
                         var link = jQuery(
-                            '<a href="' + pf40_exportBase_{$tableVar} + '/exportdownload/'
+                            '<a href="' + pf40_exportBase_{$jsVar} + '/exportdownload/'
                             + taskid + '" style="margin-left:8px;">' + {$readyLbl} + '</a>'
                         );
                         link.insertAfter(\$btn);

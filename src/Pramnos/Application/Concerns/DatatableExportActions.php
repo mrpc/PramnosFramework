@@ -45,10 +45,11 @@ trait DatatableExportActions
     /**
      * Queue a `DatatableExportTask` for the current table's filters.
      *
-     * POST: `class` (one of {@see exportableModels()}), plus the table's own AJAX
-     * filters (`table.ajax.params()`), passed straight through as the export's
-     * `filters`. `columns` comes from the posted `columns[].data`/`columns[].name` —
-     * the same shape DataTables already sends — read as `{key, label}` pairs.
+     * POST: `class` (one of {@see exportableModels()}), `columns` as a list of
+     * `{key, label}` pairs (built server-side from the table's `aoColumns`, not
+     * from DataTables' own `ajax.params().columns[]` — those carry `{data,name,...}`
+     * and never a label), and `filters` — the table's AJAX request object
+     * (`table.ajax.params()`), passed straight through to `exportBatch()`.
      */
     public function queueexport(): void
     {
@@ -68,7 +69,7 @@ trait DatatableExportActions
 
         $columns = [];
         foreach ((array) ($_POST['columns'] ?? []) as $column) {
-            $key = (string) ($column['name'] ?? $column['data'] ?? '');
+            $key = (string) ($column['key'] ?? $column['name'] ?? $column['data'] ?? '');
             if ($key !== '') {
                 $columns[] = ['key' => $key, 'label' => (string) ($column['label'] ?? $key)];
             }
