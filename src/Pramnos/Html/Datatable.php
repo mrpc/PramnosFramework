@@ -1203,7 +1203,7 @@ table;
             }
             \$list.empty();
             exports.forEach(function (one) {
-                var line = jQuery('<div></div>').text('#' + one.taskid + ' — ' + one.status);
+                var line = jQuery('<div></div>').text(one.label || ('#' + one.taskid + ' — ' + one.status));
                 if (one.download) {
                     line.append(' ').append(
                         jQuery('<a href="' + one.download + '">' + {$readyLbl} + '</a>')

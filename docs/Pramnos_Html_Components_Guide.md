@@ -1253,7 +1253,9 @@ Three things make the button work:
    `Pramnos\Queue\Tasks\DatatableExportTask`, poll its status, and stream the finished file.
    Only the requester (`requested_by` in the task's own payload) or a `super`+ user may poll
    or download it. `myExports()` lists the signed-in user's own `datatable.export` tasks
-   (`{taskid, status, download}`, `download` only where completed) — no `super`+ needed,
+   (`{taskid, status, label, download}` — `label` a descriptive line such as "Users (CSV)
+   · 2026-11-18 14:32 · 2866 rows exported", `download` only where completed) — no
+   `super`+ needed,
    the same ownership the single-item actions already enforce. It needs `exportBase` as a
    query parameter (the modal's "My downloads" link sends it; `queueexport()`'s own request
    carries it in the POST body instead, since that is a separate call).

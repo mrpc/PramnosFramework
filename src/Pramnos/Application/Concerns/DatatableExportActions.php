@@ -155,6 +155,7 @@ trait DatatableExportActions
             $exports[] = [
                 'taskid'   => (int) $row['taskid'],
                 'status'   => (string) $row['status'],
+                'label'    => $this->exportLabel($row, $payload),
                 'download' => (string) $row['status'] === 'completed'
                     ? $this->exportDownloadUrl((int) $row['taskid'])
                     : null,
@@ -163,6 +164,32 @@ trait DatatableExportActions
 
         \Pramnos\Framework\Factory::getDocument('json');
         echo json_encode(['exports' => $exports]);
+    }
+
+    /**
+     * "Users (CSV) · 2026-11-18 14:32 · 2866 rows exported" — a bare taskid told
+     * the person nothing about which of their own exports a row even was. The
+     * model's short class name, the format, when it was queued, and — once
+     * completed — the row count already sitting in `success_message` are all
+     * already on hand; nothing here is a fact only the task itself would know.
+     *
+     * @param array<string, mixed> $row     A `queueitems` row, as fetched above
+     * @param array<string, mixed> $payload That row's decoded payload
+     */
+    private function exportLabel(array $row, array $payload): string
+    {
+        $class = (string) ($payload['class'] ?? '');
+        $name  = $class !== '' ? substr($class, (int) (strrpos($class, '\\') ?: -1) + 1) : 'Export';
+        $label = $name . ' (' . strtoupper((string) ($payload['format'] ?? 'csv')) . ')';
+
+        if (!empty($row['createdat'])) {
+            $label .= ' · ' . (string) $row['createdat'];
+        }
+        if ((string) ($row['status'] ?? '') === 'completed' && !empty($row['success_message'])) {
+            $label .= ' · ' . (string) $row['success_message'];
+        }
+
+        return $label;
     }
 
     /**

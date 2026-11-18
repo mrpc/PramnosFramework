@@ -396,6 +396,31 @@ class DatatableExportActionsMySQLTest extends TestCase
         $this->assertNull($byId[$pending]['download']);
     }
 
+    /**
+     * `label` is what a person actually reads in "My downloads" — the model's
+     * short class name, the format, when it was queued, and, once completed,
+     * the row count already sitting in `success_message`. A bare taskid told
+     * them nothing about which of their own exports a row even was.
+     */
+    public function testMyExportsLabelIsDescriptive(): void
+    {
+        // Arrange
+        $taskId = $this->insertExportItem(requestedBy: 7, status: 'completed', message: '42 rows exported', format: 'excel');
+        $this->signIn(7);
+        $controller = $this->makeController();
+
+        // Act
+        $body = $this->captureJson(fn () => $controller->myExports());
+
+        // Assert
+        $byId = [];
+        foreach ($body['exports'] as $export) {
+            $byId[(int) $export['taskid']] = $export;
+        }
+        $this->assertStringContainsString('ExportActionsFakeModel (EXCEL)', $byId[$taskId]['label']);
+        $this->assertStringContainsString('42 rows exported', $byId[$taskId]['label']);
+    }
+
     /** Nobody signed in gets nothing, same as every other action here. */
     public function testMyExportsRefusesWhenSignedOut(): void
     {
