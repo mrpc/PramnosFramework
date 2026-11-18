@@ -30,6 +30,16 @@ class Datasource extends Base
     public $idrow = 0;
 
     /**
+     * Hard cap applied when a "show all" request (`length == -1`, e.g. the DataTables
+     * Buttons extension asking for every filtered row to export) would otherwise run
+     * with no LIMIT at all. A heavy query plus per-row PHP post-processing turns that
+     * into unbounded work — a hang, not a page. Set to 0 to disable (restores the old
+     * unlimited behaviour).
+     * @var int
+     */
+    public $unlimitedCap = 5000;
+
+    /**
      * The SQL of the last list query this class executed, across all instances.
      *
      * A debug and test hook, and the only way to see what a filter actually produced:
@@ -375,6 +385,8 @@ class Datasource extends Base
             $length = $request->get('iDisplayLength', $this->maxlimit, 'post');
             if ($length != "-1") {
                 $qb->limit((int)$length)->offset((int)$request->get('iDisplayStart', '0', 'post'));
+            } elseif ($this->unlimitedCap > 0) {
+                $qb->limit($this->unlimitedCap);
             }
         } else {
             $qb->limit((int)$this->maxlimit);

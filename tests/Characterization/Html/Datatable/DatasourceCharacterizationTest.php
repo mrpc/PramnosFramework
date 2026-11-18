@@ -112,6 +112,52 @@ class DatasourceCharacterizationTest extends TestCase
     }
 
     /**
+     * A "show all" request (`iDisplayLength = -1`, what the DataTables Buttons
+     * extension sends to export every filtered row) must not run with no LIMIT
+     * at all — it has to stop at `unlimitedCap`, or a heavy query becomes
+     * unbounded work instead of a page.
+     */
+    public function testUnlimitedCapLimitsShowAllRequests(): void
+    {
+        // Arrange: 4 rows seeded, cap set below that count.
+        $this->setPost([
+            'iDisplayStart' => '0',
+            'iDisplayLength' => '-1',
+            'sEcho' => '1',
+        ]);
+        $datasource = new Datasource();
+        $datasource->unlimitedCap = 2;
+
+        // Act
+        $result = $datasource->render('dt_orders', ['id', 'title', 'amount'], false, '', '', false);
+
+        // Assert: the cap, not the row count, decided how many rows came back.
+        $this->assertCount(2, $result['aaData']);
+    }
+
+    /**
+     * `unlimitedCap = 0` restores the historical unlimited "show all" behavior,
+     * for callers that already apply their own bound.
+     */
+    public function testUnlimitedCapZeroDisablesTheCap(): void
+    {
+        // Arrange
+        $this->setPost([
+            'iDisplayStart' => '0',
+            'iDisplayLength' => '-1',
+            'sEcho' => '1',
+        ]);
+        $datasource = new Datasource();
+        $datasource->unlimitedCap = 0;
+
+        // Act
+        $result = $datasource->render('dt_orders', ['id', 'title', 'amount'], false, '', '', false);
+
+        // Assert: all 4 seeded rows come back, unbounded.
+        $this->assertCount(4, $result['aaData']);
+    }
+
+    /**
      * Ensures global search applies across searchable fields and works with joins.
      */
     public function testRenderAppliesGlobalSearchWithJoin(): void

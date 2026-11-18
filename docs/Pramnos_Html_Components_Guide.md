@@ -1147,6 +1147,24 @@ Each of those is a real cost avoided rather than a nicety:
 - **The wildcards.** A leading `%` is what makes an index unusable, which is why it is off
   by default and asked for per column.
 
+### Capping a "show all" request
+
+The DataTables Buttons extension (`copy`/`excel`/`pdf`/`csv`/`print`) asks for **every**
+filtered row in one request by default when `serverSide: true` — it sends `iDisplayLength =
+-1`, the same value the page-length menu's "All" option sends. `Datasource::getList()` stops
+that at `$ds->unlimitedCap` rows (default `5000`) instead of running with no `LIMIT`:
+
+```php
+$ds = new \Pramnos\Html\Datatable\Datasource();
+$ds->unlimitedCap = 20000; // raise it for a light query
+$ds->unlimitedCap = 0;     // restore the historical unbounded behavior
+```
+
+On a heavy query with per-row PHP post-processing, "show all" without a cap is unbounded
+work — a hang, not a page. The cap is a safety net, not an export feature: a table that
+genuinely needs to hand every filtered row to a user wants a background export, not a
+larger cap.
+
 ### Reading the query a filter produced
 
 ```php
