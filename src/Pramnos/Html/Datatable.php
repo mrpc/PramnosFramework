@@ -118,14 +118,15 @@ class Datatable extends Base
     public $aLengthMenu = NULL;
 
     /**
-     * Opt this server-side table into background CSV export instead of the native
-     * tableTools export buttons. When true, `tableTools` renders nothing (its
-     * "show all" export is unbounded work on a heavy query) and the "All"/`-1`
-     * entry is dropped from the default length menu; a generic "Export CSV" button
-     * and polling script are rendered instead. The controller needs
-     * `Pramnos\Application\Controller\DatatableExportActions` and the model behind
-     * this table needs `Pramnos\Html\Datatable\Exportable`. See the Html Components
-     * Guide, "Background CSV export".
+     * Opt this server-side table into background CSV export, for a filtered set too
+     * large to hand over in one request even capped at `Datasource::$unlimitedCap`.
+     * When true, a generic "Export CSV" button and polling script render alongside
+     * whatever `tableTools` already renders — `tableTools` keeps its own on/off switch;
+     * set it `false` to show only the background export button. The "All"/`-1` entry is
+     * still dropped from the default length menu, since the page itself stays a page.
+     * The controller needs `Pramnos\Application\Controller\DatatableExportActions` and
+     * the model behind this table needs `Pramnos\Html\Datatable\Exportable`. See the
+     * Html Components Guide, "Background CSV export".
      * @var bool
      */
     public $backgroundExport = false;
@@ -897,7 +898,7 @@ embed;
 
 
         $tabletools = "";
-        if ($this->tableTools == true && !$this->backgroundExport) {
+        if ($this->tableTools == true) {
             // A column marked `pf-no-export` (row actions) stays out of every button's output.
             $noExport = array_filter($this->aoColumns, static fn ($c): bool => str_contains(' ' . $c->sClass . ' ', ' pf-no-export ')) !== [];
             $tabletools = $this->exportName === '' && !$noExport

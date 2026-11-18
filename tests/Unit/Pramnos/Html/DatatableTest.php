@@ -339,6 +339,48 @@ class DatatableTest extends TestCase
     }
 
     /**
+     * `tableTools` and `backgroundExport` shipped mutually exclusive — true always
+     * turned the other off — but `Datasource::$unlimitedCap` (FW-525) now bounds a
+     * native "export all" click, so an app can want both toolbars at once: the
+     * native buttons for a quick copy/print of what is on screen, the background
+     * button for a full filtered export. `tableTools` keeps its own switch.
+     */
+    public function testTableToolsAndBackgroundExportCanRenderTogether(): void
+    {
+        // Arrange — tableTools defaults true; backgroundExport is the only one opted into
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->addColumn('Name');
+
+        // Act
+        $js = $dt->renderJs();
+
+        // Assert — the native Buttons config is still emitted
+        $this->assertStringContainsString("buttons : [   'copy', 'excel', 'pdf', 'csv', 'print' ]", $js);
+        // Assert — the background export button's own script is still emitted too
+        $this->assertStringContainsString('pf40-export-csv', $js);
+    }
+
+    /** Explicit `tableTools = false` still turns the native buttons off, same as always. */
+    public function testTableToolsFalseStillHidesNativeButtonsUnderBackgroundExport(): void
+    {
+        // Arrange
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->tableTools = false;
+        $dt->addColumn('Name');
+
+        // Act
+        $js = $dt->renderJs();
+
+        // Assert — no native Buttons config, the background export button still there
+        $this->assertStringNotContainsString("'copy', 'excel', 'pdf', 'csv', 'print'", $js);
+        $this->assertStringContainsString('pf40-export-csv', $js);
+    }
+
+    /**
      * `Column::$exportKey` overrides the default positional key, for a model whose
      * `exportBatch()` returns assoc rows keyed by field name instead of delegating to
      * `Datasource::getList()`'s numeric-indexed ones.

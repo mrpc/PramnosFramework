@@ -1178,10 +1178,12 @@ $table->exportModelClass  = \App\Models\Users::class;
 // stripped) — set it when that guess is wrong.
 ```
 
-`backgroundExport = true` turns off the native tableTools buttons and the "All" entry in
-the length menu (the two unbounded "show everything in one request" paths), and renders a
-generic "Export CSV" button in their place: it queues the export, polls while it runs, and
-swaps in a download link when it is done.
+`backgroundExport = true` drops the "All" entry from the length menu — the page itself
+stays a page — and renders a generic "Export CSV" button alongside whatever `tableTools`
+already renders: it queues the export, polls while it runs, and swaps in a download link
+when it is done. `tableTools` keeps its own switch; `Datasource::$unlimitedCap` is what
+keeps its native "export all" click bounded now, so the two toolbars are free to coexist —
+set `$table->tableTools = false` for a table that wants the background button alone.
 
 Three things make the button work:
 
