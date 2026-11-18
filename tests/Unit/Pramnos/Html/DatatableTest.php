@@ -319,6 +319,22 @@ class DatatableTest extends TestCase
         $this->assertStringContainsString(trim($expected, '"'), $js);
     }
 
+    /** JSON needs no runtime guard (core PHP), so the option is always present. */
+    public function testJsonFormatOptionAlwaysAppears(): void
+    {
+        // Arrange
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->addColumn('Name');
+
+        // Act
+        $js = $dt->renderJs();
+
+        // Assert
+        $this->assertStringContainsString('<option value="json">JSON</option>', $js);
+    }
+
     public function testBackgroundExportPostsTheFieldsTheControllerReads(): void
     {
         // Arrange — one exportable column, one excluded like native tableTools excludes it

@@ -95,7 +95,9 @@ transaction so a row written mid-export cannot be skipped or duplicated. See the
 Components Guide, "Background CSV export", for the application side of it.
 
 Rows are always written as CSV first; for `format: 'excel'`, `Pramnos\Export\Xlsx::fromCsv()`
-converts that into the finished `.xlsx` — no second writer, no new Composer dependency.
+converts that into the finished `.xlsx`, and for `format: 'json'` the task's own
+`csvToJson()` turns it into an array of row objects — no second writer, no new Composer
+dependency for either.
 
 That batching and its transaction are for `scope: 'all'` — every filtered row. `scope:
 'page'` (the export modal's "current page only") is one `exportBatch()` call using the

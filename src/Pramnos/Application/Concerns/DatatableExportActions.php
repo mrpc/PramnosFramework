@@ -50,7 +50,7 @@ trait DatatableExportActions
      * from DataTables' own `ajax.params().columns[]` — those carry `{data,name,...}`
      * and never a label), `filters` — the table's AJAX request object
      * (`table.ajax.params()`), passed straight through to `exportBatch()` — and,
-     * from the export modal: `format` (`'csv'` or `'excel'`), `scope` (`'all'`, the
+     * from the export modal: `format` (`'csv'`, `'excel'` or `'json'`), `scope` (`'all'`, the
      * default, or `'page'` for just the rows already on screen), `notify_email`
      * (`'1'` to email the requester when it is ready) and `exportBase` (needed to
      * build that email's download link).
@@ -72,7 +72,7 @@ trait DatatableExportActions
         }
 
         $format = (string) ($_POST['format'] ?? 'csv');
-        if (!in_array($format, ['csv', 'excel'], true)) {
+        if (!in_array($format, ['csv', 'excel', 'json'], true)) {
             $this->jsonError('That export format is not supported.', 422);
 
             return;
@@ -246,9 +246,11 @@ trait DatatableExportActions
             return;
         }
 
-        [$contentType, $extension] = $format === 'excel'
-            ? ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xlsx']
-            : ['text/csv', '.csv'];
+        [$contentType, $extension] = match ($format) {
+            'excel' => ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xlsx'],
+            'json'  => ['application/json', '.json'],
+            default => ['text/csv', '.csv'],
+        };
 
         // Guarded like LogController::sendHeader() — a CLI test run has no headers to send.
         if (php_sapi_name() !== 'cli') {

@@ -566,6 +566,30 @@ class DatatableExportActionsMySQLTest extends TestCase
         unlink($path);
     }
 
+    /** `format: 'json'` picks the `.json` path, same as `'excel'` picks `.xlsx`. */
+    public function testExportdownloadStreamsTheFinishedJson(): void
+    {
+        // Arrange
+        $taskId = $this->insertExportItem(requestedBy: 7, status: 'completed', message: '1 row exported', format: 'json');
+        $path   = DatatableExportTask::filePath($taskId, 'json');
+        if (!is_dir(dirname($path))) {
+            mkdir(dirname($path), 0775, true);
+        }
+        file_put_contents($path, '[{"Id":"1"}]');
+        $this->signIn(7);
+        $_GET['_option'] = (string) $taskId;
+        $controller = $this->makeController();
+
+        // Act
+        ob_start();
+        $controller->exportdownload($taskId);
+        $output = ob_get_clean();
+
+        // Assert
+        $this->assertSame('[{"Id":"1"}]', $output);
+        unlink($path);
+    }
+
     /**
      * Inserts a queueitems row directly (not through QueueManager::addTask(),
      * which would need a worker to move it through statuses) so each test can

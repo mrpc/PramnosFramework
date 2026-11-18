@@ -369,6 +369,34 @@ class QueueManagerMySQLTest extends TestCase
     }
 
     /**
+     * `.json` too — `allFilePaths()` is generic over every known `format`, so a
+     * third format added after the cleanup already works here with no change
+     * to this method at all.
+     */
+    public function testPurgeOldTasksDeletesAJsonExportToo(): void
+    {
+        // Arrange
+        $taskId = $this->manager->addTask(DatatableExportTask::TASK, ['class' => 'Anything', 'format' => 'json']);
+        $task   = $this->manager->getNextTask();
+        $this->manager->markTaskAsCompleted($task, '3 rows exported');
+        $this->db->query(
+            "UPDATE queueitems SET completedat = '2020-01-01 00:00:00' WHERE taskid = {$taskId}"
+        );
+        $path = DatatableExportTask::filePath($taskId, 'json');
+        if (!is_dir(\dirname($path))) {
+            mkdir(\dirname($path), 0775, true);
+        }
+        file_put_contents($path, '[]');
+
+        // Act
+        $deleted = $this->manager->purgeOldTasks(24, ['completed']);
+
+        // Assert
+        $this->assertSame(1, $deleted);
+        $this->assertFileDoesNotExist($path);
+    }
+
+    /**
      * A task of any other type is untouched by the export-file cleanup: purging
      * a `send_email` row must not try to unlink a CSV that was never written.
      */

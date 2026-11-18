@@ -72,7 +72,8 @@ class DatatableExportTaskMySQLTest extends TestCase
         $exportDir = ROOT . \DS . 'var' . \DS . 'exports';
         foreach (array_merge(
             glob($exportDir . \DS . '*.csv*') ?: [],
-            glob($exportDir . \DS . '*.xlsx') ?: []
+            glob($exportDir . \DS . '*.xlsx') ?: [],
+            glob($exportDir . \DS . '*.json') ?: []
         ) as $leftover) {
             @unlink($leftover);
         }
@@ -217,6 +218,35 @@ class DatatableExportTaskMySQLTest extends TestCase
         $zip->close();
         $this->assertStringContainsString('Alpha', $sheet);
         $this->assertStringContainsString('Beta', $sheet);
+        $this->assertFileDoesNotExist(DatatableExportTask::filePath($item->taskid, 'csv') . '.tmp');
+    }
+
+    /**
+     * `format: 'json'` writes a real, parseable JSON array of row objects —
+     * not a `.csv` with the extension changed, and the intermediate CSV it
+     * was converted from does not survive beside it.
+     */
+    public function testJsonFormatWritesParseableJson(): void
+    {
+        // Arrange
+        $item = $this->makeQueueItem(json_encode([
+            'class'   => Fixtures\InsertingExportableSource::class,
+            'columns' => [['key' => 'id', 'label' => 'Id'], ['key' => 'name', 'label' => 'Name']],
+            'format'  => 'json',
+        ]));
+        $task = new DatatableExportTask($this->controller);
+
+        // Act
+        $task->execute($item);
+
+        // Assert
+        $path    = DatatableExportTask::filePath($item->taskid, 'json');
+        $this->assertFileExists($path);
+        $decoded = json_decode((string) file_get_contents($path), true);
+        $this->assertSame([
+            ['Id' => '1', 'Name' => 'Alpha'],
+            ['Id' => '2', 'Name' => 'Beta'],
+        ], $decoded);
         $this->assertFileDoesNotExist(DatatableExportTask::filePath($item->taskid, 'csv') . '.tmp');
     }
 

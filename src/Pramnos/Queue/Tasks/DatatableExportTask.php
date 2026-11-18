@@ -9,14 +9,16 @@ use Pramnos\Queue\AbstractTask;
 use Pramnos\Queue\QueueItem;
 
 /**
- * Exports a `Datatable` with `backgroundExport = true` to a CSV or Excel file, in
- * batches instead of one unbounded query — see the Html Components Guide,
- * "Background CSV export". Rows are always written as CSV first;
+ * Exports a `Datatable` with `backgroundExport = true` to a CSV, Excel or JSON
+ * file, in batches instead of one unbounded query — see the Html Components
+ * Guide, "Background CSV export". Rows are always written as CSV first;
  * `Pramnos\Export\Xlsx::fromCsv()` converts that into the final `.xlsx` for
- * `format: 'excel'` — no second, parallel writer and no new Composer dependency.
- * `Xlsx` needs only `ext-zip`, which it already checks for and fails clearly
- * without; `Datatable::renderJs()` hides the "Excel" option from the modal
- * when it is missing.
+ * `format: 'excel'`, and {@see csvToJson()} converts it into a JSON array of
+ * objects for `format: 'json'` — no second, parallel writer and no new
+ * Composer dependency for either. `Xlsx` needs only `ext-zip`, which it
+ * already checks for and fails clearly without; `Datatable::renderJs()` hides
+ * the "Excel" option from the modal when it is missing. `json_encode()` is
+ * core PHP, so `'json'` needs no such guard.
  *
  * The whole batch loop runs inside one `REPEATABLE READ` transaction: every batch
  * then sees the same snapshot, so a row inserted or deleted between two batches
@@ -38,7 +40,7 @@ class DatatableExportTask extends AbstractTask
     private const DEFAULT_BATCH_SIZE = 1500;
 
     /** `format` values this task accepts, and the file extension each writes. */
-    private const EXTENSIONS = ['csv' => '.csv', 'excel' => '.xlsx'];
+    private const EXTENSIONS = ['csv' => '.csv', 'excel' => '.xlsx', 'json' => '.json'];
 
     /**
      * The finished export's path for a given task id and format — deterministic,
@@ -77,7 +79,8 @@ class DatatableExportTask extends AbstractTask
      *
      * The payload needs a `class` implementing {@see Exportable}, a non-empty
      * `columns` list, and a `format` this task knows how to write (`'csv'`, the
-     * default, or `'excel'`) — without any of those there is nothing to export.
+     * default, `'excel'`, or `'json'`) — without any of those there is nothing
+     * to export.
      */
     public function validate(QueueItem $queueItem): bool
     {
@@ -137,6 +140,9 @@ class DatatableExportTask extends AbstractTask
                 $finalPath,
                 \Pramnos\Export\Xlsx::fromCsv((string) file_get_contents($tmpPath), 'Export')
             );
+            unlink($tmpPath);
+        } elseif ($format === 'json') {
+            file_put_contents($finalPath, $this->csvToJson((string) file_get_contents($tmpPath)));
             unlink($tmpPath);
         } else {
             rename($tmpPath, $finalPath);
@@ -222,6 +228,33 @@ class DatatableExportTask extends AbstractTask
             ->setBody('<p>' . $this->lastMessage . '.</p><p><a href="' . htmlspecialchars($url, ENT_QUOTES) . '">'
                 . \Pramnos\Framework\Factory::getLanguage()->_('Download') . '</a></p>')
             ->queue();
+    }
+
+    /**
+     * `format: 'json'`'s own conversion — a header row and data rows, written as
+     * CSV like every other format, turned into a JSON array of `{label: value}`
+     * objects. Keeping one writer (CSV) and converting it afterwards, same as
+     * `Xlsx::fromCsv()` for `'excel'`, instead of a second code path that writes
+     * JSON directly batch by batch.
+     */
+    private function csvToJson(string $csv): string
+    {
+        $csv    = str_starts_with($csv, "\xEF\xBB\xBF") ? substr($csv, 3) : $csv;
+        $stream = fopen('php://temp', 'r+');
+        fwrite($stream, $csv);
+        rewind($stream);
+
+        $header = fgetcsv($stream, 0, ',', '"', '') ?: [];
+        $rows   = [];
+        while (($row = fgetcsv($stream, 0, ',', '"', '')) !== false) {
+            if ($row === [null]) {
+                continue;
+            }
+            $rows[] = array_combine($header, array_pad($row, count($header), ''));
+        }
+        fclose($stream);
+
+        return (string) json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
     }
 
     /**

@@ -261,6 +261,61 @@ class DatatableExportTaskTest extends TestCase
         $this->assertTrue($result);
     }
 
+    /** `format: 'json'` validates — the third accepted value. */
+    public function testValidateAcceptsJsonFormat(): void
+    {
+        // Arrange
+        $task = new DatatableExportTask(new \stdClass());
+        $item = $this->makeQueueItem(json_encode([
+            'class'   => FakeExportableSource::class,
+            'columns' => [['key' => 'id', 'label' => 'Id']],
+            'format'  => 'json',
+        ]));
+
+        // Act
+        $result = $task->validate($item);
+
+        // Assert
+        $this->assertTrue($result);
+    }
+
+    // ── csvToJson() ───────────────────────────────────────────────────────────
+
+    /**
+     * The header row becomes each object's keys, and only data rows become
+     * objects — proving `format: 'json'`'s conversion actually turns tabular
+     * CSV text into an array of `{label: value}` records, not a flat dump of
+     * every CSV line.
+     */
+    public function testCsvToJsonUsesTheHeaderRowAsKeys(): void
+    {
+        // Arrange
+        $task = new ConcreteDatatableExportTask(new \stdClass());
+        $csv  = "Id,Name\n1,Alpha\n2,Beta\n";
+
+        // Act
+        $decoded = json_decode($task->publicCsvToJson($csv), true);
+
+        // Assert
+        $this->assertSame([
+            ['Id' => '1', 'Name' => 'Alpha'],
+            ['Id' => '2', 'Name' => 'Beta'],
+        ], $decoded);
+    }
+
+    /** No data rows — just a header — converts to an empty array, not null or an error. */
+    public function testCsvToJsonWithNoRowsIsAnEmptyArray(): void
+    {
+        // Arrange
+        $task = new ConcreteDatatableExportTask(new \stdClass());
+
+        // Act
+        $decoded = json_decode($task->publicCsvToJson("Id,Name\n"), true);
+
+        // Assert
+        $this->assertSame([], $decoded);
+    }
+
     // ── filePath() ────────────────────────────────────────────────────────────
 
     /**
@@ -274,6 +329,7 @@ class DatatableExportTaskTest extends TestCase
         $this->assertStringEndsWith('42.csv', DatatableExportTask::filePath(42));
         $this->assertStringEndsWith('42.csv', DatatableExportTask::filePath(42, 'csv'));
         $this->assertStringEndsWith('42.xlsx', DatatableExportTask::filePath(42, 'excel'));
+        $this->assertStringEndsWith('42.json', DatatableExportTask::filePath(42, 'json'));
     }
 
     /** `csvPath()` is kept for call sites that predate `excel` — always `.csv`. */
@@ -374,6 +430,13 @@ class ConcreteDatatableExportTask extends DatatableExportTask
         $ref = new \ReflectionMethod(DatatableExportTask::class, 'writePage');
 
         return $ref->invoke($this, $source, $filters, $columns, $handle);
+    }
+
+    public function publicCsvToJson(string $csv): string
+    {
+        $ref = new \ReflectionMethod(DatatableExportTask::class, 'csvToJson');
+
+        return $ref->invoke($this, $csv);
     }
 }
 
