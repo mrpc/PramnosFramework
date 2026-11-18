@@ -1803,6 +1803,14 @@ class QueueManager
 
         $predicate = "status IN ($statusList) AND completedat < '$cutoff'";
 
+        // The task's own CSV on disk has to be collected before the row that names it is
+        // gone — same reasoning as the roll-up above: this is what destroys the data, so
+        // it covers every caller. Skipped under $limit for the same reason the roll-up
+        // is: a bounded DELETE with no ORDER BY does not guarantee it removes exactly
+        // the rows this SELECT found, so deleting their files here could delete one
+        // still named by a row the DELETE left behind.
+        $exportTaskIds = $limit === 0 ? $this->exportTaskIdsMatching($predicate) : [];
+
         $sql = 'DELETE FROM ' . $this->getQueueTableName() . ' WHERE ' . $predicate;
 
         if ($limit > 0) {
@@ -1837,6 +1845,16 @@ class QueueManager
             $database->query('ROLLBACK');
 
             throw $exception;
+        }
+
+        // Only after the rows are actually gone: a file deleted ahead of a failed
+        // transaction would be an export still "completed" in the queue table with
+        // nothing behind its download link.
+        foreach ($exportTaskIds as $exportTaskId) {
+            $path = \Pramnos\Queue\Tasks\DatatableExportTask::csvPath($exportTaskId);
+            if (is_file($path)) {
+                unlink($path);
+            }
         }
 
         if ($limit > 0) {
@@ -1879,6 +1897,30 @@ class QueueManager
      *
      * @param string $predicate The `WHERE` clause the DELETE will use, verbatim
      */
+    /**
+     * Task ids of type `datatable.export` matching `$predicate`, verbatim the same
+     * `WHERE` the DELETE will use — so the two cannot drift onto different rows.
+     *
+     * @param string $predicate The `WHERE` clause the DELETE will use, verbatim
+     * @return list<int>
+     */
+    private function exportTaskIdsMatching(string $predicate): array
+    {
+        $database = $this->controller->application->database;
+        $type     = $database->prepareInput(\Pramnos\Queue\Tasks\DatatableExportTask::TASK);
+        $result   = $database->query(
+            'SELECT taskid FROM ' . $this->getQueueTableName()
+                . " WHERE type = '" . $type . "' AND " . $predicate
+        );
+
+        $ids = [];
+        while ($result && $result->fetch()) {
+            $ids[] = (int) $result->fields['taskid'];
+        }
+
+        return $ids;
+    }
+
     protected function rollUpBeforeDeleting(string $predicate): void
     {
         $database = $this->controller->application->database;

@@ -94,6 +94,12 @@ batching a model's `Exportable::exportBatch()` into a CSV inside one `REPEATABLE
 transaction so a row written mid-export cannot be skipped or duplicated. See the Html
 Components Guide, "Background CSV export", for the application side of it.
 
+Its finished CSV (`var/exports/<taskid>.csv`) is not left for an application's own cleanup
+to find: `purgeOldTasks()` deletes a `datatable.export` row's file along with the row
+itself — same retention as every other finished task (`queue.retention_hours`, 24 when
+unset), and skipped under `--limit`/a bounded call for the same reason the roll-up above
+is (a bounded `DELETE` with no `ORDER BY` does not guarantee which rows it removed).
+
 **A worker takes only the task types it can run.** Not told which (`queue:process` without
 `--type`), it claims every type it has a handler for and no other. A task of a type this worker
 cannot run stays pending, attempts untouched, for the worker that can. `--type` narrows that list

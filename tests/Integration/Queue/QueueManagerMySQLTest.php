@@ -13,6 +13,7 @@ use Pramnos\Database\MigrationLoader;
 use Pramnos\Framework\Factory;
 use Pramnos\Queue\QueueItem;
 use Pramnos\Queue\QueueManager;
+use Pramnos\Queue\Tasks\DatatableExportTask;
 
 /**
  * Integration tests for QueueManager against a live MySQL 8.0 database.
@@ -301,6 +302,60 @@ class QueueManagerMySQLTest extends TestCase
         $this->assertSame('completed', $row->fields['status']);
         $this->assertNotNull($row->fields['completedat']);
         $this->assertSame('Exported 500 rows', $row->fields['success_message']);
+    }
+
+    // -------------------------------------------------------------------------
+    // purgeOldTasks — the export CSV on disk
+    // -------------------------------------------------------------------------
+
+    /**
+     * purgeOldTasks() deletes a finished `datatable.export` task's CSV from disk
+     * along with its row — otherwise the file is orphaned forever: its row is
+     * gone, so `DatatableExportActions::exportdownload()`'s ownership check can
+     * never again find who may see it, but the file itself stays on disk
+     * growing `var/exports/` without bound.
+     */
+    public function testPurgeOldTasksDeletesTheExportCsvWithItsRow(): void
+    {
+        // Arrange — a completed export task, old enough to be purged, with a real
+        // file at the path DatatableExportTask::execute() would have written.
+        $taskId = $this->manager->addTask(DatatableExportTask::TASK, ['class' => 'Anything']);
+        $task   = $this->manager->getNextTask();
+        $this->manager->markTaskAsCompleted($task, '3 rows exported');
+        $this->db->query(
+            "UPDATE queueitems SET completedat = '2020-01-01 00:00:00' WHERE taskid = {$taskId}"
+        );
+        $path = DatatableExportTask::csvPath($taskId);
+        if (!is_dir(\dirname($path))) {
+            mkdir(\dirname($path), 0775, true);
+        }
+        file_put_contents($path, "Id\n1\n");
+
+        // Act
+        $deleted = $this->manager->purgeOldTasks(24, ['completed']);
+
+        // Assert — the row and the file are both gone
+        $this->assertSame(1, $deleted);
+        $this->assertFileDoesNotExist($path);
+    }
+
+    /**
+     * A task of any other type is untouched by the export-file cleanup: purging
+     * a `send_email` row must not try to unlink a CSV that was never written.
+     */
+    public function testPurgeOldTasksLeavesOtherTaskTypesAlone(): void
+    {
+        // Arrange
+        $taskId = $this->manager->addTask('send_email', ['to' => 'a@b.com']);
+        $task   = $this->manager->getNextTask();
+        $this->manager->markTaskAsCompleted($task, 'Sent');
+        $this->db->query(
+            "UPDATE queueitems SET completedat = '2020-01-01 00:00:00' WHERE taskid = {$taskId}"
+        );
+
+        // Act + Assert — no DatatableExportTask-shaped path lookup throws or errors
+        $deleted = $this->manager->purgeOldTasks(24, ['completed']);
+        $this->assertSame(1, $deleted);
     }
 
     // -------------------------------------------------------------------------

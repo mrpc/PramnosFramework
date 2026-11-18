@@ -885,7 +885,15 @@ class QueueManagerTest extends TestCase
                 };
             }
 
-            public function query(string $sql): object { return new class { public function getAffectedRows(): int { return 0; } }; }
+            public function query(string $sql): object
+            {
+                // fetch() always false: no export task ids, no rows to summarise — the
+                // SELECTs purgeOldTasks() issues before its DELETE see an empty result.
+                return new class {
+                    public function getAffectedRows(): int { return 0; }
+                    public function fetch(): bool { return false; }
+                };
+            }
         };
 
         return new class($database) {
