@@ -118,6 +118,35 @@ class Datatable extends Base
     public $aLengthMenu = NULL;
 
     /**
+     * Opt this server-side table into background CSV export instead of the native
+     * tableTools export buttons. When true, `tableTools` renders nothing (its
+     * "show all" export is unbounded work on a heavy query) and the "All"/`-1`
+     * entry is dropped from the default length menu; a generic "Export CSV" button
+     * and polling script are rendered instead. The controller needs
+     * `Pramnos\Application\Controller\DatatableExportActions` and the model behind
+     * this table needs `Pramnos\Html\Datatable\Exportable`. See the Html Components
+     * Guide, "Background CSV export".
+     * @var bool
+     */
+    public $backgroundExport = false;
+
+    /**
+     * The model class queued by the background export button, implementing
+     * `Pramnos\Html\Datatable\Exportable`. Required when `backgroundExport` is true.
+     * @var string
+     */
+    public $exportModelClass = '';
+
+    /**
+     * Base controller URL the export button's `queueexport`/`exportstatus`/
+     * `exportdownload` actions are reached under. Defaults to `source` with its
+     * last path segment (the ajax action) stripped off, e.g. `users/data` →
+     * `users`. Set explicitly when that guess is wrong.
+     * @var string
+     */
+    public $exportBase = '';
+
+    /**
      * Enable or disable sorting of columns. Sorting of individual columns
      * can be disabled by the "bSortable" option for each column.
      * @var boolean
@@ -789,8 +818,10 @@ embed;
         // JS variable name — see jsVar(); a hyphen in the id is not an identifier.
         $jsVar = $this->jsVar();
         if ($this->aLengthMenu === NULL) {
-            $this->aLengthMenu = '[[10, 25, 50, 100, -1], [10, 25, 50, 100, "'
-                . $lang->_('All') . '"]]';
+            $this->aLengthMenu = $this->backgroundExport
+                ? '[[10, 25, 50, 100], [10, 25, 50, 100]]'
+                : '[[10, 25, 50, 100, -1], [10, 25, 50, 100, "'
+                    . $lang->_('All') . '"]]';
         }
 
         if ($this->addcss == true) {
@@ -854,7 +885,7 @@ embed;
 
 
         $tabletools = "";
-        if ($this->tableTools == true) {
+        if ($this->tableTools == true && !$this->backgroundExport) {
             // A column marked `pf-no-export` (row actions) stays out of every button's output.
             $noExport = array_filter($this->aoColumns, static fn ($c): bool => str_contains(' ' . $c->sClass . ' ', ' pf-no-export ')) !== [];
             $tabletools = $this->exportName === '' && !$noExport
@@ -981,6 +1012,68 @@ table;
                 $n++;
             }
         }
+        // Background CSV export: a button inserted before the table, polling
+        // queueexport/exportstatus/exportdownload on $exportBase (default: $source
+        // with its last path segment stripped — "users/data" -> "users"). Lives
+        // entirely in JS so it needs no change to renderTable()'s own markup.
+        $exportJs = '';
+        if ($this->backgroundExport) {
+            $exportBase = $this->exportBase !== ''
+                ? $this->exportBase
+                : preg_replace('#/[^/]*$#', '', $this->source);
+            $exportLabel     = self::js($lang->_('Export CSV'));
+            $exportingLbl    = self::js($lang->_('Exporting...'));
+            $readyLbl        = self::js($lang->_('Download CSV'));
+            $failedLbl       = self::js($lang->_('Export failed'));
+            $exportBaseJs    = self::js($exportBase);
+            $exportJs = <<<exportjs
+
+    var pf40_exportBase_{$tableVar} = {$exportBaseJs};
+    var pf40_exportBtn_{$tableVar} = jQuery(
+        '<button type="button" class="pf40-export-csv" style="margin-bottom:6px;">'
+        + {$exportLabel} + '</button>'
+    );
+    pf40_exportBtn_{$tableVar}.insertBefore(jQuery('#{$tableId}'));
+    pf40_exportBtn_{$tableVar}.on('click', function () {
+        var \$btn = jQuery(this);
+        \$btn.prop('disabled', true).text({$exportingLbl});
+        jQuery.post(
+            pf40_exportBase_{$tableVar} + '/queueexport',
+            {$tableVar}.api().ajax.params()
+        ).done(function (resp) {
+            var taskid = resp && resp.taskid;
+            if (!taskid) {
+                \$btn.prop('disabled', false).text({$failedLbl});
+                return;
+            }
+            var poll = function () {
+                jQuery.getJSON(
+                    pf40_exportBase_{$tableVar} + '/exportstatus/' + taskid
+                ).done(function (status) {
+                    if (status.status === 'completed') {
+                        \$btn.prop('disabled', false).text({$exportLabel});
+                        var link = jQuery(
+                            '<a href="' + pf40_exportBase_{$tableVar} + '/exportdownload/'
+                            + taskid + '" style="margin-left:8px;">' + {$readyLbl} + '</a>'
+                        );
+                        link.insertAfter(\$btn);
+                    } else if (status.status === 'failed') {
+                        \$btn.prop('disabled', false).text({$failedLbl});
+                    } else {
+                        setTimeout(poll, 3000);
+                    }
+                }).fail(function () {
+                    \$btn.prop('disabled', false).text({$failedLbl});
+                });
+            };
+            poll();
+        }).fail(function () {
+            \$btn.prop('disabled', false).text({$failedLbl});
+        });
+    });
+exportjs;
+        }
+
         $groupBySelectorJs = '';
         if ($this->groupBySelector === true) {
             $sId = 'pf40_groupby_' . $this->name;
@@ -1039,6 +1132,7 @@ table;
         $groupByInitJs
         $showHideJs
         $groupBySelectorJs
+        $exportJs
 
     });
    </script>

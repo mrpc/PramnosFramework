@@ -394,6 +394,7 @@ class Worker
         \Pramnos\Conversations\Unfurls::TASK => \Pramnos\Conversations\UnfurlTask::class,
         \Pramnos\Conversations\Notify::TASK => \Pramnos\Conversations\NotifyTask::class,
         \Pramnos\Bulk\BulkActionTask::TASK => \Pramnos\Bulk\BulkActionTask::class,
+        \Pramnos\Queue\Tasks\DatatableExportTask::TASK => \Pramnos\Queue\Tasks\DatatableExportTask::class,
     ];
 
     // ── Factory hook ──────────────────────────────────────────────────────────

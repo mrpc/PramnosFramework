@@ -88,6 +88,12 @@ they start `queue:process` by the framework's name. A worker can also be given a
 for example. The order is: a handler registered in code, then one named in `app.php`, then the
 framework's own task types (`Worker::FRAMEWORK_HANDLERS`), which need no registration.
 
+One of those framework task types is `Pramnos\Queue\Tasks\DatatableExportTask`
+(`datatable.export`) — the queue side of a `Datatable` with `backgroundExport = true`,
+batching a model's `Exportable::exportBatch()` into a CSV inside one `REPEATABLE READ`
+transaction so a row written mid-export cannot be skipped or duplicated. See the Html
+Components Guide, "Background CSV export", for the application side of it.
+
 **A worker takes only the task types it can run.** Not told which (`queue:process` without
 `--type`), it claims every type it has a handler for and no other. A task of a type this worker
 cannot run stays pending, attempts untouched, for the worker that can. `--type` narrows that list

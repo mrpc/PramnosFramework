@@ -1162,8 +1162,78 @@ $ds->unlimitedCap = 0;     // restore the historical unbounded behavior
 
 On a heavy query with per-row PHP post-processing, "show all" without a cap is unbounded
 work — a hang, not a page. The cap is a safety net, not an export feature: a table that
-genuinely needs to hand every filtered row to a user wants a background export, not a
-larger cap.
+genuinely needs to hand every filtered row to a user wants the background export below,
+not a larger cap.
+
+### Background CSV export
+
+A table that genuinely needs to hand every filtered row to a user — not just the page on
+screen — opts into a queued export instead of raising `unlimitedCap`:
+
+```php
+$table = new \Pramnos\Html\Datatable('users', sURL . 'users/data');
+$table->backgroundExport  = true;
+$table->exportModelClass  = \App\Models\Users::class;
+// $table->exportBase defaults to "users" (source with its last path segment
+// stripped) — set it when that guess is wrong.
+```
+
+`backgroundExport = true` turns off the native tableTools buttons and the "All" entry in
+the length menu (the two unbounded "show everything in one request" paths), and renders a
+generic "Export CSV" button in their place: it queues the export, polls while it runs, and
+swaps in a download link when it is done.
+
+Three things make the button work:
+
+1. **The model implements `Pramnos\Html\Datatable\Exportable`:**
+
+   ```php
+   class Users extends \Pramnos\Application\Model implements \Pramnos\Html\Datatable\Exportable
+   {
+       public function exportBatch(array $filters, int $limit, int $offset): array
+       {
+           // The same query the grid's own AJAX action already runs, as a plain
+           // LIMIT/OFFSET fetch — $filters is the table's posted AJAX params.
+           return $this->queryBuilder()->table('users')
+               /* ...apply $filters... */
+               ->limit($limit)->offset($offset)->get()->fetchAll();
+       }
+   }
+   ```
+
+2. **The controller uses the trait and declares its allow-list:**
+
+   ```php
+   class Users extends \Pramnos\Application\Controller
+   {
+       use \Pramnos\Application\Concerns\DatatableExportActions;
+
+       public function __construct(?\Pramnos\Application\Application $application = null)
+       {
+           $this->addAuthAction(['queueexport', 'exportstatus', 'exportdownload']);
+           $this->addWriteAction(['queueexport']);
+           parent::__construct($application);
+       }
+
+       protected function exportableModels(): array
+       {
+           return [\App\Models\Users::class];
+       }
+   }
+   ```
+
+   The allow-list exists because `class` arrives in the POST body: without it, queueing
+   would hand a signed-in user's request straight to `new $class(...)` with no check at all.
+
+3. **Nothing else** — `queueexport()`/`exportstatus($id)`/`exportdownload($id)` queue a
+   `Pramnos\Queue\Tasks\DatatableExportTask`, poll its status, and stream the finished file.
+   Only the requester (`requested_by` in the task's own payload) or a `super`+ user may poll
+   or download it.
+
+The export runs in batches (`1500` rows by default) inside one database transaction set to
+`REPEATABLE READ`, so a row inserted or deleted while the export is running cannot be
+skipped or duplicated — every batch reads the same snapshot. See the Queue Guide for the
+task itself.
 
 ### Reading the query a filter produced
 
