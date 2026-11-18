@@ -1181,8 +1181,12 @@ $table->exportModelClass  = \App\Models\Users::class;
 `backgroundExport = true` drops the "All" entry from the length menu — the page itself
 stays a page. Clicking the export control opens a small modal (scope — every filtered row
 or just the current page — a format select, a "notify me by email when ready" checkbox,
-plus a "My downloads" link), and starting it from there queues the export, polls while it
-runs, and swaps in a download link when it is done.
+plus a "My downloads" link). Starting it from there queues the export **without closing
+the modal**: its controls hide, a progress area inside the same modal polls while it
+runs, and shows the download link (or a failure, with a "Try again" that goes back to the
+controls) right there when it is done — nothing to find beside a button the modal is
+covering anyway. The modal still closes on its own `×`/Cancel/Escape/backdrop-click at
+any point; closing does not cancel an export already queued.
 
 `tableTools` keeps its own switch, and the two toolbars share one row rather than stacking
 two: with both `tableTools` and `backgroundExport` true, the native `copy`/`pdf`/`print`

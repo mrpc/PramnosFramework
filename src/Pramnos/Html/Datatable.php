@@ -914,7 +914,7 @@ embed;
                 // right after this init call runs; the button only calls it on click,
                 // long after the variable is assigned.
                 $buttonDefs[] = '{"text": ' . self::js($lang->_('Export'))
-                    . ', "action": function(e, dt, node, config) { pf40_openExportModal_' . $jsVar . '(jQuery(node)); }}';
+                    . ', "action": function(e, dt, node, config) { pf40_openExportModal_' . $jsVar . '(); }}';
                 $tabletools = ' buttons : [' . implode(', ', $buttonDefs) . '],';
             } else {
                 $tabletools = $this->exportName === '' && !$noExport
@@ -1062,6 +1062,7 @@ table;
             $notifyLbl       = self::js($lang->_('Notify me by email when ready'));
             $myExportsLbl    = self::js($lang->_('My downloads'));
             $noExportsLbl    = self::js($lang->_('No exports yet.'));
+            $tryAgainLbl     = self::js($lang->_('Try again'));
             // Xlsx::fromCsv() needs ext-zip; a host without it still gets CSV, just
             // not the option to pick Excel, rather than an export that fails after
             // it is already queued.
@@ -1119,16 +1120,13 @@ table;
     );
     pf40_exportBtn_{$jsVar}.insertBefore(jQuery('#{$this->name}'));
     pf40_exportBtn_{$jsVar}.on('click', function () {
-        pf40_openExportModal_{$jsVar}(pf40_exportBtn_{$jsVar});
+        pf40_openExportModal_{$jsVar}();
     });
 
     standalonebtn;
             $exportJs = <<<exportjs
 {$standaloneBtnJs}
     var pf40_exportBase_{$jsVar} = {$exportBaseJs};
-    // Whichever element triggered the modal (the standalone button, or the native
-    // toolbar's custom button) is where progress/the download link show up too.
-    var pf40_exportStatus_{$jsVar} = null;
 
     // Plain, unstyled-but-functional — an app wanting a themed modal restyles
     // ".pf40-export-modal" itself. Appended once per table, hidden until opened.
@@ -1140,6 +1138,7 @@ table;
         + '<button type="button" class="pf40-export-modal-close" aria-label="Close" '
         + 'style="position:absolute;top:4px;right:8px;background:none;border:none;'
         + 'font-size:20px;cursor:pointer;line-height:1;">&times;</button>'
+        + '<div class="pf40-export-controls">'
         + '<div style="margin-bottom:10px;"><label>' + {$exportLabel} + '<br>'
         + '<select class="pf40-export-format"><option value="csv">CSV</option>'
         + '<option value="json">JSON</option>' + {$excelOptionJs} + '</select>'
@@ -1165,12 +1164,25 @@ table;
         + '</button>'
         + '</div>'
         + '</div>'
+        // Takes the controls' place while a queued export is running — the modal
+        // stays open instead of closing on click, so progress and the download
+        // link (or a failure and a way to retry) show up where the person is
+        // already looking, not beside whichever button opened it.
+        + '<div class="pf40-export-progress" style="display:none;"></div>'
+        + '</div>'
         + '</div>'
     );
     jQuery('body').append(pf40_exportModal_{$jsVar});
 
-    function pf40_openExportModal_{$jsVar}(statusEl) {
-        pf40_exportStatus_{$jsVar} = statusEl;
+    // Back to the format/scope/notify controls, hiding whatever progress/result the
+    // last run left behind — what a fresh open, and "Try again" after a failure,
+    // both need.
+    function pf40_resetExportModal_{$jsVar}() {
+        pf40_exportModal_{$jsVar}.find('.pf40-export-controls').show();
+        pf40_exportModal_{$jsVar}.find('.pf40-export-progress').hide().empty();
+    }
+    function pf40_openExportModal_{$jsVar}() {
+        pf40_resetExportModal_{$jsVar}();
         pf40_exportModal_{$jsVar}.show();
     }
     function pf40_closeExportModal_{$jsVar}() {
@@ -1217,14 +1229,30 @@ table;
         });
     });
 
+    // Shows a failure inside the modal with a way back to the controls, instead of
+    // forcing a close-and-reopen for something as ordinary as "try a different scope".
+    function pf40_exportModalFailed_{$jsVar}() {
+        var \$progress = pf40_exportModal_{$jsVar}.find('.pf40-export-progress');
+        \$progress.empty().append(
+            jQuery('<p></p>').text({$failedLbl})
+        ).append(
+            jQuery('<button type="button"></button>').text({$tryAgainLbl})
+                .on('click', pf40_resetExportModal_{$jsVar})
+        );
+    }
+
     pf40_exportModal_{$jsVar}.find('.pf40-export-modal-start').on('click', function () {
-        pf40_closeExportModal_{$jsVar}();
         var scope  = pf40_exportModal_{$jsVar}.find('.pf40-export-scope:checked').val() || 'all';
         var format = pf40_exportModal_{$jsVar}.find('.pf40-export-format').val() || 'csv';
         var notify = pf40_exportModal_{$jsVar}.find('.pf40-export-notify').is(':checked');
 
-        var \$btn = pf40_exportStatus_{$jsVar};
-        \$btn.prop('disabled', true).text({$exportingLbl});
+        // The modal stays open: progress, the download link, and a failure with a
+        // way to retry all show up here, where the person is already looking —
+        // not beside whichever button opened it, and not after it has closed.
+        pf40_exportModal_{$jsVar}.find('.pf40-export-controls').hide();
+        var \$progress = pf40_exportModal_{$jsVar}.find('.pf40-export-progress');
+        \$progress.show().text({$exportingLbl});
+
         jQuery.post(
             pf40_exportBase_{$jsVar} + '/queueexport',
             {
@@ -1240,7 +1268,7 @@ table;
         ).done(function (resp) {
             var taskid = resp && resp.taskid;
             if (!taskid) {
-                \$btn.prop('disabled', false).text({$failedLbl});
+                pf40_exportModalFailed_{$jsVar}();
                 return;
             }
             var poll = function () {
@@ -1248,25 +1276,19 @@ table;
                     pf40_exportBase_{$jsVar} + '/exportstatus/' + taskid
                 ).done(function (status) {
                     if (status.status === 'completed') {
-                        \$btn.prop('disabled', false).text({$exportLabel});
-                        var link = jQuery(
-                            '<a href="' + pf40_exportBase_{$jsVar} + '/exportdownload/'
-                            + taskid + '" style="margin-left:8px;">' + {$readyLbl} + '</a>'
+                        \$progress.empty().append(
+                            jQuery('<a href="' + pf40_exportBase_{$jsVar} + '/exportdownload/'
+                                + taskid + '">' + {$readyLbl} + '</a>')
                         );
-                        link.insertAfter(\$btn);
                     } else if (status.status === 'failed') {
-                        \$btn.prop('disabled', false).text({$failedLbl});
+                        pf40_exportModalFailed_{$jsVar}();
                     } else {
                         setTimeout(poll, 3000);
                     }
-                }).fail(function () {
-                    \$btn.prop('disabled', false).text({$failedLbl});
-                });
+                }).fail(pf40_exportModalFailed_{$jsVar});
             };
             poll();
-        }).fail(function () {
-            \$btn.prop('disabled', false).text({$failedLbl});
-        });
+        }).fail(pf40_exportModalFailed_{$jsVar});
     });
 exportjs;
         }

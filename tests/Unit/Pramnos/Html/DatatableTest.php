@@ -335,6 +335,45 @@ class DatatableTest extends TestCase
         $this->assertStringContainsString('<option value="json">JSON</option>', $js);
     }
 
+    /**
+     * Clicking "Start export" used to close the modal immediately
+     * (`pf40_closeExportModal_*()` as its first line) and show progress/the
+     * download link beside whichever button opened it. The owner wanted the
+     * modal to stay open and show its own progress, result and retry inside
+     * itself instead — nothing to find beside a button the modal is covering
+     * anyway.
+     */
+    public function testStartExportKeepsTheModalOpenAndUsesItsOwnProgressArea(): void
+    {
+        // Arrange
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->addColumn('Name');
+
+        // Act
+        $js = $dt->renderJs();
+
+        // Assert — the start handler no longer closes the modal as its first act
+        $startHandler = substr($js, (int) strpos($js, "find('.pf40-export-modal-start').on('click'"));
+        $this->assertStringNotContainsString(
+            'pf40_closeExportModal_users();',
+            substr($startHandler, 0, (int) strpos($startHandler, 'jQuery.post'))
+        );
+        // Assert — controls hide, a progress area shows, inside the modal itself
+        $this->assertStringContainsString(
+            "find('.pf40-export-controls').hide()",
+            $startHandler
+        );
+        $this->assertStringContainsString('pf40-export-progress', $js);
+        // Assert — a failure path exists with a way back to the controls
+        $this->assertStringContainsString('pf40_exportModalFailed_users', $js);
+        $this->assertStringContainsString(
+            'pf40_resetExportModal_users',
+            $js
+        );
+    }
+
     public function testBackgroundExportPostsTheFieldsTheControllerReads(): void
     {
         // Arrange — one exportable column, one excluded like native tableTools excludes it
@@ -406,7 +445,7 @@ class DatatableTest extends TestCase
         $this->assertStringContainsString('{"extend": "print"}', $js);
         $this->assertStringNotContainsString('"extend": "excel"', $js);
         $this->assertStringNotContainsString('"extend": "csv"', $js);
-        $this->assertStringContainsString('"action": function(e, dt, node, config) { pf40_openExportModal_users(jQuery(node)); }', $js);
+        $this->assertStringContainsString('"action": function(e, dt, node, config) { pf40_openExportModal_users(); }', $js);
         // Assert — no standalone button inserted before the table; the toolbar button is the only trigger
         $this->assertStringNotContainsString('pf40-export-csv', $js);
         // Assert — the modal itself (shared machinery) is still built
@@ -430,7 +469,7 @@ class DatatableTest extends TestCase
         $this->assertStringNotContainsString("'copy', 'excel', 'pdf', 'csv', 'print'", $js);
         $this->assertStringNotContainsString('{"extend": "copy"}', $js);
         $this->assertStringContainsString('pf40-export-csv', $js);
-        $this->assertStringContainsString('pf40_openExportModal_users(pf40_exportBtn_users)', $js);
+        $this->assertStringContainsString('pf40_openExportModal_users();', $js);
     }
 
     /**
