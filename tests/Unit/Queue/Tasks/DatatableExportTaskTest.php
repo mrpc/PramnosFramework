@@ -221,10 +221,10 @@ class DatatableExportTaskTest extends TestCase
     }
 
     /**
-     * `format` is deliberately only ever `'csv'` today — a future Excel/other
-     * format is additive ground, not a redesign — so anything else must not
-     * validate, the same safety net `queueexport()` already applies before the
-     * task is even queued.
+     * `format` is `'csv'` or `'excel'` — anything else must not validate, the
+     * same safety net `queueexport()` already applies before the task is even
+     * queued. Named `'xlsx'` deliberately, not the accepted token, to prove a
+     * near-miss is still rejected.
      */
     public function testValidateRejectsAnUnsupportedFormat(): void
     {
@@ -241,6 +241,46 @@ class DatatableExportTaskTest extends TestCase
 
         // Assert
         $this->assertFalse($result);
+    }
+
+    /** `format: 'excel'` validates — the second of the two accepted values. */
+    public function testValidateAcceptsExcelFormat(): void
+    {
+        // Arrange
+        $task = new DatatableExportTask(new \stdClass());
+        $item = $this->makeQueueItem(json_encode([
+            'class'   => FakeExportableSource::class,
+            'columns' => [['key' => 'id', 'label' => 'Id']],
+            'format'  => 'excel',
+        ]));
+
+        // Act
+        $result = $task->validate($item);
+
+        // Assert
+        $this->assertTrue($result);
+    }
+
+    // ── filePath() ────────────────────────────────────────────────────────────
+
+    /**
+     * `filePath()` picks the extension by `$format` — `.csv` by default, `.xlsx`
+     * for `'excel'` — so `exportdownload()` can compute the right path without
+     * ever reading it back out of `success_message`.
+     */
+    public function testFilePathPicksTheExtensionByFormat(): void
+    {
+        // Act + Assert
+        $this->assertStringEndsWith('42.csv', DatatableExportTask::filePath(42));
+        $this->assertStringEndsWith('42.csv', DatatableExportTask::filePath(42, 'csv'));
+        $this->assertStringEndsWith('42.xlsx', DatatableExportTask::filePath(42, 'excel'));
+    }
+
+    /** `csvPath()` is kept for call sites that predate `excel` — always `.csv`. */
+    public function testCsvPathAlwaysReturnsTheCsvExtension(): void
+    {
+        // Act + Assert
+        $this->assertSame(DatatableExportTask::filePath(42, 'csv'), DatatableExportTask::csvPath(42));
     }
 
     /** No columns at all means nothing to export — must not validate. */

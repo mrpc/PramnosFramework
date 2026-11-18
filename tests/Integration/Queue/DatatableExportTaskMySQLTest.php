@@ -70,7 +70,10 @@ class DatatableExportTaskMySQLTest extends TestCase
         $this->seedRows(['Alpha', 'Beta']); // two rows -> one full batch of size 2
 
         $exportDir = ROOT . \DS . 'var' . \DS . 'exports';
-        foreach (glob($exportDir . \DS . '*.csv*') ?: [] as $leftover) {
+        foreach (array_merge(
+            glob($exportDir . \DS . '*.csv*') ?: [],
+            glob($exportDir . \DS . '*.xlsx') ?: []
+        ) as $leftover) {
             @unlink($leftover);
         }
     }
@@ -182,6 +185,39 @@ class DatatableExportTaskMySQLTest extends TestCase
         // proving the absence above is the transaction's snapshot, not a failed insert.
         $visible = $this->otherDb->query("SELECT COUNT(*) AS c FROM dt_export_rows WHERE name = 'Intruder'");
         $this->assertSame(1, (int) $visible->fields['c']);
+    }
+
+    /**
+     * `format: 'excel'` writes a real, readable `.xlsx` — not a `.csv` with the
+     * extension changed. `Xlsx::fromCsv()` is unit-tested on its own; this
+     * proves `execute()` actually calls it and writes the result where
+     * `DatatableExportTask::filePath($taskId, 'excel')` expects it, with the
+     * `.csv.tmp` intermediate cleaned up rather than left beside it.
+     */
+    public function testExcelFormatWritesAReadableXlsx(): void
+    {
+        // Arrange
+        $item = $this->makeQueueItem(json_encode([
+            'class'   => Fixtures\InsertingExportableSource::class,
+            'columns' => [['key' => 'id', 'label' => 'Id'], ['key' => 'name', 'label' => 'Name']],
+            'format'  => 'excel',
+        ]));
+        $task = new DatatableExportTask($this->controller);
+
+        // Act
+        $task->execute($item);
+
+        // Assert — the .xlsx exists, is a real zip (every xlsx is one), and the
+        // intermediate CSV it was converted from did not survive beside it
+        $path = DatatableExportTask::filePath($item->taskid, 'excel');
+        $this->assertFileExists($path);
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($path) === true, 'the .xlsx must open as a valid zip archive');
+        $sheet = (string) $zip->getFromName('xl/worksheets/sheet1.xml');
+        $zip->close();
+        $this->assertStringContainsString('Alpha', $sheet);
+        $this->assertStringContainsString('Beta', $sheet);
+        $this->assertFileDoesNotExist(DatatableExportTask::filePath($item->taskid, 'csv') . '.tmp');
     }
 
     /**

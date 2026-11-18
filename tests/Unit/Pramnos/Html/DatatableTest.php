@@ -293,6 +293,32 @@ class DatatableTest extends TestCase
      * `Datasource::getList()`'s numeric-indexed rows, as the Guide's own recommended
      * pattern does.
      */
+    /**
+     * The modal's format select offers "Excel" only when `Xlsx::fromCsv()` can
+     * actually write one — `ext-zip` present (`\ZipArchive` exists). Without it,
+     * the option is left out rather than queuing an export that fails after it
+     * is already running on a worker.
+     */
+    public function testExcelFormatOptionAppearsWhenZipArchiveExists(): void
+    {
+        // Arrange
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->addColumn('Name');
+
+        // Act
+        $js = $dt->renderJs();
+
+        // Assert — this test environment has ext-zip, so the option is present.
+        // Baked in as a JSON-encoded JS string literal (same flags as self::js()),
+        // so the raw text has <, > and " hex-escaped, not literal.
+        $this->assertTrue(class_exists(\ZipArchive::class), 'this test assumes ext-zip is installed');
+        $flags    = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_SLASHES;
+        $expected = json_encode('<option value="excel">', $flags);
+        $this->assertStringContainsString(trim($expected, '"'), $js);
+    }
+
     public function testBackgroundExportPostsTheFieldsTheControllerReads(): void
     {
         // Arrange — one exportable column, one excluded like native tableTools excludes it

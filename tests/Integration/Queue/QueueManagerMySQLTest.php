@@ -340,6 +340,35 @@ class QueueManagerMySQLTest extends TestCase
     }
 
     /**
+     * `purgeOldTasks()` deletes a `.xlsx`, not just a `.csv` — it cannot know
+     * which extension a given finished export actually wrote without decoding
+     * its payload, and does not: {@see DatatableExportTask::allFilePaths()}
+     * tries every known format's path instead.
+     */
+    public function testPurgeOldTasksDeletesAnExcelExportToo(): void
+    {
+        // Arrange
+        $taskId = $this->manager->addTask(DatatableExportTask::TASK, ['class' => 'Anything', 'format' => 'excel']);
+        $task   = $this->manager->getNextTask();
+        $this->manager->markTaskAsCompleted($task, '3 rows exported');
+        $this->db->query(
+            "UPDATE queueitems SET completedat = '2020-01-01 00:00:00' WHERE taskid = {$taskId}"
+        );
+        $path = DatatableExportTask::filePath($taskId, 'excel');
+        if (!is_dir(\dirname($path))) {
+            mkdir(\dirname($path), 0775, true);
+        }
+        file_put_contents($path, 'fake-xlsx-bytes');
+
+        // Act
+        $deleted = $this->manager->purgeOldTasks(24, ['completed']);
+
+        // Assert
+        $this->assertSame(1, $deleted);
+        $this->assertFileDoesNotExist($path);
+    }
+
+    /**
      * A task of any other type is untouched by the export-file cleanup: purging
      * a `send_email` row must not try to unlink a CSV that was never written.
      */

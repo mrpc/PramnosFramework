@@ -1851,9 +1851,13 @@ class QueueManager
         // transaction would be an export still "completed" in the queue table with
         // nothing behind its download link.
         foreach ($exportTaskIds as $exportTaskId) {
-            $path = \Pramnos\Queue\Tasks\DatatableExportTask::csvPath($exportTaskId);
-            if (is_file($path)) {
-                unlink($path);
+            // Every known format's path, not just .csv — a finished export is
+            // exactly one of them, and nothing here needs to decode the row's
+            // payload just to find out which.
+            foreach (\Pramnos\Queue\Tasks\DatatableExportTask::allFilePaths($exportTaskId) as $path) {
+                if (is_file($path)) {
+                    unlink($path);
+                }
             }
         }
 

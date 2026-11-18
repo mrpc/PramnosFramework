@@ -94,16 +94,19 @@ batching a model's `Exportable::exportBatch()` into a CSV inside one `REPEATABLE
 transaction so a row written mid-export cannot be skipped or duplicated. See the Html
 Components Guide, "Background CSV export", for the application side of it.
 
+Rows are always written as CSV first; for `format: 'excel'`, `Pramnos\Export\Xlsx::fromCsv()`
+converts that into the finished `.xlsx` — no second writer, no new Composer dependency.
+
 That batching and its transaction are for `scope: 'all'` — every filtered row. `scope:
 'page'` (the export modal's "current page only") is one `exportBatch()` call using the
 `start`/`length` the page already carries, not re-batched, with no `REPEATABLE READ`
 wrap: there is no second batch for a concurrent write to land between.
 
-Its finished CSV (`var/exports/<taskid>.csv`) is not left for an application's own cleanup
-to find: `purgeOldTasks()` deletes a `datatable.export` row's file along with the row
-itself — same retention as every other finished task (`queue.retention_hours`, 24 when
-unset), and skipped under `--limit`/a bounded call for the same reason the roll-up above
-is (a bounded `DELETE` with no `ORDER BY` does not guarantee which rows it removed).
+Its finished file (`var/exports/<taskid>.csv` or `.xlsx`) is not left for an application's
+own cleanup to find: `purgeOldTasks()` deletes a `datatable.export` row's file along with
+the row itself — same retention as every other finished task (`queue.retention_hours`, 24
+when unset), and skipped under `--limit`/a bounded call for the same reason the roll-up
+above is (a bounded `DELETE` with no `ORDER BY` does not guarantee which rows it removed).
 
 **A worker takes only the task types it can run.** Not told which (`queue:process` without
 `--type`), it claims every type it has a handler for and no other. A task of a type this worker

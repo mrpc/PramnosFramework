@@ -1180,9 +1180,9 @@ $table->exportModelClass  = \App\Models\Users::class;
 
 `backgroundExport = true` drops the "All" entry from the length menu — the page itself
 stays a page. Clicking the export control opens a small modal (scope — every filtered row
-or just the current page — a format select, today only CSV, and a "notify me by email
-when ready" checkbox, plus a "My downloads" link), and starting it from there queues the
-export, polls while it runs, and swaps in a download link when it is done.
+or just the current page — a format select, a "notify me by email when ready" checkbox,
+plus a "My downloads" link), and starting it from there queues the export, polls while it
+runs, and swaps in a download link when it is done.
 
 `tableTools` keeps its own switch, and the two toolbars share one row rather than stacking
 two: with both `tableTools` and `backgroundExport` true, the native `copy`/`pdf`/`print`
@@ -1263,7 +1263,7 @@ The modal the export control opens posts a few more fields alongside `class`/`co
 
 | Field | Values | What it does |
 | --- | --- | --- |
-| `format` | `'csv'` (only value today) | Validated server-side; anything else is refused with `422` — ground for a future format, not a redesign. |
+| `format` | `'csv'` or `'excel'` | Validated server-side; anything else is refused with `422`. `'excel'` writes rows as CSV first, then `Pramnos\Export\Xlsx::fromCsv()` converts that into a real `.xlsx` — no new Composer dependency, since `Xlsx` needs only `ext-zip`. The modal leaves the "Excel" option out when `ext-zip` is missing (`class_exists(\ZipArchive::class)`), rather than queuing an export that would fail once it is already running. |
 | `scope` | `'all'` (default) or `'page'` | `'page'` exports exactly the rows already on screen — one `exportBatch()` call using the `start`/`length` already in `filters`, no batching, no transaction. `'all'` is the batched, snapshotted export described below, unchanged. |
 | `notify_email` | boolean | Emails the requester a download link once the task completes — through the mail outbox (`Email::queue()`), not a synchronous send, so one slow SMTP round trip never holds up the worker. |
 | `exportBase` | the table's own base path | Needed to build that email's link, and to compute `myExports()`'s download URLs. |

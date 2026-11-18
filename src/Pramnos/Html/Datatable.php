@@ -1062,6 +1062,13 @@ table;
             $notifyLbl       = self::js($lang->_('Notify me by email when ready'));
             $myExportsLbl    = self::js($lang->_('My downloads'));
             $noExportsLbl    = self::js($lang->_('No exports yet.'));
+            // Xlsx::fromCsv() needs ext-zip; a host without it still gets CSV, just
+            // not the option to pick Excel, rather than an export that fails after
+            // it is already queued.
+            $excelOption = class_exists(\ZipArchive::class)
+                ? '<option value="excel">' . $lang->_('Excel') . '</option>'
+                : '';
+            $excelOptionJs = self::js($excelOption);
             $exportBaseJs    = self::js($exportBase);
             $exportClassJs   = self::js($this->exportModelClass);
             // queueexport() starts a background job, so a controller is expected to put it
@@ -1134,7 +1141,7 @@ table;
         + 'style="position:absolute;top:4px;right:8px;background:none;border:none;'
         + 'font-size:20px;cursor:pointer;line-height:1;">&times;</button>'
         + '<div style="margin-bottom:10px;"><label>' + {$exportLabel} + '<br>'
-        + '<select class="pf40-export-format"><option value="csv">CSV</option></select>'
+        + '<select class="pf40-export-format"><option value="csv">CSV</option>' + {$excelOptionJs} + '</select>'
         + '</label></div>'
         + '<div style="margin-bottom:10px;">'
         + '<label><input type="radio" class="pf40-export-scope" value="all" checked> '

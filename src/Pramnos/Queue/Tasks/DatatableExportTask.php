@@ -9,9 +9,14 @@ use Pramnos\Queue\AbstractTask;
 use Pramnos\Queue\QueueItem;
 
 /**
- * Exports a `Datatable` with `backgroundExport = true` to a CSV file, in batches
- * instead of one unbounded query — see the Html Components Guide, "Background CSV
- * export".
+ * Exports a `Datatable` with `backgroundExport = true` to a CSV or Excel file, in
+ * batches instead of one unbounded query — see the Html Components Guide,
+ * "Background CSV export". Rows are always written as CSV first;
+ * `Pramnos\Export\Xlsx::fromCsv()` converts that into the final `.xlsx` for
+ * `format: 'excel'` — no second, parallel writer and no new Composer dependency.
+ * `Xlsx` needs only `ext-zip`, which it already checks for and fails clearly
+ * without; `Datatable::renderJs()` hides the "Excel" option from the modal
+ * when it is missing.
  *
  * The whole batch loop runs inside one `REPEATABLE READ` transaction: every batch
  * then sees the same snapshot, so a row inserted or deleted between two batches
@@ -32,22 +37,47 @@ class DatatableExportTask extends AbstractTask
     /** Default rows fetched per `exportBatch()` call. */
     private const DEFAULT_BATCH_SIZE = 1500;
 
+    /** `format` values this task accepts, and the file extension each writes. */
+    private const EXTENSIONS = ['csv' => '.csv', 'excel' => '.xlsx'];
+
     /**
-     * The finished CSV's path for a given task id — deterministic, so
-     * `DatatableExportActions::exportdownload()` computes it itself instead of
+     * The finished export's path for a given task id and format — deterministic,
+     * so `DatatableExportActions::exportdownload()` computes it itself instead of
      * reading it back out of `success_message` (which holds the human-readable
      * "N rows exported" the admin queue screen shows, not a path).
      */
+    public static function filePath(int|string $taskId, string $format = 'csv'): string
+    {
+        return ROOT . DS . 'var' . DS . 'exports' . DS . $taskId . (self::EXTENSIONS[$format] ?? '.csv');
+    }
+
+    /**
+     * Every path a task id's export could have been written to, one per known
+     * `format` — for cleanup that does not know (and should not have to look up)
+     * which format a given finished task actually used.
+     *
+     * @return list<string>
+     */
+    public static function allFilePaths(int|string $taskId): array
+    {
+        return array_map(
+            static fn (string $format): string => self::filePath($taskId, $format),
+            array_keys(self::EXTENSIONS)
+        );
+    }
+
+    /** @deprecated Use {@see filePath()} — kept for the CSV-only call sites that predate `excel`. */
     public static function csvPath(int|string $taskId): string
     {
-        return ROOT . DS . 'var' . DS . 'exports' . DS . $taskId . '.csv';
+        return self::filePath($taskId, 'csv');
     }
 
     /**
      * {@inheritdoc}
      *
-     * The payload needs a `class` implementing {@see Exportable} and a non-empty
-     * `columns` list — without either there is nothing to export.
+     * The payload needs a `class` implementing {@see Exportable}, a non-empty
+     * `columns` list, and a `format` this task knows how to write (`'csv'`, the
+     * default, or `'excel'`) — without any of those there is nothing to export.
      */
     public function validate(QueueItem $queueItem): bool
     {
@@ -59,9 +89,7 @@ class DatatableExportTask extends AbstractTask
             && class_exists($class)
             && is_subclass_of($class, Exportable::class)
             && !empty($payload['columns'])
-            // 'csv' is deliberately the only value today, so a future format is an
-            // additive one, not a redesign of this task.
-            && $format === 'csv';
+            && isset(self::EXTENSIONS[$format]);
     }
 
     public function execute(QueueItem $queueItem): mixed
@@ -74,13 +102,17 @@ class DatatableExportTask extends AbstractTask
         $columns   = (array) $payload['columns'];
         $batchSize = max(1, (int) ($payload['batchSize'] ?? self::DEFAULT_BATCH_SIZE));
         $scope     = (string) ($payload['scope'] ?? 'all');
+        $format    = (string) ($payload['format'] ?? 'csv');
 
-        $finalPath = self::csvPath($queueItem->taskid);
+        // Rows are always written as CSV first — Xlsx::fromCsv() converts that into the
+        // final .xlsx when $format is 'excel', rather than a second, parallel writer.
+        $finalPath = self::filePath($queueItem->taskid, $format);
+        $csvPath   = self::filePath($queueItem->taskid, 'csv');
         $dir       = dirname($finalPath);
         if (!is_dir($dir)) {
             mkdir($dir, 0775, true);
         }
-        $tmpPath = $finalPath . '.tmp';
+        $tmpPath = $csvPath . '.tmp';
         $handle  = fopen($tmpPath, 'w');
 
         fputcsv($handle, array_map(
@@ -99,7 +131,16 @@ class DatatableExportTask extends AbstractTask
             );
 
         fclose($handle);
-        rename($tmpPath, $finalPath);
+
+        if ($format === 'excel') {
+            file_put_contents(
+                $finalPath,
+                \Pramnos\Export\Xlsx::fromCsv((string) file_get_contents($tmpPath), 'Export')
+            );
+            unlink($tmpPath);
+        } else {
+            rename($tmpPath, $finalPath);
+        }
 
         $this->lastMessage = $rowCount . ' rows exported';
 

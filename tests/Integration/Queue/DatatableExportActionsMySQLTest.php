@@ -514,13 +514,45 @@ class DatatableExportActionsMySQLTest extends TestCase
     }
 
     /**
+     * `format: 'excel'` in the task's own payload — not `success_message`,
+     * which never carried a format — picks the `.xlsx` path and the
+     * spreadsheet `Content-Type`/filename extension instead of CSV's.
+     */
+    public function testExportdownloadStreamsTheFinishedXlsx(): void
+    {
+        // Arrange
+        $taskId = $this->insertExportItem(requestedBy: 7, status: 'completed', message: '1 row exported', format: 'excel');
+        $path   = DatatableExportTask::filePath($taskId, 'excel');
+        if (!is_dir(dirname($path))) {
+            mkdir(dirname($path), 0775, true);
+        }
+        file_put_contents($path, 'fake-xlsx-bytes');
+        $this->signIn(7);
+        $_GET['_option'] = (string) $taskId;
+        $controller = $this->makeController();
+
+        // Act
+        ob_start();
+        $controller->exportdownload($taskId);
+        $output = ob_get_clean();
+
+        // Assert — the .xlsx content streamed, not the (absent) .csv
+        $this->assertSame('fake-xlsx-bytes', $output);
+        unlink($path);
+    }
+
+    /**
      * Inserts a queueitems row directly (not through QueueManager::addTask(),
      * which would need a worker to move it through statuses) so each test can
      * start from whatever status it needs to check.
      */
-    private function insertExportItem(int $requestedBy, string $status, string $message): int
+    private function insertExportItem(int $requestedBy, string $status, string $message, string $format = 'csv'): int
     {
-        $payload = json_encode(['requested_by' => $requestedBy, 'class' => Fixtures\ExportActionsFakeModel::class]);
+        $payload = json_encode([
+            'requested_by' => $requestedBy,
+            'class'        => Fixtures\ExportActionsFakeModel::class,
+            'format'       => $format,
+        ]);
         $this->db->queryBuilder()->table('queueitems')->insert([
             'type'            => DatatableExportTask::TASK,
             'payload'         => $payload,
