@@ -342,19 +342,25 @@ class DatatableExportActionsMySQLTest extends TestCase
         $this->assertSame(404, http_response_code());
     }
 
-    /** A finished export the owner may see streams the file's own content. */
+    /**
+     * A finished export the owner may see streams the file's own content.
+     *
+     * `success_message` deliberately holds the human-readable "N rows exported" —
+     * not a path — the same shape `DatatableExportTask::execute()` actually
+     * returns. exportdownload() must compute the file's path from the task id
+     * itself (`DatatableExportTask::csvPath()`); reading it out of
+     * success_message, as it used to, downloaded nothing but a 404 once that
+     * message stopped being a path.
+     */
     public function testExportdownloadStreamsTheFinishedFile(): void
     {
         // Arrange
-        $dir = ROOT . \DS . 'var' . \DS . 'exports';
-        if (!is_dir($dir)) {
-            mkdir($dir, 0775, true);
+        $taskId = $this->insertExportItem(requestedBy: 7, status: 'completed', message: '12 rows exported');
+        $path   = DatatableExportTask::csvPath($taskId);
+        if (!is_dir(dirname($path))) {
+            mkdir(dirname($path), 0775, true);
         }
-        $taskId = $this->insertExportItem(requestedBy: 7, status: 'completed', message: '');
-        $relative = 'var' . \DS . 'exports' . \DS . $taskId . '.csv';
-        file_put_contents(ROOT . \DS . $relative, "Id,Name\n1,Alpha\n");
-        $this->db->queryBuilder()->table('queueitems')->where('taskid', $taskId)
-            ->update(['success_message' => $relative]);
+        file_put_contents($path, "Id,Name\n1,Alpha\n");
         $this->signIn(7);
         $_GET['_option'] = (string) $taskId;
         $controller = $this->makeController();
@@ -366,7 +372,7 @@ class DatatableExportActionsMySQLTest extends TestCase
 
         // Assert
         $this->assertSame("Id,Name\n1,Alpha\n", $output);
-        unlink(ROOT . \DS . $relative);
+        unlink($path);
     }
 
     /**

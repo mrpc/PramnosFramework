@@ -33,6 +33,17 @@ class DatatableExportTask extends AbstractTask
     private const DEFAULT_BATCH_SIZE = 1500;
 
     /**
+     * The finished CSV's path for a given task id — deterministic, so
+     * `DatatableExportActions::exportdownload()` computes it itself instead of
+     * reading it back out of `success_message` (which holds the human-readable
+     * "N rows exported" the admin queue screen shows, not a path).
+     */
+    public static function csvPath(int|string $taskId): string
+    {
+        return ROOT . DS . 'var' . DS . 'exports' . DS . $taskId . '.csv';
+    }
+
+    /**
      * {@inheritdoc}
      *
      * The payload needs a `class` implementing {@see Exportable} and a non-empty
@@ -59,11 +70,12 @@ class DatatableExportTask extends AbstractTask
         $columns   = (array) $payload['columns'];
         $batchSize = max(1, (int) ($payload['batchSize'] ?? self::DEFAULT_BATCH_SIZE));
 
-        $dir = ROOT . DS . 'var' . DS . 'exports';
+        $finalPath = self::csvPath($queueItem->taskid);
+        $dir       = dirname($finalPath);
         if (!is_dir($dir)) {
             mkdir($dir, 0775, true);
         }
-        $tmpPath = $dir . DS . $queueItem->taskid . '.csv.tmp';
+        $tmpPath = $finalPath . '.tmp';
         $handle  = fopen($tmpPath, 'w');
 
         fputcsv($handle, array_map(
@@ -76,12 +88,11 @@ class DatatableExportTask extends AbstractTask
         );
 
         fclose($handle);
-        $finalPath = $dir . DS . $queueItem->taskid . '.csv';
         rename($tmpPath, $finalPath);
 
-        $this->lastMessage = 'var' . DS . 'exports' . DS . $queueItem->taskid . '.csv';
+        $this->lastMessage = $rowCount . ' rows exported';
 
-        return ['message' => $rowCount . ' rows exported'];
+        return ['message' => $this->lastMessage];
     }
 
     /**

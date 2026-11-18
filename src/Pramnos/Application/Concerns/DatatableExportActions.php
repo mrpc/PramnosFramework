@@ -122,7 +122,9 @@ trait DatatableExportActions
             return;
         }
 
-        $path = ROOT . DS . (string) $item->success_message;
+        // Deterministic from the task id — not read from success_message, which holds
+        // the human-readable "N rows exported" the admin queue screen shows, not a path.
+        $path = DatatableExportTask::csvPath((int) $item->taskid);
         if (!is_file($path)) {
             $this->jsonError('That export file is gone.', 404);
 

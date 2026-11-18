@@ -154,7 +154,7 @@ class DatatableExportTaskMySQLTest extends TestCase
         // Assert: the finished CSV has exactly the two rows seeded before the
         // transaction started — "Intruder", inserted and committed between
         // batches by the other connection, is not in it.
-        $csv = file_get_contents(ROOT . \DS . $task->lastMessage);
+        $csv = file_get_contents(DatatableExportTask::csvPath($item->taskid));
         $this->assertStringNotContainsString('Intruder', $csv);
         $this->assertStringContainsString('Alpha', $csv);
         $this->assertStringContainsString('Beta', $csv);
