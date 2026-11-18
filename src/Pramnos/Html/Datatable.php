@@ -1063,6 +1063,10 @@ table;
             $myExportsLbl    = self::js($lang->_('My downloads'));
             $noExportsLbl    = self::js($lang->_('No exports yet.'));
             $tryAgainLbl     = self::js($lang->_('Try again'));
+            $rowsSoFarLbl    = self::js($lang->_('rows so far'));
+            $closeNoteLbl    = self::js($lang->_(
+                'The export keeps running even if you close this window — find it later from "My downloads".'
+            ));
             // Xlsx::fromCsv() needs ext-zip; a host without it still gets CSV, just
             // not the option to pick Excel, rather than an export that fails after
             // it is already queued.
@@ -1251,7 +1255,10 @@ table;
         // not beside whichever button opened it, and not after it has closed.
         pf40_exportModal_{$jsVar}.find('.pf40-export-controls').hide();
         var \$progress = pf40_exportModal_{$jsVar}.find('.pf40-export-progress');
-        \$progress.show().text({$exportingLbl});
+        var \$progressStatus = jQuery('<div></div>').text({$exportingLbl});
+        var \$progressNote = jQuery('<div style="margin-top:6px;font-size:0.85em;opacity:.75;"></div>')
+            .text({$closeNoteLbl});
+        \$progress.show().empty().append(\$progressStatus).append(\$progressNote);
 
         jQuery.post(
             pf40_exportBase_{$jsVar} + '/queueexport',
@@ -1283,6 +1290,9 @@ table;
                     } else if (status.status === 'failed') {
                         pf40_exportModalFailed_{$jsVar}();
                     } else {
+                        if (status.progress) {
+                            \$progressStatus.text(status.progress + ' ' + {$rowsSoFarLbl});
+                        }
                         setTimeout(poll, 3000);
                     }
                 }).fail(pf40_exportModalFailed_{$jsVar});

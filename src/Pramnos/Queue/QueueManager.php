@@ -1116,6 +1116,34 @@ class QueueManager
     }
 
     /**
+     * Report how far a still-running task has gotten — rows written, records
+     * processed, whatever unit the task's own batches count in. A direct
+     * single-column `UPDATE`, not `$task->save()`: a long export calls this
+     * once per batch, and saving the whole row back (its payload included)
+     * that often is work this does not need.
+     *
+     * `progress_current` is state, not history (CLAUDE.md rule 14) — true only
+     * while the task runs, and meaningless once it is not, which is why it
+     * lives on the row itself rather than in any of the framework's logs.
+     *
+     * Silently does nothing on an installation that has not run the migration
+     * adding the column yet: a task reporting progress is a courtesy to
+     * whatever is polling it, not a precondition for the task to run.
+     */
+    public function updateProgress(QueueItem $task, int $current): void
+    {
+        $database = $this->controller->application->database;
+        if (!$database->schema()->hasColumn($this->getQueueTableName(), 'progress_current')) {
+            return;
+        }
+
+        $database->queryBuilder()
+            ->table($this->getQueueTableName())
+            ->where('taskid', $task->taskid)
+            ->update(['progress_current' => $current]);
+    }
+
+    /**
      * Mark a task as completed with a non-fatal warning.
      *
      * @param  QueueItem    $task

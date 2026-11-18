@@ -205,7 +205,13 @@ trait DatatableExportActions
         return rtrim($base, '/') . '/exportdownload/' . $taskId;
     }
 
-    /** `{status, message}` for a queued export, if the current user may see it. */
+    /**
+     * `{status, message, progress}` for a queued export, if the current user may
+     * see it. `progress` is the rows-written-so-far `DatatableExportTask` reports
+     * per batch (`QueueManager::updateProgress()`) — `null` where nothing has
+     * been reported yet (a fast `scope: 'page'` export, or an installation that
+     * has not run the migration adding the column).
+     */
     public function exportstatus(mixed $id = null): void
     {
         $item = $this->ownedExportItem();
@@ -215,8 +221,9 @@ trait DatatableExportActions
 
         \Pramnos\Framework\Factory::getDocument('json');
         echo json_encode([
-            'status'  => (string) $item->status,
-            'message' => (string) $item->success_message,
+            'status'   => (string) $item->status,
+            'message'  => (string) $item->success_message,
+            'progress' => isset($item->progress_current) ? (int) $item->progress_current : null,
         ]);
     }
 

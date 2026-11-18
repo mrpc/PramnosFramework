@@ -374,6 +374,32 @@ class DatatableTest extends TestCase
         );
     }
 
+    /**
+     * The progress area shows a "you can close this" note while the export is
+     * running, and switches the status line to "N rows so far" once
+     * `exportstatus()` reports a `progress` figure — instead of a static
+     * "Exporting…" for the whole, possibly minutes-long, run.
+     */
+    public function testProgressAreaShowsTheCloseNoteAndRowsSoFar(): void
+    {
+        // Arrange
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->addColumn('Name');
+
+        // Act
+        $js = $dt->renderJs();
+
+        // Assert — the note appears once, right when progress is first shown
+        $this->assertStringContainsString(
+            'The export keeps running even if you close this window',
+            $js
+        );
+        // Assert — a reported row count replaces the status text while polling
+        $this->assertStringContainsString("status.progress + ' ' + \"rows so far\"", $js);
+    }
+
     public function testBackgroundExportPostsTheFieldsTheControllerReads(): void
     {
         // Arrange — one exportable column, one excluded like native tableTools excludes it

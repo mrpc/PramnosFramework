@@ -286,6 +286,44 @@ class DatatableExportActionsMySQLTest extends TestCase
         $this->assertSame('processing', $body['status']);
     }
 
+    /**
+     * `exportstatus()` carries whatever `progress_current` the task has
+     * reported so far — the modal's polling shows "N rows so far" instead of
+     * a static "Exporting…" for a run that takes minutes.
+     */
+    public function testExportstatusCarriesTheReportedProgress(): void
+    {
+        // Arrange
+        $taskId = $this->insertExportItem(requestedBy: 7, status: 'processing', message: '');
+        $this->db->queryBuilder()->table('queueitems')->where('taskid', $taskId)
+            ->update(['progress_current' => 4500]);
+        $this->signIn(7);
+        $_GET['_option'] = (string) $taskId;
+        $controller = $this->makeController();
+
+        // Act
+        $body = $this->captureJson(fn () => $controller->exportstatus($taskId));
+
+        // Assert
+        $this->assertSame(4500, $body['progress']);
+    }
+
+    /** No progress reported yet (or ever, for a fast `scope: 'page'` export) is `null`, not `0`. */
+    public function testExportstatusProgressIsNullWhenNotReported(): void
+    {
+        // Arrange
+        $taskId = $this->insertExportItem(requestedBy: 7, status: 'processing', message: '');
+        $this->signIn(7);
+        $_GET['_option'] = (string) $taskId;
+        $controller = $this->makeController();
+
+        // Act
+        $body = $this->captureJson(fn () => $controller->exportstatus($taskId));
+
+        // Assert
+        $this->assertNull($body['progress']);
+    }
+
     /** Nobody signed in may poll any export's status. */
     public function testExportstatusRefusesWhenSignedOut(): void
     {

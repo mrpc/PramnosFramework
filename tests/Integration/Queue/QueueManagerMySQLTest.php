@@ -304,6 +304,31 @@ class QueueManagerMySQLTest extends TestCase
         $this->assertSame('Exported 500 rows', $row->fields['success_message']);
     }
 
+    /**
+     * `updateProgress()` writes `progress_current` with a direct `UPDATE`,
+     * leaving the rest of the row untouched — a long-running task's batch loop
+     * calls this many times, so saving the whole row back (its payload
+     * included) on every call would be needless work.
+     */
+    public function testUpdateProgressWritesProgressCurrent(): void
+    {
+        // Arrange
+        $this->manager->addTask('datatable.export', ['class' => 'Anything']);
+        $task = $this->manager->getNextTask();
+        $this->assertNotFalse($task, 'getNextTask must claim the queued task');
+
+        // Act
+        $this->manager->updateProgress($task, 1500);
+
+        // Assert — progress written, status/payload left as they were
+        $row = $this->db->query(
+            "SELECT status, progress_current, payload FROM queueitems WHERE taskid = {$task->taskid}"
+        );
+        $this->assertSame(1500, (int) $row->fields['progress_current']);
+        $this->assertSame('processing', $row->fields['status']);
+        $this->assertStringContainsString('Anything', (string) $row->fields['payload']);
+    }
+
     // -------------------------------------------------------------------------
     // purgeOldTasks — the export CSV on disk
     // -------------------------------------------------------------------------

@@ -7,6 +7,7 @@ namespace Pramnos\Queue\Tasks;
 use Pramnos\Html\Datatable\Exportable;
 use Pramnos\Queue\AbstractTask;
 use Pramnos\Queue\QueueItem;
+use Pramnos\Queue\QueueManager;
 
 /**
  * Exports a `Datatable` with `backgroundExport = true` to a CSV, Excel or JSON
@@ -130,7 +131,7 @@ class DatatableExportTask extends AbstractTask
             // query, so no REPEATABLE READ transaction either.
             ? $this->writePage($source, $filters, $columns, $handle)
             : $this->runInRepeatableReadSnapshot(
-                fn (): int => $this->writeBatches($source, $filters, $columns, $batchSize, $handle)
+                fn (): int => $this->writeBatches($source, $filters, $columns, $batchSize, $handle, $queueItem)
             );
 
         fclose($handle);
@@ -197,8 +198,13 @@ class DatatableExportTask extends AbstractTask
     private function notifyByEmail(array $payload, QueueItem $queueItem): void
     {
         try {
-            $to = (string) ($payload['notify_to'] ?? '');
-            if ($to === '') {
+            $userId = (int) ($payload['requested_by'] ?? 0);
+            $to     = (string) ($payload['notify_to'] ?? '');
+            // $requested_by is already in the payload for the ownership check — reused
+            // here rather than reloading a User, same reasoning as capturing $notify_to
+            // instead of an address looked up later. Either alone is enough: mail skips
+            // itself with no address, push only fires where a subscription exists.
+            if ($userId <= 0 && $to === '') {
                 return;
             }
 
@@ -206,7 +212,7 @@ class DatatableExportTask extends AbstractTask
             $url        = (defined('sURL') ? (string) sURL : '') . $exportBase
                 . '/exportdownload/' . $queueItem->taskid;
 
-            $this->sendReadyEmail($to, $url);
+            $this->sendReadyNotification($userId, $to, $url);
         } catch (\Throwable $exception) {
             \Pramnos\Logs\Logger::log(
                 'DatatableExportTask: failed to send the ready notification: ' . $exception->getMessage(),
@@ -216,18 +222,20 @@ class DatatableExportTask extends AbstractTask
     }
 
     /**
-     * Queues the actual message. Pulled out of {@see notifyByEmail()} so a unit
-     * test can override it to throw, proving that method's own `catch` swallows
-     * a failure here without a real outbox or SMTP transport involved.
+     * Dispatches {@see DatatableExportReadyNotification} through the framework's
+     * `Notifier` — mail always, push too where the requester has a live
+     * subscription — instead of a raw `Email::queue()` call. Pulled out of
+     * {@see notifyByEmail()} so a unit test can override it to throw, proving
+     * that method's own `catch` swallows a failure here without a real outbox,
+     * SMTP transport or push subscription involved.
      */
-    protected function sendReadyEmail(string $to, string $url): void
+    protected function sendReadyNotification(int $userId, string $to, string $url): void
     {
-        (new \Pramnos\Email\Email())
-            ->setSubject(\Pramnos\Framework\Factory::getLanguage()->_('Your export is ready'))
-            ->setTo($to)
-            ->setBody('<p>' . $this->lastMessage . '.</p><p><a href="' . htmlspecialchars($url, ENT_QUOTES) . '">'
-                . \Pramnos\Framework\Factory::getLanguage()->_('Download') . '</a></p>')
-            ->queue();
+        $notifiable = (object) ['userid' => $userId, 'email' => $to];
+        (new \Pramnos\Notification\Notifier())->send(
+            [$notifiable],
+            new DatatableExportReadyNotification($this->lastMessage, $url)
+        );
     }
 
     /**
@@ -263,10 +271,15 @@ class DatatableExportTask extends AbstractTask
      * Pulled out of {@see execute()} so it can be driven directly, without a real
      * database transaction, by {@see DatatableExportTaskTest}'s fake `Exportable`.
      *
+     * Reports rows written so far after every batch (`QueueManager::updateProgress()`),
+     * so the modal's polling has something better to show than a static "Exporting…"
+     * for an export whose batches take minutes. Best effort: a batch that could not
+     * report this must not fail the export over it.
+     *
      * @param array<int, array{key: string, label: string}> $columns
      * @param resource $handle
      */
-    protected function writeBatches(Exportable $source, array $filters, array $columns, int $batchSize, $handle): int
+    protected function writeBatches(Exportable $source, array $filters, array $columns, int $batchSize, $handle, QueueItem $queueItem): int
     {
         $offset = 0;
         $total  = 0;
@@ -280,9 +293,33 @@ class DatatableExportTask extends AbstractTask
             }
             $total  += count($batch);
             $offset += $batchSize;
+            $this->reportProgress($queueItem, $total);
         } while (count($batch) === $batchSize);
 
         return $total;
+    }
+
+    /**
+     * Best effort, same reasoning as {@see notifyByEmail()}'s own catch: a batch
+     * that cannot report its progress — an installation that has not run the
+     * migration adding `progress_current` yet, a stubbed `$controller` in a unit
+     * test — must not fail the export over it.
+     */
+    private function reportProgress(QueueItem $queueItem, int $current): void
+    {
+        try {
+            // isset() on the whole chain rather than catching the warning a stubbed
+            // $controller in a unit test would otherwise emit for the missing property.
+            if (!isset($this->controller->application->database)) {
+                return;
+            }
+            (new QueueManager($this->controller))->updateProgress($queueItem, $current);
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log(
+                'DatatableExportTask: failed to report progress: ' . $exception->getMessage(),
+                'queue_error'
+            );
+        }
     }
 
     /**

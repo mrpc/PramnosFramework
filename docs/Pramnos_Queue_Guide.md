@@ -104,11 +104,31 @@ That batching and its transaction are for `scope: 'all'` — every filtered row.
 `start`/`length` the page already carries, not re-batched, with no `REPEATABLE READ`
 wrap: there is no second batch for a concurrent write to land between.
 
-Its finished file (`var/exports/<taskid>.csv` or `.xlsx`) is not left for an application's
-own cleanup to find: `purgeOldTasks()` deletes a `datatable.export` row's file along with
-the row itself — same retention as every other finished task (`queue.retention_hours`, 24
-when unset), and skipped under `--limit`/a bounded call for the same reason the roll-up
-above is (a bounded `DELETE` with no `ORDER BY` does not guarantee which rows it removed).
+Its finished file (`var/exports/<taskid>.csv`, `.xlsx` or `.json`) is not left for an
+application's own cleanup to find: `purgeOldTasks()` deletes a `datatable.export` row's
+file along with the row itself — same retention as every other finished task
+(`queue.retention_hours`, 24 when unset), and skipped under `--limit`/a bounded call for
+the same reason the roll-up above is (a bounded `DELETE` with no `ORDER BY` does not
+guarantee which rows it removed).
+
+**A task reports how far it has gotten with `QueueManager::updateProgress($task, $current)`**
+— a direct, single-column `UPDATE` of `progress_current`, not `$task->save()`, since a
+batch loop may call this many times and saving the whole row back (its payload included)
+that often is work it does not need. Any task can call it, not only `DatatableExportTask`:
+it is the one place to write "how far am I" without inventing a column of your own, and a
+poller reads it back the same way `DatatableExportActions::exportstatus()` does — the row
+itself, not any of the four logs (CLAUDE.md rule 14), since this is true only while the
+task is running and meaningless once it is not.
+
+**When a notification belongs with a task's result, send it through the framework's own
+`Notifier`, not a raw `Email`.** `DatatableExportTask` finishing successfully with
+`notify_email` set dispatches `DatatableExportReadyNotification` — mail always, push too
+where the requester has a live subscription (`PushChannel::sends()` and
+`Push\Subscriptions::exist()`), the same pattern `Todos\TodoNotification` and
+`Auth\Notifications\SignInApprovalNotification` already use. The notifiable does not have
+to be a full `User`: a plain object with `userid`/`email` properties resolves through both
+channels, so a task already holding those two values (as `DatatableExportTask` does, in
+its own payload) never reloads one just to notify it.
 
 **A worker takes only the task types it can run.** Not told which (`queue:process` without
 `--type`), it claims every type it has a handler for and no other. A task of a type this worker

@@ -1186,7 +1186,16 @@ the modal**: its controls hide, a progress area inside the same modal polls whil
 runs, and shows the download link (or a failure, with a "Try again" that goes back to the
 controls) right there when it is done — nothing to find beside a button the modal is
 covering anyway. The modal still closes on its own `×`/Cancel/Escape/backdrop-click at
-any point; closing does not cancel an export already queued.
+any point; closing does not cancel an export already queued, and the progress area says
+so, in case the person wonders.
+
+**Live progress**, for a `scope: 'all'` export whose batches take minutes: `DatatableExportTask`
+reports rows written so far after every batch (`QueueManager::updateProgress()`, a direct
+`UPDATE` of `queueitems.progress_current` — the "Adds queueitems.progress_current…"
+migration), and `exportstatus()` carries it as `progress`. The modal's status line becomes
+"N rows so far" once a figure arrives, instead of a static "Exporting…" for the whole run.
+`scope: 'page'` never reports one — a single query finishes before the first poll would
+even land.
 
 `tableTools` keeps its own switch, and the two toolbars share one row rather than stacking
 two: with both `tableTools` and `backgroundExport` true, the native `copy`/`pdf`/`print`

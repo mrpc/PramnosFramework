@@ -144,12 +144,41 @@ class DatatableExportTaskTest extends TestCase
         $this->assertSame(1, $total);
     }
 
+    // ── reportProgress() ─────────────────────────────────────────────────────
+
+    /**
+     * A controller whose `application->database` exists (so the cheap `isset()`
+     * guard does not short-circuit it) but whose `QueueManager` call itself
+     * throws must not propagate — the same best-effort swallow
+     * {@see notifyByEmail()} already applies, so one batch's progress report
+     * failing cannot fail the export it is reporting on.
+     */
+    public function testReportProgressSwallowsAFailureFromUpdateProgress(): void
+    {
+        // Arrange — application->database resolves, but every call on it throws
+        $controller = new \stdClass();
+        $controller->application = new \stdClass();
+        $controller->application->database = new class {
+            public function schema(): object
+            {
+                throw new \RuntimeException('simulated schema failure');
+            }
+        };
+        $task = new ConcreteDatatableExportTask($controller);
+        $item = $this->makeQueueItem(json_encode(['class' => FakeExportableSource::class]));
+
+        // Act + Assert — must not throw
+        $task->publicReportProgress($item, 42);
+        $this->addToAssertionCount(1);
+    }
+
     // ── notifyByEmail() ──────────────────────────────────────────────────────
 
     /**
-     * `notify_to` left empty (no address captured — e.g. a sealed identity with
-     * no email property at all) must not reach `sendReadyEmail()` — nothing to
-     * address it to.
+     * `notify_to` empty AND `requested_by` absent/0 — e.g. a sealed identity
+     * with no email property at all, and no reloadable user id — must not reach
+     * `sendReadyNotification()`: nothing to address a mail to, and no account to
+     * check for a push subscription either.
      */
     public function testNotifyByEmailDoesNothingWithNoAddress(): void
     {
@@ -161,14 +190,15 @@ class DatatableExportTaskTest extends TestCase
         // Act
         $task->publicNotifyByEmail(['notify_to' => ''], $item);
 
-        // Assert — sendReadyEmail(), which always throws in this fixture, was never reached
+        // Assert — sendReadyNotification(), which always throws in this fixture, was never reached
         $this->assertFalse($task->sendReadyEmailCalled);
     }
 
     /**
-     * A failure while queuing the ready notice — here, `sendReadyEmail()` always
-     * throws — must not propagate out of `notifyByEmail()`: it is logged and
-     * swallowed, since the export itself already succeeded by the time this runs.
+     * A failure while dispatching the ready notice — here,
+     * `sendReadyNotification()` always throws — must not propagate out of
+     * `notifyByEmail()`: it is logged and swallowed, since the export itself
+     * already succeeded by the time this runs.
      */
     public function testNotifyByEmailSwallowsAFailureFromSendReadyEmail(): void
     {
@@ -180,7 +210,26 @@ class DatatableExportTaskTest extends TestCase
         // Act — must not throw
         $task->publicNotifyByEmail(['notify_to' => 'someone@example.com'], $item);
 
-        // Assert — sendReadyEmail() was reached and did throw, but nothing escaped
+        // Assert — sendReadyNotification() was reached and did throw, but nothing escaped
+        $this->assertTrue($task->sendReadyEmailCalled);
+    }
+
+    /**
+     * `requested_by` alone (no `notify_to`) is still enough to reach
+     * `sendReadyNotification()` — a push subscription does not need an email
+     * address, only the account id already sitting in the payload.
+     */
+    public function testNotifyByEmailReachesNotificationWithOnlyAUserId(): void
+    {
+        // Arrange
+        $task = new ThrowingNotifyDatatableExportTask(new \stdClass());
+        $item = $this->makeQueueItem(json_encode(['class' => FakeExportableSource::class]));
+        $item->taskid = 9;
+
+        // Act
+        $task->publicNotifyByEmail(['notify_to' => '', 'requested_by' => 7], $item);
+
+        // Assert
         $this->assertTrue($task->sendReadyEmailCalled);
     }
 
@@ -303,6 +352,24 @@ class DatatableExportTaskTest extends TestCase
         ], $decoded);
     }
 
+    /**
+     * A trailing blank line (the usual shape of a file ending in a newline)
+     * must not become a spurious record of its own — `fgetcsv()` reads an
+     * empty line as `[null]`, and that one row is skipped rather than
+     * `array_combine()`d into the output.
+     */
+    public function testCsvToJsonSkipsATrailingBlankLine(): void
+    {
+        // Arrange
+        $task = new ConcreteDatatableExportTask(new \stdClass());
+
+        // Act
+        $decoded = json_decode($task->publicCsvToJson("Id,Name\n1,Alpha\n\n"), true);
+
+        // Assert — exactly the one real row, nothing for the trailing blank line
+        $this->assertSame([['Id' => '1', 'Name' => 'Alpha']], $decoded);
+    }
+
     /** No data rows — just a header — converts to an empty array, not null or an error. */
     public function testCsvToJsonWithNoRowsIsAnEmptyArray(): void
     {
@@ -416,9 +483,14 @@ class ConcreteDatatableExportTask extends DatatableExportTask
      * @param array<int, array{key: string, label: string}> $columns
      * @param resource $handle
      */
-    public function publicWriteBatches(Exportable $source, array $filters, array $columns, int $batchSize, $handle): int
+    public function publicWriteBatches(Exportable $source, array $filters, array $columns, int $batchSize, $handle, ?QueueItem $queueItem = null): int
     {
-        return $this->writeBatches($source, $filters, $columns, $batchSize, $handle);
+        $queueItem ??= new class extends QueueItem {
+            public function __construct() { $this->taskid = 1; }
+            public function save($a = false, $d = false): static { return $this; }
+        };
+
+        return $this->writeBatches($source, $filters, $columns, $batchSize, $handle, $queueItem);
     }
 
     /**
@@ -438,17 +510,24 @@ class ConcreteDatatableExportTask extends DatatableExportTask
 
         return $ref->invoke($this, $csv);
     }
+
+    public function publicReportProgress(QueueItem $queueItem, int $current): void
+    {
+        $ref = new \ReflectionMethod(DatatableExportTask::class, 'reportProgress');
+        $ref->invoke($this, $queueItem, $current);
+    }
 }
 
 /**
- * `sendReadyEmail()` always throws, so a test can prove `notifyByEmail()`'s own
- * `catch` swallows it, with no outbox table or SMTP transport involved.
+ * `sendReadyNotification()` always throws, so a test can prove
+ * `notifyByEmail()`'s own `catch` swallows it, with no outbox table, SMTP
+ * transport or push subscription involved.
  */
 class ThrowingNotifyDatatableExportTask extends DatatableExportTask
 {
     public bool $sendReadyEmailCalled = false;
 
-    protected function sendReadyEmail(string $to, string $url): void
+    protected function sendReadyNotification(int $userId, string $to, string $url): void
     {
         $this->sendReadyEmailCalled = true;
         throw new \RuntimeException('simulated send failure');

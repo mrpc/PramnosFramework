@@ -251,6 +251,31 @@ class DatatableExportTaskMySQLTest extends TestCase
     }
 
     /**
+     * `scope: 'page'` through `execute()` end to end — not just `writePage()`
+     * in isolation (that is `DatatableExportTaskTest`'s own unit test, with no
+     * database at all). Real rows, one query, no `REPEATABLE READ` transaction
+     * wrapping it.
+     */
+    public function testScopePageThroughExecuteWritesExactlyOnePageRealRows(): void
+    {
+        // Arrange
+        $item = $this->makeQueueItem(json_encode([
+            'class'   => Fixtures\InsertingExportableSource::class,
+            'columns' => [['key' => 'id', 'label' => 'Id'], ['key' => 'name', 'label' => 'Name']],
+            'scope'   => 'page',
+        ]));
+        $task = new DatatableExportTask($this->controller);
+
+        // Act
+        $task->execute($item);
+
+        // Assert — both seeded rows, written by the single-page path
+        $csv = file_get_contents(DatatableExportTask::filePath($item->taskid, 'csv'));
+        $this->assertStringContainsString('Alpha', $csv);
+        $this->assertStringContainsString('Beta', $csv);
+    }
+
+    /**
      * `notify_email` queues a real row in the mail outbox (`Email::queue()`,
      * `Mail::STATUS_QUEUED`) addressed to `notify_to`, its body carrying a link
      * to this export's download — proving the task actually hands off to the
