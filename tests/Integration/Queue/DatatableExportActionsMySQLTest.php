@@ -100,9 +100,9 @@ class DatatableExportActionsMySQLTest extends TestCase
         return $controller;
     }
 
-    private function signIn(int $userid, int $usertype = 10): void
+    private function signIn(int $userid, int $usertype = 10, string $email = ''): void
     {
-        RequestIdentity::seal((object) ['userid' => $userid, 'usertype' => $usertype], 'session');
+        RequestIdentity::seal((object) ['userid' => $userid, 'usertype' => $usertype, 'email' => $email], 'session');
     }
 
     private function captureJson(callable $action): array
@@ -146,6 +146,84 @@ class DatatableExportActionsMySQLTest extends TestCase
         $this->assertSame(403, http_response_code());
         $this->assertArrayHasKey('error', $body);
         $this->assertSame(0, (int) $this->db->query('SELECT COUNT(*) AS c FROM `queueitems`')->fields['c']);
+    }
+
+    /**
+     * `format` is deliberately only ever `'csv'` today — a future Excel/other
+     * format is additive ground, not a redesign of the modal or the task — so
+     * anything else is refused before it ever reaches the queue.
+     */
+    public function testQueueexportRefusesAnUnsupportedFormat(): void
+    {
+        // Arrange
+        $this->signIn(7);
+        $controller = $this->makeController();
+        $_POST = [
+            'class'   => Fixtures\ExportActionsFakeModel::class,
+            'columns' => [['name' => 'id', 'label' => 'Id']],
+            'format'  => 'xlsx',
+        ];
+
+        // Act
+        $body = $this->captureJson(fn () => $controller->queueexport());
+
+        // Assert
+        $this->assertSame(422, http_response_code());
+        $this->assertArrayHasKey('error', $body);
+        $this->assertSame(0, (int) $this->db->query('SELECT COUNT(*) AS c FROM `queueitems`')->fields['c']);
+    }
+
+    /** A `scope` outside {'all','page'} is refused before it ever reaches the queue. */
+    public function testQueueexportRefusesAnUnsupportedScope(): void
+    {
+        // Arrange
+        $this->signIn(7);
+        $controller = $this->makeController();
+        $_POST = [
+            'class'   => Fixtures\ExportActionsFakeModel::class,
+            'columns' => [['name' => 'id', 'label' => 'Id']],
+            'scope'   => 'everything-ever',
+        ];
+
+        // Act
+        $body = $this->captureJson(fn () => $controller->queueexport());
+
+        // Assert
+        $this->assertSame(422, http_response_code());
+        $this->assertArrayHasKey('error', $body);
+        $this->assertSame(0, (int) $this->db->query('SELECT COUNT(*) AS c FROM `queueitems`')->fields['c']);
+    }
+
+    /**
+     * The modal's extra fields (`scope`, `notify_email`, `exportBase`) land in the
+     * queued task's own payload — `DatatableExportTask` and its email notice both
+     * read them from there, not from the request a worker will never see again.
+     */
+    public function testQueueexportStoresScopeNotifyAndExportBaseInThePayload(): void
+    {
+        // Arrange
+        $this->signIn(7, email: 'owner@example.com');
+        $controller = $this->makeController();
+        $_POST = [
+            'class'        => Fixtures\ExportActionsFakeModel::class,
+            'columns'      => [['name' => 'id', 'label' => 'Id']],
+            'scope'        => 'page',
+            'notify_email' => '1',
+            'exportBase'   => 'users',
+        ];
+
+        // Act
+        $body = $this->captureJson(fn () => $controller->queueexport());
+
+        // Assert
+        $row     = $this->db->queryBuilder()->table('queueitems')->where('taskid', (int) $body['taskid'])->first();
+        $payload = (array) json_decode((string) $row->fields['payload'], true);
+        $this->assertSame('csv', $payload['format']);
+        $this->assertSame('page', $payload['scope']);
+        // notify_to is captured now, from the signed-in user, not reloaded later
+        $this->assertSame('owner@example.com', $payload['notify_to']);
+        $this->assertTrue($payload['notify_email']);
+        $this->assertSame('users', $payload['exportBase']);
     }
 
     /** No exportable columns posted at all: nothing to queue. */
@@ -270,6 +348,66 @@ class DatatableExportActionsMySQLTest extends TestCase
 
         // Assert
         $this->assertSame('completed', $body['status']);
+    }
+
+    // ── myExports() ──────────────────────────────────────────────────────────
+
+    /**
+     * `myExports()` answers only the signed-in user's own `datatable.export`
+     * rows — another user's are left out, with no `super`+ bypass, unlike
+     * {@see ownedExportItem()}'s single-item check. A list of everyone's exports
+     * would be the Queue admin screen with an access check removed.
+     */
+    public function testMyExportsListsOnlyTheSignedInUsersOwnTasks(): void
+    {
+        // Arrange — one task each for two different requesters
+        $mine   = $this->insertExportItem(requestedBy: 7, status: 'completed', message: '3 rows exported');
+        $theirs = $this->insertExportItem(requestedBy: 8, status: 'completed', message: '9 rows exported');
+        $this->signIn(7);
+        $controller = $this->makeController();
+
+        // Act
+        $body = $this->captureJson(fn () => $controller->myExports());
+
+        // Assert
+        $taskIds = array_column($body['exports'], 'taskid');
+        $this->assertContains($mine, $taskIds);
+        $this->assertNotContains($theirs, $taskIds);
+    }
+
+    /** A `completed` export in the list carries a download URL; anything else does not. */
+    public function testMyExportsOnlyLinksCompletedTasks(): void
+    {
+        // Arrange
+        $done    = $this->insertExportItem(requestedBy: 7, status: 'completed', message: '1 rows exported');
+        $pending = $this->insertExportItem(requestedBy: 7, status: 'processing', message: '');
+        $this->signIn(7);
+        $controller = $this->makeController();
+
+        // Act
+        $body = $this->captureJson(fn () => $controller->myExports());
+
+        // Assert
+        $byId = [];
+        foreach ($body['exports'] as $export) {
+            $byId[(int) $export['taskid']] = $export;
+        }
+        $this->assertNotNull($byId[$done]['download']);
+        $this->assertNull($byId[$pending]['download']);
+    }
+
+    /** Nobody signed in gets nothing, same as every other action here. */
+    public function testMyExportsRefusesWhenSignedOut(): void
+    {
+        // Arrange
+        $controller = $this->makeController();
+
+        // Act
+        $body = $this->captureJson(fn () => $controller->myExports());
+
+        // Assert
+        $this->assertSame(401, http_response_code());
+        $this->assertArrayHasKey('error', $body);
     }
 
     // ── exportdownload() ─────────────────────────────────────────────────────

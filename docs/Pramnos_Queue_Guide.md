@@ -94,6 +94,11 @@ batching a model's `Exportable::exportBatch()` into a CSV inside one `REPEATABLE
 transaction so a row written mid-export cannot be skipped or duplicated. See the Html
 Components Guide, "Background CSV export", for the application side of it.
 
+That batching and its transaction are for `scope: 'all'` — every filtered row. `scope:
+'page'` (the export modal's "current page only") is one `exportBatch()` call using the
+`start`/`length` the page already carries, not re-batched, with no `REPEATABLE READ`
+wrap: there is no second batch for a concurrent write to land between.
+
 Its finished CSV (`var/exports/<taskid>.csv`) is not left for an application's own cleanup
 to find: `purgeOldTasks()` deletes a `datatable.export` row's file along with the row
 itself — same retention as every other finished task (`queue.retention_hours`, 24 when

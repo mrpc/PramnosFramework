@@ -1179,11 +1179,19 @@ $table->exportModelClass  = \App\Models\Users::class;
 ```
 
 `backgroundExport = true` drops the "All" entry from the length menu — the page itself
-stays a page — and renders a generic "Export CSV" button alongside whatever `tableTools`
-already renders: it queues the export, polls while it runs, and swaps in a download link
-when it is done. `tableTools` keeps its own switch; `Datasource::$unlimitedCap` is what
-keeps its native "export all" click bounded now, so the two toolbars are free to coexist —
-set `$table->tableTools = false` for a table that wants the background button alone.
+stays a page. Clicking the export control opens a small modal (scope — every filtered row
+or just the current page — a format select, today only CSV, and a "notify me by email
+when ready" checkbox, plus a "My downloads" link), and starting it from there queues the
+export, polls while it runs, and swaps in a download link when it is done.
+
+`tableTools` keeps its own switch, and the two toolbars share one row rather than stacking
+two: with both `tableTools` and `backgroundExport` true, the native `copy`/`pdf`/`print`
+buttons stay, `excel`/`csv` drop out, and the export control takes their place in that
+SAME toolbar — one way to export a lot of rows, not two sitting side by side.
+`Datasource::$unlimitedCap` is what keeps the remaining native buttons' "export all" click
+bounded. Set `$table->tableTools = false` for a table that wants the background export
+control alone, which then renders as a standalone button before the table, as it always
+has.
 
 Three things make the button work:
 
@@ -1223,7 +1231,7 @@ Three things make the button work:
 
        public function __construct(?\Pramnos\Application\Application $application = null)
        {
-           $this->addAuthAction(['queueexport', 'exportstatus', 'exportdownload']);
+           $this->addAuthAction(['queueexport', 'exportstatus', 'exportdownload', 'myExports']);
            $this->addWriteAction(['queueexport']);
            parent::__construct($application);
        }
@@ -1244,7 +1252,24 @@ Three things make the button work:
 3. **Nothing else** — `queueexport()`/`exportstatus($id)`/`exportdownload($id)` queue a
    `Pramnos\Queue\Tasks\DatatableExportTask`, poll its status, and stream the finished file.
    Only the requester (`requested_by` in the task's own payload) or a `super`+ user may poll
-   or download it.
+   or download it. `myExports()` lists the signed-in user's own `datatable.export` tasks
+   (`{taskid, status, download}`, `download` only where completed) — no `super`+ needed,
+   the same ownership the single-item actions already enforce. It needs `exportBase` as a
+   query parameter (the modal's "My downloads" link sends it; `queueexport()`'s own request
+   carries it in the POST body instead, since that is a separate call).
+
+The modal the export control opens posts a few more fields alongside `class`/`columns`/
+`filters`:
+
+| Field | Values | What it does |
+| --- | --- | --- |
+| `format` | `'csv'` (only value today) | Validated server-side; anything else is refused with `422` — ground for a future format, not a redesign. |
+| `scope` | `'all'` (default) or `'page'` | `'page'` exports exactly the rows already on screen — one `exportBatch()` call using the `start`/`length` already in `filters`, no batching, no transaction. `'all'` is the batched, snapshotted export described below, unchanged. |
+| `notify_email` | boolean | Emails the requester a download link once the task completes — through the mail outbox (`Email::queue()`), not a synchronous send, so one slow SMTP round trip never holds up the worker. |
+| `exportBase` | the table's own base path | Needed to build that email's link, and to compute `myExports()`'s download URLs. |
+
+The address itself (`notify_to`) is captured once, from the signed-in user `queueexport()`
+already has — the task never reloads a user later just to find an email address.
 
 The export runs in batches (`1500` rows by default) inside one database transaction set to
 `REPEATABLE READ`, so a row inserted or deleted while the export is running cannot be

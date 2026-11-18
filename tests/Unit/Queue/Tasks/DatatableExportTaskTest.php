@@ -97,6 +97,93 @@ class DatatableExportTaskTest extends TestCase
         $this->assertSame(['1', ''], $row);
     }
 
+    /**
+     * `writePage()` ("current page only" scope) is a single `exportBatch()` call
+     * with the page's own `start`/`length`, as already posted in `$filters` —
+     * not re-batched. It does not need a short-batch test because it is not a
+     * loop: proving it reads `start`/`length` and writes exactly that one batch
+     * is the whole contract.
+     */
+    public function testWritePageUsesStartAndLengthFromFilters(): void
+    {
+        // Arrange: page 2 of a DataTable with length=2 -> start=2, so rows[2..3]
+        $source = new FakeExportableSource([
+            ['id' => 1, 'name' => 'Alpha'],
+            ['id' => 2, 'name' => 'Beta'],
+            ['id' => 3, 'name' => 'Gamma'],
+            ['id' => 4, 'name' => 'Delta'],
+        ]);
+        $task    = new ConcreteDatatableExportTask(new \stdClass());
+        $columns = [['key' => 'id', 'label' => 'Id'], ['key' => 'name', 'label' => 'Name']];
+        $handle  = fopen('php://memory', 'w+');
+
+        // Act
+        $total = $task->publicWritePage($source, ['start' => 2, 'length' => 2], $columns, $handle);
+        rewind($handle);
+
+        // Assert — exactly rows 3 and 4 (0-indexed 2,3), one fetch, not a loop
+        $this->assertSame(2, $total);
+        $this->assertSame([2], $source->returnedCounts);
+        $this->assertSame(['3', 'Gamma'], fgetcsv($handle, 0, ',', '"', ''));
+        $this->assertSame(['4', 'Delta'], fgetcsv($handle, 0, ',', '"', ''));
+    }
+
+    /** Missing `start`/`length` falls back to the first batch-sized page, not a crash. */
+    public function testWritePageDefaultsWhenFiltersAreMissingPaging(): void
+    {
+        // Arrange
+        $source  = new FakeExportableSource([['id' => 1, 'name' => 'Alpha']]);
+        $task    = new ConcreteDatatableExportTask(new \stdClass());
+        $columns = [['key' => 'id', 'label' => 'Id']];
+        $handle  = fopen('php://memory', 'w+');
+
+        // Act
+        $total = $task->publicWritePage($source, [], $columns, $handle);
+
+        // Assert
+        $this->assertSame(1, $total);
+    }
+
+    // ── notifyByEmail() ──────────────────────────────────────────────────────
+
+    /**
+     * `notify_to` left empty (no address captured — e.g. a sealed identity with
+     * no email property at all) must not reach `sendReadyEmail()` — nothing to
+     * address it to.
+     */
+    public function testNotifyByEmailDoesNothingWithNoAddress(): void
+    {
+        // Arrange
+        $task = new ThrowingNotifyDatatableExportTask(new \stdClass());
+        $item = $this->makeQueueItem(json_encode(['class' => FakeExportableSource::class]));
+        $item->taskid = 9;
+
+        // Act
+        $task->publicNotifyByEmail(['notify_to' => ''], $item);
+
+        // Assert — sendReadyEmail(), which always throws in this fixture, was never reached
+        $this->assertFalse($task->sendReadyEmailCalled);
+    }
+
+    /**
+     * A failure while queuing the ready notice — here, `sendReadyEmail()` always
+     * throws — must not propagate out of `notifyByEmail()`: it is logged and
+     * swallowed, since the export itself already succeeded by the time this runs.
+     */
+    public function testNotifyByEmailSwallowsAFailureFromSendReadyEmail(): void
+    {
+        // Arrange
+        $task = new ThrowingNotifyDatatableExportTask(new \stdClass());
+        $item = $this->makeQueueItem(json_encode(['class' => FakeExportableSource::class]));
+        $item->taskid = 9;
+
+        // Act — must not throw
+        $task->publicNotifyByEmail(['notify_to' => 'someone@example.com'], $item);
+
+        // Assert — sendReadyEmail() was reached and did throw, but nothing escaped
+        $this->assertTrue($task->sendReadyEmailCalled);
+    }
+
     // ── validate() ────────────────────────────────────────────────────────────
 
     /** A payload naming a class that is not an Exportable must not validate. */
@@ -131,6 +218,29 @@ class DatatableExportTaskTest extends TestCase
 
         // Assert
         $this->assertTrue($result);
+    }
+
+    /**
+     * `format` is deliberately only ever `'csv'` today — a future Excel/other
+     * format is additive ground, not a redesign — so anything else must not
+     * validate, the same safety net `queueexport()` already applies before the
+     * task is even queued.
+     */
+    public function testValidateRejectsAnUnsupportedFormat(): void
+    {
+        // Arrange
+        $task = new DatatableExportTask(new \stdClass());
+        $item = $this->makeQueueItem(json_encode([
+            'class'   => FakeExportableSource::class,
+            'columns' => [['key' => 'id', 'label' => 'Id']],
+            'format'  => 'xlsx',
+        ]));
+
+        // Act
+        $result = $task->validate($item);
+
+        // Assert
+        $this->assertFalse($result);
     }
 
     /** No columns at all means nothing to export — must not validate. */
@@ -213,5 +323,38 @@ class ConcreteDatatableExportTask extends DatatableExportTask
     public function publicWriteBatches(Exportable $source, array $filters, array $columns, int $batchSize, $handle): int
     {
         return $this->writeBatches($source, $filters, $columns, $batchSize, $handle);
+    }
+
+    /**
+     * @param array<int, array{key: string, label: string}> $columns
+     * @param resource $handle
+     */
+    public function publicWritePage(Exportable $source, array $filters, array $columns, $handle): int
+    {
+        $ref = new \ReflectionMethod(DatatableExportTask::class, 'writePage');
+
+        return $ref->invoke($this, $source, $filters, $columns, $handle);
+    }
+}
+
+/**
+ * `sendReadyEmail()` always throws, so a test can prove `notifyByEmail()`'s own
+ * `catch` swallows it, with no outbox table or SMTP transport involved.
+ */
+class ThrowingNotifyDatatableExportTask extends DatatableExportTask
+{
+    public bool $sendReadyEmailCalled = false;
+
+    protected function sendReadyEmail(string $to, string $url): void
+    {
+        $this->sendReadyEmailCalled = true;
+        throw new \RuntimeException('simulated send failure');
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function publicNotifyByEmail(array $payload, QueueItem $queueItem): void
+    {
+        $ref = new \ReflectionMethod(DatatableExportTask::class, 'notifyByEmail');
+        $ref->invoke($this, $payload, $queueItem);
     }
 }

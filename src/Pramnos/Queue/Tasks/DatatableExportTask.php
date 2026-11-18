@@ -53,11 +53,15 @@ class DatatableExportTask extends AbstractTask
     {
         $payload = (array) json_decode((string) $queueItem->payload, true);
         $class   = (string) ($payload['class'] ?? '');
+        $format  = (string) ($payload['format'] ?? 'csv');
 
         return $class !== ''
             && class_exists($class)
             && is_subclass_of($class, Exportable::class)
-            && !empty($payload['columns']);
+            && !empty($payload['columns'])
+            // 'csv' is deliberately the only value today, so a future format is an
+            // additive one, not a redesign of this task.
+            && $format === 'csv';
     }
 
     public function execute(QueueItem $queueItem): mixed
@@ -69,6 +73,7 @@ class DatatableExportTask extends AbstractTask
         $filters   = (array) ($payload['filters'] ?? []);
         $columns   = (array) $payload['columns'];
         $batchSize = max(1, (int) ($payload['batchSize'] ?? self::DEFAULT_BATCH_SIZE));
+        $scope     = (string) ($payload['scope'] ?? 'all');
 
         $finalPath = self::csvPath($queueItem->taskid);
         $dir       = dirname($finalPath);
@@ -83,16 +88,99 @@ class DatatableExportTask extends AbstractTask
             $columns
         ), ',', '"', '');
 
-        $rowCount = $this->runInRepeatableReadSnapshot(
-            fn (): int => $this->writeBatches($source, $filters, $columns, $batchSize, $handle)
-        );
+        $rowCount = $scope === 'page'
+            // Exactly the rows already on the client's current page: one query, the
+            // same start/length DataTables' own ajax.params() already carries in
+            // $filters. No concurrent-batch problem to guard against with a single
+            // query, so no REPEATABLE READ transaction either.
+            ? $this->writePage($source, $filters, $columns, $handle)
+            : $this->runInRepeatableReadSnapshot(
+                fn (): int => $this->writeBatches($source, $filters, $columns, $batchSize, $handle)
+            );
 
         fclose($handle);
         rename($tmpPath, $finalPath);
 
         $this->lastMessage = $rowCount . ' rows exported';
 
+        if ($payload['notify_email'] ?? false) {
+            $this->notifyByEmail($payload, $queueItem);
+        }
+
         return ['message' => $this->lastMessage];
+    }
+
+    /**
+     * Writes exactly one page's rows — `$filters['start']`/`$filters['length']`, the
+     * paging DataTables' own `ajax.params()` already posts — instead of the full
+     * batched export.
+     *
+     * @param array<int, array{key: string, label: string}> $columns
+     * @param resource $handle
+     */
+    private function writePage(Exportable $source, array $filters, array $columns, $handle): int
+    {
+        $start  = max(0, (int) ($filters['start'] ?? 0));
+        $length = max(1, (int) ($filters['length'] ?? self::DEFAULT_BATCH_SIZE));
+
+        $batch = $source->exportBatch($filters, $length, $start);
+        foreach ($batch as $row) {
+            fputcsv($handle, array_map(
+                static fn (array $column) => $row[$column['key']] ?? '',
+                $columns
+            ), ',', '"', '');
+        }
+
+        return count($batch);
+    }
+
+    /**
+     * Queues the requester a link to the finished download, through the outbox
+     * (`Email::queue()`) rather than a synchronous send — this already runs inside
+     * a queue worker, so handing the SMTP round trip to `mail:flush` keeps one
+     * slow send from holding up whatever export the worker picks up next.
+     * Best-effort: a failed queue must not undo an export that otherwise
+     * succeeded, so it is logged and swallowed rather than thrown.
+     *
+     * `notify_to` is the address `queueexport()` captured from the signed-in user
+     * at request time — this does not reload the user later just to find one.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function notifyByEmail(array $payload, QueueItem $queueItem): void
+    {
+        try {
+            $to = (string) ($payload['notify_to'] ?? '');
+            if ($to === '') {
+                return;
+            }
+
+            $exportBase = (string) ($payload['exportBase'] ?? '');
+            $url        = (defined('sURL') ? (string) sURL : '') . $exportBase
+                . '/exportdownload/' . $queueItem->taskid;
+
+            $this->sendReadyEmail($to, $url);
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log(
+                'DatatableExportTask: failed to send the ready notification: ' . $exception->getMessage(),
+                'queue_error'
+            );
+        }
+    }
+
+    /**
+     * Queues the actual message. Pulled out of {@see notifyByEmail()} so a unit
+     * test can override it to throw, proving that method's own `catch` swallows
+     * a failure here without a real outbox or SMTP transport involved.
+     */
+    protected function sendReadyEmail(string $to, string $url): void
+    {
+        (new \Pramnos\Email\Email())
+            ->setSubject(\Pramnos\Framework\Factory::getLanguage()->_('Your export is ready'))
+            ->setTo($to)
+            ->setBody('<p>' . $this->lastMessage . '.</p><p><a href="' . htmlspecialchars($url, ENT_QUOTES) . '">'
+                . \Pramnos\Framework\Factory::getLanguage()->_('Download CSV') . '</a></p>')
+            ->queue();
     }
 
     /**

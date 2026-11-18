@@ -901,14 +901,31 @@ embed;
         if ($this->tableTools == true) {
             // A column marked `pf-no-export` (row actions) stays out of every button's output.
             $noExport = array_filter($this->aoColumns, static fn ($c): bool => str_contains(' ' . $c->sClass . ' ', ' pf-no-export ')) !== [];
-            $tabletools = $this->exportName === '' && !$noExport
-                ? " buttons : [   'copy', 'excel', 'pdf', 'csv', 'print' ],"
-                : ' buttons : [' . implode(', ', array_map(
+            if ($this->backgroundExport) {
+                // The modal-triggered background export replaces 'excel'/'csv' in the SAME
+                // toolbar, not alongside them — one way to export a lot of rows, not two.
+                $buttonDefs = array_map(
                     fn (string $b): string => '{"extend": "' . $b . '"'
-                        . ($this->exportName !== '' && in_array($b, ['excel', 'pdf', 'csv'], true) ? ', "filename": ' . self::js($this->exportName) : '')
+                        . ($this->exportName !== '' && $b === 'pdf' ? ', "filename": ' . self::js($this->exportName) : '')
                         . ($noExport ? ', "exportOptions": {"columns": ":not(.pf-no-export)"}' : '') . '}',
-                    ['copy', 'excel', 'pdf', 'csv', 'print']
-                )) . '],';
+                    ['copy', 'pdf', 'print']
+                );
+                // A plain function reference — exportJs defines pf40_openExportModal_*
+                // right after this init call runs; the button only calls it on click,
+                // long after the variable is assigned.
+                $buttonDefs[] = '{"text": ' . self::js($lang->_('Export CSV'))
+                    . ', "action": function(e, dt, node, config) { pf40_openExportModal_' . $jsVar . '(jQuery(node)); }}';
+                $tabletools = ' buttons : [' . implode(', ', $buttonDefs) . '],';
+            } else {
+                $tabletools = $this->exportName === '' && !$noExport
+                    ? " buttons : [   'copy', 'excel', 'pdf', 'csv', 'print' ],"
+                    : ' buttons : [' . implode(', ', array_map(
+                        fn (string $b): string => '{"extend": "' . $b . '"'
+                            . ($this->exportName !== '' && in_array($b, ['excel', 'pdf', 'csv'], true) ? ', "filename": ' . self::js($this->exportName) : '')
+                            . ($noExport ? ', "exportOptions": {"columns": ":not(.pf-no-export)"}' : '') . '}',
+                        ['copy', 'excel', 'pdf', 'csv', 'print']
+                    )) . '],';
+            }
             if ($this->jui == true) {
                 $tabletools .= '"sDom": \'<"clear"><"H"lfBr>t<"F"ip>\',';
             } else {
@@ -1038,6 +1055,13 @@ table;
             $exportingLbl    = self::js($lang->_('Exporting...'));
             $readyLbl        = self::js($lang->_('Download CSV'));
             $failedLbl       = self::js($lang->_('Export failed'));
+            $startLbl        = self::js($lang->_('Start export'));
+            $cancelLbl       = self::js($lang->_('Cancel'));
+            $allRowsLbl      = self::js($lang->_('All filtered rows'));
+            $pageOnlyLbl     = self::js($lang->_('Current page only'));
+            $notifyLbl       = self::js($lang->_('Notify me by email when ready'));
+            $myExportsLbl    = self::js($lang->_('My downloads'));
+            $noExportsLbl    = self::js($lang->_('No exports yet.'));
             $exportBaseJs    = self::js($exportBase);
             $exportClassJs   = self::js($this->exportModelClass);
             // queueexport() starts a background job, so a controller is expected to put it
@@ -1074,16 +1098,124 @@ table;
             $exportFiltersJs = $this->exportIncludesQueryString
                 ? "jQuery.extend({}, Object.fromEntries(new URLSearchParams(window.location.search)), {$jsVar}.api().ajax.params())"
                 : "{$jsVar}.api().ajax.params()";
-            $exportJs = <<<exportjs
+            // The modal's trigger lives in two different places depending on whether
+            // tableTools is also rendering its own toolbar: a standalone button before
+            // the table when it is not (unchanged from before this toolbar existed), or
+            // a custom button spliced into that SAME toolbar (built above, in
+            // $tabletools) when it is — not a second, separate trigger sitting beside it.
+            $useToolbarTrigger = $this->tableTools;
+            $standaloneBtnJs = $useToolbarTrigger ? '' : <<<standalonebtn
 
-    var pf40_exportBase_{$jsVar} = {$exportBaseJs};
     var pf40_exportBtn_{$jsVar} = jQuery(
         '<button type="button" class="pf40-export-csv" style="margin-bottom:6px;">'
         + {$exportLabel} + '</button>'
     );
     pf40_exportBtn_{$jsVar}.insertBefore(jQuery('#{$this->name}'));
     pf40_exportBtn_{$jsVar}.on('click', function () {
-        var \$btn = jQuery(this);
+        pf40_openExportModal_{$jsVar}(pf40_exportBtn_{$jsVar});
+    });
+
+    standalonebtn;
+            $exportJs = <<<exportjs
+{$standaloneBtnJs}
+    var pf40_exportBase_{$jsVar} = {$exportBaseJs};
+    // Whichever element triggered the modal (the standalone button, or the native
+    // toolbar's custom button) is where progress/the download link show up too.
+    var pf40_exportStatus_{$jsVar} = null;
+
+    // Plain, unstyled-but-functional — an app wanting a themed modal restyles
+    // ".pf40-export-modal" itself. Appended once per table, hidden until opened.
+    var pf40_exportModal_{$jsVar} = jQuery(
+        '<div class="pf40-export-modal" style="display:none;position:fixed;inset:0;'
+        + 'z-index:10000;background:rgba(0,0,0,.5);">'
+        + '<div style="background:#fff;max-width:340px;margin:10vh auto;padding:16px;'
+        + 'border-radius:4px;position:relative;">'
+        + '<button type="button" class="pf40-export-modal-close" aria-label="Close" '
+        + 'style="position:absolute;top:4px;right:8px;background:none;border:none;'
+        + 'font-size:20px;cursor:pointer;line-height:1;">&times;</button>'
+        + '<div style="margin-bottom:10px;"><label>' + {$exportLabel} + '<br>'
+        + '<select class="pf40-export-format"><option value="csv">CSV</option></select>'
+        + '</label></div>'
+        + '<div style="margin-bottom:10px;">'
+        + '<label><input type="radio" class="pf40-export-scope" value="all" checked> '
+        + {$allRowsLbl} + '</label><br>'
+        + '<label><input type="radio" class="pf40-export-scope" value="page"> '
+        + {$pageOnlyLbl} + '</label>'
+        + '</div>'
+        + '<div style="margin-bottom:10px;"><label>'
+        + '<input type="checkbox" class="pf40-export-notify"> ' + {$notifyLbl}
+        + '</label></div>'
+        + '<div style="margin-bottom:10px;">'
+        + '<a href="#" class="pf40-export-my-downloads">' + {$myExportsLbl} + '</a>'
+        + '<div class="pf40-export-my-downloads-list" style="display:none;margin-top:6px;'
+        + 'font-size:0.9em;"></div>'
+        + '</div>'
+        + '<div style="text-align:right;">'
+        + '<button type="button" class="pf40-export-modal-cancel">' + {$cancelLbl}
+        + '</button> '
+        + '<button type="button" class="pf40-export-modal-start">' + {$startLbl}
+        + '</button>'
+        + '</div>'
+        + '</div>'
+        + '</div>'
+    );
+    jQuery('body').append(pf40_exportModal_{$jsVar});
+
+    function pf40_openExportModal_{$jsVar}(statusEl) {
+        pf40_exportStatus_{$jsVar} = statusEl;
+        pf40_exportModal_{$jsVar}.show();
+    }
+    function pf40_closeExportModal_{$jsVar}() {
+        pf40_exportModal_{$jsVar}.hide();
+    }
+    pf40_exportModal_{$jsVar}.find('.pf40-export-modal-close, .pf40-export-modal-cancel')
+        .on('click', pf40_closeExportModal_{$jsVar});
+    // Click on the dark backdrop itself (not its child box) closes it, same as Escape.
+    pf40_exportModal_{$jsVar}.on('click', function (e) {
+        if (e.target === this) {
+            pf40_closeExportModal_{$jsVar}();
+        }
+    });
+    jQuery(document).on('keydown', function (e) {
+        if (e.key === 'Escape' && pf40_exportModal_{$jsVar}.is(':visible')) {
+            pf40_closeExportModal_{$jsVar}();
+        }
+    });
+
+    pf40_exportModal_{$jsVar}.find('.pf40-export-my-downloads').on('click', function (e) {
+        e.preventDefault();
+        var \$list = pf40_exportModal_{$jsVar}.find('.pf40-export-my-downloads-list');
+        \$list.show().text('…');
+        jQuery.getJSON(
+            pf40_exportBase_{$jsVar} + '/myexports?exportBase=' + encodeURIComponent(pf40_exportBase_{$jsVar})
+        ).done(function (resp) {
+            var exports = (resp && resp.exports) || [];
+            if (exports.length === 0) {
+                \$list.text({$noExportsLbl});
+                return;
+            }
+            \$list.empty();
+            exports.forEach(function (one) {
+                var line = jQuery('<div></div>').text('#' + one.taskid + ' — ' + one.status);
+                if (one.download) {
+                    line.append(' ').append(
+                        jQuery('<a href="' + one.download + '">' + {$readyLbl} + '</a>')
+                    );
+                }
+                \$list.append(line);
+            });
+        }).fail(function () {
+            \$list.text({$failedLbl});
+        });
+    });
+
+    pf40_exportModal_{$jsVar}.find('.pf40-export-modal-start').on('click', function () {
+        pf40_closeExportModal_{$jsVar}();
+        var scope  = pf40_exportModal_{$jsVar}.find('.pf40-export-scope:checked').val() || 'all';
+        var format = pf40_exportModal_{$jsVar}.find('.pf40-export-format').val() || 'csv';
+        var notify = pf40_exportModal_{$jsVar}.find('.pf40-export-notify').is(':checked');
+
+        var \$btn = pf40_exportStatus_{$jsVar};
         \$btn.prop('disabled', true).text({$exportingLbl});
         jQuery.post(
             pf40_exportBase_{$jsVar} + '/queueexport',
@@ -1091,6 +1223,10 @@ table;
                 class: {$exportClassJs},
                 columns: {$exportColumnsJs},
                 filters: {$exportFiltersJs},
+                format: format,
+                scope: scope,
+                notify_email: notify,
+                exportBase: pf40_exportBase_{$jsVar},
                 _csrf_token: {$exportCsrfJs}
             }
         ).done(function (resp) {

@@ -341,11 +341,13 @@ class DatatableTest extends TestCase
     /**
      * `tableTools` and `backgroundExport` shipped mutually exclusive — true always
      * turned the other off — but `Datasource::$unlimitedCap` (FW-525) now bounds a
-     * native "export all" click, so an app can want both toolbars at once: the
-     * native buttons for a quick copy/print of what is on screen, the background
-     * button for a full filtered export. `tableTools` keeps its own switch.
+     * native "export all" click, so an app can want both toolbars at once. They
+     * share ONE toolbar rather than rendering two separate ones: `excel`/`csv` drop
+     * out of the native `buttons` array (the background export replaces them, not
+     * joins them) and a custom button calling the modal opener takes their place in
+     * that same array — no second, standalone button beside the table.
      */
-    public function testTableToolsAndBackgroundExportCanRenderTogether(): void
+    public function testTableToolsAndBackgroundExportShareOneToolbar(): void
     {
         // Arrange — tableTools defaults true; backgroundExport is the only one opted into
         $dt = new Datatable('users', '/admin/Users/data');
@@ -356,14 +358,21 @@ class DatatableTest extends TestCase
         // Act
         $js = $dt->renderJs();
 
-        // Assert — the native Buttons config is still emitted
-        $this->assertStringContainsString("buttons : [   'copy', 'excel', 'pdf', 'csv', 'print' ]", $js);
-        // Assert — the background export button's own script is still emitted too
-        $this->assertStringContainsString('pf40-export-csv', $js);
+        // Assert — copy/pdf/print stay; excel/csv are gone, replaced by a custom button
+        $this->assertStringContainsString('{"extend": "copy"}', $js);
+        $this->assertStringContainsString('{"extend": "pdf"}', $js);
+        $this->assertStringContainsString('{"extend": "print"}', $js);
+        $this->assertStringNotContainsString('"extend": "excel"', $js);
+        $this->assertStringNotContainsString('"extend": "csv"', $js);
+        $this->assertStringContainsString('"action": function(e, dt, node, config) { pf40_openExportModal_users(jQuery(node)); }', $js);
+        // Assert — no standalone button inserted before the table; the toolbar button is the only trigger
+        $this->assertStringNotContainsString('pf40-export-csv', $js);
+        // Assert — the modal itself (shared machinery) is still built
+        $this->assertStringContainsString('pf40-export-modal', $js);
     }
 
-    /** Explicit `tableTools = false` still turns the native buttons off, same as always. */
-    public function testTableToolsFalseStillHidesNativeButtonsUnderBackgroundExport(): void
+    /** Explicit `tableTools = false` keeps the pre-toolbar standalone button, same as before. */
+    public function testTableToolsFalseKeepsTheStandaloneButtonUnderBackgroundExport(): void
     {
         // Arrange
         $dt = new Datatable('users', '/admin/Users/data');
@@ -375,9 +384,11 @@ class DatatableTest extends TestCase
         // Act
         $js = $dt->renderJs();
 
-        // Assert — no native Buttons config, the background export button still there
+        // Assert — no native Buttons config at all, and the standalone button is the trigger
         $this->assertStringNotContainsString("'copy', 'excel', 'pdf', 'csv', 'print'", $js);
+        $this->assertStringNotContainsString('{"extend": "copy"}', $js);
         $this->assertStringContainsString('pf40-export-csv', $js);
+        $this->assertStringContainsString('pf40_openExportModal_users(pf40_exportBtn_users)', $js);
     }
 
     /**

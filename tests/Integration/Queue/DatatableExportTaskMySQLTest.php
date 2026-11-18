@@ -104,8 +104,27 @@ class DatatableExportTaskMySQLTest extends TestCase
     protected function tearDown(): void
     {
         $this->db->query('DROP TABLE IF EXISTS `dt_export_rows`');
+        $this->db->schema()->dropTableIfExists('mails');
         $singleton = &Factory::getDatabase();
         $singleton = null;
+    }
+
+    /**
+     * The `mails` table, from its own framework migration — not assumed, same
+     * reasoning as {@see \Pramnos\Tests\Integration\Email\MailOutboxMySQLTest}:
+     * dropped in tearDown, which is safe because nothing else in this schema has it.
+     */
+    protected function createMailsTable(): void
+    {
+        $this->db->schema()->dropTableIfExists('mails');
+        $app = new Application();
+        $app->database = $this->db;
+        $dir = dirname(__DIR__, 3) . '/database/migrations/framework/messaging';
+        foreach (\Pramnos\Database\MigrationLoader::loadFromDirectory($dir, $app) as $migration) {
+            if ($migration instanceof \Pramnos\Framework\Migrations\Messaging\CreateMailsTable) {
+                $migration->up();
+            }
+        }
     }
 
     protected function createSchema(): void
@@ -163,6 +182,79 @@ class DatatableExportTaskMySQLTest extends TestCase
         // proving the absence above is the transaction's snapshot, not a failed insert.
         $visible = $this->otherDb->query("SELECT COUNT(*) AS c FROM dt_export_rows WHERE name = 'Intruder'");
         $this->assertSame(1, (int) $visible->fields['c']);
+    }
+
+    /**
+     * `notify_email` queues a real row in the mail outbox (`Email::queue()`,
+     * `Mail::STATUS_QUEUED`) addressed to `notify_to`, its body carrying a link
+     * to this export's download — proving the task actually hands off to the
+     * framework's mail-sending mechanism, not just that it would if it tried.
+     * `queue()` rather than a synchronous send: the task does not block a
+     * worker on an SMTP round trip for a notice that can wait for `mail:flush`.
+     */
+    public function testNotifyEmailQueuesARealOutboxRow(): void
+    {
+        // Arrange
+        $this->createMailsTable();
+        $item = $this->makeQueueItem(json_encode([
+            'class'        => Fixtures\InsertingExportableSource::class,
+            'columns'      => [['key' => 'id', 'label' => 'Id'], ['key' => 'name', 'label' => 'Name']],
+            'notify_email' => true,
+            'notify_to'    => 'requester@example.com',
+            'exportBase'   => 'users',
+        ]));
+        $task = new DatatableExportTask($this->controller);
+
+        // Act
+        $task->execute($item);
+
+        // Assert — one queued row, addressed and linked to this task's own download
+        $row = $this->db->query(
+            "SELECT * FROM mails WHERE tomail = 'requester@example.com' ORDER BY id DESC LIMIT 1"
+        );
+        $this->assertNotFalse($row->fetch(), 'notify_email must write a row to the outbox');
+        $this->assertSame(\Pramnos\Messaging\Mail::STATUS_QUEUED, (int) $row->fields['status']);
+        $this->assertStringContainsString('/exportdownload/' . $item->taskid, (string) $row->fields['content']);
+    }
+
+    /** `notify_email = true` with no `notify_to` captured queues no email — nothing to address it to. */
+    public function testNotifyEmailWithNoAddressQueuesNoOutboxRow(): void
+    {
+        // Arrange
+        $this->createMailsTable();
+        $item = $this->makeQueueItem(json_encode([
+            'class'        => Fixtures\InsertingExportableSource::class,
+            'columns'      => [['key' => 'id', 'label' => 'Id']],
+            'notify_email' => true,
+            // notify_to deliberately absent
+        ]));
+        $task = new DatatableExportTask($this->controller);
+
+        // Act
+        $task->execute($item);
+
+        // Assert
+        $count = $this->db->query('SELECT COUNT(*) AS c FROM mails');
+        $this->assertSame(0, (int) $count->fields['c']);
+    }
+
+    /** `notify_email` left unset (or false) queues no email at all. */
+    public function testNoNotifyEmailQueuesNoOutboxRow(): void
+    {
+        // Arrange
+        $this->createMailsTable();
+        $item = $this->makeQueueItem(json_encode([
+            'class'   => Fixtures\InsertingExportableSource::class,
+            'columns' => [['key' => 'id', 'label' => 'Id'], ['key' => 'name', 'label' => 'Name']],
+        ]));
+        $task = new DatatableExportTask($this->controller);
+
+        // Act
+        $task->execute($item);
+
+        // Assert
+        $count = $this->db->query('SELECT COUNT(*) AS c FROM mails');
+        $this->assertSame(0, (int) $count->fields['c']);
     }
 
     /**
