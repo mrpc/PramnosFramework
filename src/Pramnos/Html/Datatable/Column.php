@@ -26,10 +26,22 @@ class Column extends Base {
 
     /**
      * Classes for the column's cells, heading included. `pf-no-export` keeps a column — row
-     * actions — out of what Buttons copies, prints and saves.
+     * actions — out of what Buttons copies, prints and saves, and out of a background export
+     * (`Datatable::$backgroundExport`) the same way.
      * @var string
      */
     public $sClass = '';
+
+    /**
+     * The key a background export reads this column's value from, in each row
+     * `Exportable::exportBatch()` returns. Defaults to this column's position among
+     * `aoColumns` (visible or not, in declaration order) — the same positional index
+     * `renderJs()` injects as `"data": N` for server-side mode, which is what a row from
+     * `Datasource::getList()` is keyed by. Set explicitly for an `exportBatch()` that
+     * returns assoc rows keyed by field name instead.
+     * @var int|string|null
+     */
+    public $exportKey = null;
 
     /**
      * Characters before this column's footer search box sends a query; null for the table's

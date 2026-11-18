@@ -1047,12 +1047,20 @@ table;
             // Built from aoColumns (same pf-no-export convention as the native
             // tableTools exportOptions above), not from DataTables' own
             // ajax.params().columns[] — those carry {data,name,...}, never a label.
+            // Each column's key defaults to its position among ALL aoColumns (visible or
+            // not), the same positional index "data": N uses above — NOT the aoColumns
+            // array key (addColumn()'s $label), which is a display string with no
+            // guaranteed relation to how exportBatch() rows are keyed.
             $exportColumns = [];
-            foreach ($this->aoColumns as $key => $column) {
-                if (!$column->bVisible || str_contains(' ' . $column->sClass . ' ', ' pf-no-export ')) {
-                    continue;
+            $colIdx = 0;
+            foreach ($this->aoColumns as $column) {
+                if ($column->bVisible && !str_contains(' ' . $column->sClass . ' ', ' pf-no-export ')) {
+                    $exportColumns[] = [
+                        'key'   => $column->exportKey ?? $colIdx,
+                        'label' => (string) $column->sTitle,
+                    ];
                 }
-                $exportColumns[] = ['key' => (string) $key, 'label' => (string) $column->sTitle];
+                $colIdx++;
             }
             $exportColumnsJs = json_encode(
                 $exportColumns,

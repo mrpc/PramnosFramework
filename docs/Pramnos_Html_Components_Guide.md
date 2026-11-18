@@ -1185,20 +1185,31 @@ swaps in a download link when it is done.
 
 Three things make the button work:
 
-1. **The model implements `Pramnos\Html\Datatable\Exportable`:**
+1. **The model implements `Pramnos\Html\Datatable\Exportable`,** delegating to the same
+   method that already serves the grid, with `$limit`/`$offset` in place of the AJAX
+   request's own paging:
 
    ```php
    class Users extends \Pramnos\Application\Model implements \Pramnos\Html\Datatable\Exportable
    {
        public function exportBatch(array $filters, int $limit, int $offset): array
        {
-           // The same query the grid's own AJAX action already runs, as a plain
-           // LIMIT/OFFSET fetch — $filters is the table's posted AJAX params.
-           return $this->queryBuilder()->table('users')
-               /* ...apply $filters... */
-               ->limit($limit)->offset($offset)->get()->fetchAll();
+           // Whatever already builds the grid's rows from $_POST, fed $filters/
+           // $limit/$offset instead — most often the same Datasource::getList()
+           // call, which returns numeric-indexed rows: column 0, 1, 2… in the
+           // same order as aoColumns. That is the row shape a column's key
+           // defaults to (see Exportable) — nothing further to declare for it.
+           return $this->gridRows($filters, $limit, $offset);
        }
    }
+   ```
+
+   A column whose `exportBatch()` rows are instead keyed by field name (an assoc array,
+   not `Datasource::getList()`'s positional one) sets `$column->exportKey` to that name:
+
+   ```php
+   $table->addColumn('Email');
+   $table->aoColumns['Email']->exportKey = 'email_address';
    ```
 
 2. **The controller uses the trait and declares its allow-list:**
@@ -1237,6 +1248,14 @@ The export runs in batches (`1500` rows by default) inside one database transact
 `REPEATABLE READ`, so a row inserted or deleted while the export is running cannot be
 skipped or duplicated — every batch reads the same snapshot. See the Queue Guide for the
 task itself.
+
+**`exportBatch()` cannot set its own isolation level.** The wrapping transaction already
+sets `REPEATABLE READ` as its first statement; a method that issues its own
+session/transaction isolation statement — a legacy `getList()` doing its own `SET …
+ISOLATION LEVEL` before or after the query — breaks inside it (PostgreSQL refuses a second
+such statement once any query in the transaction has run). Guard that statement with
+`Database::inTransaction()`, or drop it: every batch already runs at the level the
+wrapping transaction set.
 
 **`$filters` is the page's query string merged with the table's own AJAX params** — in that
 order, so `table.ajax.params()` wins a key both carry. A page-level prefilter (a group, a

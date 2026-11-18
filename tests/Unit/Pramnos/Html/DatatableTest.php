@@ -286,6 +286,12 @@ class DatatableTest extends TestCase
      * `ajax.params()` as the whole body — no `class`, no `filters` key — so every click
      * failed with a 403 that no PHP-side unit test could see, because none of them
      * rendered this JS and inspected the actual payload it builds.
+     *
+     * Each exportable column's `key` is its position among ALL aoColumns (visible or
+     * not) — not the aoColumns array key (addColumn()'s display label), which shipped
+     * first and left every column empty for a model whose `exportBatch()` delegates to
+     * `Datasource::getList()`'s numeric-indexed rows, as the Guide's own recommended
+     * pattern does.
      */
     public function testBackgroundExportPostsTheFieldsTheControllerReads(): void
     {
@@ -307,14 +313,15 @@ class DatatableTest extends TestCase
             "class: " . json_encode('App\\Models\\Users'),
             $js
         );
-        // Assert — only the one exportable column is in the posted list, with its label
+        // Assert — "Name" is column 0; its posted key is that position, not its label
         $this->assertStringContainsString(
-            'columns: ' . json_encode([['key' => 'Name', 'label' => 'Name']]),
+            'columns: ' . json_encode([['key' => 0, 'label' => 'Name']]),
             $js
         );
-        // "Actions" (pf-no-export) and "Hidden" (not visible) must not appear in it
-        $this->assertStringNotContainsString('"key":"Actions"', $js);
-        $this->assertStringNotContainsString('"key":"Hidden"', $js);
+        // "Actions" (pf-no-export, position 1) and "Hidden" (not visible, position 2)
+        // must not appear in it
+        $this->assertStringNotContainsString('"key":1', $js);
+        $this->assertStringNotContainsString('"key":2', $js);
         // Assert — filters merges the page's own query string (exportIncludesQueryString
         // defaults true) with the table's AJAX params, the latter winning on conflict
         $this->assertStringContainsString(
@@ -327,6 +334,35 @@ class DatatableTest extends TestCase
         // on every click. The session's own token, not a hardcoded placeholder.
         $this->assertStringContainsString(
             '_csrf_token: ' . json_encode(\Pramnos\Http\Middleware\CsrfMiddleware::token()),
+            $js
+        );
+    }
+
+    /**
+     * `Column::$exportKey` overrides the default positional key, for a model whose
+     * `exportBatch()` returns assoc rows keyed by field name instead of delegating to
+     * `Datasource::getList()`'s numeric-indexed ones.
+     */
+    public function testExportKeyOverridesThePositionalDefault(): void
+    {
+        // Arrange — two columns; the second declares its row's real field name
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->addColumn('Name');
+        $dt->addColumn('Email');
+        $dt->aoColumns['Email']->exportKey = 'email_address';
+
+        // Act
+        $dt->renderTable();
+        $js = $dt->renderJs();
+
+        // Assert — position 0 for the column with no override, the field name for the other
+        $this->assertStringContainsString(
+            'columns: ' . json_encode([
+                ['key' => 0, 'label' => 'Name'],
+                ['key' => 'email_address', 'label' => 'Email'],
+            ]),
             $js
         );
     }
