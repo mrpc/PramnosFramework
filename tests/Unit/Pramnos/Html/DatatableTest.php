@@ -315,8 +315,38 @@ class DatatableTest extends TestCase
         // "Actions" (pf-no-export) and "Hidden" (not visible) must not appear in it
         $this->assertStringNotContainsString('"key":"Actions"', $js);
         $this->assertStringNotContainsString('"key":"Hidden"', $js);
-        // Assert — filters is the table's own AJAX request object, not posted flat
+        // Assert — filters merges the page's own query string (exportIncludesQueryString
+        // defaults true) with the table's AJAX params, the latter winning on conflict
+        $this->assertStringContainsString(
+            'filters: jQuery.extend({}, Object.fromEntries(new URLSearchParams(window.location.search)), '
+                . $dt->name . '.api().ajax.params())',
+            $js
+        );
+    }
+
+    /**
+     * A page-level prefilter — a group, a date range, anything read from `$_GET` rather
+     * than a column search box — never reaches `table.api().ajax.params()`. Without
+     * merging the query string in, an export silently drops exactly the filters the
+     * admin had on screen: a wrong result, not an error. `exportIncludesQueryString`
+     * defaults to true so this is never an opt-in a developer has to remember.
+     */
+    public function testExportIncludesQueryStringCanBeTurnedOff(): void
+    {
+        // Arrange
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->exportIncludesQueryString = false;
+        $dt->addColumn('Name');
+
+        // Act
+        $dt->renderTable();
+        $js = $dt->renderJs();
+
+        // Assert — plain ajax.params(), no query-string merge
         $this->assertStringContainsString('filters: ' . $dt->name . '.api().ajax.params()', $js);
+        $this->assertStringNotContainsString('URLSearchParams', $js);
     }
 
     /**

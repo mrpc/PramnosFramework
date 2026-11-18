@@ -147,6 +147,18 @@ class Datatable extends Base
     public $exportBase = '';
 
     /**
+     * Merge the page's own query string into the export button's `filters` before
+     * `table.ajax.params()` — ajax.params() wins on a key both have. A page-level
+     * prefilter (a group, a date range, anything read from `$_GET` rather than a
+     * column search box) is invisible to the table's own AJAX params, so without
+     * this an export silently drops exactly the filters the admin had on screen —
+     * a wrong result, not an error. Set to `false` for a table with no such
+     * prefilters, or where the query string carries nothing `exportBatch()` should see.
+     * @var bool
+     */
+    public $exportIncludesQueryString = true;
+
+    /**
      * Enable or disable sorting of columns. Sorting of individual columns
      * can be disabled by the "bSortable" option for each column.
      * @var boolean
@@ -1041,6 +1053,13 @@ table;
                 $exportColumns,
                 JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
             );
+            // A page-level prefilter (a group, a date range — anything read from $_GET
+            // rather than a column search box) never reaches the table's own ajax.params().
+            // Merge the query string in first so exportBatch() sees it too; ajax.params()
+            // wins on a key both carry, since it is the more current of the two.
+            $exportFiltersJs = $this->exportIncludesQueryString
+                ? "jQuery.extend({}, Object.fromEntries(new URLSearchParams(window.location.search)), {$jsVar}.api().ajax.params())"
+                : "{$jsVar}.api().ajax.params()";
             $exportJs = <<<exportjs
 
     var pf40_exportBase_{$jsVar} = {$exportBaseJs};
@@ -1057,7 +1076,7 @@ table;
             {
                 class: {$exportClassJs},
                 columns: {$exportColumnsJs},
-                filters: {$jsVar}.api().ajax.params()
+                filters: {$exportFiltersJs}
             }
         ).done(function (resp) {
             var taskid = resp && resp.taskid;

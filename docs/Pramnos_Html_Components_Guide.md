@@ -1235,6 +1235,14 @@ The export runs in batches (`1500` rows by default) inside one database transact
 skipped or duplicated — every batch reads the same snapshot. See the Queue Guide for the
 task itself.
 
+**`$filters` is the page's query string merged with the table's own AJAX params** — in that
+order, so `table.ajax.params()` wins a key both carry. A page-level prefilter (a group, a
+date range — anything an admin screen reads from `$_GET` rather than a column search box)
+never reaches `ajax.params()` on its own; without the merge an export would silently drop
+exactly the filters the admin had on screen, a wrong result rather than an error.
+`$table->exportIncludesQueryString = false` turns this off for a table with no such
+prefilters, or where the query string carries nothing `exportBatch()` should read.
+
 ### Reading the query a filter produced
 
 ```php
