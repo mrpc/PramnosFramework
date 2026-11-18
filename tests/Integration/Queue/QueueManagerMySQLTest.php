@@ -329,6 +329,49 @@ class QueueManagerMySQLTest extends TestCase
         $this->assertStringContainsString('Anything', (string) $row->fields['payload']);
     }
 
+    /**
+     * `recordPoll()` writes `last_polled_at`, and `recentlyPolled()` reads it
+     * back as "yes, within the window" right after — the pair the background
+     * export modal's own polling, and the task deciding whether to push a
+     * ready notification, both rely on.
+     */
+    public function testRecordPollMakesRecentlyPolledTrue(): void
+    {
+        // Arrange
+        $taskId = $this->manager->addTask('datatable.export', ['class' => 'Anything']);
+
+        // Act
+        $this->manager->recordPoll($taskId);
+
+        // Assert
+        $this->assertTrue($this->manager->recentlyPolled($taskId));
+    }
+
+    /** A task nobody has polled yet (or ever) is not "recently polled". */
+    public function testRecentlyPolledIsFalseWithNoPoll(): void
+    {
+        // Arrange
+        $taskId = $this->manager->addTask('datatable.export', ['class' => 'Anything']);
+
+        // Act + Assert
+        $this->assertFalse($this->manager->recentlyPolled($taskId));
+    }
+
+    /** A poll older than the window no longer counts as "recent". */
+    public function testRecentlyPolledIsFalseOnceTheWindowHasPassed(): void
+    {
+        // Arrange
+        $taskId = $this->manager->addTask('datatable.export', ['class' => 'Anything']);
+        $this->manager->recordPoll($taskId);
+        $anHourAgo = date('Y-m-d H:i:s', time() - 3600);
+        $this->db->query(
+            "UPDATE queueitems SET last_polled_at = '{$anHourAgo}' WHERE taskid = {$taskId}"
+        );
+
+        // Act + Assert
+        $this->assertFalse($this->manager->recentlyPolled($taskId));
+    }
+
     // -------------------------------------------------------------------------
     // purgeOldTasks — the export CSV on disk
     // -------------------------------------------------------------------------

@@ -33,6 +33,25 @@ class DatatableExportReadyNotificationTest extends TestCase
         $this->assertSame(['mail'], $channels);
     }
 
+    /**
+     * `skipPush: true` drops the push channel even for an id that would
+     * otherwise have one checked — the requester polled recently enough that
+     * a push would only repeat the download link already on their screen.
+     * Mail is unaffected: a push being redundant does not make the mail
+     * notice redundant too.
+     */
+    public function testViaDropsPushWhenSkipPushIsTrue(): void
+    {
+        // Arrange
+        $notification = new DatatableExportReadyNotification('12 rows exported', '/export/download/9', skipPush: true);
+
+        // Act
+        $channels = $notification->via((object) ['userid' => 7, 'email' => 'x@example.com']);
+
+        // Assert
+        $this->assertSame(['mail'], $channels);
+    }
+
     /** The mail body carries the message and a working link to the download. */
     public function testToMailCarriesTheMessageAndTheDownloadLink(): void
     {

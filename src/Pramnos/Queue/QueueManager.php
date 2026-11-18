@@ -1144,6 +1144,65 @@ class QueueManager
     }
 
     /**
+     * Records that somebody just polled this task's status successfully — a
+     * direct single-column `UPDATE`, same reasoning as {@see updateProgress()}.
+     * {@see recentlyPolled()} reads it back to answer "is somebody watching this
+     * right now", without a real-time channel to whoever is polling.
+     *
+     * Takes a bare task id rather than a `QueueItem`: the caller polling a
+     * task's status (`DatatableExportActions::exportstatus()`, for one) often
+     * has only the id and a plain row object, not a full model instance.
+     *
+     * Silently does nothing on an installation that has not run the migration
+     * adding the column yet, for the same reason {@see updateProgress()} does.
+     */
+    public function recordPoll(int|string $taskId): void
+    {
+        $database = $this->controller->application->database;
+        if (!$database->schema()->hasColumn($this->getQueueTableName(), 'last_polled_at')) {
+            return;
+        }
+
+        $database->queryBuilder()
+            ->table($this->getQueueTableName())
+            ->where('taskid', $taskId)
+            ->update(['last_polled_at' => date('Y-m-d H:i:s')]);
+    }
+
+    /**
+     * Whether this task's status was polled within the last `$withinSeconds` —
+     * a heuristic for "is somebody actively watching this right now", so a
+     * notification due when the task finishes can skip a channel (push, say)
+     * that would only repeat what the watcher already sees on screen.
+     *
+     * Reads the row fresh rather than trusting a `QueueItem` a worker has held
+     * in memory for the whole run: the poll this answers comes from an
+     * unrelated request updating the same row concurrently.
+     *
+     * `false` on an installation that has not run the migration adding the
+     * column yet — nothing was ever recorded, so nobody can be "recently" doing it.
+     */
+    public function recentlyPolled(int|string $taskId, int $withinSeconds = 10): bool
+    {
+        $database = $this->controller->application->database;
+        if (!$database->schema()->hasColumn($this->getQueueTableName(), 'last_polled_at')) {
+            return false;
+        }
+
+        $row = $database->queryBuilder()
+            ->table($this->getQueueTableName())
+            ->where('taskid', $taskId)
+            ->first();
+
+        $lastPolledAt = is_object($row) ? ($row->fields['last_polled_at'] ?? null) : null;
+        if ($lastPolledAt === null || $lastPolledAt === '') {
+            return false;
+        }
+
+        return (time() - strtotime((string) $lastPolledAt)) <= $withinSeconds;
+    }
+
+    /**
      * Mark a task as completed with a non-fatal warning.
      *
      * @param  QueueItem    $task

@@ -130,6 +130,17 @@ to be a full `User`: a plain object with `userid`/`email` properties resolves th
 channels, so a task already holding those two values (as `DatatableExportTask` does, in
 its own payload) never reloads one just to notify it.
 
+**`QueueManager::recordPoll($taskId)` / `recentlyPolled($taskId, $withinSeconds = 10)`**
+are the other half of "how far am I": not what the task reports about itself, but whether
+anybody is actively watching it right now. A poller (`exportstatus()`, for one) calls
+`recordPoll()` on every successful check; a task about to send a notification on
+completion calls `recentlyPolled()` to decide whether a channel that would only repeat
+what the watcher already sees — a push, say — is worth sending at all.
+`DatatableExportTask` is the one example today, but neither method is specific to it:
+`last_polled_at` is a bare timestamp on the row, read fresh rather than trusted from a
+`QueueItem` a worker has held in memory for the whole run (a concurrent poll updates the
+same row from an unrelated request).
+
 **A worker takes only the task types it can run.** Not told which (`queue:process` without
 `--type`), it claims every type it has a handler for and no other. A task of a type this worker
 cannot run stays pending, attempts untouched, for the worker that can. `--type` narrows that list

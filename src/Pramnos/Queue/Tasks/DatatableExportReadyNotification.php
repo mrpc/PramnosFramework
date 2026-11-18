@@ -19,13 +19,27 @@ use Pramnos\Push\Subscriptions;
  */
 final class DatatableExportReadyNotification implements NotificationInterface
 {
-    public function __construct(private readonly string $message, private readonly string $url)
-    {
+    /**
+     * @param bool $skipPush Drop the push channel even where a subscription
+     *   exists — the requester polled this export's status recently enough
+     *   ({@see \Pramnos\Queue\QueueManager::recentlyPolled()}) that a push would
+     *   only repeat the download link already on their screen. Mail still
+     *   always goes out; that is a notification, a push would be a second one.
+     */
+    public function __construct(
+        private readonly string $message,
+        private readonly string $url,
+        private readonly bool $skipPush = false
+    ) {
     }
 
     /** @return list<string> */
     public function via(mixed $notifiable): array
     {
+        if ($this->skipPush) {
+            return ['mail'];
+        }
+
         $push = PushChannel::sends() && Subscriptions::exist((int) ($notifiable->userid ?? 0));
 
         return $push ? ['mail', 'push'] : ['mail'];

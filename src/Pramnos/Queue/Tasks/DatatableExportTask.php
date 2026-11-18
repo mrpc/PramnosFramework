@@ -212,7 +212,7 @@ class DatatableExportTask extends AbstractTask
             $url        = (defined('sURL') ? (string) sURL : '') . $exportBase
                 . '/exportdownload/' . $queueItem->taskid;
 
-            $this->sendReadyNotification($userId, $to, $url);
+            $this->sendReadyNotification($userId, $to, $url, $this->isBeingWatched($queueItem));
         } catch (\Throwable $exception) {
             \Pramnos\Logs\Logger::log(
                 'DatatableExportTask: failed to send the ready notification: ' . $exception->getMessage(),
@@ -229,13 +229,34 @@ class DatatableExportTask extends AbstractTask
      * that method's own `catch` swallows a failure here without a real outbox,
      * SMTP transport or push subscription involved.
      */
-    protected function sendReadyNotification(int $userId, string $to, string $url): void
+    protected function sendReadyNotification(int $userId, string $to, string $url, bool $skipPush = false): void
     {
         $notifiable = (object) ['userid' => $userId, 'email' => $to];
         (new \Pramnos\Notification\Notifier())->send(
             [$notifiable],
-            new DatatableExportReadyNotification($this->lastMessage, $url)
+            new DatatableExportReadyNotification($this->lastMessage, $url, $skipPush)
         );
+    }
+
+    /**
+     * Whether the requester's own `exportstatus()` polling touched
+     * `last_polled_at` recently enough that they are almost certainly still
+     * looking at the modal — in which case a push would only repeat the
+     * download link already on their screen. Best-effort, like
+     * {@see reportProgress()}: a controller with no usable database (a unit
+     * test's double) answers "not watched" rather than throwing.
+     */
+    private function isBeingWatched(QueueItem $queueItem): bool
+    {
+        if (!isset($this->controller->application->database)) {
+            return false;
+        }
+
+        try {
+            return (new QueueManager($this->controller))->recentlyPolled($queueItem->taskid);
+        } catch (\Throwable $exception) {
+            return false;
+        }
     }
 
     /**

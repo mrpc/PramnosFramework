@@ -1197,6 +1197,14 @@ migration), and `exportstatus()` carries it as `progress`. The modal's status li
 `scope: 'page'` never reports one — a single query finishes before the first poll would
 even land.
 
+**A "ready" push is skipped while the requester is still watching.** Every successful
+`exportstatus()` poll records it (`QueueManager::recordPoll()`); when `notify_email` is
+set and the export finishes, `DatatableExportTask` checks whether the status was polled
+within the last 10 seconds (`QueueManager::recentlyPolled()`, double the modal's 3-second
+polling interval) and drops the push channel if so — a push would only repeat the
+download link already on their screen. Mail is unaffected: it always goes out when
+`notify_email` is set, watched or not.
+
 `tableTools` keeps its own switch, and the two toolbars share one row rather than stacking
 two: with both `tableTools` and `backgroundExport` true, the native `copy`/`pdf`/`print`
 buttons stay, `excel`/`csv` drop out, and the export control takes their place in that

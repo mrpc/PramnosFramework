@@ -324,6 +324,27 @@ class DatatableExportActionsMySQLTest extends TestCase
         $this->assertNull($body['progress']);
     }
 
+    /**
+     * `exportstatus()` records this poll (`QueueManager::recordPoll()`) —
+     * `DatatableExportTask` reads it back at completion to decide whether a
+     * push notification would only repeat what the requester already sees.
+     */
+    public function testExportstatusRecordsThePoll(): void
+    {
+        // Arrange
+        $taskId = $this->insertExportItem(requestedBy: 7, status: 'processing', message: '');
+        $this->signIn(7);
+        $_GET['_option'] = (string) $taskId;
+        $controller = $this->makeController();
+
+        // Act
+        $this->captureJson(fn () => $controller->exportstatus($taskId));
+
+        // Assert
+        $row = $this->db->query("SELECT last_polled_at FROM queueitems WHERE taskid = {$taskId}");
+        $this->assertNotNull($row->fields['last_polled_at']);
+    }
+
     /** Nobody signed in may poll any export's status. */
     public function testExportstatusRefusesWhenSignedOut(): void
     {

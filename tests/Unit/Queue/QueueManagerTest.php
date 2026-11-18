@@ -661,6 +661,39 @@ class QueueManagerTest extends TestCase
 
     // ── purgeOldTasks() ───────────────────────────────────────────────────────
 
+    // ── updateProgress() / recordPoll() / recentlyPolled() — missing column ───
+
+    /**
+     * `recordPoll()` does nothing — not even an exception — on an installation
+     * that has not run the migration adding `last_polled_at` yet. A task
+     * reporting progress or recording a poll is a courtesy to whatever is
+     * watching it, not a precondition for the task to run.
+     */
+    public function testRecordPollDoesNothingWithoutTheColumn(): void
+    {
+        // Arrange — hasColumn() always false, as on an unmigrated installation
+        $database = new class {
+            public function schema(): object
+            {
+                return new class { public function hasColumn(string $t, string $c): bool { return false; } };
+            }
+        };
+        $controller = new class($database) {
+            public object $application;
+            public function __construct(object $db) {
+                $this->application = new class($db) {
+                    public object $database;
+                    public function __construct(object $db) { $this->database = $db; }
+                };
+            }
+        };
+        $manager = new QueueManager($controller);
+
+        // Act + Assert — no exception, despite query()/queryBuilder() not existing on the double
+        $manager->recordPoll(1);
+        $this->assertFalse($manager->recentlyPolled(1));
+    }
+
     /**
      * purgeOldTasks() must execute a DELETE query and return the affected row count.
      * The default status list is ['completed', 'failed'] and default table is 'queueitems'.

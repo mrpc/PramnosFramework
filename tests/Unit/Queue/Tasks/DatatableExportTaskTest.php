@@ -233,6 +233,43 @@ class DatatableExportTaskTest extends TestCase
         $this->assertTrue($task->sendReadyEmailCalled);
     }
 
+    /**
+     * `isBeingWatched()` is best-effort, the same reasoning as
+     * {@see reportProgress()}: a controller with no usable database (every
+     * unit test's `new \stdClass()`) must answer "not watched" rather than
+     * throwing. `recentlyPolled()` actually finding a recent poll is covered
+     * end to end by `QueueManagerMySQLTest::testRecordPollMakesRecentlyPolledTrue()`
+     * — that needs a real `queueitems` row, which this suite's stdClass
+     * controller deliberately avoids.
+     */
+    public function testIsBeingWatchedIsFalseWithNoUsableController(): void
+    {
+        // Arrange
+        $task = new ConcreteDatatableExportTask(new \stdClass());
+        $item = $this->makeQueueItem(json_encode(['class' => FakeExportableSource::class]));
+
+        // Act + Assert
+        $this->assertFalse($task->publicIsBeingWatched($item));
+    }
+
+    /**
+     * `notifyByEmail()` forwards `isBeingWatched()`'s answer into
+     * `sendReadyNotification()`'s `$skipPush` — the one-line wiring that
+     * decides whether `DatatableExportReadyNotification::via()` drops push.
+     */
+    public function testNotifyByEmailPassesIsBeingWatchedAsSkipPush(): void
+    {
+        // Arrange
+        $task = new CapturingNotifyDatatableExportTask(new \stdClass());
+        $item = $this->makeQueueItem(json_encode(['class' => FakeExportableSource::class]));
+
+        // Act
+        $task->publicNotifyByEmail(['notify_to' => 'someone@example.com'], $item);
+
+        // Assert — no usable controller -> not watched -> push is not skipped
+        $this->assertSame([false], $task->skipPushValuesSeen);
+    }
+
     // ── validate() ────────────────────────────────────────────────────────────
 
     /** A payload naming a class that is not an Exportable must not validate. */
@@ -511,6 +548,13 @@ class ConcreteDatatableExportTask extends DatatableExportTask
         return $ref->invoke($this, $csv);
     }
 
+    public function publicIsBeingWatched(QueueItem $queueItem): bool
+    {
+        $ref = new \ReflectionMethod(DatatableExportTask::class, 'isBeingWatched');
+
+        return $ref->invoke($this, $queueItem);
+    }
+
     public function publicReportProgress(QueueItem $queueItem, int $current): void
     {
         $ref = new \ReflectionMethod(DatatableExportTask::class, 'reportProgress');
@@ -527,10 +571,29 @@ class ThrowingNotifyDatatableExportTask extends DatatableExportTask
 {
     public bool $sendReadyEmailCalled = false;
 
-    protected function sendReadyNotification(int $userId, string $to, string $url): void
+    protected function sendReadyNotification(int $userId, string $to, string $url, bool $skipPush = false): void
     {
         $this->sendReadyEmailCalled = true;
         throw new \RuntimeException('simulated send failure');
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function publicNotifyByEmail(array $payload, QueueItem $queueItem): void
+    {
+        $ref = new \ReflectionMethod(DatatableExportTask::class, 'notifyByEmail');
+        $ref->invoke($this, $payload, $queueItem);
+    }
+}
+
+/** Records every `$skipPush` value `notifyByEmail()` passes through, instead of sending anything. */
+class CapturingNotifyDatatableExportTask extends DatatableExportTask
+{
+    /** @var list<bool> */
+    public array $skipPushValuesSeen = [];
+
+    protected function sendReadyNotification(int $userId, string $to, string $url, bool $skipPush = false): void
+    {
+        $this->skipPushValuesSeen[] = $skipPush;
     }
 
     /** @param array<string, mixed> $payload */

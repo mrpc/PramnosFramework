@@ -211,6 +211,11 @@ trait DatatableExportActions
      * per batch (`QueueManager::updateProgress()`) — `null` where nothing has
      * been reported yet (a fast `scope: 'page'` export, or an installation that
      * has not run the migration adding the column).
+     *
+     * Also records this poll (`QueueManager::recordPoll()`) — `DatatableExportTask`
+     * reads it back at completion to tell whether the requester is actively
+     * watching right now, and skip a push notification that would only repeat
+     * what they already see on screen.
      */
     public function exportstatus(mixed $id = null): void
     {
@@ -218,6 +223,8 @@ trait DatatableExportActions
         if ($item === null) {
             return;
         }
+
+        (new QueueManager($this))->recordPoll((int) $item->taskid);
 
         \Pramnos\Framework\Factory::getDocument('json');
         echo json_encode([
