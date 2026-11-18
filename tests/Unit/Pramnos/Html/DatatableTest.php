@@ -322,6 +322,13 @@ class DatatableTest extends TestCase
                 . $dt->name . '.api().ajax.params())',
             $js
         );
+        // Assert — _csrf_token is posted, so a controller that (correctly) puts
+        // queueexport() in addWriteAction() does not fail Controller::isVerifiedWrite()
+        // on every click. The session's own token, not a hardcoded placeholder.
+        $this->assertStringContainsString(
+            '_csrf_token: ' . json_encode(\Pramnos\Http\Middleware\CsrfMiddleware::token()),
+            $js
+        );
     }
 
     /**

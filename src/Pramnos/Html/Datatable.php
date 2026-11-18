@@ -1039,6 +1039,11 @@ table;
             $failedLbl       = self::js($lang->_('Export failed'));
             $exportBaseJs    = self::js($exportBase);
             $exportClassJs   = self::js($this->exportModelClass);
+            // queueexport() starts a background job, so a controller is expected to put it
+            // in addWriteAction() — which Controller::isVerifiedWrite() checks against
+            // _csrf_token/X-CSRF-Token. Without this the button's POST always fails that
+            // check once a controller does the right thing and protects the action.
+            $exportCsrfJs    = self::js(\Pramnos\Http\Middleware\CsrfMiddleware::token());
             // Built from aoColumns (same pf-no-export convention as the native
             // tableTools exportOptions above), not from DataTables' own
             // ajax.params().columns[] — those carry {data,name,...}, never a label.
@@ -1076,7 +1081,8 @@ table;
             {
                 class: {$exportClassJs},
                 columns: {$exportColumnsJs},
-                filters: {$exportFiltersJs}
+                filters: {$exportFiltersJs},
+                _csrf_token: {$exportCsrfJs}
             }
         ).done(function (resp) {
             var taskid = resp && resp.taskid;

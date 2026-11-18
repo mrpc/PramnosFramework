@@ -1224,6 +1224,9 @@ Three things make the button work:
 
    The allow-list exists because `class` arrives in the POST body: without it, queueing
    would hand a signed-in user's request straight to `new $class(...)` with no check at all.
+   `addWriteAction(['queueexport'])` needs nothing further from you — the button's own
+   request already carries the session's CSRF token (`_csrf_token`), so it passes
+   `Controller::isVerifiedWrite()` without you having to wire that up yourself.
 
 3. **Nothing else** — `queueexport()`/`exportstatus($id)`/`exportdownload($id)` queue a
    `Pramnos\Queue\Tasks\DatatableExportTask`, poll its status, and stream the finished file.
