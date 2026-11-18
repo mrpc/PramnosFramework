@@ -120,7 +120,7 @@ class Datatable extends Base
     /**
      * Opt this server-side table into background CSV export, for a filtered set too
      * large to hand over in one request even capped at `Datasource::$unlimitedCap`.
-     * When true, a generic "Export CSV" button and polling script render alongside
+     * When true, a generic "Export" button and polling script render alongside
      * whatever `tableTools` already renders — `tableTools` keeps its own on/off switch;
      * set it `false` to show only the background export button. The "All"/`-1` entry is
      * still dropped from the default length menu, since the page itself stays a page.
@@ -913,7 +913,7 @@ embed;
                 // A plain function reference — exportJs defines pf40_openExportModal_*
                 // right after this init call runs; the button only calls it on click,
                 // long after the variable is assigned.
-                $buttonDefs[] = '{"text": ' . self::js($lang->_('Export CSV'))
+                $buttonDefs[] = '{"text": ' . self::js($lang->_('Export'))
                     . ', "action": function(e, dt, node, config) { pf40_openExportModal_' . $jsVar . '(jQuery(node)); }}';
                 $tabletools = ' buttons : [' . implode(', ', $buttonDefs) . '],';
             } else {
@@ -1051,9 +1051,9 @@ table;
             $exportBase = $this->exportBase !== ''
                 ? $this->exportBase
                 : preg_replace('#/[^/]*$#', '', $this->source);
-            $exportLabel     = self::js($lang->_('Export CSV'));
+            $exportLabel     = self::js($lang->_('Export'));
             $exportingLbl    = self::js($lang->_('Exporting...'));
-            $readyLbl        = self::js($lang->_('Download CSV'));
+            $readyLbl        = self::js($lang->_('Download'));
             $failedLbl       = self::js($lang->_('Export failed'));
             $startLbl        = self::js($lang->_('Start export'));
             $cancelLbl       = self::js($lang->_('Cancel'));

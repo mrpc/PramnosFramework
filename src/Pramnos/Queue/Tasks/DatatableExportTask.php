@@ -220,7 +220,7 @@ class DatatableExportTask extends AbstractTask
             ->setSubject(\Pramnos\Framework\Factory::getLanguage()->_('Your export is ready'))
             ->setTo($to)
             ->setBody('<p>' . $this->lastMessage . '.</p><p><a href="' . htmlspecialchars($url, ENT_QUOTES) . '">'
-                . \Pramnos\Framework\Factory::getLanguage()->_('Download CSV') . '</a></p>')
+                . \Pramnos\Framework\Factory::getLanguage()->_('Download') . '</a></p>')
             ->queue();
     }
 
