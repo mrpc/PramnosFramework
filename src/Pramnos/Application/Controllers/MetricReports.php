@@ -424,7 +424,7 @@ class MetricReports extends Controller
                 . '</title><p>' . htmlspecialchars(t('This link does not work any more.'), ENT_QUOTES, 'UTF-8') . '</p>', 404);
         }
         $at = self::day((string) ($_GET['at'] ?? ''));
-        \Pramnos\Auth\AuditLog::record('metrics.shared_link.opened', null, null, ['report' => $entry['id']], 'metric_link', $row['token']);
+        \Pramnos\Auth\AuditLog::record('metrics.shared_link.opened', null, null, ['report' => $entry['id']], 'metric_link', (string) ($_GET['token'] ?? ''));
         try {
             $body = ReportBoard::html($entry, $at, $maker);
         } finally {

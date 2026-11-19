@@ -30,7 +30,10 @@ class CreateMetricLinksTable extends Migration
         }
         $schema->createTable('pramnos.metric_links', function ($table) {
             $table->comment('Signed links that open a saved report without an account');
-            $table->string('token', 64)->primary();
+            // A SHA-256 hex digest of the bearer token, never the token itself: anyone who can
+            // read this table should not be handed a live credential straight out of it. The
+            // real token exists only in memory at create() and in the URL the caller shares.
+            $table->string('token_lookup', 64)->primary();
             $table->string('report_id', 100);
             $table->integer('made_by')->unsigned();
             $table->integer('created_at')->unsigned();

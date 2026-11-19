@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Pramnos\Metrics;
 
+use Pramnos\User\Roles;
+
 /**
  * A signed, expiring, revocable link that opens one saved report without an account — BI phase
  * 7f, `docs/Metrics-BI-Design.md` §15.1.3. Read with the scope of whoever made it: the link keeps
@@ -31,12 +33,12 @@ final class SharedLinks
         }
         $token = bin2hex(random_bytes(24));
         self::db()->queryBuilder()->table(self::TABLE)->insert([
-            'token'      => $token,
-            'report_id'  => $reportId,
-            'made_by'    => (int) ($user->userid ?? 0),
-            'created_at' => time(),
-            'expires_at' => $days !== null ? time() + max(1, $days) * 86400 : null,
-            'revoked_at' => null,
+            'token_lookup' => self::lookup($token),
+            'report_id'    => $reportId,
+            'made_by'      => (int) ($user->userid ?? 0),
+            'created_at'   => time(),
+            'expires_at'   => $days !== null ? time() + max(1, $days) * 86400 : null,
+            'revoked_at'   => null,
         ]);
 
         return $token;
@@ -45,7 +47,7 @@ final class SharedLinks
     /**
      * The row behind a token — null where there is none, it was revoked, or it has expired.
      *
-     * @return array{token: string, report_id: string, made_by: int, created_at: int, expires_at: ?int, revoked_at: ?int}|null
+     * @return array{report_id: string, made_by: int, created_at: int, expires_at: ?int, revoked_at: ?int}|null
      */
     public static function resolve(string $token): ?array
     {
@@ -53,14 +55,14 @@ final class SharedLinks
             return null;
         }
         // first() always answers a Result, never null — numRows says whether it matched.
-        $found = self::db()->queryBuilder()->table(self::TABLE)->where('token', $token)->first();
+        $found = self::db()->queryBuilder()->table(self::TABLE)->where('token_lookup', self::lookup($token))->first();
         $row   = $found->numRows > 0 ? $found->fields : null;
         if ($row === null || $row['revoked_at'] !== null || ($row['expires_at'] !== null && (int) $row['expires_at'] <= time())) {
             return null;
         }
 
         return [
-            'token' => (string) $row['token'], 'report_id' => (string) $row['report_id'], 'made_by' => (int) $row['made_by'],
+            'report_id' => (string) $row['report_id'], 'made_by' => (int) $row['made_by'],
             'created_at' => (int) $row['created_at'], 'expires_at' => $row['expires_at'] !== null ? (int) $row['expires_at'] : null,
             'revoked_at' => null,
         ];
@@ -69,13 +71,20 @@ final class SharedLinks
     /** Takes a link away — only its own maker, or an administrator. */
     public static function revoke(string $token, object $user): bool
     {
-        $found = self::db()->queryBuilder()->table(self::TABLE)->where('token', $token)->first();
-        $row   = $found->numRows > 0 ? $found->fields : null;
-        if ($row === null || ((int) $row['made_by'] !== (int) ($user->userid ?? 0) && (int) ($user->usertype ?? 0) < 97)) {
+        $lookup = self::lookup($token);
+        $found  = self::db()->queryBuilder()->table(self::TABLE)->where('token_lookup', $lookup)->first();
+        $row    = $found->numRows > 0 ? $found->fields : null;
+        if ($row === null || ((int) $row['made_by'] !== (int) ($user->userid ?? 0) && !Roles::atLeast($user, Roles::ADMIN))) {
             return false;
         }
 
-        return self::db()->queryBuilder()->table(self::TABLE)->where('token', $token)->update(['revoked_at' => time()])->getAffectedRows() > 0;
+        return self::db()->queryBuilder()->table(self::TABLE)->where('token_lookup', $lookup)->update(['revoked_at' => time()])->getAffectedRows() > 0;
+    }
+
+    /** The deterministic value a token is looked up by — never the token itself. */
+    private static function lookup(string $token): string
+    {
+        return hash('sha256', $token);
     }
 
     private static function db(): \Pramnos\Database\Database
