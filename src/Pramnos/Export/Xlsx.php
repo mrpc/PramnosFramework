@@ -14,7 +14,10 @@ namespace Pramnos\Export;
  *
  * Each sheet is rows of cells. A number — an int, a float, or a string that reads as one in the
  * plain form `-12.5` — is written as a number, so it adds up in the spreadsheet; everything else
- * as text. The first row is bold. Text is written inline, not shared: small files, one pass.
+ * as text, through a shared strings table (`xl/sharedStrings.xml`) rather than inline — Excel's
+ * own writer does the same, and a real multi-thousand-row export with inline strings (schema-valid,
+ * every outside tool happy with it) still made Excel itself report "we found a problem with some
+ * content" on nothing a small file ever reproduced. The first row is bold.
  */
 final class Xlsx
 {
@@ -53,13 +56,28 @@ final class Xlsx
             . '<Default Extension="xml" ContentType="application/xml"/>'
             . '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
             . '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+            . '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>'
             . implode('', array_map(static fn (int $n): string => '<Override PartName="/xl/worksheets/sheet' . $n . '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>', array_keys($names)))
             . '</Types>');
-        $i = 0;
+        // Collected across every sheet, in one pass — a shared strings table is a single
+        // workbook-level part, so every sheet's text has to be gathered before any of
+        // them is written. $strings keeps text => index in first-seen order; the same
+        // order <si> entries are written in below.
+        $strings    = [];
+        $totalRefs  = 0;
+        $sheetsXml  = [];
         foreach ($sheets as $rows) {
-            $i++;
-            $zip->addFromString('xl/worksheets/sheet' . $i . '.xml', self::sheet($rows));
+            $sheetsXml[] = self::sheet($rows, $strings, $totalRefs);
         }
+        $i = 0;
+        foreach ($sheetsXml as $xml) {
+            $i++;
+            $zip->addFromString('xl/worksheets/sheet' . $i . '.xml', $xml);
+        }
+        $zip->addFromString('xl/sharedStrings.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="' . $totalRefs . '" uniqueCount="' . count($strings) . '">'
+            . implode('', array_map(static fn (string $s): string => '<si><t xml:space="preserve">' . self::e($s) . '</t></si>', array_keys($strings)))
+            . '</sst>');
         $zip->addFromString('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
@@ -72,6 +90,7 @@ final class Xlsx
             . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             . implode('', array_map(static fn (int $n): string => '<Relationship Id="rId' . $n . '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' . $n . '.xml"/>', array_keys($names)))
             . '<Relationship Id="rId' . (count($names) + 1) . '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+            . '<Relationship Id="rId' . (count($names) + 2) . '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>'
             . '</Relationships>');
         // Two styles: plain, and bold for the first row.
         $zip->addFromString('xl/styles.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -112,8 +131,15 @@ final class Xlsx
         return self::write([$sheet => $rows]);
     }
 
-    /** One sheet's XML. @param list<list<scalar|null>> $rows */
-    private static function sheet(array $rows): string
+    /**
+     * One sheet's XML. Text cells reference `$strings` (text => index, shared across every
+     * sheet in the workbook) instead of carrying their own text, and `$totalRefs` counts
+     * every such reference — both feed `xl/sharedStrings.xml`'s `count`/`uniqueCount`.
+     *
+     * @param list<list<scalar|null>> $rows
+     * @param array<string, int> $strings
+     */
+    private static function sheet(array $rows, array &$strings, int &$totalRefs): string
     {
         $xml     = '';
         $maxCols = 0;
@@ -127,9 +153,14 @@ final class Xlsx
                 }
                 $ref   = self::column($c) . ($r + 1);
                 $style = $r === 0 ? ' s="1"' : '';
-                $xml  .= is_int($value) || is_float($value) || (is_string($value) && preg_match('/^-?(0|[1-9]\d*)(\.\d+)?$/', $value) === 1)
-                    ? '<c r="' . $ref . '"' . $style . '><v>' . $value . '</v></c>'
-                    : '<c r="' . $ref . '"' . $style . ' t="inlineStr"><is><t xml:space="preserve">' . self::e((string) $value) . '</t></is></c>';
+                if (is_int($value) || is_float($value) || (is_string($value) && preg_match('/^-?(0|[1-9]\d*)(\.\d+)?$/', $value) === 1)) {
+                    $xml .= '<c r="' . $ref . '"' . $style . '><v>' . $value . '</v></c>';
+                    continue;
+                }
+                $text = (string) $value;
+                $totalRefs++;
+                $strings[$text] ??= count($strings);
+                $xml .= '<c r="' . $ref . '"' . $style . ' t="s"><v>' . $strings[$text] . '</v></c>';
             }
             $xml .= '</row>';
         }

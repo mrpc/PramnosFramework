@@ -10,9 +10,9 @@ use Pramnos\Export\Xlsx;
 
 /**
  * The spreadsheet writer: a workbook of the parts a spreadsheet needs, each sheet named as Excel
- * allows, numbers written as numbers (so they add up) and the rest as text, the first row bold,
- * columns past Z lettered AA…, characters XML refuses left out, and a CSV — with its byte-order
- * mark — read in as a sheet.
+ * allows, numbers written as numbers (so they add up) and the rest as text through a shared
+ * strings table, the first row bold, columns past Z lettered AA…, characters XML refuses left
+ * out, and a CSV — with its byte-order mark — read in as a sheet.
  */
 #[CoversClass(Xlsx::class)]
 final class XlsxTest extends TestCase
@@ -51,16 +51,34 @@ final class XlsxTest extends TestCase
         // and Excel is known to reject an otherwise well-formed .xlsx that puts it later
         // (reported as "we found a problem with some content" on an export this produced
         // with sheet1.xml first).
-        $this->assertSame(['[Content_Types].xml', 'xl/worksheets/sheet1.xml', 'xl/worksheets/sheet2.xml', '_rels/.rels', 'xl/workbook.xml', 'xl/_rels/workbook.xml.rels', 'xl/styles.xml'], array_keys($parts));
+        $this->assertSame(
+            ['[Content_Types].xml', 'xl/worksheets/sheet1.xml', 'xl/worksheets/sheet2.xml', 'xl/sharedStrings.xml', '_rels/.rels', 'xl/workbook.xml', 'xl/_rels/workbook.xml.rels', 'xl/styles.xml'],
+            array_keys($parts)
+        );
         $this->assertStringContainsString('<sheet name="Sales  2026 09" sheetId="1"', $parts['xl/workbook.xml'], 'a name Excel allows');
         $this->assertStringContainsString('<sheet name="Sheet2" sheetId="2"', $parts['xl/workbook.xml'], 'no name: one made');
-        $sheet = $parts['xl/worksheets/sheet1.xml'];
-        $this->assertStringContainsString('<c r="A1" s="1" t="inlineStr"><is><t xml:space="preserve">Region</t></is></c>', $sheet, 'the first row bold');
+        $sheet  = $parts['xl/worksheets/sheet1.xml'];
+        $shared = $parts['xl/sharedStrings.xml'];
+        // Text cells reference the shared strings table by index (first-seen order:
+        // "Region"=0, "Orders"=1, "Share"=2, "North"=3, "Νότος"=4, the escaped one=5),
+        // rather than carrying their own text inline — what Excel's own writer does,
+        // and what large, schema-valid inline-string exports still tripped its repair
+        // prompt on.
+        $this->assertStringContainsString('<c r="A1" s="1" t="s"><v>0</v></c>', $sheet, 'the first row bold, referencing shared string 0');
+        $this->assertStringContainsString(
+            '<si><t xml:space="preserve">Region</t></si><si><t xml:space="preserve">Orders</t></si><si><t xml:space="preserve">Share</t></si>',
+            $shared,
+            'shared strings written in first-seen order'
+        );
         $this->assertStringContainsString('<c r="B2"><v>12</v></c><c r="C2"><v>0.5</v></c>', $sheet, 'numbers as numbers');
         $this->assertStringContainsString('<c r="B3"><v>7</v></c>', $sheet, 'a string that reads as a number');
-        $this->assertStringContainsString('<t xml:space="preserve">a &amp; &lt;b&gt;</t>', $sheet, 'escaped, and a control character left out');
+        $this->assertStringContainsString('<si><t xml:space="preserve">a &amp; &lt;b&gt;</t></si>', $shared, 'escaped, and a control character left out');
         $this->assertStringContainsString('<c r="A4"><v>-3.25</v></c></row>', $sheet, 'empty cells left out');
         $this->assertStringContainsString('<c r="AB1"', $parts['xl/worksheets/sheet2.xml'], 'the 28th column');
+        // Assert — the table's own counts: 34 text cells reference it in total (6 in
+        // sheet1 — 3 header cells, "North", "Νότος", the escaped one — plus 28 "x"
+        // cells in sheet2, all sharing the SAME index), but only 7 distinct strings exist.
+        $this->assertStringContainsString('count="34" uniqueCount="7"', $shared, 'every reference counted, duplicates not');
     }
 
     /**
@@ -81,6 +99,27 @@ final class XlsxTest extends TestCase
         );
     }
 
+    /**
+     * `xl/sharedStrings.xml` is a real part, declared in `[Content_Types].xml` and
+     * related to from `xl/_rels/workbook.xml.rels` — without both, a reader has no way
+     * to resolve a text cell's `t="s"` index back into actual text.
+     */
+    public function testSharedStringsIsDeclaredAndRelated(): void
+    {
+        // Act
+        $parts = self::parts(Xlsx::write(['Sheet1' => [['A']]]));
+
+        // Assert
+        $this->assertStringContainsString(
+            '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>',
+            $parts['[Content_Types].xml']
+        );
+        $this->assertStringContainsString(
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"',
+            $parts['xl/_rels/workbook.xml.rels']
+        );
+    }
+
     /** A CSV export, byte-order mark and quoted commas, as one sheet. */
     public function testACsvAsASheet(): void
     {
@@ -89,8 +128,12 @@ final class XlsxTest extends TestCase
 
         // Assert
         $this->assertStringContainsString('<sheet name="Report"', $parts['xl/workbook.xml']);
-        $this->assertStringContainsString('<t xml:space="preserve">section</t>', $parts['xl/worksheets/sheet1.xml'], 'no byte-order mark in the first cell');
-        $this->assertStringContainsString('<t xml:space="preserve">North, east</t></is></c><c r="C2"><v>6</v></c>', $parts['xl/worksheets/sheet1.xml']);
+        // "section" is the very first shared string (index 0): no byte-order mark made it
+        // into the cell's text, which a BOM-prefixed "section" would have kept out of it.
+        $this->assertStringContainsString('<si><t xml:space="preserve">section</t></si>', $parts['xl/sharedStrings.xml'], 'no byte-order mark in the first cell');
+        $this->assertStringContainsString('<c r="A1" s="1" t="s"><v>0</v></c>', $parts['xl/worksheets/sheet1.xml']);
+        $this->assertStringContainsString('<si><t xml:space="preserve">North, east</t></si>', $parts['xl/sharedStrings.xml']);
+        $this->assertStringContainsString('<c r="C2"><v>6</v></c>', $parts['xl/worksheets/sheet1.xml']);
         $this->assertStringNotContainsString('<row r="3">', $parts['xl/worksheets/sheet1.xml'], 'a blank line is no row');
     }
 

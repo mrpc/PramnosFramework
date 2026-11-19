@@ -214,10 +214,12 @@ class DatatableExportTaskMySQLTest extends TestCase
         $this->assertFileExists($path);
         $zip = new \ZipArchive();
         $this->assertTrue($zip->open($path) === true, 'the .xlsx must open as a valid zip archive');
-        $sheet = (string) $zip->getFromName('xl/worksheets/sheet1.xml');
+        // The row data is text, carried through the shared strings table (Xlsx::write()'s
+        // own convention, what Excel's own writer does too), not inline in sheet1.xml.
+        $shared = (string) $zip->getFromName('xl/sharedStrings.xml');
         $zip->close();
-        $this->assertStringContainsString('Alpha', $sheet);
-        $this->assertStringContainsString('Beta', $sheet);
+        $this->assertStringContainsString('Alpha', $shared);
+        $this->assertStringContainsString('Beta', $shared);
         $this->assertFileDoesNotExist(DatatableExportTask::filePath($item->taskid, 'csv') . '.tmp');
     }
 
