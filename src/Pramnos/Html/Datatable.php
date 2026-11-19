@@ -1090,10 +1090,15 @@ table;
             // not), the same positional index "data": N uses above — NOT the aoColumns
             // array key (addColumn()'s $label), which is a display string with no
             // guaranteed relation to how exportBatch() rows are keyed.
+            // Deliberately ignores bVisible — "All columns" means every column the table
+            // ever offers for export, not only the ones visible when the page first
+            // rendered. A grid with most columns hidden by default (only revealed through
+            // the show/hide picker) used to export just that handful under a label that
+            // said "All"; "Selected columns" (below) is what covers "only what I can see".
             $exportColumns = [];
             $colIdx = 0;
             foreach ($this->aoColumns as $column) {
-                if ($column->bVisible && !str_contains(' ' . $column->sClass . ' ', ' pf-no-export ')) {
+                if (!str_contains(' ' . $column->sClass . ' ', ' pf-no-export ')) {
                     $exportColumns[] = [
                         'key'   => $column->exportKey ?? $colIdx,
                         'label' => (string) $column->sTitle,
@@ -1105,11 +1110,10 @@ table;
                 $exportColumns,
                 JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
             );
-            // Same convention, but ignoring bVisible — the show/hide picker
-            // (fnSetColumnVis()) can reveal a column that started hidden, so
-            // "Selected columns" needs every exportable column on offer, not only
-            // the ones visible at render time. colIdx matches fnSettings().aoColumns[n],
-            // the same index showHideJs above toggles.
+            // The same candidate list as $exportColumns above, plus each column's
+            // colIdx — "Selected columns" filters this pool by LIVE bVisible at click
+            // time (fnSettings().aoColumns[n], the same index showHideJs toggles), so
+            // it needs every exportable column on offer, not only the current default.
             $exportAllColumnsJs = 'null';
             // Only offered when a show/hide picker exists — without one, every
             // column is always visible and "Selected columns" would be a second

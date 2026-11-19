@@ -544,8 +544,9 @@ class DatatableTest extends TestCase
      * (`fnSettings().aoColumns[n].bVisible`, toggled by `fnSetColumnVis()`), not
      * from the server-rendered default — so a column hidden (or revealed) by the
      * admin after the page loaded is what gets exported, not what was visible at
-     * render time. This also covers "Hidden" (not visible at render) being on
-     * offer at all, which the "All columns" default list excludes entirely.
+     * render time. "All columns" also offers "Hidden" (not visible at render) —
+     * it ignores bVisible entirely — but only "Selected columns" filters by what
+     * is actually checked live when "Start export" is clicked.
      */
     public function testSelectedColumnsFiltersLiveVisibilityIncludingAColumnHiddenAtRenderTime(): void
     {
@@ -596,13 +597,13 @@ class DatatableTest extends TestCase
         );
         // Assert — the POST sends the computed `exportColumns` variable, not a static literal
         $this->assertStringContainsString('columns: exportColumns', $js);
-        // Assert — "Name" is column 0; its posted key is that position, not its label.
-        // Exactly one entry: "Actions" (pf-no-export) and "Hidden" (not visible at
-        // render time) are excluded from this "All columns" default fallback. (The
-        // separate live-visibility lookup used by "Selected columns" is allowed to
-        // list "Hidden" too — covered by testSelectedColumnsFiltersLiveVisibility...)
+        // Assert — "Name" is column 0, "Hidden" is column 2; their posted key is that
+        // position, not their label. "Actions" (pf-no-export) is the only one left
+        // out — "All columns" ignores bVisible, so "Hidden" (not visible at render
+        // time) is included, same as "Selected columns" would include it once
+        // revealed (covered by testSelectedColumnsFiltersLiveVisibility...).
         $this->assertStringContainsString(
-            json_encode([['key' => 0, 'label' => 'Name']]),
+            json_encode([['key' => 0, 'label' => 'Name'], ['key' => 2, 'label' => 'Hidden']]),
             $js
         );
         // Assert — filters merges the page's own query string (exportIncludesQueryString

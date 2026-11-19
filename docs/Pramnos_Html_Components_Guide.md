@@ -1207,12 +1207,13 @@ download link already on their screen. Mail is unaffected: it always goes out wh
 
 **"Selected columns" vs "All columns"** is a second radio pair, offered only when the table
 also has a show/hide picker (`$table->showHide`, true by default) — without one there is
-nothing to choose between, since every column stays visible. It defaults to "All columns",
-the same set the modal always sent before this choice existed: every exportable column
-(`pf-no-export` aside) that was visible when the page rendered. "Selected columns" reads the
-picker's LIVE state instead — `fnSettings().aoColumns[n].bVisible`, the same property
-`fnSetColumnVis()` toggles — at the moment "Start export" is clicked, so a column the admin
-hid (or revealed, even one hidden by default) after the page loaded is honoured either way.
+nothing to choose between, since every column stays visible. It defaults to "All columns":
+every exportable column (`pf-no-export` aside) the table ever declares, regardless of its
+initial `bVisible` — a grid where most columns start hidden by default (only revealed one
+at a time through the picker) exports every one of them, not just the handful visible when
+the page rendered. "Selected columns" instead reads the picker's LIVE state —
+`fnSettings().aoColumns[n].bVisible`, the same property `fnSetColumnVis()` toggles — at the
+moment "Start export" is clicked, so it exports only what the admin can currently see.
 Each radio pair — rows and columns — carries a small bold label ("Rows", "Columns") above
 it, so the two stay readable as two independent choices instead of one four-way group.
 
