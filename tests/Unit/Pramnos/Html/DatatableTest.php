@@ -458,6 +458,36 @@ class DatatableTest extends TestCase
         );
     }
 
+    /**
+     * The two radio pairs render as one unbroken block with nothing marking where
+     * "which rows" ends and "which columns" begins — reported after an owner read
+     * the four radios as one mutually-exclusive group instead of two independent
+     * choices. A bold label above each pair is the fix; this asserts both exist
+     * and sit in rows-then-columns order (the label's `div` renders inside the
+     * same string this group's radios do, so it has to appear right before them).
+     */
+    public function testRowsAndColumnsGroupsEachHaveALabelInOrder(): void
+    {
+        // Arrange
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->addColumn('Name');
+
+        // Act
+        $js = $dt->renderJs();
+
+        // Assert — both group labels are present
+        $this->assertStringContainsString('"Rows"', $js);
+        $this->assertStringContainsString('"Columns"', $js);
+        // Assert — "Rows" appears before its own scope radios, and before "Columns"
+        $rowsLabelPos  = strpos($js, '"Rows"');
+        $scopeRadioPos = strpos($js, 'class="pf40-export-scope"');
+        $columnsLabelPos = strpos($js, '"Columns"');
+        $this->assertLessThan($scopeRadioPos, $rowsLabelPos);
+        $this->assertLessThan($columnsLabelPos, $scopeRadioPos);
+    }
+
     /** Without a show/hide picker there is nothing to choose between, so the radios are not rendered. */
     public function testColumnsScopeRadiosAreOmittedWhenShowHideIsOff(): void
     {

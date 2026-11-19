@@ -1213,6 +1213,8 @@ the same set the modal always sent before this choice existed: every exportable 
 picker's LIVE state instead — `fnSettings().aoColumns[n].bVisible`, the same property
 `fnSetColumnVis()` toggles — at the moment "Start export" is clicked, so a column the admin
 hid (or revealed, even one hidden by default) after the page loaded is honoured either way.
+Each radio pair — rows and columns — carries a small bold label ("Rows", "Columns") above
+it, so the two stay readable as two independent choices instead of one four-way group.
 
 `tableTools` keeps its own switch, and the two toolbars share one row rather than stacking
 two: with both `tableTools` and `backgroundExport` true, the native `copy`/`pdf`/`print`

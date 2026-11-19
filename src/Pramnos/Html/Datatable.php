@@ -1059,6 +1059,7 @@ table;
             $cancelLbl       = self::js($lang->_('Cancel'));
             $allRowsLbl      = self::js($lang->_('All filtered rows'));
             $pageOnlyLbl     = self::js($lang->_('Current page only'));
+            $rowsGroupLbl    = self::js($lang->_('Rows'));
             $notifyLbl       = self::js($lang->_('Notify me by email when ready'));
             $myExportsLbl    = self::js($lang->_('My downloads'));
             $noExportsLbl    = self::js($lang->_('No exports yet.'));
@@ -1132,11 +1133,16 @@ table;
                 );
                 $allColumnsLbl      = self::js($lang->_('All columns'));
                 $selectedColumnsLbl = self::js($lang->_('Selected columns'));
+                $columnsGroupLbl    = self::js($lang->_('Columns'));
                 // Built the same way as the row-scope radios just above it — literal
                 // markup spliced into the modal's own `+`-concatenated JS string, not
                 // JSON-encoded as a value, so quotes stay literal quotes in the output.
+                // The bold group label is what tells the owner these two radio pairs
+                // are two separate decisions (which rows + which columns), not one
+                // four-way choice — reported after they looked identical with none.
                 $columnsScopeHtmlJs = <<<columnsscopehtml
                 '<div style="margin-bottom:10px;">'
+                + '<div style="font-weight:bold;font-size:12px;margin-bottom:2px;">' + {$columnsGroupLbl} + '</div>'
                 + '<label><input type="radio" name="pf40-export-columns-scope-{$jsVar}" class="pf40-export-columns-scope" value="all" checked> '
                 + {$allColumnsLbl} + '</label><br>'
                 + '<label><input type="radio" name="pf40-export-columns-scope-{$jsVar}" class="pf40-export-columns-scope" value="selected"> '
@@ -1192,6 +1198,7 @@ table;
         + '<option value="json">JSON</option>' + {$excelOptionJs} + '</select>'
         + '</label></div>'
         + '<div style="margin-bottom:10px;">'
+        + '<div style="font-weight:bold;font-size:12px;margin-bottom:2px;">' + {$rowsGroupLbl} + '</div>'
         + '<label><input type="radio" name="pf40-export-scope-{$jsVar}" class="pf40-export-scope" value="all" checked> '
         + {$allRowsLbl} + '</label><br>'
         + '<label><input type="radio" name="pf40-export-scope-{$jsVar}" class="pf40-export-scope" value="page"> '
