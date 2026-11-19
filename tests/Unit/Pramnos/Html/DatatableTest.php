@@ -401,11 +401,11 @@ class DatatableTest extends TestCase
     }
 
     /**
-     * A visual progress indicator while the export runs — a native `<progress>` with no
-     * `value`, which gets the browser's own animated/indeterminate bar for free. There is
-     * no total row count to show a real percentage against (an upfront `COUNT(*)` for
-     * every export was judged not worth its own cost here), so indeterminate is what this
-     * is, not a stand-in for a real one still to come.
+     * A visual progress indicator while the export runs — a native `<progress>`, built with
+     * no `value` so it starts as the browser's own animated/indeterminate bar. It stays that
+     * way for the whole run unless a known total turns up (see
+     * {@see testStartClickReadsTheGridsOwnKnownTotalForScopeAll}) — no upfront `COUNT(*)` of
+     * our own either way, since that was judged not worth its own cost on a large export.
      */
     public function testProgressAreaShowsAnIndeterminateBar(): void
     {
@@ -425,6 +425,36 @@ class DatatableTest extends TestCase
         $barTag = substr($barTag, 0, (int) strpos($barTag, '>') + 1);
         $this->assertNotSame('', $barTag, 'the bar element was found at all');
         $this->assertStringNotContainsString('value', $barTag);
+    }
+
+    /**
+     * The grid already ran the server-side request behind its own "Showing 1 to 25 of
+     * 502,145 entries" footer before "Start export" is ever clicked — DataTables' own
+     * `page.info().recordsDisplay`, the SAME filtered count "All filtered rows" exports.
+     * Reading it costs nothing new: no `COUNT(*)`, no change to `Exportable`. Only for
+     * scope `'all'` — a page export's own length is a different, far less interesting
+     * total, and finishes before a percentage would ever have time to show.
+     */
+    public function testStartClickReadsTheGridsOwnKnownTotalForScopeAll(): void
+    {
+        // Arrange
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->addColumn('Name');
+
+        // Act
+        $js = $dt->renderJs();
+
+        // Assert — read only when scope is 'all', from the table's own live DataTables API
+        $this->assertStringContainsString(
+            "var knownTotal = scope === 'all' ? (users.api().page.info().recordsDisplay || 0) : 0;",
+            $js
+        );
+        // Assert — a known total turns the bar determinate and the status text into a
+        // real percentage, computed from the SAME two numbers (no third query)
+        $this->assertStringContainsString('$progressBar.attr({value: status.progress, max: knownTotal})', $js);
+        $this->assertStringContainsString("Math.round(status.progress / knownTotal * 100)", $js);
     }
 
     /**

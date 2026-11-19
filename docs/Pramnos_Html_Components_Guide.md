@@ -1206,11 +1206,19 @@ download link already on their screen. Mail is unaffected: it always goes out wh
 `notify_email` is set, watched or not.
 
 **A visual progress bar, not just "N rows so far".** The progress area carries a native
-`<progress>` with no `value` — the browser's own animated, indeterminate bar, free of any
-CSS or JS timer of this component's own to keep in sync. It stays indeterminate rather than
-a real percentage because there is no total row count to show a share against: an upfront
-`COUNT(*)` on every export, just to drive a progress bar, was judged not worth its own cost
-here. It is removed the same way the status text is, once the export completes or fails.
+`<progress>` — the browser's own animated bar, free of any CSS keyframes or JS timer of
+this component's own to keep in sync. For `scope: 'all'`, a real percentage costs nothing
+extra: the grid already ran the server-side request behind its own "Showing 1 to 25 of
+502,145 entries" footer before "Start export" is ever clicked, so DataTables'
+`page.info().recordsDisplay` — the SAME filtered count — is read straight off the live
+table instance, no `COUNT(*)` and no `Exportable` interface change. It is not the SAME
+snapshot the export's own `REPEATABLE READ` transaction reads, so on a table that keeps
+changing between opening the modal and the export finishing, the percentage can land
+slightly over 100% or short of it — acceptable for a progress indicator, not a reason to
+query again. `scope: 'page'` keeps the bar indeterminate (no `value`): it finishes before a
+percentage would ever have time to show, and its own length is a far less interesting total
+anyway. Either way it is removed the same way the status text is, once the export completes
+or fails.
 
 **"Selected columns" vs "All columns"** is a second radio pair, offered only when the table
 also has a show/hide picker (`$table->showHide`, true by default) — without one there is

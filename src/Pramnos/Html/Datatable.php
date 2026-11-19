@@ -1324,15 +1324,26 @@ table;
             }).map(function (c) { return {key: c.key, label: c.label}; })
             : {$exportColumnsJs};
 
+        // The grid already knows this — its last draw's own filtered count, the
+        // same denominator "All filtered rows" exports — so a real percentage costs
+        // nothing extra: no COUNT(*), no Exportable interface change. Only for
+        // scope 'all': a page export finishes before the first poll would land, and
+        // the page's own length is a different (and far less interesting) total.
+        // Not the SAME snapshot the export's own REPEATABLE READ transaction reads,
+        // so on a table that keeps changing between opening the modal and the
+        // export finishing, the percentage can land slightly over 100% or short of
+        // it — acceptable for a progress indicator, not a reason to query again.
+        var knownTotal = scope === 'all' ? ({$jsVar}.api().page.info().recordsDisplay || 0) : 0;
+
         // The modal stays open: progress, the download link, and a failure with a
         // way to retry all show up here, where the person is already looking —
         // not beside whichever button opened it, and not after it has closed.
         pf40_exportModal_{$jsVar}.find('.pf40-export-controls').hide();
         var \$progress = pf40_exportModal_{$jsVar}.find('.pf40-export-progress');
         var \$progressStatus = jQuery('<div></div>').text({$exportingLbl});
-        // No total row count to show a real percentage against — a native
-        // indeterminate <progress> (no "value") gives the browser's own animated
-        // bar for free, no CSS keyframes or JS timer of our own to keep in sync.
+        // Indeterminate (no "value") until/unless a real total is known above — the
+        // browser's own animated bar for free, no CSS keyframes or JS timer of our
+        // own to keep in sync, for whichever of the two this ends up being.
         var \$progressBar = jQuery('<progress class="pf40-export-bar" style="width:100%;margin-top:8px;display:block;"></progress>');
         var \$progressNote = jQuery('<div style="margin-top:6px;font-size:0.85em;opacity:.75;"></div>')
             .text({$closeNoteLbl});
@@ -1369,7 +1380,13 @@ table;
                         pf40_exportModalFailed_{$jsVar}();
                     } else {
                         if (status.progress) {
-                            \$progressStatus.text(status.progress + ' ' + {$rowsSoFarLbl});
+                            if (knownTotal > 0) {
+                                var percent = Math.min(100, Math.round(status.progress / knownTotal * 100));
+                                \$progressBar.attr({value: status.progress, max: knownTotal});
+                                \$progressStatus.text(status.progress + ' ' + {$rowsSoFarLbl} + ' (' + percent + '%)');
+                            } else {
+                                \$progressStatus.text(status.progress + ' ' + {$rowsSoFarLbl});
+                            }
                         }
                         setTimeout(poll, 3000);
                     }
