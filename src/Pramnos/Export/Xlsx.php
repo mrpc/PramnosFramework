@@ -115,10 +115,13 @@ final class Xlsx
     /** One sheet's XML. @param list<list<scalar|null>> $rows */
     private static function sheet(array $rows): string
     {
-        $xml = '';
+        $xml     = '';
+        $maxCols = 0;
         foreach (array_values($rows) as $r => $row) {
-            $xml .= '<row r="' . ($r + 1) . '">';
-            foreach (array_values((array) $row) as $c => $value) {
+            $row     = array_values((array) $row);
+            $maxCols = max($maxCols, count($row));
+            $xml    .= '<row r="' . ($r + 1) . '">';
+            foreach ($row as $c => $value) {
                 if ($value === null || $value === '') {
                     continue;
                 }
@@ -130,9 +133,21 @@ final class Xlsx
             }
             $xml .= '</row>';
         }
+        // Both optional in the OOXML schema, and no parser outside real Excel seems to
+        // mind their absence — but a 2867x62 export with everything else verified clean
+        // (entry order, cellStyles, well-formed XML throughout) still triggered Excel's
+        // repair prompt without them, and they are the one structural difference left
+        // against a file Excel itself writes. Cheap to add, so added rather than chased
+        // further on guesswork.
+        $dimension = $rows === []
+            ? 'A1'
+            : 'A1:' . self::column(max($maxCols - 1, 0)) . count($rows);
 
         return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-            . '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' . $xml . '</sheetData></worksheet>';
+            . '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            . '<dimension ref="' . $dimension . '"/>'
+            . '<sheetViews><sheetView workbookViewId="0"/></sheetViews>'
+            . '<sheetData>' . $xml . '</sheetData></worksheet>';
     }
 
     /** A column's letters: 0 is A, 26 is AA. */

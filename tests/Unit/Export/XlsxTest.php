@@ -103,5 +103,23 @@ final class XlsxTest extends TestCase
         // Assert
         $this->assertStringContainsString('<sheet name="Sheet1"', $parts['xl/workbook.xml']);
         $this->assertStringContainsString('<sheetData></sheetData>', $parts['xl/worksheets/sheet1.xml']);
+        // Assert — an empty sheet still declares a dimension and a view: the one
+        // remaining structural gap (against a file Excel itself writes) found after a
+        // ZIP entry order fix (FW-537) and a cellStyles fix (FW-539) each resolved a
+        // "we found a problem with some content" prompt, but a third export still hit it.
+        $this->assertStringContainsString('<dimension ref="A1"/>', $parts['xl/worksheets/sheet1.xml']);
+        $this->assertStringContainsString('<sheetViews><sheetView workbookViewId="0"/></sheetViews>', $parts['xl/worksheets/sheet1.xml']);
+    }
+
+    /** A sheet's dimension covers every row and the widest row's columns, not just the first row's. */
+    public function testDimensionCoversTheWidestRowAndEveryRow(): void
+    {
+        // Act — row 2 is wider than row 1 ("widest row" is not "first row")
+        $parts = self::parts(Xlsx::write([
+            'Sheet1' => [['A'], ['B', 'C', 'D']],
+        ]));
+
+        // Assert — 3 columns (A..C) wide, 2 rows tall
+        $this->assertStringContainsString('<dimension ref="A1:C2"/>', $parts['xl/worksheets/sheet1.xml']);
     }
 }
