@@ -1136,6 +1136,12 @@ $bytes = Xlsx::fromCsv($csv, 'Report');   // what a CSV export already writes
   carries one from a legacy encoding or a stray paste. Confirmed in production: a real
   export, otherwise verified byte-for-byte clean, still had Excel report "Repaired Records:
   String properties from …/sheet1.xml" until this was added.
+- **A theme and document properties, same as Excel's own writer.** `xl/theme/theme1.xml`
+  (a standard, schema-complete default color/font/format scheme) and `docProps/core.xml`/
+  `docProps/app.xml` are all optional per the OOXML schema — a `styleSheet` with no
+  theme-indexed color does not need a theme at all, and no outside parser ever minded their
+  absence — but they were the remaining real difference found by diffing a real export
+  against Excel's own resave of it, after Excel had already repaired and reopened it once.
 
 ### Closed periods
 

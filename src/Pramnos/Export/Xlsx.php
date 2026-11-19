@@ -20,10 +20,16 @@ namespace Pramnos\Export;
  * content" on nothing a small file ever reproduced. The first row is bold.
  *
  * Past {@see MAX_SHARED_STRINGS} unique strings, text goes back to inline instead: Excel has an
- * unofficial, reported ceiling somewhere past 1,000,000 shared strings, confirmed in production
- * on a 2.36-million-unique-string export that reproduced the exact same repair prompt, with every
- * other structural check clean. At that scale reuse is usually low anyway (a handful of unique
- * values rarely climb into the millions), so the table buys little and inlining costs little extra.
+ * unofficial, reported ceiling somewhere past 1,000,000 shared strings — though diffing a real
+ * export against Excel's OWN resave of the same data (after a repair prompt at that scale) later
+ * showed Excel's own writer uses a shared strings table past that count without trouble, so this
+ * remains a hedge rather than a confirmed fix. At that scale reuse is usually low anyway (a
+ * handful of unique values rarely climb into the millions), so the table buys little and inlining
+ * costs little extra either way.
+ *
+ * Also writes `xl/theme/theme1.xml` and `docProps/core.xml`/`docProps/app.xml` — all three
+ * optional per the OOXML schema, and nothing outside real Excel minded their absence, but they
+ * were the remaining difference found by diffing a real export against Excel's own resave of it.
  */
 final class Xlsx
 {
@@ -95,8 +101,11 @@ final class Xlsx
             . '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
             . '<Default Extension="xml" ContentType="application/xml"/>'
             . '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            . '<Override PartName="/xl/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>'
             . '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
             . ($useShared ? '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>' : '')
+            . '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
+            . '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>'
             . implode('', array_map(static fn (int $n): string => '<Override PartName="/xl/worksheets/sheet' . $n . '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>', array_keys($names)))
             . '</Types>');
         $i = 0;
@@ -110,19 +119,29 @@ final class Xlsx
                 . implode('', array_map(static fn (string $s): string => '<si><t xml:space="preserve">' . self::e($s) . '</t></si>', array_keys($strings)))
                 . '</sst>');
         }
+        // docProps are OPC-level parts, related from the package's own root _rels/.rels —
+        // not from xl/_rels/workbook.xml.rels, which only relates parts xl/workbook.xml
+        // itself uses.
         $zip->addFromString('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+            . '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
+            . '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>'
             . '</Relationships>');
         $zip->addFromString('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             . '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'
             . implode('', array_map(static fn (int $n, string $label): string => '<sheet name="' . self::e($label) . '" sheetId="' . $n . '" r:id="rId' . $n . '"/>', array_keys($names), $names))
             . '</sheets></workbook>');
+        // rIds: every sheet first, then styles, then (only if used) sharedStrings, then
+        // theme last — order does not matter to a reader, only that each Id is unique and
+        // every Target above actually exists as a part.
+        $themeRid = count($names) + ($useShared ? 3 : 2);
         $zip->addFromString('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             . implode('', array_map(static fn (int $n): string => '<Relationship Id="rId' . $n . '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' . $n . '.xml"/>', array_keys($names)))
             . '<Relationship Id="rId' . (count($names) + 1) . '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
             . ($useShared ? '<Relationship Id="rId' . (count($names) + 2) . '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>' : '')
+            . '<Relationship Id="rId' . $themeRid . '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>'
             . '</Relationships>');
         // Two styles: plain, and bold for the first row.
         $zip->addFromString('xl/styles.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -138,6 +157,82 @@ final class Xlsx
             // the ZIP entry order for — a second, unrelated cause of that same symptom.
             . '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
             . '</styleSheet>');
+        // The standard Office default theme — color/font/format scheme, all schema-required
+        // children present. A styleSheet with no theme-indexed color ("theme5", say) does
+        // not NEED this per the OOXML schema, and no outside tool minded its absence — but
+        // it is the other real difference against a file Excel itself writes (alongside
+        // docProps below), found by diffing one after Excel repaired and resaved it.
+        $zip->addFromString('xl/theme/theme1.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Office Theme">'
+            . '<a:themeElements>'
+            . '<a:clrScheme name="Office">'
+            . '<a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1>'
+            . '<a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1>'
+            . '<a:dk2><a:srgbClr val="44546A"/></a:dk2>'
+            . '<a:lt2><a:srgbClr val="E7E6E6"/></a:lt2>'
+            . '<a:accent1><a:srgbClr val="4472C4"/></a:accent1>'
+            . '<a:accent2><a:srgbClr val="ED7D31"/></a:accent2>'
+            . '<a:accent3><a:srgbClr val="A5A5A5"/></a:accent3>'
+            . '<a:accent4><a:srgbClr val="FFC000"/></a:accent4>'
+            . '<a:accent5><a:srgbClr val="5B9BD5"/></a:accent5>'
+            . '<a:accent6><a:srgbClr val="70AD47"/></a:accent6>'
+            . '<a:hlink><a:srgbClr val="0563C1"/></a:hlink>'
+            . '<a:folHlink><a:srgbClr val="954F72"/></a:folHlink>'
+            . '</a:clrScheme>'
+            . '<a:fontScheme name="Office">'
+            . '<a:majorFont><a:latin typeface="Calibri Light"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont>'
+            . '<a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont>'
+            . '</a:fontScheme>'
+            . '<a:fmtScheme name="Office">'
+            . '<a:fillStyleLst>'
+            . '<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>'
+            . '<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>'
+            . '<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>'
+            . '</a:fillStyleLst>'
+            . '<a:lnStyleLst>'
+            . '<a:ln w="6350"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>'
+            . '<a:ln w="12700"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>'
+            . '<a:ln w="19050"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>'
+            . '</a:lnStyleLst>'
+            . '<a:effectStyleLst>'
+            . '<a:effectStyle><a:effectLst/></a:effectStyle>'
+            . '<a:effectStyle><a:effectLst/></a:effectStyle>'
+            . '<a:effectStyle><a:effectLst/></a:effectStyle>'
+            . '</a:effectStyleLst>'
+            . '<a:bgFillStyleLst>'
+            . '<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>'
+            . '<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>'
+            . '<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>'
+            . '</a:bgFillStyleLst>'
+            . '</a:fmtScheme>'
+            . '</a:themeElements>'
+            . '</a:theme>');
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $zip->addFromString('docProps/core.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"'
+            . ' xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/"'
+            . ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+            . '<dcterms:created xsi:type="dcterms:W3CDTF">' . $now . '</dcterms:created>'
+            . '<dcterms:modified xsi:type="dcterms:W3CDTF">' . $now . '</dcterms:modified>'
+            . '</cp:coreProperties>');
+        $zip->addFromString('docProps/app.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"'
+            . ' xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
+            . '<Application>Microsoft Excel</Application>'
+            . '<DocSecurity>0</DocSecurity>'
+            . '<ScaleCrop>false</ScaleCrop>'
+            . '<HeadingPairs><vt:vector size="2" baseType="variant">'
+            . '<vt:variant><vt:lpstr>Worksheets</vt:lpstr></vt:variant>'
+            . '<vt:variant><vt:i4>' . count($names) . '</vt:i4></vt:variant>'
+            . '</vt:vector></HeadingPairs>'
+            . '<TitlesOfParts><vt:vector size="' . count($names) . '" baseType="lpstr">'
+            . implode('', array_map(static fn (string $label): string => '<vt:lpstr>' . self::e($label) . '</vt:lpstr>', $names))
+            . '</vt:vector></TitlesOfParts>'
+            . '<LinksUpToDate>false</LinksUpToDate>'
+            . '<SharedDoc>false</SharedDoc>'
+            . '<HyperlinksChanged>false</HyperlinksChanged>'
+            . '<AppVersion>1.0</AppVersion>'
+            . '</Properties>');
         $zip->close();
         $bytes = (string) file_get_contents($file);
         @unlink($file);

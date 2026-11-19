@@ -52,7 +52,7 @@ final class XlsxTest extends TestCase
         // (reported as "we found a problem with some content" on an export this produced
         // with sheet1.xml first).
         $this->assertSame(
-            ['[Content_Types].xml', 'xl/worksheets/sheet1.xml', 'xl/worksheets/sheet2.xml', 'xl/sharedStrings.xml', '_rels/.rels', 'xl/workbook.xml', 'xl/_rels/workbook.xml.rels', 'xl/styles.xml'],
+            ['[Content_Types].xml', 'xl/worksheets/sheet1.xml', 'xl/worksheets/sheet2.xml', 'xl/sharedStrings.xml', '_rels/.rels', 'xl/workbook.xml', 'xl/_rels/workbook.xml.rels', 'xl/styles.xml', 'xl/theme/theme1.xml', 'docProps/core.xml', 'docProps/app.xml'],
             array_keys($parts)
         );
         $this->assertStringContainsString('<sheet name="Sales  2026 09" sheetId="1"', $parts['xl/workbook.xml'], 'a name Excel allows');
@@ -137,6 +137,59 @@ final class XlsxTest extends TestCase
             'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"',
             $parts['xl/_rels/workbook.xml.rels']
         );
+    }
+
+    /**
+     * `xl/theme/theme1.xml`, `docProps/core.xml` and `docProps/app.xml` are all optional
+     * per the OOXML schema — a `styleSheet` with no theme-indexed color does not need a
+     * theme, and nothing outside real Excel minded their absence — but they are the other
+     * real difference against a file Excel itself writes, found by diffing one after Excel
+     * repaired and resaved a real export that had already passed every other structural
+     * check this class makes (entry order, cellStyles, dimension/sheetViews, the
+     * shared-strings/inline fallback, the Excel-only control characters). Each is declared
+     * in `[Content_Types].xml` and related from the correct `.rels` — the theme from
+     * `xl/_rels/workbook.xml.rels`, since `xl/workbook.xml` is what references it; the two
+     * docProps parts are package-level metadata, related from the package's own root
+     * `_rels/.rels` instead.
+     */
+    public function testThemeAndDocPropsAreDeclaredAndRelated(): void
+    {
+        // Act
+        $parts = self::parts(Xlsx::write(['Report' => [['A']]]));
+
+        // Assert — declared
+        $this->assertStringContainsString(
+            '<Override PartName="/xl/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>',
+            $parts['[Content_Types].xml']
+        );
+        $this->assertStringContainsString(
+            '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>',
+            $parts['[Content_Types].xml']
+        );
+        $this->assertStringContainsString(
+            '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>',
+            $parts['[Content_Types].xml']
+        );
+        // Assert — theme related from the workbook's own rels, not the package root
+        $this->assertStringContainsString(
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"',
+            $parts['xl/_rels/workbook.xml.rels']
+        );
+        // Assert — docProps related from the package root, not the workbook's own rels
+        $this->assertStringContainsString(
+            'Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"',
+            $parts['_rels/.rels']
+        );
+        $this->assertStringContainsString(
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"',
+            $parts['_rels/.rels']
+        );
+        // Assert — a schema-complete theme (color, font and format schemes all present)
+        $this->assertStringContainsString('<a:clrScheme', $parts['xl/theme/theme1.xml']);
+        $this->assertStringContainsString('<a:fontScheme', $parts['xl/theme/theme1.xml']);
+        $this->assertStringContainsString('<a:fmtScheme', $parts['xl/theme/theme1.xml']);
+        // Assert — app.xml's sheet title matches the sheet actually written
+        $this->assertStringContainsString('<vt:lpstr>Report</vt:lpstr>', $parts['docProps/app.xml']);
     }
 
     /** A CSV export, byte-order mark and quoted commas, as one sheet. */
