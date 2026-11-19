@@ -231,10 +231,17 @@ final class Xlsx
         return $letters;
     }
 
-    /** Text as XML holds it, the characters XML refuses left out. */
+    /**
+     * Text as XML holds it, the characters XML refuses left out — and also `\x7F`-`\x9F`
+     * (DEL and the C1 controls), which XML 1.0 itself allows but Excel's own stricter
+     * validation of a cell's text does not: a real 502K-row export, otherwise verified
+     * clean down to well-formed XML and a byte-for-byte diff against Excel's own
+     * "repaired" copy, still had Excel report "Repaired Records: String properties from
+     * …/sheet1.xml" — this exact, documented class of Excel-only character restriction.
+     */
     private static function e(string $text): string
     {
-        $text = (string) preg_replace('/[^\x{9}\x{A}\x{D}\x{20}-\x{D7FF}\x{E000}-\x{FFFD}\x{10000}-\x{10FFFF}]/u', '', $text);
+        $text = (string) preg_replace('/[^\x{9}\x{A}\x{D}\x{20}-\x{7E}\x{A0}-\x{D7FF}\x{E000}-\x{FFFD}\x{10000}-\x{10FFFF}]/u', '', $text);
 
         return htmlspecialchars($text, ENT_XML1 | ENT_QUOTES, 'UTF-8');
     }

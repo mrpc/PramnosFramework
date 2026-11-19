@@ -82,6 +82,25 @@ final class XlsxTest extends TestCase
     }
 
     /**
+     * `\x7F`-`\x9F` (DEL and the C1 controls) are valid XML 1.0 characters — the regex
+     * excluding `\x01` and friends never touched them — but Excel's own stricter
+     * validation of a cell's text does not accept them, reporting "Repaired Records:
+     * String properties from …/sheet1.xml" on a real 502K-row export that was otherwise
+     * verified byte-for-byte clean. Left out now, same as the characters XML itself
+     * already refused.
+     */
+    public function testExcelOnlyControlCharactersAreLeftOutToo(): void
+    {
+        // Act — U+0001 (XML-illegal, already handled) and U+007F/U+0085/U+009F (XML-legal
+        // UTF-8 code points, Excel is not) — \u{} escapes, not raw bytes: these are each
+        // one Unicode code point, not a Latin-1 byte that would not be valid UTF-8 alone
+        $parts = self::parts(Xlsx::write(['Sheet1' => [["a\x01b\u{7F}c\u{85}d\u{9F}e"]]]));
+
+        // Assert
+        $this->assertStringContainsString('<si><t xml:space="preserve">abcde</t></si>', $parts['xl/sharedStrings.xml']);
+    }
+
+    /**
      * `<cellStyles>` with a named "Normal" default is optional in the OOXML schema, but
      * Excel expects it in practice — its absence is a documented, common cause of the
      * same "we found a problem with some content" repair prompt a bad ZIP entry order

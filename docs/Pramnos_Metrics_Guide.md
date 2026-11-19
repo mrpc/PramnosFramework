@@ -1130,6 +1130,12 @@ $bytes = Xlsx::fromCsv($csv, 'Report');   // what a CSV export already writes
   that reproduced the exact "we found a problem with some content" prompt a shared strings
   table exists to avoid in the first place. At that scale reuse is usually low anyway, so
   little size is lost going back to inline.
+- **A cell's text leaves out `\x7F`-`\x9F`** (DEL and the C1 controls) on top of the
+  characters XML 1.0 itself refuses — those are legal XML, but Excel's own stricter
+  validation of a cell's text is not, and real free-text data (a name, a note) occasionally
+  carries one from a legacy encoding or a stray paste. Confirmed in production: a real
+  export, otherwise verified byte-for-byte clean, still had Excel report "Repaired Records:
+  String properties from …/sheet1.xml" until this was added.
 
 ### Closed periods
 
