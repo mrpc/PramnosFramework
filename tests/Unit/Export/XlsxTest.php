@@ -63,6 +63,24 @@ final class XlsxTest extends TestCase
         $this->assertStringContainsString('<c r="AB1"', $parts['xl/worksheets/sheet2.xml'], 'the 28th column');
     }
 
+    /**
+     * `<cellStyles>` with a named "Normal" default is optional in the OOXML schema, but
+     * Excel expects it in practice — its absence is a documented, common cause of the
+     * same "we found a problem with some content" repair prompt a bad ZIP entry order
+     * also produces, reported on a file whose entry order was already correct.
+     */
+    public function testStylesDeclareTheNormalDefaultCellStyle(): void
+    {
+        // Act
+        $parts = self::parts(Xlsx::write(['Sheet1' => [['A']]]));
+
+        // Assert
+        $this->assertStringContainsString(
+            '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>',
+            $parts['xl/styles.xml']
+        );
+    }
+
     /** A CSV export, byte-order mark and quoted commas, as one sheet. */
     public function testACsvAsASheet(): void
     {
