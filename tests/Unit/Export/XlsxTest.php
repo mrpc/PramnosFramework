@@ -47,8 +47,11 @@ final class XlsxTest extends TestCase
             ''               => [$wide],
         ]));
 
-        // Assert
-        $this->assertSame(['xl/worksheets/sheet1.xml', 'xl/worksheets/sheet2.xml', '[Content_Types].xml', '_rels/.rels', 'xl/workbook.xml', 'xl/_rels/workbook.xml.rels', 'xl/styles.xml'], array_keys($parts));
+        // Assert — [Content_Types].xml is the ZIP's FIRST entry: the OPC spec requires it,
+        // and Excel is known to reject an otherwise well-formed .xlsx that puts it later
+        // (reported as "we found a problem with some content" on an export this produced
+        // with sheet1.xml first).
+        $this->assertSame(['[Content_Types].xml', 'xl/worksheets/sheet1.xml', 'xl/worksheets/sheet2.xml', '_rels/.rels', 'xl/workbook.xml', 'xl/_rels/workbook.xml.rels', 'xl/styles.xml'], array_keys($parts));
         $this->assertStringContainsString('<sheet name="Sales  2026 09" sheetId="1"', $parts['xl/workbook.xml'], 'a name Excel allows');
         $this->assertStringContainsString('<sheet name="Sheet2" sheetId="2"', $parts['xl/workbook.xml'], 'no name: one made');
         $sheet = $parts['xl/worksheets/sheet1.xml'];

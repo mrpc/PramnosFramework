@@ -37,12 +37,15 @@ final class Xlsx
         $file = tempnam(sys_get_temp_dir(), 'pf-xlsx');
         $zip  = new \ZipArchive();
         $zip->open($file, \ZipArchive::OVERWRITE);
+        // Sheet names first, with no write yet — [Content_Types].xml needs every sheet's
+        // number before it names them, and the OPC spec requires it to be the ZIP's FIRST
+        // entry (readers that enforce this, Excel among them, reject the file otherwise,
+        // even though every XML part inside is well-formed on its own).
         $names = [];
         $i     = 0;
         foreach ($sheets as $name => $rows) {
             $i++;
             $names[$i] = mb_substr(trim((string) preg_replace(self::NAME, ' ', (string) $name)) ?: 'Sheet' . $i, 0, 31);
-            $zip->addFromString('xl/worksheets/sheet' . $i . '.xml', self::sheet($rows));
         }
         $zip->addFromString('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             . '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
@@ -52,6 +55,11 @@ final class Xlsx
             . '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
             . implode('', array_map(static fn (int $n): string => '<Override PartName="/xl/worksheets/sheet' . $n . '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>', array_keys($names)))
             . '</Types>');
+        $i = 0;
+        foreach ($sheets as $rows) {
+            $i++;
+            $zip->addFromString('xl/worksheets/sheet' . $i . '.xml', self::sheet($rows));
+        }
         $zip->addFromString('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
