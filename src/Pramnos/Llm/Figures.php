@@ -95,7 +95,15 @@ final class Figures
         // came from a tool at all.
         if ($knownStrings !== []) {
             $askedNames = self::properNouns($asked);
-            foreach (preg_split('~(?<=[.!?\n])\s+~u', $text) ?: [$text] as $sentence) {
+            // A bare newline is its own boundary, not just "[.!?\n] followed by
+            // whitespace": that lookbehind form needs a whitespace character AFTER
+            // the one it just matched as the boundary, so a single "\n" between two
+            // lines — one \n, next line starts right at a letter, no second space —
+            // never actually split anything. A markdown table (one \n per row) then
+            // read as ONE "sentence", sweeping header words ("Περιοχή", "Κατάσταση")
+            // into whatever data row's traced number gated the check, and flagging
+            // them as fabricated names — reproduced in production.
+            foreach (preg_split('~\n+|(?<=[.!?])\s+~u', $text) ?: [$text] as $sentence) {
                 if (!self::sentenceTracesANumber($sentence, $known, $said)) {
                     continue;
                 }

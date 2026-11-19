@@ -139,6 +139,9 @@ message keeps `corrected: figures` for the review.
   ending of a real name (Greek declension) is not flagged; a genuinely different name is. No
   check at all where the results carried no string — a tool answering with pure numbers never
   has an ordinary capitalized word in the prose around it mistaken for a name.
+- A markdown table's rows are split correctly for this check — a bare `\n` between two lines
+  (no blank line, no trailing space) is its own boundary, not folded into whatever "sentence"
+  a nearby traced number sits in. A table's header row never rides along into that check.
 
 **Skills, a few at a time.** Offer the tools of no skill, the `use_skill` tool, and a line in the
 prompt naming the skills there are:

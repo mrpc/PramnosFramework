@@ -61,6 +61,29 @@ class FiguresTest extends TestCase
     }
 
     /**
+     * A markdown table — one `\n` per row, never two, never a `\n` followed by a space —
+     * reported in production as one giant "sentence" under the old splitter: `(?<=[.!?\n])\s+`
+     * needs a whitespace character AFTER the boundary it matches, and a single bare `\n`
+     * straight into the next line's first letter has none, so nothing ever split there. The
+     * header row's own words ("Περιοχή", "Κατάσταση") then rode along into whatever data row's
+     * traced number gated the check, and were flagged as fabricated names. A bare `\n` must be
+     * its own boundary.
+     */
+    public function testAMarkdownTableRowIsItsOwnSentenceNotOneBlobWithTheHeader(): void
+    {
+        // Arrange — header row's words are real column labels, not area names
+        $results = ['{"locationid":5,"requests":41}', '{"areas":["Βέροια"]}'];
+        $table   = "| Περιοχή | Κατάσταση |\n| Βέροια | 41 |";
+
+        // Act
+        $untraced = Figures::untraced($table, $results);
+
+        // Assert — "Περιοχή" and "Κατάσταση" are on a DIFFERENT line than the traced 41,
+        // so the gate never reaches them once the table's rows are split correctly
+        $this->assertSame([], $untraced);
+    }
+
+    /**
      * The failure this exists for: a count that genuinely traces (41), sitting beside a name a
      * failed join never fetched, so the model invented one. The area name DID come back for
      * other rows — the results carry "Βέροια" and "Λάρισα" as plain strings — just not for this
