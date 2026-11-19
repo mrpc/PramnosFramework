@@ -9,6 +9,7 @@ use Pramnos\Application\Application;
 use Pramnos\Application\Controller;
 use Pramnos\Application\Settings;
 use Pramnos\Database\Database;
+use Pramnos\Database\MigrationLoader;
 use Pramnos\Framework\Factory;
 use Pramnos\Html\Datatable\Exportable;
 use Pramnos\Queue\QueueItem;
@@ -109,6 +110,7 @@ class DatatableExportTaskMySQLTest extends TestCase
     {
         $this->db->query('DROP TABLE IF EXISTS `dt_export_rows`');
         $this->db->schema()->dropTableIfExists('mails');
+        $this->db->schema()->dropTableIfExists('queueitems');
         $singleton = &Factory::getDatabase();
         $singleton = null;
     }
@@ -186,6 +188,97 @@ class DatatableExportTaskMySQLTest extends TestCase
         // proving the absence above is the transaction's snapshot, not a failed insert.
         $visible = $this->otherDb->query("SELECT COUNT(*) AS c FROM dt_export_rows WHERE name = 'Intruder'");
         $this->assertSame(1, (int) $visible->fields['c']);
+    }
+
+    /**
+     * Confirmed in production: a 5-minute export's own `exportstatus()` poll
+     * (`recordPoll()`'s `UPDATE queueitems SET last_polled_at = …`, on the web
+     * request's own connection) blocked for nearly 5 minutes on a lock held by the
+     * task's own REPEATABLE READ transaction — because `reportProgress()` used to
+     * write `progress_current` to the SAME row through the SAME connection that
+     * transaction was open on, taking and holding that row's write lock for the
+     * transaction's whole duration. The poll timed out, and the modal reported a
+     * running export as failed.
+     *
+     * This reproduces exactly that: mid-export (the same `$onSecondBatch` hook the
+     * isolation test above uses), a second connection — standing in for the web
+     * request's `recordPoll()` — tries the identical `UPDATE … WHERE taskid = …`,
+     * with a short lock-wait timeout instead of the request's own, much longer one,
+     * so a regression here fails in milliseconds rather than hanging the suite.
+     */
+    public function testReportingProgressDoesNotBlockAConcurrentPoll(): void
+    {
+        // Arrange — a real queueitems row, the same one reportProgress() writes to
+        $this->createQueueitemsTable();
+        $taskId = $this->insertQueueitemsRow();
+        $item   = new class extends QueueItem {
+            public function __construct() {}
+            public function save($a = false, $d = false): static { return $this; }
+        };
+        $item->payload = json_encode([
+            'class'     => Fixtures\InsertingExportableSource::class,
+            'columns'   => [['key' => 'id', 'label' => 'Id'], ['key' => 'name', 'label' => 'Name']],
+            'batchSize' => 1,
+        ]);
+        $item->taskid = $taskId;
+        $item->type   = DatatableExportTask::TASK;
+
+        // The "someone polling" write, fired from INSIDE the transaction's own batch
+        // loop — exactly where the production lock was held.
+        $otherDb  = $this->otherDb;
+        $dbType   = $this->dbType;
+        $outcome  = null;
+        Fixtures\InsertingExportableSource::$onSecondBatch = function () use ($otherDb, $dbType, $taskId, &$outcome): void {
+            try {
+                $otherDb->query(
+                    $dbType === 'postgresql' ? "SET lock_timeout = '2s'" : 'SET SESSION innodb_lock_wait_timeout = 2'
+                );
+                $otherDb->query('UPDATE queueitems SET last_polled_at = NOW() WHERE taskid = ' . (int) $taskId);
+                $outcome = 'ok';
+            } catch (\Throwable $exception) {
+                $outcome = $exception->getMessage();
+            }
+        };
+        $task = new DatatableExportTask($this->controller);
+
+        // Act
+        $task->execute($item);
+
+        // Assert — the concurrent poll completed, instead of waiting out the whole
+        // export's transaction (or, with the short timeout above, failing with a
+        // lock-wait error) the way it did in production.
+        $this->assertSame('ok', $outcome);
+    }
+
+    /** `queueitems`, through the framework's own migrations — same table `reportProgress()` writes to. */
+    private function createQueueitemsTable(): void
+    {
+        $this->db->query('DROP TABLE IF EXISTS queueitems');
+        $app           = new Application();
+        $app->database = $this->db;
+        $migrations    = MigrationLoader::loadFromDirectory(
+            dirname(__DIR__, 3) . '/database/migrations/framework/queue',
+            $app
+        );
+        foreach ($migrations as $migration) {
+            $migration->up();
+        }
+    }
+
+    /** One real, pending queueitems row, standing in for the one addTask() would have written. */
+    private function insertQueueitemsRow(): int
+    {
+        $this->db->queryBuilder()->table('queueitems')->insert([
+            'type'        => DatatableExportTask::TASK,
+            'payload'     => '{}',
+            'status'      => 'processing',
+            'priority'    => 10,
+            'attempts'    => 0,
+            'maxattempts' => 3,
+            'createdat'   => date('Y-m-d H:i:s'),
+        ]);
+
+        return (int) $this->db->getInsertId();
     }
 
     /**

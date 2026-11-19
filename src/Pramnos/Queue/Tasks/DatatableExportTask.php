@@ -44,6 +44,13 @@ class DatatableExportTask extends AbstractTask
     private const EXTENSIONS = ['csv' => '.csv', 'excel' => '.xlsx', 'json' => '.json'];
 
     /**
+     * A second, separately connected database for {@see reportProgress()}'s own writes —
+     * see that method's docblock for why a write through the shared connection would lock
+     * up `exportstatus()`'s polling for the whole export's duration.
+     */
+    private ?\Pramnos\Database\Database $progressDb = null;
+
+    /**
      * The finished export's path for a given task id and format — deterministic,
      * so `DatatableExportActions::exportdownload()` computes it itself instead of
      * reading it back out of `success_message` (which holds the human-readable
@@ -325,6 +332,18 @@ class DatatableExportTask extends AbstractTask
      * that cannot report its progress — an installation that has not run the
      * migration adding `progress_current` yet, a stubbed `$controller` in a unit
      * test — must not fail the export over it.
+     *
+     * Writes through {@see progressController()}'s own, separately connected database —
+     * NOT `$this->controller`'s, which holds `runInRepeatableReadSnapshot()`'s transaction
+     * open for the whole batch loop. An `UPDATE` through that connection would take this
+     * task's own `queueitems` row's write lock and hold it until the whole export commits,
+     * possibly minutes away on a large one — confirmed in production: `exportstatus()`'s
+     * `recordPoll()`, on the web request's own connection, blocked on exactly that lock for
+     * nearly five minutes, the request then timed out, and the modal reported the export as
+     * failed while it was, in fact, still running normally underneath. Routed through its
+     * own autocommit connection instead, each progress write commits — and releases its
+     * lock — at once, the same way it always could before this task held a transaction open
+     * around it.
      */
     private function reportProgress(QueueItem $queueItem, int $current): void
     {
@@ -334,13 +353,48 @@ class DatatableExportTask extends AbstractTask
             if (!isset($this->controller->application->database)) {
                 return;
             }
-            (new QueueManager($this->controller))->updateProgress($queueItem, $current);
+            (new QueueManager($this->progressController()))->updateProgress($queueItem, $current);
         } catch (\Throwable $exception) {
             \Pramnos\Logs\Logger::log(
                 'DatatableExportTask: failed to report progress: ' . $exception->getMessage(),
                 'queue_error'
             );
         }
+    }
+
+    /**
+     * A lightweight stand-in for `$this->controller`, carrying only the one property
+     * `QueueManager` actually reads (`->application->database`) — pointed at a second,
+     * named `Database` instance ({@see Factory::getDatabase()}'s own multi-instance
+     * support) instead of the shared connection {@see runInRepeatableReadSnapshot()}
+     * holds a transaction open on. Its connection parameters are copied from the SHARED
+     * one already in use, not read fresh from global settings — the live connection is
+     * what this task actually runs against (a replica swap, a test's own override,
+     * anything that can make the two diverge), and the second connection has to match
+     * it, not whatever `Factory::getSettings()` happens to resolve to on its own.
+     * Connected once per task run and reused for every batch's progress report.
+     *
+     * Protected, like {@see sendReadyNotification()}, so a test can override it with a
+     * fixture it fully controls instead of this method's own real, connecting database.
+     */
+    protected function progressController(): object
+    {
+        if ($this->progressDb === null) {
+            $primary = $this->controller->application->database;
+            $this->progressDb = \Pramnos\Framework\Factory::getDatabase('datatable_export_progress');
+            if (!$this->progressDb->connected) {
+                $this->progressDb->type     = $primary->type;
+                $this->progressDb->server   = $primary->server;
+                $this->progressDb->user     = $primary->user;
+                $this->progressDb->password = $primary->password;
+                $this->progressDb->database = $primary->database;
+                $this->progressDb->port     = $primary->port;
+                $this->progressDb->schema   = $primary->schema;
+                $this->progressDb->connect(true);
+            }
+        }
+
+        return (object) ['application' => (object) ['database' => $this->progressDb]];
     }
 
     /**

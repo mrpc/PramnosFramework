@@ -126,6 +126,19 @@ poller reads it back the same way `DatatableExportActions::exportstatus()` does 
 itself, not any of the four logs (CLAUDE.md rule 14), since this is true only while the
 task is running and meaningless once it is not.
 
+**Call `updateProgress()` on a connection that is NOT holding a long-running transaction
+open on the same row.** `DatatableExportTask` learned this one in production: its own
+`REPEATABLE READ` transaction wraps the whole batch loop, and `updateProgress()` used to
+write through that SAME connection — taking the row's write lock and holding it for the
+transaction's entire duration, which could be minutes. A poller's own `UPDATE` (`recordPoll()`,
+`exportstatus()`'s own write) then blocks on that same lock for just as long, times out, and
+whatever called it reports a perfectly healthy, still-running task as failed. A task whose
+own transaction can run for more than a moment reports progress through a second connection
+instead — cloned from the one already in use (same dialect, same credentials — the live
+connection is the one that matters, not whatever global settings happen to resolve to on
+their own), so it commits each report at once and never competes with the transaction for
+the same row's lock.
+
 **When a notification belongs with a task's result, send it through the framework's own
 `Notifier`, not a raw `Email`.** `DatatableExportTask` finishing successfully with
 `notify_email` set dispatches `DatatableExportReadyNotification` — mail always, push too

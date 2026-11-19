@@ -1332,6 +1332,15 @@ The export runs in batches (`1500` rows by default) inside one database transact
 skipped or duplicated — every batch reads the same snapshot. See the Queue Guide for the
 task itself.
 
+**Progress reports use their own, second connection — not the transaction's.** Each batch's
+`progress_current` write goes through a separate connection, cloned from the one already in
+use, that commits at once. Writing it through the SAME connection as the open transaction —
+the first version of this did — takes and holds that row's write lock for the whole
+export's duration, which blocks `exportstatus()`'s own poll (`recordPoll()`'s `UPDATE` of
+`last_polled_at`, on the web request's own connection) for just as long: confirmed in
+production, nearly 5 minutes on one export, after which the poll timed out and the modal
+reported a still-running export as failed.
+
 **`exportBatch()` cannot set its own isolation level.** The wrapping transaction already
 sets `REPEATABLE READ` as its first statement; a method that issues its own
 session/transaction isolation statement — a legacy `getList()` doing its own `SET …

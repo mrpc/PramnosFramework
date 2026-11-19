@@ -555,6 +555,17 @@ class ConcreteDatatableExportTask extends DatatableExportTask
         return $ref->invoke($this, $queueItem);
     }
 
+    /**
+     * The real `progressController()` opens an actual second database connection — not
+     * what a unit test wants to exercise. Reusing `$this->controller`, the SAME fake this
+     * fixture's constructor already received, keeps `reportProgress()`'s own behaviour
+     * (and whatever it throws) under this test's full control.
+     */
+    protected function progressController(): object
+    {
+        return $this->controller;
+    }
+
     public function publicReportProgress(QueueItem $queueItem, int $current): void
     {
         $ref = new \ReflectionMethod(DatatableExportTask::class, 'reportProgress');
