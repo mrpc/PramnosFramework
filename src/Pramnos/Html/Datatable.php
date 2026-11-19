@@ -1330,9 +1330,13 @@ table;
         pf40_exportModal_{$jsVar}.find('.pf40-export-controls').hide();
         var \$progress = pf40_exportModal_{$jsVar}.find('.pf40-export-progress');
         var \$progressStatus = jQuery('<div></div>').text({$exportingLbl});
+        // No total row count to show a real percentage against — a native
+        // indeterminate <progress> (no "value") gives the browser's own animated
+        // bar for free, no CSS keyframes or JS timer of our own to keep in sync.
+        var \$progressBar = jQuery('<progress class="pf40-export-bar" style="width:100%;margin-top:8px;display:block;"></progress>');
         var \$progressNote = jQuery('<div style="margin-top:6px;font-size:0.85em;opacity:.75;"></div>')
             .text({$closeNoteLbl});
-        \$progress.show().empty().append(\$progressStatus).append(\$progressNote);
+        \$progress.show().empty().append(\$progressStatus).append(\$progressBar).append(\$progressNote);
 
         jQuery.post(
             pf40_exportBase_{$jsVar} + '/queueexport',

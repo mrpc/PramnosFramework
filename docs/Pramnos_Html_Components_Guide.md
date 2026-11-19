@@ -1205,6 +1205,13 @@ polling interval) and drops the push channel if so — a push would only repeat 
 download link already on their screen. Mail is unaffected: it always goes out when
 `notify_email` is set, watched or not.
 
+**A visual progress bar, not just "N rows so far".** The progress area carries a native
+`<progress>` with no `value` — the browser's own animated, indeterminate bar, free of any
+CSS or JS timer of this component's own to keep in sync. It stays indeterminate rather than
+a real percentage because there is no total row count to show a share against: an upfront
+`COUNT(*)` on every export, just to drive a progress bar, was judged not worth its own cost
+here. It is removed the same way the status text is, once the export completes or fails.
+
 **"Selected columns" vs "All columns"** is a second radio pair, offered only when the table
 also has a show/hide picker (`$table->showHide`, true by default) — without one there is
 nothing to choose between, since every column stays visible. It defaults to "All columns":

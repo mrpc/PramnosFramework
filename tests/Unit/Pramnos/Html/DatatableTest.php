@@ -401,6 +401,33 @@ class DatatableTest extends TestCase
     }
 
     /**
+     * A visual progress indicator while the export runs — a native `<progress>` with no
+     * `value`, which gets the browser's own animated/indeterminate bar for free. There is
+     * no total row count to show a real percentage against (an upfront `COUNT(*)` for
+     * every export was judged not worth its own cost here), so indeterminate is what this
+     * is, not a stand-in for a real one still to come.
+     */
+    public function testProgressAreaShowsAnIndeterminateBar(): void
+    {
+        // Arrange
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->addColumn('Name');
+
+        // Act
+        $js = $dt->renderJs();
+
+        // Assert — a <progress> element whose own opening tag carries no "value"
+        // (the radios/select elsewhere in the modal have their own "value=", so the
+        // check is scoped to the bar's own tag, not the whole rendered script)
+        $barTag = substr($js, (int) strpos($js, '<progress class="pf40-export-bar"'));
+        $barTag = substr($barTag, 0, (int) strpos($barTag, '>') + 1);
+        $this->assertNotSame('', $barTag, 'the bar element was found at all');
+        $this->assertStringNotContainsString('value', $barTag);
+    }
+
+    /**
      * The modal's title used to live inside the format `<select>`'s own label, which
      * sits in `.pf40-export-controls` — hidden along with the rest of it once "Start
      * export" switches to `.pf40-export-progress`, leaving the modal with no heading
