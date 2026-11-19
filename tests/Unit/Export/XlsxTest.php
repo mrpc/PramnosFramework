@@ -226,6 +226,36 @@ final class XlsxTest extends TestCase
         $this->assertStringContainsString('<sheetViews><sheetView workbookViewId="0"/></sheetViews>', $parts['xl/worksheets/sheet1.xml']);
     }
 
+    /**
+     * `<sheetFormatPr>` (between `<sheetViews>` and `<sheetData>`) and `<pageMargins>`
+     * (after `<sheetData>`) are both optional per the OOXML schema, and no parser outside
+     * real Excel seems to mind their absence — but a 502,159-row export that already had
+     * `<dimension>`/`<sheetViews>`/`<cellStyles>`/the theme/docProps parts, every one of
+     * them verified present, still produced Excel's repair prompt until these were added
+     * too: found by diffing it against Excel's own resave of the same file.
+     */
+    public function testSheetFormatPrAndPageMarginsAreBothPresentInOrder(): void
+    {
+        // Act
+        $sheet = self::parts(Xlsx::write(['Sheet1' => [['A']]]))['xl/worksheets/sheet1.xml'];
+
+        // Assert — present
+        $this->assertStringContainsString('<sheetFormatPr defaultRowHeight="15"/>', $sheet);
+        $this->assertStringContainsString(
+            '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>',
+            $sheet
+        );
+        // Assert — in the schema's own required order: sheetViews, THEN sheetFormatPr,
+        // THEN sheetData, THEN pageMargins, each exactly once
+        $sheetViewsPos   = strpos($sheet, '<sheetViews>');
+        $sheetFormatPos  = strpos($sheet, '<sheetFormatPr');
+        $sheetDataPos    = strpos($sheet, '<sheetData>');
+        $pageMarginsPos  = strpos($sheet, '<pageMargins');
+        $this->assertLessThan($sheetFormatPos, $sheetViewsPos);
+        $this->assertLessThan($sheetDataPos, $sheetFormatPos);
+        $this->assertLessThan($pageMarginsPos, $sheetDataPos);
+    }
+
     /** A sheet's dimension covers every row and the widest row's columns, not just the first row's. */
     public function testDimensionCoversTheWidestRowAndEveryRow(): void
     {

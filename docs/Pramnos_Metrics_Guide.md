@@ -1142,6 +1142,12 @@ $bytes = Xlsx::fromCsv($csv, 'Report');   // what a CSV export already writes
   theme-indexed color does not need a theme at all, and no outside parser ever minded their
   absence — but they were the remaining real difference found by diffing a real export
   against Excel's own resave of it, after Excel had already repaired and reopened it once.
+- **`<sheetFormatPr>` and `<pageMargins>`, also both optional.** Found by the same diff,
+  on the same export, after adding the theme and docProps still was not enough:
+  `<sheetFormatPr defaultRowHeight="15"/>` between `<sheetViews>` and `<sheetData>`, and
+  `<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>`
+  right after `<sheetData>` — both empty slots in the worksheet's own required element
+  order that Excel's own writer never leaves out.
 
 ### Closed periods
 

@@ -298,12 +298,14 @@ final class Xlsx
             }
             $xml .= '</row>';
         }
-        // Both optional in the OOXML schema, and no parser outside real Excel seems to
+        // All optional in the OOXML schema, and no parser outside real Excel seems to
         // mind their absence — but a 2867x62 export with everything else verified clean
         // (entry order, cellStyles, well-formed XML throughout) still triggered Excel's
-        // repair prompt without them, and they are the one structural difference left
-        // against a file Excel itself writes. Cheap to add, so added rather than chased
-        // further on guesswork.
+        // repair prompt without them, and they are structural differences left against a
+        // file Excel itself writes. Cheap to add, so added rather than chased further on
+        // guesswork. sheetFormatPr and pageMargins were found the same way, later, on a
+        // different, much larger export that still failed with dimension/sheetViews
+        // already in place: diffing it against Excel's own resave of it.
         $dimension = $rows === []
             ? 'A1'
             : 'A1:' . self::column(max($maxCols - 1, 0)) . count($rows);
@@ -312,7 +314,10 @@ final class Xlsx
             . '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
             . '<dimension ref="' . $dimension . '"/>'
             . '<sheetViews><sheetView workbookViewId="0"/></sheetViews>'
-            . '<sheetData>' . $xml . '</sheetData></worksheet>';
+            . '<sheetFormatPr defaultRowHeight="15"/>'
+            . '<sheetData>' . $xml . '</sheetData>'
+            . '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>'
+            . '</worksheet>';
     }
 
     /** A column's letters: 0 is A, 26 is AA. */
