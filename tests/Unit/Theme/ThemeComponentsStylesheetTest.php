@@ -104,4 +104,25 @@ class ThemeComponentsStylesheetTest extends TestCase
         $this->assertSame($hooks['tailwind'], $hooks['bootstrap'], 'bootstrap styles what tailwind does');
         $this->assertSame($hooks['tailwind'], $hooks['plain-css'], 'plain-css styles what tailwind does');
     }
+
+    /**
+     * `.dataTables_paginate` floats and is itself a wrapping flex container — a combination
+     * whose shrink-to-fit width can come out narrower than its unwrapped content actually
+     * needs, so `flex-wrap` breaks it onto a second line it did not need to. Reproduced live
+     * on a table with thousands of pages, where the extra "…" + last-page button were enough
+     * to trigger it. `width: max-content` (bounded by `max-width: 100%`) sizes the float to
+     * its content's natural width instead of guessing.
+     */
+    #[DataProvider('themes')]
+    public function testPaginationFloatSizesToItsContentNotAGuess(string $theme): void
+    {
+        // Act
+        $css = self::read($theme, 'components.css');
+        preg_match('/\.pf-datatable \.dataTables_paginate\s*\{([^}]*)\}/', $css, $m);
+
+        // Assert
+        $this->assertNotEmpty($m, $theme . ' declares .dataTables_paginate at all');
+        $this->assertStringContainsString('width: max-content', $m[1]);
+        $this->assertStringContainsString('max-width: 100%', $m[1]);
+    }
 }

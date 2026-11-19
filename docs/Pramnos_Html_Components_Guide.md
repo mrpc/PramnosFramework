@@ -935,7 +935,10 @@ under it:
 
 - the controls on two lines: a table with Buttons (`tableTools`) puts the buttons, the page length
   and the search on the first, in `.pf-datatable-top`, the search at its right; the count and the
-  page buttons go on the second;
+  page buttons go on the second — `.dataTables_paginate` keeps `width: max-content` there, so a
+  table with thousands of pages (the "…" plus the last page's own button) sizes to its real,
+  unwrapped width instead of a floated flex container's own shrink-to-fit guess breaking it onto
+  a second line it did not need;
 - column headings on one line, and `.pf-nowrap` for a cell that should not wrap — a name, a date,
   a number — so a wide table scrolls rather than squeezing them;
 - the processing note over the table;

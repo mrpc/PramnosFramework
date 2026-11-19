@@ -500,7 +500,13 @@ a.pf-stat-tile:hover { border-color: var(--color-primary, #2563eb); }
 .pf-datatable .dataTables_filter { float: right; }
 .pf-datatable .dataTables_filter input { width: auto; margin-left: 0; }
 .pf-datatable .dataTables_info { float: left; padding-top: .75rem; font-size: .875rem; opacity: .7; }
-.pf-datatable .dataTables_paginate { float: right; display: flex; flex-wrap: wrap; gap: .25rem; padding-top: .5rem; }
+/* width: max-content (not the float's own shrink-to-fit default): a floated flex
+   container's shrink-to-fit width can come out narrower than its unwrapped content
+   needs, so flex-wrap breaks it onto a second line it did not need — reproduced live
+   on a table with thousands of pages, where the extra "…" + last-page button were
+   enough content to trigger it. max-content sizes to the content's natural width;
+   max-width keeps it from overflowing once that genuinely exceeds the row. */
+.pf-datatable .dataTables_paginate { float: right; display: flex; flex-wrap: wrap; gap: .25rem; padding-top: .5rem; width: max-content; max-width: 100%; }
 .pf-datatable .dataTables_paginate .ellipsis { padding: 0 .25rem; }
 .pf-datatable .pf-datatable-top { display: flex; align-items: center; gap: .5rem 1rem; margin-bottom: .75rem; }
 .pf-datatable .pf-datatable-top > * { float: none; margin: 0; flex: 0 0 auto; }
