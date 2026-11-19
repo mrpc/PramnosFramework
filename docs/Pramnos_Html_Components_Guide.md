@@ -1341,10 +1341,11 @@ Three things make the button work:
    (`{taskid, status, label, download}` — `label` a descriptive line such as "Users (CSV)
    · 2026-11-18 14:32 · 2866 rows exported", `download` only where completed) — no
    `super`+ needed, the same ownership the single-item actions already enforce. A
-   non-completed status is named too — "· Failed", "· Stopped", "· Processing" — the same
-   wording `QueueController::statusLabels()` already shows on the admin queue screen;
-   without it, a failed or stopped export looked identical in the list to one still
-   running, with nothing past the date until it was opened to find out. It needs
+   non-completed status still shown is named too — "· Processing", "· Pending" — the same
+   wording `QueueController::statusLabels()` already shows on the admin queue screen.
+   `failed`/`stopped` rows are left out of this list entirely, rather than named and shown:
+   it is for finding a file, not a history of errors to read back, and an admin who needs
+   that already has the admin queue screen for it. It needs
    `exportBase` as a query parameter (the modal's "My downloads" link sends it;
    `queueexport()`'s own request
    carries it in the POST body instead, since that is a separate call).

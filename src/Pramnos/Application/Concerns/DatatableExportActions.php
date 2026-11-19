@@ -147,6 +147,12 @@ trait DatatableExportActions
      * filtered strictly to `requested_by` matching the current user, same as
      * {@see ownedExportItem()}'s ownership check, so there is nothing here a user
      * could not already reach one id at a time through `exportstatus()`.
+     *
+     * Leaves out `failed`/`stopped` — this list is for finding a file, not a
+     * history of errors to read back: an admin who needs that already has the
+     * admin queue screen for it. Reported after an owner's own "My downloads"
+     * kept accumulating rows from an earlier investigation's failed/stopped
+     * test runs, with nothing useful to do about any of them from here.
      */
     public function myExports(): void
     {
@@ -170,6 +176,9 @@ trait DatatableExportActions
         foreach ($rows as $row) {
             $payload = (array) json_decode((string) $row['payload'], true);
             if ((int) ($payload['requested_by'] ?? 0) !== (int) $user->userid) {
+                continue;
+            }
+            if (in_array((string) $row['status'], ['failed', 'stopped'], true)) {
                 continue;
             }
             $exports[] = [
@@ -220,15 +229,18 @@ trait DatatableExportActions
         return $label;
     }
 
-    /** @see \Pramnos\Queue\Controllers\QueueController::statusLabels() — the same wording. */
+    /**
+     * `failed`/`stopped` never reach this: `myExports()` excludes those rows entirely
+     * before `exportLabel()` is ever called on one. Kept to the statuses that actually
+     * can — @see \Pramnos\Queue\Controllers\QueueController::statusLabels() for the
+     * same wording on the admin queue screen, which does show every status.
+     */
     private function exportStatusWord(string $status): string
     {
         return match ($status) {
             'pending'    => t('Pending'),
             'processing' => t('Processing'),
             'warning'    => t('Warning'),
-            'failed'     => t('Failed'),
-            'stopped'    => t('Stopped'),
             'deleted'    => t('Deleted'),
             default      => $status,
         };

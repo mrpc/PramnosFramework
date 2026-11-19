@@ -546,12 +546,11 @@ class DatatableExportActionsMySQLTest extends TestCase
      */
     public function testMyExportsLabelNamesANonCompletedStatus(): void
     {
-        // Arrange — every non-completed status QueueController::STATUSES declares
+        // Arrange — the non-completed statuses this list still shows (failed/stopped
+        // are excluded entirely — see testMyExportsExcludesFailedAndStoppedExports)
         $pendingId    = $this->insertExportItem(requestedBy: 7, status: 'pending', message: '');
         $processingId = $this->insertExportItem(requestedBy: 7, status: 'processing', message: '');
         $warningId    = $this->insertExportItem(requestedBy: 7, status: 'warning', message: '');
-        $failedId     = $this->insertExportItem(requestedBy: 7, status: 'failed', message: '');
-        $stoppedId    = $this->insertExportItem(requestedBy: 7, status: 'stopped', message: '');
         $deletedId    = $this->insertExportItem(requestedBy: 7, status: 'deleted', message: '');
         $this->signIn(7);
         $controller = $this->makeController();
@@ -567,13 +566,36 @@ class DatatableExportActionsMySQLTest extends TestCase
         $this->assertStringContainsString('Pending', $byId[$pendingId]['label']);
         $this->assertStringContainsString('Processing', $byId[$processingId]['label']);
         $this->assertStringContainsString('Warning', $byId[$warningId]['label']);
-        $this->assertStringContainsString('Failed', $byId[$failedId]['label']);
-        $this->assertStringContainsString('Stopped', $byId[$stoppedId]['label']);
         $this->assertStringContainsString('Deleted', $byId[$deletedId]['label']);
         // Assert — none of these are downloadable: only 'completed' ever is
-        foreach ([$pendingId, $processingId, $warningId, $failedId, $stoppedId, $deletedId] as $id) {
+        foreach ([$pendingId, $processingId, $warningId, $deletedId] as $id) {
             $this->assertNull($byId[$id]['download']);
         }
+    }
+
+    /**
+     * "My downloads" is for finding a file, not a history of errors to read back — an
+     * admin who needs that already has the admin queue screen. Reported after an
+     * owner's own list kept accumulating rows from an earlier investigation's
+     * failed/stopped test runs, with nothing useful to do about any of them from here.
+     */
+    public function testMyExportsExcludesFailedAndStoppedExports(): void
+    {
+        // Arrange
+        $failedId  = $this->insertExportItem(requestedBy: 7, status: 'failed', message: '');
+        $stoppedId = $this->insertExportItem(requestedBy: 7, status: 'stopped', message: '');
+        $okId      = $this->insertExportItem(requestedBy: 7, status: 'completed', message: '1 row exported');
+        $this->signIn(7);
+        $controller = $this->makeController();
+
+        // Act
+        $body = $this->captureJson(fn () => $controller->myExports());
+
+        // Assert — neither the failed nor the stopped row is in the list at all
+        $ids = array_column($body['exports'], 'taskid');
+        $this->assertNotContains($failedId, $ids);
+        $this->assertNotContains($stoppedId, $ids);
+        $this->assertContains($okId, $ids);
     }
 
     /** Nobody signed in gets nothing, same as every other action here. */
