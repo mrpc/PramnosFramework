@@ -107,7 +107,12 @@ trait DatatableExportActions
             'columns'      => $columns,
             'format'       => $format,
             'scope'        => $scope,
-            'notify_email' => (bool) ($_POST['notify_email'] ?? false),
+            // NOT a plain (bool) cast: the modal posts a JS boolean through a
+            // form-encoded body, which jQuery serializes to the literal string
+            // "true" or "false" — and (bool) "false" is true in PHP, since it is a
+            // non-empty string. That cast sent every export's "ready" email
+            // regardless of whether the notify checkbox was ever checked.
+            'notify_email' => filter_var($_POST['notify_email'] ?? false, FILTER_VALIDATE_BOOLEAN),
             // Captured now, from the signed-in user the controller already has — the
             // task does not reload the user later just to find an email address.
             // $user may be a lighter sealed identity than a full User, with no

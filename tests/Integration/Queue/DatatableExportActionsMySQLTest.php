@@ -240,6 +240,34 @@ class DatatableExportActionsMySQLTest extends TestCase
         $this->assertSame('users', $payload['exportBase']);
     }
 
+    /**
+     * The modal posts a JS boolean through a form-encoded body, which jQuery
+     * serializes to the literal STRING "true" or "false" — never absent, and
+     * never a real PHP boolean. `notify_email` must read that string's actual
+     * meaning, not `(bool) $string`: `(bool) "false"` is `true` in PHP, a
+     * non-empty string, so the "ready" email went out on every export regardless
+     * of whether the notify checkbox was ever checked — reported from production.
+     */
+    public function testQueueexportReadsTheLiteralStringFalseAsNotNotifying(): void
+    {
+        // Arrange
+        $this->signIn(7, email: 'owner@example.com');
+        $controller = $this->makeController();
+        $_POST = [
+            'class'        => Fixtures\ExportActionsFakeModel::class,
+            'columns'      => [['name' => 'id', 'label' => 'Id']],
+            'notify_email' => 'false',
+        ];
+
+        // Act
+        $body = $this->captureJson(fn () => $controller->queueexport());
+
+        // Assert
+        $row     = $this->db->queryBuilder()->table('queueitems')->where('taskid', (int) $body['taskid'])->first();
+        $payload = (array) json_decode((string) $row->fields['payload'], true);
+        $this->assertFalse($payload['notify_email'], '"false" the string must not be read as notify');
+    }
+
     /** No exportable columns posted at all: nothing to queue. */
     public function testQueueexportRefusesWhenNoColumnsPosted(): void
     {
