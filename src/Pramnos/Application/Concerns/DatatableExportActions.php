@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Pramnos\Application\Concerns;
 
+use Pramnos\Auth\AuditLog;
 use Pramnos\Html\Datatable\Exportable;
 use Pramnos\Queue\QueueManager;
 use Pramnos\Queue\Tasks\DatatableExportTask;
@@ -136,6 +137,18 @@ trait DatatableExportActions
                 $duplicate = true;
             }
         }
+
+        // A bulk export of other people's data is exactly the operator action CLAUDE.md
+        // rule 14 means for the audit log, not a table of our own — $target is null:
+        // the export concerns a model/dataset (already in $context as 'class'), not one
+        // other account the way an impersonation or a memory view does.
+        AuditLog::record('export.requested', (int) $user->userid, null, [
+            'class'     => $class,
+            'scope'     => $scope,
+            'format'    => $format,
+            'columns'   => count($columns),
+            'duplicate' => $duplicate,
+        ]);
 
         \Pramnos\Framework\Factory::getDocument('json');
         echo json_encode(['taskid' => $taskId, 'duplicate' => $duplicate]);
@@ -319,6 +332,21 @@ trait DatatableExportActions
             'json'  => ['application/json', '.json'],
             default => ['text/csv', '.csv'],
         };
+
+        // The file actually leaving the system — a bulk download of other people's data
+        // is the operator action CLAUDE.md rule 14 means for the audit log. Separate from
+        // 'export.requested': a request and a download are different events (one can
+        // happen without the other), and $target is the row's own requester only where
+        // that differs from who is downloading it now — a super user pulling someone
+        // else's export, the one case worth recording who is not whose.
+        $downloader = User::current();
+        $requestedBy = (int) ($payload['requested_by'] ?? 0);
+        AuditLog::record(
+            'export.downloaded',
+            is_object($downloader) ? (int) $downloader->userid : null,
+            $requestedBy > 0 && $requestedBy !== (is_object($downloader) ? (int) $downloader->userid : 0) ? $requestedBy : null,
+            ['class' => (string) ($payload['class'] ?? ''), 'format' => $format, 'taskid' => (int) $item->taskid, 'message' => (string) $item->success_message]
+        );
 
         // Without this, the default ('html') document type still wraps whatever
         // readfile() writes with the theme's page template at render() time — the

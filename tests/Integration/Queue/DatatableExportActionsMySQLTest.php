@@ -9,9 +9,12 @@ use Pramnos\Application\Application;
 use Pramnos\Application\Concerns\DatatableExportActions;
 use Pramnos\Application\Controller;
 use Pramnos\Application\Settings;
+use Pramnos\Auth\AuditLog;
 use Pramnos\Database\Database;
 use Pramnos\Database\MigrationLoader;
 use Pramnos\Framework\Factory;
+use Pramnos\Framework\Migrations\AuthServer\CreateAuthserverAuditLogTable;
+use Pramnos\Framework\Testing\Schema;
 use Pramnos\Html\Datatable\Exportable;
 use Pramnos\Http\RequestIdentity;
 use Pramnos\Queue\Tasks\DatatableExportTask;
@@ -81,10 +84,20 @@ class DatatableExportActionsMySQLTest extends TestCase
         $this->db->query('DROP TABLE IF EXISTS `queueitems`');
         $this->db->query('DROP TABLE IF EXISTS `queuestats`');
         $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
+        $this->db->schema()->dropTableIfExists(AuditLog::TABLE);
+        AuditLog::resetTableCache();
         RequestIdentity::reset();
         $_POST = [];
         $_GET  = [];
         \Pramnos\Document\Document::reset();
+    }
+
+    /** `authserver.audit_log`, through the framework's own migration — same table `AuditLog::record()` writes to. */
+    private function createAuditLogTable(): void
+    {
+        $this->db->schema()->dropTableIfExists(AuditLog::TABLE);
+        Schema::ensure([CreateAuthserverAuditLogTable::class], $this->db);
+        AuditLog::resetTableCache();
     }
 
     private function makeController(): Controller
@@ -269,6 +282,71 @@ class DatatableExportActionsMySQLTest extends TestCase
         $this->assertSame(['search' => 'x'], $payload['filters']);
         // Assert — a fresh task, not a hand-off to one already running
         $this->assertFalse($body['duplicate']);
+    }
+
+    /**
+     * A bulk export of other people's data is exactly the operator action CLAUDE.md
+     * rule 14 means for the audit log (`AuditLog::record()`), the same way
+     * `user.impersonation_started`/`ai.memory_viewed` already are — not a table of
+     * its own. `$target` is null: the export concerns a model/dataset, already in the
+     * event's own context as `class`, not one other account the way an impersonation
+     * does.
+     */
+    public function testQueueexportRecordsAnAuditEvent(): void
+    {
+        // Arrange
+        $this->createAuditLogTable();
+        $this->signIn(7);
+        $controller = $this->makeController();
+        $_POST = [
+            'class'   => Fixtures\ExportActionsFakeModel::class,
+            'columns' => [['name' => 'id', 'label' => 'Id']],
+            'filters' => [],
+            'format'  => 'excel',
+            'scope'   => 'page',
+        ];
+
+        // Act
+        $this->captureJson(fn () => $controller->queueexport());
+        $rows = AuditLog::query(['event' => 'export.requested']);
+
+        // Assert
+        $this->assertCount(1, $rows);
+        $this->assertSame(7, (int) $rows[0]['actor_userid']);
+        $this->assertNull($rows[0]['target_id']);
+        $this->assertEquals(
+            ['class' => Fixtures\ExportActionsFakeModel::class, 'scope' => 'page', 'format' => 'excel', 'columns' => 1, 'duplicate' => false],
+            $rows[0]['metadata']
+        );
+    }
+
+    /**
+     * The same request twice (the second a hand-off to the run already in flight,
+     * {@see testQueueexportHandsBackTheAlreadyRunningTaskInstead}) is still recorded
+     * both times — the REQUEST happened twice even though only one task did —
+     * `duplicate: true` on the second row is how the audit trail tells them apart.
+     */
+    public function testQueueexportRecordsADuplicateRequestToo(): void
+    {
+        // Arrange
+        $this->createAuditLogTable();
+        $this->signIn(7);
+        $controller = $this->makeController();
+        $_POST = [
+            'class'   => Fixtures\ExportActionsFakeModel::class,
+            'columns' => [['name' => 'id', 'label' => 'Id']],
+            'filters' => [],
+        ];
+
+        // Act
+        $this->captureJson(fn () => $controller->queueexport());
+        $this->captureJson(fn () => $controller->queueexport());
+        $rows = AuditLog::query(['event' => 'export.requested']);
+
+        // Assert
+        $this->assertCount(2, $rows);
+        $this->assertFalse($rows[0]['metadata']['duplicate'] && $rows[1]['metadata']['duplicate']);
+        $this->assertTrue($rows[0]['metadata']['duplicate'] || $rows[1]['metadata']['duplicate']);
     }
 
     /**
@@ -712,6 +790,76 @@ class DatatableExportActionsMySQLTest extends TestCase
 
         // Assert
         $this->assertSame("Id,Name\n1,Alpha\n", $output);
+        unlink($path);
+    }
+
+    /**
+     * The file actually leaving the system is the operator action CLAUDE.md rule 14
+     * means for the audit log, recorded separately from `export.requested` — a request
+     * and a download are different events, and the owner downloading their own file
+     * has no other account to name, so `target_id` stays null.
+     */
+    public function testExportdownloadRecordsAnAuditEvent(): void
+    {
+        // Arrange
+        $this->createAuditLogTable();
+        $taskId = $this->insertExportItem(requestedBy: 7, status: 'completed', message: '12 rows exported');
+        $path   = DatatableExportTask::csvPath($taskId);
+        if (!is_dir(dirname($path))) {
+            mkdir(dirname($path), 0775, true);
+        }
+        file_put_contents($path, "Id,Name\n1,Alpha\n");
+        $this->signIn(7);
+        $_GET['_option'] = (string) $taskId;
+        $controller = $this->makeController();
+
+        // Act
+        ob_start();
+        $controller->exportdownload($taskId);
+        ob_end_clean();
+        $rows = AuditLog::query(['event' => 'export.downloaded']);
+
+        // Assert — the owner downloading their own export: nobody else to name
+        $this->assertCount(1, $rows);
+        $this->assertSame(7, (int) $rows[0]['actor_userid']);
+        $this->assertNull($rows[0]['target_id']);
+        $this->assertSame(
+            ['class' => Fixtures\ExportActionsFakeModel::class, 'format' => 'csv', 'taskid' => $taskId, 'message' => '12 rows exported'],
+            $rows[0]['metadata']
+        );
+        unlink($path);
+    }
+
+    /**
+     * A `super`+ user downloading someone ELSE's export (already allowed by
+     * `ownedExportItem()`'s own check) is the one case worth recording who is not
+     * whose: `target_id` is the row's own requester, since that now differs from
+     * who is actually downloading it.
+     */
+    public function testExportdownloadRecordsTheOriginalRequesterWhenASuperUserDownloadsIt(): void
+    {
+        // Arrange: usertype 98 is the framework's default "super" floor (Roles::SUPER).
+        $this->createAuditLogTable();
+        $taskId = $this->insertExportItem(requestedBy: 7, status: 'completed', message: '12 rows exported');
+        $path   = DatatableExportTask::csvPath($taskId);
+        if (!is_dir(dirname($path))) {
+            mkdir(dirname($path), 0775, true);
+        }
+        file_put_contents($path, "Id,Name\n1,Alpha\n");
+        $this->signIn(99, 98);
+        $_GET['_option'] = (string) $taskId;
+        $controller = $this->makeController();
+
+        // Act
+        ob_start();
+        $controller->exportdownload($taskId);
+        ob_end_clean();
+        $rows = AuditLog::query(['event' => 'export.downloaded']);
+
+        // Assert — actor is the super user (99), target is the original requester (7)
+        $this->assertCount(1, $rows);
+        $this->assertSame(99, (int) $rows[0]['actor_userid']);
+        $this->assertSame(7, (int) $rows[0]['target_id']);
         unlink($path);
     }
 

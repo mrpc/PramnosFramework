@@ -1220,6 +1220,14 @@ percentage would ever have time to show, and its own length is a far less intere
 anyway. Either way it is removed the same way the status text is, once the export completes
 or fails.
 
+**Requesting and downloading are both audited** (`Pramnos\Auth\AuditLog::record()`, CLAUDE.md
+rule 14) — `export.requested` from `queueexport()` (`class`, `scope`, `format`, the column
+count, and `duplicate`) and `export.downloaded` from `exportdownload()` (`class`, `format`,
+`taskid`, the finished `success_message`), as two separate events: a request and a download
+do not always both happen. Neither names a `$target` account unless the downloader differs
+from the row's own `requested_by` — a `super`+ user pulling someone else's export, the one
+case worth recording who is not whose.
+
 **One poll failing does not fail the export.** A `jQuery.getJSON()` failure on
 `exportstatus()` — a timeout, a 5xx, anything at the HTTP/network level rather than a
 `status: 'failed'` from the backend — no longer shows "Export failed" and stops polling on
