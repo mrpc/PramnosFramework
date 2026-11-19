@@ -1216,6 +1216,14 @@ hid (or revealed, even one hidden by default) after the page loaded is honoured 
 Each radio pair — rows and columns — carries a small bold label ("Rows", "Columns") above
 it, so the two stay readable as two independent choices instead of one four-way group.
 
+The modal's title ("Export") is its own fixed element, outside both `.pf40-export-controls`
+and `.pf40-export-progress` — visible through every state (controls, progress, a failure)
+instead of living inside the format `<select>`'s label, which used to disappear along with
+the rest of the controls once "Start export" switched to the progress view. The format
+`<select>` carries its own "Format" label now that the title no longer doubles as one. The
+modal's inner box also keeps a `min-width`/`min-height`, so it does not visibly shrink when
+the controls give way to a shorter progress message.
+
 `tableTools` keeps its own switch, and the two toolbars share one row rather than stacking
 two: with both `tableTools` and `backgroundExport` true, the native `copy`/`pdf`/`print`
 buttons stay, `excel`/`csv` drop out, and the export control takes their place in that

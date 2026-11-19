@@ -1052,6 +1052,7 @@ table;
                 ? $this->exportBase
                 : preg_replace('#/[^/]*$#', '', $this->source);
             $exportLabel     = self::js($lang->_('Export'));
+            $formatLbl       = self::js($lang->_('Format'));
             $exportingLbl    = self::js($lang->_('Exporting...'));
             $readyLbl        = self::js($lang->_('Download'));
             $failedLbl       = self::js($lang->_('Export failed'));
@@ -1187,13 +1188,20 @@ table;
     var pf40_exportModal_{$jsVar} = jQuery(
         '<div class="pf40-export-modal" style="display:none;position:fixed;inset:0;'
         + 'z-index:10000;background:rgba(0,0,0,.5);">'
-        + '<div style="background:#fff;max-width:340px;margin:10vh auto;padding:16px;'
-        + 'border-radius:4px;position:relative;">'
+        + '<div style="background:#fff;max-width:340px;min-width:280px;min-height:220px;'
+        + 'margin:10vh auto;padding:16px;border-radius:4px;position:relative;">'
         + '<button type="button" class="pf40-export-modal-close" aria-label="Close" '
         + 'style="position:absolute;top:4px;right:8px;background:none;border:none;'
         + 'font-size:20px;cursor:pointer;line-height:1;">&times;</button>'
+        // A fixed title, outside both .pf40-export-controls and .pf40-export-progress —
+        // visible across every state instead of living inside the format <select>'s
+        // label (which disappears with the rest of .pf40-export-controls once "Start
+        // export" switches to the progress view, leaving the modal looking like a
+        // different, smaller dialog with no heading at all).
+        + '<div style="font-weight:bold;font-size:14px;margin-bottom:10px;padding-right:20px;">'
+        + {$exportLabel} + '</div>'
         + '<div class="pf40-export-controls">'
-        + '<div style="margin-bottom:10px;"><label>' + {$exportLabel} + '<br>'
+        + '<div style="margin-bottom:10px;"><label>' + {$formatLbl} + '<br>'
         + '<select class="pf40-export-format"><option value="csv">CSV</option>'
         + '<option value="json">JSON</option>' + {$excelOptionJs} + '</select>'
         + '</label></div>'

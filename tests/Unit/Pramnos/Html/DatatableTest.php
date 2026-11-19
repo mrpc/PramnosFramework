@@ -401,6 +401,36 @@ class DatatableTest extends TestCase
     }
 
     /**
+     * The modal's title used to live inside the format `<select>`'s own label, which
+     * sits in `.pf40-export-controls` — hidden along with the rest of it once "Start
+     * export" switches to `.pf40-export-progress`, leaving the modal with no heading
+     * at all and looking like a different, smaller dialog. The title now has its own
+     * element, outside both `.pf40-export-controls` and `.pf40-export-progress`, so it
+     * renders exactly once and stays up through every state.
+     */
+    public function testExportTitleIsOutsideControlsAndProgressSoItNeverDisappears(): void
+    {
+        // Arrange
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->addColumn('Name');
+
+        // Act
+        $js = $dt->renderJs();
+
+        // Assert — the title text itself
+        $titlePos    = strpos($js, '"Export"');
+        $controlsPos = strpos($js, 'class="pf40-export-controls"');
+        $progressPos = strpos($js, 'class="pf40-export-progress"');
+        $this->assertNotFalse($titlePos);
+        // Assert — the title's own div is built before .pf40-export-controls opens,
+        // so it is a sibling of it (and of .pf40-export-progress), not nested inside
+        $this->assertLessThan($controlsPos, $titlePos);
+        $this->assertLessThan($progressPos, $controlsPos);
+    }
+
+    /**
      * The "all filtered rows" / "current page only" radios must share a
      * `name`, or the browser never treats them as one group: without it,
      * clicking the second one just checks it too, leaving both checked at
