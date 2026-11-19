@@ -165,4 +165,51 @@ final class XlsxTest extends TestCase
         // Assert — 3 columns (A..C) wide, 2 rows tall
         $this->assertStringContainsString('<dimension ref="A1:C2"/>', $parts['xl/worksheets/sheet1.xml']);
     }
+
+    /**
+     * Past the unique-string ceiling, text goes back to inline instead of a shared strings
+     * table — Excel has an unofficial, reported limit somewhere past 1,000,000 shared
+     * strings; past it, a cell's own index stops resolving and Excel reports the file as
+     * damaged, confirmed in production on a 2.36-million-unique-string export. The second
+     * (optional) `write()` argument lets this test cross that line with three rows instead
+     * of actually building a million-plus-row workbook.
+     */
+    public function testPastTheSharedStringsCeilingFallsBackToInlineStrings(): void
+    {
+        // Act — 3 unique strings, ceiling lowered to 2: the 3rd pushes it over
+        $parts = self::parts(Xlsx::write(['Sheet1' => [['Alpha'], ['Beta'], ['Gamma']]], maxSharedStrings: 2));
+
+        // Assert — no shared strings table at all: not written, not declared, not related to
+        $this->assertArrayNotHasKey('xl/sharedStrings.xml', $parts);
+        $this->assertStringNotContainsString('sharedStrings', $parts['[Content_Types].xml']);
+        $this->assertStringNotContainsString('sharedStrings', $parts['xl/_rels/workbook.xml.rels']);
+        // Assert — every text cell carries its own text inline instead
+        $this->assertStringContainsString(
+            '<c r="A1" s="1" t="inlineStr"><is><t xml:space="preserve">Alpha</t></is></c>',
+            $parts['xl/worksheets/sheet1.xml']
+        );
+        $this->assertStringContainsString('<t xml:space="preserve">Gamma</t>', $parts['xl/worksheets/sheet1.xml']);
+    }
+
+    /** At or under the ceiling, nothing changes — the shared strings table stays the default. */
+    public function testAtTheSharedStringsCeilingStillUsesSharedStrings(): void
+    {
+        // Act — exactly 2 unique strings against a ceiling of 2: not OVER it
+        $parts = self::parts(Xlsx::write(['Sheet1' => [['Alpha'], ['Beta']]], maxSharedStrings: 2));
+
+        // Assert
+        $this->assertArrayHasKey('xl/sharedStrings.xml', $parts);
+        $this->assertStringContainsString('t="s"', $parts['xl/worksheets/sheet1.xml']);
+    }
+
+    /** `fromCsv()` passes its own override through to `write()` the same way. */
+    public function testFromCsvAlsoAcceptsTheSharedStringsCeilingOverride(): void
+    {
+        // Act
+        $parts = self::parts(Xlsx::fromCsv("Alpha\nBeta\nGamma\n", 'Report', maxSharedStrings: 2));
+
+        // Assert
+        $this->assertArrayNotHasKey('xl/sharedStrings.xml', $parts);
+        $this->assertStringContainsString('t="inlineStr"', $parts['xl/worksheets/sheet1.xml']);
+    }
 }

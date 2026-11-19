@@ -1122,6 +1122,14 @@ $bytes = Xlsx::fromCsv($csv, 'Report');   // what a CSV export already writes
 - **Cells.** A number, or a string in the plain form `-12.5`, is written as a number, and
   everything else as text. The first row is bold.
 - **Sheet names.** A sheet's name is cut to what Excel allows.
+- **Text, usually through a shared strings table** (`xl/sharedStrings.xml`) — what Excel's
+  own writer does, rather than each cell carrying its own text. Past 900,000 unique strings
+  across the whole workbook (`write()`'s/`fromCsv()`'s own `$maxSharedStrings`, overridable),
+  text goes back to inline instead: Excel has an unofficial, reported ceiling somewhere past
+  1,000,000 shared strings, confirmed in production on a 2.36-million-unique-string export
+  that reproduced the exact "we found a problem with some content" prompt a shared strings
+  table exists to avoid in the first place. At that scale reuse is usually low anyway, so
+  little size is lost going back to inline.
 
 ### Closed periods
 

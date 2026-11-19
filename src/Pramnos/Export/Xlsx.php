@@ -18,6 +18,12 @@ namespace Pramnos\Export;
  * own writer does the same, and a real multi-thousand-row export with inline strings (schema-valid,
  * every outside tool happy with it) still made Excel itself report "we found a problem with some
  * content" on nothing a small file ever reproduced. The first row is bold.
+ *
+ * Past {@see MAX_SHARED_STRINGS} unique strings, text goes back to inline instead: Excel has an
+ * unofficial, reported ceiling somewhere past 1,000,000 shared strings, confirmed in production
+ * on a 2.36-million-unique-string export that reproduced the exact same repair prompt, with every
+ * other structural check clean. At that scale reuse is usually low anyway (a handful of unique
+ * values rarely climb into the millions), so the table buys little and inlining costs little extra.
  */
 final class Xlsx
 {
@@ -25,11 +31,22 @@ final class Xlsx
     private const NAME = '/[\[\]:*?\/\\\\]/';
 
     /**
+     * Comfortably under the unofficial ceiling a Microsoft Q&A thread reports
+     * (learn.microsoft.com/en-us/answers/questions/661619) — past it, a shared string's own
+     * index stops resolving and Excel reports the file as damaged. Not a number Microsoft
+     * documents as a real limit (only row/column counts are), so the margin is deliberate.
+     */
+    private const MAX_SHARED_STRINGS = 900000;
+
+    /**
      * The workbook's bytes.
      *
      * @param array<string, list<list<scalar|null>>> $sheets Name => rows
+     * @param int $maxSharedStrings {@see MAX_SHARED_STRINGS} — overridable for a caller that
+     *            knows its own data (or a test, to exercise the inline fallback without
+     *            actually building a million-plus-row workbook to cross the real default)
      */
-    public static function write(array $sheets): string
+    public static function write(array $sheets, int $maxSharedStrings = self::MAX_SHARED_STRINGS): string
     {
         if (!class_exists(\ZipArchive::class)) {
             throw new \RuntimeException('Writing a spreadsheet needs the zip extension (ext-zip).');
@@ -50,15 +67,6 @@ final class Xlsx
             $i++;
             $names[$i] = mb_substr(trim((string) preg_replace(self::NAME, ' ', (string) $name)) ?: 'Sheet' . $i, 0, 31);
         }
-        $zip->addFromString('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-            . '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-            . '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-            . '<Default Extension="xml" ContentType="application/xml"/>'
-            . '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
-            . '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
-            . '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>'
-            . implode('', array_map(static fn (int $n): string => '<Override PartName="/xl/worksheets/sheet' . $n . '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>', array_keys($names)))
-            . '</Types>');
         // Collected across every sheet, in one pass — a shared strings table is a single
         // workbook-level part, so every sheet's text has to be gathered before any of
         // them is written. $strings keeps text => index in first-seen order; the same
@@ -67,17 +75,41 @@ final class Xlsx
         $totalRefs  = 0;
         $sheetsXml  = [];
         foreach ($sheets as $rows) {
-            $sheetsXml[] = self::sheet($rows, $strings, $totalRefs);
+            $sheetsXml[] = self::sheet($rows, $strings, $totalRefs, useShared: true);
         }
+        // Past the ceiling, rebuild with inline strings instead — a second pass over the
+        // same rows, paid only in the rare case this limit is actually hit. Every other
+        // export (the overwhelming majority) never pays it: one pass, exactly as before.
+        $useShared = count($strings) <= $maxSharedStrings;
+        if (!$useShared) {
+            $strings   = [];
+            $totalRefs = 0;
+            $sheetsXml = [];
+            foreach ($sheets as $rows) {
+                $sheetsXml[] = self::sheet($rows, $strings, $totalRefs, useShared: false);
+            }
+        }
+
+        $zip->addFromString('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            . '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            . '<Default Extension="xml" ContentType="application/xml"/>'
+            . '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            . '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+            . ($useShared ? '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>' : '')
+            . implode('', array_map(static fn (int $n): string => '<Override PartName="/xl/worksheets/sheet' . $n . '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>', array_keys($names)))
+            . '</Types>');
         $i = 0;
         foreach ($sheetsXml as $xml) {
             $i++;
             $zip->addFromString('xl/worksheets/sheet' . $i . '.xml', $xml);
         }
-        $zip->addFromString('xl/sharedStrings.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-            . '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="' . $totalRefs . '" uniqueCount="' . count($strings) . '">'
-            . implode('', array_map(static fn (string $s): string => '<si><t xml:space="preserve">' . self::e($s) . '</t></si>', array_keys($strings)))
-            . '</sst>');
+        if ($useShared) {
+            $zip->addFromString('xl/sharedStrings.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                . '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="' . $totalRefs . '" uniqueCount="' . count($strings) . '">'
+                . implode('', array_map(static fn (string $s): string => '<si><t xml:space="preserve">' . self::e($s) . '</t></si>', array_keys($strings)))
+                . '</sst>');
+        }
         $zip->addFromString('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
@@ -90,7 +122,7 @@ final class Xlsx
             . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             . implode('', array_map(static fn (int $n): string => '<Relationship Id="rId' . $n . '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' . $n . '.xml"/>', array_keys($names)))
             . '<Relationship Id="rId' . (count($names) + 1) . '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
-            . '<Relationship Id="rId' . (count($names) + 2) . '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>'
+            . ($useShared ? '<Relationship Id="rId' . (count($names) + 2) . '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>' : '')
             . '</Relationships>');
         // Two styles: plain, and bold for the first row.
         $zip->addFromString('xl/styles.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -114,7 +146,7 @@ final class Xlsx
     }
 
     /** A CSV — as an export already writes it, a byte-order mark or none — as a one-sheet workbook. */
-    public static function fromCsv(string $csv, string $sheet = 'Sheet1'): string
+    public static function fromCsv(string $csv, string $sheet = 'Sheet1', int $maxSharedStrings = self::MAX_SHARED_STRINGS): string
     {
         $csv    = str_starts_with($csv, "\xEF\xBB\xBF") ? substr($csv, 3) : $csv;
         $stream = fopen('php://temp', 'r+');
@@ -128,18 +160,21 @@ final class Xlsx
         }
         fclose($stream);
 
-        return self::write([$sheet => $rows]);
+        return self::write([$sheet => $rows], $maxSharedStrings);
     }
 
     /**
-     * One sheet's XML. Text cells reference `$strings` (text => index, shared across every
-     * sheet in the workbook) instead of carrying their own text, and `$totalRefs` counts
-     * every such reference — both feed `xl/sharedStrings.xml`'s `count`/`uniqueCount`.
+     * One sheet's XML. With `$useShared`, a text cell references `$strings` (text => index,
+     * shared across every sheet in the workbook) instead of carrying its own text, and
+     * `$totalRefs` counts every such reference — both feed `xl/sharedStrings.xml`'s
+     * `count`/`uniqueCount`. Without it, every text cell carries its own text inline
+     * (`t="inlineStr"`) and `$strings`/`$totalRefs` are not touched — the fallback past
+     * {@see MAX_SHARED_STRINGS} unique strings.
      *
      * @param list<list<scalar|null>> $rows
      * @param array<string, int> $strings
      */
-    private static function sheet(array $rows, array &$strings, int &$totalRefs): string
+    private static function sheet(array $rows, array &$strings, int &$totalRefs, bool $useShared): string
     {
         $xml     = '';
         $maxCols = 0;
@@ -158,9 +193,13 @@ final class Xlsx
                     continue;
                 }
                 $text = (string) $value;
-                $totalRefs++;
-                $strings[$text] ??= count($strings);
-                $xml .= '<c r="' . $ref . '"' . $style . ' t="s"><v>' . $strings[$text] . '</v></c>';
+                if ($useShared) {
+                    $totalRefs++;
+                    $strings[$text] ??= count($strings);
+                    $xml .= '<c r="' . $ref . '"' . $style . ' t="s"><v>' . $strings[$text] . '</v></c>';
+                } else {
+                    $xml .= '<c r="' . $ref . '"' . $style . ' t="inlineStr"><is><t xml:space="preserve">' . self::e($text) . '</t></is></c>';
+                }
             }
             $xml .= '</row>';
         }
