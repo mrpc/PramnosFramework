@@ -1292,6 +1292,11 @@ Three things make the button work:
 
 3. **Nothing else** — `queueexport()`/`exportstatus($id)`/`exportdownload($id)` queue a
    `Pramnos\Queue\Tasks\DatatableExportTask`, poll its status, and stream the finished file.
+   `exportdownload()` switches the document type to `'raw'` before it streams, the same
+   convention `queueexport()`/`exportstatus()` use with `'json'` — without it, the default
+   (`'html'`) document type wraps whatever it streamed with the theme's page template at
+   `render()` time, appending that page's own header/footer/script tags after the file's own
+   bytes: a download that is byte-identical to the real file up to that point, and unopenable.
    Only the requester (`requested_by` in the task's own payload) or a `super`+ user may poll
    or download it. `myExports()` lists the signed-in user's own `datatable.export` tasks
    (`{taskid, status, label, download}` — `label` a descriptive line such as "Users (CSV)

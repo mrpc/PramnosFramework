@@ -266,6 +266,14 @@ trait DatatableExportActions
             default => ['text/csv', '.csv'],
         };
 
+        // Without this, the default ('html') document type still wraps whatever
+        // readfile() writes with the theme's page template at render() time — the
+        // binary download arrives with the admin page's own header/footer/script
+        // tags appended after it, byte-identical to the file up to that point but
+        // unopenable. The same pattern queueexport()/exportstatus() already use
+        // with 'json', here for binary output instead.
+        \Pramnos\Framework\Factory::getDocument('raw');
+
         // Guarded like LogController::sendHeader() — a CLI test run has no headers to send.
         if (php_sapi_name() !== 'cli') {
             header('Content-Type: ' . $contentType);

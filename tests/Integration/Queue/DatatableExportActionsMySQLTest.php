@@ -84,6 +84,7 @@ class DatatableExportActionsMySQLTest extends TestCase
         RequestIdentity::reset();
         $_POST = [];
         $_GET  = [];
+        \Pramnos\Document\Document::reset();
     }
 
     private function makeController(): Controller
@@ -594,6 +595,41 @@ class DatatableExportActionsMySQLTest extends TestCase
 
         // Assert
         $this->assertSame("Id,Name\n1,Alpha\n", $output);
+        unlink($path);
+    }
+
+    /**
+     * Without switching the document type, the default ('html') type still wraps
+     * whatever `readfile()` wrote with the theme's page template at `render()`
+     * time — a real download then arrived with the admin page's own
+     * header/footer/script tags appended after the file's own bytes, byte-identical
+     * up to that point but unopenable. A test that only reads the output buffer
+     * straight after `exportdownload()` returns (as the tests above do) cannot see
+     * this: the wrapping happens later, in the request's own `render()` call, which
+     * none of them drive. This asserts the one thing standing between the two:
+     * that `exportdownload()` left the document type as `'raw'` before returning.
+     */
+    public function testExportdownloadSwitchesTheDocumentTypeToRaw(): void
+    {
+        // Arrange
+        $taskId = $this->insertExportItem(requestedBy: 7, status: 'completed', message: '12 rows exported');
+        $path   = DatatableExportTask::csvPath($taskId);
+        if (!is_dir(dirname($path))) {
+            mkdir(dirname($path), 0775, true);
+        }
+        file_put_contents($path, "Id,Name\n1,Alpha\n");
+        $this->signIn(7);
+        $_GET['_option'] = (string) $taskId;
+        $controller = $this->makeController();
+
+        // Act
+        ob_start();
+        $controller->exportdownload($taskId);
+        ob_end_clean();
+
+        // Assert — the default document type Document::getInstance() falls back to
+        // (and what a real request's render() call reads) is now 'raw', not 'html'
+        $this->assertSame('raw', \Pramnos\Document\Document::$type);
         unlink($path);
     }
 
