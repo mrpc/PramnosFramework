@@ -287,7 +287,13 @@ final class Xlsx
                     $xml .= '<c r="' . $ref . '"' . $style . '><v>' . $value . '</v></c>';
                     continue;
                 }
-                $text = (string) $value;
+                // Excel's own hard limit, undocumented in the OOXML schema itself: a cell's
+                // text past 32,767 characters is not malformed XML, but Excel's own stricter
+                // runtime rejects it as invalid "string properties" and repairs the file —
+                // confirmed in production: a 502,159-row export had 8 cells past it, the
+                // longest at exactly 65,535 (a MySQL TEXT column's own byte limit, written
+                // through whole), and nothing else differed from a file Excel itself writes.
+                $text = mb_substr((string) $value, 0, 32767);
                 if ($useShared) {
                     $totalRefs++;
                     $strings[$text] ??= count($strings);

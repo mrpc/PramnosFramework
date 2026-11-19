@@ -1148,6 +1148,11 @@ $bytes = Xlsx::fromCsv($csv, 'Report');   // what a CSV export already writes
   `<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>`
   right after `<sheetData>` — both empty slots in the worksheet's own required element
   order that Excel's own writer never leaves out.
+- **A cell's text is cut at 32,767 characters** — Excel's own hard limit, not the OOXML
+  schema's: past it, Excel's own stricter runtime rejects the string outright and repairs
+  the file. Confirmed in production: a 502,159-row export had 8 cells past it, the longest
+  at exactly 65,535 (a MySQL `TEXT` column's own byte limit, written through whole), and
+  this was the actual root cause once every structural gap above was already closed.
 
 ### Closed periods
 

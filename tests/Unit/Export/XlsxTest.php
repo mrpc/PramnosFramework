@@ -101,6 +101,29 @@ final class XlsxTest extends TestCase
     }
 
     /**
+     * Excel's own hard limit — not XML's, not the OOXML schema's — is 32,767 characters per
+     * cell; past it, Excel's own stricter runtime rejects the string as invalid and repairs
+     * the file. Confirmed in production: a 502,159-row export had 8 cells past it, the
+     * longest at exactly 65,535 (a MySQL `TEXT` column's own byte limit, written through
+     * whole), with every other structural and content check this class makes already clean.
+     */
+    public function testACellsTextIsCutAtExcelsOwnLimit(): void
+    {
+        // Arrange — one past Excel's own 32,767-character limit, each character distinct
+        // so a wrong cut point would be caught by the exact-length assertion below
+        $text = str_repeat('0123456789', 3277); // 32,770 characters
+
+        // Act
+        $parts = self::parts(Xlsx::write(['Sheet1' => [[$text]]]));
+        preg_match('/<t xml:space="preserve">(.*)<\/t>/s', $parts['xl/sharedStrings.xml'], $m);
+
+        // Assert — cut to exactly Excel's limit, and from the start of the text, not a
+        // wrong offset
+        $this->assertSame(32767, mb_strlen($m[1]));
+        $this->assertSame(mb_substr($text, 0, 32767), $m[1]);
+    }
+
+    /**
      * `<cellStyles>` with a named "Normal" default is optional in the OOXML schema, but
      * Excel expects it in practice — its absence is a documented, common cause of the
      * same "we found a problem with some content" repair prompt a bad ZIP entry order
