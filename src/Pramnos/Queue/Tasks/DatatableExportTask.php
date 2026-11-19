@@ -215,8 +215,16 @@ class DatatableExportTask extends AbstractTask
                 return;
             }
 
+            // The two href-based uses of exportBase (the modal's own "ready" link,
+            // and myExports()'s download list) never prepend sURL — a relative
+            // exportBase works there exactly as-is, resolved by the browser against
+            // the current page. An application whose exportBase is already absolute
+            // (so those two still resolve correctly wherever the mail is read, not
+            // just from the page the export was started on) must not have sURL
+            // prepended here too, or the mail link doubles the host.
             $exportBase = (string) ($payload['exportBase'] ?? '');
-            $url        = (defined('sURL') ? (string) sURL : '') . $exportBase
+            $isAbsolute = str_starts_with($exportBase, 'http://') || str_starts_with($exportBase, 'https://');
+            $url        = ($isAbsolute || !defined('sURL') ? '' : (string) sURL) . $exportBase
                 . '/exportdownload/' . $queueItem->taskid;
 
             $this->sendReadyNotification($userId, $to, $url, $this->isBeingWatched($queueItem));

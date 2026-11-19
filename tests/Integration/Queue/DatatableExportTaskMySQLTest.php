@@ -403,6 +403,44 @@ class DatatableExportTaskMySQLTest extends TestCase
         $this->assertStringContainsString('/exportdownload/' . $item->taskid, (string) $row->fields['content']);
     }
 
+    /**
+     * An application whose own `exportBase` is already absolute (so the modal's
+     * "ready" link and `myExports()`'s download list — the two places that use it
+     * directly as an `<a href>`, neither of which prepends `sURL` — resolve correctly
+     * wherever the mail is read, not just from the page the export was started on)
+     * must not have `sURL` prepended here too, or the mail link doubles the host.
+     * Reported from production: a correct, absolute `exportBase` turned the "ready"
+     * email's download link into one pointing at the wrong address.
+     */
+    public function testNotifyEmailDoesNotDoubleTheHostWhenExportBaseIsAbsolute(): void
+    {
+        // Arrange
+        $this->createMailsTable();
+        $item = $this->makeQueueItem(json_encode([
+            'class'        => Fixtures\InsertingExportableSource::class,
+            'columns'      => [['key' => 'id', 'label' => 'Id'], ['key' => 'name', 'label' => 'Name']],
+            'notify_email' => true,
+            'notify_to'    => 'requester@example.com',
+            'exportBase'   => 'https://app.example.com/users',
+        ]));
+        $task = new DatatableExportTask($this->controller);
+
+        // Act
+        $task->execute($item);
+
+        // Assert — exportBase's own host verbatim, sURL's test host (pramnosframework.test)
+        // nowhere in it
+        $row = $this->db->query(
+            "SELECT * FROM mails WHERE tomail = 'requester@example.com' ORDER BY id DESC LIMIT 1"
+        );
+        $this->assertNotFalse($row->fetch());
+        $this->assertStringContainsString(
+            'https://app.example.com/users/exportdownload/' . $item->taskid,
+            (string) $row->fields['content']
+        );
+        $this->assertStringNotContainsString('pramnosframework.test', (string) $row->fields['content']);
+    }
+
     /** `notify_email = true` with no `notify_to` captured queues no email — nothing to address it to. */
     public function testNotifyEmailWithNoAddressQueuesNoOutboxRow(): void
     {

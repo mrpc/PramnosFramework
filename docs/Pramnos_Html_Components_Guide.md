@@ -1362,6 +1362,16 @@ The modal the export control opens posts a few more fields alongside `class`/`co
 The address itself (`notify_to`) is captured once, from the signed-in user `queueexport()`
 already has — the task never reloads a user later just to find an email address.
 
+**`exportBase` may be relative or absolute — the email link handles either, the two
+`<a href>` uses do not need to.** The modal's own "ready" link and `myExports()`'s download
+list both use `exportBase` directly as an `<a href>`, which a browser resolves against the
+current page either way, relative or absolute. The email link is different: it has to
+resolve correctly wherever the mail is read, not from the page the export was started on,
+so it needs an absolute URL — `sURL . $exportBase` when `exportBase` is itself relative
+(the default), but `$exportBase` verbatim, with nothing prepended, when an application has
+made it absolute already. Prepending `sURL` regardless of which one it already is doubles
+the host in the email link.
+
 The export runs in batches (`1500` rows by default) inside one database transaction set to
 `REPEATABLE READ`, so a row inserted or deleted while the export is running cannot be
 skipped or duplicated — every batch reads the same snapshot. See the Queue Guide for the
