@@ -1367,10 +1367,20 @@ table;
                 pf40_exportModalFailed_{$jsVar}();
                 return;
             }
+            // A single poll failing at the network/HTTP level (a timeout, a 5xx) is not
+            // the export itself failing — the task keeps running underneath regardless
+            // — but the longer one waits in a busy queue (congestion, a large export's
+            // own many-minute batch loop) the more likely some one poll hits a transient
+            // hiccup along the way. Confirmed in production: a small, otherwise-successful
+            // export showed "failed" and stopped polling entirely over exactly one such
+            // poll, queued behind an unrelated worker-pool backlog. Only a RUN of them
+            // in a row is treated as the export actually being unreachable.
+            var pollFailures = 0;
             var poll = function () {
                 jQuery.getJSON(
                     pf40_exportBase_{$jsVar} + '/exportstatus/' + taskid
                 ).done(function (status) {
+                    pollFailures = 0;
                     if (status.status === 'completed') {
                         \$progress.empty().append(
                             jQuery('<a href="' + pf40_exportBase_{$jsVar} + '/exportdownload/'
@@ -1390,7 +1400,14 @@ table;
                         }
                         setTimeout(poll, 3000);
                     }
-                }).fail(pf40_exportModalFailed_{$jsVar});
+                }).fail(function () {
+                    pollFailures++;
+                    if (pollFailures >= 3) {
+                        pf40_exportModalFailed_{$jsVar}();
+                    } else {
+                        setTimeout(poll, 3000);
+                    }
+                });
             };
             poll();
         }).fail(pf40_exportModalFailed_{$jsVar});

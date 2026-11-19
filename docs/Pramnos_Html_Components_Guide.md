@@ -1220,6 +1220,17 @@ percentage would ever have time to show, and its own length is a far less intere
 anyway. Either way it is removed the same way the status text is, once the export completes
 or fails.
 
+**One poll failing does not fail the export.** A `jQuery.getJSON()` failure on
+`exportstatus()` — a timeout, a 5xx, anything at the HTTP/network level rather than a
+`status: 'failed'` from the backend — no longer shows "Export failed" and stops polling on
+the spot. The task underneath keeps running regardless of one lost poll, and the longer a
+busy queue makes it wait (a worker-pool backlog, a large export's own many-minute batch
+loop), the more likely some one poll hits a transient hiccup along the way — confirmed in
+production: a small, otherwise-successful export was shown as failed over exactly one such
+poll. Only 3 consecutive poll failures are read as the export being genuinely unreachable; a
+successful poll resets the count, so it is a run of failures that matters, not a lifetime
+total across what can be a long-running export.
+
 **"Selected columns" vs "All columns"** is a second radio pair, offered only when the table
 also has a show/hide picker (`$table->showHide`, true by default) — without one there is
 nothing to choose between, since every column stays visible. It defaults to "All columns":

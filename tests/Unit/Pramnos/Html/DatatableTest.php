@@ -458,6 +458,37 @@ class DatatableTest extends TestCase
     }
 
     /**
+     * A single poll failing at the network/HTTP level (a timeout, a 5xx) is not the
+     * export itself failing — confirmed in production: a small, otherwise-successful
+     * export showed "failed" and stopped polling entirely over exactly one such poll,
+     * queued behind an unrelated worker-pool backlog that delayed it a couple of
+     * minutes. Only a run of several in a row (not one) is treated as the export being
+     * actually unreachable; a lone hiccup schedules another poll instead, same as a
+     * normal "still running" response does.
+     */
+    public function testAPollFailureRetriesInsteadOfFailingImmediately(): void
+    {
+        // Arrange
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->addColumn('Name');
+
+        // Act
+        $js = $dt->renderJs();
+
+        // Assert — a failure counter exists, separate from the backend's own
+        // status: 'failed', and the modal is only marked failed once it reaches 3
+        $this->assertStringContainsString('var pollFailures = 0;', $js);
+        $this->assertStringContainsString('pollFailures++;', $js);
+        $this->assertStringContainsString('if (pollFailures >= 3)', $js);
+        // Assert — "pollFailures = 0;" appears twice: the initial declaration, and a
+        // successful poll resetting it — consecutive failures count, not a lifetime
+        // total across what can be a many-minute run of otherwise-healthy polls
+        $this->assertSame(2, substr_count($js, 'pollFailures = 0;'));
+    }
+
+    /**
      * The modal's title used to live inside the format `<select>`'s own label, which
      * sits in `.pf40-export-controls` — hidden along with the rest of it once "Start
      * export" switches to `.pf40-export-progress`, leaving the modal with no heading
