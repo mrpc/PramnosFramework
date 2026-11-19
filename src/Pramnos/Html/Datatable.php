@@ -1103,6 +1103,49 @@ table;
                 $exportColumns,
                 JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
             );
+            // Same convention, but ignoring bVisible — the show/hide picker
+            // (fnSetColumnVis()) can reveal a column that started hidden, so
+            // "Selected columns" needs every exportable column on offer, not only
+            // the ones visible at render time. colIdx matches fnSettings().aoColumns[n],
+            // the same index showHideJs above toggles.
+            $exportAllColumnsJs = 'null';
+            // Only offered when a show/hide picker exists — without one, every
+            // column is always visible and "Selected columns" would be a second
+            // name for "All columns". Default stays "All columns" (today's
+            // behaviour) so nothing changes for a table that already exports.
+            if ($this->showHide) {
+                $exportAllColumns = [];
+                $colIdx = 0;
+                foreach ($this->aoColumns as $column) {
+                    if (!str_contains(' ' . $column->sClass . ' ', ' pf-no-export ')) {
+                        $exportAllColumns[] = [
+                            'key'    => $column->exportKey ?? $colIdx,
+                            'label'  => (string) $column->sTitle,
+                            'colIdx' => $colIdx,
+                        ];
+                    }
+                    $colIdx++;
+                }
+                $exportAllColumnsJs = json_encode(
+                    $exportAllColumns,
+                    JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                );
+                $allColumnsLbl      = self::js($lang->_('All columns'));
+                $selectedColumnsLbl = self::js($lang->_('Selected columns'));
+                // Built the same way as the row-scope radios just above it — literal
+                // markup spliced into the modal's own `+`-concatenated JS string, not
+                // JSON-encoded as a value, so quotes stay literal quotes in the output.
+                $columnsScopeHtmlJs = <<<columnsscopehtml
+                '<div style="margin-bottom:10px;">'
+                + '<label><input type="radio" name="pf40-export-columns-scope-{$jsVar}" class="pf40-export-columns-scope" value="all" checked> '
+                + {$allColumnsLbl} + '</label><br>'
+                + '<label><input type="radio" name="pf40-export-columns-scope-{$jsVar}" class="pf40-export-columns-scope" value="selected"> '
+                + {$selectedColumnsLbl} + '</label>'
+                + '</div>'
+                columnsscopehtml;
+            } else {
+                $columnsScopeHtmlJs = "''";
+            }
             // A page-level prefilter (a group, a date range — anything read from $_GET
             // rather than a column search box) never reaches the table's own ajax.params().
             // Merge the query string in first so exportBatch() sees it too; ajax.params()
@@ -1131,6 +1174,7 @@ table;
             $exportJs = <<<exportjs
 {$standaloneBtnJs}
     var pf40_exportBase_{$jsVar} = {$exportBaseJs};
+    var pf40_allExportColumns_{$jsVar} = {$exportAllColumnsJs};
 
     // Plain, unstyled-but-functional — an app wanting a themed modal restyles
     // ".pf40-export-modal" itself. Appended once per table, hidden until opened.
@@ -1153,6 +1197,7 @@ table;
         + '<label><input type="radio" name="pf40-export-scope-{$jsVar}" class="pf40-export-scope" value="page"> '
         + {$pageOnlyLbl} + '</label>'
         + '</div>'
+        + {$columnsScopeHtmlJs}
         + '<div style="margin-bottom:10px;"><label>'
         + '<input type="checkbox" class="pf40-export-notify"> ' + {$notifyLbl}
         + '</label></div>'
@@ -1249,6 +1294,16 @@ table;
         var scope  = pf40_exportModal_{$jsVar}.find('.pf40-export-scope:checked').val() || 'all';
         var format = pf40_exportModal_{$jsVar}.find('.pf40-export-format').val() || 'csv';
         var notify = pf40_exportModal_{$jsVar}.find('.pf40-export-notify').is(':checked');
+        var columnsScope = pf40_exportModal_{$jsVar}.find('.pf40-export-columns-scope:checked').val() || 'all';
+        // "Selected columns" reads LIVE visibility off the same show/hide picker
+        // (fnSetColumnVis()) the admin already used — not the server-rendered
+        // default — so a column they just hid (or un-hid) is honoured.
+        var exportColumns = (columnsScope === 'selected' && pf40_allExportColumns_{$jsVar})
+            ? pf40_allExportColumns_{$jsVar}.filter(function (c) {
+                var col = {$jsVar}.fnSettings().aoColumns[c.colIdx];
+                return col && col.bVisible;
+            }).map(function (c) { return {key: c.key, label: c.label}; })
+            : {$exportColumnsJs};
 
         // The modal stays open: progress, the download link, and a failure with a
         // way to retry all show up here, where the person is already looking —
@@ -1264,7 +1319,7 @@ table;
             pf40_exportBase_{$jsVar} + '/queueexport',
             {
                 class: {$exportClassJs},
-                columns: {$exportColumnsJs},
+                columns: exportColumns,
                 filters: {$exportFiltersJs},
                 format: format,
                 scope: scope,

@@ -429,6 +429,91 @@ class DatatableTest extends TestCase
         );
     }
 
+    /**
+     * "Selected columns" vs "All columns" is only offered when a show/hide
+     * picker exists (`showHide` defaults true) — without one, every column is
+     * always visible, so the choice would be a second name for the same thing.
+     * Default stays "All columns", so a table that already exports keeps
+     * posting exactly what it did before this option existed.
+     */
+    public function testColumnsScopeRadiosAppearWhenShowHideIsOnAndDefaultToAllColumns(): void
+    {
+        // Arrange
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->addColumn('Name');
+
+        // Act
+        $js = $dt->renderJs();
+
+        // Assert — both radios exist, share a name, and "All columns" is checked
+        $this->assertStringContainsString(
+            'name="pf40-export-columns-scope-users" class="pf40-export-columns-scope" value="all" checked',
+            $js
+        );
+        $this->assertStringContainsString(
+            'name="pf40-export-columns-scope-users" class="pf40-export-columns-scope" value="selected"',
+            $js
+        );
+    }
+
+    /** Without a show/hide picker there is nothing to choose between, so the radios are not rendered. */
+    public function testColumnsScopeRadiosAreOmittedWhenShowHideIsOff(): void
+    {
+        // Arrange
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->showHide = false;
+        $dt->addColumn('Name');
+
+        // Act
+        $js = $dt->renderJs();
+
+        // Assert — no radio markup rendered (the click handler's lookup selector for
+        // it, `.pf40-export-columns-scope:checked`, stays in the script either way —
+        // harmless, since nothing in the DOM ever matches it — so it is not asserted here).
+        $this->assertStringNotContainsString('class="pf40-export-columns-scope"', $js);
+        // And the live-columns lookup array stays null — nothing to filter against.
+        $this->assertStringContainsString('pf40_allExportColumns_users = null;', $js);
+    }
+
+    /**
+     * "Selected columns" is read from the SAME show/hide picker already on screen
+     * (`fnSettings().aoColumns[n].bVisible`, toggled by `fnSetColumnVis()`), not
+     * from the server-rendered default — so a column hidden (or revealed) by the
+     * admin after the page loaded is what gets exported, not what was visible at
+     * render time. This also covers "Hidden" (not visible at render) being on
+     * offer at all, which the "All columns" default list excludes entirely.
+     */
+    public function testSelectedColumnsFiltersLiveVisibilityIncludingAColumnHiddenAtRenderTime(): void
+    {
+        // Arrange — "Hidden" starts not visible, but the show/hide picker can reveal it
+        $dt = new Datatable('users', '/admin/Users/data');
+        $dt->backgroundExport = true;
+        $dt->exportModelClass = 'App\\Models\\Users';
+        $dt->addColumn('Name');
+        $dt->addColumn('Hidden', false);
+
+        // Act
+        $dt->renderTable();
+        $js = $dt->renderJs();
+
+        // Assert — the live-lookup array carries BOTH columns with their colIdx,
+        // unlike the "All columns" default which drops "Hidden" entirely.
+        $this->assertStringContainsString(
+            'pf40_allExportColumns_users = ' . json_encode([
+                ['key' => 0, 'label' => 'Name', 'colIdx' => 0],
+                ['key' => 1, 'label' => 'Hidden', 'colIdx' => 1],
+            ]) . ';',
+            $js
+        );
+        // Assert — the click handler reads live bVisible off fnSettings(), the
+        // same API showHideJs's own toggle button uses, not a server default.
+        $this->assertStringContainsString('users.fnSettings().aoColumns[c.colIdx]', $js);
+    }
+
     public function testBackgroundExportPostsTheFieldsTheControllerReads(): void
     {
         // Arrange — one exportable column, one excluded like native tableTools excludes it
@@ -449,15 +534,17 @@ class DatatableTest extends TestCase
             "class: " . json_encode('App\\Models\\Users'),
             $js
         );
-        // Assert — "Name" is column 0; its posted key is that position, not its label
+        // Assert — the POST sends the computed `exportColumns` variable, not a static literal
+        $this->assertStringContainsString('columns: exportColumns', $js);
+        // Assert — "Name" is column 0; its posted key is that position, not its label.
+        // Exactly one entry: "Actions" (pf-no-export) and "Hidden" (not visible at
+        // render time) are excluded from this "All columns" default fallback. (The
+        // separate live-visibility lookup used by "Selected columns" is allowed to
+        // list "Hidden" too — covered by testSelectedColumnsFiltersLiveVisibility...)
         $this->assertStringContainsString(
-            'columns: ' . json_encode([['key' => 0, 'label' => 'Name']]),
+            json_encode([['key' => 0, 'label' => 'Name']]),
             $js
         );
-        // "Actions" (pf-no-export, position 1) and "Hidden" (not visible, position 2)
-        // must not appear in it
-        $this->assertStringNotContainsString('"key":1', $js);
-        $this->assertStringNotContainsString('"key":2', $js);
         // Assert — filters merges the page's own query string (exportIncludesQueryString
         // defaults true) with the table's AJAX params, the latter winning on conflict
         $this->assertStringContainsString(
@@ -575,7 +662,7 @@ class DatatableTest extends TestCase
 
         // Assert — position 0 for the column with no override, the field name for the other
         $this->assertStringContainsString(
-            'columns: ' . json_encode([
+            json_encode([
                 ['key' => 0, 'label' => 'Name'],
                 ['key' => 'email_address', 'label' => 'Email'],
             ]),
