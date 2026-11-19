@@ -131,6 +131,14 @@ message keeps `corrected: figures` for the review.
 - A number that matches a figure under the wrong label passes. So does arithmetic over three or
   more values, which is said back. The check holds numbers to their source; it does not read
   what they are said to mean.
+- A capitalized name beside a number that DID trace is checked too, where the results carried
+  any string worth comparing against — the failure a missing join produces: a real, traced id
+  or count, with a name invented because the real one was never fetched. Checked only in the
+  same sentence as the traced number, excluding its own opening word (a sentence's own
+  capital, not a name) and anything the question itself already named. A different grammatical
+  ending of a real name (Greek declension) is not flagged; a genuinely different name is. No
+  check at all where the results carried no string — a tool answering with pure numbers never
+  has an ordinary capitalized word in the prose around it mistaken for a name.
 
 **Skills, a few at a time.** Offer the tools of no skill, the `use_skill` tool, and a line in the
 prompt naming the skills there are:

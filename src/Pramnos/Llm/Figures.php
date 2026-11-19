@@ -19,6 +19,14 @@ namespace Pramnos\Llm;
  * Not checked: dates and times, a list's own numbering, a year, and what the question itself said.
  * Written to its precision: "38.7%" is 29 of 75, "about 1,200" is 1,234 — a round hundred is
  * read within 5%.
+ *
+ * A name can be just as fabricated as a number, and a failed join produces exactly that: a real,
+ * traced count or id, with a name invented because the real one was never fetched. So a sentence
+ * that traces a number is also checked for a capitalized name next to it that matches no string
+ * value anywhere in the results ({@see stemMatches()} — tolerant of a different grammatical
+ * ending, not of an unrelated name). Checked only where the results carried a string worth
+ * comparing against at all, so a purely numeric result never flags an ordinary capitalized word
+ * in the prose around it.
  */
 final class Figures
 {
@@ -39,6 +47,15 @@ final class Figures
     private const PAIRS = 400;
 
     /**
+     * One capitalized word — not an acronym, not a sentence's own capital letter alone.
+     * Single words only, deliberately: a run of several ("Νέα Υόρκη") would glue a sentence's
+     * own opening capital onto the real name right after it ("Overall, Athens" as one candidate,
+     * neither half of which then matches "Athens" alone) — simpler and more reliable to check
+     * each word on its own, at the cost of a multi-word name needing each of its words to match.
+     */
+    private const PROPER_NOUN = '~(?<![\p{L}])\p{Lu}\p{Ll}{2,}(?![\p{L}])~u';
+
+    /**
      * The numbers in an answer that none of the results bears out, as written.
      *
      * @param string       $answer  What the model wrote
@@ -48,9 +65,11 @@ final class Figures
      */
     public static function untraced(string $answer, array $results, string $asked = ''): array
     {
-        $known = [];
+        $known        = [];
+        $knownStrings = [];
         foreach ($results as $result) {
             array_push($known, ...self::figures($result));
+            array_push($knownStrings, ...self::stringLeaves($result));
         }
         $known = array_values(array_unique($known, SORT_REGULAR));
         $said  = [];
@@ -66,6 +85,26 @@ final class Figures
                 }
             }
             $out[] = trim($written);
+        }
+
+        // A failed join produces exactly this: a real, traced count or id, with a name
+        // invented because the real one was never fetched. Only checked where the
+        // results actually carried a string worth comparing against — a tool that
+        // returned pure numbers leaves nothing here to flag against, which keeps this
+        // from catching an ordinary capitalized word in prose that never claimed a name
+        // came from a tool at all.
+        if ($knownStrings !== []) {
+            $askedNames = self::properNouns($asked);
+            foreach (preg_split('~(?<=[.!?\n])\s+~u', $text) ?: [$text] as $sentence) {
+                if (!self::sentenceTracesANumber($sentence, $known, $said)) {
+                    continue;
+                }
+                foreach (self::properNouns($sentence, excludeSentenceStart: true) as $name) {
+                    if (!in_array($name, $askedNames, true) && !self::stemMatches($name, $knownStrings)) {
+                        $out[] = $name;
+                    }
+                }
+            }
         }
 
         return array_values(array_unique($out));
@@ -192,6 +231,121 @@ final class Figures
                 $out[] = array_sum($column);
             }
         }
+    }
+
+    /**
+     * The string values a result holds — recursed the same way {@see figures()} recurses
+     * numbers, through every row and column — skipping one that is itself a number written as
+     * a string (`figures()`'s own job) and one with no letter in it at all (an id, a code).
+     *
+     * @return list<string>
+     */
+    private static function stringLeaves(string $result): array
+    {
+        $data = json_decode($result, true);
+        if (!is_array($data)) {
+            return [];
+        }
+        $out = [];
+        self::walkStrings($data, $out);
+
+        return $out;
+    }
+
+    /**
+     * @param array<mixed> $node
+     * @param list<string> $out
+     */
+    private static function walkStrings(array $node, array &$out): void
+    {
+        foreach ($node as $value) {
+            if (is_string($value) && !is_numeric($value) && preg_match('~\p{L}~u', $value) === 1) {
+                $out[] = $value;
+            } elseif (is_array($value)) {
+                self::walkStrings($value, $out);
+            }
+        }
+    }
+
+    /**
+     * Every capitalized word in a text, in the order it appears.
+     *
+     * `$excludeSentenceStart` drops the one sitting at the very start of `$text` — a sentence's
+     * own opening capital ("Overall, …", "Συνολικά, …") is not a name, and `$text` here is
+     * always one sentence, never more.
+     */
+    private static function properNouns(string $text, bool $excludeSentenceStart = false): array
+    {
+        preg_match_all(self::PROPER_NOUN, $text, $found, PREG_OFFSET_CAPTURE);
+        $leadingOffset = strlen($text) - strlen(ltrim($text));
+        $out = [];
+        foreach ($found[0] as [$word, $offset]) {
+            if ($excludeSentenceStart && $offset === $leadingOffset) {
+                continue;
+            }
+            $out[] = $word;
+        }
+
+        return array_values(array_unique($out));
+    }
+
+    /** Whether at least one number in a sentence is traced — used to gate the name check on it. */
+    private static function sentenceTracesANumber(string $sentence, array $known, array $said): bool
+    {
+        foreach (self::numbers($sentence) as [$readings, $written, $percent]) {
+            if (self::isYear($written)) {
+                continue;
+            }
+            foreach ($readings as [$value, $decimals]) {
+                if (!self::near($value, $decimals, $said) && self::traced($value, $decimals, $percent, $known)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a name matches a known string closely enough to be the same word — tolerant of a
+     * different grammatical ending (Greek declension changes a name's last few letters: Βέροια,
+     * Βεροίας, Βέροιας are all the same place), not of a genuinely different name. Diacritics and
+     * case are stripped first, then the shorter string's first few letters must still be the
+     * other's — a short word needs an exact match, since a 1-2 letter prefix matches almost
+     * anything.
+     *
+     * ponytail: a stem's shared-prefix length (4, floor to the shorter word) is a heuristic, not
+     * a real Greek stemmer — it can still miss an irregular form or match two unrelated short
+     * words that happen to start alike. Upgrade to a proper stemmer if this proves too noisy or
+     * too lenient in practice.
+     *
+     * @param list<string> $knownStrings
+     */
+    private static function stemMatches(string $name, array $knownStrings): bool
+    {
+        $needle = self::stem($name);
+        foreach ($knownStrings as $candidate) {
+            $hay = self::stem($candidate);
+            if ($needle === $hay) {
+                return true;
+            }
+            $prefix = min(4, mb_strlen($needle), mb_strlen($hay));
+            if ($prefix >= 3 && mb_substr($needle, 0, $prefix) === mb_substr($hay, 0, $prefix)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Lowercased, with every diacritic stripped — ext-intl's Normalizer where it is installed. */
+    private static function stem(string $text): string
+    {
+        $text = class_exists(\Normalizer::class)
+            ? (string) preg_replace('/\p{Mn}+/u', '', (string) \Normalizer::normalize($text, \Normalizer::FORM_D))
+            : $text;
+
+        return mb_strtolower(trim($text));
     }
 
     /**
