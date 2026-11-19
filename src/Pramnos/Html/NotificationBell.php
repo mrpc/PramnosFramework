@@ -58,7 +58,7 @@ final class NotificationBell
     private static ?bool $hasFeed = null;
 
     /**
-     * @param array{readOnView?: int, url?: string, interval?: int, channel?: string, groups?: array<string, string>, except?: list<string>, class?: string, label?: string, empty?: string, readAll?: string, all?: string, allLabel?: string, titleFlash?: bool, sound?: bool|string} $options
+     * @param array{readOnView?: int, url?: string, interval?: int, channel?: string, groups?: array<string, string>, except?: list<string>, class?: string, label?: string, empty?: string, readAll?: string, all?: string, allLabel?: string, titleFlash?: bool, sound?: bool|string, settingsUrl?: string, settingsLabel?: string} $options
      *  - `url` — the feed's address: `/Notifications` on the site by default
      *  - `interval` — seconds between counts, while the tab is visible (60)
      *  - `channel` — a realtime channel whose `notification.created` and `notification.read`
@@ -79,6 +79,10 @@ final class NotificationBell
      *  - `readOnView` — milliseconds an unread notification stays in sight of the open list
      *    before it is read; 0, only a click reads it. By default the person's own choice
      *    ({@see \Pramnos\Notification\Preferences::readOnView()}), off until they make it
+     *  - `settingsUrl` — the notification preferences page; given, a gear icon next to
+     *    "mark all read" links there. None by default, so nothing changes for a theme that
+     *    does not pass it.
+     *  - `settingsLabel` — that gear icon's `aria-label` ("Notification settings")
      */
     public static function render(array $options = []): string
     {
@@ -122,7 +126,9 @@ final class NotificationBell
             . '</button>'
             . '<div class="pf-notify-panel" data-pf-notifications-panel data-later="' . self::e(self::t('Tell me again later')) . '" data-tomorrow="' . self::e(self::t('Tomorrow')) . '" hidden>'
             . '<div class="pf-notify-head"><strong>' . self::e($label) . '</strong>'
-            . '<button type="button" class="pf-notify-read-all" data-pf-notifications-read-all>' . self::e(self::t((string) ($options['readAll'] ?? 'Mark all read'))) . '</button></div>';
+            . '<button type="button" class="pf-notify-read-all" data-pf-notifications-read-all>' . self::e(self::t((string) ($options['readAll'] ?? 'Mark all read'))) . '</button>'
+            . self::settingsLink($options)
+            . '</div>';
 
         $groups = (array) ($options['groups'] ?? []);
         if ($groups !== []) {
@@ -146,6 +152,37 @@ final class NotificationBell
                     . self::e(self::t((string) ($options['allLabel'] ?? 'See all'))) . '</a></div>'
                 : '')
             . '</div></div>';
+    }
+
+    /**
+     * The gear link to the notification preferences page, next to "mark all read" — nothing
+     * for the many themes that do not pass `settingsUrl`, since there is no built-in page
+     * to send them to otherwise.
+     *
+     * @param array{settingsUrl?: string, settingsLabel?: string} $options
+     */
+    private static function settingsLink(array $options): string
+    {
+        $url = (string) ($options['settingsUrl'] ?? '');
+        if ($url === '') {
+            return '';
+        }
+
+        $label = self::t((string) ($options['settingsLabel'] ?? 'Notification settings'));
+
+        return '<a class="pf-notify-settings" data-pf-notifications-settings href="' . self::e($url) . '"'
+            . ' aria-label="' . self::e($label) . '">'
+            . '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24"'
+            . ' stroke="currentColor" stroke-width="2" aria-hidden="true">'
+            . '<circle cx="12" cy="12" r="3"/>'
+            . '<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33'
+            . ' 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2'
+            . ' 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65'
+            . ' 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33'
+            . 'H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2'
+            . ' 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65'
+            . ' 1.65 0 0 0-1.51 1z"/>'
+            . '</svg></a>';
     }
 
     /** `data-sound` for the `sound` option: a tone made in the page, an address, or nothing. */

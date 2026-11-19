@@ -699,6 +699,8 @@ Nobody signed in gets 401. A write without the token gets 403 and changes nothin
     'titleFlash' => true,                          // the tab's title on an arrival (the default)
     'sound'      => false,                         // true: a short tone; or a sound's address
     'readOnView' => 0,                             // ms in sight of the open list before read; 0: a click only
+    'settingsUrl'   => adminUrl('Myaccount/notification-preferences'), // a gear link in the head; none by default
+    'settingsLabel' => 'Notification settings',
 ]); ?>
 ```
 
@@ -716,6 +718,9 @@ shows 0 before the real number. `pf-utils.js` does the rest through the data att
 - **Closing:** outside the bell, or Esc.
 - **Everything else:** with `all`, a link at the foot of the panel leads to the page listing every
   notification — under the list, and there when the list is empty too.
+- **Settings:** with `settingsUrl`, a gear icon in the head, next to "mark all read", leads to
+  the notification preferences page (`POST /Notifications/preferences` above) — without it, a
+  person has no way to find that page from the bell itself.
 - **Arriving** (on the realtime connection): the bell refreshes, then reads the new one with the
   page's session and dispatches **`pf:notification`** on the document with
   `{ id, type, title, data, item }` — an application reacts to a type without a channel of its
