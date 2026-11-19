@@ -1029,6 +1029,13 @@ The **10th** is the filter's current value, applied on load. Without it a bookma
 returned-to filter shows its chosen value while the table shows every row, which reads as a
 filter that does not work.
 
+**The id-string control must sit inside the footer you rendered it into (the 6th argument),
+not elsewhere on the page.** `change`/`keyup` are wired to it scoped to the table's own
+footer — never a bare `jQuery('#id')` — because `scrollX` (always on) makes DataTables
+clone the footer into a second, hidden "sizing" row carrying the SAME id, which comes first
+in the DOM; `jQuery('#id')` binds to that invisible clone instead of the one on screen, and
+nothing the admin picks ever reaches `fnFilter()`.
+
 An id rather than `true` is how an enumerated column gets a dropdown: nobody guesses that
 "administrator" is stored as `90`, and a numeric column is matched **equal** rather than with
 `LIKE`, so a text box on it is a worse question as well as a harder one.

@@ -1239,7 +1239,7 @@ class DatatableTest extends TestCase
         $this->assertStringContainsString('class="pf-footsearch" type="search" style="width:100%;box-sizing:border-box"', $html);
         $this->assertStringContainsString('value="searchme"', $html);
         $this->assertStringContainsString('mySearchTable.fnFilter( "searchme", 0 )', $html, 'a JSON string: see testValuesInTheScriptCannotBreakOutOfIt');
-        $this->assertStringContainsString('jQuery(\'#emailsearch\').change', $html);
+        $this->assertStringContainsString('jQuery(mySearchTable.api().table().footer()).find(\'#emailsearch\').change', $html);
         $this->assertStringContainsString('jQuery(mySearchTable.api().table().container()).on( "keyup", "tfoot input"', $html);
     }
 
@@ -1464,6 +1464,14 @@ class DatatableTest extends TestCase
      * fixColumnSearch() with a column whose footsearch is a string (external
      * element ID) but searchvalue is empty must still bind jQuery event handlers
      * without injecting fnFilter for a pre-filled value.
+     *
+     * The binding must be scoped to the table's own footer
+     * (`jQuery(extSearch.api().table().footer()).find('#mySelect')`), never a bare
+     * `jQuery('#mySelect')`: with `scrollX` (always on), DataTables clones the footer
+     * into a second, hidden "sizing" row carrying the SAME id attributes, first in
+     * the DOM — `jQuery('#id')` (`getElementById`) binds to that clone instead of the
+     * one on screen, so nothing the admin picks in a real external select ever
+     * reaches `fnFilter()`. Reproduced live on a status filter that never applied.
      */
     public function testFixColumnSearchWithExternalIdAndEmptySearchvalue(): void
     {
@@ -1483,9 +1491,11 @@ class DatatableTest extends TestCase
         // Act
         $html = $dt->render();
 
-        // Assert — jQuery change/keyup handlers bound, no pre-filter call
-        $this->assertStringContainsString("jQuery('#mySelect').change", $html);
+        // Assert — jQuery change/keyup handlers bound, scoped to the real footer, not the bare id
+        $this->assertStringContainsString("jQuery(extSearch.api().table().footer()).find('#mySelect').change", $html);
+        $this->assertStringContainsString("jQuery(extSearch.api().table().footer()).find('#mySelect').keyup", $html);
         $this->assertStringContainsString('DataTableDelay', $html);
+        $this->assertStringNotContainsString("jQuery('#mySelect').change", $html, 'never the unscoped, clone-catching selector');
         // No fnFilter injection because searchvalue is empty
         $this->assertStringNotContainsString('extSearch.fnFilter( "", 0 )', $html);
     }
@@ -1511,9 +1521,10 @@ class DatatableTest extends TestCase
         // Act
         $html = $dt->render();
 
-        // Assert — state-restore snippet present
+        // Assert — state-restore snippet present, scoped to the real footer
         $this->assertStringContainsString('aoPreSearchCols', $html);
-        $this->assertStringContainsString("jQuery('#stateEl')", $html);
+        $this->assertStringContainsString("jQuery(stateSearch.api().table().footer()).find('#stateEl')", $html);
+        $this->assertStringNotContainsString("jQuery('#stateEl')", $html, 'never the unscoped, clone-catching selector');
     }
 
     /**
@@ -2476,10 +2487,12 @@ class DatatableTest extends TestCase
         $html = $table->renderTable();
         $js   = $table->renderJs() . $table->codeEmbed;
 
-        // Assert — the control is in the footer, and it filters its own column
+        // Assert — the control is in the footer, and it filters its own column,
+        // scoped to the table's real footer rather than a bare id (see
+        // testFixColumnSearchWithExternalIdAndEmptySearchvalue for why that matters)
         $this->assertStringContainsString('id="dt-users-type"', $html);
-        $this->assertStringContainsString("jQuery('#dt-users-type').change", $js);
-        $this->assertStringContainsString("jQuery('#dt-users-type').keyup(DataTableDelay", $js);
+        $this->assertStringContainsString("jQuery(userList.api().table().footer()).find('#dt-users-type').change", $js);
+        $this->assertStringContainsString("jQuery(userList.api().table().footer()).find('#dt-users-type').keyup(DataTableDelay", $js);
     }
 
     /**

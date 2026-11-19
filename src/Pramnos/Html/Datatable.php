@@ -726,17 +726,24 @@ embed;
                 if ($this->stateSave == true) {
                     $this->codeEmbed.=<<<embed
     if({$jsVar}.fnSettings().aoPreSearchCols[$c].sSearch.length>0){
-        jQuery('#$id').val({$jsVar}.fnSettings().aoPreSearchCols[$c].sSearch);
+        jQuery({$jsVar}.api().table().footer()).find('#$id').val({$jsVar}.fnSettings().aoPreSearchCols[$c].sSearch);
     }
 embed;
                 }
 #{$jsVar}.fnFilter( $('#$id').val(),$c ); inside next code embed
+                // Scoped to the table's own footer, like fnInitComplete's state-restore
+                // above and the auto-generated boxes' own delegated binding — never the
+                // bare id. With scrollX (always on here) DataTables clones the footer
+                // into a second, hidden "sizing" row carrying the SAME id attributes,
+                // first in the DOM; jQuery('#id') (getElementById) binds to that clone,
+                // not to the one on screen, so nothing the admin picks ever reaches
+                // fnFilter — reproduced live on a status filter that never applied.
                 $this->codeEmbed.=<<<embed
 
-        jQuery('#$id').change( function () {
+        jQuery({$jsVar}.api().table().footer()).find('#$id').change( function () {
             {$jsVar}.fnFilter( jQuery(this).val(),$c );
         } );
-        jQuery('#$id').keyup(DataTableDelay(function(){
+        jQuery({$jsVar}.api().table().footer()).find('#$id').keyup(DataTableDelay(function(){
             {$jsVar}.fnFilter( jQuery(this).val(),$c );
         } ));
 
