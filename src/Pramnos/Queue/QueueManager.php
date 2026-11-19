@@ -167,6 +167,33 @@ class QueueManager
     }
 
     /**
+     * The taskid of an existing, still-active (pending/processing — never
+     * completed/failed/stopped) task with the same type+payload hash a call to
+     * `addTask($taskType, $data, unique: true)` would reject, or null if there is
+     * none. `addTask()` itself only ever answers null on a duplicate, which is
+     * enough to refuse queueing a second one, but a caller that wants to hand the
+     * requester the run already in flight — instead of a bare "that's already
+     * queued" — needs the id, not just the refusal.
+     *
+     * @param string $taskType Registered handler type name
+     * @param mixed  $data     The SAME payload `addTask()` was called with — the hash
+     *                         is computed from type+payload, so a different payload
+     *                         answers null even where a duplicate genuinely exists.
+     */
+    public function findActiveDuplicate(string $taskType, mixed $data): ?int
+    {
+        $taskHash = $this->generateTaskHash($taskType, $data);
+        $existing = $this->controller->application->database->queryBuilder()
+            ->table($this->getQueueTableName())
+            ->select(['taskid'])
+            ->where('task_hash', $taskHash)
+            ->whereIn('status', ['completed', 'failed', 'stopped'], 'and', true)
+            ->first();
+
+        return ($existing && !empty($existing->fields)) ? (int) $existing->fields['taskid'] : null;
+    }
+
+    /**
      * Queue a task to run $delaySeconds from now — folded into a waiting task with the same key,
      * where there is one.
      *

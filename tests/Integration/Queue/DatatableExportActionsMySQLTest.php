@@ -267,6 +267,61 @@ class DatatableExportActionsMySQLTest extends TestCase
         $payload = (array) json_decode((string) $row->fields['payload'], true);
         $this->assertSame(7, (int) $payload['requested_by']);
         $this->assertSame(['search' => 'x'], $payload['filters']);
+        // Assert — a fresh task, not a hand-off to one already running
+        $this->assertFalse($body['duplicate']);
+    }
+
+    /**
+     * The same requester, clicking "Start export" twice on the same screen before
+     * the first run finishes: the second request hands back the FIRST run's taskid
+     * (`duplicate: true`) instead of queueing a second, identical job — the modal
+     * wires straight into the run already in flight rather than showing an error.
+     */
+    public function testQueueexportHandsBackTheAlreadyRunningTaskInstead(): void
+    {
+        // Arrange — one request, then an identical second one before the first finishes
+        $this->signIn(7);
+        $controller = $this->makeController();
+        $_POST = [
+            'class'   => Fixtures\ExportActionsFakeModel::class,
+            'columns' => [['name' => 'id', 'label' => 'Id'], ['name' => 'name', 'label' => 'Name']],
+            'filters' => ['search' => 'x'],
+        ];
+        $first = $this->captureJson(fn () => $controller->queueexport());
+
+        // Act
+        $second = $this->captureJson(fn () => $controller->queueexport());
+
+        // Assert — the SAME taskid as the first request, flagged as a duplicate hand-off
+        $this->assertSame($first['taskid'], $second['taskid']);
+        $this->assertTrue($second['duplicate']);
+        // Assert — no second row was ever written
+        $count = $this->db->query(
+            "SELECT COUNT(*) as cnt FROM queueitems WHERE type = '" . DatatableExportTask::TASK . "'"
+        );
+        $this->assertSame(1, (int) $count->fields['cnt']);
+    }
+
+    /** Different filters are a different export: both queue, neither blocks the other. */
+    public function testQueueexportDoesNotDeduplicateADifferentRequest(): void
+    {
+        // Arrange
+        $this->signIn(7);
+        $controller = $this->makeController();
+        $_POST = [
+            'class'   => Fixtures\ExportActionsFakeModel::class,
+            'columns' => [['name' => 'id', 'label' => 'Id'], ['name' => 'name', 'label' => 'Name']],
+            'filters' => ['search' => 'x'],
+        ];
+        $first = $this->captureJson(fn () => $controller->queueexport());
+
+        // Act — same everything, except the filters
+        $_POST['filters'] = ['search' => 'y'];
+        $second           = $this->captureJson(fn () => $controller->queueexport());
+
+        // Assert
+        $this->assertNotSame($first['taskid'], $second['taskid']);
+        $this->assertFalse($second['duplicate']);
     }
 
     // ── exportstatus() ───────────────────────────────────────────────────────

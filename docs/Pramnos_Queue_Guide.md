@@ -50,6 +50,12 @@ $queue = new QueueManager($controller);
 // addTask(string $taskType, mixed $data, int $priority = 10, int $maxAttempts = 3, bool $unique = false): ?int
 $taskId = $queue->addTask('send_email', ['to' => 'a@example.com'], priority: 5, unique: true);
 // null when unique and an identical task is still pending or processing
+
+// addTask() itself only ever answers null on a duplicate — enough to refuse queueing a
+// second one, not enough to tell the caller WHICH run is already in flight. A caller that
+// wants to hand that id back (instead of a bare "that's already queued") asks for it:
+$existingId = $queue->findActiveDuplicate('send_email', ['to' => 'a@example.com']);
+// null when there is none — a different payload, or nothing queued under that type at all
 ```
 
 A handler:

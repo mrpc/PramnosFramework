@@ -100,8 +100,7 @@ trait DatatableExportActions
 
         $filters = (array) ($_POST['filters'] ?? []);
 
-        $queue  = new QueueManager($this);
-        $taskId = $queue->addTask(DatatableExportTask::TASK, [
+        $payload = [
             'class'        => $class,
             'filters'      => $filters,
             'columns'      => $columns,
@@ -115,10 +114,31 @@ trait DatatableExportActions
             'notify_to'    => (string) ($user->email ?? ''),
             'exportBase'   => (string) ($_POST['exportBase'] ?? ''),
             'requested_by' => (int) $user->userid,
-        ]);
+        ];
+
+        // unique: true — requested_by is part of the payload, so this naturally scopes
+        // per user: two people exporting the same thing never collide, but the same
+        // person clicking "Start export" twice on the same screen while the first run
+        // is still pending/processing does not queue a second, identical job.
+        $queue     = new QueueManager($this);
+        $taskId    = $queue->addTask(DatatableExportTask::TASK, $payload, unique: true);
+        $duplicate = false;
+        if ($taskId === null) {
+            // Not a failure — the modal can wire straight into the run already in
+            // flight instead of the requester seeing a bare error for clicking the
+            // same button twice.
+            $taskId = $queue->findActiveDuplicate(DatatableExportTask::TASK, $payload);
+            if ($taskId === null) {
+                // The task that blocked addTask() a moment ago finished between that
+                // check and this one — safe to queue now instead of answering null.
+                $taskId = $queue->addTask(DatatableExportTask::TASK, $payload, unique: true);
+            } else {
+                $duplicate = true;
+            }
+        }
 
         \Pramnos\Framework\Factory::getDocument('json');
-        echo json_encode(['taskid' => $taskId]);
+        echo json_encode(['taskid' => $taskId, 'duplicate' => $duplicate]);
     }
 
     /**

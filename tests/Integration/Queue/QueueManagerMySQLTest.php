@@ -185,6 +185,35 @@ class QueueManagerMySQLTest extends TestCase
     }
 
     /**
+     * `findActiveDuplicate()` answers the id `addTask(unique: true)` just rejected —
+     * the one thing the plain `null` it returns cannot carry, for a caller that wants
+     * to hand the requester the run already in flight instead of a bare refusal.
+     */
+    public function testFindActiveDuplicateAnswersTheBlockingTasksId(): void
+    {
+        // Arrange — the first task, still pending
+        $id1 = $this->manager->addTask('sync_report', ['date' => '2026-01-01'], unique: true);
+
+        // Act
+        $found = $this->manager->findActiveDuplicate('sync_report', ['date' => '2026-01-01']);
+
+        // Assert — the SAME id addTask()'s own duplicate check would have blocked on
+        $this->assertSame($id1, $found);
+    }
+
+    /** No active duplicate — a different payload, or none queued at all — answers null. */
+    public function testFindActiveDuplicateAnswersNullWhenThereIsNone(): void
+    {
+        // Arrange
+        $this->manager->addTask('sync_report', ['date' => '2026-01-01'], unique: true);
+
+        // Act + Assert — a different payload hashes differently, so no match
+        $this->assertNull($this->manager->findActiveDuplicate('sync_report', ['date' => '2026-02-01']));
+        // Act + Assert — a type nothing was ever queued under
+        $this->assertNull($this->manager->findActiveDuplicate('never_queued', ['date' => '2026-01-01']));
+    }
+
+    /**
      * What counts as a duplicate for `addTask(unique: true)`: an identical task not yet
      * finished — `processing` or `warning` as much as `pending` — and not one that completed or
      * failed, which may be queued again.

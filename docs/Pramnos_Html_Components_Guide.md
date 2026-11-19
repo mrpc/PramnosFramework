@@ -1292,6 +1292,14 @@ Three things make the button work:
 
 3. **Nothing else** — `queueexport()`/`exportstatus($id)`/`exportdownload($id)` queue a
    `Pramnos\Queue\Tasks\DatatableExportTask`, poll its status, and stream the finished file.
+   `queueexport()` queues with `addTask(unique: true)` — `requested_by` is already part of
+   the payload, so this naturally scopes per user: two people requesting the same export
+   never collide, but the same person clicking "Start export" twice before the first run
+   finishes does not queue a second, identical job. Its JSON response is always
+   `{taskid, duplicate}`: on a duplicate, `taskid` is the run already in flight
+   (`QueueManager::findActiveDuplicate()`) rather than a fresh one, `duplicate` is `true`,
+   and the modal — which already just polls whatever `taskid` it gets back — wires straight
+   into that run instead of the requester seeing an error for clicking the same button twice.
    `exportdownload()` switches the document type to `'raw'` before it streams, the same
    convention `queueexport()`/`exportstatus()` use with `'json'` — without it, the default
    (`'html'`) document type wraps whatever it streamed with the theme's page template at
