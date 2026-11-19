@@ -536,6 +536,46 @@ class DatatableExportActionsMySQLTest extends TestCase
         $this->assertStringContainsString('42 rows exported', $byId[$taskId]['label']);
     }
 
+    /**
+     * A failed or stopped export used to look identical in this list to one still
+     * running — `exportLabel()` only ever added anything past the date for
+     * `status === 'completed'`, so every other status showed a bare "Model (FORMAT)
+     * · <date>" with nothing telling the admin it needed a retry. Each non-completed
+     * status now gets the same word `QueueController::statusLabels()` already shows
+     * on the admin queue screen, so nothing new needs translating.
+     */
+    public function testMyExportsLabelNamesANonCompletedStatus(): void
+    {
+        // Arrange — every non-completed status QueueController::STATUSES declares
+        $pendingId    = $this->insertExportItem(requestedBy: 7, status: 'pending', message: '');
+        $processingId = $this->insertExportItem(requestedBy: 7, status: 'processing', message: '');
+        $warningId    = $this->insertExportItem(requestedBy: 7, status: 'warning', message: '');
+        $failedId     = $this->insertExportItem(requestedBy: 7, status: 'failed', message: '');
+        $stoppedId    = $this->insertExportItem(requestedBy: 7, status: 'stopped', message: '');
+        $deletedId    = $this->insertExportItem(requestedBy: 7, status: 'deleted', message: '');
+        $this->signIn(7);
+        $controller = $this->makeController();
+
+        // Act
+        $body = $this->captureJson(fn () => $controller->myExports());
+
+        // Assert
+        $byId = [];
+        foreach ($body['exports'] as $export) {
+            $byId[(int) $export['taskid']] = $export;
+        }
+        $this->assertStringContainsString('Pending', $byId[$pendingId]['label']);
+        $this->assertStringContainsString('Processing', $byId[$processingId]['label']);
+        $this->assertStringContainsString('Warning', $byId[$warningId]['label']);
+        $this->assertStringContainsString('Failed', $byId[$failedId]['label']);
+        $this->assertStringContainsString('Stopped', $byId[$stoppedId]['label']);
+        $this->assertStringContainsString('Deleted', $byId[$deletedId]['label']);
+        // Assert — none of these are downloadable: only 'completed' ever is
+        foreach ([$pendingId, $processingId, $warningId, $failedId, $stoppedId, $deletedId] as $id) {
+            $this->assertNull($byId[$id]['download']);
+        }
+    }
+
     /** Nobody signed in gets nothing, same as every other action here. */
     public function testMyExportsRefusesWhenSignedOut(): void
     {

@@ -204,11 +204,34 @@ trait DatatableExportActions
         if (!empty($row['createdat'])) {
             $label .= ' · ' . (string) $row['createdat'];
         }
-        if ((string) ($row['status'] ?? '') === 'completed' && !empty($row['success_message'])) {
+
+        $status = (string) ($row['status'] ?? '');
+        if ($status === 'completed' && !empty($row['success_message'])) {
             $label .= ' · ' . (string) $row['success_message'];
+        } elseif ($status !== 'completed' && $status !== '') {
+            // Without this, a failed or stopped export's label looked identical to one
+            // still running — no word, no colour, nothing — and the admin had to open
+            // it to find out it needed retrying at all. Same wording
+            // QueueController::statusLabels() already uses for the admin queue screen,
+            // so nothing new needs translating.
+            $label .= ' · ' . $this->exportStatusWord($status);
         }
 
         return $label;
+    }
+
+    /** @see \Pramnos\Queue\Controllers\QueueController::statusLabels() — the same wording. */
+    private function exportStatusWord(string $status): string
+    {
+        return match ($status) {
+            'pending'    => t('Pending'),
+            'processing' => t('Processing'),
+            'warning'    => t('Warning'),
+            'failed'     => t('Failed'),
+            'stopped'    => t('Stopped'),
+            'deleted'    => t('Deleted'),
+            default      => $status,
+        };
     }
 
     /**
