@@ -198,8 +198,7 @@ trait DatatableExportActions
      */
     private function exportLabel(array $row, array $payload): string
     {
-        $class = (string) ($payload['class'] ?? '');
-        $name  = $class !== '' ? substr($class, (int) (strrpos($class, '\\') ?: -1) + 1) : 'Export';
+        $name  = $this->exportShortName((string) ($payload['class'] ?? ''));
         $label = $name . ' (' . strtoupper((string) ($payload['format'] ?? 'csv')) . ')';
 
         if (!empty($row['createdat'])) {
@@ -297,9 +296,35 @@ trait DatatableExportActions
         // Guarded like LogController::sendHeader() — a CLI test run has no headers to send.
         if (php_sapi_name() !== 'cli') {
             header('Content-Type: ' . $contentType);
-            header('Content-Disposition: attachment; filename="export-' . (int) $item->taskid . $extension . '"');
+            header('Content-Disposition: attachment; filename="' . $this->exportFilename($item, $payload, $extension) . '"');
         }
         readfile($path);
+    }
+
+    /**
+     * "Users-2026-11-19-1234.csv" — a bare "export-1234.csv" told a person nothing
+     * about which of several downloads sitting in their Downloads folder this even
+     * was. The model's short class name and the day the export was queued
+     * (`$item->createdat`, not today's date: the same completed export always gets
+     * the same name on a re-download) are both already on hand; the taskid stays,
+     * at the end, so two same-day exports of the same model never collide.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function exportFilename(object $item, array $payload, string $extension): string
+    {
+        $date = ((string) ($item->createdat ?? '')) !== ''
+            ? substr((string) $item->createdat, 0, 10)
+            : date('Y-m-d');
+
+        return $this->exportShortName((string) ($payload['class'] ?? ''))
+            . '-' . $date . '-' . (int) $item->taskid . $extension;
+    }
+
+    /** "Users" from "App\Models\Users" — the one part of the class name a person reads. */
+    private function exportShortName(string $class): string
+    {
+        return $class !== '' ? substr($class, (int) (strrpos($class, '\\') ?: -1) + 1) : 'Export';
     }
 
     /**

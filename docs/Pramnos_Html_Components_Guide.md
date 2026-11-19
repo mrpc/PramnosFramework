@@ -1320,6 +1320,11 @@ Three things make the button work:
    (`'html'`) document type wraps whatever it streamed with the theme's page template at
    `render()` time, appending that page's own header/footer/script tags after the file's own
    bytes: a download that is byte-identical to the real file up to that point, and unopenable.
+   The downloaded file's own name is descriptive — `"Users-2026-11-19-1234.csv"`, the model's
+   short class name, the day the export was queued (`$item->createdat`, so the SAME completed
+   export keeps the SAME name on a re-download — not today's date) and the taskid, rather than
+   a bare `"export-1234.csv"` that told a person nothing about which of several downloads in
+   their Downloads folder it even was.
    Only the requester (`requested_by` in the task's own payload) or a `super`+ user may poll
    or download it. `myExports()` lists the signed-in user's own `datatable.export` tasks
    (`{taskid, status, label, download}` — `label` a descriptive line such as "Users (CSV)

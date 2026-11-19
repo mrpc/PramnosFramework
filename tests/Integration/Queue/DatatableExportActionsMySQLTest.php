@@ -689,6 +689,49 @@ class DatatableExportActionsMySQLTest extends TestCase
     }
 
     /**
+     * "export-1234.csv" told a person nothing about which of several downloads
+     * sitting in their Downloads folder this even was. The filename now carries
+     * the model's short class name and the day it was queued — `$item->createdat`,
+     * not today's date, so the SAME completed export gets the SAME name on a
+     * re-download — with the taskid kept at the end so two same-day exports of
+     * the same model never collide into one browser-renamed file.
+     *
+     * `header()` never runs under the CLI SAPI `exportdownload()` itself guards
+     * against (`php_sapi_name() !== 'cli'`), so this calls the private builder
+     * directly rather than trying to read a header PHPUnit's own process never sent.
+     */
+    public function testExportFilenameIsDescriptiveAndStable(): void
+    {
+        // Arrange
+        $controller = $this->makeController();
+        $item       = (object) ['taskid' => 1234, 'createdat' => '2026-11-19 14:32:07'];
+        $payload    = ['class' => Fixtures\ExportActionsFakeModel::class];
+        $ref        = new \ReflectionMethod($controller, 'exportFilename');
+
+        // Act
+        $filename = $ref->invoke($controller, $item, $payload, '.csv');
+
+        // Assert — short class name, the export's own day (not today's), taskid, extension
+        $this->assertSame('ExportActionsFakeModel-2026-11-19-1234.csv', $filename);
+    }
+
+    /** No `createdat` on the row at all falls back to today's date rather than an empty one. */
+    public function testExportFilenameFallsBackToTodayWithNoCreatedAt(): void
+    {
+        // Arrange
+        $controller = $this->makeController();
+        $item       = (object) ['taskid' => 5];
+        $payload    = ['class' => Fixtures\ExportActionsFakeModel::class];
+        $ref        = new \ReflectionMethod($controller, 'exportFilename');
+
+        // Act
+        $filename = $ref->invoke($controller, $item, $payload, '.json');
+
+        // Assert
+        $this->assertSame('ExportActionsFakeModel-' . date('Y-m-d') . '-5.json', $filename);
+    }
+
+    /**
      * `format: 'excel'` in the task's own payload — not `success_message`,
      * which never carried a format — picks the `.xlsx` path and the
      * spreadsheet `Content-Type`/filename extension instead of CSV's.
