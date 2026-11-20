@@ -962,6 +962,48 @@ class ClientTest extends LlmTestCase
     }
 
     /**
+     * FW-572: a figures correction's budget was a flat `$round + 2` — one tool round and the
+     * answer, never more, however many calls the actual chain needs. Reported live from a
+     * `schema` → `sql` chain: the retry read `schema` (right first step) but had no round left
+     * to call `sql` with it, and was forced to answer with nothing new.
+     *
+     * Here the chain needs `schema` then `sql` — two rounds after the correction, not one. The
+     * round that would have been forced to answer without tools (`tool_choice: none`, the old
+     * ceiling) must still be free to call one, because `schema` just ran and made progress.
+     */
+    public function testAFiguresCorrectionsBudgetGrowsWithTheChainItActuallyTakes(): void
+    {
+        // Arrange — a partial sql read invents a total; the retry reads the schema, then the
+        // rest of the sql, before answering with the sum both parts actually give (41 + 100)
+        $this->answer([
+            [200, self::calls([['sql', ['q' => 'a']]])],
+            [200, self::says('100 total.')],
+            [200, self::calls([['schema', []]])],
+            [200, self::calls([['sql', ['q' => 'b']]])],
+            [200, self::says('141 total.')],
+        ]);
+        $tools = [
+            'schema' => ['description' => '', 'parameters' => [], 'run' => static fn (): string => '{"columns":["a","b"]}'],
+            'sql'    => ['description' => '', 'parameters' => [], 'numeric' => true, 'run' => static function (array $args): string {
+                return $args['q'] === 'a' ? '{"partial":41}' : '{"partial":41,"more":100}';
+            }],
+        ];
+
+        // Act
+        $answer = (new Client(null, self::memoryLog()))->askWithTools('', [['role' => 'user', 'content' => 'Total?']], $tools, 4);
+
+        // Assert
+        $this->assertSame(sprintf(Client::FIGURES, '100'), end($this->sent[2]['body']['messages'])['content']);
+        // The old fixed ceiling would have forced this round (right after `schema` ran) to
+        // answer with no tools — `tool_choice: none` — leaving `sql` never called again.
+        $this->assertSame('auto', $this->sent[3]['body']['tool_choice'], 'still free to call sql, schema alone was not the last round');
+        $this->assertSame(['sql', 'schema', 'sql'], array_column($answer['calls'], 'name'));
+        $this->assertSame('141 total.', $answer['reply'], 'traced once both sql reads were in: 41 + 100');
+        $this->assertSame('corrected', $answer['figures']);
+        $this->assertSame([], $answer['untraced']);
+    }
+
+    /**
      * A tagged result moves the answer to a connection that may take it, before it is sent.
      *
      * The moved request goes to the other provider, without the first one's own fields, with

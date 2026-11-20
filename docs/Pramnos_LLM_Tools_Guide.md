@@ -130,6 +130,11 @@ A conversation's message keeps `corrected: figures` for the review.
   (`Client::DOUBTED`). The model then tells the person instead of answering from that number.
   A conversation does this by itself: it keeps `figures_read` on the answer, up to
   `Client::RESULT_LIMIT` characters, and hands the latest to the next question.
+- The rounds after a correction are not a fixed number: each one that still genuinely calls a
+  tool earns one more, so a chain the correction's own answer needs more than a single read for
+  (a schema lookup, then the query it describes) gets as many rounds as it actually takes, not a
+  ceiling fixed the moment the correction fired. A round with nothing left to call still ends the
+  answer, same as before.
 - A number that matches a figure under the wrong label passes. So does arithmetic over three or
   more values, which is said back. The check holds numbers to their source; it does not read
   what they are said to mean.

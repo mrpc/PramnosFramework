@@ -747,6 +747,18 @@ class Client
                     [$over, $rounds] = [true, $round + 1];
                 }
 
+                /*
+                 * FW-572: a figures correction's budget was a flat +2 — enough for one tool call
+                 * and the answer, not a chain (schema, then sql, then the write). A call still
+                 * genuinely made on what would have been the last free round earns one more, so
+                 * the chain gets as many rounds as it actually takes, not a ceiling fixed the
+                 * moment the correction fired. `overBudget` above is what still stops it growing
+                 * forever.
+                 */
+                if ($figured && !$over && $round === $rounds - 1) {
+                    $rounds++;
+                }
+
                 if ($grown) {
                     if (array_filter($tools, static fn ($tool): bool => !empty($tool['untrusted'])) !== [] && !str_contains($systemPrompt, self::DATA_NOTICE)) {
                         $systemPrompt = rtrim($systemPrompt) . "\n\n" . self::DATA_NOTICE;
