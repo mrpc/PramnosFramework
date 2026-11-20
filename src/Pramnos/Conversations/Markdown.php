@@ -19,7 +19,7 @@ namespace Pramnos\Conversations;
  * | `| a | b |` then `|---|:-:|`     | a table — `:-:` centred, `--:` to the right; it scrolls when wide |
  * | a table drawn with lines, `┌─┬─┐ │ a │ b │` or `+---+ | a |` | the same table |
  * | `<@48211>`                      | @ and the person's name                 |
- * | `<#48211>`, a bare `#slug`      | a link to the conversation, `#slug`     |
+ * | `<#48211>`, a bare `#slug`      | a link to the conversation, `#slug` (🔒 instead of `#` for a private one) |
  * | `@here`, `@channel`, `@everyone`, a group's `@name` (and `@all`, `@online`) | the mention, marked ({@see Handles}) |
  * | `#user:48211`, `NAN-6212`       | a reference, marked for a card ({@see Messages::refs()}) |
  * | `:smile:`                       | the emoji, where the shortcode is known |
@@ -51,7 +51,7 @@ final class Markdown
      *
      * @param callable(int): ?string $name A person's name by account id, for `<@id>`; null when unknown
      * @param ?callable(int): ?string $conversation A conversation's `#slug` by id, for `<#id>`; null when unknown
-     * @param ?callable(string): ?array{id: int, slug: string} $channelBySlug A conversation by a bare `#slug`
+     * @param ?callable(string): ?array{id: int, slug: string, kind?: string} $channelBySlug A conversation by a bare `#slug`
      *        in the written text itself — not only `<#id>` — one call per `#word` found; null when unknown
      */
     public static function render(string $text, callable $name, ?callable $conversation = null, ?callable $channelBySlug = null): string
@@ -253,7 +253,7 @@ final class Markdown
      *
      * @param callable(int): ?string $name
      * @param ?callable(int): ?string $conversation
-     * @param ?callable(string): ?array{id: int, slug: string} $channelBySlug
+     * @param ?callable(string): ?array{id: int, slug: string, kind?: string} $channelBySlug
      */
     private static function inline(string $text, callable $name, ?callable $conversation = null, ?callable $channelBySlug = null): string
     {
@@ -290,7 +290,8 @@ final class Markdown
                 $channel = $channelBySlug($m[1]);
 
                 return $channel === null ? $m[0]
-                    : $keep('<a class="pf-conv-channel-ref" href="#/c/' . $channel['id'] . '">#' . htmlspecialchars($channel['slug'], ENT_QUOTES, 'UTF-8') . '</a>');
+                    : $keep('<a class="pf-conv-channel-ref" href="#/c/' . $channel['id'] . '">'
+                        . (($channel['kind'] ?? null) === 'private' ? '🔒 ' : '#') . htmlspecialchars($channel['slug'], ENT_QUOTES, 'UTF-8') . '</a>');
             }, $text);
         }
 

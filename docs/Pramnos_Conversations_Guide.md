@@ -269,7 +269,9 @@ Each mention is a row, and an event.
 `<a>` to its `#slug` (`location.hash = '#/c/' + id` navigates there) rather than a hover-card
 span — a conversation has no card of its own to show on hover. Writing it costs nothing beyond
 what a mention already costs: no row, no event, just a link resolved the same way `Conversations::names()`
-resolves one anywhere else.
+resolves one anywhere else. A private conversation shows 🔒 instead of `#`, as Slack shows a
+private channel — `Conversations::names()` already decides this, so nowhere that reads a
+conversation's name needs its own check for `kind === 'private'`.
 
 A bare `#slug` — written as text, not composed into `<#id>` — links the same way, resolved one
 word at a time through `Conversations::bySlug()`. This is what makes a link work in a message

@@ -24,16 +24,28 @@ final class MarkdownTest extends TestCase
         return $id === 5 ? 'Μαρία Κ.' : null;
     }
 
-    /** Conversation names for `<#id>`: one known, others not. */
+    /** Conversation names for `<#id>`: two known (one private), others not. */
     private static function convoNameOf(int $id): ?string
     {
-        return $id === 9 ? '#general' : null;
+        return match ($id) {
+            9       => '#general',
+            12      => '🔒 directors',
+            default => null,
+        };
     }
 
-    /** A conversation by a bare `#slug`: one known ("general", id 9), others not. @return ?array{id: int, slug: string} */
+    /**
+     * A conversation by a bare `#slug`: two known (one private), others not.
+     *
+     * @return ?array{id: int, slug: string, kind: string}
+     */
     private static function convoBySlug(string $slug): ?array
     {
-        return mb_strtolower($slug) === 'general' ? ['id' => 9, 'slug' => 'general'] : null;
+        return match (mb_strtolower($slug)) {
+            'general'   => ['id' => 9, 'slug' => 'general', 'kind' => 'channel'],
+            'directors' => ['id' => 12, 'slug' => 'directors', 'kind' => 'private'],
+            default     => null,
+        };
     }
 
     /**
@@ -97,8 +109,11 @@ final class MarkdownTest extends TestCase
             'a person'              => ['<@5> και <@9>', '<p><span class="pf-conv-mention" data-user="5">@Μαρία Κ.</span> και <span class="pf-conv-mention" data-user="9">@#9</span></p>'],
             'a conversation link'   => ['<#9>', '<p><a class="pf-conv-channel-ref" href="#/c/9">#general</a></p>'],
             'an unknown conversation link' => ['<#123>', '<p><a class="pf-conv-channel-ref" href="#/c/123">#123</a></p>'],
+            // A private conversation shows 🔒 instead of #, as Slack does for a private channel.
+            'a private conversation link' => ['<#12>', '<p><a class="pf-conv-channel-ref" href="#/c/12">🔒 directors</a></p>'],
             // A bare #slug links too — an already-sent message, never rewritten, still gets this on re-render.
             'a bare channel link'   => ['δες #general', '<p>δες <a class="pf-conv-channel-ref" href="#/c/9">#general</a></p>'],
+            'a bare private channel link' => ['δες #directors', '<p>δες <a class="pf-conv-channel-ref" href="#/c/12">🔒 directors</a></p>'],
             'an unknown bare channel' => ['#ανύπαρκτο μένει κείμενο', '<p>#ανύπαρκτο μένει κείμενο</p>'],
             'everybody, online'     => ['@all @online me@all.gr', '<p><span class="pf-conv-mention pf-conv-mention-all">@all</span> <span class="pf-conv-mention pf-conv-mention-online">@online</span> me@all.gr</p>'],
             // The colon stops a bare-slug match before it reaches "user:48211", so the #type:id reference

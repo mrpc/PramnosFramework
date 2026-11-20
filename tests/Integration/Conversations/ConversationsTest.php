@@ -111,6 +111,8 @@ class ConversationsTest extends TestCase
 
         // Assert
         $this->assertSame('γενικά-θέματα', Conversations::get($general)['slug']);
+        $this->assertSame(['#γενικά-θέματα', '🔒 finance'], [Conversations::names([$general])[$general], Conversations::names([$secret])[$secret]],
+            'a channel is shown with #, a private one with 🔒 instead, as Slack shows a private channel');
         $this->assertSame($dm, $again, 'the same two have one');
         $this->assertSame([$eleni, $nikos], Conversations::members($general));
         $this->assertSame([$eleni, $maria], Conversations::members($secret), 'nikos left');

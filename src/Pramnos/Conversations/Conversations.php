@@ -263,7 +263,8 @@ final class Conversations
     }
 
     /**
-     * What a conversation is called: `#name` for one with a name, its members' names otherwise.
+     * What a conversation is called: `#name` for one with a name, `🔒 name` for a private one, its
+     * members' names otherwise.
      *
      * @param list<int> $ids
      * @return array<int, string>
@@ -281,7 +282,7 @@ final class Conversations
                 continue;
             }
             if ($row['slug'] !== null && $row['slug'] !== '') {
-                $names[$id] = '#' . $row['slug'];
+                $names[$id] = ($row['kind'] === 'private' ? '🔒 ' : '#') . $row['slug'];
                 continue;
             }
             $people     = People::names(self::members($id));

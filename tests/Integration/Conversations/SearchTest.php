@@ -55,7 +55,8 @@ class SearchTest extends TestCase
 
         // Assert
         $this->assertSame([$private, $secret, $first], array_column($maria_, 'id'), 'newest first, never the deleted');
-        $this->assertSame(['Ελένη Σ., Μαρία Κ.', '#finance', '#general'], array_column($maria_, 'conversation'));
+        // A private conversation ("finance") is shown with 🔒, not #, as Slack shows a private channel.
+        $this->assertSame(['Ελένη Σ., Μαρία Κ.', '🔒 finance', '#general'], array_column($maria_, 'conversation'));
         $this->assertSame([$first], array_column($nikos_, 'id'), 'nikos reads the channel, not the closed ones');
         $this->assertSame([$first], array_column($both, 'id'), 'every word');
         $this->assertSame([$private], array_column($short, 'id'), 'a short word through LIKE');
