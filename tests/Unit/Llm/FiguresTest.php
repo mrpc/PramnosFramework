@@ -243,4 +243,29 @@ class FiguresTest extends TestCase
         $this->assertTrue($registry['count']['numeric']);
         $this->assertArrayNotHasKey('numeric', $registry['plain']);
     }
+
+    /**
+     * FW-571: a count that rightly sums three of a report's four rows passes on its own — it is,
+     * by itself, a number some subset of the count column sums to — and so does an amount that
+     * only sums two of those same three rows, each checked against its own column with no idea
+     * which rows the other meant. Held to each other, the short amount is named; the matching one
+     * is not.
+     */
+    public function testACountAndItsAmountAreHeldToTheSameRows(): void
+    {
+        // Arrange — first, first_pillar and repeat are "new"; renewal is not and stays out of both sums
+        $report = '[{"type":"first","count":6,"amount":300.00},{"type":"first_pillar","count":3,"amount":223.20},'
+            . '{"type":"repeat","count":5,"amount":118.00},{"type":"renewal","count":2,"amount":999.00}]';
+        // 6+3+5 = 14 new payments; their amounts are 300+223.20+118 = 641.20, not 523.20 (300+223.20 alone)
+        $short  = '14 νέες πληρωμές, συνολικά 523,20 €.';
+        $whole  = '14 νέες πληρωμές, συνολικά 641,20 €.';
+
+        // Act
+        $named = Figures::untraced($short, [$report]);
+        $none  = Figures::untraced($whole, [$report]);
+
+        // Assert
+        $this->assertSame(['523,20'], $named, '14 sums first+first_pillar+repeat; 523,20 sums only two of those three');
+        $this->assertSame([], $none, '641,20 sums the same three rows 14 does');
+    }
 }

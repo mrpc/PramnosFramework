@@ -27,6 +27,11 @@ namespace Pramnos\Llm;
  * ending, not of an unrelated name). Checked only where the results carried a string worth
  * comparing against at all, so a purely numeric result never flags an ordinary capitalized word
  * in the prose around it.
+ *
+ * A count and an amount beside it in the same sentence are held to each other too, where a
+ * result's rows carry both: each on its own is only ever checked against *some* subset of its
+ * own column, so a count that rightly sums three categories and an amount that sums only two of
+ * them both pass alone ({@see inconsistentPairs()}).
  */
 final class Figures
 {
@@ -67,9 +72,11 @@ final class Figures
     {
         $known        = [];
         $knownStrings = [];
+        $rowGroups    = [];
         foreach ($results as $result) {
             array_push($known, ...self::figures($result));
             array_push($knownStrings, ...self::stringLeaves($result));
+            array_push($rowGroups, ...self::rowGroups($result));
         }
         $known = array_values(array_unique($known, SORT_REGULAR));
         $said  = [];
@@ -86,6 +93,7 @@ final class Figures
             }
             $out[] = trim($written);
         }
+        array_push($out, ...self::inconsistentPairs($text, $rowGroups));
 
         // A failed join produces exactly this: a real, traced count or id, with a name
         // invented because the real one was never fetched. Only checked where the
@@ -239,6 +247,152 @@ final class Figures
                 $out[] = array_sum($column);
             }
         }
+    }
+
+    /** A list of rows, from {@see walkRowGroups()}: more than this many costs more to check than the table is worth. */
+    private const COLUMN_ROWS = 16;
+
+    /**
+     * Every "list of rows" a result holds, each row's numeric columns aligned by index — only a
+     * group with more than one column, since a single one has nothing else to be consistent with
+     * ({@see inconsistentPairs()}).
+     *
+     * @return list<array<string, list<float>>>
+     */
+    private static function rowGroups(string $result): array
+    {
+        $data = json_decode($result, true);
+        if (!is_array($data)) {
+            return [];
+        }
+        $out = [];
+        self::walkRowGroups($data, $out);
+
+        return $out;
+    }
+
+    /**
+     * @param array<mixed>                      $node
+     * @param list<array<string, list<float>>>  $out
+     */
+    private static function walkRowGroups(array $node, array &$out): void
+    {
+        if (array_is_list($node) && $node !== [] && count($node) <= self::COLUMN_ROWS) {
+            $columns = [];
+            $isRows  = true;
+            foreach ($node as $row) {
+                if (!is_array($row) || array_is_list($row)) {
+                    $isRows = false;
+
+                    break;
+                }
+                foreach ($row as $key => $value) {
+                    if (is_int($value) || is_float($value) || (is_string($value) && is_numeric($value))) {
+                        $columns[$key][] = (float) $value;
+                    }
+                }
+            }
+            // Only a column every row actually had — one missing it is not a row group anymore.
+            $aligned = $isRows ? array_filter($columns, static fn (array $c): bool => count($c) === count($node)) : [];
+            if (count($aligned) > 1) {
+                $out[] = $aligned;
+            }
+        }
+        foreach ($node as $child) {
+            if (is_array($child)) {
+                self::walkRowGroups($child, $out);
+            }
+        }
+    }
+
+    /**
+     * Every non-empty subset's sum, keyed by its row mask.
+     *
+     * @param list<float> $values
+     * @return array<int, float>
+     */
+    private static function subsetSums(array $values): array
+    {
+        $n    = count($values);
+        $bit  = array_flip(array_map(static fn (int $i): int => 1 << $i, range(0, $n - 1)));
+        $sums = [0 => 0.0];
+        for ($mask = 1; $mask < (1 << $n); $mask++) {
+            $low         = $mask & -$mask;
+            $sums[$mask] = $sums[$mask ^ $low] + $values[$bit[$low]];
+        }
+        unset($sums[0]);
+
+        return $sums;
+    }
+
+    /**
+     * The row masks whose column sums equal this value — empty if none, more than one if several
+     * different subsets happen to total the same figure (too ambiguous to hold anything to).
+     *
+     * @param array<int, float> $sums
+     * @return list<int>
+     */
+    private static function matchingMasks(float $value, int $decimals, array $sums): array
+    {
+        $out = [];
+        foreach ($sums as $mask => $sum) {
+            if (self::near($value, $decimals, [$sum])) {
+                $out[] = $mask;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * A count and an amount in the same sentence, each a specific subset of the same rows'
+     * figures — one not the partial sum the other is. Every `numeric` tool's figures are checked
+     * pairwise ({@see traced()}) with no idea which of a result's rows an answer means to add up,
+     * so a count that correctly sums three categories and an amount that only sums two of them
+     * both pass on their own — each is, by itself, a number some subset of its column sums to.
+     * FW-571: reported live from exactly that — a count right, its amount short one category,
+     * nothing catching the two disagreeing on which rows they added.
+     *
+     * Caught only where a number resolves to exactly one subset of its column; several subsets
+     * landing on the same figure leaves nothing to hold the other column to, so that stays with
+     * the ordinary check. The first such number in a sentence anchors it; a later one from a
+     * different column is checked against that anchor's rows, not held to being first or last.
+     *
+     * @param list<array<string, list<float>>> $rowGroups
+     * @return list<string>
+     */
+    private static function inconsistentPairs(string $text, array $rowGroups): array
+    {
+        if ($rowGroups === []) {
+            return [];
+        }
+        $out = [];
+        foreach (preg_split('~\n+|(?<=[.!?])\s+~u', $text) ?: [$text] as $sentence) {
+            foreach ($rowGroups as $columns) {
+                $sums      = array_map(self::subsetSums(...), $columns);
+                $reference = null;
+                foreach (self::numbers($sentence) as [$readings, $written, $percent]) {
+                    if ($percent || self::isYear($written)) {
+                        continue;
+                    }
+                    foreach ($readings as [$value, $decimals]) {
+                        foreach ($sums as $column => $colSums) {
+                            $masks = self::matchingMasks($value, $decimals, $colSums);
+                            if (count($masks) !== 1) {
+                                continue;
+                            }
+                            if ($reference === null) {
+                                $reference = [$column, $masks[0]];
+                            } elseif ($reference[0] !== $column && $reference[1] !== $masks[0]) {
+                                $out[] = trim($written);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return $out;
     }
 
     /**

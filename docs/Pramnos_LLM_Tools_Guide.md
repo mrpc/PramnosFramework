@@ -144,6 +144,14 @@ A conversation's message keeps `corrected: figures` for the review.
 - A markdown table's rows are split correctly for this check — a bare `\n` between two lines
   (no blank line, no trailing space) is its own boundary, not folded into whatever "sentence"
   a nearby traced number sits in. A table's header row never rides along into that check.
+- A count and an amount beside it in the same sentence are held to each other, where the result
+  carries rows with both — a list of rows, each with more than one numeric column, up to 16 rows.
+  Checked alone, a count that sums three of the rows and an amount that sums only two of them
+  both pass: each is, on its own, a number some subset of its column adds up to. Held to each
+  other, the first one in the sentence that resolves to exactly one subset of its column anchors
+  the rows meant; a later number from a different column that resolves to a different subset is
+  named, even though its own column alone would have passed it. A number that matches more than
+  one subset of its column is too ambiguous to anchor or to check against, so it is left alone.
 
 **Skills, a few at a time.** Offer the tools of no skill, the `use_skill` tool, and a line in the
 prompt naming the skills there are:
