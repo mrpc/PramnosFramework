@@ -106,10 +106,12 @@ answer gives must be one of these:
 - written with a `%`, one as a share of another, or the change from one to another.
 
 A number that is none of these is said back to the model before the person reads it
-(`Client::FIGURES`), and the model writes the whole answer again. A number still not borne out
-after that is named under the answer (`Client::UNTRACED`). The result of `askWithTools()` then
-carries `figures` (`corrected` or `untraced`) and `untraced` (the numbers). A conversation's
-message keeps `corrected: figures` for the review.
+(`Client::FIGURES`), and the model writes the whole answer again — from the figures already
+returned where they cover it, or by calling a tool again for what they do not, rather than
+guessing or saying it is not known when one on the table could answer it. A number still not
+borne out after that is named under the answer (`Client::UNTRACED`). The result of
+`askWithTools()` then carries `figures` (`corrected` or `untraced`) and `untraced` (the numbers).
+A conversation's message keeps `corrected: figures` for the review.
 
 - Numbers are read as written: `1.234,5` and `1,234.5` both work, to the precision written. A
   round hundred or more ("about 1,200") passes within 5%.

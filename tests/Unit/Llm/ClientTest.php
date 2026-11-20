@@ -927,6 +927,41 @@ class ClientTest extends LlmTestCase
     }
 
     /**
+     * FW-570: a tool called once does not always cover the question — two things asked together,
+     * with only one's figures returned. The model is told it may call a tool again for what the
+     * first one did not return, not only to recompute from what it already has.
+     *
+     * Before this, {@see Client::FIGURES} said to use only the figures already returned — read by
+     * a model as "do not call a tool here" even with one on the table that could, reported live
+     * from exactly this shape of question.
+     */
+    public function testAnIncompleteToolResultIsAnsweredAgainByCallingAnother(): void
+    {
+        // Arrange — one channel's figures only; a combined total invented; the other channel called; the honest sum
+        $this->answer([
+            [200, self::calls([['channelA', []]])],
+            [200, self::says('191 απέτυχαν συνολικά.')],
+            [200, self::calls([['channelB', []]])],
+            [200, self::says('191 απέτυχαν συνολικά.')],
+        ]);
+        $tools = [
+            'channelA' => ['description' => '', 'parameters' => [], 'numeric' => true, 'run' => static fn (): string => '{"failed":75}'],
+            'channelB' => ['description' => '', 'parameters' => [], 'numeric' => true, 'run' => static fn (): string => '{"failed":116}'],
+        ];
+
+        // Act
+        $answer = (new Client(null, self::memoryLog()))->askWithTools('', [['role' => 'user', 'content' => 'Both channels together?']], $tools, 4);
+
+        // Assert
+        $this->assertTrue($answer['ok']);
+        $this->assertSame(sprintf(Client::FIGURES, '191'), end($this->sent[2]['body']['messages'])['content']);
+        // The retry called `channelB`, not just arithmetic on `channelA`'s figures already returned.
+        $this->assertSame(['channelA', 'channelB'], array_column($answer['calls'], 'name'));
+        $this->assertSame('191 απέτυχαν συνολικά.', $answer['reply'], 'traced once both channels were read: 75 + 116');
+        $this->assertSame([], $answer['untraced']);
+    }
+
+    /**
      * A tagged result moves the answer to a connection that may take it, before it is sent.
      *
      * The moved request goes to the other provider, without the first one's own fields, with

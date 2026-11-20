@@ -121,10 +121,18 @@ class Client
     /**
      * Said to a model whose answer gives numbers its figures do not bear out ({@see Figures}),
      * after a tool marked `'numeric' => true`: it answers again before the person reads it.
+     *
+     * Deliberately silent on *how* — the earlier wording said to use only the figures already
+     * returned, which told a model that needed a different query to call none and say the number
+     * was unknown instead, FW-570 (an answer about two things together, with the fetched figures
+     * covering only one, ended that way). It is still free to answer from what it already has;
+     * the fix is that calling a tool again is named as the other option, not withheld as if
+     * every number it could ever give were already on the table.
      */
     public const FIGURES = 'These numbers in your answer are not in what your tools returned, nor a total, sum, difference '
-        . 'or percentage of it: %s. Write the whole answer again using only the figures the tools returned and '
-        . 'arithmetic on them; where a number is not there, say it is not known rather than estimate it.';
+        . 'or percentage of it: %s. Write the whole answer again: use the figures already returned and arithmetic on '
+        . 'them where they cover it, call a tool again for one that does not, and say a number is not known only if '
+        . 'no tool can give it.';
 
     /** Told before an answer, of numbers in the question that the earlier figures do not bear out. */
     public const DOUBTED = 'The person\'s message mentions %s, which none of the figures your tools returned earlier in this '
