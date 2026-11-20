@@ -271,6 +271,14 @@ span — a conversation has no card of its own to show on hover. Writing it cost
 what a mention already costs: no row, no event, just a link resolved the same way `Conversations::names()`
 resolves one anywhere else.
 
+A bare `#slug` — written as text, not composed into `<#id>` — links the same way, resolved one
+word at a time through `Conversations::bySlug()`. This is what makes a link work in a message
+already sent before the conversation existed, or imported with the channel name written out
+plainly: `<#id>` alone only ever covers a message composed after the fact, since nothing rewrites
+an already-stored body. A `#word` that is not a channel's slug stays as plain text, same as
+before this existed — `#type:id` (a reference, {@see Messages::refs()}) is unaffected, since its
+colon stops the slug match before it gets there.
+
 **Handles** mention many at once, as Slack's (`Pramnos\Conversations\Handles`). None tells the
 writer, nor somebody inactive (see [Access](#access)):
 

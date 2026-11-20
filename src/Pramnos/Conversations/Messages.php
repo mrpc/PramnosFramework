@@ -611,7 +611,7 @@ final class Messages
         return array_map(static fn (array $m): array => array_merge($m, [
             'author'    => $m['authorId'] === null ? null : ($names[$m['authorId']] ?? '#' . $m['authorId']),
             'html'      => $m['deletedAt'] !== null ? '' : Markdown::render($m['body'], static fn (int $id): ?string => $names[$id] ?? null,
-                static fn (int $id): ?string => $conversationNames[$id] ?? null),
+                static fn (int $id): ?string => $conversationNames[$id] ?? null, Conversations::bySlug(...)),
             'reactions' => array_map(static fn (string $emoji, array $who): array => ['emoji' => $emoji, 'count' => count($who), 'people' => $who],
                 array_keys($reactions[$m['id']] ?? []), $reactions[$m['id']] ?? []),
             'files'     => $files[$m['id']] ?? [],
