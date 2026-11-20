@@ -19,6 +19,7 @@ namespace Pramnos\Conversations;
  * | `| a | b |` then `|---|:-:|`     | a table — `:-:` centred, `--:` to the right; it scrolls when wide |
  * | a table drawn with lines, `┌─┬─┐ │ a │ b │` or `+---+ | a |` | the same table |
  * | `<@48211>`                      | @ and the person's name                 |
+ * | `<#48211>`                      | a link to the conversation, `#slug`     |
  * | `@here`, `@channel`, `@everyone`, a group's `@name` (and `@all`, `@online`) | the mention, marked ({@see Handles}) |
  * | `#user:48211`, `NAN-6212`       | a reference, marked for a card ({@see Messages::refs()}) |
  * | `:smile:`                       | the emoji, where the shortcode is known |
@@ -49,8 +50,9 @@ final class Markdown
      * The HTML of a message.
      *
      * @param callable(int): ?string $name A person's name by account id, for `<@id>`; null when unknown
+     * @param ?callable(int): ?string $conversation A conversation's `#slug` by id, for `<#id>`; null when unknown
      */
-    public static function render(string $text, callable $name): string
+    public static function render(string $text, callable $name, ?callable $conversation = null): string
     {
         // Fenced code first: nothing inside it is markdown. A ```chart block that is one — Ask's —
         // is drawn as on Ask's page (pf-chat.js), over its code, which is what a page without it shows.
@@ -95,7 +97,7 @@ final class Markdown
                 $flush();
                 $align = array_map(static fn (string $c): string => str_ends_with($c, ':') ? (str_starts_with($c, ':') ? 'center' : 'right') : '', self::cells($lines[$i + 1]));
                 $cell  = static fn (string $tag, string $text, int $n): string => '<' . $tag . (($align[$n] ?? '') !== '' ? ' style="text-align:' . $align[$n] . '"' : '') . '>'
-                    . self::inline($text, $name) . '</' . $tag . '>';
+                    . self::inline($text, $name, $conversation) . '</' . $tag . '>';
                 $row   = static fn (string $tag, array $cells): string => '<tr>' . implode('', array_map(static fn (string $c, int $n): string => $cell($tag, $c, $n), $cells, array_keys($cells))) . '</tr>';
                 $table = '<div class="pf-conv-table"><table><thead>' . $row('th', self::cells($line)) . '</thead><tbody>';
                 for ($i += 2; $i < $count && str_contains($lines[$i], '|') && trim($lines[$i]) !== ''; $i++) {
@@ -119,7 +121,7 @@ final class Markdown
                     $flush();
                 }
                 $list    ??= [$kind, []];
-                $list[1][] = self::inline($m[1] ?? $n[1], $name);
+                $list[1][] = self::inline($m[1] ?? $n[1], $name, $conversation);
                 unset($m, $n);
                 continue;
             }
@@ -128,7 +130,7 @@ final class Markdown
                 if ($list !== null) {
                     $flush();
                 }
-                $quote[] = self::inline($q[1], $name);
+                $quote[] = self::inline($q[1], $name, $conversation);
                 continue;
             }
             $flush();
@@ -136,7 +138,7 @@ final class Markdown
                 $end();
                 continue;
             }
-            $paragraph[] = self::inline($line, $name);
+            $paragraph[] = self::inline($line, $name, $conversation);
         }
         $flush();
         $end();
@@ -248,8 +250,9 @@ final class Markdown
      * One line's inline marks.
      *
      * @param callable(int): ?string $name
+     * @param ?callable(int): ?string $conversation
      */
-    private static function inline(string $text, callable $name): string
+    private static function inline(string $text, callable $name, ?callable $conversation = null): string
     {
         // Inline code and links are set aside before escaping and marking, then put back.
         $kept = [];
@@ -268,6 +271,13 @@ final class Markdown
             $who = $name((int) $m[1]);
 
             return $keep('<span class="pf-conv-mention" data-user="' . (int) $m[1] . '">@' . htmlspecialchars($who ?? ('#' . $m[1]), ENT_QUOTES, 'UTF-8') . '</span>');
+        }, $text);
+        // `<#id>` — a conversation link, same token shape as `<@id>` but an <a>, not a hover-card span:
+        // the app already navigates by `location.hash = '#/c/' + id`, so a bare anchor click is enough.
+        $text = (string) preg_replace_callback('/<#(\d+)>/', static function (array $m) use ($keep, $conversation): string {
+            $slug = $conversation !== null ? $conversation((int) $m[1]) : null;
+
+            return $keep('<a class="pf-conv-channel-ref" href="#/c/' . (int) $m[1] . '">' . htmlspecialchars($slug ?? ('#' . $m[1]), ENT_QUOTES, 'UTF-8') . '</a>');
         }, $text);
 
         $html = htmlspecialchars($text, ENT_QUOTES, 'UTF-8');

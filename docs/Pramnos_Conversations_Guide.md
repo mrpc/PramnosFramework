@@ -265,6 +265,12 @@ is one row, and a table ruled only under its heading has a row a line.
 import writes — and shown as `@` and their name, so a name can change without a message changing.
 Each mention is a row, and an event.
 
+**A conversation link** is written `<#id>`, the same token shape as `<@id>` but shown as a plain
+`<a>` to its `#slug` (`location.hash = '#/c/' + id` navigates there) rather than a hover-card
+span — a conversation has no card of its own to show on hover. Writing it costs nothing beyond
+what a mention already costs: no row, no event, just a link resolved the same way `Conversations::names()`
+resolves one anywhere else.
+
 **Handles** mention many at once, as Slack's (`Pramnos\Conversations\Handles`). None tells the
 writer, nor somebody inactive (see [Access](#access)):
 

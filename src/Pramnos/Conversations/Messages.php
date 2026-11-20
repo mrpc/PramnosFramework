@@ -605,11 +605,13 @@ final class Messages
         }
         $names = People::names(array_merge(array_filter(array_column($messages, 'authorId')), array_filter(array_map('intval', array_column($roots, 'authorid'))),
             self::mentionedIn($messages)));
+        $conversationNames = Conversations::names(self::mentionedConversations($messages));
         $cards = Unfurls::cards(array_combine($ids, array_map(static fn (array $m): array => $m['unfurls'] ?? [], $messages)));
 
         return array_map(static fn (array $m): array => array_merge($m, [
             'author'    => $m['authorId'] === null ? null : ($names[$m['authorId']] ?? '#' . $m['authorId']),
-            'html'      => $m['deletedAt'] !== null ? '' : Markdown::render($m['body'], static fn (int $id): ?string => $names[$id] ?? null),
+            'html'      => $m['deletedAt'] !== null ? '' : Markdown::render($m['body'], static fn (int $id): ?string => $names[$id] ?? null,
+                static fn (int $id): ?string => $conversationNames[$id] ?? null),
             'reactions' => array_map(static fn (string $emoji, array $who): array => ['emoji' => $emoji, 'count' => count($who), 'people' => $who],
                 array_keys($reactions[$m['id']] ?? []), $reactions[$m['id']] ?? []),
             'files'     => $files[$m['id']] ?? [],
@@ -727,6 +729,14 @@ final class Messages
     private static function mentionedIn(array $messages): array
     {
         preg_match_all('/<@(\d+)>/', implode("\n", array_column($messages, 'body')), $m);
+
+        return array_map('intval', $m[1]);
+    }
+
+    /** The conversations linked in messages' `<#id>`. @param list<array<string, mixed>> $messages @return list<int> */
+    private static function mentionedConversations(array $messages): array
+    {
+        preg_match_all('/<#(\d+)>/', implode("\n", array_column($messages, 'body')), $m);
 
         return array_map('intval', $m[1]);
     }

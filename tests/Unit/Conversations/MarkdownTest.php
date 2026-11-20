@@ -24,6 +24,12 @@ final class MarkdownTest extends TestCase
         return $id === 5 ? 'Μαρία Κ.' : null;
     }
 
+    /** Conversation names for `<#id>`: one known, others not. */
+    private static function convoNameOf(int $id): ?string
+    {
+        return $id === 9 ? '#general' : null;
+    }
+
     /**
      * Each mark, as written and as shown.
      *
@@ -83,6 +89,8 @@ final class MarkdownTest extends TestCase
             'a quote'               => ["> ένα\n> δύο\nτέλος", '<blockquote>ένα<br>δύο</blockquote><p>τέλος</p>'],
             'lines and paragraphs'  => ["α\nβ\n\nγ", '<p>α<br>β</p><p>γ</p>'],
             'a person'              => ['<@5> και <@9>', '<p><span class="pf-conv-mention" data-user="5">@Μαρία Κ.</span> και <span class="pf-conv-mention" data-user="9">@#9</span></p>'],
+            'a conversation link'   => ['<#9>', '<p><a class="pf-conv-channel-ref" href="#/c/9">#general</a></p>'],
+            'an unknown conversation link' => ['<#123>', '<p><a class="pf-conv-channel-ref" href="#/c/123">#123</a></p>'],
             'everybody, online'     => ['@all @online me@all.gr', '<p><span class="pf-conv-mention pf-conv-mention-all">@all</span> <span class="pf-conv-mention pf-conv-mention-online">@online</span> me@all.gr</p>'],
             'a reference'           => ['#user:48211 και #γενικά', '<p><span class="pf-conv-ref" data-ref="user:48211">#user:48211</span> και #γενικά</p>'],
             'emoji'                 => [':thumbsup: :unknown:', '<p>👍 :unknown:</p>'],
@@ -99,7 +107,7 @@ final class MarkdownTest extends TestCase
         $name = self::nameOf(...);
 
         // Act
-        $html = Markdown::render($written, $name);
+        $html = Markdown::render($written, $name, self::convoNameOf(...));
 
         // Assert
         $this->assertSame($shown, $html);
