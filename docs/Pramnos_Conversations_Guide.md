@@ -246,7 +246,9 @@ everything before it, for its writer.
 
 **Text** is markdown-lite (`Pramnos\Conversations\Markdown`): `**bold**`, `*italic*`, `~~struck~~`,
 `++underlined++` (not against a letter, so `C++` stays text),
-`` `code` `` and fenced blocks, `[links](https://…)` and bare addresses, lists, quotes, tables
+`` `code` `` and fenced blocks, `[links](https://…)` and bare addresses (http(s) and mailto,
+including a bare `mailto:…`), Slack mrkdwn's own `<https://…|label>` or bare `<https://…>` (kept
+for messages imported from a former Slack chat), lists, quotes, tables
 (a row of `|`-separated cells over `|---|:---:|---:|`, aligned left, centred or right, scrolling
 sideways when wider than the message, styled as Ask's) and `:shortcode:` emoji. Everything is escaped first — a writer's HTML is shown as text, and only
 http(s) and mailto links are made.

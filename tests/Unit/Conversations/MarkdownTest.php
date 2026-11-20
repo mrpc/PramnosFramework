@@ -74,6 +74,11 @@ final class MarkdownTest extends TestCase
             'a link'                => ['[Jira](https://jira.example/NAN-1)', '<p><a href="https://jira.example/NAN-1" target="_blank" rel="noopener noreferrer nofollow">Jira</a></p>'],
             'a bare address'        => ['δες https://example.com/a?b=1.', '<p>δες <a href="https://example.com/a?b=1" target="_blank" rel="noopener noreferrer nofollow">https://example.com/a?b=1</a>.</p>'],
             'no javascript link'    => ['[x](javascript:alert(1))', '<p>[x](javascript:alert(1))</p>'],
+            // Slack mrkdwn's own syntax, kept for messages imported from the former Slack chat.
+            'a slack link'          => ['<https://example.com|Example>', '<p><a href="https://example.com" target="_blank" rel="noopener noreferrer nofollow">Example</a></p>'],
+            'a bare slack link'     => ['<https://example.com>', '<p><a href="https://example.com" target="_blank" rel="noopener noreferrer nofollow">https://example.com</a></p>'],
+            'a slack mailto link'   => ['<mailto:a@b.gr|a@b.gr>', '<p><a href="mailto:a@b.gr" target="_blank" rel="noopener noreferrer nofollow">a@b.gr</a></p>'],
+            'a bare mailto'         => ['mailto:a@b.gr', '<p><a href="mailto:a@b.gr" target="_blank" rel="noopener noreferrer nofollow">mailto:a@b.gr</a></p>'],
             'a list, then another'  => ["- α\n- β\n1. γ", '<ul><li>α</li><li>β</li></ul><ol><li>γ</li></ol>'],
             'a quote'               => ["> ένα\n> δύο\nτέλος", '<blockquote>ένα<br>δύο</blockquote><p>τέλος</p>'],
             'lines and paragraphs'  => ["α\nβ\n\nγ", '<p>α<br>β</p><p>γ</p>'],

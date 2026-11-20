@@ -12,7 +12,8 @@ namespace Pramnos\Conversations;
  * |---------------------------------|-----------------------------------------|
  * | `**bold**`, `*italic*`, `_italic_`, `~~strike~~`, `++underline++` | bold, italic, struck through, underlined |
  * | `` `code` ``, ```` ``` ```` fenced blocks | code                          |
- * | `[text](https://…)`, a bare `https://…` | a link, opening apart; http(s) and mailto only |
+ * | `[text](https://…)`, a bare `https://…` or `mailto:…` | a link, opening apart; http(s) and mailto only |
+ * | `<https://…\|text>`, a bare `<https://…>` | Slack mrkdwn's own link syntax, same as above |
  * | `- item`, `1. item`             | a list                                  |
  * | `> quoted`                      | a quote                                 |
  * | `| a | b |` then `|---|:-:|`     | a table — `:-:` centred, `--:` to the right; it scrolls when wide |
@@ -259,7 +260,10 @@ final class Markdown
         };
         $text = (string) preg_replace_callback('/`([^`]+)`/', static fn (array $m): string => $keep('<code>' . htmlspecialchars($m[1], ENT_QUOTES, 'UTF-8') . '</code>'), $text);
         $text = (string) preg_replace_callback('/\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^\s)]+)\)/i', static fn (array $m): string => $keep(self::link($m[2], $m[1])), $text);
+        // Slack mrkdwn's own link syntax, `<url|label>` or bare `<url>` — kept for messages imported from Slack.
+        $text = (string) preg_replace_callback('/<((?:https?:\/\/|mailto:)[^|>]+)(?:\|([^>]+))?>/i', static fn (array $m): string => $keep(self::link($m[1], $m[2] ?? $m[1])), $text);
         $text = (string) preg_replace_callback('/\bhttps?:\/\/[^\s<>"\']+[^\s<>"\'.,;:!?)\]]/i', static fn (array $m): string => $keep(self::link($m[0], $m[0])), $text);
+        $text = (string) preg_replace_callback('/\bmailto:[^\s<>"\']+/i', static fn (array $m): string => $keep(self::link($m[0], $m[0])), $text);
         $text = (string) preg_replace_callback('/<@(\d+)>/', static function (array $m) use ($keep, $name): string {
             $who = $name((int) $m[1]);
 
